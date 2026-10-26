@@ -144,6 +144,9 @@ final class NoActivateKeyboardGuard {
 /// The AppKit host: global input state and cooperative activation.
 @MainActor
 final class AppKitKeyboardGuardHost: NoActivateKeyboardGuard.Host {
+    /// True once the guard stopped (an update relaunch's startup ended): a hand-back still queued
+    /// then does nothing, so it never undoes the click that ended it.
+    var stopped: () -> Bool = { false }
     var mouseButtonDown: Bool { NSEvent.pressedMouseButtons != 0 }
     var commandHeld: Bool { NSEvent.modifierFlags.contains(.command) }
     var isAppActive: Bool { NSApp.isActive }
@@ -156,8 +159,8 @@ final class AppKitKeyboardGuardHost: NoActivateKeyboardGuard.Host {
         NSApp.deactivate()
         guard let app else { return }
         let reference = NoActivateApplicationReference(app)
-        DispatchQueue.main.async {
-            guard !reference.application.isTerminated else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard self?.stopped() != true, !reference.application.isTerminated else { return }
             NSApp.yieldActivation(to: reference.application)
             _ = reference.application.activate(from: .current, options: [])
         }

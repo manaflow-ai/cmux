@@ -42,8 +42,7 @@ public struct CmuxNextApp {
         environment.marksRun = true
         // A relaunch into an update nobody clicked comes back behind the user's app; read (and
         // cleared) before anything can activate the app. An agent launch never activates anyway.
-        let relaunchBehind = UpdateRelaunchFocus.consume(build: UpdateBuildIdentity.main().build)
-        if !environment.noActivate { environment.relaunchBehind = relaunchBehind }
+        if !environment.noActivate { environment.relaunchBehind = UpdateRelaunchFocus.consume(build: UpdateBuildIdentity.main().build) }
         environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
         environment.layoutTemplatesFile = environment.sidebarSnapshotFile?.url.deletingLastPathComponent().appending(path: "layout-templates.json")
         environment.homeCachesDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first

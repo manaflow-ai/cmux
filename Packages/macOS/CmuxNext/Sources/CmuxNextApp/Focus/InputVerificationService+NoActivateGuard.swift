@@ -58,13 +58,15 @@ extension InputVerificationService {
         let relaunchOnly = !WindowPlacement.noActivate
         let me = ProcessInfo.processInfo.processIdentifier
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "focus.no-activate")
-        let guardian = NoActivateKeyboardGuard(host: AppKitKeyboardGuardHost(), frontmost: nil,
+        let host = AppKitKeyboardGuardHost()
+        let guardian = NoActivateKeyboardGuard(host: host, frontmost: nil,
                                                onGiveBack: { giveBack in
             logger.notice("keyboard given back: \(giveBack.trigger.rawValue, privacy: .public), \(giveBack.cause, privacy: .public)")
             InputJournal.shared.append(window: nil, .keyboardGivenBack(trigger: giveBack.trigger.rawValue, cause: giveBack.cause,
                                                                         restoredTo: giveBack.restoredTo))
         })
         keyboardGuard = guardian
+        host.stopped = { [weak guardian] in guardian?.isEnabled == false }
         if relaunchOnly {
             logger.notice("update relaunch: staying behind \(relaunch?.frontmostBundleID ?? "the frontmost app", privacy: .public)")
             guardian.onUserChose = { [weak self] in self?.endRelaunchBehind("user activated") }
@@ -126,6 +128,9 @@ extension InputVerificationService {
     /// Ends an update relaunch's startup behind the user's app: the guard stops and the app
     /// activates as always. `activating` (a Dock click) activates it too, in case the front went back
     /// before the reopen arrived. False when no such startup runs.
+    /// An update relaunch's startup behind the user's app runs.
+    var isRelaunchBehind: Bool { relaunchBehindEnd != nil }
+
     @discardableResult
     func endRelaunchBehind(_ reason: String, activating: Bool = false) -> Bool {
         guard let end = relaunchBehindEnd else { return false }
@@ -142,6 +147,9 @@ extension InputVerificationService {
         Logger(subsystem: "com.cmuxterm.app.next", category: "focus.no-activate")
             .notice("update relaunch: activation allowed again (\(reason, privacy: .public))")
         if activating { NSApp.activate() }
+        // A restored full-screen window waited for the startup's end (`enterRestoredFullScreens`); it
+        // enters now if the user is in cmux, else the next time a window is presented.
+        if NSApp.isActive { services?.windows.enterRestoredFullScreens() }
         return true
     }
 }

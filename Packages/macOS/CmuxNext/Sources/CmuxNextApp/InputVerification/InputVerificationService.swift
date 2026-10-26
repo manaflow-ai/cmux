@@ -19,7 +19,7 @@ final class InputVerificationService {
     /// The end of an update relaunch's startup behind the user's app (`UpdateRelaunchFocus`); nil
     /// when this launch is not one, or it ended.
     var relaunchBehindEnd: DemandTimer?
-    private weak var services: AppServices?
+    private(set) weak var services: AppServices?
 
     /// Configures the journal, installs the event tap and the monitor's
     /// triggers, then the no-activate keyboard guard (it wraps the tap).
