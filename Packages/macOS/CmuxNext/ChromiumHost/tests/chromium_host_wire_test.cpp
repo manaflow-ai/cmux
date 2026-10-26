@@ -145,6 +145,24 @@ int main() {
     q.AddEnd();
     Check(q.MarkReady(), "an EOF before the UI thread exists runs once it does");
   }
+  {
+    // A pinch or pressure step (kGesture, task p01-process-054) is ordered input like a click,
+    // and each step is kept: Chrome sends every GestureUpdate (render_widget_host_ns_view.mojom).
+    cmux_host::Header pinch;
+    pinch.kind = cmux_host::kGesture;
+    pinch.v[2] = 1;
+    pinch.v[3] = 1100000;
+    Check(cmux_host::IsOrderedInput(pinch), "a gesture carries an input seq");
+    Check(!cmux_host::IsPointerMove(pinch), "a gesture is not a pointer move");
+    Queue q(8);
+    q.MarkReady();
+    q.Add(pinch, {});
+    pinch.v[3] = 1200000;
+    q.Add(pinch, {});
+    auto taken = q.Take();
+    Check(taken.size() == 2 && taken[0].header.v[3] == 1100000 && taken[1].header.v[3] == 1200000,
+          "pinch steps are each kept, in order");
+  }
 
   if (failures) return 1;
   std::printf("chromium_host_wire_test: ok\n");

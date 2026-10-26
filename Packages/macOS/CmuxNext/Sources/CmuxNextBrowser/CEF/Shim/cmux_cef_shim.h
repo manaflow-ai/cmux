@@ -194,6 +194,11 @@ typedef enum {
   // s1 = the image as PNG, base64; request = image pixels per DIP x 1000;
   // b = the hotspot in image pixels, x in the low 32 bits, y in the high 32.
   CMUX_SHIM_CURSOR = 54,
+  // 55 and 56 are kept for the drag and window-request events (p01-process-050, 031).
+  // The page's tooltip changed (CefDisplayHandler::OnTooltip), only after
+  // cmux_shim_set_cursor_events(1): s1 = the text, UTF-8; "" hides it.
+  // Chromium shows no tooltip of its own then.
+  CMUX_SHIM_TOOLTIP = 57,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -1117,10 +1122,11 @@ CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond(int token, int status, cons
 // Returns 1 when the fork took the vote, 0 when the fork lacks the call,
 // for a level out of range, or once quit began (nothing changes).
 CMUX_SHIM_EXPORT int cmux_shim_memory_pressure_vote(int level);
-// 1: page cursors come to the host as CMUX_SHIM_CURSOR and Chromium sets no
-// NSCursor of its own (the Chromium Host, whose page windows never show: the
-// page view in cmux shows the cursor). 0 (the default): Chromium sets the
-// cursor over its page window. UI thread.
+// 1: page cursors come to the host as CMUX_SHIM_CURSOR and tooltips as
+// CMUX_SHIM_TOOLTIP, and Chromium sets no NSCursor and shows no tooltip of
+// its own (the Chromium Host, whose page windows never show: the page view in
+// cmux shows both). 0 (the default): Chromium shows them over its page
+// window. UI thread.
 CMUX_SHIM_EXPORT void cmux_shim_set_cursor_events(int enabled);
 
 // Chromium tracing through stock CEF (include/cef_trace.h, CEFShim/src/shim_tracing.mm; task

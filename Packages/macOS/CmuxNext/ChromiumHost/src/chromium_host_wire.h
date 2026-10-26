@@ -51,7 +51,10 @@ enum Kind : uint32_t {
                    // (informational: the host's window takes the scale of the screen it is placed on;
                    // cmux sends the geometry again when the window moves or changes screen or scale)
   kMouse = 3,      // v0 x, v1 y (points, top left), v2 phase (0 move, 1 down, 2 up, 3 exit), v3 button
-                   // (0 left, 1 middle, 2 right), v4 click count, flags = NSEventModifierFlags, t0 event time
+                   // (0 left, 1 middle, 2 right, 3 back, 4 forward: NSEvent buttonNumber 3 and 4, Chrome's
+                   // WebPointerProperties::Button::kBack and kForward), v4 click count, v5 pressed buttons
+                   // (bits 1 left, 2 right, 4 middle, 8 back, 16 forward), flags = NSEventModifierFlags,
+                   // t0 event time
   kWheel = 4,      // v0 x, v1 y, v2 dx, v3 dy (pixels), flags, t0
   kKey = 5,        // v0 phase (0 down, 1 up, 2 flags changed), v1 key code, v2 repeat, flags, ch, unmod, t0;
                    // the host sends it with cmux_shim::SendHostKeyEvent and the frame's input seq, which
@@ -74,6 +77,14 @@ enum Kind : uint32_t {
                    // '\n'), then per clause i32 start, i32 end, u32 color 0xAARRGGBB, u32 thick (0 or 1).
                    // It has a payload, so it never rides the input ring.
   kTextInputWatch = 12,  // v0 1: push kTextInputState after each change; 0: stop (task 044's watch)
+  kGesture = 13,   // a trackpad gesture of the page view (p01-process-054), as RenderWidgetHostNSViewHost
+                   // takes them (content/common/render_widget_host_ns_view.mojom): v0 x, v1 y (points,
+                   // top left), v2 type: 0 pinch begin (GestureBegin), 1 pinch update (GestureUpdate:
+                   // v3 the scale step x 1e6, 1 + NSEvent magnification), 2 pinch end (GestureEnd, also
+                   // a cancelled pinch), 3 smart magnify (SmartMagnify: a two-finger double tap),
+                   // 4 pressure (a Force Touch click's NSEvent pressure: v3 pressure x 1e6, 0 to 1e6,
+                   // v4 stage 0 none, 1 click, 2 force click; Blink's WebPointerProperties::force);
+                   // v5 pressed buttons as kMouse's, flags = NSEventModifierFlags, t0 event time
   // host -> cmux
   kReady = 101,         // v0 fork API version, v1 host pid
   kContext = 102,       // v0 CAContext id (bits of a uint32)
@@ -185,6 +196,7 @@ inline bool IsOrderedInput(const Header& h) {
     case kKey:
     case kFocus:
     case kEdit:
+    case kGesture:
       return true;
     default:
       return false;

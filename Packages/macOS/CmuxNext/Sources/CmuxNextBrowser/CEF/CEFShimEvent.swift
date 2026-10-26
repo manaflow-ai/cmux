@@ -123,6 +123,8 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case widgetGone(browser: Int32, widget: ChromiumHostWidgetID)
     /// The page's cursor changed (CURSOR; host mode, which turns it on): ``CEFPageCursor``.
     case cursor(browser: Int32, cursor: CEFPageCursor)
+    /// The page's tooltip changed (TOOLTIP; host mode, which turns it on): the text, "" for none.
+    case tooltip(browser: Int32, text: String)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -194,6 +196,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
                 ?? .unknown(kind: kind)
         case 53: self = request != 0 ? .widgetGone(browser: browser, widget: ChromiumHostWidgetID(rawValue: request)) : .unknown(kind: kind)
         case 54: self = .cursor(browser: browser, cursor: CEFPageCursor(type: a, scaleMilli: request, hotspot: b, pngBase64: s1))
+        case 57: self = .tooltip(browser: browser, text: s1)
         default: self = .unknown(kind: kind)
         }
     }

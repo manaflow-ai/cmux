@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "design": "plans/cmux-next/chrome-parity/p01-process.md#view-parity",
+  "mojoms": [
+    {
+      "file": "render_widget_host_ns_view.mojom"
+    }
+  ],
+  "methods": [
+    {
+      "mojom": "render_widget_host_ns_view.mojom",
+      "interface": "RenderWidgetHostNSViewHost",
+      "method": "RouteOrProcessMouseEvent",
+      "wire": "kMouse",
+      "task": "p01-process-054",
+      "reason": "Clicks, moves, drags and exits of every button Chrome's view sends: left, right, middle, back and forward (NSEvent buttonNumber 3 and 4 as WebPointerProperties::Button::kBack and kForward), the pressed buttons as the DOM's bits. A Force Touch click's pressure, which -pressureChangeWithEvent: sends as a mouse event with force, is kGesture type 4."
+    },
+    {
+      "mojom": "render_widget_host_ns_view.mojom",
+      "interface": "RenderWidgetHostNSViewHost",
+      "method": "GestureBegin",
+      "wire": "kGesture type 0",
+      "task": "p01-process-054",
+      "reason": "-magnifyWithEvent: at the pinch's began phase (a magnify with no phase is a whole pinch)."
+    },
+    {
+      "mojom": "render_widget_host_ns_view.mojom",
+      "interface": "RenderWidgetHostNSViewHost",
+      "method": "GestureUpdate",
+      "wire": "kGesture type 1",
+      "task": "p01-process-054",
+      "reason": "-magnifyWithEvent: per step: the scale step x 1e6 (1 + magnification), as WebGestureEventBuilder builds the pinch update."
+    },
+    {
+      "mojom": "render_widget_host_ns_view.mojom",
+      "interface": "RenderWidgetHostNSViewHost",
+      "method": "GestureEnd",
+      "wire": "kGesture type 2",
+      "task": "p01-process-054",
+      "reason": "-magnifyWithEvent: at the pinch's ended or cancelled phase."
+    },
+    {
+      "mojom": "render_widget_host_ns_view.mojom",
+      "interface": "RenderWidgetHostNSViewHost",
+      "method": "SmartMagnify",
+      "wire": "kGesture type 3",
+      "task": "p01-process-054",
+      "reason": "-smartMagnifyWithEvent: (a two-finger double tap)."
+    },
+    {
+      "mojom": "render_widget_host_ns_view.mojom",
+      "interface": "RenderWidgetHostNSView",
+      "method": "SetTooltipText",
+      "event": "CMUX_SHIM_TOOLTIP",
+      "task": "p01-process-054",
+      "reason": "OnTooltip in the host's shim (cmux_shim_set_cursor_events): the page view's toolTip in cmux."
+    }
+  ]
+}

@@ -75,6 +75,7 @@
     case CMUX_SHIM_PAGE_DRAG_ENTER:
     case CMUX_SHIM_FILE_DIALOG:
     case CMUX_SHIM_CURSOR:
+    case CMUX_SHIM_TOOLTIP:
       return true;
   }
   return false;
@@ -191,7 +192,7 @@ std::string RequestDocumentURL(CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> 
   return std::string();
 }
 
-// cmux_shim_set_cursor_events: page cursors go to the host (UI thread only).
+// cmux_shim_set_cursor_events: page cursors and tooltips go to the host (UI thread only).
 bool cursor_events = false;
 
 // A custom cursor's image as base64 PNG, "" when it cannot go on the wire.
@@ -639,6 +640,15 @@ class Client : public CefClient,
                       const CefCursorInfo& custom) override {
     if (!cursor_events) return false;
     EmitCursor(browser->GetIdentifier(), type, custom);
+    return true;
+  }
+
+  // The same for the page's tooltip: TOOLTIP, and Chromium shows none of its
+  // own (true: handled), as Chrome's browser process sends the text to the app
+  // shim's view (RenderWidgetHostNSView::SetTooltipText).
+  bool OnTooltip(CefRefPtr<CefBrowser> browser, CefString& text) override {
+    if (!cursor_events) return false;
+    Emit(CMUX_SHIM_TOOLTIP, browser->GetIdentifier(), 0, 0, 0, text.ToString());
     return true;
   }
 

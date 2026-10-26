@@ -51,9 +51,9 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
     case widgetSetGeometry = 179, widgetDismiss = 180, widgetSendInput = 181
 
     /// The SHA-256 of the cmux_cef_shim.h this table was generated from (`CEFShimABI`).
-    static let abiIdentity = "98dff5fbdc4745862beb88e6cb2914ff6caf516e44f91bb4311138e3b7c6e0ef"
+    static let abiIdentity = "8188e4b9518f72c756c7b3ca9555f41504e8d0e36357670155fd411e62a40d35"
     /// This generation's op ids, classes and wire types; both HELLOs carry it.
-    static let wireIdentity = "d9c6f4e2b2f005ae59a2b89d1f7c565d2853b53a70de4187396e89c455316cc7"
+    static let wireIdentity = "28f272a2df39cb4c56a60adfcddd8f17b1072beb1bf8da2a9ea57b29bafe4577"
     /// Ops of fork API symbols the header does not declare yet (`r.optional` in CEFShimLibrary).
     static let optionalOps: Set<ChromiumHostOp> = [
         .addDocumentScript, .addPageChannel, .tabEvaluate, .tabSetFrozen, .tabSendClick, .tabSetColorScheme,
@@ -493,8 +493,8 @@ nonisolated enum ChromiumHostEventKind: Int32, CaseIterable, Sendable {
     case prefChanged = 33, downloadStarted = 34, downloadProgress = 35, downloadDone = 36, authCallback = 37
     case localFileHandoff = 38, bookmarksEvent = 39, externalURL = 40, permissionPrompt = 41
     case permissionDismissed = 42, passwordPrompt = 43, beforeUnloadDialog = 44, beforeUnloadDismissed = 45
-    case pageResource = 46, pageDragEnter = 47, fileDialog = 48, cursor = 54, pageMessage = 49, evaluateResult = 50
-    case createFailed = 51, widgetContext = 52, widgetGone = 53
+    case pageResource = 46, pageDragEnter = 47, fileDialog = 48, cursor = 54, tooltip = 57, pageMessage = 49
+    case evaluateResult = 50, createFailed = 51, widgetContext = 52, widgetGone = 53
 
     /// The mirrors this event refreshes; the host pushes them before the event. `request` is the
     /// event's request (CMUX_SHIM_TAB_EVENT's sub-kind).

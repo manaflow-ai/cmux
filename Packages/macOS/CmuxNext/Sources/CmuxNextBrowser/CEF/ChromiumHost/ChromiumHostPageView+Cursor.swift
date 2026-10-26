@@ -53,6 +53,17 @@ extension ChromiumHostPageView {
         }
     }
 
+    /// The page's tooltip (host mode, TOOLTIP of task 054), shown by AppKit over the page as Chrome's
+    /// page view shows `SetTooltipText` (`-setToolTipAtMousePoint:`); nil or "" shows none. In process
+    /// the page window shows Chromium's own.
+    var pageTooltip: String? {
+        get { toolTip }
+        set {
+            let text = newValue.flatMap { $0.isEmpty ? nil : $0 }
+            if text != toolTip { toolTip = text }
+        }
+    }
+
     /// The CSS name of the page's cursor ("custom" for an image), nil while the page view shows none
     /// (`debug.cef`'s `page_cursor`, chromium-host-bench.py's cursor row).
     public var pageCursorName: String? { pageCursor?.cssName }

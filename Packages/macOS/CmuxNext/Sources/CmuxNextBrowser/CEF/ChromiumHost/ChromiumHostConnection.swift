@@ -137,15 +137,15 @@ nonisolated final class ChromiumHostConnection: Sendable {
 
 nonisolated extension ChromiumHostFrame.Kind {
     /// The `cef.host_input` kind of an input frame cmux sends; nil for every other frame (navigation, geometry,
-    /// focus, ping, stats, quit and the host's replies), which records no instant.
+    /// focus, ping, stats, quit, text input ops, gestures and the host's replies), which records no instant.
     var traceInput: Signposter.CEFHostInputKind? {
         switch self {
         case .mouse: .mouse
         case .wheel: .wheel
         case .key: .key
         case .edit: .edit
-        case .navigate, .geometry, .focus, .ping, .stats, .quit,
-             .ready, .context, .address, .title, .pong, .statsReply, .error, .rendererGone: nil
+        case .navigate, .geometry, .focus, .ping, .stats, .quit, .ime, .textInputWatch, .gesture,
+             .ready, .context, .address, .title, .pong, .statsReply, .error, .rendererGone, .textInputState: nil
         }
     }
 }

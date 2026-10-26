@@ -31,7 +31,8 @@ import QuartzCore
 /// event's own turn: no display-tick alignment here, the renderer aligns
 /// input to its frames, as Chrome's browser process forwards input at once;
 /// ``ChromiumHostConnection`` coalesces only under socket back-pressure;
-/// keys in ChromiumHostPageView+Keys.swift). With
+/// keys in ChromiumHostPageView+Keys.swift; buttons past the third, pinch,
+/// smart zoom and Force Touch pressure in ChromiumHostPageView+Gestures.swift). With
 /// ``InputTarget/pageWindow`` the fork's transparent page window above takes
 /// every event (in-process layer hosting), and this view takes none.
 public final class ChromiumHostPageView: NSView {
@@ -390,8 +391,9 @@ extension ChromiumHostPageView {
         mouse(event, phase: 1, button: 2)
     }
     public override func rightMouseUp(with event: NSEvent) { mouse(event, phase: 2, button: 2) }
-    public override func otherMouseDown(with event: NSEvent) { mouse(event, phase: 1, button: 1) }
-    public override func otherMouseUp(with event: NSEvent) { mouse(event, phase: 2, button: 1) }
+    public override func otherMouseDown(with event: NSEvent) { otherMouse(event, phase: 1) }
+    public override func otherMouseUp(with event: NSEvent) { otherMouse(event, phase: 2) }
+    public override func otherMouseDragged(with event: NSEvent) { otherMouse(event, phase: 0) }
     public override func mouseMoved(with event: NSEvent) { mouse(event, phase: 0, button: 0) }
     public override func mouseDragged(with event: NSEvent) { mouse(event, phase: 0, button: 0) }
     public override func rightMouseDragged(with event: NSEvent) { mouse(event, phase: 0, button: 2) }
@@ -407,17 +409,16 @@ extension ChromiumHostPageView {
     }
 
     /// A down ends an open composition first, keeping its text (``textInputMouseDown()``).
-    private func mouse(_ event: NSEvent, phase: Int32, button: Int32) {
+    func mouse(_ event: NSEvent, phase: Int32, button: Int32) {
         if phase == 1 { textInputMouseDown() }
         let point = pagePoint(event)
-        // Pressed buttons as bits: 1 left, 2 right, 4 middle (NSEvent's order, the wire's too).
-        let buttons = Int32(truncatingIfNeeded: NSEvent.pressedMouseButtons & 0x7)
+        let buttons = Self.pressedButtons()
         _ = sink?(ChromiumHostFrame(.mouse, v: [point.x, point.y, phase, button, Int32(phase == 0 || phase == 3 ? 0 : event.clickCount), buttons],
                                     flags: UInt64(event.modifierFlags.rawValue), t0: Self.nanoseconds(event.timestamp)))
     }
 
     /// The event's point in page coordinates: points from the top left.
-    private func pagePoint(_ event: NSEvent) -> (x: Int32, y: Int32) {
+    func pagePoint(_ event: NSEvent) -> (x: Int32, y: Int32) {
         let local = convert(event.locationInWindow, from: nil)
         return (Int32(local.x.rounded(.down)), Int32((bounds.height - local.y).rounded(.down)))
     }
