@@ -17,6 +17,13 @@
 //   <host> --framework=<CEF framework dir> --subprocess=<base helper exe>
 //          --root-cache=<dir> [--log-file=<path>] [--cef-switch=<name[=value]>]...
 // EOF on fd 3 (cmux quit or crashed) closes the page and ends the host.
+//
+// Energy Saver: this process is the page's browser process, so the saver's
+// browser-side work runs here, as Chrome's BatterySaverModeManager runs it in
+// its browser process (chrome/browser/performance_manager/user_tuning/
+// battery_saver_mode_manager.cc). cmux sends kEnergySaver on each edge; the
+// host calls the fork's cmux_cef_set_energy_saver (frame sinks at 30 Hz,
+// 32 ms wake alignment, SetBatterySaverMode on every child host).
 
 #import <AppKit/AppKit.h>
 #include <dlfcn.h>
@@ -74,6 +81,8 @@ constexpr int kFromCmux = 3;
 int g_to_cmux = -1;
 int g_fork_api = 0;
 uint32_t (*g_set_layer_hosting)(int, int) = nullptr;
+// cmux_cef_set_energy_saver(enabled, exempt_scheme); null on a fork without it.
+void (*g_set_energy_saver)(bool, const char*) = nullptr;
 CefRefPtr<CefBrowser> g_browser;
 bool g_creating = false;
 bool g_closing = false;
@@ -410,6 +419,14 @@ void HandleFrame(cmux_host::Header h, std::string payload) {
     case cmux_host::kQuit:
       CloseHost();
       break;
+    case cmux_host::kEnergySaver:
+      if (h.v[0] < 1) {
+        ++g_refused_frames;  // no version: not a frame this wire defines
+      } else if (g_set_energy_saver) {
+        // cmux's own pages keep their frame rate, as in the app (the fork's exemption).
+        g_set_energy_saver(h.v[1] != 0, cmux_shim::kCmuxPageScheme);
+      }
+      break;
     default:
       ++g_refused_frames;
       break;
@@ -473,6 +490,7 @@ class App : public CefApp, public CefBrowserProcessHandler {
     ready.kind = cmux_host::kReady;
     ready.v[0] = g_fork_api;
     ready.v[1] = static_cast<int32_t>(getpid());
+    ready.v[2] = g_set_energy_saver ? 1 : 0;
     Send(ready);
     std::thread(ReadWire, kFromCmux).detach();
   }
@@ -517,6 +535,8 @@ int main(int argc, char* argv[]) {
   }
   if (auto version = reinterpret_cast<int (*)()>(dlsym(RTLD_DEFAULT, "cmux_cef_api_version"))) g_fork_api = version();
   g_set_layer_hosting = reinterpret_cast<uint32_t (*)(int, int)>(dlsym(RTLD_DEFAULT, "cmux_browser_set_layer_hosting"));
+  // The saver is optional: a fork below its API has no symbol and the host ignores kEnergySaver.
+  g_set_energy_saver = reinterpret_cast<void (*)(bool, const char*)>(dlsym(RTLD_DEFAULT, "cmux_cef_set_energy_saver"));
   if (g_fork_api < 26 || !g_set_layer_hosting) {
     SendText(cmux_host::kError, "Chromium fork API " + std::to_string(g_fork_api) + " has no layer hosting (needs 26)");
     return 66;

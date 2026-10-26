@@ -33,8 +33,11 @@ enum Kind : uint32_t {
   kStats = 8,      // the host answers kStatsReply
   kQuit = 9,
   kEdit = 10,      // v0 0 copy, 1 cut, 2 paste, 3 select all, 4 undo, 5 redo
+  kEnergySaver = 11,  // v0 message version (kEnergySaverVersion), v1 1 on, 0 off. Sent on each edge of the
+                      // app's Energy Saver and once to a new host while it is on. The host calls the fork's
+                      // cmux_cef_set_energy_saver; a fork without it ignores the frame (kReady v2 says which).
   // host -> cmux
-  kReady = 101,         // v0 fork API version, v1 host pid
+  kReady = 101,         // v0 fork API version, v1 host pid, v2 1 when the fork has cmux_cef_set_energy_saver
   kContext = 102,       // v0 CAContext id (bits of a uint32)
   kAddress = 103,       // payload url (main frame)
   kTitle = 104,         // payload title
@@ -44,6 +47,10 @@ enum Kind : uint32_t {
   kError = 107,         // payload message
   kRendererGone = 108,  // v0 cef_termination_status_t
 };
+
+// The kEnergySaver layout this side writes. Version 1 has v1; a later version only adds fields, so a host
+// reads the fields of the versions it knows and refuses version 0 (a frame with no version).
+inline constexpr int32_t kEnergySaverVersion = 1;
 
 struct Header {
   uint32_t kind = 0;

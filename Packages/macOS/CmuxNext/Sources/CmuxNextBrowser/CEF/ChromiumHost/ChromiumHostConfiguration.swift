@@ -35,18 +35,66 @@ public nonisolated struct ChromiumHostConfiguration: Sendable, Equatable {
 
     static func arguments(layout: CEFRuntimeLayout, rootCache: URL, bundleIdentifier: String?,
                           environment: [String: String]) -> [String] {
+        ["--framework=\(layout.frameworkDirectory.path)",
+         "--subprocess=\(layout.helperExecutable.path)",
+         "--root-cache=\(rootCache.path)"]
+            + switches(bundleIdentifier: bundleIdentifier, environment: environment).map { "--cef-switch=\($0)" }
+    }
+
+    /// Features the host turns on beyond the app's switch set.
+    /// `TimerSlackMac` gives each delayed task's leeway to the run loop timer
+    /// (`MessagePumpCFRunLoopBase::ScheduleDelayedWork` calls
+    /// `CFRunLoopTimerSetTolerance` first, base/message_loop/message_pump_apple.mm;
+    /// the feature is in base/task/task_features.h). The host runs `CefRunMessageLoop`,
+    /// Chromium's own pump, so this is Chrome's timer model. The app's UI thread
+    /// waits for the absolute-time fork callback (p14-energy-046): its external
+    /// pump gets whole milliseconds and would lose the 8 ms wake alignment.
+    static let enabledFeatures = ["TimerSlackMac"]
+    /// Chromium's code-sign clone copies the main bundle (here the small host app)
+    /// and starts helpers from the copy, but the helpers live outside it.
+    static let disabledFeatures = ["MacAppCodeSignClone"]
+
+    /// The app's Chromium switches (wake alignment, the idle disables) with the
+    /// host's own features merged in: one entry per feature-list switch.
+    static func switches(bundleIdentifier: String?, environment: [String: String]) -> [String] {
         // The host refuses a fork without layer hosting, so the switch set is the one for
         // the resize-sync fork API (no AsyncLiveResize).
-        let switches = CEFSwitches.current(forkAPIVersion: CEFSwitches.resizeSyncForkAPI,
-                                           bundleIdentifier: bundleIdentifier, environment: environment).arguments
+        let app = CEFSwitches.current(forkAPIVersion: CEFSwitches.resizeSyncForkAPI,
+                                      bundleIdentifier: bundleIdentifier, environment: environment).arguments
             // The host runs Chromium's own message loop: there is no external pump pass to slice.
             .filter { !$0.hasPrefix("cmux-pump-time-slice-us=") }
-            // Chromium's code-sign clone copies the main bundle (here the small host app)
-            // and starts helpers from the copy, but the helpers live outside it.
-            + ["disable-features=MacAppCodeSignClone"]
-        return ["--framework=\(layout.frameworkDirectory.path)",
-                "--subprocess=\(layout.helperExecutable.path)",
-                "--root-cache=\(rootCache.path)"]
-            + switches.map { "--cef-switch=\($0)" }
+        let enabled = mergingFeatureList("enable-features", adding: enabledFeatures, into: app)
+        return mergingFeatureList("disable-features", adding: disabledFeatures, into: enabled)
+    }
+
+    /// `switches` with every `name=` entry and `added` joined into one entry at
+    /// the first one's place (at the end when there is none): the features in
+    /// order, each once. The host merges this entry into CEF's own list
+    /// (CEFShim/src/command_line_switches.h).
+    static func mergingFeatureList(_ name: String, adding added: [String], into switches: [String]) -> [String] {
+        let prefix = name + "="
+        var features: [String] = []
+        var result: [String] = []
+        var slot: Int?
+        for entry in switches {
+            guard entry.hasPrefix(prefix) else {
+                result.append(entry)
+                continue
+            }
+            if slot == nil {
+                slot = result.count
+                result.append(entry)
+            }
+            features += entry.dropFirst(prefix.count).split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        }
+        var seen = Set<String>()
+        let merged = (features + added).filter { !$0.isEmpty && seen.insert($0).inserted }
+        switch (slot, merged.isEmpty) {
+        case (let slot?, false): result[slot] = prefix + merged.joined(separator: ",")
+        case (let slot?, true): result.remove(at: slot)
+        case (nil, false): result.append(prefix + merged.joined(separator: ","))
+        case (nil, true): break
+        }
+        return result
     }
 }

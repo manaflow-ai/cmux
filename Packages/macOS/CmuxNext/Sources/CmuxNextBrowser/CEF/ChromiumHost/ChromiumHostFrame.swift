@@ -9,12 +9,15 @@ nonisolated struct ChromiumHostFrame: Equatable, Sendable {
     enum Kind: UInt32, Sendable {
         // cmux -> host
         case navigate = 1, geometry = 2, mouse = 3, wheel = 4, key = 5, focus = 6, ping = 7, stats = 8, quit = 9, edit = 10
+        case energySaver = 11
         // host -> cmux
         case ready = 101, context = 102, address = 103, title = 104, pong = 105, statsReply = 106, error = 107
         case rendererGone = 108
     }
 
     static let headerSize = 64
+    /// The `energySaver` layout this side writes (`kEnergySaverVersion`): v0 the version, v1 1 on, 0 off.
+    static let energySaverVersion: Int32 = 1
     /// Longer payloads end the connection: no kind carries more than a URL.
     static let maxPayload = 64 * 1024
 
@@ -38,6 +41,11 @@ nonisolated struct ChromiumHostFrame: Equatable, Sendable {
     }
 
     init(rawKind: UInt32) { self.rawKind = rawKind }
+
+    /// The app's Energy Saver turned `on` or off, for the host's `cmux_cef_set_energy_saver`.
+    static func energySaver(_ on: Bool) -> ChromiumHostFrame {
+        ChromiumHostFrame(.energySaver, v: [energySaverVersion, on ? 1 : 0])
+    }
 
     var kind: Kind? { Kind(rawValue: rawKind) }
     var text: String { String(decoding: payload, as: UTF8.self) }

@@ -209,6 +209,60 @@ import Testing
         #expect(launcher.count == 1)
     }
 
+    /// The frames `host` read until cmux's `quit`.
+    private func framesUntilQuit(of host: FakeHost) async -> [ChromiumHostFrame] {
+        var frames: [ChromiumHostFrame] = []
+        for await frame in host.wire.frames {
+            frames.append(frame)
+            if frame.kind == .quit { break }
+        }
+        return frames
+    }
+
+    @Test func theHostHearsEachEnergySaverEdgeOnce() async throws {
+        let launcher = FakeLauncher()
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now })
+        session.open("https://a.example/")
+        let host = try await nextLaunch(launcher)
+        host.wire.send(ChromiumHostFrame(.ready, v: [30, host.pid, 1]))
+        try await until("running") { session.phase == .running }
+        #expect(session.hostAppliesEnergySaver)
+
+        session.setEnergySaver(true)
+        session.setEnergySaver(true)
+        session.setEnergySaver(false)
+        session.setEnergySaver(false)
+        session.setEnergySaver(true)
+        session.close()
+        let frames = await framesUntilQuit(of: host)
+        #expect(frames.map(\.kind) == [.navigate, .energySaver, .energySaver, .energySaver, .quit])
+        #expect(frames.filter { $0.kind == .energySaver } == [.energySaver(true), .energySaver(false), .energySaver(true)])
+        #expect(frames.filter { $0.kind == .energySaver }.allSatisfy { $0.v[0] == ChromiumHostFrame.energySaverVersion })
+        #expect(session.report["energy_saver_applied"] as? Bool == true)
+    }
+
+    @Test func aRestartedHostStartsWithTheSaverOn() async throws {
+        let launcher = FakeLauncher()
+        let clock = TestClock()
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { clock.now })
+        session.open("https://a.example/")
+        let first = try await nextLaunch(launcher)
+        // A fork below the saver API: the host ignores the frame and says so in `ready`.
+        first.wire.send(ChromiumHostFrame(.ready, v: [29, first.pid, 0]))
+        try await until("running") { session.phase == .running }
+        session.setEnergySaver(true)
+        #expect(!session.hostAppliesEnergySaver)
+        #expect(session.report["energy_saver_applied"] as? Bool == false)
+
+        clock.now += .seconds(5)
+        launcher.end(first, ChromiumHostExit(signal: SIGSEGV, status: nil))
+        let second = try await nextLaunch(launcher)
+        session.close()
+        let frames = await framesUntilQuit(of: second)
+        #expect(frames.map(\.kind) == [.navigate, .energySaver, .quit])
+        #expect(frames.dropFirst().first == .energySaver(true))
+    }
+
     @Test func restartPolicy() {
         let policy = ChromiumHostRestartPolicy()
         #expect(policy.restarts(ranFor: .seconds(1), isFirstStart: true))

@@ -58,6 +58,19 @@ import Testing
         #expect(ChromiumHostFrame.decode(bytes[...]) == .invalid)
     }
 
+    /// kEnergySaver version 1, on: the same bytes as chromium_host_wire_test.cpp's kEnergySaverGolden.
+    static let energySaverGolden: [UInt8] = hexBytes(
+        "0b00000000000000010000000100000000000000000000000000000000000000"
+            + "0000000000000000000000000000000000000000000000000000000000000000")
+
+    @Test func encodesTheEnergySaverFrameWithItsVersion() {
+        #expect(ChromiumHostFrame.energySaver(true).encoded() == Self.energySaverGolden)
+        let off = ChromiumHostFrame.energySaver(false)
+        #expect(off.kind == .energySaver)
+        #expect(off.v[0] == ChromiumHostFrame.energySaverVersion)
+        #expect(off.v[1] == 0)
+    }
+
     @Test func keepsAnUnknownKind() {
         let frame = ChromiumHostFrame(rawKind: 999)
         guard case .frame(let decoded, _) = ChromiumHostFrame.decode(frame.encoded()[...]) else {

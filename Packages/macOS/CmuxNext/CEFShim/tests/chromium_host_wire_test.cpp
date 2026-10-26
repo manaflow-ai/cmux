@@ -12,7 +12,20 @@ static const char kGolden[] =
     "05000000030000000a000000feffffffffffff7f0300000004000000ffffffff"
     "00001000000000000807060504030201010000000000000061004100efbeadde";
 
+// kEnergySaver version 1, on: the same bytes as ChromiumHostFrameTests.energySaverGolden.
+static const char kEnergySaverGolden[] =
+    "0b00000000000000010000000100000000000000000000000000000000000000"
+    "0000000000000000000000000000000000000000000000000000000000000000";
+
 static int failures = 0;
+
+static void Unhex(const char* hex, uint8_t out[cmux_host::kHeaderSize]) {
+  for (size_t i = 0; i < cmux_host::kHeaderSize; ++i) {
+    unsigned value = 0;
+    std::sscanf(hex + 2 * i, "%2x", &value);
+    out[i] = static_cast<uint8_t>(value);
+  }
+}
 
 static void Check(bool ok, const char* what) {
   if (!ok) {
@@ -23,11 +36,7 @@ static void Check(bool ok, const char* what) {
 
 int main() {
   uint8_t golden[cmux_host::kHeaderSize];
-  for (size_t i = 0; i < cmux_host::kHeaderSize; ++i) {
-    unsigned value = 0;
-    std::sscanf(kGolden + 2 * i, "%2x", &value);
-    golden[i] = static_cast<uint8_t>(value);
-  }
+  Unhex(kGolden, golden);
   cmux_host::Header h;
   h.kind = cmux_host::kKey;
   h.payload = 3;
@@ -59,6 +68,16 @@ int main() {
   uint8_t too_long[cmux_host::kHeaderSize];
   cmux_host::Encode(big, too_long);
   Check(!cmux_host::Decode(too_long, &d), "a payload over the limit is refused");
+
+  uint8_t saver_golden[cmux_host::kHeaderSize];
+  Unhex(kEnergySaverGolden, saver_golden);
+  cmux_host::Header saver;
+  saver.kind = cmux_host::kEnergySaver;
+  saver.v[0] = cmux_host::kEnergySaverVersion;
+  saver.v[1] = 1;
+  uint8_t saver_encoded[cmux_host::kHeaderSize];
+  cmux_host::Encode(saver, saver_encoded);
+  Check(std::memcmp(saver_encoded, saver_golden, sizeof saver_golden) == 0, "energy saver frame matches its golden");
 
   if (failures) return 1;
   std::printf("chromium_host_wire_test: ok\n");

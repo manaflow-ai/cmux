@@ -38,6 +38,10 @@ public final class ChromiumHostSession {
     public private(set) var exits: [String] = []
     public private(set) var restarts = 0
     public private(set) var lastError: String?
+    /// The app's Energy Saver as this session last heard it (``setEnergySaver(_:)``); every host it starts gets it.
+    public private(set) var energySaver = false
+    /// The running host's fork has `cmux_cef_set_energy_saver` (its `ready`): the saver reaches the page.
+    public private(set) var hostAppliesEnergySaver = false
     /// The page's pixels and input target; one view for every host the session starts.
     public let view = ChromiumHostPageView(frame: .zero)
 
@@ -90,6 +94,14 @@ public final class ChromiumHostSession {
         } else {
             send(ChromiumHostFrame(.navigate, payload: Array(url.utf8)))
         }
+    }
+
+    /// The app's Energy Saver turned on or off. Only an edge goes over the wire;
+    /// a host started later gets the state with its first frames.
+    public func setEnergySaver(_ on: Bool) {
+        guard on != energySaver else { return }
+        energySaver = on
+        send(.energySaver(on))
     }
 
     /// Ends the host on purpose (no restart).
@@ -149,7 +161,8 @@ public final class ChromiumHostSession {
         }
         return ["phase": phaseText, "pid": Int(pid), "fork_api": Int(forkAPI), "context_id": Int(contextID),
                 "shown_context_id": Int(view.contextID), "url": url, "title": title, "restarts": restarts,
-                "exits": exits, "error": lastError ?? ""]
+                "exits": exits, "error": lastError ?? "", "energy_saver": energySaver,
+                "energy_saver_applied": energySaver && hostAppliesEnergySaver]
     }
 
     // MARK: Lifecycle
@@ -171,6 +184,8 @@ public final class ChromiumHostSession {
         connection.send(ChromiumHostFrame(.navigate, payload: Array(url.utf8)))
         if let geometry { connection.send(geometry.frame) }
         if view.window?.firstResponder === view { connection.send(ChromiumHostFrame(.focus, v: [1])) }
+        // A host starts with the saver off.
+        if energySaver { connection.send(.energySaver(true)) }
         let launcher = launcher
         tasks = [
             Task { [weak self] in
@@ -195,6 +210,7 @@ public final class ChromiumHostSession {
         switch frame.kind {
         case .ready:
             forkAPI = frame.v[0]
+            hostAppliesEnergySaver = frame.v[2] != 0
             phase = .running
         case .context:
             contextID = UInt32(bitPattern: frame.v[0])
@@ -224,6 +240,7 @@ public final class ChromiumHostSession {
         tasks.forEach { $0.cancel() }
         tasks = []
         contextID = 0
+        hostAppliesEnergySaver = false
         view.show(contextID: 0)
         exits.append(exit.description)
         for waiter in pongs.values { waiter.resume(returning: nil) }
