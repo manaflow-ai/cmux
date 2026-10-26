@@ -1596,6 +1596,85 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  # The web bundles and the third-party notices of a cmux-next nightly, built
+  # on Linux beside build-nightly-app instead of on its serial path (0.7 to
+  # 2.7 min each on the Mac). Neither needs macOS: the bundles are bun and node
+  # output, and the notices come from `cargo tree --target <apple triple>` and
+  # the Cargo.lock files. It starts with build-nightly-app, from the same
+  # resolved build commit, and uploads the bundles first: the Mac installs them
+  # right before xcodebuild, after its own checkout, helper starts and Chromium
+  # fetch. build-nightly-app takes each hand-off only when it matches its own
+  # checkout (nightly_linux_inputs.py) and otherwise builds it itself, so it
+  # never waits on this job and a failure here costs only the time it would
+  # have saved. No secrets: it uploads two artifacts that the same run reads.
+  build-nightly-linux-inputs:
+    needs: [decide, resolve-nightly-cmux-tui-client]
+    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.continue_only != 'true' && inputs.nightly_next_unsigned_run == '' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      - name: Checkout build ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          submodules: false
+
+      # runs-on can resolve to vars.LINUX_RUNNER, a host that may reuse its workspace.
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        run: scripts/ci/reset-stale-submodules.sh
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Give this job its own bun
+        run: scripts/cmux-next/private-bun.sh
+
+      # The webviews app's `vp build` must run on node (build-web-bundles.sh).
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      # The same in-tree --force build as build-nightly-app's fallback, keyed by
+      # the source key of the untouched checkout.
+      - name: Build the web bundles
+        run: |
+          set -euo pipefail
+          key="$(python3 scripts/cmux-next/web-bundle-key.py . --source)"
+          scripts/cmux-next/build-web-bundles.sh --force
+          python3 scripts/ci/nightly_linux_inputs.py pack-web "$RUNNER_TEMP/nightly-linux-inputs/web" --source-key "$key"
+
+      - name: Upload the web bundles
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-linux-web-bundles
+          path: ${{ runner.temp }}/nightly-linux-inputs/web
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Generate the third-party notices
+        env:
+          CMUX_NOTICES_ALLOW_CARGO: "1"
+          CMUX_NOTICES_CACHE: ${{ runner.temp }}/cmux-notices
+        run: |
+          set -euo pipefail
+          ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
+            --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
+          python3 scripts/ci/nightly_linux_inputs.py pack-notices "$RUNNER_TEMP/nightly-linux-inputs/notices"
+
+      - name: Upload the third-party notices
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-linux-notices
+          path: ${{ runner.temp }}/nightly-linux-inputs/notices
+          if-no-files-found: error
+          retention-days: 1
+
   build-nightly-app:
     permissions:
       contents: write
@@ -1875,29 +1954,6 @@ jobs:
           ./scripts/install-rust-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh
 
-      # The cmux-next web bundles (agent pane, pages, Activity, palette ranker,
-      # webviews app) are built from this commit's sources, never taken from a
-      # committed copy (cx-vn5). --force: a published build never trusts a stamp.
-      # They come before every Rust build: optchat-chief compiles the inspector
-      # page in, and run 37654121454 failed (exit 101) building it without one.
-      - name: Set up Bun (cmux-next web bundles)
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.4.4"
-
-      # The webviews app's `vp build` must run on node: on bun it emits
-      # different bytes (build-web-bundles.sh).
-      - name: Setup Node (cmux-next web bundles)
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: "24.22.1"
-
-      - name: Build the web bundles (cmux-next)
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
-        run: scripts/cmux-next/build-web-bundles.sh --force
-
       # The cmux-next Rust helpers below (acpmux, the OptChat Chief) compiled
       # every dependency from scratch on each nightly: about 150 s of the
       # serial build path (2026-10-09). Their target dirs keep the dependency
@@ -1950,8 +2006,8 @@ jobs:
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
 
       # The Home Chief's brain host (Native/OptChat/optchat-chief) ships in the
-      # cmux-next nightly only: this step hands it to the Release build's
-      # "Bundle optchat-chief" phase, which copies it to Resources/bin, and
+      # cmux-next nightly only: this step builds it for the "Bundle
+      # optchat-chief" phase script, which copies it to Resources/bin, and
       # build-sign-notarize-nightly signs it with the app's Developer ID and
       # hardened runtime (sign-cmux-bundle-helpers.sh signs every Mach-O
       # there). Main's nightly, RC and stable never set the variable, so they
@@ -1974,26 +2030,38 @@ jobs:
               export CMUX_NEXT_OPTCHAT_CHIEF_CACHE="$HOME/Library/Caches/cmux-nightly-next/$RUNNER_NAME/caches/optchat-chief"
               ;;
           esac
-          CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="$NIGHTLY_COMPILE_ARCHS" scripts/cmux-next/build-optchat-chief.sh --output "$chief_bin"
-          echo "CMUX_NEXT_OPTCHAT_CHIEF_BIN=$chief_bin" >> "$GITHUB_ENV"
-          echo "CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF=1" >> "$GITHUB_ENV"
+          # It builds in the background, beside the Release build (it took 90 to
+          # 176 s of this job's serial path): "Bundle the OptChat Chief and the
+          # iPhone host" joins it after xcodebuild and copies it in with the
+          # Xcode phase's own script. Install its toolchain and targets, and the
+          # iPhone host's, here first, so no two background builds install into
+          # one toolchain at once (both scripts then find them in place).
+          toolchain="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' cmux-tui/rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal >/dev/null
+          rustup target add --toolchain "$toolchain" aarch64-apple-darwin x86_64-apple-darwin >/dev/null
+          (cd cmux-next-ios/rust && rustup target add aarch64-apple-darwin x86_64-apple-darwin >/dev/null)
+          python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" optchat-chief -- \
+            nice -n 10 env CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="$NIGHTLY_COMPILE_ARCHS" scripts/cmux-next/build-optchat-chief.sh --output "$chief_bin"
+          echo "CMUX_NEXT_OPTCHAT_CHIEF_PENDING_BIN=$chief_bin" >> "$GITHUB_ENV"
           # The built-in full uBlock Origin must be in every nightly-next build (bundle-ublock.sh).
           echo "CMUX_NEXT_REQUIRE_UBLOCK=1" >> "$GITHUB_ENV"
 
       # The cmux mobile iPhone host (cmux-next-ios/rust/crates/cmux-mobile-host), which
-      # Settings > Mobile runs: the Release build's "Bundle cmux-mobile-host" phase
+      # Settings > Mobile runs: the "Bundle cmux-mobile-host" phase script
       # copies it to Resources/bin, and sign-cmux-bundle-helpers.sh signs it
       # with the app's Developer ID, hardened runtime and the helper
       # entitlements before notarization, like every Mach-O there.
+      # It builds in the background too, and is bundled with the Chief after
+      # xcodebuild. An unsigned resume restores the app and builds neither.
       - name: Build the cmux-next iPhone host (cmux-mobile-host)
-        if: needs.decide.outputs.track == 'nightly-next'
+        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next'
         run: |
           set -euo pipefail
           if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then archs=arm64; else archs=arm64,x86_64; fi
           hostd_bin="$RUNNER_TEMP/cmux-next-mobile-host/cmux-mobile-host"
-          CMUX_NEXT_MOBILE_HOST_ARCHS="$archs" scripts/cmux-next/build-mobile-host.sh --output "$hostd_bin"
-          echo "CMUX_NEXT_MOBILE_HOST_BIN=$hostd_bin" >> "$GITHUB_ENV"
-          echo "CMUX_NEXT_REQUIRE_MOBILE_HOST=1" >> "$GITHUB_ENV"
+          python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" mobile-host -- \
+            nice -n 10 env CMUX_NEXT_MOBILE_HOST_ARCHS="$archs" scripts/cmux-next/build-mobile-host.sh --output "$hostd_bin"
+          echo "CMUX_NEXT_MOBILE_HOST_PENDING_BIN=$hostd_bin" >> "$GITHUB_ENV"
 
       # A fast branch dogfood build only needs the arm64 client that is bundled
       # in this macOS app. Building it here avoids waiting for the full
@@ -2103,22 +2171,51 @@ jobs:
             CMUX_RB_HOST_NO_STORE=1 scripts/cmux-next/ensure-remote-browser-host.sh --optional >/dev/null
           fi
 
-      # cmux-next ships THIRD_PARTY_LICENSES.md for exactly what this nightly
-      # bundles: the daemon, app host and Cloud server come from this tree
-      # (pin-cmux-tui.sh tree mode), so the notices do too, with exact closures
-      # from `cargo tree` (this runner has cargo). The Release build copies the
-      # regenerated file; the sign job verifies the bundle against
-      # scripts/cmux-next/notices/bundle-map.json.
-      - name: Generate third-party notices (cmux-next)
+      # The cmux-next web bundles (agent pane, pages, Activity, palette ranker,
+      # webviews app) are built from this commit's sources, never taken from a
+      # committed copy (cx-vn5). build-nightly-linux-inputs builds them on Linux
+      # beside this job with the same --force build; they are installed here,
+      # right before the Release build, only when their source key is this
+      # checkout's (nightly_linux_inputs.py). Otherwise, or when that job has
+      # not uploaded them yet, this step builds them as before: it never waits.
+      # Nothing earlier reads them: optchat-chief compiles in the committed
+      # inspector page (build-web-bundles.sh only checks that page in-tree).
+      - name: Set up Bun (cmux-next web bundles)
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
-        env:
-          CMUX_NOTICES_ALLOW_CARGO: "1"
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      # The webviews app's `vp build` must run on node: on bun it emits
+      # different bytes (build-web-bundles.sh).
+      - name: Setup Node (cmux-next web bundles)
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      # A pattern, not a name: an artifact that is not there yet downloads
+      # nothing instead of failing.
+      - name: Download the web bundles built on Linux (cmux-next)
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: cmux-nightly-linux-web-bundles
+          path: ${{ runner.temp }}/nightly-linux-inputs/web
+          merge-multiple: true
+
+      - name: Build the web bundles (cmux-next)
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
         run: |
-          # A trusted NEXT worker keeps the crate sources between jobs
-          # (nightly_build_state.py); every other runner downloads them.
-          export CMUX_NOTICES_CACHE="${CMUX_NEXT_NOTICES_CACHE:-$RUNNER_TEMP/cmux-notices}"
-          ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
-            --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
+          set -euo pipefail
+          if python3 scripts/ci/nightly_linux_inputs.py install-web "$RUNNER_TEMP/nightly-linux-inputs/web"; then
+            exit 0
+          else
+            status=$?
+          fi
+          [ "$status" = 3 ] || echo "::warning title=Linux web bundles::installing the Linux-built web bundles failed (status $status); building them here"
+          scripts/cmux-next/build-web-bundles.sh --force
 
       - name: Build nightly app (Release)
         if: inputs.nightly_next_unsigned_run == ''
@@ -2206,6 +2303,67 @@ jobs:
             COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME="$CHANNEL_ICON_NAME" \
             "${notary_test_flags[@]}"
+
+      # The Chief and the iPhone host built beside the Release build. Their Xcode
+      # phases found no CMUX_NEXT_*_BIN and bundled nothing; this joins each
+      # background build (a failed one fails here) and runs the same phase
+      # script on the built app, with the variables Xcode gave it, so the copy,
+      # its checks and Resources/bin are what the phase made before.
+      - name: Bundle the OptChat Chief and the iPhone host
+        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next'
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/nightly-helper-builds"
+          if [[ "$NIGHTLY_COMPILE_ARCHS" == "arm64" ]]; then archs="arm64"; else archs="arm64 x86_64"; fi
+          phase_env=(SRCROOT="$PWD" CONFIGURATION=Release ARCHS="$archs"
+            TARGET_BUILD_DIR="$PWD/build-universal/Build/Products/Release"
+            UNLOCALIZED_RESOURCES_FOLDER_PATH=cmux.app/Contents/Resources
+            TARGET_TEMP_DIR="$RUNNER_TEMP/nightly-helper-bundle")
+          [ -d "build-universal/Build/Products/Release/cmux.app/Contents/Resources" ] || { echo "no Release cmux.app to bundle into" >&2; exit 1; }
+          python3 scripts/ci/background_build.py join --state "$state" optchat-chief
+          env "${phase_env[@]}" CMUX_NEXT_OPTCHAT_CHIEF_BIN="${CMUX_NEXT_OPTCHAT_CHIEF_PENDING_BIN:?}" \
+            CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF=1 scripts/cmux-next/bundle-optchat-chief.sh
+          python3 scripts/ci/background_build.py join --state "$state" mobile-host
+          env "${phase_env[@]}" CMUX_NEXT_MOBILE_HOST_BIN="${CMUX_NEXT_MOBILE_HOST_PENDING_BIN:?}" \
+            CMUX_NEXT_REQUIRE_MOBILE_HOST=1 scripts/cmux-next/bundle-mobile-host.sh
+
+      # cmux-next ships THIRD_PARTY_LICENSES.md for exactly what this nightly
+      # bundles: the daemon, app host and Cloud server come from this tree
+      # (pin-cmux-tui.sh tree mode), so the notices do too, with exact closures
+      # from `cargo tree`. build-nightly-linux-inputs generates them on Linux
+      # beside this job; they are taken when generated at this commit, else
+      # generated here as before. The Release build copied the committed file;
+      # bundle-notices replaces that copy with this tree's. The sign job
+      # verifies the bundle against scripts/cmux-next/notices/bundle-map.json.
+      - name: Download the third-party notices generated on Linux (cmux-next)
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: cmux-nightly-linux-notices
+          path: ${{ runner.temp }}/nightly-linux-inputs/notices
+          merge-multiple: true
+
+      - name: Generate third-party notices (cmux-next)
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
+        env:
+          CMUX_NOTICES_ALLOW_CARGO: "1"
+        run: |
+          set -euo pipefail
+          if python3 scripts/ci/nightly_linux_inputs.py install-notices "$RUNNER_TEMP/nightly-linux-inputs/notices"; then
+            status=0
+          else
+            status=$?
+          fi
+          if [ "$status" != 0 ]; then
+            [ "$status" = 3 ] || echo "::warning title=Linux notices::taking the Linux-generated notices failed (status $status); generating them here"
+            # A trusted NEXT worker keeps the crate sources between jobs
+            # (nightly_build_state.py); every other runner downloads them.
+            export CMUX_NOTICES_CACHE="${CMUX_NEXT_NOTICES_CACHE:-$RUNNER_TEMP/cmux-notices}"
+            ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
+              --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
+          fi
+          python3 scripts/ci/nightly_linux_inputs.py bundle-notices build-universal/Build/Products/Release/cmux.app
 
       # In Release Xcode merges iroh-ffi's static code into Contents/MacOS/cmux
       # and still embeds Iroh.framework: a 35 KB stub (only __TEXT and
@@ -2561,6 +2719,11 @@ jobs:
           cat "$state/upload.log"
           rm -rf "$state"
           [ "$status" = 0 ] || { echo "the dSYM upload to Sentry failed (status ${status:-none})" >&2; exit 1; }
+
+      # A failed or cancelled job leaves no background helper build running.
+      - name: Stop the helper builds still running
+        if: always() && inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next'
+        run: python3 scripts/ci/background_build.py stop --state "$RUNNER_TEMP/nightly-helper-builds"
 
   # Runs beside build-nightly-app. Deepening the shallow clone to find the
   # newest published cmux-tui commit took 1.5 to 11 minutes after the Xcode
