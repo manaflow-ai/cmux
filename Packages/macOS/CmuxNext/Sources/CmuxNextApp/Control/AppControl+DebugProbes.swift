@@ -88,8 +88,7 @@ extension AppControl {
             // Click by Hint labels (hint-mode-e2e.py).
             .mainActor("debug.hints") { [weak services] call in
                 guard let services else { return .value(.null) }
-                DebugHints.watchMenus()
-                return .value(DebugHints.report(services.windowHints, params: call.params))
+                return .value(DebugHints.report(services.windowHints, menus: services.menuTracking, params: call.params))
             },
             .mainActor("debug.page_host_pool") { [weak services] call in
                 .value(DebugPageHostPool.handle(call.params, services: services))
