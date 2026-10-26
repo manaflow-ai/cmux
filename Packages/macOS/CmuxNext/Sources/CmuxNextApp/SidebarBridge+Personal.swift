@@ -98,7 +98,7 @@ extension SidebarBridge {
     }
 
     /// The group lifecycle rule and new groups (cx-rcby).
-    var life: PersonalGroupLife { PersonalGroupLife(machines: services.machines) }
+    var life: PersonalGroupLife { PersonalGroupLife(services: services) }
     var groupFlow: SidebarGroupFlow { SidebarGroupFlow(bridge: self) }
 
     /// The home session serves its personal groups as v2 state resources
