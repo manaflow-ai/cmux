@@ -87,7 +87,7 @@ public final class LayoutTreeObservation {
     }
 
     /// The class the apply of `cause` runs in.
-    private static func flushClass(_ cause: ObservationCause) -> BudgetedWorkClass {
+    nonisolated private static func flushClass(_ cause: ObservationCause) -> BudgetedWorkClass {
         cause == .automation ? .automation : .visible
     }
 

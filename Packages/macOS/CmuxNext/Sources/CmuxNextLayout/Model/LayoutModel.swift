@@ -255,7 +255,7 @@ public final class LayoutModel {
 
     /// Whether the last structural change lands with no motion; resets it. The view reads it once
     /// per sync, so a later change that is not part of the burst moves again.
-    public func takeStructureSnap() -> Bool {
+    func takeStructureSnap() -> Bool {
         defer { snapsStructure = false }
         return snapsStructure
     }
