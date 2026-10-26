@@ -900,6 +900,124 @@
         }
       }
     },
+    "settings.automation.sessionPriority": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prioritize Claude Sessions by Sidebar Order"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعطاء الأولوية لجلسات Claude حسب ترتيب الشريط الجانبي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-Sitzungen nach Seitenleistenreihenfolge priorisieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Priorizar las sesiones de Claude según el orden de la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prioriser les sessions Claude selon l’ordre de la barre latérale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの順序で Claude セッションに優先度を付ける"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 순서에 따라 Claude 세션 우선순위 지정"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按侧边栏顺序为 Claude 会话排定优先级"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依側邊欄順序為 Claude 工作階段排定優先順序"
+          }
+        }
+      }
+    },
+    "settings.automation.sessionPriority.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run Claude sessions in higher sidebar workspaces with more effort, and sessions further down with less."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تشغيل جلسات Claude في مساحات العمل الأعلى في الشريط الجانبي بجهد أكبر، والجلسات الأدنى بجهد أقل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-Sitzungen in höher stehenden Arbeitsbereichen der Seitenleiste mit mehr Aufwand ausführen, weiter unten stehende mit weniger."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ejecutar las sesiones de Claude de los espacios de trabajo situados más arriba en la barra lateral con más esfuerzo, y las de más abajo con menos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exécuter les sessions Claude des espaces de travail situés plus haut dans la barre latérale avec plus d’effort, et celles situées plus bas avec moins d’effort."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの上位にあるワークスペースの Claude セッションはより高い負荷（エフォート）で、下位のセッションはより低い負荷で実行します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바에서 위쪽에 있는 워크스페이스의 Claude 세션은 더 높은 노력도로, 아래쪽 세션은 더 낮은 노력도로 실행합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "侧边栏中靠上的工作区里的 Claude 会话使用更高的投入程度，靠下的会话使用更低的投入程度。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "側邊欄較上方工作區中的 Claude 工作階段使用較高的投入程度，較下方的則使用較低的投入程度。"
+          }
+        }
+      }
+    },
     "settings.customSidebars.templateUnavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -5829,6 +5947,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法完成配對。請檢查連線後再試一次。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.automation.session-priority": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority جهد أولوية عاجل بطيء صعوبة الشريط الجانبي ترتيب مصفوفة effort priority urgent slow difficulty sidebar order matrix"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority Aufwand Priorität dringend langsam Schwierigkeit Seitenleiste Reihenfolge Matrix effort priority urgent slow difficulty sidebar order matrix"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority esfuerzo prioridad urgente lento dificultad barra lateral orden matriz effort priority urgent slow difficulty sidebar order matrix"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priorité urgent lent difficulté barre latérale ordre matrice effort priority urgent slow difficulty sidebar order matrix"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority エフォート 優先度 緊急 遅い 難易度 サイドバー 順序 マトリクス effort priority urgent slow difficulty sidebar order matrix"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority 노력도 우선순위 긴급 느림 난이도 사이드바 순서 매트릭스 effort priority urgent slow difficulty sidebar order matrix"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority 投入程度 优先级 紧急 缓慢 难度 侧边栏 顺序 矩阵 effort priority urgent slow difficulty sidebar order matrix"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority 投入程度 優先順序 緊急 緩慢 難度 側邊欄 順序 矩陣 effort priority urgent slow difficulty sidebar order matrix"
           }
         }
       }

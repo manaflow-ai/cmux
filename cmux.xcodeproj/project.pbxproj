@@ -1895,6 +1895,7 @@
 		C0DEF4110000000000000001 /* CommandPaletteSettingsToggle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF4110000000000000002 /* CommandPaletteSettingsToggle.swift */; };
 		C0DEF4E10000000000000001 /* CommandPaletteSettingsToggleCommands+AgentUsage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF4E10000000000000002 /* CommandPaletteSettingsToggleCommands+AgentUsage.swift */; };
 		90E32F90965A599FC940FC10 /* CommandPaletteSettingsToggleCommands+ClaudeAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FDCAB569077E10D29EBC42C /* CommandPaletteSettingsToggleCommands+ClaudeAccount.swift */; };
+		C7D41E90B35A6F28D1E04A73 /* CommandPaletteSettingsToggleCommands+SessionPriority.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B90E6A2D7C14F58A0B6E129 /* CommandPaletteSettingsToggleCommands+SessionPriority.swift */; };
 		C0DEF4120000000000000001 /* CommandPaletteSettingsToggleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF4120000000000000002 /* CommandPaletteSettingsToggleTests.swift */; };
 		C1713006C1713006C1713006 /* CommandPaletteShortcutCustomizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1713005C1713005C1713005 /* CommandPaletteShortcutCustomizationTests.swift */; };
 		C1713002C1713002C1713002 /* CommandPaletteShortcutRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1713001C1713001C1713001 /* CommandPaletteShortcutRouting.swift */; };
@@ -6623,6 +6624,7 @@
 		C0DEF4110000000000000002 /* CommandPaletteSettingsToggle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPalette/CommandPaletteSettingsToggle.swift; sourceTree = "<group>"; };
 		C0DEF4E10000000000000002 /* CommandPaletteSettingsToggleCommands+AgentUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CommandPalette/CommandPaletteSettingsToggleCommands+AgentUsage.swift"; sourceTree = "<group>"; };
 		7FDCAB569077E10D29EBC42C /* CommandPaletteSettingsToggleCommands+ClaudeAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CommandPalette/CommandPaletteSettingsToggleCommands+ClaudeAccount.swift"; sourceTree = "<group>"; };
+		3B90E6A2D7C14F58A0B6E129 /* CommandPaletteSettingsToggleCommands+SessionPriority.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CommandPalette/CommandPaletteSettingsToggleCommands+SessionPriority.swift"; sourceTree = "<group>"; };
 		C0DEF4120000000000000002 /* CommandPaletteSettingsToggleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteSettingsToggleTests.swift; sourceTree = "<group>"; };
 		C1713005C1713005C1713005 /* CommandPaletteShortcutCustomizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteShortcutCustomizationTests.swift; sourceTree = "<group>"; };
 		C1713001C1713001C1713001 /* CommandPaletteShortcutRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CommandPaletteShortcutRouting.swift; sourceTree = "<group>"; };
@@ -12749,6 +12751,7 @@
 				EB6E5EB7C2F8101C5CFB2376 /* ClaudeAccountPaneEnvironment.swift */,
 				FD51E74B21C1F47586EFB99B /* Workspace+ClaudeAccountRestore.swift */,
 				7FDCAB569077E10D29EBC42C /* CommandPaletteSettingsToggleCommands+ClaudeAccount.swift */,
+				3B90E6A2D7C14F58A0B6E129 /* CommandPaletteSettingsToggleCommands+SessionPriority.swift */,
 				CB4906FCD6E18B54BD89BDBD /* ClaudeAccountAutoSwitchAction.swift */,
 				900FFF9FA8E37A3CF33961F0 /* ClaudeAccountAutoSwitchAnnouncement.swift */,
 				BF4FF87989FC2678BEA1F110 /* ClaudeAccountAutoSwitchContinueGate.swift */,
@@ -16102,6 +16105,7 @@
 				C0DEF4110000000000000001 /* CommandPaletteSettingsToggle.swift in Sources */,
 				C0DEF4E10000000000000001 /* CommandPaletteSettingsToggleCommands+AgentUsage.swift in Sources */,
 				90E32F90965A599FC940FC10 /* CommandPaletteSettingsToggleCommands+ClaudeAccount.swift in Sources */,
+				C7D41E90B35A6F28D1E04A73 /* CommandPaletteSettingsToggleCommands+SessionPriority.swift in Sources */,
 				C1713002C1713002C1713002 /* CommandPaletteShortcutRouting.swift in Sources */,
 					C0A7101A0000000000000002 /* ComputerUseAppDragSource.swift in Sources */,
 					C0A7101B0000000000000002 /* ComputerUseAppDragSourceView.swift in Sources */,
