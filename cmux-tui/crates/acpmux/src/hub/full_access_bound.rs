@@ -291,23 +291,34 @@ mod tests {
         assert!(!full_access_allowed_by(Some(true), false), "a forced on raises nothing");
     }
 
-    /// A hub with two open chats on a stand-in agent.
+    /// A hub with two open chats on a stand-in agent that fails over to itself with
+    /// `FAKE_FALLBACK=1`; a cut turn goes on after 1 s.
     async fn two_chats() -> (Arc<Hub>, Arc<Session>, Arc<Session>) {
-        two_chats_on(&[]).await
+        two_chats_on(&[], true).await
     }
 
-    /// `two_chats`, the agent run with `env` (`FAKE_CLAUDE_STEER=1`: it steers as Claude Code).
-    async fn two_chats_on(env: &[&str]) -> (Arc<Hub>, Arc<Session>, Arc<Session>) {
+    /// `two_chats`, the agent run with `env` (`FAKE_CLAUDE_STEER=1`: it steers as Claude Code),
+    /// and `fails_over` or not.
+    async fn two_chats_on(
+        env: &[&str],
+        fails_over: bool,
+    ) -> (Arc<Hub>, Arc<Session>, Arc<Session>) {
         use crate::config::{Config, StoreMode};
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
         let mut argv = vec!["/usr/bin/env"];
         argv.extend(env);
         argv.extend(["python3", fake]);
-        let mut cfg: Config = serde_json::from_value(json!({
+        let mut cfg = json!({
             "harnesses": {"fake": {"argv": argv}},
             "defaultHarness": "fake",
-        }))
-        .unwrap();
+        });
+        if fails_over {
+            cfg["harnesses"]["fake"]["fallback"] = json!("fake-fallback");
+            let fallback = ["/usr/bin/env", "FAKE_FALLBACK=1", "python3", fake];
+            cfg["harnesses"]["fake-fallback"] = json!({"argv": fallback});
+            cfg["autoResumeDelaysMs"] = json!([1000]);
+        }
+        let mut cfg: Config = serde_json::from_value(cfg).unwrap();
         cfg.store.mode = StoreMode::Memory;
         let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
         let hub = Hub::new(cfg, store);
@@ -376,7 +387,7 @@ mod tests {
     /// after the push is checked again at the steer, and refused: the parent now asks.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn a_family_steer_after_an_off_push_is_checked_again() {
-        let (hub, parent, child) = two_chats_on(&["FAKE_CLAUDE_STEER=1"]).await;
+        let (hub, parent, child) = two_chats_on(&["FAKE_CLAUDE_STEER=1"], false).await;
         hub.set_policy(&parent, PermissionPolicy::ApproveAll).await;
         hub.set_policy(&child, PermissionPolicy::ApproveEdits).await;
         assert!(hub.receiver_check(&parent, &child).await.is_ok(), "checked before the push");
@@ -449,5 +460,62 @@ mod tests {
         holder.join().expect("the ask's thread ends");
         let (_, _) = (first.await, second.await);
         assert!(!returned, "a second off push returned while an ask decided under the old bound");
+    }
+
+    const WAIT: std::time::Duration = std::time::Duration::from_secs(20);
+
+    /// `two_chats`, the first an approve-all parent of the second, an approve-edits child: the
+    /// parent's message passes under the old bound and is refused under MDM's off.
+    async fn approve_all_parent() -> (Arc<Hub>, Arc<Session>, Arc<Session>) {
+        let (hub, parent, child) = two_chats().await;
+        hub.set_policy(&parent, PermissionPolicy::ApproveAll).await;
+        hub.set_policy(&child, PermissionPolicy::ApproveEdits).await;
+        (hub, parent, child)
+    }
+
+    fn send(hub: &Arc<Hub>, from: &Arc<Session>, to: &Arc<Session>, text: &str) {
+        let (hub, from, to) = (hub.clone(), from.clone(), to.clone());
+        let text = vec![json!({"type": "text", "text": text})];
+        tokio::spawn(async move {
+            hub.send_family_prompt(&from, &to, text, None, false, false, None, None).await
+        });
+    }
+
+    /// Waits for the first entry of `session`'s log whose kind is one of `kinds`: its kind.
+    async fn logged(hub: &Hub, session: &Session, kinds: &[&str]) -> String {
+        let found = async {
+            loop {
+                let events = hub.events(&session.id, 0, 10_000).unwrap();
+                if let Some(e) = events.iter().find(|e| kinds.contains(&e.kind.as_str())) {
+                    return e.kind.clone();
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        };
+        tokio::time::timeout(WAIT, found).await.unwrap_or_else(|_| panic!("no {kinds:?} logged"))
+    }
+
+    /// Review 40 of #23322: a family message whose agent hit its limit after the off push is
+    /// checked again before it is resent to the fallback, and refused.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_family_message_that_fails_over_is_checked_again_before_its_resend() {
+        let (hub, parent, child) = approve_all_parent().await;
+        send(&hub, &parent, &child, "slow-limit");
+        logged(&hub, &child, &["turn_started"]).await;
+        hub.apply_full_access_push(Some(false)).await;
+        let end = logged(&hub, &child, &["turn_end", "turn_error"]).await;
+        assert_eq!(end, "turn_error", "the fallback ran a family message the off push refuses");
+    }
+
+    /// Review 40 of #23322: the automatic continuation of a family message's cut turn speaks
+    /// for its sender: after an off push it is checked again, and refused.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn the_continuation_of_a_family_message_is_checked_again() {
+        let (hub, parent, child) = approve_all_parent().await;
+        send(&hub, &parent, &child, "net-fail-once: x");
+        logged(&hub, &child, &["auto_resume_scheduled"]).await;
+        hub.apply_full_access_push(Some(false)).await;
+        let end = logged(&hub, &child, &["turn_end", "auto_resume_skipped"]).await;
+        assert_eq!(end, "auto_resume_skipped", "a family turn was continued after the off push");
     }
 }
