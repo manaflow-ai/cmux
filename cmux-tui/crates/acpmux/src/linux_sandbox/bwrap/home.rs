@@ -123,6 +123,22 @@ pub(super) fn home_view_pinned(
     denied: &BTreeSet<PathBuf>,
     snapshot: Option<&DeniedSnapshot>,
 ) -> Result<BwrapPlan, String> {
+    rebuild(
+        home,
+        denied,
+        snapshot,
+        #[cfg(test)]
+        &mut |_, _| {},
+    )
+}
+
+/// Enumeration and mount loops end after the finite HOME snapshot.
+pub(super) fn rebuild(
+    home: &Path,
+    denied: &BTreeSet<PathBuf>,
+    snapshot: Option<&DeniedSnapshot>,
+    #[cfg(test)] hook: &mut dyn FnMut(&Path, bool),
+) -> Result<BwrapPlan, String> {
     if let Some(snapshot) = snapshot {
         verify_snapshot(snapshot)?;
     }
@@ -188,7 +204,11 @@ pub(super) fn home_view_pinned(
                 out.extend(["--symlink".into(), target.into(), path_arg(&child)?]);
             } else {
                 let child_text = path_arg(&child)?;
+                #[cfg(test)]
+                hook(&child, true);
                 let fd = open_bind_source(&child)?;
+                #[cfg(test)]
+                hook(&child, false);
                 out.extend(["--ro-bind-fd".into(), fd.as_raw_fd().to_string(), child_text]);
                 fds.push(fd);
                 if fds.len() > 512 {

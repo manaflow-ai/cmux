@@ -846,6 +846,60 @@ mod tests {
         assert!(args.iter().any(|arg| arg == "--tmpfs"));
     }
 
+    /// The hook runs twice for one child; the fixture removes all swapped files.
+    fn check_home_enumeration_swap(swap_parent: bool) {
+        let f = Fixture::new();
+        let p = f.create_paths();
+        let child = p.home.join(".claude/settings.json");
+        fs::write(&child, "safe").unwrap();
+        let replaced = if swap_parent { child.parent().unwrap().to_owned() } else { child.clone() };
+        let held = f.0.join("held");
+        let replacement = f.0.join("replacement");
+        if swap_parent {
+            fs::create_dir(&replacement).unwrap();
+            fs::write(replacement.join("settings.json"), "secret").unwrap();
+        } else {
+            fs::write(&replacement, "secret").unwrap();
+        }
+        let snapshot = denied_paths_pinned(&p.home, &[]).unwrap();
+        let mut swapped = false;
+        let result =
+            home::rebuild(&p.home, &snapshot.inside, Some(&snapshot), &mut |path, before| {
+                if path != child {
+                    return;
+                }
+                if before {
+                    fs::rename(&replaced, &held).unwrap();
+                    fs::rename(&replacement, &replaced).unwrap();
+                    swapped = true;
+                } else {
+                    fs::rename(&replaced, &replacement).unwrap();
+                    fs::rename(&held, &replaced).unwrap();
+                }
+            });
+        assert!(swapped, "enumeration/open hook was not reached");
+        match result {
+            Err(error) => assert!(error.contains("changed"), "unexpected refusal: {error}"),
+            Ok((args, _fds)) => {
+                let bind = args
+                    .windows(3)
+                    .find(|w| w[0] == "--ro-bind-fd" && w[2] == child.to_str().unwrap())
+                    .unwrap();
+                assert_eq!(fs::read(format!("/proc/self/fd/{}", bind[1])).unwrap(), b"safe");
+            }
+        }
+    }
+
+    #[test]
+    fn regression_home_child_swap_between_stat_and_open() {
+        check_home_enumeration_swap(false);
+    }
+
+    #[test]
+    fn regression_home_parent_swap_between_stat_and_open() {
+        check_home_enumeration_swap(true);
+    }
+
     /// The child is killed on the 20-second deadline. Shell loops exhaust
     /// finite /proc snapshots and network tables; no background jobs are made.
     #[tokio::test]
