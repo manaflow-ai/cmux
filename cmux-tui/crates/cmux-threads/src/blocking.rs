@@ -308,12 +308,31 @@ pub fn assert_blocking_allowed(kind: BlockingKind) {
 /// [`assert_blocking_allowed`] at a site the caller captured. The daemon's
 /// request-path notes (`cmux_tui_platform::request_path`) check each blocking
 /// primitive here with the site they record, so one note at a primitive
-/// feeds this detector and the request-path counters.
+/// feeds this detector and the request-path counters. It returns what it
+/// found, for a layer that acts on a violation beyond recording it
+/// (cmux-blocking writes one stall record per site when the thread driving a
+/// tokio runtime blocks).
 #[inline]
-pub fn assert_blocking_allowed_at(kind: BlockingKind, location: &'static Location<'static>) {
-    if !STATE.with(Cell::get).permits(kind) {
-        violation(kind, location);
+pub fn assert_blocking_allowed_at(
+    kind: BlockingKind,
+    location: &'static Location<'static>,
+) -> BlockingCheck {
+    if STATE.with(Cell::get).permits(kind) {
+        BlockingCheck::Allowed
+    } else {
+        BlockingCheck::Violation { first_at_site: violation(kind, location) }
     }
+}
+
+/// What [`assert_blocking_allowed_at`] found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlockingCheck {
+    /// The current thread may make the call.
+    Allowed,
+    /// A violation, recorded in the site table like any other. `first_at_site`
+    /// is true for the first violation recorded at this site in the process
+    /// (false once the table is full).
+    Violation { first_at_site: bool },
 }
 
 /// Runs the blocking call `f` in a checked scope of `kind` (Chrome's
@@ -325,10 +344,11 @@ pub fn scoped_blocking_call<R>(kind: BlockingKind, f: impl FnOnce() -> R) -> R {
     f()
 }
 
+/// Records the violation; true when it is the first at its site.
 #[cold]
 #[inline(never)]
-fn violation(kind: BlockingKind, location: &'static Location<'static>) {
-    SITES.record(location, kind);
+fn violation(kind: BlockingKind, location: &'static Location<'static>) -> bool {
+    let first_at_site = SITES.record(location, kind);
     // Chrome's DCHECK: fails only in Panic mode, and Release compiles it out.
     debug_assert!(
         mode() == BlockingMode::Record || std::thread::panicking(),
@@ -336,6 +356,7 @@ fn violation(kind: BlockingKind, location: &'static Location<'static>) {
         kind.as_str(),
         std::thread::current().name().unwrap_or("<unnamed>"),
     );
+    first_at_site
 }
 
 #[cfg(unix)]
@@ -538,7 +559,8 @@ impl<const N: usize> SiteTable<N> {
         Self { slots: [const { SiteSlot::new() }; N], overflow: AtomicU64::new(0) }
     }
 
-    fn record(&self, location: &'static Location<'static>, kind: BlockingKind) {
+    /// Counts one violation at `location`; true when it is the site's first.
+    fn record(&self, location: &'static Location<'static>, kind: BlockingKind) -> bool {
         let wanted = std::ptr::from_ref(location).cast_mut();
         let start = site_hash(location) % N;
         for probe in 0..N {
@@ -558,11 +580,11 @@ impl<const N: usize> SiteTable<N> {
             // SAFETY: a non-null slot location is a `&'static Location` stored above.
             if same_site(unsafe { &*current }, location) {
                 slot.kinds.fetch_or(kind.bit(), Ordering::Relaxed);
-                slot.count.fetch_add(1, Ordering::Relaxed);
-                return;
+                return slot.count.fetch_add(1, Ordering::Relaxed) == 0;
             }
         }
         self.overflow.fetch_add(1, Ordering::Relaxed);
+        false
     }
 
     fn snapshot(&self) -> BlockingSnapshot {
@@ -872,11 +894,11 @@ mod tests {
         let first = here();
         let second = here();
         let third = here();
-        table.record(first, BlockingKind::Fs);
-        table.record(first, BlockingKind::Sleep);
-        table.record(second, BlockingKind::Recv);
-        table.record(third, BlockingKind::Join);
-        table.record(third, BlockingKind::Join);
+        assert!(table.record(first, BlockingKind::Fs), "the site's first violation");
+        assert!(!table.record(first, BlockingKind::Sleep));
+        assert!(table.record(second, BlockingKind::Recv));
+        assert!(!table.record(third, BlockingKind::Join), "a full table has no first");
+        assert!(!table.record(third, BlockingKind::Join));
         let snapshot = table.snapshot();
         assert_eq!(snapshot.sites.len(), 2);
         assert_eq!(snapshot.overflow, 2);

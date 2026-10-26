@@ -4,11 +4,11 @@
 
 use std::time::Duration;
 
-use crate::{BlockingType, scoped_blocking_call};
+use crate::{BlockingKind, scoped_blocking_call};
 
 #[track_caller]
 pub fn sleep(duration: Duration) {
-    scoped_blocking_call("thread::sleep", BlockingType::WillBlock, || {
+    scoped_blocking_call("thread::sleep", BlockingKind::Sleep, || {
         // wakeup-allow: deadline the caller's own sleep, passed through; the audit judges the caller's thread::sleep(
         std::thread::sleep(duration);
     });
