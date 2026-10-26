@@ -56,11 +56,12 @@ installation directory to that service's PATH as well; the shell export above
 affects only the current shell. Keep the WebSocket listener on
 loopback. The peer connection below tunnels it through SSH.
 
-`--listen` applies to that run only. If you use a port other than 47811 (for
-example because another daemon already holds it), also merge `"listen":
-"127.0.0.1:PORT"` into the `websocket` object of `~/.acpmux/config.json`,
-keeping its token and the file's other fields, so `acpmux daemon start` and
-later restarts keep it, and give the same port in the peer URL below.
+Don't rely on `--listen` alone to carry over to later starts. If you use a port
+other than 47811 (for example because another daemon already holds it), also
+merge `"listen": "127.0.0.1:PORT"` into the `websocket` object of
+`~/.acpmux/config.json`, keeping its token and the file's other fields, so
+`acpmux daemon start` and later restarts use it, and give the same port in the
+peer URL below.
 
 The daemon refuses a home or log that other users can write. If your umask
 makes new files group-writable, run `chmod 700 ~/.acpmux` before starting it;
@@ -143,12 +144,15 @@ share one daemon and the app shows the remote chat; open it with
 `acpmux new --host`.
 `acpmux session allow` is refused for remote sessions; `acpmux pending` and
 `acpmux send` point to the app's card for an allow, and `session deny` and
-`session cancel` work from the CLI. From a bare CLI on the host, starting with a
-mode that never asks (`--mode read-only`) is refused too unless a person starts
-it in cmux NEXT there or approves a preset for it; a session started by an agent
-that already runs in such a mode inherits it. A prompt that needs no tools
-completes from the CLI alone. A host whose config sets `vmHost` (below) runs your
-peer's sessions without asking.
+`session cancel` work from the CLI. A start mode that never asks (for example
+the codex-acp adapter's `read-only`) is refused from a bare CLI unless a person
+starts it in cmux NEXT on that host or approves a preset for it there; an agent
+session lends its own mode to a session it starts with the same harness. The
+Codex bridge's `ask` and `read-only` modes still ask or stay in the sandbox, so
+they start from the CLI (see "Read-only Codex reviews" below). A prompt that
+needs no tools completes from the CLI alone. On a Linux agent VM whose config
+sets `vmHost` (see the Claude paragraph below), sessions your peer daemon starts
+with no `--policy` run without asking.
 
 `--tag` and `--host` with `--group` need an acpmux built from feat-cmux-next on
 2026-10-26 or later; check that `acpmux new --help` lists them.
@@ -188,8 +192,9 @@ Claude session needs the host's sandbox, which acpmux has only on macOS so far:
 on a Linux host, `acpmux new --host` refuses `-m claude`. The exception is a
 dedicated agent VM whose `~/.acpmux/config.json` sets `"vmHost": true`: the VM
 is the sandbox, so Claude runs there, and sessions your peer daemon starts with
-no policy run approve-all. Set it only on a machine that holds nothing but agent
-work. Ctrl-Q detaches
+no policy run approve-all. A Mac ignores `vmHost`, and Web clients and sessions
+started with an explicit `--policy` keep their approvals. Set it only on a
+machine that holds nothing but agent work. Ctrl-Q detaches
 the TUI; the agent remains on the host. You can use that TUI in a cmux terminal.
 To view a remote session as a native cmux NEXT chat tab, select a local pane,
 wait for the app's peer inventory to load, and run:
