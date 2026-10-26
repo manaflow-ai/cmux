@@ -5011,7 +5011,8 @@
       "fallback": "If cmux does not open, install cmux and click Open in cmux again. cmux opens the session only if this Mac can already reach it.",
       "nameLabel": "Name: {value}",
       "hostLabel": "Host: {value}",
-      "harnessLabel": "Harness: {value}"
+      "harnessLabel": "Harness: {value}",
+      "reference": "This link names an agent session by a private reference, not by its machine or session. It does not open from this page; team members look the reference up with their own tools."
     }
   },
   "download": {
