@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, type QueryObserverResult, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "@tanstack/react-router";
 import { useLocale, useTranslations } from "next-intl";
 import { localeHref } from "../lib/locale-href";
@@ -10,6 +10,22 @@ import { PlanWelcomeBanner, welcomePlan } from "../screens/billing/plan-welcome"
 import { settingsButtonClass } from "./settings-ui/styles";
 
 export type ProFeature = "cloud" | "testflight" | "mobileDevices";
+
+/**
+ * What RequiresPro re-renders on. An invalidation, and the success or failure
+ * of the reload after it, must each re-render the prompt, even when the plan
+ * comes back unchanged; `data` alone does not change on any of them.
+ */
+export const planPromptChangeProps: Array<keyof QueryObserverResult> = ["data", "isStale", "isFetching", "dataUpdatedAt", "errorUpdatedAt"];
+
+/**
+ * A team switch or checkout invalidates the plan: the cached answer may be the
+ * previous team's until a reload succeeds, including when that reload fails.
+ * A routine focus refetch does not invalidate, so it keeps the current prompt.
+ */
+export function planPromptOutdated(queryClient: QueryClient): boolean {
+  return queryClient.getQueryState(planQuery.queryKey)?.isInvalidated === true;
+}
 
 /**
  * On a page that needs a paid plan: for a Free viewer, what the page needs
@@ -22,13 +38,9 @@ export function RequiresPro({ feature }: { readonly feature: ProFeature }) {
   const locale = useLocale();
   const location = useLocation();
   const queryClient = useQueryClient();
-  const plan = useQuery(planQuery);
+  const plan = useQuery({ ...planQuery, notifyOnChangeProps: planPromptChangeProps });
   const welcome = welcomePlan((location.search as Record<string, unknown>).welcome);
-  // A team switch or checkout invalidates the plan: hide the previous answer
-  // until it reloads, and keep hiding it if that reload fails. A routine
-  // focus refetch does not invalidate, so it keeps the current prompt.
-  const outdated = queryClient.getQueryState(planQuery.queryKey)?.isInvalidated === true;
-  if (outdated || !plan.data) return null;
+  if (planPromptOutdated(queryClient) || !plan.data) return null;
   // The welcome shows only once the plan confirms the upgrade; a stale
   // ?welcome link must not hide the prompt from a Free viewer.
   if (plan.data.isPro) return welcome ? <PlanWelcomeBanner plan={welcome} /> : null;
