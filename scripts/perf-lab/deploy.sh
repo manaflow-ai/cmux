@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Deploys labd (the perf lab service) at one pinned, reviewed commit on cmux-lawrence.
 #
-#   deploy.sh --sha SHA --controller NODE [--lab-host NODE ...] [--branch feat-cmux-next]
-#             [--remote origin] [--data-dir DIR] [--repo DIR] [--python PATH] [--dry-run]
+#   deploy.sh --sha SHA --controller NODE [--lab-host NODE ...] [--submit-command PATH]
+#             [--branch feat-cmux-next] [--remote origin] [--data-dir DIR] [--repo DIR] [--python PATH] [--dry-run]
 #
 # --sha is required and must be a full commit on REMOTE/BRANCH (merged, so reviewed); labd never runs a
 # working tree or a moving ref. The commit is checked out as a detached worktree of the lab checkout
@@ -26,7 +26,7 @@ while (( $# )); do
     --data-dir) data_dir="${2:-}"; shift 2 ;;
     --repo) repo="${2:-}"; shift 2 ;;
     --python) python="${2:-}"; shift 2 ;;
-    --controller|--lab-host) [[ -n "${2:-}" ]] || die "$1 takes a node name"; nodes+=("$1" "$2"); shift 2 ;;
+    --controller|--lab-host|--submit-command) [[ -n "${2:-}" ]] || die "$1 takes a value"; nodes+=("$1" "$2"); shift 2 ;;
     --dry-run) dry_run=1; shift ;;
     -h|--help) usage 0 ;;
     *) echo "deploy.sh: unknown argument $1" >&2; usage ;;
@@ -79,6 +79,18 @@ mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
 domain="gui/$(id -u)"
 launchctl print "$domain" >/dev/null 2>&1 || domain="user/$(id -u)"
 launchctl bootout "$domain/$label" 2>/dev/null || true
+# bootout returns while the old labd may still be exiting, and a bootstrap then fails with "5: Input/output error".
+for _ in {1..50}; do
+  launchctl print "$domain/$label" >/dev/null 2>&1 || break
+  sleep 0.2
+done
 mv "$work/$label.plist" "$plist"
-launchctl bootstrap "$domain" "$plist"
-echo "deployed labd $sha ($domain/$label)"
+for attempt in 1 2 3 4 5; do
+  if launchctl bootstrap "$domain" "$plist"; then
+    echo "deployed labd $sha ($domain/$label)"
+    exit 0
+  fi
+  echo "deploy.sh: launchctl bootstrap failed (attempt $attempt of 5)" >&2
+  sleep 2
+done
+die "labd is DOWN: the old job is booted out and $plist did not bootstrap; run: launchctl bootstrap $domain \"$plist\""

@@ -1,25 +1,28 @@
 #!/usr/bin/env python3
 """labd: the perf lab's service on cmux-lawrence, beside the controller (p12-perf-process.md 3.5, decision D1).
 
-    python3 -I scripts/perf-lab/labd.py serve --controller NODE [--lab-host NODE ...] [--bind 100.x.y.z]
+    python3 -I scripts/perf-lab/labd.py serve --controller NODE [--lab-host NODE ...] [--submit-command PATH]
     python3 -I scripts/perf-lab/labd.py render-plist --sha SHA --release DIR --controller NODE ...  (deploy.sh)
 
 A stdlib `http.server` bound only to this host's tailnet address; 0.0.0.0, loopback and any other non-tailnet
 address are refused (`tailnet_address`).
 
 - GET /status, /api/series, /api/alerts, /api/jobs, /api/coverage are open to the tailnet.
-- POST /ingest (a result-v1 .ndjson body) and POST /hooks/job-finished (the controller's callback) are open only to
-  callers that `tailscale whois` maps to an allowlisted node: the controller, or a lab host for /ingest. A lab host
-  ingests under its own node name; only the controller may name another host. A WireGuard peer cannot forge its
-  source address, so whois of the peer address is the credential, as the home server admits peers
-  (backend/apps/home-server/src/admission.ts).
+- POST /ingest (a result-v1 .ndjson body) and POST /hooks/job-finished (the controller's callback) need a caller
+  that `tailscale whois` names by a full MagicDNS name on the allowlist: the controller, or a lab host for /ingest
+  (under its own name; only the controller may name another host). The allowlist holds names in this host's own
+  tailnet only, so a node shared in from another tailnet never matches. This host's own tailnet address is refused,
+  as the home server refuses it (backend/apps/home-server/src/admission.ts): every OS user here can reach it. The
+  controller on this host posts to the Unix socket DATA_DIR/labd.sock instead (`LocalServer`).
 - A POST body needs a Content-Length of at most 1 MiB; a larger one is refused before it is read.
 
-Handlers are thin calls into store.py, ingest.py, alerts.py and the scheduler's driver (task 011). The driver's
-inputs are the big-branch tip, read with `git ls-remote` every 60 s and right after a job-finished callback (labd
-fetches that one branch only when its tip moves, so ingest can order commits), and the callbacks themselves.
-SQLite (WAL) lives in ~/Library/Application Support/cmux-perf-lab; each request opens its own connection, as
-store.Store requires. Every night a consistent copy is gzipped and put to R2 under its sha256 (r2.py).
+Handlers are thin calls into store.py, ingest.py, alerts.py and the scheduler's Driver (scheduler.py, task 011). A
+`Worker` thread runs Driver.tick every POLL_SECONDS and right after a job-finished callback, with --submit-command
+as its submit callback; the Driver reads the tip with `git ls-remote` and fetches only that branch into
+refs/perf-lab/BRANCH, which ingest also orders commits by. Without --submit-command the scheduler does not run and
+/status answers 503 saying so. SQLite (WAL) lives in
+~/Library/Application Support/cmux-perf-lab; each request opens its own connection, as store.Store requires. Every
+night a gzipped online copy goes to R2 under its sha256 through scripts/ci/upload-r2-object.py --write-once.
 
 launchd runs it (com.cmux.perf-lab.plist) with ProcessType=Background and Nice 10. macOS does not enforce the
 plist's ResidentSetSize, so labd exits with EX_TEMPFAIL once its peak RSS passes that limit and launchd starts it
@@ -29,75 +32,89 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import hashlib
 import importlib.util
 import ipaddress
 import json
 import os
 import plistlib
+import queue
 import re
 import resource
 import shutil
 import socket
+import socketserver
 import sqlite3
 import subprocess
 import sys
 import tempfile
 import threading
+import traceback
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone, tzinfo
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Protocol
 from urllib.parse import parse_qs, urlsplit
 
 HERE = Path(__file__).resolve().parent
+REPO_ROOT = HERE.parents[1]
 
 
 def _sibling(name: str, path: Path):
-    """The module at `path` under `name`, once per process (the names ingest.py and alerts.py use)."""
-    if name in sys.modules:
-        return sys.modules[name]
-    spec = importlib.util.spec_from_file_location(name, path)
-    if spec is None:
+    """The module at `path` as perf_lab_<name>, once per process (the names the siblings themselves use)."""
+    module_name = f"perf_lab_{name}"
+    if module_name in sys.modules:
+        return sys.modules[module_name]
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    if spec is None or not path.is_file():
         raise ImportError(f"labd: no module at {path}")
     module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module  # before exec: a dataclass resolves its module through sys.modules
+    sys.modules[module_name] = module  # before exec: a dataclass resolves its module through sys.modules
     try:
         spec.loader.exec_module(module)
     except BaseException:
-        del sys.modules[name]
+        del sys.modules[module_name]
         raise
     return module
 
 
-store = _sibling("perf_lab_store", HERE / "store.py")
-ingest = _sibling("perf_lab_ingest", HERE / "ingest.py")
-alerts = _sibling("perf_lab_alerts", HERE / "alerts.py")
-r2 = _sibling("perf_lab_r2", HERE / "r2.py")
+store = _sibling("store", HERE / "store.py")
+ingest = _sibling("ingest", HERE / "ingest.py")
+alerts = _sibling("alerts", HERE / "alerts.py")
 
 LABEL = "com.cmux.perf-lab"
 PLIST_TEMPLATE = HERE / f"{LABEL}.plist"
 DATA_DIR = Path.home() / "Library" / "Application Support" / "cmux-perf-lab"
 DB_NAME = "lab.sqlite3"
+SOCKET_NAME = "labd.sock"
 DEFAULT_PORT = 18766  # the controller listens on 18765 on the same host
 DEFAULT_BRANCH = "feat-cmux-next"
 MAX_BODY_BYTES = 1 << 20
-TIP_INTERVAL_S = 60.0
+PLAN_STALE = timedelta(minutes=10)  # 60 s ticks; a tick may spend 300 s in its one-branch fetch
 BACKUP_HOUR = 3  # local time
+BACKUP_STALE = timedelta(days=2)
 BACKUP_PREFIX = "perf-lab/backups/sha256"
+R2_ENV_FILE = Path.home() / ".secrets" / "cmux-perf-lab.env"
+R2_ENV = ("CMUX_PERF_LAB_R2_ENDPOINT", "CMUX_PERF_LAB_R2_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY")
+UPLOADER = REPO_ROOT / "scripts" / "ci" / "upload-r2-object.py"
 EX_TEMPFAIL = 75  # sysexits.h: launchd's KeepAlive starts labd again
 TAILNETS = (ipaddress.ip_network("100.64.0.0/10"), ipaddress.ip_network("fd7a:115c:a1e0::/48"))
 SHA = re.compile(r"^[0-9a-f]{40}$")
 NODE_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*(\.[a-z0-9-]+)*$")
 JOB_STATE = re.compile(r"^[a-z][a-z_-]{0,31}$")
 JOB_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+DIGITS = re.compile(r"[0-9]{1,9}")  # ASCII only: str.isdigit() also takes '²', which int() refuses
 
 
 class LabdError(RuntimeError):
     pass
+
+
+def _failure(error: BaseException) -> str:
+    return f"{type(error).__name__}: {error}"
 
 
 def tailnet_address(text: str) -> str:
@@ -111,16 +128,18 @@ def tailnet_address(text: str) -> str:
     return str(address)
 
 
-def discover_tailnet_address(run: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> str:
-    """This host's tailnet IPv4 address from `tailscale ip -4`."""
+def tailnet_self(run: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> tuple[str, str]:
+    """This host's tailnet IPv4 address and full MagicDNS name, from `tailscale status --json`."""
     try:
-        done = run(["tailscale", "ip", "-4"], capture_output=True, text=True, timeout=10)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise LabdError(f"tailscale ip -4: {error}") from None
-    lines = done.stdout.split() if done.returncode == 0 else []
-    if not lines:
-        raise LabdError(f"tailscale ip -4 gave no address: {done.stderr.strip()}")
-    return tailnet_address(lines[0])
+        done = run(["tailscale", "status", "--json", "--peers=false"], capture_output=True, text=True, timeout=10)
+        me = json.loads(done.stdout)["Self"]
+        fqdn = me["DNSName"].rstrip(".").lower()
+        addresses = [a for a in me["TailscaleIPs"] if ipaddress.ip_address(a).version == 4]
+    except (OSError, subprocess.TimeoutExpired, ValueError, TypeError, KeyError, AttributeError) as error:
+        raise LabdError(f"tailscale status --json: {_failure(error)}") from None
+    if "." not in fqdn or not addresses:
+        raise LabdError(f"tailscale status --json: no MagicDNS name or IPv4 address for this host ({fqdn!r})")
+    return tailnet_address(addresses[0]), fqdn
 
 
 # ---------- caller identity ----------
@@ -128,8 +147,8 @@ def discover_tailnet_address(run: Callable[..., subprocess.CompletedProcess] = s
 
 @dataclass(frozen=True)
 class Node:
-    name: str  # the MagicDNS host label, lower case
-    fqdn: str
+    name: str  # the MagicDNS host label, lower case: the store's host name
+    fqdn: str  # the full MagicDNS name: the identity
 
 
 def node_from_whois(text: str) -> Node | None:
@@ -158,201 +177,211 @@ def tailscale_whois(address: str, *, run: Callable[..., subprocess.CompletedProc
     return node_from_whois(done.stdout) if done.returncode == 0 else None
 
 
+def check_node_names(names: Sequence[str]) -> list[str]:
+    cleaned = [name.lower().rstrip(".") for name in names]
+    bad = [name for name in cleaned if not NODE_NAME.match(name)]
+    if bad:
+        raise LabdError(f"not tailnet node names: {', '.join(bad)}")
+    return cleaned
+
+
 @dataclass(frozen=True)
 class Allowlist:
-    """Who may write: the controller (both write endpoints) and lab hosts (/ingest, under their own name)."""
+    """Who may write, by full MagicDNS name in this host's tailnet: the controller (both write endpoints) and lab
+    hosts (/ingest, under their own name). A bare label is qualified with `domain`; any other domain is refused."""
 
     controllers: frozenset[str]
     lab_hosts: frozenset[str]
 
     @classmethod
-    def of(cls, controllers: Sequence[str], lab_hosts: Sequence[str]) -> "Allowlist":
-        controller_names, lab_names = ([name.lower().rstrip(".") for name in names] for names in (controllers, lab_hosts))
-        bad = [name for name in (*controller_names, *lab_names) if not NODE_NAME.match(name)]
-        if bad:
-            raise LabdError(f"not tailnet node names: {', '.join(bad)}")
-        return cls(frozenset(controller_names), frozenset(lab_names))
+    def of(cls, controllers: Sequence[str], lab_hosts: Sequence[str], *, domain: str) -> "Allowlist":
+        def qualify(name: str) -> str:
+            fqdn = name if "." in name else f"{name}.{domain}"
+            if not fqdn.endswith(f".{domain}"):
+                raise LabdError(f"{name} is not in this host's tailnet ({domain})")
+            return fqdn
+
+        return cls(*(frozenset(qualify(name) for name in check_node_names(names)) for names in (controllers, lab_hosts)))
 
     def role(self, node: Node | None) -> str | None:
         if node is None:
             return None
-        for role, names in (("controller", self.controllers), ("lab-host", self.lab_hosts)):
-            if node.name in names or node.fqdn in names:
-                return role
-        return None
+        if node.fqdn in self.controllers:
+            return "controller"
+        return "lab-host" if node.fqdn in self.lab_hosts else None
 
 
-# ---------- the scheduler driver (task 011) and the tip watcher ----------
+# ---------- background workers ----------
 
 
-class Driver(Protocol):
-    """What labd feeds the scheduler (task 011): the big-branch tip and the controller's job callbacks."""
+@dataclass
+class Worker:
+    """Runs `step` after `delay(now)` seconds, again and again, and at once on wake(); wakes that arrive during a
+    step coalesce into one more step. A failing step never ends the thread: its error and time stay in `report`,
+    and the step runs again on time. Unhealthy once the last success is older than `stale`."""
 
     name: str
-
-    def tip_changed(self, sha: str) -> None: ...
-
-    def job_finished(self, controller_job_id: str, state: str) -> None: ...
-
-
-class IdleDriver:
-    """No scheduler: labd stores results and job ends and plans nothing."""
-
-    name = "idle"
-
-    def tip_changed(self, sha: str) -> None:
-        pass
-
-    def job_finished(self, controller_job_id: str, state: str) -> None:
-        pass
-
-
-@dataclass(frozen=True)
-class TipState:
-    sha: str | None = None
-    checked_at: str | None = None
+    step: Callable[[], object]
+    delay: Callable[[datetime], float]
+    stale: timedelta
+    clock: Callable[[], datetime]
+    ok_at: datetime | None = None
+    detail: object = None
     error: str | None = None
+    error_at: datetime | None = None
+    _wake: threading.Event = field(default_factory=threading.Event)
+    _stopped: bool = False
 
-
-def _git(repo: Path, *args: str, timeout: float = 120) -> str:
-    try:
-        done = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, timeout=timeout)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise LabdError(f"git {args[0]}: {error}") from None
-    if done.returncode != 0:
-        raise LabdError(f"git {args[0]}: {done.stderr.strip() or f'exit {done.returncode}'}")
-    return done.stdout
-
-
-@dataclass(frozen=True)
-class GitBranch:
-    """The branch labd follows in its lab checkout: `ls-remote` for the tip, a one-branch fetch when it moves."""
-
-    repo: Path
-    remote: str
-    branch: str
-
-    @property
-    def mainline(self) -> str:
-        return f"{self.remote}/{self.branch}"
-
-    def tip(self) -> str:
-        line = _git(self.repo, "ls-remote", "--exit-code", self.remote, f"refs/heads/{self.branch}", timeout=30)
-        sha = line.split()[0] if line.split() else ""
-        if not SHA.match(sha):
-            raise LabdError(f"git ls-remote {self.remote} {self.branch}: no commit in {line!r}")
-        return sha
-
-    def fetch(self, sha: str) -> None:
-        _git(self.repo, "fetch", "--no-tags", "--quiet", self.remote,
-             f"+refs/heads/{self.branch}:refs/remotes/{self.remote}/{self.branch}")
-        _git(self.repo, "cat-file", "-e", f"{sha}^{{commit}}")
-
-
-class TipWatcher:
-    """Reads the tip every `interval` seconds and on wake(); a moved tip is fetched, then handed to the driver.
-
-    Wakes that arrive during a check coalesce into one more check, never a queue of them.
-    """
-
-    def __init__(self, *, tip: Callable[[], str], fetch: Callable[[str], None], driver: Driver,
-                 clock: Callable[[], datetime], interval: float = TIP_INTERVAL_S) -> None:
-        self._tip, self._fetch, self._driver, self._clock, self._interval = tip, fetch, driver, clock, interval
-        self._wake = threading.Event()
-        self._stop = threading.Event()
-        self.state = TipState()
+    def __post_init__(self) -> None:
+        self.started_at = self.clock()
 
     def wake(self) -> None:
         self._wake.set()
 
     def stop(self) -> None:
-        self._stop.set()
+        self._stopped = True
         self._wake.set()
 
-    def check(self) -> TipState:
-        checked = store._stamp(self._clock())
+    def run_once(self) -> None:
         try:
-            sha = self._tip()
-            if sha != self.state.sha:
-                self._fetch(sha)
-        except LabdError as error:
-            self.state = replace(self.state, checked_at=checked, error=str(error))
-            return self.state
-        moved = sha != self.state.sha
-        self.state = TipState(sha=sha, checked_at=checked)
-        if moved:
-            self._driver.tip_changed(sha)
-        return self.state
-
-    def run(self) -> None:
-        while not self._stop.is_set():
-            self._wake.clear()
-            self.check()
-            self._wake.wait(self._interval)
-
-
-# ---------- the nightly backup ----------
-
-
-@dataclass(frozen=True)
-class BackupState:
-    at: str | None = None
-    sha256: str | None = None
-    bytes: int | None = None
-    key: str | None = None
-    uploaded: bool | None = None  # False: the key already held these bytes; None: no R2 bucket configured
-    error: str | None = None
-
-
-class NightlyBackup:
-    """A gzipped online copy of the store, kept as latest.sqlite3.gz and put to R2 at BACKUP_PREFIX/<sha256>."""
-
-    def __init__(self, *, db_path: Path, directory: Path, bucket: "r2.R2Bucket | None",
-                 clock: Callable[[], datetime], hour: int = BACKUP_HOUR, tz: tzinfo | None = None) -> None:
-        self._db_path, self._directory, self._bucket = db_path, directory, bucket
-        self._clock, self._hour, self._tz = clock, hour, tz
-        self._stop = threading.Event()
-        self.state = BackupState()
-
-    def next_due(self, now: datetime) -> datetime:
-        local = now.astimezone(self._tz)
-        due = local.replace(hour=self._hour, minute=0, second=0, microsecond=0)
-        return due if due > local else due + timedelta(days=1)
-
-    def run_once(self) -> BackupState:
-        at = store._stamp(self._clock())
-        self._directory.mkdir(parents=True, exist_ok=True)
-        try:
-            with tempfile.TemporaryDirectory(dir=self._directory, prefix=".backup-") as scratch:
-                copy, packed = Path(scratch) / DB_NAME, Path(scratch) / f"{DB_NAME}.gz"
-                db = store.Store(self._db_path)
-                try:
-                    db.backup_to(copy)
-                finally:
-                    db.close()
-                with open(copy, "rb") as source, open(packed, "wb") as raw, \
-                        gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as target:
-                    shutil.copyfileobj(source, target, 1 << 20)
-                digest = r2.sha256_file(packed)
-                key = f"{BACKUP_PREFIX}/{digest}.sqlite3.gz"
-                uploaded = None if self._bucket is None else self._bucket.put_once(key, packed, sha256=digest)
-                size = packed.stat().st_size
-                os.replace(packed, self._directory / f"latest.{DB_NAME}.gz")
-        except (OSError, store.StoreError, r2.R2Error, sqlite3.Error) as error:
-            self.state = replace(self.state, at=at, error=str(error))
-            return self.state
-        self.state = BackupState(at=at, sha256=digest, bytes=size, key=key, uploaded=uploaded)
-        return self.state
-
-    def stop(self) -> None:
-        self._stop.set()
+            detail = self.step()
+        except Exception as error:  # noqa: BLE001 - any failure is reported in /status and the next step runs
+            self.error, self.error_at = _failure(error), self.clock()
+            return
+        self.ok_at, self.detail, self.error, self.error_at = self.clock(), detail, None, None
 
     def run(self) -> None:
         while True:
-            now = self._clock()
-            if self._stop.wait((self.next_due(now) - now).total_seconds()):
+            self._wake.wait(max(0.0, self.delay(self.clock())))
+            self._wake.clear()
+            if self._stopped:
                 return
             self.run_once()
+
+    def report(self, now: datetime) -> dict[str, object]:
+        healthy = self.error is None and now - (self.ok_at or self.started_at) <= self.stale
+        return {"healthy": healthy, "ok_at": self.ok_at and store._stamp(self.ok_at), "detail": self.detail,
+                "error": self.error, "error_at": self.error_at and store._stamp(self.error_at)}
+
+
+class PlanLoop:
+    """One scheduler step: apply the controller's finished jobs, then Driver.tick (task 011), which hands the plan
+    to `submit` and saves its state only after submit returns what it could not hand on (scheduler.Rejected).
+
+    The Driver is not thread-safe, so only the worker's thread touches it: a callback only queues its job id."""
+
+    def __init__(self, driver, *, hosts: Callable[[], Sequence], builds: Callable[[], object],
+                 submit: Callable[[object], object]) -> None:
+        self._driver, self._hosts, self._builds, self._submit = driver, hosts, builds, submit
+        self._finished: queue.SimpleQueue[str] = queue.SimpleQueue()
+
+    def job_finished(self, job_id: str) -> None:
+        self._finished.put(job_id)
+
+    def step(self) -> dict[str, object]:
+        while True:
+            try:
+                job_id = self._finished.get_nowait()
+            except queue.Empty:
+                break
+            self._driver.job_finished(job_id)
+        plan = self._driver.tick(self._hosts(), self._builds(), submit=self._submit)
+        return {"tip": self._driver.tip, "mode": plan.mode, "jobs": len(plan.jobs), "builds": len(plan.builds),
+                "gaps": len(plan.gaps), "problems": list(plan.problems)}
+
+
+def command_submitter(program: Path, rejected: Callable[..., object]) -> Callable[[object], object]:
+    """Hands each plan (Plan.to_document() JSON on stdin) to the program that starts its jobs and builds; it prints
+    {"jobs": [ids], "arms": [features]} it could not hand on, or nothing. A failure raises, so the Driver keeps its
+    previous state and the next tick plans the same work again."""
+    def submit(plan) -> object:
+        try:
+            done = subprocess.run([str(program)], input=json.dumps(plan.to_document()), capture_output=True,
+                                  text=True, timeout=120)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise LabdError(f"{program}: {error}") from None
+        if done.returncode != 0:
+            raise LabdError(f"{program} exited {done.returncode}: {done.stderr.strip()[-500:]}")
+        try:
+            answer = json.loads(done.stdout) if done.stdout.strip() else {}
+            return rejected(jobs=frozenset(map(str, answer.get("jobs", ()))),
+                            arms=frozenset(map(str, answer.get("arms", ()))))
+        except (ValueError, TypeError, AttributeError) as error:
+            raise LabdError(f"{program}: its answer is not {{jobs, arms}} JSON ({error})") from None
+
+    return submit
+
+
+def ledger_builds(scheduler, builds, ledger: Path):
+    """scheduler.Builds from the lab's build ledger (builds.py, task 009): every ok record is a ready build."""
+    ready = set()
+    for path in sorted((ledger / "records").glob("*.json")):
+        record = builds.BuildRecord.from_json(json.loads(path.read_text(encoding="utf-8")))
+        if record.status == "ok":
+            ready.add((record.sha, record.config))
+    return scheduler.Builds(ready=frozenset(ready))
+
+
+def next_backup_delay(now: datetime, *, hour: int = BACKUP_HOUR, tz: tzinfo | None = None) -> float:
+    local = now.astimezone(tz)
+    due = local.replace(hour=hour, minute=0, second=0, microsecond=0)
+    return ((due if due > local else due + timedelta(days=1)) - local).total_seconds()
+
+
+def read_r2_env(path: Path = R2_ENV_FILE) -> dict[str, str] | None:
+    """R2_ENV from NAME=value lines of the operator's secrets file; None when it is missing or incomplete."""
+    values = {}
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return None
+    for line in lines:
+        name, sep, value = line.strip().removeprefix("export ").partition("=")
+        if sep and name in R2_ENV:
+            values[name] = value.strip().strip("\"'")
+    return values if all(values.get(name) for name in R2_ENV) else None
+
+
+def r2_upload(path: Path, key: str, config: Mapping[str, str], *,
+              run: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> None:
+    """Puts `path` at `key`, write-once, with the repo's one R2 uploader; the keys travel in its environment."""
+    done = run([sys.executable, "-I", str(UPLOADER), "--file", str(path), "--write-once",
+                "--endpoint-url", config["CMUX_PERF_LAB_R2_ENDPOINT"], "--bucket", config["CMUX_PERF_LAB_R2_BUCKET"],
+                "--key", key, "--cache-control", "no-store", "--content-type", "application/gzip"],
+               capture_output=True, text=True, timeout=600,
+               env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "AWS_DEFAULT_REGION": "auto",
+                    "AWS_ACCESS_KEY_ID": config["AWS_ACCESS_KEY_ID"],
+                    "AWS_SECRET_ACCESS_KEY": config["AWS_SECRET_ACCESS_KEY"]})
+    if done.returncode != 0:
+        raise LabdError(f"upload-r2-object.py exited {done.returncode}: {done.stderr.strip()[-500:]}")
+
+
+def backup_step(db_path: Path, directory: Path, upload: Callable[[Path, str], None] | None) -> Callable[[], dict]:
+    """A gzipped online copy of the store, kept as latest.lab.sqlite3.gz and put at BACKUP_PREFIX/<sha256>."""
+    def step() -> dict[str, object]:
+        directory.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=directory, prefix=".backup-") as scratch:
+            copy, packed = Path(scratch) / DB_NAME, Path(scratch) / f"{DB_NAME}.gz"
+            db = store.Store(db_path)
+            try:
+                db.backup_to(copy)
+            finally:
+                db.close()
+            digest = hashlib.sha256()
+            with open(copy, "rb") as source, open(packed, "wb") as raw, \
+                    gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as target:
+                shutil.copyfileobj(source, target, 1 << 20)
+            with open(packed, "rb") as handle:
+                for chunk in iter(lambda: handle.read(1 << 20), b""):
+                    digest.update(chunk)
+            key = f"{BACKUP_PREFIX}/{digest.hexdigest()}.sqlite3.gz"
+            if upload is not None:
+                upload(packed, key)
+            size = packed.stat().st_size
+            os.replace(packed, directory / f"latest.{DB_NAME}.gz")
+        return {"key": key, "bytes": size, "r2": "uploaded" if upload else f"not configured ({R2_ENV_FILE})"}
+
+    return step
 
 
 # ---------- the service ----------
@@ -391,7 +420,7 @@ def _limit(query: Mapping[str, list[str]], default: int) -> int:
     text = _one(query, "limit")
     if text is None:
         return default
-    if not text.isdigit() or not 1 <= int(text) <= 1000:
+    if not DIGITS.fullmatch(text) or not 1 <= int(text) <= 1000:
         raise _refuse(HTTPStatus.BAD_REQUEST, "limit is 1..1000")
     return int(text)
 
@@ -403,12 +432,13 @@ class Labd:
     db_path: Path
     allowlist: Allowlist
     whois: Whois
+    self_fqdn: str
     commit_positions: Callable[[], "ingest.CommitPositions"]
-    driver: Driver
-    tip: TipWatcher | None
-    backup: NightlyBackup | None
+    plan: PlanLoop | None
+    workers: Mapping[str, Worker]
     clock: Callable[[], datetime]
     version: str
+    scheduler_off: str | None = None  # why the scheduler does not run
     max_rss_bytes: int | None = None
 
     def __post_init__(self) -> None:
@@ -422,19 +452,32 @@ class Labd:
         finally:
             db.close()
 
-    def caller_role(self, address: str) -> tuple[Node | None, str | None]:
+    def caller(self, address: str) -> tuple[Node, str]:
+        """The caller's node and write role at a tailnet peer address, or a 403."""
         node = self.whois(address)
-        return node, self.allowlist.role(node)
+        if node is not None and node.fqdn == self.self_fqdn:
+            raise _refuse(HTTPStatus.FORBIDDEN, f"{address} is this host's own tailnet address, open to every OS "
+                                                f"user here; post to the Unix socket {SOCKET_NAME} instead")
+        role = self.allowlist.role(node)
+        if node is None or role is None:
+            raise _refuse(HTTPStatus.FORBIDDEN, f"{node.fqdn if node else address} is not on labd's write allowlist")
+        return node, role
 
     # ----- read endpoints -----
 
-    def status(self, query: Mapping[str, list[str]]) -> object:
+    def status(self, query: Mapping[str, list[str]]) -> Reply:
+        now = self.clock()
         with self.open_store() as db:
             schema = db.schema_version()
-        return {"service": LABEL, "version": self.version, "started_at": self.started_at, "schema_version": schema,
-                "driver": self.driver.name, "tip": asdict(self.tip.state) if self.tip else None,
-                "backup": asdict(self.backup.state) if self.backup else None,
-                "rss_bytes": rss_bytes(), "max_rss_bytes": self.max_rss_bytes}
+        workers = {name: worker.report(now) for name, worker in self.workers.items()}
+        problems = [f"{name}: {report['error'] or 'no success since ' + str(report['ok_at'] or self.started_at)}"
+                    for name, report in workers.items() if not report["healthy"]]
+        if self.scheduler_off:
+            problems.insert(0, f"scheduler: {self.scheduler_off}")
+        body = {"service": LABEL, "version": self.version, "started_at": self.started_at, "schema_version": schema,
+                "workers": workers, "ok": not problems, "problems": problems, "rss_bytes": rss_bytes(),
+                "max_rss_bytes": self.max_rss_bytes}
+        return Reply(HTTPStatus.SERVICE_UNAVAILABLE if problems else HTTPStatus.OK, body)
 
     def series(self, query: Mapping[str, list[str]]) -> object:
         key = _one(query, "key")
@@ -494,7 +537,7 @@ class Labd:
 
     def job_finished(self, caller: Node, role: str, body: bytes) -> Reply:
         if role != "controller":
-            raise _refuse(HTTPStatus.FORBIDDEN, f"{caller.name} is not the controller")
+            raise _refuse(HTTPStatus.FORBIDDEN, f"{caller.fqdn} is not the controller")
         try:
             event = json.loads(body)
         except ValueError:
@@ -507,10 +550,10 @@ class Labd:
             raise _refuse(HTTPStatus.BAD_REQUEST, "state is a controller job state")
         with self.open_store() as db:
             known = db.finish_job(job_id, state=state, result=event.get("result"))
-        self.driver.job_finished(job_id, state)
-        if self.tip is not None:
-            self.tip.wake()
-        return Reply(HTTPStatus.OK, {"job_id": job_id, "known": known})
+        if self.plan is not None:
+            self.plan.job_finished(job_id)  # applied by the scheduler worker, which this wakes
+            self.workers["scheduler"].wake()
+        return Reply(HTTPStatus.OK, {"job_id": job_id, "known": known, "scheduler": self.plan is not None})
 
 
 READS = {"/status": Labd.status, "/api/series": Labd.series, "/api/alerts": Labd.alerts, "/api/jobs": Labd.jobs,
@@ -528,6 +571,9 @@ class Handler(BaseHTTPRequestHandler):
     def app(self) -> Labd:
         return self.server.app
 
+    def address_string(self) -> str:
+        return self.client_address[0] if isinstance(self.client_address, tuple) else SOCKET_NAME
+
     def _send(self, reply: Reply) -> None:
         data = json.dumps(reply.body, indent=1, sort_keys=True, default=str).encode() + b"\n"
         self.send_response(reply.status)
@@ -542,8 +588,9 @@ class Handler(BaseHTTPRequestHandler):
             reply = work()
         except Reply as raised:
             reply = raised
-        except (store.StoreError, sqlite3.Error) as error:
-            reply = _refuse(HTTPStatus.INTERNAL_SERVER_ERROR, str(error))
+        except Exception as error:  # noqa: BLE001 - every request gets an HTTP answer, never a dropped connection
+            self.log_error("%s", traceback.format_exc())
+            reply = _refuse(HTTPStatus.INTERNAL_SERVER_ERROR, _failure(error))
         self._send(reply)
 
     def do_GET(self) -> None:
@@ -553,7 +600,12 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
             self._send(_refuse(HTTPStatus.NOT_FOUND, f"no endpoint {url.path}"))
             return
-        self._answer(lambda: Reply(HTTPStatus.OK, read(self.app, parse_qs(url.query))))
+
+        def work() -> Reply:
+            answer = read(self.app, parse_qs(url.query))
+            return answer if isinstance(answer, Reply) else Reply(HTTPStatus.OK, answer)
+
+        self._answer(work)
 
     def do_POST(self) -> None:
         self.close_connection = True  # a refused body is never read, so the connection cannot be reused
@@ -563,14 +615,14 @@ class Handler(BaseHTTPRequestHandler):
         url = urlsplit(self.path)
         if url.path not in WRITES:
             raise _refuse(HTTPStatus.NOT_FOUND, f"no endpoint {url.path}")
-        caller, role = self.app.caller_role(self.client_address[0])
-        if role is None:
-            who = caller.fqdn if caller else self.client_address[0]
-            raise _refuse(HTTPStatus.FORBIDDEN, f"{who} is not on labd's write allowlist")
+        if self.server.local:
+            caller, role = Node(self.app.self_fqdn.split(".")[0], self.app.self_fqdn), "controller"
+        else:
+            caller, role = self.app.caller(self.client_address[0])
         length = self.headers.get("Content-Length")
         if length is None or self.headers.get("Transfer-Encoding"):
             raise _refuse(HTTPStatus.LENGTH_REQUIRED, "a POST needs a Content-Length body")
-        if not length.isdigit():
+        if not DIGITS.fullmatch(length):
             raise _refuse(HTTPStatus.BAD_REQUEST, "Content-Length is not a number")
         if int(length) > MAX_BODY_BYTES:
             raise _refuse(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, f"bodies are at most {MAX_BODY_BYTES} bytes")
@@ -581,9 +633,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class LabServer(ThreadingHTTPServer):
-    """The HTTP server; `bind_policy` (tailnet_address in labd serve) decides which addresses it may bind."""
+    """The tailnet HTTP server; `bind_policy` (tailnet_address in labd serve) decides which addresses it may bind."""
 
     daemon_threads = True
+    local = False
 
     def __init__(self, address: str, port: int, app: Labd, *,
                  bind_policy: Callable[[str], str] = tailnet_address) -> None:
@@ -603,15 +656,33 @@ class LabServer(ThreadingHTTPServer):
             self.shutdown()
 
 
+class LocalServer(socketserver.ThreadingUnixStreamServer):
+    """The controller on this host posts here. The socket is 0600 in labd's 0700 data directory, so only labd's
+    own OS user connects, and that user can already write the database file."""
+
+    daemon_threads = True
+    local = True
+
+    def __init__(self, path: Path, app: Labd) -> None:
+        self.app = app
+        path.unlink(missing_ok=True)
+        previous = os.umask(0o177)  # set before any worker thread starts
+        try:
+            super().__init__(str(path), Handler)
+        finally:
+            os.umask(previous)
+
+
 # ---------- command line ----------
 
 
 def render_plist(template: Path, *, sha: str, release: Path, data_dir: Path, repo: Path, python: str,
-                 controllers: Sequence[str], lab_hosts: Sequence[str], branch: str, log_dir: Path) -> bytes:
+                 controllers: Sequence[str], lab_hosts: Sequence[str], branch: str, log_dir: Path,
+                 submit_command: Path | None = None) -> bytes:
     """The launchd job for one pinned release: the template's limits, this release's labd and arguments."""
     if not SHA.match(sha):
         raise LabdError(f"--sha {sha!r} is not a full commit sha")
-    Allowlist.of(controllers, lab_hosts)
+    check_node_names([*controllers, *lab_hosts])
     with open(template, "rb") as handle:
         job = plistlib.load(handle)
     limit = job.get("SoftResourceLimits", {}).get("ResidentSetSize")
@@ -623,6 +694,8 @@ def render_plist(template: Path, *, sha: str, release: Path, data_dir: Path, rep
     for flag, names in (("--controller", controllers), ("--lab-host", lab_hosts)):
         for name in names:
             arguments += [flag, name]
+    if submit_command is not None:
+        arguments += ["--submit-command", str(submit_command)]
     job.update(ProgramArguments=arguments, WorkingDirectory=str(data_dir),
                StandardOutPath=str(log_dir / f"{LABEL}.log"), StandardErrorPath=str(log_dir / f"{LABEL}.log"))
     return plistlib.dumps(job, sort_keys=True)
@@ -638,10 +711,13 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--branch", default=DEFAULT_BRANCH, help="the big branch the lab follows")
         command.add_argument("--controller", action="append", default=[], help="controller node (repeat)")
         command.add_argument("--lab-host", action="append", default=[], help="lab host node (repeat)")
+        command.add_argument("--submit-command", type=Path,
+                             help="program that starts a plan's jobs and builds (the plan JSON on stdin)")
     serve = commands.choices["serve"]
-    serve.add_argument("--bind", help="this host's tailnet address (default: tailscale ip -4)")
+    serve.add_argument("--bind", help="this host's tailnet address (default: from tailscale status)")
     serve.add_argument("--port", type=int, default=DEFAULT_PORT)
     serve.add_argument("--remote", default="origin")
+    serve.add_argument("--pool", type=Path, default=HERE / "pool.json", help="the lab hosts (task 130)")
     serve.add_argument("--version", default="unknown", help="the deployed sha (deploy.sh sets it)")
     serve.add_argument("--max-rss-mb", type=int, help="exit once peak RSS passes this many MiB")
     render = commands.choices["render-plist"]
@@ -653,38 +729,71 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def load_scheduler():
+    """scheduler.py (task 011) and its Driver; labd never runs without the scheduler it feeds."""
+    try:
+        return _sibling("scheduler", HERE / "scheduler.py"), _sibling("builds", HERE / "builds.py")
+    except ImportError as error:
+        raise LabdError(f"{error}: labd needs the scheduler (task 011) and the build ledger (task 009)") from None
+
+
 def serve(args: argparse.Namespace) -> int:
     clock = lambda: datetime.now(timezone.utc)
+    bind = args.bind and tailnet_address(args.bind)
+    scheduler, builds = load_scheduler()
     data_dir: Path = args.data_dir
     data_dir.mkdir(parents=True, exist_ok=True)
-    db_path = data_dir / DB_NAME
-    branch = GitBranch(args.repo or data_dir / "repo", args.remote, args.branch)
+    data_dir.chmod(0o700)
+    db_path, repo = data_dir / DB_NAME, args.repo or data_dir / "repo"
+    address, self_fqdn = tailnet_self()
+    allowlist = Allowlist.of(args.controller, args.lab_host, domain=self_fqdn.partition(".")[2])
     db = store.Store(db_path)
     try:
         db.migrate()
     finally:
         db.close()
-    driver = IdleDriver()
-    tip = TipWatcher(tip=branch.tip, fetch=branch.fetch, driver=driver, clock=clock)
-    backup = NightlyBackup(db_path=db_path, directory=data_dir / "backups", bucket=r2.R2Bucket.from_env(),
-                           clock=clock)
-    app = Labd(db_path=db_path, allowlist=Allowlist.of(args.controller, args.lab_host), whois=tailscale_whois,
-               commit_positions=lambda: ingest.GitCommitPositions(branch.repo, mainline=branch.mainline),
-               driver=driver, tip=tip, backup=backup, clock=clock, version=args.version,
+    catalog = scheduler._load_sibling("catalog")
+    try:
+        driver = scheduler.Driver(
+            data_dir / "scheduler.json", stories=scheduler.stories_from_catalog(catalog.load_catalog(REPO_ROOT)),
+            shard_map=scheduler.ShardMap.load(HERE / "shard_map.json"),
+            ls_remote=lambda: scheduler.git_ls_remote(args.remote, args.branch, repo=repo),
+            first_parent=scheduler.git_first_parent(args.remote, args.branch, repo=repo))
+    except (scheduler.SchedulerError, catalog.CatalogError) as error:
+        raise LabdError(f"scheduler: {error}") from None
+    plan = None if args.submit_command is None else PlanLoop(
+        driver, hosts=lambda: scheduler.hosts_from_document(json.loads(args.pool.read_text(encoding="utf-8"))),
+        builds=lambda: ledger_builds(scheduler, builds, data_dir / "builds"),
+        submit=command_submitter(args.submit_command, scheduler.Rejected))
+    r2_env = read_r2_env()
+    upload = None if r2_env is None else lambda path, key: r2_upload(path, key, r2_env)
+    workers = {"backup": Worker("backup", backup_step(db_path, data_dir / "backups", upload), next_backup_delay,
+                                BACKUP_STALE, clock)}
+    if plan is not None:
+        workers["scheduler"] = Worker("scheduler", plan.step, lambda now: scheduler.POLL_SECONDS, PLAN_STALE, clock)
+    app = Labd(db_path=db_path, allowlist=allowlist, whois=tailscale_whois, self_fqdn=self_fqdn,
+               commit_positions=lambda: ingest.GitCommitPositions(repo, mainline=f"refs/perf-lab/{args.branch}"),
+               plan=plan, workers=workers, clock=clock, version=args.version,
+               scheduler_off=None if plan else "no --submit-command: it would record jobs that nobody starts",
                max_rss_bytes=args.max_rss_mb << 20 if args.max_rss_mb else None)
-    server = LabServer(args.bind or discover_tailnet_address(), args.port, app)
-    workers = [threading.Thread(target=worker.run, name=f"labd-{name}", daemon=True)
-               for name, worker in (("tip", tip), ("backup", backup))]
-    for worker in workers:
-        worker.start()
-    print(f"labd {args.version} on http://{server.server_address[0]}:{server.server_address[1]}", file=sys.stderr)
+    server = LabServer(bind or address, args.port, app)
+    local = LocalServer(data_dir / SOCKET_NAME, app)
+    threads = [threading.Thread(target=local.serve_forever, name="labd-local", daemon=True),
+               *(threading.Thread(target=worker.run, name=f"labd-{name}", daemon=True)
+                 for name, worker in workers.items())]
+    for thread in threads:
+        thread.start()
+    print(f"labd {args.version} on http://{server.server_address[0]}:{server.server_address[1]} and "
+          f"{data_dir / SOCKET_NAME}" + (f"; {app.scheduler_off}" if app.scheduler_off else ""), file=sys.stderr)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
-        tip.stop()
-        backup.stop()
+        for worker in workers.values():
+            worker.stop()
+        local.shutdown()
+        local.server_close()
         server.server_close()
     return EX_TEMPFAIL if server.over_memory else 0
 
@@ -696,10 +805,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             sys.stdout.buffer.write(render_plist(
                 args.template, sha=args.sha, release=args.release, data_dir=args.data_dir,
                 repo=args.repo or args.data_dir / "repo", python=args.python, controllers=args.controller,
-                lab_hosts=args.lab_host, branch=args.branch, log_dir=args.log_dir))
+                lab_hosts=args.lab_host, branch=args.branch, log_dir=args.log_dir,
+                submit_command=args.submit_command))
             return 0
         return serve(args)
-    except (LabdError, store.StoreError, r2.R2Error, OSError) as error:
+    except (LabdError, store.StoreError, OSError) as error:
         print(f"labd.py {args.command}: {error}", file=sys.stderr)
         return 2
 
