@@ -135,3 +135,18 @@ test("someone who is not in the conversation never shows in its header", async (
   await settle();
   expect(header()!.querySelector(".cv-presence")).toBeNull();
 });
+
+// Home installs only the agent pane keys it draws (scripts/pages/gen-strings.mjs
+// `home-channels-pane`, paneStrings.ts); the faces' strings must be among them, or the header reads
+// `multiplayer.viewing` instead of the names.
+test("Home's own pane table has every string the shared chat faces draw", async () => {
+  const { readFileSync } = await import("node:fs");
+  const faces = readFileSync(new URL("../src/agent-session/acpmux/multiplayer/Faces.tsx", import.meta.url), "utf8");
+  const used = [...new Set([...faces.matchAll(/t\("(multiplayer\.[\w.]+)"/g)].map((m) => m[1]!))];
+  expect(used.length).toBeGreaterThan(0);
+  const table = JSON.parse(
+    readFileSync(new URL("../src/pages/home-channels/generated/pane-strings.json", import.meta.url), "utf8"),
+  ) as Record<string, unknown>;
+  const text = JSON.stringify(table);
+  for (const key of used) expect(text).toContain(`"${key}"`);
+});
