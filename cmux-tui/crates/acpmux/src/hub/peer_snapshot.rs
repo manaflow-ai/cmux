@@ -42,8 +42,6 @@
 //! that cannot be read, are tried again the same way. Nothing is written or removed until the
 //! directory reads as this user's own (no symlink), and what was purged, removed or unlisted
 //! meanwhile is applied to what it holds (`Store::admits`).
-//! The hub's taps (what it sends the store) come next; until then nothing outside the tests
-//! uses it.
 //! A leased peer (a Cloud VM) is kept too: what a lease must not leave behind is its URL, port and
 //! tokens, none of which is here.
 
@@ -1206,6 +1204,73 @@ impl Store {
         let due = Instant::now() + wait;
         c.due = Some(due);
         self.wake_by(due);
+    }
+}
+
+impl Hub {
+    /// Whether `link` is still the link of peer `peer` while `generation` is the instance
+    /// registered under the name (the store checks again, in order: `Store::fresh_link`).
+    fn capturing(&self, peer: &str, generation: u64, link: u64) -> bool {
+        self.peer(peer).is_some_and(|p| p.generation == generation && p.link_epoch() == link)
+    }
+
+    /// The generation (`createdAt`) peer `peer` lists for session `mux` now: read before a
+    /// forwarded page is asked (`Page::asked`).
+    pub fn listed_generation(&self, peer: &str, mux: &str) -> Option<u64> {
+        self.resolve_remote(&format!("{peer}/{mux}")).and_then(|(_, _, row)| created_at(&row))
+    }
+
+    /// Keeps a live record of peer `peer`'s session `mux` (`apply_peer_notice`), which came on
+    /// link `link`; `row` is the row the caller already found (Null: none, so nothing is kept).
+    pub(super) fn capture_peer_record(
+        &self,
+        (peer, generation, link): (&str, u64, u64),
+        mux: &str,
+        row: &Value,
+        r: &EventRecord,
+    ) {
+        if r.seq == 0 || r.dir == "peer" || row.is_null() || !self.capturing(peer, generation, link)
+        {
+            return;
+        }
+        let value = json!({"sessionId": mux, "seq": r.seq, "at": r.at, "dir": r.dir, "kind": r.kind, "msg": r.msg});
+        self.peer_snapshots.record((peer, mux), (generation, link), value);
+    }
+
+    /// Keeps a page of peer `peer`'s session `mux` this daemon forwarded (`_acpmux/attach`,
+    /// `_acpmux/events`; `server/peer_forward.rs`), asked on link `link` while the row named
+    /// generation `asked`; `events`: an `_acpmux/events` page, else an attach. Only a run of the chat as a client reads it is kept: not a page of older
+    /// history (`beforeSeq`), nor one of some kinds only that leaves the transcript out (the app's
+    /// attach asks for `transcript` and a few more, which its live records follow too).
+    pub fn capture_peer_page(
+        &self,
+        (peer, generation, link, asked): (&str, u64, u64, Option<u64>),
+        (mux, events): (&str, bool),
+        params: &Value,
+        result: &Value,
+    ) {
+        if params.get("beforeSeq").is_some_and(|v| !v.is_null())
+            || params
+                .get("kinds")
+                .and_then(Value::as_array)
+                .is_some_and(|kinds| !kinds.iter().any(|k| k.as_str() == Some("transcript")))
+            || !self.capturing(peer, generation, link)
+        {
+            return;
+        }
+        let Some(records) = result.get("events").and_then(Value::as_array) else { return };
+        let page = Page {
+            link: (generation, link),
+            asked,
+            generation: result.get("session").and_then(created_at),
+            // `_acpmux/events` with no `afterSeq` pages forward from the first record.
+            after: params.get("afterSeq").and_then(Value::as_u64).or(events.then_some(0)),
+            has_more: result.get("hasMore") != Some(&Value::Bool(false)),
+            host_last_seq: result.get("lastSeq").and_then(Value::as_u64),
+            row: self.resolve_remote(&format!("{peer}/{mux}")).map(|(_, _, row)| row),
+            records: records.clone(),
+        };
+        self.peer_snapshots.page((peer, mux), page);
     }
 }
 
