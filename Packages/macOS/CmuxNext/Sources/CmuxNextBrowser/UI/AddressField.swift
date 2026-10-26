@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextInput
 
 /// The omnibar text field. It uses its own field editor
 /// (`OmnibarFieldEditor`) and is the only `OmnibarFieldSurface`: the effect
@@ -68,7 +69,8 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
         sink?.fieldEditorMouseDown(clickCount: event.clickCount, button: .left, word: nil)
         super.mouseDown(with: event)
         probe?("field.tracked")
-        if event.omnibarDragged(to: NSApp.currentEvent) { sink?.fieldEditorMouseDragged() }
+        // The release the tracking loop took is newer than the dispatched press.
+        if event.omnibarDragged(to: (window as? InputTapHosting)?.inputTap?.trackedEvent()) { sink?.fieldEditorMouseDragged() }
         sink?.fieldEditorMouseUp()
         probe?("field.mouseUpDone")
     }

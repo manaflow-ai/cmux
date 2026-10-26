@@ -807,7 +807,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // edit bubble.
         .target(
             name: "CmuxNextBookmarks",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextInput", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -1009,7 +1009,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // extension popup windows over their opener's window. The App routes page intents.
         .target(
             name: "CmuxNextPopups",
-            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextInput", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -1017,7 +1017,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextPopupsTests",
-            dependencies: ["CmuxNextBrowser", "CmuxNextDesign", "CmuxNextPopups", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextDesign", "CmuxNextInput", "CmuxNextPopups", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // The one owner of what happens to a workspace with no pane: a last-tab
