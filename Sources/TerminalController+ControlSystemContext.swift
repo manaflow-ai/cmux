@@ -415,7 +415,7 @@ extension TerminalController: ControlSystemContext {
             return "not_found"
         case .unreadable:
             return "invalid_state"
-        case .notASessionSnapshot, .liveSnapshot:
+        case .notASessionSnapshot, .resourceLimitExceeded, .liveSnapshot:
             return "invalid_params"
         case .newerSchemaVersion, .olderSchemaVersion:
             return "unsupported"
@@ -445,6 +445,11 @@ extension TerminalController: ControlSystemContext {
                     defaultValue: "%@ is not a cmux session snapshot."
                 ),
                 path
+            )
+        case .resourceLimitExceeded:
+            return String(
+                localized: "session.import.error.resourceLimit",
+                defaultValue: "Could not open the selected session file. Choose a smaller or different file."
             )
         case let .newerSchemaVersion(_, found, supported):
             return String(

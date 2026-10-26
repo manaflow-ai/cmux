@@ -2,13 +2,9 @@ import CMUXAgentLaunch
 import CmuxControlSocket
 import Foundation
 
-private extension SessionWorkspaceLayoutSnapshot {
-    var isEmptyLayout: Bool {
-        switch self {
-        case .pane(let pane): return pane.panelIds.isEmpty
-        case .split(let split): return split.first.isEmptyLayout && split.second.isEmptyLayout
-        }
-    }
+private struct BoundedLayoutResult {
+    let layout: SessionWorkspaceLayoutSnapshot
+    let isEmpty: Bool
 }
 
 /// What `SessionSnapshotImportTrust` removed or held back from an imported
@@ -135,8 +131,9 @@ enum SessionSnapshotImportTrust {
         let keptWindowCount = min(bounded.windows.count, SessionPersistencePolicy.maxWindowsPerSnapshot)
         report.droppedWindowCount += bounded.windows.count - keptWindowCount
         bounded.windows = Array(bounded.windows.prefix(keptWindowCount))
-        for windowIndex in bounded.windows.indices {
-            var window = bounded.windows[windowIndex]
+        var boundedWindows: [SessionWindowSnapshot] = []
+        boundedWindows.reserveCapacity(bounded.windows.count)
+        for var window in bounded.windows {
             let originalWorkspaceCount = window.tabManager.workspaces.count
             window.tabManager.workspaces = Array(
                 window.tabManager.workspaces.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
@@ -167,10 +164,31 @@ enum SessionSnapshotImportTrust {
                         remainingNodes: &remainingLayoutNodes,
                         report: &report
                     )
-                    workspace.dock = dock
+                    workspace.dock = dock.panels.isEmpty ? nil : dock
                 }
                 window.tabManager.workspaces[workspaceIndex] = workspace
             }
+            let selectedWorkspaceIndex = window.tabManager.selectedWorkspaceIndex
+            var keptWorkspaces: [SessionWorkspaceSnapshot] = []
+            keptWorkspaces.reserveCapacity(window.tabManager.workspaces.count)
+            var remappedSelectedWorkspaceIndex: Int?
+            for (workspaceIndex, workspace) in window.tabManager.workspaces.enumerated() {
+                guard !workspace.panels.isEmpty || workspace.dock != nil else {
+                    report.droppedWorkspaceCount += 1
+                    continue
+                }
+                if selectedWorkspaceIndex == workspaceIndex {
+                    remappedSelectedWorkspaceIndex = keptWorkspaces.count
+                }
+                keptWorkspaces.append(workspace)
+            }
+            if remappedSelectedWorkspaceIndex == nil,
+               let selectedWorkspaceIndex,
+               !keptWorkspaces.isEmpty {
+                remappedSelectedWorkspaceIndex = min(selectedWorkspaceIndex, keptWorkspaces.count - 1)
+            }
+            window.tabManager.workspaces = keptWorkspaces
+            window.tabManager.selectedWorkspaceIndex = remappedSelectedWorkspaceIndex
             if var dock = window.dock {
                 dock.panels = boundedPanels(
                     dock.panels,
@@ -183,10 +201,15 @@ enum SessionSnapshotImportTrust {
                     remainingNodes: &remainingLayoutNodes,
                     report: &report
                 )
-                window.dock = dock
+                window.dock = dock.panels.isEmpty ? nil : dock
             }
-            bounded.windows[windowIndex] = window
+            guard !window.tabManager.workspaces.isEmpty || window.dock != nil else {
+                report.droppedWindowCount += 1
+                continue
+            }
+            boundedWindows.append(window)
         }
+        bounded.windows = boundedWindows
         return bounded
     }
 
@@ -229,7 +252,7 @@ enum SessionSnapshotImportTrust {
         if hitCap {
             report.droppedPanelCount += allowed.subtracting(usedPanelIDs).count
         }
-        return bounded
+        return bounded.layout
     }
 
     private static func boundedLayout(
@@ -240,7 +263,7 @@ enum SessionSnapshotImportTrust {
         remainingNodes: inout Int,
         usedPanelIDs: inout Set<UUID>,
         hitCap: inout Bool
-    ) -> SessionWorkspaceLayoutSnapshot {
+    ) -> BoundedLayoutResult {
         func unusedFallbackPanelIDs() -> [UUID] {
             var result: [UUID] = []
             result.reserveCapacity(fallbackPanelIDs.count)
@@ -250,11 +273,14 @@ enum SessionSnapshotImportTrust {
             }
             return result
         }
-        func fallbackLayout() -> SessionWorkspaceLayoutSnapshot {
-            return .pane(SessionPaneLayoutSnapshot(
-                panelIds: [],
-                selectedPanelId: nil
-            ))
+        func fallbackLayout() -> BoundedLayoutResult {
+            BoundedLayoutResult(
+                layout: .pane(SessionPaneLayoutSnapshot(
+                    panelIds: [],
+                    selectedPanelId: nil
+                )),
+                isEmpty: true
+            )
         }
 
         // Walk the input graph with an explicit work stack. A depth check in
@@ -265,7 +291,7 @@ enum SessionSnapshotImportTrust {
             case assemble(SessionSplitLayoutSnapshot)
         }
         var work: [WorkItem] = [.visit(layout, depth: depth)]
-        var results: [SessionWorkspaceLayoutSnapshot] = []
+        var results: [BoundedLayoutResult] = []
         results.reserveCapacity(min(remainingNodes, SessionPersistencePolicy.maxLayoutDepth) + 1)
 
         while let item = work.popLast() {
@@ -286,11 +312,14 @@ enum SessionSnapshotImportTrust {
                     let selected = pane.selectedPanelId.flatMap {
                         panelIDs.contains($0) ? $0 : nil
                     } ?? panelIDs.first
-                    results.append(.pane(SessionPaneLayoutSnapshot(
-                        panelIds: panelIDs,
-                        selectedPanelId: selected,
-                        isFullWidthTabMode: pane.isFullWidthTabMode
-                    )))
+                    results.append(BoundedLayoutResult(
+                        layout: .pane(SessionPaneLayoutSnapshot(
+                            panelIds: panelIDs,
+                            selectedPanelId: selected,
+                            isFullWidthTabMode: pane.isFullWidthTabMode
+                        )),
+                        isEmpty: panelIDs.isEmpty
+                    ))
                 case .split(let split):
                     work.append(.assemble(split))
                     work.append(.visit(split.second, depth: nodeDepth + 1))
@@ -303,29 +332,33 @@ enum SessionSnapshotImportTrust {
                 }
                 let second = results.removeLast()
                 let first = results.removeLast()
-                let firstEmpty = first.isEmptyLayout
-                let secondEmpty = second.isEmptyLayout
-                switch (firstEmpty, secondEmpty) {
+                switch (first.isEmpty, second.isEmpty) {
                 case (true, true): results.append(fallbackLayout())
                 case (true, false): results.append(second)
                 case (false, true): results.append(first)
                 case (false, false):
-                    results.append(.split(SessionSplitLayoutSnapshot(
-                        orientation: split.orientation,
-                        dividerPosition: split.dividerPosition,
-                        first: first,
-                        second: second
-                    )))
+                    results.append(BoundedLayoutResult(
+                        layout: .split(SessionSplitLayoutSnapshot(
+                            orientation: split.orientation,
+                            dividerPosition: split.dividerPosition,
+                            first: first.layout,
+                            second: second.layout
+                        )),
+                        isEmpty: false
+                    ))
                 }
             }
         }
         let result = results.last ?? fallbackLayout()
-        guard result.isEmptyLayout else { return result }
+        guard result.isEmpty else { return result.layout }
         let fallback = unusedFallbackPanelIDs()
-        return .pane(SessionPaneLayoutSnapshot(
-            panelIds: fallback,
-            selectedPanelId: fallback.first
-        ))
+        return BoundedLayoutResult(
+            layout: .pane(SessionPaneLayoutSnapshot(
+                panelIds: fallback,
+                selectedPanelId: fallback.first
+            )),
+            isEmpty: fallback.isEmpty
+        )
     }
 
     static func sanitizingUntrustedImport(

@@ -351,7 +351,7 @@ struct SessionSnapshotRepositoryTests {
             + Data("}]}".utf8)
         try data.write(to: fileURL)
 
-        guard case .failure(.notASessionSnapshot) = repository.importableSnapshot(fileURL: fileURL) else {
+        guard case .failure(.resourceLimitExceeded) = repository.importableSnapshot(fileURL: fileURL) else {
             Issue.record("expected deeply nested JSON to be rejected before decoding")
             return
         }
@@ -406,6 +406,29 @@ struct SessionSnapshotRepositoryTests {
         try snapshotData(structuralTokens: 1_200_000).write(to: primaryURL)
 
         #expect(repository.loadStartupSnapshot() == makeSnapshot(windowNames: ["w"]))
+        let destination = dir.appendingPathComponent("exported.json")
+        guard case .success = repository.exportSnapshot(to: destination, overwrite: true) else {
+            Issue.record("expected an over-limit app-owned snapshot to remain exportable")
+            return
+        }
+        #expect(try Data(contentsOf: destination) == Data(contentsOf: primaryURL))
+    }
+
+    @Test("import rejects UTF-16 before the byte scanner can bypass limits")
+    func importRejectsUTF16BeforeLexicalScan() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let repository = makeRepository(appSupport: dir)
+        let fileURL = dir.appendingPathComponent("utf16.json")
+        let utf8 = snapshotData(structuralTokens: 1_000_001)
+        let text = try #require(String(data: utf8, encoding: .utf8))
+        let encoded = try #require(text.data(using: .utf16LittleEndian))
+        try (Data([0xFF, 0xFE]) + encoded).write(to: fileURL)
+
+        guard case .failure(.resourceLimitExceeded) = repository.importableSnapshot(fileURL: fileURL) else {
+            Issue.record("expected UTF-16 imports to be rejected before lexical scanning")
+            return
+        }
     }
 
     @Test("import accepts exactly 1,000,000 structural tokens and refuses one more")
@@ -423,7 +446,7 @@ struct SessionSnapshotRepositoryTests {
             return
         }
         #expect(imported.snapshot == makeSnapshot(windowNames: ["w"]))
-        guard case .failure(.notASessionSnapshot) = repository.importableSnapshot(fileURL: overLimit) else {
+        guard case .failure(.resourceLimitExceeded) = repository.importableSnapshot(fileURL: overLimit) else {
             Issue.record("expected a file one token over the limit to be refused before decoding")
             return
         }

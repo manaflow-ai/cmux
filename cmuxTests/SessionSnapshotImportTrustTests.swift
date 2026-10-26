@@ -445,6 +445,7 @@ struct SessionSnapshotImportTrustTests {
             restored.windows.first?.tabManager.workspaces.reduce(0) { $0 + $1.panels.count }
                 == SessionPersistencePolicy.maxPanelsPerSnapshot
         )
+        #expect(restored.windows.first?.tabManager.workspaces.count == 8)
         // Every panel that won't restore is counted, including the ones the
         // per-workspace cap cut: 9 x 4,097 offered, 4,096 kept.
         #expect(report.droppedPanelCount == 9 * (SessionPersistencePolicy.maxPanelsPerSnapshot + 1)
@@ -468,6 +469,31 @@ struct SessionSnapshotImportTrustTests {
             == SessionPersistencePolicy.maxPanelsPerWorkspace)
         // Without this count no session.restore.bounded breadcrumb is written.
         #expect(report.droppedPanelCount == 88)
+    }
+
+    @Test("workspaces emptied by the global panel budget are dropped")
+    func globalPanelBudgetDropsEmptyWorkspaces() throws {
+        let panel = Self.panel(terminal: SessionTerminalPanelSnapshot())
+        let workspace = Self.workspace(
+            panels: Array(repeating: panel, count: SessionPersistencePolicy.maxPanelsPerWorkspace),
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panel.id], selectedPanelId: panel.id))
+        )
+        var original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
+        original.windows[0].tabManager.workspaces = Array(
+            repeating: workspace,
+            count: SessionPersistencePolicy.maxWorkspacesPerWindow
+        )
+
+        let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: Self.channelImport
+        )
+
+        let workspaces = try #require(restored.windows.first?.tabManager.workspaces)
+        #expect(workspaces.count == SessionPersistencePolicy.maxPanelsPerSnapshot
+            / SessionPersistencePolicy.maxPanelsPerWorkspace)
+        #expect(report.droppedWorkspaceCount ==
+            SessionPersistencePolicy.maxWorkspacesPerWindow - workspaces.count)
     }
 
     @Test("crash and phantom windows are pruned before the window cap is spent")
@@ -686,6 +712,7 @@ struct SessionSnapshotImportTrustTests {
         )
 
         let restoredWorkspaces = try #require(restored.windows.first?.tabManager.workspaces)
+        #expect(restoredWorkspaces.count == 8)
         #expect(restoredWorkspaces.reduce(0) { $0 + $1.panels.count } ==
             SessionPersistencePolicy.maxPanelsPerSnapshot)
         #expect(report.droppedPanelCount == 9 * (SessionPersistencePolicy.maxPanelsPerSnapshot + 1)
