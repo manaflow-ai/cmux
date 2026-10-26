@@ -38,6 +38,8 @@ import { RunsContext, type RunsContextValue } from "./RunCard";
 import { useRunEntry } from "./runs";
 import { ChiefRoutePage, RouteSheets } from "./RouteSheets";
 import { LiveTyping } from "./LiveTyping";
+import { chiefPresence } from "../../agent-session/acpmux/multiplayer/chiefAdapter";
+import { PresenceStack } from "../../agent-session/acpmux/multiplayer/Faces";
 import { RunSheet } from "./RunSheet";
 import type { HomeChannelsStore } from "./store";
 import { lastLiveReplies, threadObject, type ThreadObject } from "./threads";
@@ -177,6 +179,8 @@ export function HomeChannelsPage({
       rows.flatMap((row) => (row.kind === "message" && !row.message.id.startsWith("pending:") ? [row.message] : [])),
     [rows],
   );
+  // The people here and typing, as the agent chat shows them (multiplayer/chiefAdapter.ts).
+  const presence = useMemo(() => chiefPresence(people, me ?? "", snap.typing), [people, me, snap.typing]);
   const typingNames = snap.typing
     .filter((id) => id !== me && id !== snap.draft?.participant)
     .map((id) => people.get(id)?.name ?? id);
@@ -578,6 +582,8 @@ export function HomeChannelsPage({
                         </output>
                       )}
                       {notice && <output className="lg-notice">{notice}</output>}
+                      {/* Who else has the chat open: the agent chat's faces (multiplayer/Faces.tsx). */}
+                      <PresenceStack viewing={presence.viewing} />
                       {channel && (
                         <span className="lg-faces" aria-hidden="true">
                           {open.participants.slice(0, 4).map((p) => (
