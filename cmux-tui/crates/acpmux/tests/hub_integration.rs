@@ -49,6 +49,8 @@ mod prompt_withdraw;
 mod protocol_serve;
 #[path = "hub_integration/purged_stays_purged.rs"]
 mod purged_stays_purged;
+#[path = "hub_integration/log_retention.rs"]
+mod log_retention;
 #[path = "hub_integration/questions.rs"]
 mod questions;
 #[path = "hub_integration/restart.rs"]

@@ -1134,6 +1134,15 @@ When no config exists, harnesses are imported from `~/.acpx/config.json` (its `a
   a start with no proven session (no caller token) is unchanged (`hub/start_mode.rs`, "Inherit").
 - `store.mode`: `local` (default) or `memory`. Local writes `sessions/<id>/session.json` and
   append-only `events/NNNNNN.ndjson` segments.
+- `store.closedLogDays`: days a closed chat's event log is kept whole (default 14; 0 keeps every
+  log whole). After them its log is compacted: the harness's raw lines (`claude.*`, `codex.*`) and
+  tool call strings over 2 KB (outputs, file text, diffs; their first 512 bytes stay) are removed,
+  and everything else stays with its sequence number: the prompts, the agent's messages, the turn
+  and status records, and `session.json`, so the chat still lists, opens and resumes. A chat with
+  a running agent, an attached client, a turn, queue or watch is never touched. `acpmux daemon
+  retention` runs a pass; `--dry-run` only reports what it would free; `--archive DIR` keeps the
+  old segments under `DIR/<chat id>/events/`; `--older-than-days N` and `--only CHAT` narrow it.
+  Read when the daemon starts.
 - `websocket`: optional. The same protocol over WebSocket text frames, for remote clients such
   as a dashboard or a Durable Object. Put it behind a tunnel; the token is a bearer token.
 

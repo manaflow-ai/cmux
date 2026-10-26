@@ -475,6 +475,8 @@ pub enum Command {
     #[command(hide = true)]
     Reload,
     #[command(hide = true)]
+    Retention(RetentionArgs),
+    #[command(hide = true)]
     Status {
         #[arg(long)]
         show_token: bool,
@@ -896,6 +898,9 @@ pub enum DaemonCmd {
     Harnesses,
     /// Reload catalog configuration without stopping sessions.
     Reload,
+    /// Compact the event logs of chats closed for longer than `store.closedLogDays` (default
+    /// 14): their raw harness lines and long tool output go, their messages stay.
+    Retention(RetentionArgs),
     /// Print the RPC schema (methods, notifications, types, exit codes) as JSON.
     Schema,
     /// Every model id each harness declares or reports (`provider/model` for OpenCode and pi).
@@ -904,6 +909,22 @@ pub enum DaemonCmd {
         #[arg(long)]
         refresh: bool,
     },
+}
+
+#[derive(Args, Debug, Clone, PartialEq, Eq)]
+pub struct RetentionArgs {
+    /// Only report the chats and bytes a pass would compact; change nothing.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Keep every old log segment under this folder (`<folder>/<chat id>/events/`).
+    #[arg(long)]
+    pub archive: Option<PathBuf>,
+    /// Chats closed for longer than this many days, instead of the setting.
+    #[arg(long)]
+    pub older_than_days: Option<u32>,
+    /// One chat only (name or id).
+    #[arg(long)]
+    pub only: Option<String>,
 }
 
 #[derive(Args)]
@@ -1068,6 +1089,7 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Config { show_token } => Command::Config { show_token },
             DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Reload => Command::Reload,
+            DaemonCmd::Retention(args) => Command::Retention(args),
             DaemonCmd::Schema => Command::Schema,
             DaemonCmd::Models { refresh } => Command::Models { refresh },
         },
