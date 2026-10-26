@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextInput
+import CmuxNextWakeups
 import QuartzCore
 
 /// The lower part of the suggestion card: flush under the bar, as wide as
@@ -39,6 +41,21 @@ final class OmniboxSuggestionPanel {
         didSet { rows.forEach { $0.faviconSource = faviconSource } }
     }
 
+    /// Every row's moves, on the card's one consumer: a delivery reports the row under the latest point,
+    /// where the rows are now (a typed character can reorder them between the move and the frame).
+    private(set) lazy var hoverMoves = PointerFrameHover(owner: "OmniboxSuggestionPanel.hover", view: content) { [weak self] point in
+        guard let self else { return }
+        let local = content.card.convert(point, from: nil)
+        rows.first { $0.frame.contains(local) }?.pointerMoved(toWindowPoint: point)
+    }
+
+    /// The windows' frame-aligned pointer input (feature `pointerFrameHover`): the rows hover on a frame
+    /// interval's first move and once more at its frame, at the latest point. Nil: each move.
+    var hoverFrameInput: FrameInputCoalescers? {
+        get { hoverMoves.frames }
+        set { hoverMoves.frames = newValue }
+    }
+
     /// Shows `suggestions` under `anchor` (the bar), or above it when `upward`, clipped to `pane`.
     /// Rows already on the card take the new matches in place, so typing
     /// never rebuilds the card (no flash, hover tracking kept); only a
@@ -57,6 +74,7 @@ final class OmniboxSuggestionPanel {
                 rowViewsMade += 1
                 row.onClick = { [weak self] flags in self?.onPick?(index, flags) }
                 row.onPointer = { [weak self] inside, pointer in self?.onHover?(inside ? index : nil, pointer) }
+                row.hoverMoves = hoverMoves
                 rows.append(row)
                 content.card.addSubview(row)
             }
@@ -193,6 +211,7 @@ final class SuggestionCardView: NSView {
 
     /// The card never scrolls (at most 15 rows); the wheel must not reach
     /// the page under it either.
+    // input-coalesce: native (it drops the wheel; nothing runs to coalesce)
     override func scrollWheel(with event: NSEvent) {}
 
     override func viewDidChangeEffectiveAppearance() {

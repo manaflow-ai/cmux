@@ -1,4 +1,6 @@
 public import AppKit
+import CmuxNextInput
+public import CmuxNextWakeups
 
 /// A page's menu drawn past its window's edge (cx-6k6cg). A page menu that has no room above or
 /// below its anchor inside the web view hands its rows here: they show in a child panel of the
@@ -78,6 +80,12 @@ public final class WebPopupHost {
         self.send = send
     }
 
+    /// The windows' frame-aligned pointer input (feature `pointerFrameHover`): the menu's rows hover on a
+    /// frame interval's first move and once more at its frame, at the latest point. Nil: each move.
+    public var hoverFrameInput: FrameInputCoalescers? {
+        didSet { panel?.rows.hoverFrameInput = hoverFrameInput }
+    }
+
     /// The frame the menu is showing at (screen), for tests and `debug.window_list`.
     public var shownFrame: CGRect? { popup?.isShown == true && model != nil ? popup?.cardFrame : nil }
 
@@ -124,8 +132,10 @@ public final class WebPopupHost {
     }
 
     private func makePopup() -> NativePopupHost {
-        let popup = NativePopupHost(panel: WebPopupPanel(onPick: { [weak self] id in self?.picked(id) },
-                                                         onHover: { [weak self] id in self?.send(["type": "highlight", "id": id]) }))
+        let panel = WebPopupPanel(onPick: { [weak self] id in self?.picked(id) },
+                                  onHover: { [weak self] id in self?.send(["type": "highlight", "id": id]) })
+        panel.rows.hoverFrameInput = hoverFrameInput
+        let popup = NativePopupHost(panel: panel)
         // The page closes its own menu on a click in it.
         popup.keepsOpen = { [weak self] event in
             guard let webView = self?.webView, event.window === webView.window else { return false }
@@ -217,6 +227,15 @@ final class WebPopupRows: NSView {
     private var builtPlain = false
     private let style = PopupStyle.standard
     private static let separatorHeight: CGFloat = 9
+    /// Every row's moves, on the menu's one consumer: a delivery moves the row under the latest point.
+    private(set) lazy var hoverMoves = PointerFrameHover(owner: "WebPopupRows.hover", view: self) { [weak self] point in
+        self?.row(atWindowPoint: point)?.pointerMoved()
+    }
+    /// The windows' frame-aligned pointer input (``WebPopupHost/hoverFrameInput``); nil: each move.
+    var hoverFrameInput: FrameInputCoalescers? {
+        get { hoverMoves.frames }
+        set { hoverMoves.frames = newValue }
+    }
 
     init(onPick: @escaping (String) -> Void, onHover: @escaping (String) -> Void) {
         self.onPick = onPick
@@ -261,12 +280,19 @@ final class WebPopupRows: NSView {
             row.hideFromAccessibility()
             row.onHover = { [weak self] in self?.hovered(item.id) }
             row.onActivate = { [weak self] in self?.onPick(item.id) }
+            row.hoverMoves = hoverMoves
             return (item, row)
         }
         for (_, view) in rows {
             view.translatesAutoresizingMaskIntoConstraints = true
             addSubview(view)
         }
+    }
+
+    /// The row under `windowPoint` now (a rebuild or a scroll since the move hit-tests the rows there).
+    private func row(atWindowPoint windowPoint: CGPoint) -> PopupRowView? {
+        let point = convert(windowPoint, from: nil)
+        return rows.lazy.compactMap { $0.view as? PopupRowView }.first { $0.frame.contains(point) }
     }
 
     private func hovered(_ id: String) {

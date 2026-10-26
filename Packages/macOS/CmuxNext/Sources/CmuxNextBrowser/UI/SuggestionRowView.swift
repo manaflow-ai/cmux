@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextInput
 
 /// One suggestion: 16 pt icon, then "title – detail" on one line with the
 /// detail dimmed ("query - Engine Search"). The one highlighted row
@@ -10,6 +11,11 @@ final class SuggestionRowView: NSView {
     var onClick: ((NSEvent.ModifierFlags) -> Void)?
     /// Pointer inside (true) or leaving (false), at a screen point.
     var onPointer: ((Bool, CGPoint) -> Void)?
+    /// The card's one hover consumer (feature `pointerFrameHover`, ``OmniboxSuggestionPanel``): the
+    /// row's moves go to it and its delivery reports the row under the latest point, at most twice a
+    /// frame for the whole card (Chromium's rAF-aligned moves, main_thread_event_queue.cc). Enter,
+    /// exit and a press flush it first. Nil: each move reports at once.
+    weak var hoverMoves: PointerFrameHover?
     var isHighlighted = false {
         didSet {
             guard oldValue != isHighlighted else { return }
@@ -142,11 +148,25 @@ final class SuggestionRowView: NSView {
         tracking = area
     }
 
-    override func mouseEntered(with event: NSEvent) { onPointer?(true, screenPoint(event)) }
-    override func mouseMoved(with event: NSEvent) { onPointer?(true, screenPoint(event)) }
-    override func mouseExited(with event: NSEvent) { onPointer?(false, screenPoint(event)) }
+    // Enter, exit and a press are discrete: the card's pending move lands first (`ShouldFlushQueue`).
+    override func mouseEntered(with event: NSEvent) {
+        hoverMoves?.flush()
+        onPointer?(true, screenPoint(event))
+    }
+    override func mouseMoved(with event: NSEvent) {
+        if let hoverMoves { hoverMoves.moved(event) } else { onPointer?(true, screenPoint(event)) }
+    }
+    override func mouseExited(with event: NSEvent) {
+        hoverMoves?.flush()
+        onPointer?(false, screenPoint(event))
+    }
     override func mouseUp(with event: NSEvent) { onClick?(event.modifierFlags) }
-    override func mouseDown(with event: NSEvent) {}
+    override func mouseDown(with event: NSEvent) { hoverMoves?.flush() }
+
+    /// The card's frame delivery of a move over this row, at `windowPoint` in the row's window.
+    func pointerMoved(toWindowPoint windowPoint: CGPoint) {
+        onPointer?(true, window?.convertPoint(toScreen: windowPoint) ?? NSEvent.mouseLocation)
+    }
     override func accessibilityPerformPress() -> Bool { onClick?([]); return true }
 
     /// The event's location on screen. A tracking event is delivered to this
