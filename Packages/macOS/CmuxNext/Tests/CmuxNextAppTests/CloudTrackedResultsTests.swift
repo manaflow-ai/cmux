@@ -90,6 +90,18 @@ struct CloudTrackedResultsTests {
         }
     }
 
+    /// `cloud new-workspace --target machine:<id>` with an id that is not
+    /// there is refused with the unknown-machine text, not answered with a
+    /// new machine; with no target it keeps the only-machine fallback.
+    @Test func newWorkspaceOnAnUnknownMachineIsRefused() throws {
+        let f = CloudCLITargetTests.fixture()
+        let named = ActionInvocation(target: ActionTargetRef(kind: .machine, id: "vm-gone"), origin: .cli)
+        #expect(throws: ActionFailure.notFound(CloudStrings.unknownMachine("vm-gone"))) {
+            try CloudHandlers.workspaceMachine(named, f.context)
+        }
+        #expect(try CloudHandlers.workspaceMachine(ActionInvocation(origin: .cli), f.context) === f.session)
+    }
+
     @Test func anUnboundCloudActionSaysToUpdate() {
         #expect(!MiscHandlerStrings.cloud.contains("Cloud wave"))
         #expect(MiscHandlerStrings.cloud.contains("Update cmux"))
