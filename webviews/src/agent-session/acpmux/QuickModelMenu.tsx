@@ -177,6 +177,7 @@ export type ProbeRow = {
   shortcut?: boolean;
   check?: boolean;
   offer?: boolean;
+  group?: boolean;
 };
 
 const probeClass = (row: ProbeRow) =>
@@ -201,9 +202,21 @@ function QuickMenuSpacer({
       <div className="acpmux-quick-probe">
         {widths.map((row, index) => (
           <div key={index} className={probeClass(row)}>
-            <span className="acpmux-menu-label">{row.label}</span>
-            {row.tag && <span className="acpmux-quick-tag">{row.tag}</span>}
-            {row.value && <span className="acpmux-quick-value">{row.value}</span>}
+            {row.offer ? (
+              <span className="acpmux-menu-label">{row.label}</span>
+            ) : row.group ? (
+              <span className="acpmux-quick-label">
+                <span className="acpmux-menu-label">{row.label}</span>
+                {row.tag && <span className="acpmux-quick-tag">{row.tag}</span>}
+                {row.value && <span className="acpmux-quick-value">{row.value}</span>}
+              </span>
+            ) : (
+              <>
+                <span className="acpmux-menu-label">{row.label}</span>
+                {row.tag && <span className="acpmux-quick-tag">{row.tag}</span>}
+                {row.value && <span className="acpmux-quick-value">{row.value}</span>}
+              </>
+            )}
             {row.check && <span className="ui-menu-check">✓</span>}
             {row.sub && <span className="ui-submenu-chevron" />}
             {row.shortcut && <span className="ui-menu-shortcut">9</span>}
@@ -454,7 +467,12 @@ export function QuickModelMenu({
           FILTER_ROWS,
           (families?.list ?? [])
             .filter((family) => !family.starred && !family.note)
-            .reduce((count, family) => count + family.models.length + family.more.length, 0),
+            .reduce(
+              (count, family) =>
+                count +
+                [...family.models, ...family.more].reduce((rows, model) => rows + (model.offers?.length ?? 1), 0),
+              0,
+            ),
         ),
       ),
       separators: 0,
@@ -466,7 +484,7 @@ export function QuickModelMenu({
         ...families.list.flatMap((family): ProbeRow[] => [
           ...family.models.slice(0, FILTER_ROWS).flatMap((model): ProbeRow[] => {
             const chat = family.id === families.current;
-            const named = { label: model.name, ...(model.tag ? { tag: model.tag } : {}) };
+            const named = { label: model.name, group: true, ...(model.tag ? { tag: model.tag } : {}) };
             // The expanded version: the model's name heads its provider rows, indented under it.
             if (model.offers && menu.providers === "expanded")
               return [

@@ -98,15 +98,24 @@ function quickSections(
   const { latest, older } = sectionsFor(entry);
   const latestIds = new Set(latest.map((choice) => choice.id));
   const all = groupVariants([...latest, ...older].filter(usable), model).map(
-    ({ model: choice, name, tag, offers }): ModelChoice => ({
-      ...choice,
-      name,
-      ...(tag ? { tag } : {}),
-      ...(offers.find((offer) => offer.model === choice)?.provider
-        ? { provider: offers.find((offer) => offer.model === choice)!.provider }
-        : {}),
-      ...(offers.length > 1 ? { offers: offers.map((offer) => ({ ...offer.model, provider: offer.provider })) } : {}),
-    }),
+    ({ model: choice, name, tag, offers }): ModelChoice => {
+      // Keep the running provider when present; otherwise a grouped row lands the first available
+      // provider so an unavailable representative does not hide a selectable alternate.
+      const landing =
+        choice.id === model
+          ? choice
+          : choice.unavailable
+            ? (offers.find((offer) => !offer.model.unavailable)?.model ?? choice)
+            : choice;
+      const provider = offers.find((offer) => offer.model === landing)?.provider;
+      return {
+        ...landing,
+        name,
+        ...(tag ? { tag } : {}),
+        ...(provider ? { provider } : {}),
+        ...(offers.length > 1 ? { offers: offers.map((offer) => ({ ...offer.model, provider: offer.provider })) } : {}),
+      };
+    },
   );
   // A model is a top one when any provider's row of it is.
   const top = all.filter((choice) => (choice.offers ?? [choice]).some((offer) => latestIds.has(offer.id)));

@@ -102,7 +102,7 @@ export function groupVariants<T extends VariantModel>(models: readonly T[], curr
     }
     const next: ModelGroup<T> = {
       model,
-      name: provider ? name : model.name,
+      name: provider ? name : model.name.replace(BRACKET_TAG, ""),
       ...(tag ? { tag } : {}),
       offers: [offer],
     };
