@@ -6,8 +6,8 @@
 // BE ABLE TO CLICK ON THESE TO ACTUALLY GO TO THEM"), its tooltip naming the chat and that machine
 // ("Open chief-ui (huge-blue)"). The message is a
 // muted glass card under the line, its text drawn as Markdown with PR, issue and file references
-// linked, cut to its first eight lines (`RECEIVED_LINES`, the last fading out) when it is longer; the
-// line's chevron, or a click on the cut card, opens it whole, with the prompt as the agent got it
+// linked, cut between whole lines within `RECEIVED_LINES` (lineCut.ts), with Show more below.
+// Show more, the chevron, or a click on the cut card opens it whole, with the original prompt
 // (cmux's or Claude Code's envelope) behind Details under it. Whether it is open lasts while the
 // page does, so scrolling it out of the virtualized transcript keeps it. A sub-session family's
 // sender reads with who it is to this chat: "Parent · coordinator". Reply, at the line's end,
@@ -50,6 +50,7 @@ import { mentionedRepository } from "../../../githubReferences";
 import { useChatDisplay } from "../chatDisplay";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
+import { wholeLineCut } from "./lineCut";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
 const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
@@ -131,9 +132,10 @@ export function IncomingMessageLine({
   // cmux's Minimal Mode, which the chat follows (chatDisplay.ts).
   const { minimal } = useChatDisplay();
   const scope = useMemo<MessageScope>(() => (host === undefined ? {} : { host }), [host]);
-  // Whether the text runs past `RECEIVED_LINES`, measured as drawn (its width and font decide).
+  // Measure the eight-line limit and the safe cut above any crossing glyph, chip or code card.
   const textBox = useRef<HTMLDivElement>(null);
   const [long, setLong] = useState(false);
+  const [cutAt, setCutAt] = useState<number>();
   useLayoutEffect(() => {
     const box = textBox.current;
     if (!box) return;
@@ -142,12 +144,15 @@ export function IncomingMessageLine({
       // getComputedStyle still draws the card (unmeasured, uncut).
       const style = box.ownerDocument.defaultView?.getComputedStyle?.(box);
       const line = style ? parseFloat(style.lineHeight) : NaN;
-      setLong(Number.isFinite(line) && box.scrollHeight > line * RECEIVED_LINES + 1);
+      const runsPast = Number.isFinite(line) && box.scrollHeight > line * RECEIVED_LINES + 1;
+      setLong(runsPast);
+      setCutAt(runsPast ? wholeLineCut(box, line * RECEIVED_LINES) : undefined);
     };
     measure();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measure);
     observer.observe(box);
+    observer.observe(box.firstElementChild ?? box);
     return () => observer.disconnect();
     // Minimal Mode draws the card in a box of its own: measured again in the new one.
   }, [body, minimal]);
@@ -228,7 +233,12 @@ export function IncomingMessageLine({
     >
       {/* The chips read whose files these are (chips/messageScope.ts). */}
       <MessageScopeContext.Provider value={scope}>
-        <div ref={textBox} className="cv-received__text">
+        <div
+          ref={textBox}
+          className="cv-received__text"
+          style={cut && cutAt !== undefined ? { maxHeight: cutAt } : undefined}
+          onFocusCapture={cut ? () => show(true) : undefined}
+        >
           {text ? (
             <Markdown
               githubRepository={repository}
@@ -243,6 +253,21 @@ export function IncomingMessageLine({
           )}
         </div>
       </MessageScopeContext.Provider>
+      {cut && (
+        <button
+          type="button"
+          className="cv-user__more cv-received__show"
+          aria-expanded={false}
+          aria-controls={bodyId}
+          data-find-skip=""
+          onClick={() => {
+            show(true);
+            requestAnimationFrame(() => toggleButton.current?.focus());
+          }}
+        >
+          {t("message.more")}
+        </button>
+      )}
     </div>
   );
   return (

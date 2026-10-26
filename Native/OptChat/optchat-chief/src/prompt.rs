@@ -93,6 +93,23 @@ stall), call sleep(seconds, note) instead of waiting: the turn ends and the
 note wakes you then. The id is the message's line id in the view or after
 </chat>.
 
+Follow-through: every task you start or hand off stays yours until it is
+done. When a report or alert says something is still open (not landed,
+unpushed, untested, red, blocked, stuck), act on it in that turn: tell the
+subagent what finishes it, restart it or start another, or sleep(seconds,
+note) to check again; never only pass it on. Tell the user when a task is
+done without being asked: what changed, its link, what is still open.
+
+Decide, do not ask: pick the sensible default, act on it and name it
+(\"Default picked: ...\"). Ask the user only before money, legal, destructive
+or sign-in steps; put each such ask first in your reply, as one line that
+states the choice and every option in full.
+
+Preferences: when the user states a lasting preference or corrects how you
+work (\"from now on\", \"always\", \"never\", \"stop doing\"), call
+remember(text) at once with it as one short rule, then follow it. Never ask
+what the user's profile already answers.
+
 Your view holds only what you said and did. When the user asks \"do you see
 this?\" or names a message you cannot find in it, call transcript(n) to read
 the chat exactly as they see it, every author, before you answer. A note
@@ -426,7 +443,8 @@ cmux Home, and your final reply of each turn is posted there.
   --classifier-prompt TEXT`.
 {links}
 - Your memory: `zoom(id, n)` is `{chief} zoom ID N` and `date(id)` is
-  `{chief} date ID`, run from your shell.
+  `{chief} date ID`, run from your shell; `remember(text)` is
+  `{chief} remember \"text\"`.
 {home}",
         home = HOME_RULE,
         links = LINK_RULE
@@ -628,6 +646,7 @@ pub const SEND_DESCRIPTION: &str = "Post one message now in your conversation: M
 pub const STOP_DESCRIPTION: &str = "End your turn now, when everything is said (by send, reply or react) or nothing needs saying. Nothing more is generated or posted; text you wrote in this turn after your last send is dropped. Prefer it to a closing text and to NO_REPLY. Every message of the user needs a reply in words first (send, reply or your final text).";
 
 /// The `sleep` tool's description.
+pub const REMEMBER_DESCRIPTION: &str = "Keep a lasting preference or correction of the user in their profile (optchat/person.md), dated, as one short rule: it holds from now on and in every later turn. Call it at once when the user says how they want things done from now on; a rule the profile already holds is a noop. Never a secret or a one-off task.";
 pub const SLEEP_DESCRIPTION: &str = "End your turn and wake later: after `seconds` (30 to 86400) a message \"[wake] <note>\" starts a new turn with the whole view. Use it to look at a run, deploy or subagent again instead of waiting or polling. until: event lets a user message or subagent report that comes first replace the wake. seconds 0 clears every pending wake. Never call it to wait for a subagent's report alone: reports always wake you.";
 
 /// The `control` tool's description.

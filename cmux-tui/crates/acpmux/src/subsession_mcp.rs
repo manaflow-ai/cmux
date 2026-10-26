@@ -102,13 +102,13 @@ fn tools() -> Value {
         },
         {
             "name": "send_message",
-            "description": "Send a message to one of your sub-sessions (or to your parent session, to report or to ask for a higher limit). To a working session it queues behind the running turn by default, and the result says where it waits. deliver: next_step puts it into the running turn instead, read at the agent's next tool step (an agent that cannot take a message mid-turn gets it when the turn ends; the result's delivery says which); interrupt stops the turn first. A message to your parent always waits for its turn to end. The receiver's chat shows it came from you.",
+            "description": "Send a message to one of your sub-sessions (or to your parent session, to report or to ask for a higher limit). To a working session it goes into the running turn by default, read at the agent's next tool step; it never cancels the tool call the agent runs (an agent that cannot take a message mid-turn gets it when the turn ends; the result's delivery says which, and where it waits). deliver: after_turn queues it behind the running turn instead; interrupt stops the turn first (never your parent's). The receiver's chat shows it came from you.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "sessionId": {"type": "string"},
                     "text": {"type": "string"},
-                    "deliver": {"type": "string", "enum": ["next_step", "after_turn", "interrupt"], "description": "after_turn (default): queued behind the running turn. next_step: into the running turn, read at its next tool step (use it when the receiver must change course now). interrupt: stop the running turn, then run this."},
+                    "deliver": {"type": "string", "enum": ["next_step", "after_turn", "interrupt"], "description": "next_step (default): into the running turn, read at its next tool step. after_turn: queued behind the running turn, read when it ends. interrupt: stop the running turn, then run this (not to your parent)."},
                     "interrupt": {"type": "boolean", "description": "The same as deliver: interrupt."},
                     "attachments": {"type": "array", "items": {"type": "string"}, "maxItems": crate::attach::MAX_FILES, "description": "Files to send with it, as absolute paths on this machine (a screenshot, a log): an image reaches the receiver as an image, any other file as a link to its saved copy. At most 8 MiB a file and 10 MiB together."}
                 },
@@ -214,9 +214,9 @@ fn sent_text(r: &Value) -> String {
         }
         "queued" => {
             let sooner = if r["steering"].as_bool().unwrap_or(false) {
-                "To reach it sooner send with deliver: next_step, or interrupt to stop the turn."
+                "To reach it sooner send without deliver (it goes into the running turn at its next tool step)."
             } else {
-                "Its agent takes no message mid-turn; interrupt stops the turn to reach it sooner."
+                "Its agent takes no message mid-turn, so it waits for the turn to end."
             };
             format!(
                 "Queued behind its running turn (position {}, {queue} queued): it reads it when that turn ends. {sooner}",
