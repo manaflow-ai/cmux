@@ -1191,6 +1191,9 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             if batch.is_empty() {
                                 break;
                             }
+                            // Only output nobody waits on is kept: the wait
+                            // was for room, not past a caller's deadline.
+                            retry_deadline = Instant::now() + journal_durable_wait();
                             continue;
                         }
                         let transient = contention::is_transient(&error, retry_deadline);

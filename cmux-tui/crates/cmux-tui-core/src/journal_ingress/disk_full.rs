@@ -258,7 +258,7 @@ mod tests {
         mux.set_registry_max_page_count_for_test(None);
         let terminal_id = Arc::new(TerminalPublicId::parse(format!("term_{:032x}", 32)).unwrap());
         let generation: Arc<str> = Arc::from("disk-full-generation");
-        let while_full = vec![b'f'; 512 * 1024];
+        let while_full = vec![b'f'; 1024 * 1024];
         mux.journal_terminal_output(terminal_id.clone(), generation.clone(), while_full.clone());
         // A barrier behind it fails (disk full, or its deadline while the
         // writer holds the output), and the writer does not stop.
