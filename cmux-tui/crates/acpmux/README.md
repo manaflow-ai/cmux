@@ -1020,6 +1020,24 @@ profile's or preset's `env` to turn them off for that profile only. A Claude pro
 `argv` has `--strict-mcp-config` also gets none of them, so it keeps exactly the servers its
 own `--mcp-config` names.
 
+Every local session also gets the `acpmux` MCP server (`acpmux acpmux-mcp`, `acpmux_mcp.rs`),
+so an agent messages another lane or session with a tool call instead of piping text into
+`acpmux send --no-wait` in a shell. Behind the `cmux` server its tools are:
+
+- `acpmux_send {to, text, steer?}`: message a session by name, id or `host/name`. It returns
+  the message's `promptId` once the daemon has it (steered in, queued, or a new turn), or after
+  20 s with the message still on its way; it never waits for the reply. `steer` defaults to true.
+- `acpmux_ls {status?}`: one line per session on this machine and its peers.
+- `acpmux_last {name, count?}`: a session's last replies.
+- `acpmux_info {name}`: a session's state, as `acpmux session info`.
+
+Each tool is the request the agent's own `acpmux` CLI makes, on this daemon's socket, with the
+session's caller token. The tools can do nothing that CLI can't, and the receiver's chat
+records a sent message as this agent's (`session_message`), never as the person's. A
+remote-origin session gets none of cmux's tools, this server included. The agent pane draws
+an `acpmux_send` call, and a shell `acpmux send --no-wait` whose text is in the command line,
+as the collapsed "Sent to NAME" message row.
+
 Stopping a session kills the agent's whole process group, so background shells the agent
 started stop with it. Resume afterwards is exact, but the agent no longer remembers those
 processes.
