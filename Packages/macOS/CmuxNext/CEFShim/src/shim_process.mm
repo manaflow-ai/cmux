@@ -370,6 +370,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(tab_page_state_watch, "cmux_tab_page_state_watch");
   CMUX_BIND(tab_restore_entries, "cmux_tab_restore_entries");
   CMUX_BIND(tab_renderer_state, "cmux_tab_renderer_state");
+  CMUX_BIND(set_on_schedule_delayed, "cmux_set_on_schedule_delayed");
 #undef CMUX_BIND
 }
 
@@ -550,6 +551,9 @@ void cmux_shim_shutdown(void) {
   }
   if (fork_api().set_window_request_handler) {
     fork_api().set_window_request_handler(nullptr, nullptr);
+  }
+  if (fork_api().set_on_schedule_delayed) {
+    fork_api().set_on_schedule_delayed(nullptr, nullptr);
   }
   if (fork_api().set_install_prompt_handler) {
     fork_api().set_install_prompt_handler(nullptr, nullptr);
