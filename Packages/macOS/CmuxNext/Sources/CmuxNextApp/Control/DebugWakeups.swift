@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextControl
+import CmuxNextEnergy
 import CmuxNextSettings
 import CmuxNextWakeups
 import Darwin
@@ -116,5 +117,30 @@ nonisolated enum AppProcesses {
             out.append(Sample(kind: isHost ? "terminal-host" : "daemon", usage: usage))
         }
         return out
+    }
+}
+
+extension EnergyReport {
+    /// `debug.energy` over the energy services AppServices builds once (p14-energy-024), the app's
+    /// ledger (where the main wake queue counts its wakes) and the processes ``AppProcesses`` lists.
+    init(services: AppServices) {
+        self.init(state: { [weak services] in services.map(Self.state) }, ledger: .shared, processes: {
+            AppProcesses.sample().compactMap { ProcessEnergy.sample(kind: $0.kind, pid: $0.usage.pid, name: $0.usage.name) }
+        })
+    }
+
+    private static func state(_ services: AppServices) -> State {
+        let monitor = services.energyMonitor
+        let inputs = monitor.inputs
+        return State(
+            policy: services.energy.policy,
+            inputs: Inputs(lowPowerMode: inputs.lowPowerMode, onBattery: inputs.onBattery, hasBattery: inputs.hasBattery,
+                           batteryPercent: inputs.batteryPercent, thermal: inputs.thermal,
+                           setting: services.settings?.snapshot.energySaver ?? EnergySaverSetting.defaultValue,
+                           sessionOverride: monitor.isOffForSession),
+            wakeQueue: WakeQueue(entries: services.wakeUps.count),
+            // No fork Energy Saver call yet (p14-energy-030) and no early-pass count yet (p14-energy-018).
+            cef: CEF(saver: .unsupported, earlyPasses: nil)
+        )
     }
 }
