@@ -34,6 +34,13 @@ extension LayoutModel {
                 splitOverrides[change.split] = Override(value: ratio, transaction: close.transaction, ended: false)
             }
         }
+        // The widths this close leaves supersede sent widths the daemon has not acknowledged yet for the
+        // same columns (an earlier close's flush): those apply after the closes in `overlaid` and would
+        // hold the survivor at the older width until their reply.
+        if newColumnWidthMode == .fitScreen {
+            let kept = Set(after.columns.map(\.id)), gone = screen.layout.columns.map(\.id).filter { !kept.contains($0) }
+            supersedeSentWidths(Set(CloseSizing(old: screen.layout, new: after).columnResizes().map(\.column) + gone))
+        }
         showOverlaid()
         if focusedPane == pane, let successor = close.successor { focus(successor, notify: false) }
         return close

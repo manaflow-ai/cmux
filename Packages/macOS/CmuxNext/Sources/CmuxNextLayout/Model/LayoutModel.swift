@@ -416,6 +416,13 @@ public final class LayoutModel {
         setSplitRatio(split, ratio: ratio, transaction: .make(), phase: .ended)
     }
 
+    /// Drops the sent (ended) width overrides of `columns`: a newer change owns their widths now. A
+    /// live gesture's override stays.
+    func supersedeSentWidths(_ columns: Set<ColumnID>) {
+        guard !columns.isEmpty else { return }
+        widthOverrides = widthOverrides.filter { !columns.contains($0.key) || !$0.value.ended }
+    }
+
     /// Sets a column width locally; reports only the `.ended` value, like `setSplitRatio`.
     public func setColumnWidth(_ column: ColumnID, width: Double, transaction: LayoutTransactionID, phase: LayoutGesturePhase) {
         let width = min(max(width, ColumnWidthPreset.widthRange.lowerBound), ColumnWidthPreset.widthRange.upperBound)

@@ -101,7 +101,9 @@ Tests: `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/PaneCloseMotionTests.swif
   then the widths of closes that landed while another was pending, then each pending close in the
   order it was shown with the fit-screen sizing it leaves. Overlapping closes, their echoes in any
   order and refusals each show what the pending closes leave; the widths go out once, when the
-  screen's last pending close resolves. When the closed pane had the focus, the focus reducer picks
+  screen's last pending close resolves. A close's widths supersede sent widths the daemon has not
+  acknowledged for the same columns (an earlier close's flush). Every shown close, focused or not,
+  takes its pane out of the focus coordinator's topology, so a later close never picks a hidden pane. When the closed pane had the focus, the focus reducer picks
   the successor from the held topology without the pane (`layout.closeFocus` and the window's
   history, close-focus.md), the pick the echo's topology would make; the window applies it in the
   key's turn. Overlapping closes in one split chain still share `splitOverrides` (not seen yet).
