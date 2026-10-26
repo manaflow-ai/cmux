@@ -1773,22 +1773,35 @@ class Sweep:
         def click_during_motion():
             """A press while a split springs (p03-rendering-098): the base pane shrinks from its whole cell to its
             left half, so a point just right of the middle is in the new pane's rest frame but drawn in the base
-            pane until the spring is 90 % of its way. The press must focus the pane drawn there. With
-            motion.renderServer the hit test reads where the hosts are drawn (`presented_hit_reads` > 0); a press
-            that came after the landing reads none and is `late`, not a result."""
+            pane until the spring is 90 % of its way. The press must focus the pane drawn there. Only with
+            motion.renderServer on (else the row is skipped): the layout counts a press its intercept handled while
+            render-server springs ran (`presses_mid_spring`), apart from how it was hit tested, so a press that came
+            after the landing is `late`, not a result, and a press mid-spring that focused another pane is `wrong`
+            whatever `presented_hit_reads` (recorded) says."""
+            row = rpc("debug.tunables", {"action": "get", "key": "motion.renderServer"})
+            render_server = row.get("value") if isinstance(row, dict) and not error_of(row) else None
+            if render_server is not True:
+                return skip(f"motion.renderServer is {render_server!r}: the press is hit tested on the frames", "state")
             base = self.base["pane"]
             cell = next((p.get("cell") for p in self.pane_chrome(synced=True).get("panes") or [] if p.get("pane") == base), None)
             if not cell:
                 return {"skipped": "no pane geometry (debug.pane_chrome)"}
             x, y, w, h = cell
-            reads = (rpc("debug.layout_counters") or {}).get("presented_hit_reads") or 0
+
+            def counters():
+                reply = rpc("debug.layout_counters") or {}
+                return {key: reply.get(key) or 0 for key in ("presented_hit_reads", "presses_mid_spring")}
+            before = counters()
+
             def body():
                 act("splitRight", target=f"pane:{base}", focus=True)
                 rpc("debug.mouse", {"action": "click", "x": x + w * 0.55, "y": y + h / 2})
             out = self.frames_during(body)
-            out["presented_hit_reads"] = ((rpc("debug.layout_counters") or {}).get("presented_hit_reads") or 0) - reads
+            after = counters()
+            out.update({key: after[key] - before[key] for key in after})
+            out["render_server"] = render_server
             focused = (topology().get("focus") or {}).get("pane")
-            out["check"] = "ok" if focused == base else ("wrong" if out["presented_hit_reads"] > 0 else "late")
+            out["check"] = "ok" if focused == base else ("wrong" if out["presses_mid_spring"] > 0 else "late")
             return out
         self.interaction("click.during_motion", click_during_motion)
 

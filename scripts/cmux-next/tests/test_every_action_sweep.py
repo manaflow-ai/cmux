@@ -2080,15 +2080,20 @@ class StressShapeTests(unittest.TestCase):
 
 class ClickDuringMotionTests(unittest.TestCase):
     """click.during_motion (p03-rendering-098): Cmd-D on the base pane, then a press just right of its old middle,
-    drawn in the base pane while the split springs. The row checks the press focused the base pane, and tells a
-    press that came after the landing (no presentation read) from a wrong one."""
+    drawn in the base pane while the split springs. The row checks the press focused the base pane. Whether the
+    press came mid-spring is the layout's `presses_mid_spring`, not the presentation reads the row is about: a
+    press after the landing is `late`; a press mid-spring that missed is `wrong`, even when it read no
+    presentation layer (the regression the row exists for). With motion.renderServer off the row is skipped."""
 
-    def run_row(self, focused, reads):
+    def run_row(self, focused, reads, mid, render_server=True):
         calls = []
-        counters = iter([{"presented_hit_reads": 10}, {"presented_hit_reads": 10 + reads}])
+        counters = iter([{"presented_hit_reads": 10, "presses_mid_spring": 4},
+                         {"presented_hit_reads": 10 + reads, "presses_mid_spring": 4 + mid}])
 
         def rpc(method, params=None, timeout=60):
             calls.append((method, params))
+            if method == "debug.tunables":
+                return {"key": "motion.renderServer", "value": render_server}
             if method == "debug.pane_chrome":
                 return {"windows": [{"panes": [{"pane": "base", "cell": [100, 50, 800, 600]}]}]}
             if method == "debug.layout_counters":
@@ -2110,21 +2115,33 @@ class ClickDuringMotionTests(unittest.TestCase):
         return row, calls
 
     def test_the_press_drawn_in_the_base_pane_focuses_it(self):
-        row, calls = self.run_row("base", reads=2)
+        row, calls = self.run_row("base", reads=2, mid=1)
         self.assertEqual(row["check"], "ok")
         self.assertEqual(row["presented_hit_reads"], 2)
+        self.assertEqual(row["presses_mid_spring"], 1)
+        self.assertIs(row["render_server"], True)
         split = calls.index(("action.run", {"action": "splitRight", "focus": True, "target": "pane:base"}))
         click = next(i for i, call in enumerate(calls) if call[0] == "debug.mouse")
         self.assertLess(split, click, "the press goes after the split")
         self.assertEqual(calls[click][1], {"action": "click", "x": 100 + 800 * 0.55, "y": 50 + 300})
 
-    def test_a_press_that_read_the_drawn_panes_and_missed_is_wrong(self):
-        row, _ = self.run_row("new", reads=2)
+    def test_a_press_mid_spring_that_missed_is_wrong(self):
+        row, _ = self.run_row("new", reads=2, mid=1)
+        self.assertEqual(row["check"], "wrong")
+
+    def test_a_press_mid_spring_that_read_no_presentation_and_missed_is_wrong(self):
+        row, _ = self.run_row("new", reads=0, mid=1)
         self.assertEqual(row["check"], "wrong")
 
     def test_a_press_after_the_landing_is_late(self):
-        row, _ = self.run_row("new", reads=0)
+        row, _ = self.run_row("new", reads=0, mid=0)
         self.assertEqual(row["check"], "late")
+
+    def test_the_row_is_skipped_with_the_render_server_off(self):
+        row, calls = self.run_row("new", reads=0, mid=0, render_server=False)
+        self.assertEqual(row["skip_kind"], "state")
+        self.assertIn("motion.renderServer", row["skipped"])
+        self.assertFalse(any(call[0] == "debug.mouse" for call in calls), "the row pressed with the render server off")
 
 
 ROOT = os.path.dirname(os.path.dirname(SCRIPTS))
