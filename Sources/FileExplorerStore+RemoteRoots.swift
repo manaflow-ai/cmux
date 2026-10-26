@@ -53,14 +53,15 @@ extension FileExplorerStore {
         }
 
         let requestedRootPath = Self.normalizedRootPath(requestedRootPath)
-        if let requestedRootPath {
+        let currentHomePath = sshProvider.homePath
+        if let requestedRootPath,
+           let rootPath = Self.remoteRootPath(requestedRootPath, homePath: currentHomePath) {
             cancelRemoteHomeResolution()
             setRootStatusMessage(nil)
-            setRootPath(requestedRootPath)
+            setRootPath(rootPath)
             return
         }
 
-        let currentHomePath = sshProvider.homePath
         if !currentHomePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             setRootStatusMessage(nil)
             setRootPath(currentHomePath)
@@ -75,7 +76,8 @@ extension FileExplorerStore {
                 connection.port.map(String.init) ?? "",
                 connection.identityFile ?? "",
                 connection.sshOptions.joined(separator: "\u{1f}")
-            ].joined(separator: "\u{1e}")
+            ].joined(separator: "\u{1e}"),
+            requestedRootPath: requestedRootPath
         )
     }
 
@@ -144,7 +146,8 @@ extension FileExplorerStore {
     func resolveRemoteHome(
         workspaceId: UUID,
         provider: any RemoteFileExplorerProvider,
-        providerKey: String
+        providerKey: String,
+        requestedRootPath: String? = nil
     ) {
         let resolutionKey = [
             workspaceId.uuidString,
@@ -174,7 +177,9 @@ extension FileExplorerStore {
                         self.setProvider(cloudProvider.resolvingHome(homePath), reloadIfAvailable: false)
                     }
                     self.setRootStatusMessage(nil)
-                    self.setRootPath(homePath)
+                    self.setRootPath(
+                        requestedRootPath.flatMap { Self.remoteRootPath($0, homePath: homePath) } ?? homePath
+                    )
                 }
             } catch {
                 guard !Task.isCancelled else { return }
@@ -224,6 +229,16 @@ extension FileExplorerStore {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         return trimmed
+    }
+
+    // A remote shell title reports its cwd as `~` or `~/...`, which the quoted
+    // listing path cannot expand. nil until the remote home is known.
+    private static func remoteRootPath(_ path: String, homePath: String) -> String? {
+        guard path == "~" || path.hasPrefix("~/") else { return path }
+        guard !homePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        let relativePath = String(path.dropFirst(path == "~" ? 1 : 2))
+        guard !relativePath.isEmpty else { return homePath }
+        return homePath.hasSuffix("/") ? homePath + relativePath : homePath + "/" + relativePath
     }
 
 }
