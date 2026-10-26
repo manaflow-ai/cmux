@@ -173,8 +173,35 @@ pub(crate) fn mount_aliases(protected: &[PathBuf], mountinfo: &str) -> Vec<Strin
     aliases.into_iter().collect()
 }
 /// Reject recursive bind aliases at or below a writable root.
-pub(super) fn writable_mount_aliases(_roots: &[&PathBuf], _mountinfo: &str) -> Vec<String> {
-    Vec::new()
+/// Only a whole filesystem with no overlapping same-device mount is exempt.
+/// Loops end after the supplied roots and finite mount table.
+pub(super) fn writable_mount_aliases(roots: &[&PathBuf], mountinfo: &str) -> Vec<String> {
+    let mounts = match parse_mountinfo(mountinfo) {
+        Ok(mounts) => mounts,
+        Err(error) => return vec![error],
+    };
+    let mut aliases = BTreeSet::new();
+    for (index, mount) in mounts.iter().enumerate() {
+        let whole_filesystem = mount.root == Path::new("/")
+            && !mounts.iter().enumerate().any(|(other_index, other)| {
+                other_index != index
+                    && other.device == mount.device
+                    && (other.root.starts_with(&mount.root) || mount.root.starts_with(&other.root))
+            });
+        if whole_filesystem {
+            continue;
+        }
+        for root in roots {
+            if mount.point.starts_with(root) {
+                aliases.insert(format!(
+                    "{} is a bind mount inside the writable folder {}",
+                    mount.point.display(),
+                    root.display()
+                ));
+            }
+        }
+    }
+    aliases.into_iter().collect()
 }
 
 #[cfg(test)]
