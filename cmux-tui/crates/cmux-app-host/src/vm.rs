@@ -169,7 +169,8 @@ impl CpuWindow {
         let window = (cpu.window.as_nanos().min(u128::from(u64::MAX)) as u64).max(CPU_SLOTS);
         Self {
             budget: cpu.budget.as_nanos().min(u128::from(u64::MAX)) as u64,
-            slot: window / CPU_SLOTS,
+            // Rounded up, so the ring never covers less than the window.
+            slot: window.div_ceil(CPU_SLOTS),
             ring: vec![(u64::MAX, 0); CPU_SLOTS as usize + 1],
         }
     }
@@ -337,7 +338,8 @@ impl AppVm {
             let interrupted = interrupted.clone();
             runtime.set_interrupt_handler(Some(Box::new(move || {
                 let due = deadline.load(Ordering::Relaxed);
-                if due != 0 && clock(base, &skipped) > due {
+                // `>=`: a clock saturated at its end still reaches a deadline saturated there.
+                if due != 0 && clock(base, &skipped) >= due {
                     interrupted.store(true, Ordering::Relaxed);
                     return true;
                 }

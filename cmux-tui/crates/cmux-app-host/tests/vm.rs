@@ -229,11 +229,14 @@ mod apps {
 
     /// The per-entry deadline alone lets an app run 249 ms every 50 ms; the CPU window (2 s of VM
     /// time in any 10 s) stops it (leo-workspace design/app-store.md, the first primitive). The
-    /// entries spin 150 ms (the design's 200 ms leaves a loaded runner too little room under the
-    /// 250 ms deadline) and idle 50 ms on the VM clock, so all of them fall in one window.
+    /// entries spin 150 ms and idle 50 ms on the VM clock, so all of them fall in one window; the
+    /// entry deadline is raised to 5 s here so a loaded runner's pause in a spin cannot turn the
+    /// window's kill into an entry-deadline interrupt.
     #[test]
     fn entries_of_150_ms_every_50_ms_are_killed_within_the_cpu_window() {
-        let mut h = Harness::new(&app(r#"return { render: () => Text("ok") }"#));
+        let limits = Limits { entry_deadline: Duration::from_secs(5), ..Limits::default() };
+        let mut h =
+            Harness::with(&app(r#"return { render: () => Text("ok") }"#), json!({}), limits);
         let mut error = None;
         // 2 s of budget is used up by the 14th entry; 30 would be 4.5 s of VM time.
         for _ in 0..30 {
