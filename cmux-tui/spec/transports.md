@@ -328,6 +328,40 @@ Repeated `subscribe` calls and repeated attachments create independent server st
 
 The server event broadcaster holds 4,096 events per subscriber. The connection writer also has a 256-message, 16 MiB regular queue and a separate 256-message, 16 MiB control reserve. Stream overflow discards that stream's queued events, emits one stream-scoped `overflow`, and can leave unrelated streams and command responses usable. Exhausting the control reserve or the two-second write deadline closes the connection.
 
+### Reply and event order
+
+Each connection has one control sequence (stream 0): command replies, the events of its `subscribe`
+stream, and the items of its `session.events` stream. The server writes them in one FIFO, in the
+order they were enqueued. Every other stream (attach output, journal reads, loopback forwards,
+agent-session attaches and other resource streams) keeps its own FIFO: its items are never
+reordered among themselves, but priority may move them relative to other streams. The control FIFO
+goes first, with a bound: after 8 control-sequence items in a row, the writer writes one waiting
+item of another stream, so an event flood never starves attach output. A reply or terminal never
+yields, and the bound never changes the order inside the control FIFO. These rules hold on the
+Unix socket and WebSocket transports:
+
+1. Control replies and control events share one FIFO.
+2. **Not in force until chrome-parity p05-ipc-120 lands.** After p05-ipc-120, a reply is enqueued
+   after every event its request emitted, so it is written after them. Today the request emits its
+   events into the subscriber mailbox before it returns, but the subscription's thread moves them
+   to the FIFO later, and the reply, enqueued as soon as the command returns, is usually written
+   first.
+3. Items of a stream stay in their stream's FIFO; a stream's overflow drops only its own items
+   and never a reply.
+4. Control-sequence items use their stream's queue budget and backpressure, never the control
+   reserve, so an event flood ends its subscription with `overflow` and never closes the connection.
+
+**Not in force until p05-ipc-120 lands (rule 2):** a client may use "events read before this
+reply" as a barrier, because every event the request emitted is in it. Today that barrier can miss
+the request's own events. The macOS app's `LineTransport.routedEventCount` (and the `eventBarrier`
+of a reply) counts only stream-0 lines: raw events and the lines of a stream the client registered
+on the control sequence (`session.events`). The lines of any other stream never move it, and on a
+connection without a stream handler the app drops them. Regression tests: `cargo test -p
+cmux-tui-core --lib reply_event_order` (the two `*_under_stream_flood_*` tests are ignored and red
+until p05-ipc-120; run them with `-- --include-ignored`) and `ReplyEventOrderTests` (CmuxNext).
+`new-tab` changes the tree, not a split layout, so its echo is `tree-changed`; `set-split-ratio`
+is the `layout-changed` case.
+
 A reconnect creates a new transport generation. Old pending ids, event buffers, and stream handles never cross generations. A client resends authentication, calls `identify`, registers subscriptions before fetching snapshots, checks generation values, and reattaches surfaces. Network loss uses capped exponential delay with jitter and one in-flight attempt. Static-token rejection is terminal. Reconnect-credential rejection discards that credential once and enters one pairing attempt. Pairing denial, expiry, or rate limiting requires user action.
 
 vNext adds client-generated `stream_id` to `subscribe` and `attach-surface`, echoes it on every event, and adds idempotent `cancel-stream`. Request timeout remains distinct from stream cancellation.
