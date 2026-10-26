@@ -197,9 +197,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// In host mode, a page's resize holds its window's frame on a Core Animation fence until the page draws at the new size, for one display frame at most; a later page shows its last frame on its background.
+    public static let chromiumHostResizeFence = Feature(
+        index: 11,
+        name: "chromiumHostResizeFence",
+        owner: "PL-cef-layer",
+        description: "In host mode, a page's resize holds its window's frame on a Core Animation fence until the page draws at the new size, for one display frame at most; a later page shows its last frame on its background.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// In host mode, Chromium's extension popups, side panel, DevTools, popup windows and date and datalist popups show in cmux panels and panes from their layer contexts, with input sent to the host.
     public static let chromiumHostWidgets = Feature(
-        index: 11,
+        index: 12,
         name: "chromiumHostWidgets",
         owner: "PL-cef-layer",
         description: "In host mode, Chromium's extension popups, side panel, DevTools, popup windows and date and datalist popups show in cmux panels and panes from their layer contexts, with input sent to the host.",
@@ -216,7 +233,7 @@ nonisolated extension Feature {
 
     /// Chromium keeps its spare renderer only for a profile whose browser tab opened a web page, so Home with no browser tab and cmux pages start no spare renderer.
     public static let chromiumSpareAfterFirstTab = Feature(
-        index: 12,
+        index: 13,
         name: "chromiumSpareAfterFirstTab",
         owner: "PL-webui",
         description: "Chromium keeps its spare renderer only for a profile whose browser tab opened a web page, so Home with no browser tab and cmux pages start no spare renderer.",
@@ -233,7 +250,7 @@ nonisolated extension Feature {
 
     /// Chromium puts the open instances of a shareable cmux page (New Tab and every agent chat) in one live renderer of up to 8 pages, as Chrome does for New Tab Pages; different pages share only once their hosts carry their group. Needs fork API 32 and renderer paths.
     public static let cmuxPageRendererSharing = Feature(
-        index: 13,
+        index: 14,
         name: "cmuxPageRendererSharing",
         owner: "PL-memory",
         description: "Chromium puts the open instances of a shareable cmux page (New Tab and every agent chat) in one live renderer of up to 8 pages, as Chrome does for New Tab Pages; different pages share only once their hosts carry their group. Needs fork API 32 and renderer paths.",
@@ -250,7 +267,7 @@ nonisolated extension Feature {
 
     /// The daemon compresses the scrollback of a terminal that no client views and that printed nothing for 10 minutes, at utility priority and never under memory pressure; any access restores it first. Stays off until the kernel compressor measurement (p07-memory-112) shows a 2x gain.
     public static let coldScrollbackCompression = Feature(
-        index: 14,
+        index: 15,
         name: "coldScrollbackCompression",
         owner: "PL-memory",
         description: "The daemon compresses the scrollback of a terminal that no client views and that printed nothing for 10 minutes, at utility priority and never under memory pressure; any access restores it first. Stays off until the kernel compressor measurement (p07-memory-112) shows a 2x gain.",
@@ -267,7 +284,7 @@ nonisolated extension Feature {
 
     /// Each hibernated browser page keeps its last frame as a JPEG in its own 64 MB store, so every hibernated tab wakes to its picture; off keeps decoded frames in the shared 32 MB preview cache, where only the last few fit.
     public static let compressedSnapshots = Feature(
-        index: 15,
+        index: 16,
         name: "compressedSnapshots",
         owner: "PL-memory",
         description: "Each hibernated browser page keeps its last frame as a JPEG in its own 64 MB store, so every hibernated tab wakes to its picture; off keeps decoded frames in the shared 32 MB preview cache, where only the last few fit.",
@@ -285,7 +302,7 @@ nonisolated extension Feature {
 
     /// The control socket binds on a background lane at launch with the mode the launch settings read gives, and serves once its method groups register after the first frame, instead of binding on the main thread when the launch settles.
     public static let controlSocketEarlyBind = Feature(
-        index: 16,
+        index: 17,
         name: "controlSocketEarlyBind",
         owner: "Performance Lead",
         description: "The control socket binds on a background lane at launch with the mode the launch settings read gives, and serves once its method groups register after the first frame, instead of binding on the main thread when the launch settles.",
@@ -302,7 +319,7 @@ nonisolated extension Feature {
 
     /// Daemon requests run at their cause's class: verified-app requests at user-initiated, CLI, script, agent and page requests at utility, raised while they wait for or hold a daemon lock.
     public static let daemonRequestQos = Feature(
-        index: 17,
+        index: 18,
         name: "daemonRequestQos",
         owner: "Performance Lead",
         description: "Daemon requests run at their cause's class: verified-app requests at user-initiated, CLI, script, agent and page requests at utility, raised while they wait for or hold a daemon lock.",
@@ -319,7 +336,7 @@ nonisolated extension Feature {
 
     /// After Next or Previous Tab or Sidebar Item from a key, the sleeping browser page of the item one more step that way wakes in the background, so a held key finds it awake; a step the other way drops those wakes. Never in Low Power Mode on battery or under memory pressure.
     public static let directionalPrewarm = Feature(
-        index: 18,
+        index: 19,
         name: "directionalPrewarm",
         owner: "PL-switch",
         description: "After Next or Previous Tab or Sidebar Item from a key, the sleeping browser page of the item one more step that way wakes in the background, so a held key finds it awake; a step the other way drops those wakes. Never in Low Power Mode on battery or under memory pressure.",
@@ -336,7 +353,7 @@ nonisolated extension Feature {
 
     /// Energy Saver turns on as the energy.saver setting asks (Low Power Mode, low battery or a hot Mac on battery by default) and makes cmux draw fewer frames and wake less often.
     public static let energySaver = Feature(
-        index: 19,
+        index: 20,
         name: "energySaver",
         owner: "Performance Lead",
         description: "Energy Saver turns on as the energy.saver setting asks (Low Power Mode, low battery or a hot Mac on battery by default) and makes cmux draw fewer frames and wake less often.",
@@ -353,7 +370,7 @@ nonisolated extension Feature {
 
     /// Settings > Experimental shows a Feature Flags card: every feature with its state and the input that decided it; DEV and NIGHTLY builds can set each one on or off for the next launch.
     public static let featureFlagsCard = Feature(
-        index: 20,
+        index: 21,
         name: "featureFlagsCard",
         owner: "Performance Lead",
         description: "Settings > Experimental shows a Feature Flags card: every feature with its state and the input that decided it; DEV and NIGHTLY builds can set each one on or off for the next launch.",
@@ -370,7 +387,7 @@ nonisolated extension Feature {
 
     /// Each display link runs at the highest frame rate its armed clients ask for, and looping indicators such as spinners ask the render server for 30 frames a second.
     public static let frameRateClasses = Feature(
-        index: 21,
+        index: 22,
         name: "frameRateClasses",
         owner: "PL-motion-core",
         description: "Each display link runs at the highest frame rate its armed clients ask for, and looping indicators such as spinners ask the render server for 30 frames a second.",
@@ -387,7 +404,7 @@ nonisolated extension Feature {
 
     /// A frozen hidden page whose memory grows by max(50 MB, 25 percent) after it froze is discarded with its opener group, read at 5, 30 and 120 minutes after the freeze.
     public static let frozenGrowthDiscard = Feature(
-        index: 22,
+        index: 23,
         name: "frozenGrowthDiscard",
         owner: "PL-memory",
         description: "A frozen hidden page whose memory grows by max(50 MB, 25 percent) after it froze is discarded with its opener group, read at 5, 30 and 120 minutes after the freeze.",
@@ -404,7 +421,7 @@ nonisolated extension Feature {
 
     /// The GitHub feed poll and the web-updates check book no next run while no cmux window shows, and run once when a window shows again if one came due.
     public static let hiddenPollPause = Feature(
-        index: 23,
+        index: 24,
         name: "hiddenPollPause",
         owner: "Performance Lead",
         description: "The GitHub feed poll and the web-updates check book no next run while no cmux window shows, and run once when a window shows again if one came due.",
@@ -421,7 +438,7 @@ nonisolated extension Feature {
 
     /// A still gauge after the toolbar band shows when this Mac is busy or overloaded, with a popover of the load and its reasons; it reads the host every 15 seconds only while a window can be seen.
     public static let hostPressure = Feature(
-        index: 24,
+        index: 25,
         name: "hostPressure",
         owner: "PL-memory",
         description: "A still gauge after the toolbar band shows when this Mac is busy or overloaded, with a popover of the load and its reasons; it reads the host every 15 seconds only while a window can be seen.",
@@ -439,7 +456,7 @@ nonisolated extension Feature {
 
     /// Resting the pointer on a sidebar row or tab whose browser page is frozen or hibernated wakes that page in the background after a short dwell, at most two at once, never in Low Power Mode on battery or under memory pressure.
     public static let intentPrewarmHover = Feature(
-        index: 25,
+        index: 26,
         name: "intentPrewarmHover",
         owner: "PL-switch",
         description: "Resting the pointer on a sidebar row or tab whose browser page is frozen or hibernated wakes that page in the background after a short dwell, at most two at once, never in Low Power Mode on battery or under memory pressure.",
@@ -462,7 +479,7 @@ nonisolated extension Feature {
 
     /// A press on a sidebar row that switches only when the button comes up (multi-view rows, a row of a multi-selection) wakes that row's frozen or hibernated browser page in the background at once, at most two at once, never in Low Power Mode on battery or under memory pressure.
     public static let intentPrewarmPress = Feature(
-        index: 26,
+        index: 27,
         name: "intentPrewarmPress",
         owner: "PL-switch",
         description: "A press on a sidebar row that switches only when the button comes up (multi-view rows, a row of a multi-selection) wakes that row's frozen or hibernated browser page in the background at once, at most two at once, never in Low Power Mode on battery or under memory pressure.",
@@ -479,7 +496,7 @@ nonisolated extension Feature {
 
     /// Release builds keep the per-method daemon send-to-reply histograms and wire counters that Debug and bench builds always keep, as opt-in field data; off, a release build keeps none and its daemon connections count nothing.
     public static let ipcMethodLatencyFieldData = Feature(
-        index: 27,
+        index: 28,
         name: "ipcMethodLatencyFieldData",
         owner: "Performance Lead",
         description: "Release builds keep the per-method daemon send-to-reply histograms and wire counters that Debug and bench builds always keep, as opt-in field data; off, a release build keeps none and its daemon connections count nothing.",
@@ -1479,6 +1496,7 @@ nonisolated extension Feature {
         .cefPumpInputPolicy,
         .cefTimerSlack,
         .chromiumHostDragIn,
+        .chromiumHostResizeFence,
         .chromiumHostWidgets,
         .chromiumSpareAfterFirstTab,
         .cmuxPageRendererSharing,
@@ -1567,6 +1585,7 @@ nonisolated extension Feature {
         .cefPumpInputPolicy,
         .cefTimerSlack,
         .chromiumHostDragIn,
+        .chromiumHostResizeFence,
         .chromiumHostWidgets,
         .chromiumSpareAfterFirstTab,
         .cmuxPageRendererSharing,
