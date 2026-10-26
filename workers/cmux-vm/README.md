@@ -534,6 +534,37 @@ Migrations 0016 (agent columns on `api_keys`, `vm_client_sessions`) and 0017
 (its concurrent index) apply through the release runner; grant the Worker role
 SELECT, INSERT and UPDATE on `cmux_vm.vm_client_sessions`.
 
+## Domains and TLS rules
+
+Scopes `domain:read` and `domain:write` (both members of `domain:*`) cover
+`/v1/domains`, `/v1/domain-verifications`, `/v1/certificates`, `/v1/tls-rules`
+and `/v1/tls-forward-auths` (cx-b4h.6). The provider holds these resources
+account-wide; migration 0018 makes each one belong to one tenant, with opaque
+ids (`dom_`, `dvr_`, `tlsr_`, `fwa_`). Another tenant's id is 404 and absent
+from lists; service and agent keys see none of them; allowlisted keys see only
+listed ids and cannot create.
+
+- A domain is reserved by the first tenant to create a verification for it;
+  another tenant gets 409 until it is released, or for an unverified
+  reservation until it lapses after seven days. Verify checks only that
+  challenge's own TXT record. Names under the managed zone cannot be verified.
+- An ingress rule (source `public: true`) lands on one of the caller's VMs
+  (vm:network) and may name a managed hostname of the caller
+  (`<name>--<tenant tag>.<CMUX_VM_MANAGED_DOMAIN_ZONE>`, see `managedSuffix`
+  on the domain list), a verified domain of the caller, or one label below
+  it. When tenants verified nested domains, the most specific one decides.
+  `*.<domain>` needs the domain verified and no other tenant's child below it.
+- An egress rule (source one of the caller's VMs) is http only and reaches
+  only an origin in `VM_HTTPS_PROXY_ORIGINS`.
+- Header values (rules and forward-auth checks) are write-only; responses list
+  header names. Private networks, socks5 and non-header credential
+  transforms are not offered.
+
+Optional vars: `CMUX_VM_MANAGED_DOMAIN_ZONE` (a zone the provider account
+holds, with a wildcard certificate; unset disables managed hostnames),
+`CMUX_VM_DOMAIN_EDGE_HOST` and `CMUX_VM_CERTIFICATE_NAMESERVER` (DNS
+instructions in domain responses; unset omits them).
+
 ## Layout
 
 | path | what |

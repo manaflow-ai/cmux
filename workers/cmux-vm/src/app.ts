@@ -40,6 +40,10 @@ import type { UpstreamMesh } from "./upstream/mesh.ts";
 import type { MembershipCache } from "./auth/membership-cache.ts";
 import type { WebhookDeliveryStore } from "./db/identity.ts";
 import { handleStackWebhook, STACK_WEBHOOK_PATH } from "./handlers/stack-webhook.ts";
+import { domainsHandlers, tlsForwardAuthHandlers, tlsRulesHandlers } from "./handlers/domains.ts";
+import type { DomainStore } from "./db/domains.ts";
+import type { DomainPolicy } from "./domain/domains.ts";
+import type { UpstreamDomains } from "./upstream/domains.ts";
 
 export type Services =
   | VmImages
@@ -54,7 +58,11 @@ export type Services =
   | TenantPolicy
   | Entitlements
   | S3aServices
-  | MeshServices;
+  | MeshServices
+  | DomainServices;
+
+/** Domains and TLS (cx-b4h.6). */
+type DomainServices = DomainStore | UpstreamDomains | DomainPolicy;
 
 /** Mesh experiment (cx-0op); the membership cache and webhook deliveries are M4 (cx-0op.6, cx-0op.7). */
 type MeshServices = MeshStore | UpstreamMesh | MeshConfig | MembershipCache | WebhookDeliveryStore;
@@ -113,6 +121,9 @@ export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHand
     Layer.provide(authenticated(overlayServerHandlers)),
     Layer.provide(overlayServerDeviceHandlers),
     Layer.provide(authenticated(meshNetworkHandlers)),
+    Layer.provide(authenticated(domainsHandlers)),
+    Layer.provide(authenticated(tlsRulesHandlers)),
+    Layer.provide(authenticated(tlsForwardAuthHandlers)),
     // The one-time enrollment code is the credential (mesh M2, cx-0op.4).
     Layer.provide(meshEnrollHandlers),
     // The device's install-key signature is the credential (mesh M3, cx-0op.5).

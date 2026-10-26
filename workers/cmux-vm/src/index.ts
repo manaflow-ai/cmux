@@ -26,6 +26,9 @@ import { sqlMeshStoreLayer } from "./db/mesh.ts";
 import { meshConfigLayer, parseMeshExperiment } from "./mesh/config.ts";
 import { upstreamMeshLayer } from "./upstream/live-mesh.ts";
 import { sqlMembershipCacheLayer, sqlWebhookDeliveryStoreLayer } from "./db/identity.ts";
+import { sqlDomainStoreLayer } from "./db/domains.ts";
+import { domainPolicyLayer } from "./domain/domains.ts";
+import { upstreamDomainsLayer } from "./upstream/live-domains.ts";
 
 /** The per-tenant counters Durable Object; wrangler binds it as TENANT_LIMITS. */
 export { TenantLimitsObject } from "./limits/durable-object.ts";
@@ -58,6 +61,12 @@ export interface Env {
   readonly STACK_WEBHOOK_SECRET?: string;
   /** Service keys (cx-b4h.13): JSON array of { id, sha256, scopes, labels, teams? }; hashes only. See src/auth/service-keys.ts. */
   readonly CMUX_VM_SERVICE_KEYS?: string;
+  /** Domains (cx-b4h.6): the zone managed hostnames (`<name>--<tenant tag>.<zone>`) live under. Default: none (managed hostnames off). */
+  readonly CMUX_VM_MANAGED_DOMAIN_ZONE?: string;
+  /** The hostname custom domains CNAME to, shown in domain DNS instructions. Default: not shown. */
+  readonly CMUX_VM_DOMAIN_EDGE_HOST?: string;
+  /** The nameserver `_acme-challenge.<domain>` is delegated to for wildcard certificates. Default: not shown. */
+  readonly CMUX_VM_CERTIFICATE_NAMESERVER?: string;
 }
 
 const liveServices = (env: Env) => {
@@ -71,7 +80,7 @@ const liveServices = (env: Env) => {
   });
   return Layer.mergeAll(
     // Snapshot rows and API key management (slice S3a) share the request's connection with the other stores.
-    Layer.mergeAll(sqlStoresLayer, sqlSnapshotStoreLayer, sqlApiKeyAdminStoreLayer, sqlAgentStoreLayer, sqlMeshStoreLayer, sqlWebhookDeliveryStoreLayer).pipe(
+    Layer.mergeAll(sqlStoresLayer, sqlSnapshotStoreLayer, sqlApiKeyAdminStoreLayer, sqlAgentStoreLayer, sqlMeshStoreLayer, sqlWebhookDeliveryStoreLayer, sqlDomainStoreLayer).pipe(
       Layer.provide(sql),
     ),
     policy,
@@ -92,6 +101,12 @@ const liveServices = (env: Env) => {
     ),
     s3aServices(env),
     meshServices(env),
+    upstreamDomainsLayer({ baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY, environment: parseEnvironment(env.ENVIRONMENT) }),
+    domainPolicyLayer({
+      managedZone: env.CMUX_VM_MANAGED_DOMAIN_ZONE,
+      edgeHost: env.CMUX_VM_DOMAIN_EDGE_HOST,
+      certificateNameserver: env.CMUX_VM_CERTIFICATE_NAMESERVER,
+    }),
     stackTeamAdminLayer({
       apiUrl: env.STACK_API_URL,
       projectId: env.STACK_PROJECT_ID,

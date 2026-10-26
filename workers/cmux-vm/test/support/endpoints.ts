@@ -186,6 +186,33 @@ export const MESH_ENDPOINTS = [
 /** A well-formed firewall rule id that names no rule. */
 export const ABSENT_RULE_ID = `fwr_${"0".repeat(32)}`;
 
+/**
+ * Domains and TLS (cx-b4h.6); test/workers/domains.test.ts runs the isolation
+ * cases. `target` says which public id the path names.
+ */
+export const DOMAIN_ENDPOINTS = [
+  { name: "listDomains", method: "GET", template: "/v1/domains", scope: "domain:read", target: "tenant" },
+  { name: "getDomain", method: "GET", template: "/v1/domains/{domainId}", scope: "domain:read", target: "domain" },
+  { name: "deleteDomain", method: "DELETE", template: "/v1/domains/{domainId}", scope: "domain:write", target: "domain" },
+  { name: "requestWildcardCertificate", method: "POST", template: "/v1/domains/{domainId}/wildcard-certificate", scope: "domain:write", target: "domain" },
+  { name: "listCertificates", method: "GET", template: "/v1/certificates", scope: "domain:read", target: "tenant" },
+  { name: "createDomainVerification", method: "POST", template: "/v1/domain-verifications", scope: "domain:write", target: "tenant" },
+  { name: "listDomainVerifications", method: "GET", template: "/v1/domain-verifications", scope: "domain:read", target: "tenant" },
+  { name: "getDomainVerification", method: "GET", template: "/v1/domain-verifications/{verificationId}", scope: "domain:read", target: "verification" },
+  { name: "verifyDomain", method: "POST", template: "/v1/domain-verifications/{verificationId}/verify", scope: "domain:write", target: "verification" },
+  { name: "deleteDomainVerification", method: "DELETE", template: "/v1/domain-verifications/{verificationId}", scope: "domain:write", target: "verification" },
+  { name: "listTlsRules", method: "GET", template: "/v1/tls-rules", scope: "domain:read", target: "tenant" },
+  { name: "createTlsRule", method: "POST", template: "/v1/tls-rules", scope: "domain:write", target: "tenant" },
+  { name: "getTlsRule", method: "GET", template: "/v1/tls-rules/{ruleId}", scope: "domain:read", target: "rule" },
+  { name: "updateTlsRule", method: "PUT", template: "/v1/tls-rules/{ruleId}", scope: "domain:write", target: "rule" },
+  { name: "deleteTlsRule", method: "DELETE", template: "/v1/tls-rules/{ruleId}", scope: "domain:write", target: "rule" },
+  { name: "listTlsForwardAuths", method: "GET", template: "/v1/tls-forward-auths", scope: "domain:read", target: "tenant" },
+  { name: "createTlsForwardAuth", method: "POST", template: "/v1/tls-forward-auths", scope: "domain:write", target: "tenant" },
+  { name: "getTlsForwardAuth", method: "GET", template: "/v1/tls-forward-auths/{forwardAuthId}", scope: "domain:read", target: "forwardAuth" },
+  { name: "updateTlsForwardAuth", method: "PUT", template: "/v1/tls-forward-auths/{forwardAuthId}", scope: "domain:write", target: "forwardAuth" },
+  { name: "deleteTlsForwardAuth", method: "DELETE", template: "/v1/tls-forward-auths/{forwardAuthId}", scope: "domain:write", target: "forwardAuth" },
+] as const;
+
 /** Every scope that does not grant `scope`: the scope itself and its family scope (`snapshot:*`) are left out. */
 export const allScopesExcept = (scope: Scope): ReadonlyArray<Scope> =>
   ALL_SCOPES.filter((candidate) => candidate !== scope && !(candidate.endsWith(":*") && scope.startsWith(candidate.slice(0, -1))));

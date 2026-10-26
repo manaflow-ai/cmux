@@ -17,6 +17,9 @@ export const SCOPES = [
   "snapshot:read",
   "snapshot:write",
   "domain:*",
+  // Domains, verifications, certificates, TLS rules and forward-auth checks (cx-b4h.6); members of domain:*.
+  "domain:read",
+  "domain:write",
   "deploy:*",
   "git:*",
   // Mesh experiment (cx-0op): read meshes, change them, enroll a device, read and write the ACL.
@@ -41,7 +44,10 @@ export const SESSION_SCOPES: ReadonlySet<Scope> = new Set(SCOPES.filter((scope) 
 
 const isScope = Schema.is(Scope);
 
-const FAMILIES: ReadonlyArray<readonly [Scope, ReadonlyArray<Scope>]> = [["snapshot:*", ["snapshot:read", "snapshot:write"]]];
+const FAMILIES: ReadonlyArray<readonly [Scope, ReadonlyArray<Scope>]> = [
+  ["snapshot:*", ["snapshot:read", "snapshot:write"]],
+  ["domain:*", ["domain:read", "domain:write"]],
+];
 
 /** Unknown scope strings in a stored key are dropped, never widened. A family scope adds its members. */
 export function scopeSetOf(values: ReadonlyArray<string>): ReadonlySet<Scope> {
