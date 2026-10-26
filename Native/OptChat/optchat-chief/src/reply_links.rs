@@ -80,9 +80,12 @@ pub fn link_refs(text: &str, home: &Path, exists: &dyn Fn(&Path) -> bool) -> Str
                     out.push_str(&link);
                     copied = end;
                     i = end;
-                } else {
+                } else if b[i].is_ascii_alphanumeric() {
                     // Past the whole word, so a URL's path is never taken for one.
                     i += word_len(b, i).max(1);
+                } else {
+                    // A mark (`**`, `(`, `_`): the word may start after it.
+                    i += 1;
                 }
             }
             _ => i += 1,
