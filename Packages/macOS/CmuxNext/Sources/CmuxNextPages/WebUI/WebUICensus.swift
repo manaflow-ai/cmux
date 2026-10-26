@@ -130,7 +130,7 @@ nonisolated public struct WebUICensus: Sendable {
                         spare: spare,
                         windowNumber: view.window?.windowNumber, browserID: process?.browserID,
                         rendererClients: process?.clients ?? [],
-                        webKitPID: census.engine == "webkit" ? webKitPID(view.webKitView) : nil)
+                        webKitPID: census.engine == "webkit" ? view.webKitEngine.flatMap { webKitPID($0) } : nil)
         }
         var spares = spareWindows
         if let newTabSpare, !newTabSpareSeen {

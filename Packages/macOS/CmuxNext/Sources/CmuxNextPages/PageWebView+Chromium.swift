@@ -6,9 +6,9 @@ import CmuxNextWakeups
 import Foundation
 
 // Chromium mode (`browser.defaultEngine` is `chromium`, ``PageEnginePolicy``): the page shows in a
-// Chromium page from ``PageWebView/chromiumHosting``, over the same router, theme and scripts. The
-// WebKit view stays as an unloaded, hidden subview, so a page that fails in Chromium reopens in
-// WebKit at once (``fallBackToWebKit(_:)``) and WebKit-only hosts keep compiling.
+// Chromium page from ``PageWebView/chromiumHosting``, over the same router, theme and scripts. It
+// has no WebKit view: a page that fails in Chromium builds its WebKit engine and reopens there in
+// the same turn (``fallBackToWebKit(_:detail:)``, PageWebKitEngine.swift).
 extension PageWebView {
     /// The handlers the page scripts post to without a reply, in Chromium mode.
     static let chromiumFireAndForget = [
@@ -42,8 +42,9 @@ extension PageWebView {
                                 liveWebOverride: WebDevOverride.current.isActive).decide(for: descriptor, options: options)
     }
 
-    /// The view that takes the keyboard when the page is focused: Chromium's view or the WebKit view.
-    public var focusView: NSView { chromiumSession?.page.contentView ?? webView }
+    /// The view that takes the keyboard when the page is focused: Chromium's view or the WebKit view;
+    /// this view while its Chromium page is on its way (the page's attach hands the keyboard on).
+    public var focusView: NSView { chromiumSession?.page.contentView ?? webKitPieces?.view ?? self }
 
     /// The Chromium page that shows the page now; nil on WebKit.
     public var chromiumPage: (any PageChromiumPage)? { chromiumSession?.page }
@@ -74,19 +75,21 @@ extension PageWebView {
         #endif
     }
 
-    /// Loads `url` (a document of this page) in whichever engine shows it; a page waiting to show after a
-    /// crash loads it as it shows (``PageCrashRecovery/mayLoad(_:)``).
+    /// Loads `url` (a document of this page) in whichever engine shows it; a Chromium page on its way
+    /// loads ``route`` when it attaches, and a page waiting to show after a crash loads it as it shows
+    /// (``PageCrashRecovery/mayLoad(_:)``).
     func loadDocument(_ url: URL) {
         guard crash.mayLoad(url) else { return }
         traceOpenLoadStarted(.load)
-        if let chromiumSession { chromiumSession.page.load(url) } else { webView.load(URLRequest(url: url)) }
+        if let chromiumSession { chromiumSession.page.load(url) } else { webKitPieces?.view.load(URLRequest(url: url)) }
     }
 
-    /// Reloads the document in whichever engine shows it (after its show, for a page waiting after a crash).
+    /// Reloads the document in whichever engine shows it; a Chromium page on its way loads fresh when it
+    /// attaches, and a page waiting after a crash after its show.
     func reloadPage() {
         guard crash.mayLoad(nil) else { return }
         traceOpenLoadStarted(.reload)
-        if let chromiumSession { chromiumSession.page.reload() } else { webView.reload() }
+        if let chromiumSession { chromiumSession.page.reload() } else { _ = webKitPieces?.view.reload() }
     }
 
     // MARK: Start
@@ -96,8 +99,8 @@ extension PageWebView {
     /// page does not reach the host in time.
     func startChromium(hosting: any PageChromiumHosting) {
         traceMark(.chromiumStart)
-        webView.isHidden = true
-        let scripts = PageChromiumDocumentScripts(controller: webView.configuration.userContentController)
+        webKitPieces?.view.isHidden = true
+        let scripts = PageChromiumDocumentScripts(controller: userContent)
         let descriptor = descriptor
         let chatOpen = chatOpen
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -170,10 +173,13 @@ extension PageWebView {
             guard let self, let session, self.chromiumSession === session else { return }
             self.fallBackToWebKit(.chromiumFailed, detail: "no message from the page within \(wait)")
         }
-        if shouldFocusOnAttach == false, window?.firstResponder === webView { focusPage() }
+        // The keyboard went to the page while Chromium started: this view held it.
+        if shouldFocusOnAttach == false, let responder = window?.firstResponder,
+           responder === self || responder === webKitPieces?.view { focusPage() }
     }
 
-    /// Chromium failed for this page: it reopens in WebKit, at the route it showed.
+    /// Chromium failed for this page: it builds its WebKit engine and reopens there, in this turn, at
+    /// the route it showed.
     func fallBackToWebKit(_ reason: PageWebKitReason, detail: String) {
         chromiumStart?.cancel()
         chromiumStart = nil
@@ -183,13 +189,16 @@ extension PageWebView {
         chromiumUserEventUptime = nil
         chromiumDragFile = nil
         inputReadiness.editor = nil
-        scriptTarget.bridge = bridge
         engineDecision = .webKit(reason)
-        webView.isHidden = false
+        let engine = webKit
+        scriptTarget.bridge = engine.bridge
+        engine.view.isHidden = false
+        // The keyboard this view held while Chromium started goes to the WebKit view.
+        if window?.firstResponder === self { window?.makeFirstResponder(engine.view) }
         router.reset()
         loaded = false
         traceOpenLoadStarted(.reload)
-        webView.load(URLRequest(url: descriptor.url(route: route)))
+        engine.view.load(URLRequest(url: descriptor.url(route: route)))
         carryFreezeToWebKit()
     }
 
@@ -313,7 +322,8 @@ extension PageWebView {
     public func callPageFunction(_ body: String, arguments: [String: Any] = [:]) async -> Any? {
         guard !awaitsFirstShow else { return nil } // no document yet; WebKit would launch its process for it
         guard let page = chromiumSession?.page else {
-            return try? await webView.callAsyncJavaScript(body, arguments: arguments, contentWorld: .page)
+            // No engine view yet: a Chromium page on its way has no document to call.
+            return try? await webKitPieces?.view.callAsyncJavaScript(body, arguments: arguments, contentWorld: .page)
         }
         let names = arguments.keys.sorted()
         guard let values = try? JSONSerialization.data(withJSONObject: names.map { arguments[$0] ?? NSNull() }, options: [.fragmentsAllowed]),

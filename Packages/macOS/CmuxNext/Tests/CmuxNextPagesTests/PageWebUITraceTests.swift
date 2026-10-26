@@ -101,7 +101,7 @@ struct PageWebUITraceTests {
         let task = try rig.task("/")
         let finished: Bool? = await PageTestWait.value("answer") { done in
             task.finished = done
-            rig.handler.webView(rig.view.webKitView, start: task)
+            rig.handler.webView(rig.view.webView, start: task)
         }
         #expect(finished == true)
         let slices = try rig.recorder.schemeSlices()
@@ -117,7 +117,7 @@ struct PageWebUITraceTests {
         let task = try rig.task("/", method: "POST")
         var finished: Bool?
         task.finished = { finished = $0 }
-        rig.handler.webView(rig.view.webKitView, start: task)
+        rig.handler.webView(rig.view.webView, start: task)
         #expect(finished == false)
         let slices = try rig.recorder.schemeSlices()
         #expect(slices.map(\.part) == [0])
@@ -130,7 +130,7 @@ struct PageWebUITraceTests {
         let task = try rig.task("/missing.js")
         let finished: Bool? = await PageTestWait.value("answer") { done in
             task.finished = done
-            rig.handler.webView(rig.view.webKitView, start: task)
+            rig.handler.webView(rig.view.webView, start: task)
         }
         #expect(finished == false)
         let slices = try rig.recorder.schemeSlices()
@@ -147,8 +147,8 @@ struct PageWebUITraceTests {
         let replied: Bool? = await PageTestWait.value("reply") { done in
             // The reply's last step ends the task's work: a stopped task is not answered after it.
             rig.recorder.onEnd = { part in if part == 2, rig.recorder.ended(part: 2) == 3 { done(true) } }
-            rig.handler.webView(rig.view.webKitView, start: task)
-            rig.handler.webView(rig.view.webKitView, stop: task)
+            rig.handler.webView(rig.view.webView, start: task)
+            rig.handler.webView(rig.view.webView, stop: task)
         }
         #expect(replied == true)
         #expect(!answered)

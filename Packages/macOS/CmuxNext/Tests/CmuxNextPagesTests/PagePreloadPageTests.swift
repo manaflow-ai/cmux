@@ -64,7 +64,7 @@ struct PagePreloadPageTests {
 
     /// Whether the page's document-start scripts park it.
     private static func bootsParked(_ view: PageWebView) -> Bool {
-        view.webKitView.configuration.userContentController.userScripts.contains { $0.source == PageWebView.parkedScript }
+        view.userContent.userScripts.contains { $0.source == PageWebView.parkedScript }
     }
 
     /// Preloads a page of `host` in `parking` and returns it.
@@ -111,7 +111,7 @@ struct PagePreloadPageTests {
         #expect(view.engineDecision == .chromium)
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
-        #expect(view.webKitView.url == nil, "a WebKit document loaded beside the Chromium preload")
+        #expect(view.webKitPieces == nil, "a WebKit engine was built beside the Chromium preload")
         #expect(page.loaded == [descriptor.url()])
         #expect(page.calls.contains { $0.method == "Page.addScriptToEvaluateOnNewDocument" &&
             (($0.params["source"] as? String)?.contains(PageWebView.parkedScript) == true) })
@@ -213,7 +213,7 @@ struct PagePreloadPageTests {
         #expect(view.window === window && view.isParkedSpare)
         #expect(!parking.frame.intersects(content.bounds))
         #expect(parking.hitTest(NSPoint(x: parking.frame.midX, y: parking.frame.midY)) == nil)
-        let url = view.webKitView.url
+        let url = view.webView.url
 
         let second = Self.shownWindow()
         defer { second.close() }
@@ -225,6 +225,6 @@ struct PagePreloadPageTests {
         }
         #expect(held)
         #expect(view.window === second && view.superview === other)
-        #expect(view.webKitView.url == url, "the move reloaded the page")
+        #expect(view.webView.url == url, "the move reloaded the page")
     }
 }

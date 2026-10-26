@@ -197,7 +197,7 @@ struct PagePreloadsTests {
         fireAll()
         let held = try #require(preloads.heldPage)
         #expect(opened.requests.last?.documentAttributes == ["cloud-machines-layout": "cards"], "the preload booted with the default layout")
-        #expect(held.webKitView.configuration.userContentController.userScripts.contains {
+        #expect(held.userContent.userScripts.contains {
             $0.source.contains("cloud-machines-layout") && $0.source.contains("cards")
         })
         let claimed = try #require(preloads.claim(.cloud, routes: [], documentAttributes: attributes(.cloud)))

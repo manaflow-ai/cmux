@@ -676,10 +676,10 @@ final class AppServices {
         mobile = MobileHostService(displayName: { await MacName().displayName() }, work: work)
         #if DEBUG || CMUX_BENCH_HOOKS
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget, crashKeys: crashKeys),
-                                           turnObserver: oracleTurns, causes: mainWork.causes)
+                                           turnObserver: oracleTurns, mainWork: mainWork)
         #else
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget, crashKeys: crashKeys),
-                                           causes: mainWork.causes)
+                                           mainWork: mainWork)
         #endif
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork

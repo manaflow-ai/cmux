@@ -465,7 +465,7 @@ struct PageDiscardRestoreTests {
         }
         #expect(!view.discardPage(decoder: decoder))
         #expect(!view.isDiscarded)
-        #expect(view.webKitView.navigationDelegate === view)
+        #expect(view.webView.navigationDelegate === view)
     }
 
     /// A page parked in the preload slot refuses (the slot owns its life); a parked page an open claimed is a page
@@ -578,7 +578,7 @@ struct PageDiscardRestoreTests {
             #expect(cover.actions?[key] is NSNull, "the snapshot layer animates \(key)")
         }
         #expect(view.loadState.isLoading)
-        let scripts = view.webKitView.configuration.userContentController.userScripts.map(\.source)
+        let scripts = view.userContent.userScripts.map(\.source)
         let script = try #require(scripts.first { $0.contains(PageWebView.restoreGlobal) })
         #expect(script.contains(#""{\"draft\":\"hello\"}""#), "the saved state went in as anything but a string literal")
         #expect(script.contains("wasDiscarded: true"))
@@ -600,7 +600,7 @@ struct PageDiscardRestoreTests {
         #expect(painted == true)
         #expect(!view.showsDiscardSnapshot)
         #expect(cover.superlayer == nil)
-        #expect(!view.webKitView.configuration.userContentController.userScripts.contains { $0.source.contains(PageWebView.restoreGlobal) })
+        #expect(!view.userContent.userScripts.contains { $0.source.contains(PageWebView.restoreGlobal) })
         #expect(view.discardShell.snapshot == nil)
         #expect(view.lastRestoreTimes?.painted == view.paintedUptime)
         #expect(view.lastRestoreTimes?.painted != nil)
@@ -631,12 +631,12 @@ struct PageDiscardRestoreTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let view = try makeView(nil)
         defer { view.close() }
-        let webView = view.webKitView
+        let webView = view.webView
         #expect(view.discardPage(decoder: decoder))
         #expect(webView.navigationDelegate == nil)
         #expect(webView.isHidden)
         view.restoreDiscardedPage()
-        #expect(view.webKitView === webView)
+        #expect(view.webView === webView)
         #expect(webView.navigationDelegate === view)
         #expect(!webView.isHidden)
         #expect(!view.showsDiscardSnapshot, "no snapshot was kept, so none is drawn")
