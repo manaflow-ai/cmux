@@ -9,11 +9,11 @@ import WebKit
 /// one core of CPU) on macOS 14, 15 and 26, each also compiling the 4 MB pane bundle again. A web
 /// view made with an earlier page as its related web view (`_relatedWebView`, the WebKit SPI
 /// Safari uses for `window.open`) runs in that page's process. The group size bounds what one
-/// crash takes down (each page reloads itself, `AgentPaneNavigation`) and how many pages share one
+/// crash takes down (each page reloads itself) and how many pages share one
 /// process's main thread.
 ///
 /// ```swift
-/// let webView = groups.webView(for: configuration) { AgentPaneWKWebView(frame: .zero, configuration: $0) }
+/// let webView = groups.webView(for: configuration) { WKWebView(frame: .zero, configuration: $0) }
 /// ```
 @MainActor
 final class WebProcessGroups {

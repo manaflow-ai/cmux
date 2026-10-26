@@ -1,5 +1,6 @@
 @testable import CmuxNextAgentPane
 import AppKit
+import CmuxNextPages
 import CmuxNextRemoteFetch
 import CmuxNextSettings
 import CoreGraphics
@@ -471,11 +472,10 @@ struct AgentPaneMediaNoAutoActionTests {
     @Test(.timeLimit(.minutes(1))) func anSVGFileInTheProjectLeavesThePaneOnlyAsItsRebuiltCopy() async throws {
         let pane = try Self.pane()
         let svg = pane.project.appendingPathComponent("drawing.svg"), broken = pane.project.appendingPathComponent("broken.svg")
-        let shot = pane.project.appendingPathComponent("shot.png"), page = pane.project.appendingPathComponent("index.html")
+        let shot = pane.project.appendingPathComponent("shot.png")
         try Data(Self.hostileSVG.utf8).write(to: svg)
         try Data("<svg><a href='cmux://x'>".utf8).write(to: broken)
         try Self.png.write(to: shot)
-        try Data("<html></html>".utf8).write(to: page)
         let svgSource = "data:image/svg+xml;base64," + Data(Self.hostileSVG.utf8).base64EncodedString()
 
         // Show in Finder from the viewer: an SVG's copy, never the file the agent wrote; a PNG is still its own file.
@@ -489,7 +489,8 @@ struct AgentPaneMediaNoAutoActionTests {
         let refused = await Self.ask(pane, "file.drag", ["path": broken.path])
         #expect(Self.errorCode(refused) != nil, "\(refused)")
         // A path chip's Save As…: the same file as the drag.
-        let view = try #require(AgentPaneView(model: pane.model, source: .bundled(page)))
+        let page = try #require(AgentPageTestRoot.page)
+        let view = try #require(AgentPaneView(model: pane.model, source: .bundled(page), webUI: .agentPaneTestHost()))
         for file in [svg, shot] {
             let save = try #require(view.pathMenuItems(file.path)?.first { $0.title == AgentPaneMenuStrings.saveAs })
             let saved = await withCheckedContinuation { (done: CheckedContinuation<URL, Never>) in

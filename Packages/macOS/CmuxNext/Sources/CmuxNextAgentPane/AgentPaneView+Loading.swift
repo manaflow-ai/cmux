@@ -168,8 +168,8 @@ public final class AgentPaneLoadingView: NSView {
 }
 
 extension AgentPaneView {
-    /// The page's view: the shared page host's, or this pane's own web view.
-    var pageContent: NSView { page.map { $0 as NSView } ?? webView }
+    /// The page's view, the page host's.
+    var pageContent: NSView { page }
 
     /// Whether the pane draws its loading state until the page paints. A pane over its last
     /// page's image (a relaunch, `AgentPaneLaunchImages`) turns it off: that image is its first
@@ -242,7 +242,6 @@ extension AgentPaneView {
         }
         if pageContent.alphaValue == 0 { return .cover }
         // The page's own first frame (``PagePaintProbe``), the same signal in both engines.
-        guard page != nil else { return model.hasPainted ? .page : .pageEmpty }
         return ChatOpenTrace.shared.has(.pagePainted) ? .page : .pageEmpty
     }
 }

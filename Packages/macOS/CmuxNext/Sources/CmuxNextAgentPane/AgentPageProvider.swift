@@ -7,7 +7,7 @@ public extension PageDescriptor {
     /// only its own `cmux.agent.*` ops; the app actions it may run are checked by
     /// ``AgentPaneModel`` (`cmux.agent.action.run`), so it lists no shared native op.
     /// It opens no connection of its own (the host's native transport, AgentPaneTransport, carries
-    /// acpmux; the Debug dev loop loads a Vite page in the legacy host, which sends no header), shows
+    /// acpmux; a Debug dev server adds its own HMR origin, ``PageDevServer``), shows
     /// loopback previews and render cards (AgentPaneRenderFrame) in frames, and runs only its own script files, no inline script
     /// (plus WebAssembly compilation, `'wasm-unsafe-eval'`, for Ondine's Mermaid diagrams). The page's
     /// meta CSP says the same (build-agent-pane-web.sh; AgentPageCSPAlignmentTests); the host runs the

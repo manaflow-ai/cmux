@@ -1,9 +1,10 @@
 import CmuxNextSettings
 import Foundation
 
-/// Local video and audio files the pane may play. The page's CSP loads media only from the pane's
-/// own origin, so a checked file gets an unguessable `cmux-agent://pane/__media/<token>.<ext>` URL
-/// that ``AgentPaneSchemeHandler`` serves in byte ranges. The page never names a file itself: it
+/// Local video and audio files the pane may play. A checked file gets an unguessable
+/// `cmux-agent://pane/__media/<token>.<ext>` URL, which ``file(for:)`` maps back to the file. The
+/// page host serves no `__media/` prefix of the agent page yet, so these do not play until one
+/// does (in byte ranges, as the pane's old scheme handler served them). The page never names a file itself: it
 /// asks `media.load` with the path from the reply, and the host checks it like a reply image.
 /// Web media (an https link: a GitHub user attachment, a CI artifact) follows the reply image
 /// setting and network rules; bytes that are video or audio (``sniff(_:)``) are kept as a private
