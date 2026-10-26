@@ -814,7 +814,9 @@ class StoryCommandTests(unittest.TestCase):
     STORIES = HERE.parent / "perf-lab" / "stories.d"
 
     def stories(self):
-        found = [json.loads(path.read_text()) for path in sorted(self.STORIES.glob("launch*.json"))]
+        # bench-startup's stories; launch-connect is launch-connect-journey.py's (test_launch_journey_results).
+        found = [story for story in (json.loads(path.read_text()) for path in sorted(self.STORIES.glob("launch*.json")))
+                 if story["command"][0] == "scripts/cmux-next/bench-startup.py"]
         self.assertLessEqual({"launch-cold", "launch-cold-realistic", "launch-warm", "launch-warm-realistic",
                               "launch-after-reboot"}, {story["id"] for story in found})
         return found

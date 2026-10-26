@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "resampledDrags",
+  "owner": "PL-motion-cef",
+  "description": "Dragged dividers, pane edges, tab and workspace ghosts and the pane-swap preview are drawn at the pointer resampled at each frame time (Chromium LinearResampling); snaps, drop targets and the drop read the real pointer. Needs pointerFrameDrags; off under Reduce Motion.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["motion"],
+  "sticky": false,
+  "runtimeMutable": false
+}
