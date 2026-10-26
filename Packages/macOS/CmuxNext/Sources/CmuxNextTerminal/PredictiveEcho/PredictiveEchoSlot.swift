@@ -80,12 +80,11 @@ final class PredictiveEchoSlot {
                                               paddingLeft: metrics.padding_left, paddingTop: metrics.padding_top,
                                               viewHeight: view.bounds.height),
               let font = terminalFont(of: surface, cell: CGSize(width: metrics.cell_width, height: metrics.cell_height)),
-              let colors = view.session?.theme?.colors ?? GhosttyRuntime.shared.themeColors
+              let theme = view.session?.theme?.colors ?? GhosttyRuntime.shared.themeColors,
+              let colors = PredictiveEchoOverlay.colors(of: theme, backgroundOverride: view.session?.model.backgroundOverride)
         else { return nil }
-        let foreground = Self.color(colors.foreground)
-        return PredictiveEchoOverlay.Style(font: font, foreground: foreground,
-                                           background: view.session?.model.backgroundOverride ?? Self.color(colors.background),
-                                           cursor: colors.cursor.map { Self.color($0) } ?? foreground, cells: cells)
+        return PredictiveEchoOverlay.Style(font: font, foreground: colors.foreground, background: colors.background,
+                                           cursor: colors.cursor, cells: cells)
     }
 
     /// Ghostty's primary face at the configured size (`ghostty_surface_quicklook_font`, +1), read again
@@ -96,10 +95,6 @@ final class PredictiveEchoSlot {
         let read = Unmanaged<CTFont>.fromOpaque(pointer).takeRetainedValue()
         cachedFont = (cell, read)
         return read
-    }
-
-    private static func color(_ rgb: GhosttyThemeColors.RGB) -> NSColor {
-        NSColor(srgbRed: CGFloat(rgb.r) / 255, green: CGFloat(rgb.g) / 255, blue: CGFloat(rgb.b) / 255, alpha: 1)
     }
 
     /// One read of `text` (UTF-8) from `columns` of viewport row `row`; nil when Ghostty could not read it.
@@ -146,6 +141,20 @@ extension PredictiveEchoSlot: PredictiveEchoHost {
 
     var isComposing: Bool {
         view?.hasMarkedText() ?? false
+    }
+
+    /// The session's theme opacity, else the config's (with cmux.json's `appearance.backgroundOpacity`),
+    /// as ``style(of:surface:)`` reads the colors.
+    var isTranslucent: Bool {
+        guard let view else { return false }
+        return (view.session?.theme?.colors?.backgroundOpacity ?? GhosttyRuntime.shared.backgroundOpacity) < 1
+    }
+
+    /// The view's size and the cell size Ghostty last reported (`publish(size:)`): no call into Ghostty,
+    /// so it is read on every frame and inside the write callback.
+    var predictionGeometry: PredictiveEchoGeometry? {
+        guard let view, let model = view.session?.model else { return nil }
+        return PredictiveEchoGeometry(viewSize: view.bounds.size, cellSize: model.cellPixelSize)
     }
 
     func predictionsNeedFrames() {

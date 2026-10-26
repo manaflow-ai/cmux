@@ -16,6 +16,9 @@ import Testing
         var isAlternateScreen = false
         var isSecureInput = false
         var isComposing = false
+        var isTranslucent = false
+        var predictionGeometry: PredictiveEchoGeometry? = PredictiveEchoGeometry(viewSize: CGSize(width: 480, height: 240),
+                                                                                 cellSize: CGSize(width: 8, height: 16))
         private var frame = NSObject()
         private(set) var reads = 0
         private(set) var frameRequests = 0
@@ -141,6 +144,77 @@ import Testing
         display.keySent(Array("b".utf8))
         #expect(display.engine.pending.isEmpty)
         #expect(host.shown.cells.isEmpty)
+    }
+
+    @Test func aTranslucentBackgroundPredictsNothingAndHidesWhatShows() {
+        let host = Host()
+        let display = makeDisplay(host)
+        confirmed(host, display)
+        display.keySent(Array("b".utf8))
+        #expect(!host.shown.cells.isEmpty)
+        // The person lowers the window's opacity while the echo is on its way.
+        host.isTranslucent = true
+        #expect(display.frame() == false)
+        #expect(host.shown.cells.isEmpty)
+        #expect(host.shown.cursor == nil)
+        display.keySent(Array("c".utf8))
+        #expect(display.engine.pending.isEmpty)
+        #expect(host.shown.cells.isEmpty, "a prediction drew a solid cell on a translucent terminal")
+    }
+
+    @Test func aTallerViewWhilePredictionsShowClearsThemWithoutANewGhosttyFrame() {
+        let host = Host()
+        let display = makeDisplay(host)
+        confirmed(host, display)
+        display.keySent(Array("b".utf8))
+        #expect(!host.shown.cells.isEmpty)
+        // The split grows: rows count from the view's top, so the overlay's old frame is off its row.
+        host.predictionGeometry?.viewSize.height += 64
+        #expect(display.frame() == false)
+        #expect(host.shown.cells.isEmpty)
+        #expect(host.shown.cursor == nil)
+        #expect(display.engine.pending.isEmpty)
+    }
+
+    @Test func aFontSizeChangeWhilePredictionsShowClearsThemOnTheNextKey() {
+        let host = Host()
+        let display = makeDisplay(host)
+        confirmed(host, display)
+        display.keySent(Array("b".utf8))
+        #expect(!host.shown.cells.isEmpty)
+        // Cmd-= writes nothing to the terminal; the cells grow under the predictions.
+        host.predictionGeometry?.cellSize = CGSize(width: 9, height: 18)
+        display.keySent(Array("c".utf8))
+        #expect(host.shown.cells.isEmpty)
+        #expect(host.shown.cursor == nil)
+        #expect(display.engine.pending.isEmpty)
+    }
+
+    @Test func theSameGeometryKeepsThePredictions() {
+        let host = Host()
+        let display = makeDisplay(host)
+        confirmed(host, display)
+        display.keySent(Array("b".utf8))
+        display.keySent(Array("c".utf8))
+        #expect(host.shown.cells.map(\.glyph) == [UInt8(ascii: "b"), UInt8(ascii: "c")])
+        #expect(display.frame() == true)
+        #expect(display.engine.pending.count == 2)
+    }
+
+    @Test func theOverlayDrawsOpaqueCellsOnlyOnAnOpaqueBackground() throws {
+        func theme(opacity: Double) -> GhosttyThemeColors {
+            GhosttyThemeColors(background: .init(r: 10, g: 20, b: 30), foreground: .init(r: 200, g: 210, b: 220), palette: [],
+                               selectionBackground: nil, selectionForeground: nil, cursor: nil,
+                               backgroundOpacity: opacity, backgroundBlur: 0)
+        }
+        #expect(PredictiveEchoOverlay.colors(of: theme(opacity: 0.8), backgroundOverride: nil) == nil)
+        #expect(PredictiveEchoOverlay.colors(of: theme(opacity: 0.8), backgroundOverride: .black) == nil)
+        let opaque = try #require(PredictiveEchoOverlay.colors(of: theme(opacity: 1), backgroundOverride: nil))
+        #expect(opaque.background.alphaComponent == 1)
+        #expect(opaque.background == NSColor(srgbRed: 10.0 / 255, green: 20.0 / 255, blue: 30.0 / 255, alpha: 1))
+        #expect(opaque.cursor == opaque.foreground, "no cursor-color draws the cursor in the foreground")
+        let overridden = try #require(PredictiveEchoOverlay.colors(of: theme(opacity: 1), backgroundOverride: .black))
+        #expect(overridden.background == .black)
     }
 
     @Test func aWriteThatIsNotAKeyDropsThePredictionsAndTheConfirmation() {

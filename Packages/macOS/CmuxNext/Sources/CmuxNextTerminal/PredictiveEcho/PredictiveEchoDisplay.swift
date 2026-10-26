@@ -1,3 +1,13 @@
+import Foundation
+
+/// What places the overlay's cells in the surface view: the view's size (rows count from its top, in a
+/// view that is not flipped) and Ghostty's cell size (the font size). Another value while predictions
+/// show means the cells moved under them.
+struct PredictiveEchoGeometry: Equatable {
+    var viewSize: CGSize
+    var cellSize: CGSize
+}
+
 /// What ``PredictiveEchoDisplay`` reads from and draws on: the session's ``PredictiveEchoSlot`` over
 /// its surface view, or a test's.
 protocol PredictiveEchoHost: AnyObject {
@@ -11,6 +21,11 @@ protocol PredictiveEchoHost: AnyObject {
     var isSecureInput: Bool { get }
     /// An input method has marked text (Ghostty draws its preedit at the cursor).
     var isComposing: Bool { get }
+    /// The terminal background is translucent (`background-opacity` below 1): a predicted cell's fill
+    /// would show as a block, and a translucent fill could not hide the glyph under a predicted blank.
+    var isTranslucent: Bool { get }
+    /// Where the overlay's cells are now; nil while there is no surface.
+    var predictionGeometry: PredictiveEchoGeometry? { get }
     /// Predictions wait for their echo: call ``PredictiveEchoDisplay/frame()`` once per display frame
     /// until it returns false.
     func predictionsNeedFrames()
@@ -31,7 +46,10 @@ protocol PredictiveEchoHost: AnyObject {
 ///   confirms again. It reads no grid: it runs inside Ghostty's write callback.
 /// - Each display frame while predictions wait: when Ghostty presented a new frame or a prediction's
 ///   deadline came, the grid is read once and the echo is matched (``frame()``).
-/// - Nothing is predicted, and nothing shows, while an input method composes or secure input is on.
+/// - Nothing is predicted, and nothing shows, while an input method composes, secure input is on or
+///   the background is translucent.
+/// - A resize or a font size change while predictions show (``PredictiveEchoGeometry``) drops them:
+///   their cells are no longer where the overlay drew them, and the grid may have reflowed.
 ///
 /// Every rollback is exact: the overlay draws nothing and the real grid shows through. Nothing here
 /// writes to the terminal or the daemon.
@@ -42,6 +60,8 @@ final class PredictiveEchoDisplay {
     private let now: () -> ContinuousClock.Instant
     private var lastFrame: ObjectIdentifier?
     private var shown: (cells: [PredictiveEcho.Cell], cursor: PredictiveEcho.Position?) = ([], nil)
+    /// The geometry ``shown`` was drawn at.
+    private var shownGeometry: PredictiveEchoGeometry?
 
     init(config: TerminalPredictiveEcho, host: any PredictiveEchoHost,
          now: @escaping () -> ContinuousClock.Instant = { ContinuousClock.now }) {
@@ -57,7 +77,7 @@ final class PredictiveEchoDisplay {
     // perf-hot: 0.05ms terminal-key
     func keySent(_ bytes: [UInt8]) {
         guard let host else { return }
-        guard !host.isComposing else { return rollback() }
+        guard canShow(host) else { return rollback() }
         guard !bytes.isEmpty else { return }
         guard let screen = host.readPredictionGrid(row: engine.pending.first?.row, leftmost: leftmostColumn,
                                                    readsBefore: bytes.contains(PredictiveEcho.delete)) else {
@@ -78,7 +98,7 @@ final class PredictiveEchoDisplay {
     // perf-hot: 0.05ms terminal-key
     func frame() -> Bool {
         guard let host, !engine.pending.isEmpty else { return false }
-        guard !host.isComposing else {
+        guard canShow(host) else {
             rollback()
             return false
         }
@@ -109,6 +129,12 @@ final class PredictiveEchoDisplay {
         engine.pending.map(\.column).min()
     }
 
+    /// No input method composes, the background is opaque, and what shows is still where it was drawn.
+    private func canShow(_ host: any PredictiveEchoHost) -> Bool {
+        guard !host.isComposing, !host.isTranslucent else { return false }
+        return (shown.cells.isEmpty && shown.cursor == nil) || host.predictionGeometry == shownGeometry
+    }
+
     private func conditions(_ host: any PredictiveEchoHost) -> PredictiveEcho.Conditions {
         PredictiveEcho.Conditions(isRemoteSession: config.isRemoteSession, isSecureInput: host.isSecureInput)
     }
@@ -125,6 +151,7 @@ final class PredictiveEchoDisplay {
         }
         guard cells != shown.cells || cursor != shown.cursor else { return }
         shown = (cells, cursor)
+        shownGeometry = host?.predictionGeometry
         host?.showPredictions(cells, cursor: cursor)
     }
 }

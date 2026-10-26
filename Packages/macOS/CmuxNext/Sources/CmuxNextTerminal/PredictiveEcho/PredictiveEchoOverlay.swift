@@ -20,6 +20,28 @@ final class PredictiveEchoOverlay: NSView {
         var cells: CopyModeCursorFrame
     }
 
+    /// The terminal colors a ``Style`` draws with.
+    struct Colors: Equatable {
+        var foreground: NSColor
+        var background: NSColor
+        var cursor: NSColor
+    }
+
+    /// The overlay's colors for a terminal with `theme` and, when the program set one (OSC 11),
+    /// `backgroundOverride`. Nil on a translucent background: each cell's opaque fill would show as a
+    /// block over the window behind it, and a translucent fill could not hide the glyph under a
+    /// predicted blank.
+    static func colors(of theme: GhosttyThemeColors, backgroundOverride: NSColor?) -> Colors? {
+        guard theme.backgroundOpacity >= 1 else { return nil }
+        let foreground = color(theme.foreground)
+        return Colors(foreground: foreground, background: backgroundOverride ?? color(theme.background),
+                      cursor: theme.cursor.map { color($0) } ?? foreground)
+    }
+
+    private static func color(_ rgb: GhosttyThemeColors.RGB) -> NSColor {
+        NSColor(srgbRed: CGFloat(rgb.r) / 255, green: CGFloat(rgb.g) / 255, blue: CGFloat(rgb.b) / 255, alpha: 1)
+    }
+
     /// The predicted glyphs' share of the foreground: dim, as mosh draws unconfirmed text.
     static let glyphAlpha: CGFloat = 0.6
     static let cursorWidth: CGFloat = 2
