@@ -51,13 +51,14 @@ struct CloudAgentChatTests {
             #expect(bound, "the machine's store did not bind the started session to the chat's tab")
 
             _ = try await frames.call(wire, "_acpmux/attach", ["sessionId": session])
-            // The test agent answers `envs:` with its own environment: the machine's home and acpmux
-            // home prove the agent process runs on the machine, not on this Mac.
-            let prompt = "envs:HOME,ACPMUX_HOME"
+            // The test agent answers `envs:` with its own environment: the machine's home folder
+            // proves the agent process runs on the machine, not on this Mac (acpmux gives its
+            // agents no ACPMUX_HOME, so only HOME tells).
+            let prompt = "envs:HOME"
             let sent = try await frames.call(wire, "session/prompt", ["sessionId": session, "prompt": [["type": "text", "text": prompt]]])
             #expect(sent.errorCode == nil, "\(sent.raw)")
             let machineEnvironment = { (frames: Frames) in
-                frames.agentText().contains { $0.contains(world.home.path) && $0.contains(world.acpmuxHome.path) }
+                frames.agentText().contains { $0.contains(#""HOME": "\#(world.home.path)""#) }
             }
             let answered = await world.until { machineEnvironment(frames) }
             #expect(answered, "the machine's agent did not answer with the machine's environment: \(frames.agentText())")
