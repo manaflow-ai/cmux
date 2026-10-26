@@ -1,6 +1,6 @@
 # cmux-next startup order: what runs before the first frame, and why
 
-Status: launch order table (p08-startup task 015), read at `5c6bcf17e5e` (origin/perf/chrome-parity).
+Status: launch order table (p08-startup task 015), read at `2b8a58cca7f` (origin/perf/chrome-parity).
 Program spec: [chrome-parity/p08-startup.md](chrome-parity/p08-startup.md). Issue:
 [perf-lead.md](perf-lead.md) row 18 (#17587).
 
@@ -96,8 +96,8 @@ P1 target: `main_start` to `main.run` <= 10 ms on main, no file calls (033).
 | M16 | `DaemonService.prestart(...)` | main() | off main | 066 | The daemon connect overlaps AppKit's start. |
 | M17 | `CrashOnExceptions.register()` | main() | main | - | DEV and NIGHTLY crash at the throw site, before NSApp. |
 | M18 | `CmuxApplication.shared`, `refusesActivation` | main() | main | - | The CEF-ready NSApp subclass before anything touches NSApp. |
-| M19 | `AppDelegate(...)` init: `DisplayClock`, `FrameScheduler.install`, `StartupPhase`, `LaunchReveal`, `LaunchSettle`, `StartupReferences`, `MainWorkScheduler`, `AppControl` | main() | main | 012 | Composition root of the main-thread scheduler; 012 makes the `StartupScheduler` and begins the best-effort fence here; LaunchSettle goes (016). |
-| M20 | `meterTurns`, `app.delegate`, `setActivationPolicy(.regular)` | main() | main | - | AppKit setup. |
+| M19 | `AppDelegate(...)` init: `DisplayClock`, `FrameScheduler.install`, `StartupPhase`, `LaunchReveal`, `LaunchSettle`, `StartupReferences`, `InputEventTap`, `MainWorkScheduler`, `AppControl` | main() | main | 012 | Composition root of the main-thread scheduler; 012 makes the `StartupScheduler` and begins the best-effort fence here; LaunchSettle goes (016). |
+| M20 | `meterTurns`, `inputTap = delegate.inputTap`, `app.delegate`, `setActivationPolicy(.regular)` | main() | main | - | AppKit setup; the input tap hears every event from the first. |
 | M21 | `markLaunch("main.nsapp")`, `markLaunch("main.run")`, `app.run()` | main() | main | - | End of P1. |
 
 Added to `main()` by later tasks (rows Q2 14, 18, 25, 42, O1, O4): the watchdog as the first statement
@@ -116,7 +116,7 @@ awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/
   | grep -o -E '[A-Za-z.?]+\.(start|follow|wire|load|install|prewarm|register[A-Za-z]*|activate|attach|keepCurrent|startCloud|startChromiumRuntime|observe[A-Za-z]*|warmWhenIdle|bindRegistryActions|startDaemonSync|watchScope|writeManagedStatus|applyManagedFeaturesNow)\(' | sort -u
 ```
 
-82 names at `5c6bcf17e5e`. The spec's 81 were at `772cdfc45ac`; the one added since is
+82 names at `2b8a58cca7f`. The spec's 81 were at `772cdfc45ac`; the one added since is
 `GhosttyRuntime.shared.inputSources.start(` (row 16). After 014 the same names live in
 `CmuxNextApp/Startup/Startup+<Domain>.swift`, and `startup-lint.py` (104) replaces the awk range.
 
@@ -254,6 +254,9 @@ source order.
 | O39 | `services.startHibernation(settings:)` | afterStartup | main | 029 | Tab hibernation. |
 | O40 | Settings migrations and classic imports (`migrateLegacyQuitBehavior`, `migrateLegacyWorkspaceRowKeys`, `migrateLegacyPaneToolbarButtons`, `migrateClassicSettings`, `importClassicShortcuts`, `importClassicPreferences`) | main() read (pure transforms in the settings LaunchRead), write-back afterStartup | `.lane(.files, .bestEffort)` | 106 | The first snapshot has the migrated keys; the 2 classic imports after startup. |
 | O41 | `RemoteViewDebugMethods(services:).register(on:)`, `BrowserPageService(...).install(on:)` and the passkey hand-off | afterFirstFrame | main | 019 | Control method groups. |
+| O42 | `services.startEnergy()` (`EnergyMonitor.start`, `follow`) | afterFirstFrame (pane) | main | 031 (assigned here) | Low Power Mode, battery and thermal inputs for WebKit, KeepAwake and the video wallpaper; until it runs the inputs read nominal, and a tab made before it changes render rate once. |
+| O43 | `FrameScheduler.appDisplays.hub = VSyncHub()` (feature `vsyncHub`) | wiring | - | - | A value, off by default. |
+| O44 | `services.followEnergySaver(settings)` | afterFirstFrame | main | 029 (assigned here) | The `energy.saver` setting follow; the policy reads the default until then. |
 
 ## 5. `AppServices.init` starts (031)
 
@@ -271,8 +274,7 @@ Starts inside the initializer, outside Q1 and Q1b. 031: init holds no `start()` 
 | S8 | `input.start(services:)` | afterFirstFrame | main | 031 | Input verification observers. |
 | S9 | `browserHost?.start()` | afterStartup | main | 031 | Browser host engine provider (idle until the daemon offers the endpoint). |
 | S10 | `notifications.start(services:)` | afterFirstFrame | main | 031 | Banners; nothing to show before the first frame. |
-| S11 | `energyMonitor.start()`, `energyMonitor.follow` | afterFirstFrame | main | 031 (assigned here) | Low power and battery inputs; the defaults until then are nominal. |
-| S12 | `(NSApp as? CmuxApplication)?.inputDispatch`, `keyDownInterceptor`, `crossWindowKeyGuard` and the other NSApp hooks; `cache.*` and `registry.*` closures; `AppMemoryConsumers.registerMemoryConsumers()`; `BrowserLifecycleTrace.shared.configure` | wiring | - | 031 | NSApp input hooks stay in init (031); the rest are closures. |
+| S11 | `(NSApp as? CmuxApplication)?.inputDispatch`, `keyDownInterceptor`, `crossWindowKeyGuard` and the other NSApp hooks; `cache.*` and `registry.*` closures; `AppMemoryConsumers.registerMemoryConsumers()`; `crashRecovery.observe(cache.cef.crashLog)`; `BrowserLifecycleTrace.shared.configure` | wiring | - | 031 | NSApp input hooks stay in init (031); the rest are closures. |
 
 ## 6. Q1 eager builds (18)
 
@@ -303,10 +305,12 @@ Target <= 3 (cache, windows, keyRouter).
 022 now owns 8 builds (the spec says 6). The extra 2 are Q1-6 and Q1-7. With them, Q1 reaches the
 spec's target of 3.
 
-## 7. Q1b stored initializers (43)
+## 7. Q1b stored initializers (41)
 
 Queue command: `grep -n -E '^    (let|var|private\(set\) (var|let)) [a-zA-Z]+(: [^=]+)? = [A-Z][A-Za-z.]*[(.]' Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppServices.swift`.
-Line numbers at `5c6bcf17e5e`. Mark: `value-only` (the initializer stores values, no I/O, no observer, no
+41 hits at `2b8a58cca7f`; the spec's 43 were at `772cdfc45ac`. Since then `inputTap` (p04-input) and
+`energyMonitor` (p14-energy) are made by `AppDelegate` and passed by init, so they are no longer stored
+initializers. Line numbers at `2b8a58cca7f`. Mark: `value-only` (the initializer stores values, no I/O, no observer, no
 source), `lazy` (becomes a lazy var built on first use), `posted` (the work in its initializer moves to a
 post). The "Init does" column comes from reading each initializer; 098 checks each and changes the
 `lazy` and `posted` rows.
@@ -342,20 +346,18 @@ post). The "Init does" column comes from reading each initializer; 098 checks ea
 | B27 | 298 | `memoryPressure = MemoryPressureEvents(source:)` | Starts the kernel memory-pressure source. | posted: afterFirstFrame, main (the level reads normal until then; the restored-page loader runs after startup) | 098 |
 | B28 | 328 | `terminalDelegate = TerminalHostDelegate()` | Value. | value-only | - |
 | B29 | 330 | `notifications = NotificationCenterService()` | Values; starts in S10. | value-only | 031 |
-| B30 | 351 | `inputTap = InputEventTap()` | Empty. | value-only | - |
-| B31 | 359 | `chiefPetHomes = ChiefPetHomes()` | Empty. | value-only | - |
-| B32 | 361 | `chiefMascotPicks = ChiefMascotPicks(defaults:defaultChief:)` | A `UserDefaults` dictionary read. | lazy | 098 |
-| B33 | 384 | `terminalTheme = TerminalThemeSetting(backdropScope:)` | Stores the scope; `follow` is critical. | value-only | - |
-| B34 | 404 | `energyMonitor = EnergyMonitor()` | Makes the system input readers; starts in S11. | value-only | 031 |
-| B35 | 414 | `linkHints = LinkHintController()` | Values. | value-only | - |
-| B36 | 416 | `reactGrab = ReactGrab(scripts:)` | Stores the loader; loads on use. | value-only | - |
-| B37 | 418 | `windowHints = WindowHintController()` | Values. | value-only | - |
-| B38 | 435 | `pages = InternalPageTabStore()` | Values. | value-only | - |
-| B39 | 439 | `favicons = TabFaviconStore(loader:)` | Stores the loader. | value-only | - |
-| B40 | 442 | `hoverCards = HoverCardCoordinator()` | A DemandTimer value; observers with the first source. | value-only | - |
-| B41 | 444 | `refusalHUD = RefusalHUD()` | Stores the toast center. | value-only | - |
-| B42 | 454 | `burstTrace = BurstTrace()` | Empty. | value-only | - |
-| B43 | 456 | `vscodeServeWeb = VSCodeServeWebService(...)` | Stores a planner (home directory, environment) and a launcher. | lazy (only the VS Code page uses it; quit calls it only when built) | 098 |
+| B30 | 359 | `chiefPetHomes = ChiefPetHomes()` | Empty. | value-only | - |
+| B31 | 361 | `chiefMascotPicks = ChiefMascotPicks(defaults:defaultChief:)` | A `UserDefaults` dictionary read. | lazy | 098 |
+| B32 | 384 | `terminalTheme = TerminalThemeSetting(backdropScope:)` | Stores the scope; `follow` is critical. | value-only | - |
+| B33 | 418 | `linkHints = LinkHintController()` | Values. | value-only | - |
+| B34 | 420 | `reactGrab = ReactGrab(scripts:)` | Stores the loader; loads on use. | value-only | - |
+| B35 | 422 | `windowHints = WindowHintController()` | Values. | value-only | - |
+| B36 | 439 | `pages = InternalPageTabStore()` | Values. | value-only | - |
+| B37 | 443 | `favicons = TabFaviconStore(loader:)` | Stores the loader. | value-only | - |
+| B38 | 446 | `hoverCards = HoverCardCoordinator()` | A DemandTimer value; observers with the first source. | value-only | - |
+| B39 | 448 | `refusalHUD = RefusalHUD()` | Stores the toast center. | value-only | - |
+| B40 | 458 | `burstTrace = BurstTrace()` | Empty. | value-only | - |
+| B41 | 460 | `vscodeServeWeb = VSCodeServeWebService(...)` | Stores a planner (home directory, environment) and a launcher. | lazy (only the VS Code page uses it; quit calls it only when built) | 098 |
 
 ## 8. How to check
 
