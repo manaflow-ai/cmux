@@ -133,6 +133,10 @@ def test_each_app_reads_the_feed_its_publisher_writes():
     assert "core.setOutput('feed_base', channelIdentity.feedBase);" in WORKFLOW
     assert re.search(r'\n {10}prepare_variant \\\n {12}"\$APP_DIR" \\\n {12}"\$CHANNEL_BUNDLE_ID" \\\n {12}"\$\{CHANNEL_FEED_BASE\}/\$\{NIGHTLY_APPCAST\}"\n', builder)
     assert 'local feed_url="$3"' in builder and builder.count(":SUFeedURL string") == 1
+    # ...and nothing reassigns the values between the checks above and their use.
+    assert len(re.findall(r"\bfeed_url=", builder)) == 1
+    decide = job_block("decide")
+    assert len(re.findall(r"\b(?:variants|feeds)\b\s*(?:\.(?:push|unshift|splice)\b|=(?!=))", decide)) == 2
     assert 'Add :SUFeedURL string ${feed_url}"' in builder
     # The arm64 variant bakes appcast-arm64.xml (only universal keeps appcast.xml).
     assert ('          if [ "$NIGHTLY_VARIANT" = "universal" ]; then\n            NIGHTLY_APPCAST="appcast.xml"\n'
@@ -144,7 +148,7 @@ def test_each_app_reads_the_feed_its_publisher_writes():
     upload = WORKFLOW[WORKFLOW.index("- name: Upload nightly-next appcasts to R2"):]
     upload = upload[:upload.index("\n      - name:", 10)]
     assert 'for appcast in $NIGHTLY_FEEDS; do' in upload and 'key="${NIGHTLY_NEXT_R2_PREFIX}${appcast}"' in upload
-    assert upload.count("--key ") == 1 and '--key "$key"' in upload
+    assert upload.count("--key ") == 1 and '--key "$key"' in upload and len(re.findall(r"\bkey=", upload)) == 1
     # ...and NIGHTLY_FEEDS in that job is decide's feed list, the one checked above.
     publisher = job_containing("- name: Upload nightly-next appcasts to R2")
     assert job_env(publisher, "NIGHTLY_FEEDS") == "${{ needs.decide.outputs.feeds }}"
@@ -166,6 +170,7 @@ def test_each_app_reads_the_feed_its_publisher_writes():
     assert 'upload "legacy-out/$LEGACY_APPCAST" "$prefix/$LEGACY_APPCAST"' in publish
     # upload() puts its file at its second argument, the key checked above.
     assert publish.count("--key ") == 1 and '--bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$2"' in publish
+    assert len(re.findall(r"\bprefix=", publish)) == 1 and len(re.findall(r"\bLEGACY_APPCAST=", publish)) == 0
     assert legacy_base.startswith(host) and legacy_base != next_base
     # main's feed watch alarms when this feed falls behind; it must watch the same URL.
     assert f"{legacy_base}/appcast-arm64.xml" == "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
