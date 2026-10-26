@@ -101,7 +101,7 @@ struct CloudStartSession {
                         return fields
                     } catch is CancellationError {
                         // Only a sign-out or team switch cancels a run (``CloudStartSessionRuns/forgetAll()``).
-                        asks.finish(tab: tab.id, token: token, failure: CloudStartSessionStrings.accountChanged(asked))
+                        asks.finish(tab: tab.id, token: token, failure: CloudStartSessionStrings.accountChangedWhileStarting(asked))
                         throw CancellationError()
                     } catch {
                         asks.finish(tab: tab.id, token: token, failure: (error as? ActionFailure)?.message ?? Self.startFailure(error, name: named, id: request.machineID ?? named, agent: request.agent))

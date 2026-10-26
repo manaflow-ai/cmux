@@ -184,16 +184,21 @@ struct CloudStartSessionTests {
             #expect(refusal.failure.message.contains("`cmux cloud start-session --target machine:vm-devbox --agent codex`"))
             #expect(refusal.failure.message != CloudStartSessionStrings.accountChanged(CloudStartSession.Request(machineID: "vm-devbox", name: nil, agent: "codex", cwd: nil).asked(machine: "devbox")))
         }
-        let cancelled = Task { @MainActor in
+        let cancelled = Task { @MainActor () -> (any Error)? in
             withUnsafeCurrentTask { $0?.cancel() }
-            return await Result { try await CloudStartSession.created(closed, name: "devbox", id: "vm-devbox", agent: "codex") }
+            do {
+                _ = try await CloudStartSession.created(closed, name: "devbox", id: "vm-devbox", agent: "codex")
+                return nil
+            } catch {
+                return error
+            }
         }
-        guard case .failure(let error) = await cancelled.value else { Issue.record("a cancelled run went on"); return }
-        #expect(error is CancellationError)
+        let error = await cancelled.value
+        #expect(error is CancellationError, "a cancelled run's error: \(String(describing: error))")
     }
 
     /// What a keyed start did on the machine, in order.
-    final class StartSteps: Sendable {
+    nonisolated final class StartSteps: Sendable {
         let steps = Mutex([String]())
         func note(_ step: String) { steps.withLock { $0.append(step) } }
         var all: [String] { steps.withLock { $0 } }

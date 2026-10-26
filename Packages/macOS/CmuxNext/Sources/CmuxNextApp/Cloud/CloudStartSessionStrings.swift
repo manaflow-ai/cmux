@@ -34,6 +34,11 @@ enum CloudStartSessionStrings {
         String(format: String(localized: "cloud.startSession.accountChanged", defaultValue: "Your Cloud account or team changed after this was asked, so %2$@ didn't start on %1$@. Run `%3$@` again in the account you want it in.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command)
     }
 
+    /// The signed-in account or team changed after Start, while the run went on: it stopped.
+    static func accountChangedWhileStarting(_ asked: Asked) -> String {
+        String(format: String(localized: "cloud.startSession.accountChangedWhileStarting", defaultValue: "Your Cloud account or team changed while %2$@ was starting on %1$@, so the start stopped. Run `%3$@` again in the account you want it in.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command)
+    }
+
     // MARK: The start (``CloudStartSession``)
 
     /// A non-person run that names no machine.

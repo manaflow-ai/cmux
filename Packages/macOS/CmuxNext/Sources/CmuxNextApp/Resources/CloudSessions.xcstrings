@@ -163,6 +163,33 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Tài khoản hoặc nhóm Cloud của bạn đã thay đổi sau yêu cầu này, nên %2$@ chưa khởi động trên %1$@. Hãy chạy lại `%3$@` trong tài khoản bạn muốn dùng."}}
       }
     },
+    "cloud.startSession.accountChangedWhileStarting": {
+      "comment": "The signed-in Cloud account or team changed after the person clicked Start, while the run went on, so it stopped. %1$@ machine, %2$@ agent, %3$@ the command (keep it in backticks).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Your Cloud account or team changed while %2$@ was starting on %1$@, so the start stopped. Run `%3$@` again in the account you want it in."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%1$@ で %2$@ を開始している間に Cloud のアカウントまたはチームが変わったため、開始は中止されました。使いたいアカウントで `%3$@` をもう一度実行してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Dein Cloud-Konto oder Team hat sich geändert, während %2$@ auf %1$@ startete, daher wurde der Start abgebrochen. Führe `%3$@` im gewünschten Konto erneut aus."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Votre compte ou équipe Cloud a changé pendant le démarrage de %2$@ sur %1$@ : le démarrage s'est arrêté. Relancez `%3$@` dans le compte voulu."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Tu cuenta o equipo de Cloud cambió mientras %2$@ se iniciaba en %1$@, así que el inicio se detuvo. Vuelve a ejecutar `%3$@` en la cuenta que quieras."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تغيّر حساب Cloud أو الفريق أثناء بدء %2$@ على %1$@، لذا توقّف البدء. شغّل `%3$@` مرة أخرى في الحساب الذي تريده."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "%1$@에서 %2$@을(를) 시작하는 동안 Cloud 계정 또는 팀이 바뀌어 시작이 중단되었습니다. 원하는 계정에서 `%3$@`을(를) 다시 실행하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "在 %1$@ 上启动 %2$@ 期间你的 Cloud 帐户或团队已更改，因此启动已停止。请在你想要的帐户中再次运行 `%3$@`。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "在 %1$@ 上啟動 %2$@ 期間你的 Cloud 帳號或團隊已變更，因此啟動已停止。請在你想要的帳號中再次執行 `%3$@`。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Vaš Cloud račun ili tim promijenio se dok se %2$@ pokretao na %1$@, pa je pokretanje zaustavljeno. Ponovo pokrenite `%3$@` u računu u kojem ga želite."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Din Cloud-konto eller dit team ændrede sig, mens %2$@ startede på %1$@, så starten stoppede. Kør `%3$@` igen i den konto, du vil bruge."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Il tuo account o team Cloud è cambiato mentre %2$@ si avviava su %1$@, quindi l'avvio si è fermato. Esegui di nuovo `%3$@` nell'account che vuoi."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "គណនី ឬក្រុម Cloud របស់អ្នកបានផ្លាស់ប្ដូរ ខណៈពេល %2$@ កំពុងចាប់ផ្ដើមនៅលើ %1$@ ដូច្នេះការចាប់ផ្ដើមបានឈប់។ ដំណើរការ `%3$@` ម្ដងទៀតក្នុងគណនីដែលអ្នកចង់បាន។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Cloud-kontoen eller teamet ditt endret seg mens %2$@ startet på %1$@, så oppstarten stoppet. Kjør `%3$@` på nytt i kontoen du vil bruke."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Twoje konto lub zespół Cloud zmieniły się podczas uruchamiania %2$@ na %1$@, więc uruchamianie zostało zatrzymane. Uruchom ponownie `%3$@` na wybranym koncie."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Sua conta ou equipe do Cloud mudou enquanto %2$@ iniciava em %1$@, então a inicialização parou. Execute `%3$@` novamente na conta que você quer."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Ваш аккаунт или команда Cloud изменились, пока %2$@ запускался на %1$@, поэтому запуск остановлен. Снова выполните `%3$@` в нужном аккаунте."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "บัญชีหรือทีม Cloud ของคุณเปลี่ยนไประหว่างที่ %2$@ กำลังเริ่มบน %1$@ การเริ่มจึงหยุดลง เรียกใช้ `%3$@` อีกครั้งในบัญชีที่คุณต้องการ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "%2$@ %1$@ üzerinde başlatılırken Cloud hesabınız veya ekibiniz değişti, bu yüzden başlatma durduruldu. `%3$@` komutunu istediğiniz hesapta yeniden çalıştırın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Ваш обліковий запис або команда Cloud змінилися, поки %2$@ запускався на %1$@, тому запуск зупинено. Знову виконайте `%3$@` у потрібному обліковому записі."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tài khoản hoặc nhóm Cloud của bạn đã thay đổi trong khi %2$@ đang khởi động trên %1$@, nên việc khởi động đã dừng. Chạy lại `%3$@` trong tài khoản bạn muốn."}}
+      }
+    },
     "cloud.startSession.needsMachine": {
       "comment": "cmux cloud start-session run by a script or agent without a machine. %1$@ is the agent (claude). Keep the commands as written.",
       "extractionState": "manual",
