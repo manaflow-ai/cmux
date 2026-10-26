@@ -201,6 +201,40 @@ struct KeyRouterBench {
         }
     }
 
+    /// The chord step every Cmd or Ctrl key-down takes before the router resolves it
+    /// (`ChordTracker.step`, then `KeyBindingTable.step`) allocates nothing: a first key that runs,
+    /// one that arms a chord, the Cmd-J leader, an armed chord's next key and an unbound key (p04-input-055).
+    @Test func chordStepAllocatesNothing() throws {
+        let control = MallocProbe.allocations { _ = ContiguousArray(repeating: 1, count: 64).count }
+        try #require((control ?? 0) > 0, "malloc_logger saw no allocation on this thread: the probe cannot measure here")
+        let cmdK = Shortcut("k", modifiers: [.command]), x = Shortcut("x", modifiers: [])
+        let table = KeyBindingTable([
+            KeyBinding(keys: [Shortcut("t", modifiers: [.command])], command: "new-tab"),
+            KeyBinding(keys: [cmdK, x], command: "chord"),
+            KeyBinding(keys: [LeaderLayer.prefix, x], command: "leader", when: .has("browserFocused")),
+            KeyBinding(keys: [Shortcut("b", modifiers: [.command, .control])], command: "scoped", when: Self.whenClause),
+        ])
+        let context = KeyContext(["terminalFocused": .bool(true)])
+        let cases: [(String, [Shortcut], ShortcutReadings)] = [
+            ("cmd_t", [], ShortcutReadings(Shortcut("t", modifiers: [.command]))),
+            ("cmd_k", [], ShortcutReadings(cmdK)),
+            ("leader", [], ShortcutReadings(LeaderLayer.prefix)),
+            ("cmd_k x", [cmdK], ShortcutReadings(x)),
+            ("when_clause", [], ShortcutReadings(Shortcut("b", modifiers: [.command, .control]))),
+            ("unbound", [], ShortcutReadings(Shortcut("}", modifiers: [.shift, .command]), Shortcut("]", modifiers: [.shift, .command]))),
+        ]
+        let isRunnable: (ActionID) -> Bool = { _ in true }
+        for (name, keys, readings) in cases {
+            let warm = table.step(after: keys, readings: readings, in: context, isRunnable: isRunnable)
+            var step = warm
+            let allocations = MallocProbe.allocations {
+                for _ in 0..<Self.allocationKeys { step = table.step(after: keys, readings: readings, in: context, isRunnable: isRunnable) }
+            }
+            #expect(step == warm)
+            #expect(allocations == 0, "\(name): the chord step made \(allocations ?? -1) allocations in \(Self.allocationKeys) keys")
+        }
+    }
+
     // MARK: Measuring
 
     /// One key kind's numbers: its timed samples (empty without CMUX_BENCH=1), its allocations over
