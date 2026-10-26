@@ -74,5 +74,24 @@ struct AgentPaneTerminalFolderTests {
         #expect(chat.terminalFolder == opened)
     }
 
+    /// Switching the chip from a project to agent-home: the terminal gets no folder again, not the project.
+    @Test func anAgentHomePickAfterAProjectNamesNoFolder() async throws {
+        let base = try Self.folder()
+        let project = try Self.folder()
+        let home = AgentHome(base: base)
+        let chat = AgentPaneModel(host: NoHost())
+        chat.transport.homeFolder = "/nonexistent-home-\(UUID().uuidString)"
+        chat.workspaceAgentHome = { AgentHomeFill(home: home, workspace: "w") }
+        chat.startFolders.resolve = { proposed in
+            proposed == base + "/w" ? AgentPaneStartFolder(kind: .agentHome, cwd: nil, agentHome: proposed)
+                : AgentPaneStartFolder(kind: .seed, cwd: proposed, agentHome: nil)
+        }
+        chat.transport.gestures.record(click: true)
+        _ = await chat.respond(to: .useFolder(project, confirm: false))
+        #expect(chat.terminalFolder != nil)
+        _ = await chat.respond(to: .useFolder(base + "/w", confirm: false))
+        #expect(chat.terminalFolder == nil)
+    }
+
     private static func canonical(_ path: String) -> String { AcpmuxPathPolicy.canonical(path) ?? path }
 }

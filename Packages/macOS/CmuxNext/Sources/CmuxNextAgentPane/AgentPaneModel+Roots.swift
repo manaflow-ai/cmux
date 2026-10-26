@@ -68,7 +68,8 @@ extension AgentPaneModel {
         // The reply to the person's click waits for it.
         let canonical = await Task.detached(priority: .userInitiated) { AcpmuxPathPolicy.canonical(cwd) }.value
         let allowed = transport.roots() + transport.addedRoots
-        if allowed.contains(cwd) || canonical.map(allowed.contains) == true { pickedFolder = cwd }
+        // An agent-home pick replaces an earlier project: it gives no terminal folder (``folderForOtherTabs(_:)``).
+        if isAgentHome(cwd) || allowed.contains(cwd) || canonical.map(allowed.contains) == true { pickedFolder = cwd }
         return reply
     }
 
