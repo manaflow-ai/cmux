@@ -176,6 +176,13 @@ describe("groupVariants", () => {
     const { groupVariants } = await variants();
     expect(groupVariants(rows, "deepseek/deepseek-v4-pro")[0]!.model.id).toBe("deepseek/deepseek-v4-pro");
   });
+
+  test("a bare model's bracketed tag is not repeated in its group name", async () => {
+    const { groupVariants } = await variants();
+    expect(groupVariants([{ id: "claude-opus-5-5", name: "Opus 5.5 [New]" }])).toMatchObject([
+      { name: "Opus 5.5", tag: "New" },
+    ]);
+  });
 });
 
 const openCode = [
@@ -225,7 +232,7 @@ const railed = [
   },
 ];
 
-async function mount(model = "opencode/deepseek-v4-pro", rail = false) {
+async function mount(model = "opencode/deepseek-v4-pro", rail = false, catalog = rail ? railed : openCode) {
   const { createRoot } = await import("react-dom/client");
   const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
   const landed: string[] = [];
@@ -233,7 +240,7 @@ async function mount(model = "opencode/deepseek-v4-pro", rail = false) {
   await act(async () =>
     root!.render(
       <ModelPicker
-        catalog={rail ? railed : openCode}
+        catalog={catalog}
         harness="opencode"
         model={model}
         label="DeepSeek V4 Pro"
@@ -313,6 +320,24 @@ test("More models names the provider each of its models lands, each model once",
   for (const row of rows) expect(detailOf(row), nameOf(row)).not.toBe("");
 });
 
+test("an available alternate provider keeps a grouped row enabled", async () => {
+  const catalog = [
+    {
+      id: "opencode",
+      name: "OpenCode",
+      models: [
+        { id: "openrouter/qwen/coder-3", name: "Coder 3", unavailable: "OpenRouter is unavailable" },
+        { id: "together/qwen/coder-3", name: "Coder 3" },
+      ],
+    },
+  ];
+  await mount(undefined, true, catalog);
+  const rows = modelRows(menus()[0]!);
+  expect(rows).toHaveLength(1);
+  expect(detailOf(rows[0]!)).toBe("Together");
+  expect(rows[0]!.hasAttribute("data-disabled")).toBe(false);
+});
+
 // Astra on #25175: the Provider row is a row of the chat's tab, so the held list height and width
 // (QuickModelMenu's tabExtent and width probe) count it, or the chat's tab overflows the held
 // height and the menu's top edge moves as the pointer crosses the rail.
@@ -362,6 +387,9 @@ test("the held list height and width count the chat tab's Provider row, on every
     }));
   const held = spacer();
   const heldWidths = probe();
+  // Search still exposes provider offers individually, so the held rail reserves nine raw matches
+  // even when grouping leaves fewer than nine model rows.
+  expect(held.rows).toBeGreaterThanOrEqual(9);
   expect(heldWidths).toContainEqual({ label: "Provider", value: "OpenCode" });
   const tabs = [...menus()[0]!.querySelectorAll<HTMLElement>(".acpmux-quick-rail-tab")].map(
     (tab) => tab.getAttribute("aria-label")!,
