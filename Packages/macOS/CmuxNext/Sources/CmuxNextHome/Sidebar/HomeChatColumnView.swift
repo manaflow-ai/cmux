@@ -52,8 +52,14 @@ final class HomeChatColumnView: NSView {
     private var composeFrame: NSRect {
         let side = HomeChatComposeButton.side
         let row = NSRect(x: 0, y: bounds.height - Self.composeCenterY - side / 2, width: bounds.width, height: side)
-        let clearance = window.map { WindowTitlebar.windowControlsClearance(of: convert(row, to: nil), shown: convert(visibleRect, to: nil), in: $0) } ?? 0
+        let clearance = WindowTitlebar.windowControlsClearance(ofRow: row, in: self)
         return NSRect(x: max(Self.composeInset, clearance), y: row.minY, width: side, height: side)
+    }
+
+    /// Shown again (its workspace): the window's re-checks skipped it while hidden.
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        updateWindowControlsAvoidance()
     }
 }
 

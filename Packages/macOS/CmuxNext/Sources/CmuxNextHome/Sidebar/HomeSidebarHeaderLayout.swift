@@ -44,9 +44,13 @@ public struct HomeSidebarHeaderLayout: Equatable, Sendable {
     init(width: CGFloat, searchOpen: Bool, windowControls: CGFloat = 0) {
         let width = max(0, width)
         let y = Self.row(width: width).minY
-        let x = max(Self.inset, windowControls)
-        leading = x
         compact = Self.isCompact(width: width)
+        // Past the lights the field narrows (down to a capsule as wide as it is tall); a list too
+        // narrow for even that keeps the inset, so the field never opens zero-wide.
+        let buttons = compact ? 0 : Self.side + Self.gap
+        let cleared = max(Self.inset, windowControls)
+        let x = width - cleared - Self.inset - buttons >= Self.side ? cleared : Self.inset
+        leading = x
         if compact {
             filter = .zero
             buttonsCovered = searchOpen
@@ -54,7 +58,9 @@ public struct HomeSidebarHeaderLayout: Equatable, Sendable {
                 : CGRect(x: x, y: y, width: 0, height: 0)
             return
         }
-        let field = max(Self.minimumField, width - x - Self.inset - (Self.side + Self.gap))
+        let room = width - x - Self.inset - buttons
+        // Past the lights `room` is at least `side` (above); at the inset the old floor holds.
+        let field = x == Self.inset ? max(Self.minimumField, room) : room
         search = CGRect(x: x, y: y, width: field, height: Self.side)
         filter = CGRect(x: search.maxX + Self.gap, y: y, width: Self.side, height: Self.side)
         buttonsCovered = false

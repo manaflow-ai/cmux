@@ -344,10 +344,7 @@ public final class HomeSidebarView: NSView {
     /// accessory) take where they lie over its row: the docked Home pane has no tab bar, so with
     /// the sidebar hidden this list is at the window's top-left (cmux#25593).
     private func windowControlsClearance(width: CGFloat) -> CGFloat {
-        let host = list.headerView
-        guard let window = host.window else { return 0 }
-        return WindowTitlebar.windowControlsClearance(of: host.convert(HomeSidebarHeaderLayout.row(width: width), to: nil),
-                                                      shown: host.convert(host.visibleRect, to: nil), in: window)
+        WindowTitlebar.windowControlsClearance(ofRow: HomeSidebarHeaderLayout.row(width: width), in: list.headerView)
     }
 
     /// Focus moves into or out of the field: the ring steps, the caret takes the accent, and in
@@ -458,6 +455,12 @@ public final class HomeSidebarView: NSView {
         WindowControlsAvoiders.join(self)
     }
 
+    /// Shown again (its workspace): the window's re-checks skipped it while hidden.
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        updateWindowControlsAvoidance()
+    }
+
     public override func layout() {
         super.layout()
         // The note's and the requests button's strips at the bottom; the list ends above them.
@@ -471,14 +474,14 @@ public final class HomeSidebarView: NSView {
 
 }
 
-
 // The window re-checks the row when the list moves in it with no resize (the sidebar shows or
 // hides, the toolbar band opens): the header lays out again only when the clearance changed.
 extension HomeSidebarView: WindowControlsAvoiding {
     public func updateWindowControlsAvoidance() {
-        let width = list.headerView.bounds.width
-        guard max(HomeSidebarHeaderLayout.inset, windowControlsClearance(width: width)) != header.leading else { return }
-        list.headerView.needsLayout = true
+        let host = list.headerView
+        let wanted = HomeSidebarHeaderLayout(width: host.bounds.width, searchOpen: searchOpen, windowControls: windowControlsClearance(width: host.bounds.width))
+        guard wanted.leading != header.leading else { return }
+        host.needsLayout = true
     }
 }
 

@@ -31,13 +31,15 @@ public final class WindowControlsAvoiders {
 
     public func add(_ view: any WindowControlsAvoiding & NSView) { entries[ObjectIdentifier(view)] = Entry(view: view) }
 
-    /// Each view still in `window` re-checks its clearance.
+    /// Each view still in `window` re-checks its clearance. A hidden one (a workspace not shown)
+    /// waits: it re-checks when it shows again (its `viewDidUnhide`).
     public func update(in window: NSWindow) {
         for (id, entry) in entries {
             guard let view = entry.view, view.window === window else {
                 entries[id] = nil
                 continue
             }
+            guard !view.isHiddenOrHasHiddenAncestor else { continue }
             view.updateWindowControlsAvoidance()
         }
     }
@@ -59,12 +61,26 @@ extension WindowTitlebar {
         }.map(\.maxX).max()
     }
 
-    /// Points from `rect`'s leading edge (window coordinates) where a control clears `window`'s
-    /// traffic lights and titlebar accessory by `space3`; 0 when neither lies over the `shown`
-    /// part of `rect`.
-    public static func windowControlsClearance(of rect: CGRect, shown: CGRect, in window: NSWindow) -> CGFloat {
-        guard let right = windowControlsMaxX(over: rect, shown: shown, lights: trafficLightsFrame(in: window),
+    /// Points from the leading edge of `row` (in `view`'s coordinates) where a control clears the
+    /// window's traffic lights and titlebar accessory by `space3`; 0 when neither lies over the
+    /// part of the row that `view`'s ancestors show, or `view` is in no window.
+    public static func windowControlsClearance(ofRow row: CGRect, in view: NSView) -> CGFloat {
+        guard let window = view.window else { return 0 }
+        let rect = view.convert(row, to: nil)
+        guard let right = windowControlsMaxX(over: rect, shown: shownFrame(of: view), lights: trafficLightsFrame(in: window),
                                              accessory: (window as? any TitlebarAccessoryHosting)?.titlebarAccessoryFrame) else { return 0 }
         return max(0, ((right + Metrics.space3 - rect.minX) * 2).rounded(.up) / 2)
+    }
+
+    /// The window area `view`'s ancestors show it in (their bounds, window coordinates). Unlike
+    /// `visibleRect` it is the same while a hidden ancestor keeps its frame.
+    public static func shownFrame(of view: NSView) -> CGRect {
+        var shown = CGRect.infinite
+        var ancestor = view.superview
+        while let next = ancestor {
+            shown = shown.intersection(next.convert(next.bounds, to: nil))
+            ancestor = next.superview
+        }
+        return shown
     }
 }
