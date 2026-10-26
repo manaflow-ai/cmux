@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextSignposts
 
 /// Layer hosting (fork API 26) of the page window over one ``CEFHostView``:
@@ -31,6 +32,13 @@ import CmuxNextSignposts
 ///
 /// `browser` must name a live browser of the page window: a show records the
 /// shown one, and ``windowBrowsersChanged(_:)`` moves it off a closed one.
+///
+/// With the app-wide list of hidden frames (`HiddenFrameLRU`, feature
+/// `memoryHiddenFrameLRU`; Chrome's `components/viz/client/frame_eviction_manager.h`)
+/// the hosted page is one frame of it: locked while the view shows, unlocked while
+/// it is hidden or out of every window. When the list evicts it, hosting goes off
+/// for the page window as on ``stop()``, and the page is hosted again when the view
+/// shows or the next tab shows. The pane keeps no frame limit of its own.
 ///
 /// Tests drive it through ``Fork`` and the `schedule` seam, without Chromium.
 final class CEFLayerHosting {
@@ -113,6 +121,16 @@ final class CEFLayerHosting {
     private var appliedDeadlineMs: Int32 = 0
     /// The window is in a live resize (``windowLiveResize(active:)``).
     private var inLiveResize = false
+    /// The app-wide list of hidden frames; nil keeps the hosted page while the view lives.
+    private var frames: (any HiddenFrameKeeper)?
+    /// The hosted page in ``frames``.
+    let frameID = HiddenFrameID(kind: .page, key: UUID().uuidString)
+    /// Whether ``frames`` has the hosted page locked: the view showed when it was last told.
+    private var frameLocked = false
+    /// The list evicted the hosted page; the next show of the view hosts it again.
+    private(set) var isEvicted = false
+    /// Hosted pages the list evicted so far.
+    private(set) var evictions = 0
 
     /// Runs a block later on the main actor.
     typealias Scheduler = (_ block: @escaping @MainActor @Sendable () -> Void) -> Void
@@ -144,8 +162,11 @@ final class CEFLayerHosting {
     /// A new page window over the view (a pane's Chromium window, or a docked
     /// DevTools): the old window's context went with it. Called inside
     /// Chromium's creation stack, so the request waits for the end of the turn.
-    func pageWindowCreated(browser: Int32, fork: Fork?) {
+    /// `frames` is the app-wide list of hidden frames the hosted page joins.
+    func pageWindowCreated(browser: Int32, fork: Fork?, frames: (any HiddenFrameKeeper)? = nil) {
         dropPage()
+        isEvicted = false
+        self.frames = frames
         self.browser = browser
         self.fork = fork
         // A new page window starts with the fork's default: it never holds the commit.
@@ -200,6 +221,7 @@ final class CEFLayerHosting {
     /// the views in a window when its live resize starts and ends.
     func windowDidChange() {
         inLiveResize = view?.window?.inLiveResize ?? false
+        visibilityDidChange()
         guard view?.window != nil else { return }
         syncDeadline()
     }
@@ -231,10 +253,49 @@ final class CEFLayerHosting {
         request(retry: true)
     }
 
+    /// The view was hidden or shown, or moved between windows (`CEFHostView`'s
+    /// `viewDidHide`, `viewDidUnhide` and ``windowDidChange()``): the hosted page
+    /// is locked in the list of hidden frames while the view shows and unlocked
+    /// while it does not. A page the list evicted is hosted again when the view shows.
+    func visibilityDidChange() {
+        let shows = viewShows
+        if page != nil, shows != frameLocked {
+            frameLocked = shows
+            if shows { frames?.lock(frameID) } else { frames?.unlock(frameID) }
+        }
+        guard shows, isEvicted else { return }
+        isEvicted = false
+        guard fork != nil, browser != nil, isEnabled(), pending == .none else { return }
+        request(retry: false)
+    }
+
+    /// The view is in a window and neither it nor an ancestor is hidden.
+    private var viewShows: Bool {
+        guard let view, view.window != nil else { return false }
+        return !view.isHiddenOrHasHiddenAncestor
+    }
+
+    /// The list of hidden frames evicted the hidden page: hosting goes off for
+    /// the page window and the hosted view goes, as on ``stop()``, but the
+    /// browser stays named, so the page is hosted again when the view shows.
+    private func evictHiddenPage() {
+        guard page != nil else { return }
+        pending = .none
+        if let fork, let browser {
+            forkCalls += 1
+            _ = fork.setLayerHosting(browser, false)
+        }
+        dropPage()
+        isEvicted = true
+        evictions += 1
+        syncDeadline()
+    }
+
     /// The view goes away (DevTools closed) or its page window closed: turns
     /// hosting off for the browser and drops the hosted view.
     func stop() {
         pending = .none
+        isEvicted = false
         if page != nil, let fork, let browser {
             forkCalls += 1
             _ = fork.setLayerHosting(browser, false)
@@ -261,6 +322,7 @@ final class CEFLayerHosting {
         if id != 0 {
             let page = self.page ?? addPage(to: view)
             if page.show(contextID: id) {
+                joinFrames()
                 // The page's frame at a new size commits with the pane's only while hosted.
                 syncDeadline()
                 return
@@ -303,8 +365,17 @@ final class CEFLayerHosting {
         return page
     }
 
+    /// The page shows its context: it is a frame of the list, locked while the view shows.
+    private func joinFrames() {
+        isEvicted = false
+        frameLocked = viewShows
+        frames?.add(frameID, locked: frameLocked) { [weak self] in self?.evictHiddenPage() }
+    }
+
     private func dropPage() {
         guard let page else { return }
+        frames?.remove(frameID)
+        frameLocked = false
         page.removeFromSuperview()
         self.page = nil
     }

@@ -197,6 +197,19 @@ final class CEFHostView: NSView {
         }
     }
 
+    /// The view or an ancestor was hidden (a hidden workspace's root): the hosted page's frame is a
+    /// hidden frame of the app-wide list from now on (``CEFLayerHosting/visibilityDidChange()``).
+    override func viewDidHide() {
+        super.viewDidHide()
+        layerHosting.visibilityDidChange()
+    }
+
+    /// The view shows again: its hosted frame is locked, or hosted again if the list evicted it.
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        layerHosting.visibilityDidChange()
+    }
+
     /// What the fork read on its last update of this page (`cmuxOcclusionRects`);
     /// nil before its first read and after a window change.
     private var readGeometry: CEFHostGeometry?

@@ -68,6 +68,9 @@ final class CEFRuntime {
     /// The windows' frame-aligned pointer input of the last `CEFEngine` made (feature
     /// `pointerFrameDrags`): the DevTools divider's drag. Nil: each drag event moves it.
     var pointerFrames: FrameInputCoalescers?
+    /// The app-wide list of hidden frames of the last `CEFEngine` made (feature `memoryHiddenFrameLRU`):
+    /// each new page window's hosted page joins it. Nil: a hidden pane keeps its hosted page.
+    var hiddenFrames: (any HiddenFrameKeeper)?
     /// The last `CEFEngine`'s Chromium features (`CEFSwitches.chromiumFeatures`), read at start.
     var chromiumFeatures: [String] = []
     /// A tab registered with no input tap: logged once.

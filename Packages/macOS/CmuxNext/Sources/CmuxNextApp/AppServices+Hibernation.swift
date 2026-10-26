@@ -76,6 +76,18 @@ extension AppServices {
             deadline: MainDeadline(owner: "ParkedWorkspaceBudget", workClass: .background, scheduler: mainDeadlines),
             memory: memoryCoordinator)
     }
+
+    /// The one list of hidden frames with `memoryHiddenFrameLRU` (p03-rendering-099): every page pane's hosted
+    /// page and every evicted terminal's last frame, as many unlocked as this Mac's memory allows, each culled after
+    /// 5 min hidden on one background deadline, all purged at a memory warning. Nil while off.
+    func makeHiddenFrameLRU() -> HiddenFrameLRU? {
+        guard features.isEnabled(.memoryHiddenFrameLRU) else { return nil }
+        let budget = SubsystemBudget.forThisMac(gpuResidentAvailable: false)
+        return HiddenFrameLRU(
+            softLimit: HiddenFrameLRU.softLimit(physicalMiB: budget.physicalMiB),
+            deadline: MainDeadline(owner: "HiddenFrameLRU.cull", workClass: .background, scheduler: mainDeadlines),
+            memory: memoryCoordinator)
+    }
 }
 
 // The memory histograms' discard and wake counts come from the page hibernation (p07-memory-016).
