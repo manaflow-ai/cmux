@@ -1852,7 +1852,7 @@ export class AcpmuxDirectClient {
       startModeChanged();
     } else if (notification.method === "_acpmux/process_update")
       for (const listener of this.processListeners) listener(notification.params?.process);
-    // A new chat's start mode may have changed (a pick in any pane, a config reload, the
+    // A new chat's start mode may have changed (a config reload, the
     // `agents.defaultPermissionMode` setting): pending chats ask acpmux again (startMode.ts).
     else if (notification.method === "_acpmux/start_mode_changed") startModeChanged();
   }
