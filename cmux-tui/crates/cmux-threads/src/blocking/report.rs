@@ -1,10 +1,14 @@
-//! The site report: one JSON line per new (site, kind) of a process, the MQ-13
-//! input (plans/cmux-next/chrome-parity/p02-threads.md, section 6). The site
-//! table in [`super`] keeps counts for `server.blocking`; this file keeps what a
-//! process saw after it panicked or was killed, which no snapshot can read back.
+//! The site report: one JSON line per (site, kind, thread) of a process, the
+//! MQ-13 key (plans/cmux-next/chrome-parity/p02-threads.md, section 6). The
+//! site table in [`super`] keeps counts for `server.blocking`; this file keeps
+//! what a process saw after it panicked or was killed, which no snapshot can
+//! read back, and every site the full table could not keep.
 
+use std::cell::RefCell;
+use std::collections::HashSet;
 use std::fmt::Write as _;
 use std::fs::File;
+use std::hash::{Hash, Hasher};
 use std::io::Write as _;
 use std::panic::Location;
 use std::path::{Path, PathBuf};
@@ -13,8 +17,8 @@ use std::sync::OnceLock;
 use super::{BlockingKind, BlockingMode};
 
 /// The environment variable naming the site report's directory: one JSON line
-/// per new (site, kind), appended to `<dir>/blocking-<pid>.jsonl`. Unset or
-/// empty: no report.
+/// per (site, kind, thread), appended to `<dir>/blocking-<pid>.jsonl`. Unset
+/// or empty: no report.
 pub const REPORT_ENV: &str = "CMUX_DAEMON_BLOCKING_REPORT";
 
 /// Why [`set_report_dir`] did not take effect.
@@ -47,8 +51,8 @@ impl std::error::Error for ReportError {
     }
 }
 
-/// This process's append-only report file.
-struct SiteReport {
+/// An append-only report file: this process's, or a unit test's own.
+pub(super) struct SiteReport {
     path: PathBuf,
     file: File,
 }
@@ -56,12 +60,41 @@ struct SiteReport {
 impl SiteReport {
     /// Test and bench tooling, opened once per process: plain std file calls,
     /// not [`crate::checked`], so the report never reports itself.
-    fn open(dir: &Path) -> Result<Self, ReportError> {
+    pub(super) fn open(dir: &Path) -> Result<Self, ReportError> {
         let path = dir.join(format!("blocking-{}.jsonl", std::process::id()));
         let file = std::fs::create_dir_all(dir)
             .and_then(|()| std::fs::OpenOptions::new().create(true).append(true).open(&path))
             .map_err(|source| ReportError::Open { path: path.clone(), source })?;
         Ok(Self { path, file })
+    }
+
+    /// Appends the first sighting of (`location`, `kind`) on the current
+    /// thread; a repeat on this thread writes nothing. `overflow`: the site
+    /// table was full, so only this report names the site.
+    pub(super) fn first_sighting(
+        &self,
+        location: &'static Location<'static>,
+        kind: BlockingKind,
+        mode: BlockingMode,
+        overflow: bool,
+    ) {
+        // A thread whose locals are gone (a violation in a TLS destructor)
+        // cannot tell a repeat, so it reports again rather than lose the site.
+        let first = SEEN
+            .try_with(|seen| seen.borrow_mut().insert(SeenKey { location, kind }))
+            .unwrap_or(true);
+        if !first {
+            return;
+        }
+        let thread = std::thread::current();
+        self.append(&ReportLine {
+            pid: std::process::id(),
+            thread: thread.name().unwrap_or("<unnamed>"),
+            location,
+            kind,
+            mode,
+            overflow,
+        });
     }
 
     /// One `write` of one line to an `O_APPEND` file, so lines from concurrent
@@ -73,9 +106,42 @@ impl SiteReport {
     }
 }
 
+/// A (site, kind) the current thread has reported. Sites compare by content,
+/// as in the site table: one call site can be several `Location` statics.
+struct SeenKey {
+    location: &'static Location<'static>,
+    kind: BlockingKind,
+}
+
+impl PartialEq for SeenKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind == other.kind && super::sites::same_site(self.location, other.location)
+    }
+}
+
+impl Eq for SeenKey {}
+
+impl Hash for SeenKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.location.file().hash(state);
+        self.location.line().hash(state);
+        self.location.column().hash(state);
+        self.kind.hash(state);
+    }
+}
+
+thread_local! {
+    /// The thread part of the MQ-13 key: a site that blocks on a second thread
+    /// gets its own line. Per thread, so the cold path takes no lock; it fills
+    /// only while a report is open.
+    static SEEN: RefCell<HashSet<SeenKey>> = RefCell::new(HashSet::new());
+}
+
 static REPORT: OnceLock<Option<SiteReport>> = OnceLock::new();
 
-fn site_report() -> Option<&'static SiteReport> {
+/// This process's report: the one [`set_report_dir`] chose, or else the one
+/// [`REPORT_ENV`] names, opened at the first call.
+pub(super) fn site_report() -> Option<&'static SiteReport> {
     REPORT
         .get_or_init(|| {
             let dir = std::env::var_os(REPORT_ENV).filter(|dir| !dir.is_empty())?;
@@ -103,26 +169,6 @@ pub fn set_report_dir(dir: &Path) -> Result<PathBuf, ReportError> {
 /// violation with [`REPORT_ENV`] set, or after [`set_report_dir`]).
 pub fn report_path() -> Option<&'static Path> {
     REPORT.get().and_then(Option::as_ref).map(|report| report.path.as_path())
-}
-
-/// Appends a first sighting made on the current thread to the report, if this
-/// process has one. Called by the violation path before a Panic-mode panic.
-pub(super) fn report_first_sighting(
-    location: &Location<'_>,
-    kind: BlockingKind,
-    mode: BlockingMode,
-    overflow: bool,
-) {
-    let Some(report) = site_report() else { return };
-    let thread = std::thread::current();
-    report.append(&ReportLine {
-        pid: std::process::id(),
-        thread: thread.name().unwrap_or("<unnamed>"),
-        location,
-        kind,
-        mode,
-        overflow,
-    });
 }
 
 /// One report line: the MQ-13 key (location, kind, thread) of a first sighting.

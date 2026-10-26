@@ -2,26 +2,33 @@
 """MQ-13 and RUN-5 (plans/cmux-next/chrome-parity/p02-threads.md): daemon blocking sites.
 
 Every daemon process started with CMUX_DAEMON_BLOCKING_REPORT=<dir> appends one JSON
-line per new (site, kind) to <dir>/blocking-<pid>.jsonl
+line per (site, kind, thread) to <dir>/blocking-<pid>.jsonl
 (cmux-tui/crates/cmux-threads/src/blocking/report.rs). This script runs the suites with
 that set and groups the lines into the MQ-13 list: one task per (location, kind, thread).
 
   daemon-blocking-sweep.py suites [--out DIR] [-p PKG ...] [-- CARGO_TEST_ARGS]
       cargo test in record mode, then in panic mode (Debug): the record run lists the
-      sites, the panic run is RUN-5 (tests pass, 0 blocking panics).
-  daemon-blocking-sweep.py bench [--out DIR] [-- PERF_ARGS]
-      scripts/measure/perf-10x-lifecycle.sh part=daemon (Release: record only) with the
-      report set; fleet only (cmux-ci run --class exclusive --measurement).
+      sites, the panic run is RUN-5 (no failure panic mode adds, 0 blocking panics, 0
+      sites). A test that fails in both modes is an environment or base failure and is
+      listed apart.
+  daemon-blocking-sweep.py bench [--out DIR] [--against SHA | --base REF] [--noise F] [-- PERF_ARGS]
+      scripts/measure/perf-10x-lifecycle.sh part=daemon against=<base> (Release: record
+      only) with the report set; RUN-5 bench: 0 sites, every op's p95 no worse than the
+      base's beyond the noise band, and under the PL-daemon 2 ms target. Fleet only
+      (cmux-ci run --class exclusive --measurement).
   daemon-blocking-sweep.py summarize DIR
       Group an existing report directory.
 
-Sites in test files (tests/, *_tests.rs, tests.rs) are the detector's own fixtures and are
-listed apart; every other site is one MQ-13 task.
+A site in test code (a file under tests/, a *_tests.rs or tests.rs file, or a line inside
+a #[cfg(test)] module) is the detector's own fixture and is listed apart; every other
+site is one MQ-13 task, whatever thread it ran on. An unnamed thread is not a fixture: a
+daemon thread that disallows blocking without a name is an MQ-12 defect of its own.
 """
 
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import re
@@ -33,18 +40,81 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 TUI = ROOT / "cmux-tui"
 DEFAULT_PACKAGES = ("cmux-tui-core", "cmux-tui")
+DEFAULT_BASE = "origin/feat-cmux-next"
+# A p95 more than this fraction over the base's is a regression: the 5 % CV band of
+# plans/cmux-next/chrome-parity/p12-perf-process.md (Noise, item 9).
+DEFAULT_NOISE = 0.05
+# PL-daemon: every daemon op under 2 ms p95 (p02-threads.md, RUN-5).
+DAEMON_P95_TARGET_MS = 2.0
 PANIC_LINE = re.compile(r"cmux_threads: blocking call \(([a-z-]+)\) at (\S+) on thread '([^']*)'")
+RUNNING = re.compile(r"^\s*Running (.+?) \((?:.*/)?([^/()]+?)(?:-[0-9a-f]{16})?\)\s*$")
+FAILED_TEST = re.compile(r"^test (\S+) \.\.\. FAILED$")
+CFG_TEST = re.compile(r"^\s*#\[cfg\(test\)\]")
+INLINE_MOD = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*\{")
+ATTRIBUTE_OR_COMMENT = re.compile(r"^\s*(?:#\[|//|$)")
+LIFECYCLE_DAEMON = re.compile(r'^LIFECYCLE-DAEMON (against|ref) op="([^"]+)" n=\d+ p50=[\d.]+ p95=([\d.]+)')
 
 
-def is_fixture(file: str, thread: str) -> bool:
-    """A test's own disallowed thread, not a daemon thread: the site is in a test file, or
-    the thread is one a test made. Daemon threads are always named through
-    cmux_threads::spawn (MQ-12); libtest names its threads after the test path."""
+def is_test_file(file: str) -> bool:
     path = file.replace("\\", "/")
     name = path.rsplit("/", 1)[-1]
-    in_test_file = "/tests/" in path or path.startswith("tests/") or name == "tests.rs" or name.endswith("_tests.rs")
-    test_thread = thread == "<unnamed>" or "::" in thread or "test" in thread
-    return in_test_file or test_thread
+    return "/tests/" in path or path.startswith("tests/") or name == "tests.rs" or name.endswith("_tests.rs")
+
+
+def source_path(file: str) -> Path:
+    """A Location file is relative to the cargo workspace (cmux-tui/) or absolute."""
+    path = Path(file)
+    return path if path.is_absolute() else TUI / path
+
+
+@functools.cache
+def cfg_test_ranges(path: Path) -> tuple[tuple[int, int], ...]:
+    """1-based inclusive line ranges of the inline #[cfg(test)] modules of a source file."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return ()
+    ranges = []
+    index = 0
+    while index < len(lines):
+        if not CFG_TEST.match(lines[index]):
+            index += 1
+            continue
+        start = index + 1
+        while start < len(lines) and not INLINE_MOD.match(lines[start]) and ATTRIBUTE_OR_COMMENT.match(lines[start]):
+            start += 1
+        if start >= len(lines) or not INLINE_MOD.match(lines[start]):
+            index += 1
+            continue
+        end = module_end(lines, start)
+        ranges.append((index + 1, end + 1))
+        index = end + 1
+    return tuple(ranges)
+
+
+def module_end(lines: list[str], start: int) -> int:
+    """The index of the line that closes the block opened on lines[start]."""
+    depth = 0
+    for index in range(start, len(lines)):
+        for brace in braces(lines[index]):
+            depth += 1 if brace == "{" else -1
+            if depth == 0:
+                return index
+    return len(lines) - 1
+
+
+def braces(line: str) -> str:
+    """The braces of one line, outside strings, char literals and // comments."""
+    code = re.sub(r'"(?:\\.|[^"\\])*"', '""', line)
+    code = re.sub(r"'(?:\\.|[^'\\])'", "''", code)
+    return re.sub(r"[^{}]", "", code.split("//", 1)[0])
+
+
+def is_fixture(file: str, line: int) -> bool:
+    """Whether a site is in test code: the detector's own fixtures, not a daemon task."""
+    if is_test_file(file):
+        return True
+    return any(start <= line <= end for start, end in cfg_test_ranges(source_path(file)))
 
 
 def read_reports(directory: Path) -> list[dict]:
@@ -74,7 +144,7 @@ def group(lines: list[dict]) -> list[dict]:
                 "location": location,
                 "kind": line["kind"],
                 "thread": line["thread"],
-                "fixture": is_fixture(line["file"], line["thread"]),
+                "fixture": is_fixture(line["file"], line["line"]),
                 "modes": [],
                 "overflow": False,
             },
@@ -85,7 +155,7 @@ def group(lines: list[dict]) -> list[dict]:
         pids[key].add(line["pid"])
     for key, row in rows.items():
         row["processes"] = len(pids[key])
-    return sorted(rows.values(), key=lambda row: (row["fixture"], -row["processes"], row["location"], row["kind"]))
+    return sorted(rows.values(), key=lambda row: (row["fixture"], -row["processes"], row["location"], row["kind"], row["thread"]))
 
 
 def summarize(directory: Path) -> list[dict]:
@@ -93,9 +163,10 @@ def summarize(directory: Path) -> list[dict]:
     (directory / "sites.json").write_text(json.dumps(rows, indent=1) + "\n", encoding="utf-8")
     for row in rows:
         tag = "MQ-13-fixture" if row["fixture"] else "MQ-13"
+        overflow = " overflow" if row["overflow"] else ""
         print(
             f'{tag} site={row["location"]} kind={row["kind"]} thread={row["thread"]} '
-            f'processes={row["processes"]} modes={",".join(row["modes"])}'
+            f'processes={row["processes"]} modes={",".join(row["modes"])}{overflow}'
         )
     tasks = sum(1 for row in rows if not row["fixture"])
     print(f"MQ-13 dir={directory} tasks={tasks} fixtures={len(rows) - tasks}")
@@ -105,7 +176,24 @@ def summarize(directory: Path) -> list[dict]:
 def blocking_panics(log: str) -> list[tuple[str, str, str]]:
     """Panic-mode panics outside the fixtures' own deliberate ones, deduplicated."""
     seen = dict.fromkeys(PANIC_LINE.findall(log))
-    return [panic for panic in seen if not is_fixture(panic[1].rsplit(":", 2)[0], panic[2])]
+    outside = []
+    for panic in seen:
+        file, line, _column = panic[1].rsplit(":", 2)
+        if not is_fixture(file, int(line)):
+            outside.append(panic)
+    return outside
+
+
+def failed_tests(log: str) -> set[tuple[str, str]]:
+    """(test binary, test name) of every failed test in a cargo test log."""
+    binary = "?"
+    failed = set()
+    for line in log.splitlines():
+        if match := RUNNING.match(line):
+            binary = f"{match.group(1)} ({match.group(2)})"
+        elif match := FAILED_TEST.match(line):
+            failed.add((binary, match.group(1)))
+    return failed
 
 
 def run_logged(command: list[str], env: dict, cwd: Path, log_path: Path) -> tuple[int, str]:
@@ -115,31 +203,51 @@ def run_logged(command: list[str], env: dict, cwd: Path, log_path: Path) -> tupl
     return result.returncode, result.stdout
 
 
+def run5_suites_verdict(record_log: str, panic_log: str, panic_rows: list[dict]) -> dict:
+    """RUN-5: panic mode adds no failure, panics nowhere outside test code, reaches no site."""
+    record_failed = failed_tests(record_log)
+    panic_failed = failed_tests(panic_log)
+    panics = blocking_panics(panic_log)
+    sites = [row for row in panic_rows if not row["fixture"]]
+    added = sorted(panic_failed - record_failed)
+    return {
+        "verdict": "pass" if not added and not panics and not sites else "fail",
+        "panic_only_failures": added,
+        "shared_failures": sorted(panic_failed & record_failed),
+        "blocking_panics": panics,
+        "sites": sites,
+    }
+
+
 def suites(out: Path, packages: list[str], cargo_args: list[str]) -> int:
     command = ["cargo", "test", "--no-fail-fast"]
     for package in packages:
         command += ["-p", package]
     command += cargo_args
-    status = 0
+    logs: dict[str, str] = {}
+    rows: dict[str, list[dict]] = {}
     for mode in ("record", "panic"):
         report = fresh_report_dir(out / mode)
         env = dict(os.environ, CMUX_DAEMON_BLOCKING=mode, CMUX_DAEMON_BLOCKING_REPORT=str(report))
-        code, log = run_logged(command, env, TUI, out / f"{mode}.log")
-        rows = summarize(report)
-        passed, failed = test_totals(log)
+        code, logs[mode] = run_logged(command, env, TUI, out / f"{mode}.log")
+        rows[mode] = summarize(report)
+        passed, failed = test_totals(logs[mode])
         print(f"SUITE mode={mode} cargo_exit={code} passed={passed} failed={failed}")
-        if mode == "panic":
-            panics = blocking_panics(log)
-            for kind, location, thread in panics:
-                print(f"RUN-5 blocking-panic site={location} kind={kind} thread={thread}")
-            outside = [row for row in rows if not row["fixture"]]
-            verdict = "pass" if code == 0 and not panics and not outside else "fail"
-            print(
-                f"RUN-5 {verdict} packages={','.join(packages)} cargo_exit={code} passed={passed} "
-                f"failed={failed} blocking_panics={len(panics)} sites={len(outside)} log={out / 'panic.log'}"
-            )
-            status = 0 if verdict == "pass" else 1
-    return status
+    result = run5_suites_verdict(logs["record"], logs["panic"], rows["panic"])
+    for binary, test in result["shared_failures"]:
+        print(f"RUN-5 shared-failure binary={binary} test={test}")
+    for binary, test in result["panic_only_failures"]:
+        print(f"RUN-5 panic-only-failure binary={binary} test={test}")
+    for kind, location, thread in result["blocking_panics"]:
+        print(f"RUN-5 blocking-panic site={location} kind={kind} thread={thread}")
+    record_tasks = sum(1 for row in rows["record"] if not row["fixture"])
+    print(
+        f"RUN-5 {result['verdict']} packages={','.join(packages)} "
+        f"panic_only_failures={len(result['panic_only_failures'])} "
+        f"shared_failures={len(result['shared_failures'])} blocking_panics={len(result['blocking_panics'])} "
+        f"sites={len(result['sites'])} mq13_tasks={record_tasks} log={out / 'panic.log'}"
+    )
+    return 0 if result["verdict"] == "pass" else 1
 
 
 def fresh_report_dir(directory: Path) -> Path:
@@ -157,18 +265,61 @@ def test_totals(log: str) -> tuple[int, int]:
     return passed, failed
 
 
-def bench(out: Path, perf_args: list[str]) -> int:
+def lifecycle_p95(log: str) -> dict[str, dict[str, float]]:
+    """p95 ms per op for the `against` and `ref` binaries of perf-10x-lifecycle.sh."""
+    p95: dict[str, dict[str, float]] = {"against": {}, "ref": {}}
+    for line in log.splitlines():
+        if match := LIFECYCLE_DAEMON.match(line):
+            p95[match.group(1)][match.group(2)] = float(match.group(3))
+    return p95
+
+
+def run5_bench_verdict(p95: dict[str, dict[str, float]], sites: int, noise: float) -> tuple[str, list[str]]:
+    """RUN-5 bench: 0 sites, each op's p95 within the noise band of the base's, under 2 ms."""
+    problems = []
+    if not p95["ref"]:
+        problems.append("no ref LIFECYCLE-DAEMON lines")
+    for op, ref in sorted(p95["ref"].items()):
+        against = p95["against"].get(op)
+        if against is None:
+            problems.append(f'op="{op}" has no base measurement')
+        elif ref > against * (1 + noise):
+            problems.append(f'op="{op}" regressed ref_p95={ref:.2f} against_p95={against:.2f}')
+        if ref >= DAEMON_P95_TARGET_MS:
+            problems.append(f'op="{op}" over target ref_p95={ref:.2f} target={DAEMON_P95_TARGET_MS:.2f}')
+    if sites:
+        problems.append(f"sites={sites}")
+    return ("pass" if not problems else "fail"), problems
+
+
+def merge_base(base: str) -> str:
+    result = subprocess.run(["git", "merge-base", "HEAD", base], cwd=ROOT, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise SystemExit(f"daemon-blocking-sweep: no merge base with {base}: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def bench(out: Path, against: str, noise: float, perf_args: list[str]) -> int:
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
+    if against == head:
+        raise SystemExit("daemon-blocking-sweep: the base is HEAD; pass --against or --base with an earlier commit")
     report = fresh_report_dir(out / "bench")
     env = dict(os.environ, CMUX_DAEMON_BLOCKING_REPORT=str(report))
-    command = [str(ROOT / "scripts/measure/perf-10x-lifecycle.sh"), "part=daemon", *perf_args]
+    command = [str(ROOT / "scripts/measure/perf-10x-lifecycle.sh"), "part=daemon", f"against={against}", *perf_args]
     code, log = run_logged(command, env, ROOT, out / "bench.log")
     for line in log.splitlines():
         if line.startswith("LIFECYCLE"):
             print(line)
     rows = summarize(report)
     sites = sum(1 for row in rows if not row["fixture"])
-    print(f"RUN-5 bench sites={sites} bench_exit={code}")
-    return code or (1 if sites else 0)
+    verdict, problems = run5_bench_verdict(lifecycle_p95(log), sites, noise)
+    if code:
+        verdict = "fail"
+        problems.append(f"bench_exit={code}")
+    for problem in problems:
+        print(f"RUN-5 bench-problem {problem}")
+    print(f"RUN-5 bench {verdict} against={against} ref={head} noise={noise:.2f} sites={sites} bench_exit={code}")
+    return 0 if verdict == "pass" else 1
 
 
 def main(argv: list[str]) -> int:
@@ -180,6 +331,9 @@ def main(argv: list[str]) -> int:
     run.add_argument("rest", nargs=argparse.REMAINDER)
     measure = commands.add_parser("bench")
     measure.add_argument("--out", type=Path, default=ROOT / ".build" / "blocking-sweep")
+    measure.add_argument("--against", help="the base commit (default: the merge base with --base)")
+    measure.add_argument("--base", default=DEFAULT_BASE, help=f"the base branch (default {DEFAULT_BASE})")
+    measure.add_argument("--noise", type=float, default=DEFAULT_NOISE, help="allowed p95 rise over the base, as a fraction")
     measure.add_argument("rest", nargs=argparse.REMAINDER)
     read = commands.add_parser("summarize")
     read.add_argument("directory", type=Path)
@@ -192,7 +346,7 @@ def main(argv: list[str]) -> int:
     out.mkdir(parents=True, exist_ok=True)
     if args.command == "suites":
         return suites(out, args.packages or list(DEFAULT_PACKAGES), rest)
-    return bench(out, rest)
+    return bench(out, args.against or merge_base(args.base), args.noise, rest)
 
 
 if __name__ == "__main__":
