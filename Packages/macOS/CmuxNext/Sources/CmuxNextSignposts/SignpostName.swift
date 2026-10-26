@@ -269,8 +269,9 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// Reserved (task 042, Performance Lead). A work item posted (Chrome's `PostTask` with `FROM_HERE`).
     /// Ring: flow-out; arg0 the interned post site, arg1 the item's flow id.
     case taskPost = 50
-    /// Reserved (task 042, Performance Lead). A work item run, with the flow-in from its post. Ring: B/E;
-    /// arg0 the lane and priority, arg1 the queue wait in us.
+    /// A BackgroundWork lane item's run (emitter: CmuxNextWakeups `LaneScheduler`, p02-threads-124; the flow-in
+    /// from its post is reserved for task 042). Ring: B/E; arg0 the lane (bits 8-15) and priority (bits 0-7), arg1
+    /// the queue wait in us.
     case taskRun = 51
 
     // MARK: hang (reserved: PL-telemetry)

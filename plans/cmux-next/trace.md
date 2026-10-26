@@ -367,6 +367,24 @@ the tables of "Release trace ring v1"; the Swift `TraceRuntime.Role` and `TraceR
     below it. `task.host_input_write`: begin arg1 the payload bytes; end arg0 the bytes written to
     the PTY, end arg1 the outcome (0 written, 1 dropped for lack of input-queue room, 2 write
     failed).
+- Blocking calls and lane jobs (category `task`, closed by p02-threads-124; recording only, never the black
+  box). Off, a checked blocking call pays one relaxed load (the hook word `BlockingTraceHook`) and a lane item
+  one relaxed load at its post; Release keeps both.
+  - `task.blocking_call` (interned name) is one thread slice (B/E) per checked blocking call
+    (`blockingCall(kind, fileID, line)`, every seam of CmuxNextCompat/Threading), Chrome's `ScopedBlockingCall`
+    trace event (base/threading/scoped_blocking_call.cc). Begin arg0: the kind's code in bits 0-7
+    (`BlockingKind.traceCode`: 1 file-io, 2 socket-read, 3 socket-write, 4 sync-wait, 5 ipc-reply,
+    6 process-wait, 7 process-spawn, 8 lock-wait, 9 system-call, 10 sleep, 11 wrong-lane, 12 cpu-intensive,
+    13 fs-metadata, 14 sqlite, 15 process-reap, 16 system-query) and the call's `#line` above them. Begin
+    arg1: FNV-1a 64 of the call's `#fileID` (`Module/File.swift`). The end has no arguments; a written begin
+    always gets its end, also when the body throws or the category turns off meanwhile. Only the app's
+    `TraceRuntime.shared` routes them, while its `task` bit is on.
+  - `task.run` (catalog id 51) is one thread slice (B/E) per BackgroundWork lane item posted while `task` is
+    on, around the item's run on its slot thread (its hang scope included); Chrome's
+    `ThreadPool_RunTask` in `TaskTracker::RunTask` (base/task/thread_pool/task_tracker.cc). Begin arg0: the
+    lane in bits 8-15 (0 files, 1 system, 2 cpu, 0xFF a lane made without one) and the priority in bits 0-7
+    (0 idle, 1 best effort, 2 user visible, 3 user blocking). Begin arg1: the queue wait from the post to the
+    start in us. A `task.blocking_call` inside the item nests in its slice.
 - acpmux has no spans; only its sampled stacks show (requested through the cmux-4f lead from
   PL-acpmux).
 - Time Profiler samples only threads that run. Off-CPU time shows as gaps. Use `--system-trace` for

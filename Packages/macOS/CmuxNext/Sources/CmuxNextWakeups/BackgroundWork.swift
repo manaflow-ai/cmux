@@ -165,7 +165,8 @@ public final class BackgroundWork: Sendable {
             let compensation = lane == .system
                 ? LaneScheduler.MayBlockCompensation(threshold: Self.mayBlockThreshold, clock: mayBlockClock) : nil
             return LaneScheduler(label: "\(label).\(lane)", policy: traits.policy, mayBlock: traits.mayBlock, caps: traits.caps,
-                                 compensation: compensation, hangWatching: watching, qosOverride: qosOverride)
+                                 compensation: compensation, hangWatching: watching, qosOverride: qosOverride,
+                                 lane: lane)
         }
     }
 
