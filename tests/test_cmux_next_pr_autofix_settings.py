@@ -14,6 +14,7 @@ The step scripts run here as the workflows run them, with the generators stubbed
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -58,7 +59,7 @@ class SettingsExportsRegenerateOnPullRequests(unittest.TestCase):
         self.assertEqual(regenerate["if"], "needs.action-areas.outputs.settings == 'true'")
         self.assertIn("regenerate-settings-exports.sh", regenerate["run"])
         outputs = PR["jobs"]["action-exports"]["outputs"]
-        self.assertEqual(outputs["exports"], "${{ steps.require-exports.outcome == 'success' }}")
+        self.assertEqual(outputs["exports"], "${{ steps.require-exports.outcome == 'success' && steps.require-exports.outputs.exports == 'true' }}")
         self.assertEqual(outputs["settings-verified"], "${{ steps.require-exports.outcome == 'success' && steps.settings.outcome == 'success' }}")
 
         work = Path(tempfile.mkdtemp())
@@ -78,33 +79,9 @@ class SettingsExportsRegenerateOnPullRequests(unittest.TestCase):
 
     def test_artifact_output_is_false_when_guard_blocks_upload(self):
         outputs = PR["jobs"]["action-exports"]["outputs"]
-        self.assertEqual(outputs["exports"], "${{ steps.require-exports.outcome == 'success' }}")
+        self.assertEqual(outputs["exports"], "${{ steps.require-exports.outcome == 'success' && steps.require-exports.outputs.exports == 'true' }}")
         self.assertEqual(outputs["verified"], "${{ steps.require-exports.outcome == 'success' && steps.regenerate.outcome == 'success' }}")
         self.assertEqual(outputs["settings-verified"], "${{ steps.require-exports.outcome == 'success' && steps.settings.outcome == 'success' }}")
-
-    def test_the_mac_job_has_a_failing_guard_for_missing_or_empty_exports(self):
-        guard = step(PR, "action-exports", "Require generated exports")
-        self.assertEqual(guard["if"], "always()")
-        self.assertIn("settings exports were requested but the exporter produced no files", guard["run"])
-        self.assertIn("action exports were requested but the exporter produced no files", guard["run"])
-        self.assertIn("find", guard["run"])
-        self.assertIn("SETTINGS_OUTCOME", guard["run"])
-        self.assertIn("settings-exports.txt", guard["run"])
-        with tempfile.TemporaryDirectory() as tmp:
-            (Path(tmp) / "settings-exports.txt").write_text(
-                "::error::" + "schemas/settings-export/" + "settings-schema.sources.sha256 was not written by the settings export\n"
-            )
-            result = run_step(guard["run"], Path(tmp), {
-                "RUNNER_TEMP": tmp,
-                "ACTIONS_REQUESTED": "true",
-                "SETTINGS_REQUESTED": "true",
-                "ACTIONS_EXPORTS": "",
-                "SETTINGS_EXPORTS": "",
-                "SETTINGS_OUTCOME": "failure",
-            })
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("settings exports were requested but the exporter produced no files", result.stdout)
-        self.assertIn("schemas/settings-export/" + "settings-schema.sources.sha256", result.stdout)
 
     def test_the_repair_copies_them_in_and_rewrites_the_defaults_snapshot(self):
         download = step(PR, "repair", "Download the regenerated action exports")
@@ -112,6 +89,109 @@ class SettingsExportsRegenerateOnPullRequests(unittest.TestCase):
         env = step(PR, "repair", "Repair")["env"]
         self.assertIn("needs.action-areas.outputs.settings", env["SETTINGS"])
         self.assertEqual(env["SETTINGS_VERIFIED"], "${{ needs.action-exports.outputs.settings-verified }}")
+
+
+class ExportGuardBehavior(unittest.TestCase):
+    """Execute the actual shell and evaluate its workflow consumers, without running Swift."""
+
+    def expression(self, expression: str, values: dict[str, str]) -> bool:
+        expression = expression.removeprefix("${{ ").removesuffix(" }}")
+        expression = re.sub(r"steps\.[a-z-]+\.(?:outputs\.)?[a-z-]+",
+                            lambda match: repr(values.get(match[0], "")), expression)
+        return bool(eval(expression.replace("&&", " and ").replace("||", " or "), {"__builtins__": {}}))
+
+    def guard(self, *, actions: str = "false", settings: str = "false",
+              action_outcome: str = "skipped", settings_outcome: str = "skipped",
+              action_exports: str = "", settings_exports: str = "",
+              artifact: str = "missing", settings_error: str = "") -> tuple:
+        guard = step(PR, "action-exports", "Require generated exports")
+        with tempfile.TemporaryDirectory() as tmp:
+            temp = Path(tmp)
+            if artifact != "missing":
+                (temp / "action-exports").mkdir()
+            if artifact == "file":
+                (temp / "action-exports/export.json").write_text("changed\n")
+            (temp / "settings-exports.txt").write_text(settings_error)
+            output = temp / "output"
+            result = run_step(guard["run"], temp, {
+                "RUNNER_TEMP": tmp, "GITHUB_OUTPUT": str(output),
+                "ACTIONS_REQUESTED": actions, "SETTINGS_REQUESTED": settings,
+                "ACTIONS_OUTCOME": action_outcome, "SETTINGS_OUTCOME": settings_outcome,
+                "ACTIONS_EXPORTS": action_exports, "SETTINGS_EXPORTS": settings_exports,
+            })
+            guard_outputs = dict(line.split("=", 1) for line in output.read_text().splitlines()) if output.exists() else {}
+        values = {
+            "steps.require-exports.outcome": "success" if result.returncode == 0 else "failure",
+            "steps.require-exports.outputs.exports": guard_outputs.get("exports", ""),
+            "steps.regenerate.outcome": action_outcome,
+            "steps.settings.outcome": settings_outcome,
+        }
+        outputs = {key: self.expression(expr, values)
+                   for key, expr in PR["jobs"]["action-exports"]["outputs"].items()}
+        upload = next(s for s in PR["jobs"]["action-exports"]["steps"]
+                      if s.get("uses", "").startswith("actions/upload-artifact@"))
+        return result, outputs, self.expression(upload["if"], values)
+
+    def test_successful_requested_exports_can_be_verified_noops(self):
+        for actions, settings in (("true", "false"), ("false", "true"), ("true", "true")):
+            with self.subTest(actions=actions, settings=settings):
+                result, outputs, upload = self.guard(
+                    actions=actions, settings=settings,
+                    action_outcome="success" if actions == "true" else "skipped",
+                    settings_outcome="success" if settings == "true" else "skipped")
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("::notice::", result.stdout)
+                self.assertIn("no changed files", result.stdout)
+                self.assertFalse(upload)
+                self.assertEqual(outputs, {"exports": False, "verified": actions == "true",
+                                           "settings-verified": settings == "true"})
+
+    def test_requested_exporter_must_complete_successfully(self):
+        for exporter in ("action", "settings"):
+            for outcome in ("failure", "skipped", "cancelled"):
+                with self.subTest(exporter=exporter, outcome=outcome):
+                    kwargs = ({"actions": "true", "action_outcome": outcome, "action_exports": "true"}
+                              if exporter == "action" else
+                              {"settings": "true", "settings_outcome": outcome, "settings_exports": "true"})
+                    result, outputs, upload = self.guard(**kwargs, artifact="file")
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(exporter + " exporter", result.stdout)
+                    self.assertFalse(upload)
+                    self.assertFalse(any(outputs.values()))
+
+    def test_successful_changed_exports_upload_and_advertise_the_artifact(self):
+        for actions, settings in (("true", "false"), ("false", "true"), ("true", "true")):
+            with self.subTest(actions=actions, settings=settings):
+                result, outputs, upload = self.guard(
+                    actions=actions, settings=settings,
+                    action_outcome="success" if actions == "true" else "skipped",
+                    settings_outcome="success" if settings == "true" else "skipped",
+                    action_exports="true" if actions == "true" else "",
+                    settings_exports="true" if settings == "true" else "", artifact="file")
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertTrue(upload)
+                self.assertTrue(outputs["exports"])
+
+    def test_advertised_exports_with_missing_or_empty_artifact_fail(self):
+        for artifact in ("missing", "empty"):
+            with self.subTest(artifact=artifact):
+                result, outputs, upload = self.guard(actions="true", action_outcome="success",
+                                                    action_exports="true", artifact=artifact)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("uploaded no files", result.stdout)
+                self.assertFalse(upload)
+                self.assertFalse(any(outputs.values()))
+
+    def test_mixed_success_and_missing_settings_input_cannot_advertise_an_artifact(self):
+        missing = "schemas/settings-export/" + "settings-schema.sources.sha256"
+        result, outputs, upload = self.guard(
+            actions="true", settings="true", action_outcome="success", action_exports="true",
+            settings_outcome="failure", artifact="file",
+            settings_error=f"::error::{missing} was not written by the settings export\n")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(missing, result.stdout)
+        self.assertFalse(upload)
+        self.assertFalse(any(outputs.values()))
 
 
 class SettingsOnlyArtifactLeavesTheActionFollowers(unittest.TestCase):
