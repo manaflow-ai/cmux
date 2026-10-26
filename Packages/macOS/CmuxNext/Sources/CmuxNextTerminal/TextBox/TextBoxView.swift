@@ -23,6 +23,10 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
     package var perform: @MainActor (TextBoxCommand) -> Void = { _ in }
     /// Follows the model: one apply per frame however many of its values changed.
     private(set) var watch: FrameObservation<Shown>?
+    /// The submit action the button shows.
+    private var shownAction: TextBoxSubmitAction?
+    /// The fitting height the host last heard of (``refreshHeight()``).
+    private var reportedHeight: CGFloat?
 
     /// What the strip shows of its model.
     struct Shown: Equatable {
@@ -109,10 +113,16 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
     private func show(_ shown: Shown) {
         let (text, action, visible) = (shown.text, shown.action, shown.visible)
         if textView.string != text { textView.replaceText(text) }
-        actionButton.image = NSImage.icon(symbol: action.symbol, size: 14)
-        actionButton.setAccessibilityLabel(action.title)
-        actionButton.themedToolTip = "\(action.title): \(TextBoxStrings.cycleHelp)"
-        if isHidden == visible { isHidden = !visible }
+        if action != shownAction {
+            shownAction = action
+            actionButton.image = NSImage.icon(symbol: action.symbol, size: 14)
+            actionButton.setAccessibilityLabel(action.title)
+            actionButton.themedToolTip = "\(action.title): \(TextBoxStrings.cycleHelp)"
+        }
+        if isHidden == visible {
+            isHidden = !visible
+            superview?.needsLayout = true // invalidate: shown or hidden (the check above), it takes or frees room
+        }
         refreshHeight()
     }
 
@@ -126,10 +136,17 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
         refreshHeight()
     }
 
+    /// A typed character lays nothing out unless it changes the strip's line count: the host frames
+    /// the strip at its fitting height (`TerminalHostView.bottomAccessory`), and its new frame lays
+    /// the strip out.
     private func refreshHeight() {
-        placeholder.isHidden = !textView.string.isEmpty
-        superview?.needsLayout = true
-        needsLayout = true
+        let empty = textView.string.isEmpty
+        if placeholder.isHidden != !empty { placeholder.isHidden = !empty }
+        guard let superview else { return } // the host frames a strip it installs (`bottomAccessory`)
+        let height = fittingSize.height
+        guard height != reportedHeight else { return }
+        reportedHeight = height
+        superview.needsLayout = true // invalidate: a new fitting height (the guard above)
     }
 
     private var lineHeight: CGFloat {

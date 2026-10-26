@@ -54,7 +54,7 @@ package final class TextBoxController {
         let view = self.view
         model.isVisible = true
         view.isHidden = false
-        session?.view.needsLayout = true
+        session?.view.needsLayout = true // invalidate: the box shows, the terminal gives it room
         session?.view.layoutSubtreeIfNeeded()
         if focus { view.window?.makeFirstResponder(view.textView) }
     }
@@ -64,7 +64,7 @@ package final class TextBoxController {
         let hadKeyboard = hasKeyboard
         model.isVisible = false
         installed?.isHidden = true
-        session?.view.needsLayout = true
+        session?.view.needsLayout = true // invalidate: the box hides, the terminal takes its room back
         if hadKeyboard { session?.focus() }
     }
 
