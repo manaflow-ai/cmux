@@ -1,9 +1,8 @@
 public import AppKit
 public import CmuxNextDesign
 import CmuxNextTerminalFind
-import CmuxNextWakeups
-import Observation
 public import CmuxNextWakeups
+import Observation
 
 /// Container the App embeds. Holds the current surface view (swapped on
 /// replay) and paints the terminal's background (its theme's, else the
@@ -85,7 +84,12 @@ public final class TerminalHostView: NSView {
         return CGRect(x: bounds.minX, y: bounds.minY + accessory, width: bounds.width, height: max(0, bounds.height - accessory))
     }
 
-    private var configObserver: (any NSObjectProtocol)?
+    /// The runtime's config revision (``GhosttyRuntime/configRevision``).
+    private let configRevision: GhosttyConfigRevision
+    /// Follows ``configRevision`` while the terminal's node is visible (``followConfig(_:on:)``).
+    private var configWatch: VisibleObservation<UInt64>?
+    /// Layouts a config change asked for, the first apply included (tests).
+    package private(set) var configLayouts = 0
     /// Display option changes (``followAppearance(_:node:)``).
     private var transparencyWatch: AppearanceSignals.Subscription?
     /// Where they come from: the app's ``AppearanceSignals`` (its composition root's, once a pane shows the terminal).
@@ -110,9 +114,15 @@ public final class TerminalHostView: NSView {
     /// The current surface's scrollbar (``followScrollbar(of:)``).
     private(set) var scrollbarWatch: FrameObservation<TerminalScrollbar?>?
 
-    init(mainWork: MainWorkScheduler, node: VisibilityNode? = nil) {
+    /// - Parameters:
+    ///   - mainWork: The app's main-thread scheduler.
+    ///   - node: The terminal's tab node; nil when the host has no tab.
+    ///   - configRevision: The runtime's config revision (``GhosttyRuntime/configRevision``).
+    init(mainWork: MainWorkScheduler, node: VisibilityNode? = nil,
+         configRevision: GhosttyConfigRevision = GhosttyRuntime.shared.configRevision) {
         self.mainWork = mainWork
         self.node = node
+        self.configRevision = configRevision
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         wantsLayer = true
         // A surface frame of another size (the host-sized drawable before its
@@ -126,11 +136,6 @@ public final class TerminalHostView: NSView {
         scroller.onStyleChange = { [weak self] in self?.needsLayout = true }
         scroller.onScrollToRow = { [weak self] row in _ = self?.current?.performBindingAction("scroll_to_row:\(row)") }
         scroller.onWheel = { [weak self] event in self?.current?.scrollWheel(with: event) }
-        // A config reload can change window-padding-x.
-        configObserver = NotificationCenter.default.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
-            // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
-            MainActor.assumeIsolated { self?.needsLayout = true }
-        }
         observeAppearance()
     }
 
@@ -250,14 +255,6 @@ public final class TerminalHostView: NSView {
         shellStall = stall
         banner.show(shownStatus, hostLoss: hostLoss, cause: hostLossCause, stall: stall)
         needsLayout = true
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
-        }
     }
 
     @available(*, unavailable)
@@ -406,6 +403,27 @@ public final class TerminalHostView: NSView {
         super.viewDidChangeEffectiveAppearance()
         paintBackground()
     }
+
+    /// Lays the host out again after each config change (it can change window-padding-x), only
+    /// while `node`, the terminal's tab node, is visible: a reload does no work for a hidden
+    /// terminal, and showing it reads the revision once and lays out if it moved.
+    ///
+    /// - Parameters:
+    ///   - node: The terminal's tab node (`TabContentCache.node(for:)`).
+    ///   - work: The app's main-thread scheduler.
+    public func followConfig(_ node: VisibilityNode, on work: MainWorkScheduler) {
+        configWatch?.cancel()
+        configWatch = VisibleObservation(node, owner: "TerminalHost.config", on: work) { [configRevision] in
+            configRevision.value
+        } apply: { [weak self] _ in
+            guard let self else { return }
+            configLayouts += 1
+            needsLayout = true
+        }
+    }
+
+    /// Tracking callbacks of the config observation (tests prove a hidden host has none).
+    package var configTrackingCallbacks: Int { configWatch?.trackingCallbacks ?? 0 }
 
     /// The host roots its terminal's scope, so the panes' repaint stops here: it listens to the
     /// scope it sits in, whose colors decide whether its own theme shows (`paintBackground`).

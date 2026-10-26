@@ -115,6 +115,10 @@ public final class SwitchFrameTimer {
     /// Whether `key` began and has not shown yet.
     public func isWaiting(_ key: AnyHashable) -> Bool { started[key] != nil }
 
+    /// Whether `key`'s trace interval began and has neither shown nor ended, recording or not: a later
+    /// caller of the same intent keeps it instead of superseding it.
+    public func awaitsShow(_ key: AnyHashable) -> Bool { open[key].map { !$0.shown } ?? false }
+
     /// Whether a switch was shown and its Core Animation commit has not run yet.
     public var awaitsCommit: Bool { pending.contains { $0.commit == nil } }
 

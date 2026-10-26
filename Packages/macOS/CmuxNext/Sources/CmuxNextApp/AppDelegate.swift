@@ -320,8 +320,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.palettes.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog) { [weak services] in
             services?.windows.active.map { SettingsPaletteSource.themeColors($0.themeScope.tokens) } ?? []
         }
-        services.history.startDaemonSync(settings: settings)
-        services.locationTrail.watchScope(settings: settings)
+        // Neither the first frame nor a page engine reads these (p08-startup-028).
+        LaunchServicePosts.browserFollows(historyDaemonSync: { [weak services] in services?.history.startDaemonSync(settings: settings) },
+                                          locationTrailScope: { [weak services] in services?.locationTrail.watchScope(settings: settings) }).post(on: order.startup)
         let shortcutEditor = PaletteShortcutEditor(services: services, settings: settings)
         services.paletteShortcutEditor = shortcutEditor  // the palette's recorder writes through it once built
         // Managed-settings status for MDM tooling (osquery, Fleet, Jamf), plans/cmux-next/enterprise.md: written on the files lane after startup.
@@ -355,6 +356,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.configActions.start(settings: settings)
         // Agent- and bench-launched builds never take system-wide keys from the person's app.
         if !environment.isolatedLaunch { services.globalHotKeys.start() }
+        // What an engine reads when it makes a page or starts, before any does (managed policy included).
         services.cache.browserTabs.preference.follow(settings)
         BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, chromium: services.cache.chromium)
         WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
