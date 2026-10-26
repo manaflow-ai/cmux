@@ -172,6 +172,29 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Resting the pointer on a sidebar row or tab whose browser page is frozen or hibernated wakes that page in the background after a short dwell, at most two at once, never in Low Power Mode on battery or under memory pressure.
+    public static let intentPrewarmHover = Feature(
+        index: 9,
+        name: "intentPrewarmHover",
+        owner: "PL-switch",
+        description: "Resting the pointer on a sidebar row or tab whose browser page is frozen or hibernated wakes that page in the background after a short dwell, at most two at once, never in Low Power Mode on battery or under memory pressure.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [
+            FeatureParamSpec(
+                name: "dwell",
+                description: "How long the pointer rests on a target before its prewarm starts.",
+                value: .duration(default: 0.2, min: 0.05, max: 1.0)
+            ),
+        ],
+        stories: ["tab-switch", "sidebar"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// The browser's favicon caches join the memory coordinator: each profile keeps fewer icons as the memory limit falls and none at critical memory pressure, so an icon dropped then is fetched again the next time a page asks for it.
     public static let memoryBrowserCaches = Feature(
         index: 10,
@@ -703,6 +726,7 @@ nonisolated extension Feature {
         .energySaver,
         .frameRateClasses,
         .frozenGrowthDiscard,
+        .intentPrewarmHover,
         .memoryBrowserCaches,
         .memoryDiscardAgentPagesOverBudget,
         .memoryDiscardConversations,
@@ -747,6 +771,7 @@ nonisolated extension Feature {
         .energySaver,
         .frameRateClasses,
         .frozenGrowthDiscard,
+        .intentPrewarmHover,
         .memoryBrowserCaches,
         .memoryDiscardAgentPagesOverBudget,
         .memoryDiscardConversations,
