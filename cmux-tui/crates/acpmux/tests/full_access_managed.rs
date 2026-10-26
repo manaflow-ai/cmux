@@ -229,10 +229,14 @@ impl Client {
         let params = json!({"cwd": dir.join("work"), "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}});
         let r = self.call("session/new", params).await;
         let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
-        let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "argv"}]});
-        let r = self.call("session/prompt", prompt).await;
+        let r = self.prompt(&id, "argv").await;
         assert!(r.get("error").is_none(), "{harness}: {r}");
         id
+    }
+
+    async fn prompt(&mut self, id: &str, text: &str) -> Value {
+        let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
+        self.call("session/prompt", prompt).await
     }
 
     async fn switch(&mut self, id: &str, mode: &str) -> Value {
@@ -396,4 +400,128 @@ async fn run(cases: &[Case]) {
 #[tokio::test]
 async fn a_full_access_off_mdm_forces_is_an_upper_bound_and_unset_changes_nothing() {
     run(BOUND).await;
+}
+
+/// What already runs in full access ends (rounds 2 and 5).
+const RUNNING: &[Case] = &[
+    ("round 2: an agent running in full access takes no more work once MDM turns it off", |name| {
+        Box::pin(async move {
+            let (dir, daemon, mut app) = daemon(name, true).await;
+            running_agents_take_no_more_work_once_mdm_turns_it_off(&daemon, &mut app, &dir).await;
+        })
+    }),
+    ("round 5: a harness that reports a full-access mode without declaring modes ends", |name| {
+        Box::pin(async move {
+            let (dir, _daemon, mut app) = daemon(name, true).await;
+            app.push(off()).await;
+            moves_itself_into_full_access_and_ends(
+                &mut app,
+                &dir,
+                "self-moder",
+                "set-mode: bypassPermissions",
+            )
+            .await;
+        })
+    }),
+    ("round 8: a harness whose mode option says full access while its mode asks ends", |name| {
+        Box::pin(async move {
+            let (dir, _daemon, mut app) = daemon(name, true).await;
+            app.push(off()).await;
+            moves_itself_into_full_access_and_ends(
+                &mut app,
+                &dir,
+                "self-optioner",
+                "set-mode-option: full-access",
+            )
+            .await;
+        })
+    }),
+    ("round 5: a harness that sets another config option to full access ends", |name| {
+        Box::pin(async move {
+            let (dir, _daemon, mut app) = daemon(name, true).await;
+            app.push(off()).await;
+            moves_itself_into_full_access_and_ends(
+                &mut app,
+                &dir,
+                "self-optioner",
+                "set-option: sandbox danger-full-access",
+            )
+            .await;
+        })
+    }),
+];
+
+#[tokio::test]
+async fn under_an_mdm_off_what_runs_in_full_access_ends() {
+    run(RUNNING).await;
+}
+
+/// Under MDM off, an agent on `harness` that moves itself into full access (`turn`) in a form
+/// acpmux sets no mode for ends; its chat's next turn runs on a new agent.
+async fn moves_itself_into_full_access_and_ends(
+    app: &mut Client,
+    dir: &Path,
+    harness: &str,
+    turn: &str,
+) {
+    let chat = app.ran_on(dir, harness).await;
+    // The turn may end with its agent, which ends as soon as it reports full access.
+    app.prompt(&chat, turn).await;
+    let mut ended = false;
+    for _ in 0..500 {
+        let r = app.call("_acpmux/events", json!({"sessionId": chat, "limit": 500})).await;
+        if r.to_string().contains("full_access_ended") {
+            ended = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(ended, "{harness}: the agent ran on after it moved into full access by itself");
+    let r = app.prompt(&chat, "argv").await;
+    assert!(r.get("error").is_none(), "{harness}: the next turn: {r}");
+}
+
+/// Review of #23322: an agent already running in full access when MDM forces it off takes no more
+/// work in it. A pinned profile's agent ends and its chat is refused; a chat in a full-access mode
+/// starts again in a mode that asks. Starts and ends with MDM unset.
+async fn running_agents_take_no_more_work_once_mdm_turns_it_off(
+    daemon: &Arc<Hub>,
+    app: &mut Client,
+    dir: &Path,
+) {
+    let pinned = app.ran_on(dir, "pinned-yolo").await;
+    let (moded, mode) = app.chat(dir).await;
+    assert_eq!(mode, "agent-full-access");
+    let r = app.prompt(&moded, "hi").await;
+    assert!(r.get("error").is_none(), "{r}");
+    // A turn of the pinned agent runs when MDM turns full access off: it ends with its agent.
+    let mut turns = Client::new(daemon, Origin::Local, ConnAuth::LocalSocket);
+    let prompt = json!({"sessionId": pinned, "prompt": [{"type": "text", "text": "until-cancel"}]});
+    let turn = turns.send("session/prompt", prompt).await;
+    let mut running = false;
+    for _ in 0..500 {
+        let r = app.call("_acpmux/events", json!({"sessionId": pinned, "limit": 500})).await;
+        if r.to_string().contains("\"running\"") {
+            running = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(running, "the pinned agent's turn never started");
+
+    app.push(json!({"allowFullAccess": false, "allowFullAccessManaged": true})).await;
+    let ended = tokio::time::timeout(Duration::from_secs(10), turns.reply(turn)).await;
+    assert!(ended.is_ok(), "the full-access turn ran on after MDM turned full access off");
+    let r = app.prompt(&pinned, "argv").await;
+    assert_eq!(
+        r["error"]["data"]["reason"], "full_access_off",
+        "the pinned agent took more work: {r}"
+    );
+    let r = app.prompt(&moded, "hi").await;
+    assert!(r.get("error").is_none(), "{r}");
+    let info = app.call("_acpmux/info", json!({"sessionId": moded})).await;
+    assert_ne!(
+        info["result"]["modes"]["currentModeId"], "agent-full-access",
+        "the chat ran on in full access: {info}"
+    );
 }
