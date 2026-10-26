@@ -148,14 +148,17 @@ export const SubagentTray = memo(function SubagentTray({
   ];
   // A line that joins the open list rises in (ui/popupSurface.css `data-enter`); the lines it was
   // drawn with, and lines a fold or View all brings back, are simply there. With no motion (Reduce
-  // Motion, the host's switch) nothing arrives. A burst (more than ARRIVALS_PER_UPDATE at once, a
-  // reconnect's catch-up) is simply there too, as the transcript's live rows are, so the arrivals
-  // set stays a handful and settling one is O(1) in the tray's size. A line that arrives on a hidden
+  // Motion, the host's switch) nothing arrives. A burst (more than ARRIVALS_PER_UPDATE new lines at
+  // once, a reconnect's catch-up) is simply there too, as the transcript's live rows are, so the
+  // arrivals set stays a handful (each settles in one entrance) and settling one never copies the
+  // tray's size. Counting the new lines is one pass over keys this render already builds. A line that arrives on a hidden
   // page is finished when the page shows (shared/pageReveal.ts), which settles it.
-  const lastCount = useRef(keys.length);
-  const burst = keys.length - lastCount.current > ARRIVALS_PER_UPDATE;
-  lastCount.current = keys.length;
-  const moves = open && !burst && !isAgentMotionOff() && !foldMotion.reducedMotion();
+  const seen = useRef<ReadonlySet<string> | null>(null);
+  seen.current ??= new Set(keys);
+  const known = seen.current;
+  const fresh = keys.reduce((count, key) => count + (known.has(key) ? 0 : 1), 0);
+  if (fresh > 0) seen.current = new Set(keys);
+  const moves = open && fresh <= ARRIVALS_PER_UPDATE && !isAgentMotionOff() && !foldMotion.reducedMotion();
   const arrivals = useArrivals(keys, moves ? drawnKeys : NO_KEYS);
   if (items.length === 0 && finished.length === 0) return null;
   // Its subagents and the chats it started are one word: subagents.

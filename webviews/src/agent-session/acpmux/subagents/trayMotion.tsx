@@ -143,42 +143,53 @@ export function useTrayMotion(
 /// may not run, just shows. The old words go on their `animationend`, or `animationcancel` when the
 /// host turns motion off midway; Reduce Motion's stylesheet cuts the exit to a frame.
 export function Tick({ text, className }: { text: string; className?: string }): ReactNode {
-  const [state, setState] = useState<{ text: string; previous?: string; turn: number }>({ text, turn: 0 });
+  // `previous` is the leaving words, `entering` whether the new ones still rise; each part settles
+  // on its own animation's end (or cancel), so the shorter exit never cuts the entrance short.
+  type TickState = { text: string; previous?: string; entering: boolean; turn: number };
+  const [state, setState] = useState<TickState>({ text, entering: false, turn: 0 });
   const cell = useRef<HTMLSpanElement>(null);
   let shown = state;
   if (state.text !== text) {
     const moves = cell.current ? motionAllowed(cell.current) : false;
-    shown = { text, previous: moves ? state.text : undefined, turn: state.turn + 1 };
+    shown = { text, previous: moves ? state.text : undefined, entering: moves, turn: state.turn + 1 };
     setState(shown);
   }
   const turn = shown.turn;
-  const settle = () => setState((current) => (current.turn === turn ? { text: current.text, turn } : current));
+  const settled = (part: "previous" | "entering") => () =>
+    setState((current) =>
+      current.turn !== turn ? current : part === "previous" ? { ...current, previous: undefined } : { ...current, entering: false },
+    );
   return (
     <span ref={cell} className={className ? `acpmux-tick ${className}` : "acpmux-tick"}>
       {shown.previous !== undefined && (
-        <span
-          key={`out-${turn}`}
-          className="acpmux-tick__out"
-          aria-hidden="true"
-          ref={(node) => {
-            if (!node) return undefined;
-            const ended = (event: Event) => {
-              if (event.target === node) settle();
-            };
-            node.addEventListener("animationend", ended);
-            node.addEventListener("animationcancel", ended);
-            return () => {
-              node.removeEventListener("animationend", ended);
-              node.removeEventListener("animationcancel", ended);
-            };
-          }}
-        >
+        <span key={`out-${turn}`} className="acpmux-tick__out" aria-hidden="true" ref={onAnimationDone(settled("previous"))}>
           {shown.previous}
         </span>
       )}
-      <span key={`in-${turn}`} className={shown.previous !== undefined ? "acpmux-tick__in" : undefined}>
+      <span
+        key={`in-${turn}`}
+        className={shown.entering ? "acpmux-tick__in" : undefined}
+        ref={shown.entering ? onAnimationDone(settled("entering")) : undefined}
+      >
         {shown.text}
       </span>
     </span>
   );
+}
+
+/// A ref that calls `done` when the node's own animation ends or is cancelled (React has no
+/// animationcancel prop); its listeners go with the node.
+function onAnimationDone(done: () => void) {
+  return (node: HTMLElement | null) => {
+    if (!node) return undefined;
+    const ended = (event: Event) => {
+      if (event.target === node) done();
+    };
+    node.addEventListener("animationend", ended);
+    node.addEventListener("animationcancel", ended);
+    return () => {
+      node.removeEventListener("animationend", ended);
+      node.removeEventListener("animationcancel", ended);
+    };
+  };
 }
