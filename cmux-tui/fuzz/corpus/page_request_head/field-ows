@@ -1,4 +1,4 @@
-GET /pages/home/ HTTP/1.0
+ÿGET /pages/home/ HTTP/1.0
 Host:	 127.0.0.1 
 Origin:x
 

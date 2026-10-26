@@ -51,11 +51,20 @@ impl RequestHead {
 
 /// Reads up to the end of the request head. Returns every byte read (the
 /// head and anything after it, for the WebSocket handshake to replay) and the
-/// parsed head; None for a closed, oversized or malformed request. Generic
-/// over the stream so the fuzz target (cmux-tui/fuzz `page_request_head`)
-/// drives it with in-memory reads.
+/// parsed head; None for a closed, oversized or malformed request.
 pub(crate) fn read_request_head(
     stream: &mut (impl Read + Write),
+) -> Option<(Vec<u8>, RequestHead)> {
+    read_request_head_within(stream, REQUEST_HEAD_MAX_BYTES)
+}
+
+/// `read_request_head` with the head limit `max_bytes`, past which it answers
+/// 431. Generic over the stream and the limit so the fuzz target (cmux-tui/fuzz
+/// `page_request_head`) drives it with in-memory reads and reaches the 431
+/// branch with short inputs.
+pub(crate) fn read_request_head_within(
+    stream: &mut (impl Read + Write),
+    max_bytes: usize,
 ) -> Option<(Vec<u8>, RequestHead)> {
     let mut bytes = Vec::with_capacity(1024);
     let mut chunk = [0u8; 4096];
@@ -63,7 +72,7 @@ pub(crate) fn read_request_head(
         if let Some(end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
             break end;
         }
-        if bytes.len() >= REQUEST_HEAD_MAX_BYTES {
+        if bytes.len() >= max_bytes {
             let _ = stream.write_all(&plain(431, "Request Header Fields Too Large"));
             return None;
         }

@@ -44,6 +44,23 @@ fn a_well_formed_head_parses() {
     assert!(head.is_websocket_upgrade());
 }
 
+/// A head with no blank line in REQUEST_HEAD_MAX_BYTES gets 431, and one
+/// that ends just inside the limit parses.
+#[test]
+fn a_head_past_the_limit_gets_431() {
+    let mut endless = b"GET / HTTP/1.1\r\nCookie: ".to_vec();
+    endless.resize(REQUEST_HEAD_MAX_BYTES + 1, b'a');
+    let mut peer = Peer::sending(&endless);
+    assert!(read_request_head(&mut peer).is_none());
+    assert!(peer.answered.starts_with(b"HTTP/1.1 431 "));
+
+    let mut fits = endless[..REQUEST_HEAD_MAX_BYTES - 4].to_vec();
+    fits.extend_from_slice(b"\r\n\r\n");
+    let mut peer = Peer::sending(&fits);
+    assert!(read_request_head(&mut peer).is_some());
+    assert!(peer.answered.is_empty());
+}
+
 /// Optional whitespace around a field value is not part of it (RFC 9112
 /// section 5.1), and HTTP/1.0 is a request line version like HTTP/1.1.
 #[test]

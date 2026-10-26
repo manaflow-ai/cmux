@@ -1,17 +1,19 @@
 //! The request head the daemon's WebSocket listener reads from any local
 //! connection (`page_files::read_request_head`, server/page_files.rs), before
 //! the Host/Origin rule. The first byte sets how many bytes each read returns
-//! (1..=256, as a slow or split TCP stream delivers them); the rest is what
-//! the peer sends.
+//! (1..=256, as a slow or split TCP stream delivers them). The second sets the
+//! head limit: 255 is the daemon's PAGE_REQUEST_HEAD_MAX_BYTES (64 KiB), any
+//! other value N is 16 * (N + 1) bytes, so short inputs reach the 431 branch
+//! that a 64 KiB input past libFuzzer's grown max_len rarely does. The rest is
+//! what the peer sends.
 //!
 //! A head it accepts was read up to the stream's first blank line, every byte
 //! it returns is a prefix of the stream, its request line is exactly
 //! `method SP target SP HTTP/1.x` with a token method and a non-empty
 //! target, every field name is a token (so no whitespace before a colon and
 //! no obs-fold line), and its target and Host and Origin values hold no
-//! control byte but HTAB. It answers only an oversized head (431), and only
-//! after reading the whole limit; page_request_head.options raises max_len
-//! past that limit so the fuzzer reaches it.
+//! control byte but HTAB. It answers only an oversized head (431), only after
+//! reading the whole limit and only when no blank line ended in what it read.
 
 #![no_main]
 
@@ -50,11 +52,15 @@ impl Write for Peer<'_> {
 const BLANK_LINE: &[u8] = b"\r\n\r\n";
 
 fuzz_target!(|data: &[u8]| {
-    let Some((&read_size, sent)) = data.split_first() else {
+    let [read_size, limit, sent @ ..] = data else {
         return;
     };
-    let mut peer = Peer { sent, read_size: usize::from(read_size) + 1, answered: Vec::new() };
-    let read = page_request_head(&mut peer);
+    let max_bytes = match limit {
+        255 => PAGE_REQUEST_HEAD_MAX_BYTES,
+        limit => 16 * (usize::from(*limit) + 1),
+    };
+    let mut peer = Peer { sent, read_size: usize::from(*read_size) + 1, answered: Vec::new() };
+    let read = page_request_head(&mut peer, max_bytes);
     let blank_line = sent.windows(BLANK_LINE.len()).position(|window| window == BLANK_LINE);
     match read {
         Some((bytes, head)) => {
@@ -102,8 +108,12 @@ fuzz_target!(|data: &[u8]| {
                 peer.answered.starts_with(b"HTTP/1.1 431 "),
                 "a refused head was answered with something other than 431"
             );
-            let consumed = data.len() - 1 - peer.sent.len();
-            assert!(consumed >= PAGE_REQUEST_HEAD_MAX_BYTES, "431 before the head limit");
+            let consumed = sent.len() - peer.sent.len();
+            assert!(consumed >= max_bytes, "431 before the head limit");
+            assert!(
+                blank_line.is_none_or(|at| at + BLANK_LINE.len() > consumed),
+                "431 for a head whose blank line was already read"
+            );
         }
         None => {}
     }

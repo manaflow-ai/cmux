@@ -200,17 +200,30 @@ def seeds() -> dict[str, dict[str, bytes]]:
             "cut": u8(0) + (segment_frame(0, b"abc") + segment_frame(3, b"def"))[:-3],
         },
         "page_request_head": {
+            # Byte 0: bytes per read - 1. Byte 1: the head limit (255 is the
+            # daemon's 64 KiB, N is 16 * (N + 1) bytes). Then the stream.
             "page-get": u8(255)
+            + u8(255)
             + b"GET /pages/home/ HTTP/1.1\r\nHost: 127.0.0.1:7777\r\nCookie: a=b\r\n\r\n",
             "websocket": u8(7)
+            + u8(255)
             + b"GET /ws HTTP/1.1\r\nHost: localhost:7777\r\nOrigin: http://localhost:7777\r\n"
             + b"Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\n\r\n"
             + b"\x81\x80",
-            "attachment": u8(0) + b"HEAD /attachments/x?y=1 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
+            "attachment": u8(0)
+            + u8(255)
+            + b"HEAD /attachments/x?y=1 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
             "field-ows": u8(31)
+            + u8(255)
             + b"GET /pages/home/ HTTP/1.0\r\nHost:\t 127.0.0.1 \r\nOrigin:x\r\n\r\n",
-            "obs-fold": u8(3) + b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n Host: evil\r\n\r\n",
-            "space-before-colon": u8(3) + b"GET / HTTP/1.1\r\nHost : evil\r\n\r\n",
+            "obs-fold": u8(3)
+            + u8(255)
+            + b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n Host: evil\r\n\r\n",
+            "space-before-colon": u8(3) + u8(255) + b"GET / HTTP/1.1\r\nHost : evil\r\n\r\n",
+            # A 64-byte limit and a head that does not end in it: 431.
+            "oversized": u8(15) + u8(3) + b"GET / HTTP/1.1\r\nCookie: " + b"a" * 64,
+            # The same head ending just inside a 64-byte limit: parsed.
+            "at-limit": u8(15) + u8(3) + b"GET / HTTP/1.1\r\nCookie: " + b"a" * 34 + b"\r\n\r\n",
         },
     }
 

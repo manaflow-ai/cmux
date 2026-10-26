@@ -273,9 +273,13 @@ pub struct PageRequestHead {
 }
 
 /// The request head the daemon's WebSocket listener reads from `stream`,
-/// with every byte it read; `None` for a closed, oversized or malformed one.
-pub fn page_request_head(stream: &mut (impl Read + Write)) -> Option<(Vec<u8>, PageRequestHead)> {
-    let (bytes, head) = crate::server::page_files::read_request_head(stream)?;
+/// with every byte it read; `None` for a closed, oversized (past `max_bytes`,
+/// [`PAGE_REQUEST_HEAD_MAX_BYTES`] in the daemon) or malformed one.
+pub fn page_request_head(
+    stream: &mut (impl Read + Write),
+    max_bytes: usize,
+) -> Option<(Vec<u8>, PageRequestHead)> {
+    let (bytes, head) = crate::server::page_files::read_request_head_within(stream, max_bytes)?;
     let owned = |values: Vec<&str>| values.into_iter().map(str::to_owned).collect();
     let summary = PageRequestHead {
         websocket_upgrade: head.is_websocket_upgrade(),
