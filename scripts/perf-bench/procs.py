@@ -43,9 +43,13 @@ included. A coalition that cannot be read is None, never zeros.
 
 An instance is every process of one browser run: the main pid's descendants,
 every process whose executable lies inside the bundle (helpers, crashpad,
-cmux daemons and terminal hosts, which outlive their parents), and every
+cmux daemons and terminal hosts, which outlive their parents), every
 process macOS counts the main pid responsible for (Safari's and cmux's
-WebKit XPC processes), and the Computer Use helper started with `--owner-pid <main pid>`.
+WebKit XPC processes), the Computer Use helper started with `--owner-pid <main pid>`,
+and every descendant of one of its acpmux agent hosts
+(`__agent-host`, pooled ones included: the harness and its tools run from
+outside the bundle, under a host that detached from its daemon). Those
+descendants are kind `agent-harness` (`agent_harness_pids`).
 
 The libraries load on first use, so the pure parts (`usage_from_words`, `rates`, `gpu_ns_from_registry`,
 `coalition_from_words`, `coalition_rates`, `window_totals`, `priorities` with its reads passed) import and test on any OS.
@@ -446,6 +450,40 @@ class ProcessTree:
         return out
 
 
+# The word acpmux starts an agent host with (cmux-tui/crates/acpmux/src/agent_host/mod.rs HOST_ARG): one host per
+# agent session and per pooled entry (`hosts/pool/`), the harness its child.
+AGENT_HOST_ARG = "__agent-host"
+AGENT_HARNESS = "agent-harness"
+
+
+def is_agent_host(cmd: str) -> bool:
+    """Whether `cmd` is an acpmux agent host (`acpmux __agent-host`, or `cmux acp __agent-host` in the multicall
+    binary)."""
+    return AGENT_HOST_ARG in cmd.split()
+
+
+def agent_harness_pids(table) -> dict[int, int]:
+    """{pid: host pid} of every descendant of an agent host in `table` ([(pid, ppid, command)], process_table): the
+    harness and whatever it runs, under its nearest host. A host is never a harness."""
+    children: dict[int, list[int]] = {}
+    hosts = []
+    for pid, ppid, cmd in table:
+        children.setdefault(ppid, []).append(pid)
+        if is_agent_host(cmd):
+            hosts.append(pid)
+    host_set = set(hosts)
+    found: dict[int, int] = {}
+    for host in hosts:
+        stack = list(children.get(host, []))
+        while stack:
+            pid = stack.pop()
+            if pid in host_set or pid in found:
+                continue  # a host under a host is its own; a racy table's cycle ends here
+            found[pid] = host
+            stack.extend(children.get(pid, []))
+    return found
+
+
 def kind_of(cmd: str) -> str:
     """A short process kind for the per-kind breakdown (xbench's names for the tab_pages.process_type_kind kinds)."""
     chromium = process_type_kind(cmd)
@@ -515,6 +553,7 @@ class Instance:
         self.pid = pid
         self.roots = _roots(bundle)
         self.seen: set[int] = set()
+        self.harness: dict[int, int] = {}  # the last pids() read's agent harness processes: {pid: host pid}
 
     def pids(self, table: list[tuple[int, int, str]] | None = None) -> dict[int, str]:
         """{pid: command} of the instance in `table` (process_table rows; read now when None)."""
@@ -546,8 +585,15 @@ class Instance:
                 found.add(pid)
             if CUA_HELPER_APP in cmd and re.search(rf"--owner-pid {self.pid}(\s|$)", cmd):
                 found.add(pid)
+        # Agent harnesses run from outside the bundle, under a host that is the instance's.
+        self.harness = {pid: host for pid, host in agent_harness_pids(table).items() if host in found}
+        found |= set(self.harness)
         self.seen |= found
         return {pid: commands[pid] for pid in found}
+
+    def kind(self, pid: int, cmd: str) -> str:
+        """`kind_of`, with the last pids() read's agent harness processes as `agent-harness`."""
+        return AGENT_HARNESS if pid in self.harness else kind_of(cmd)
 
     def memory(self, per_pid: bool = False) -> dict:
         """Physical footprint now: total MB, process count and MB per kind (and per process with
@@ -564,9 +610,10 @@ class Instance:
             mb = got[3] / MB
             total += mb
             count += 1
-            kinds[kind_of(cmd)] = kinds.get(kind_of(cmd), 0.0) + mb
+            name = self.kind(pid, cmd)
+            kinds[name] = kinds.get(name, 0.0) + mb
             if per_pid:
-                rows.append({"pid": pid, "kind": kind_of(cmd), "command": cmd[:160], "footprint_mb": round(mb, 1),
+                rows.append({"pid": pid, "kind": name, "command": cmd[:160], "footprint_mb": round(mb, 1),
                              "rss_mb": rss.get(pid)})
         result = {"mb": round(total, 1), "processes": count,
                   "kinds": {k: round(v, 1) for k, v in sorted(kinds.items(), key=lambda kv: -kv[1])}}
@@ -608,7 +655,7 @@ class Instance:
                            "mach_msgs_per_s": _delta32(last_overhead[2], first_overhead[2]) / elapsed,
                            "syscalls_per_s": _delta32(last_overhead[3], first_overhead[3]) / elapsed,
                            "csw_per_s": _delta32(last_overhead[4], first_overhead[4]) / elapsed})
-            rows.append({"pid": pid, "kind": kind_of(cmd), "threads": last_overhead[1], **values})
+            rows.append({"pid": pid, "kind": self.kind(pid, cmd), "threads": last_overhead[1], **values})
         result = window_totals(rows)
         result["seconds"] = round(elapsed, 1)
         result["coalition"] = coalition_rates(coalition_first, coalition_last, elapsed)
