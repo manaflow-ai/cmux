@@ -3,6 +3,7 @@
 // on frames, as a socket's do. Measures dropped and long frames, how often the view left the
 // bottom while it should follow it, and how far the content grew in one frame (a burst reads as
 // a jump).
+import { browserTimers } from "../../pages/shared/pageLifecycle";
 import type { AcpmuxRow } from "./model";
 import { acpmuxPerf, frameStats, median, percentile, round2 } from "./perf";
 import { syntheticRows } from "./synthetic";
@@ -58,11 +59,13 @@ export async function runStream(
     version += 1;
     replaceRows([...base, { id: "debug-stream", version, at, kind: "assistant", text, streaming }]);
   };
-  const feeder = setInterval(() => {
+  // wakeup-allow: debug feeder of `debug.agent_pane action=stream`; deltas come on a timer as a
+  // socket's do, and the bench cancels it when it ends.
+  const feeder = browserTimers.every(chunkMs, () => {
     text += SAMPLE.repeat(2).slice(source % SAMPLE.length, (source % SAMPLE.length) + chunkChars);
     source += chunkChars;
     push(true);
-  }, chunkMs);
+  });
   const timestamps: number[] = [];
   const growth: number[] = [];
   let detached = 0;
@@ -96,7 +99,7 @@ export async function runStream(
     shown = Math.max(shown, visible);
     if (!ended && now >= end) {
       ended = true;
-      clearInterval(feeder);
+      browserTimers.cancelEvery(feeder);
       push(false);
     }
     if (ended) tail += 1;

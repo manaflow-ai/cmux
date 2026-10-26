@@ -5,6 +5,7 @@
 // view stacks under the first.
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
+import { usePageInterval } from "../shared/pageLifecycle";
 import { ViewGlyph } from "./parts";
 import { CHIEF_VIEWS, viewById, type ChiefViewManifest } from "./registry";
 import type { ChiefViewsStore, ViewNeed } from "./store";
@@ -215,14 +216,11 @@ function ViewCard({
   );
 }
 
-/** The fixed clock, else the time now, again every minute. */
+/** The fixed clock, else the time now, again every minute while the page shows (usePageInterval).
+    A hidden page's stamps rest and read the time again when it shows. */
 function useNow(fixed?: number): number {
   const [now, setNow] = useState(() => fixed ?? Date.now());
-  useEffect(() => {
-    if (fixed !== undefined) return;
-    // The same minute tick the Lanes view keeps for its "Idle · 3 h" stamps.
-    const timer = setInterval(() => setNow(Date.now()), MINUTE);
-    return () => clearInterval(timer);
-  }, [fixed]);
+  // The same minute tick the Lanes view keeps for its "Idle · 3 h" stamps.
+  usePageInterval(() => setNow(Date.now()), fixed === undefined ? MINUTE : null, { catchUpOnShow: true });
   return fixed ?? now;
 }

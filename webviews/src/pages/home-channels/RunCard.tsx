@@ -10,6 +10,7 @@ import { ToolRows } from "../../agent-session/acpmux/conversation/TurnRows";
 import { formatDuration } from "../../agent-session/acpmux/conversation/turns";
 import type { AcpmuxActivity, AcpmuxRow } from "../../agent-session/acpmux/model";
 import type { Strings } from "../shared/i18n";
+import { usePageInterval } from "../shared/pageLifecycle";
 import { liveReply, tail, useLiveRun, type LiveBook } from "./live";
 import { isStale, runTokens, useLiveRuns, useRunEntry, type RunBook, type RunEntry } from "./runs";
 import { Avatar } from "./Avatar";
@@ -104,15 +105,14 @@ export function runBlocks(run: HomeRun, steps: readonly HomeRunStep[]): RunBlock
   return blocks;
 }
 
-/** Ticks once a second while `running` (the "Working for" clock); a finished run holds still. */
+/** Ticks once a second while `running` and the page shows (the "Working for" clock); a finished
+    run holds still. A hidden page's clock rests and reads the time again when it shows. */
 export function useNow(running: boolean): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (!running) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
+    if (running) setNow(Date.now());
   }, [running]);
+  usePageInterval(() => setNow(Date.now()), running ? 1000 : null, { catchUpOnShow: true });
   return now;
 }
 
