@@ -325,19 +325,19 @@ impl Hub {
 
     /// Whether a `session/new` keeps the harness's own start mode rather
     /// than the default one (`hub/start_mode.rs`): it names its own
-    /// (`StartMode`, set after the start), or a caller session that is not
-    /// the person runs in a mode that asks, so a chat it starts is never
-    /// wider than it ((a)).
-    pub(crate) async fn keeps_harness_mode(
-        &self,
-        person: bool,
-        caller: Option<&str>,
-        params: &Value,
-    ) -> bool {
+    /// (`StartMode`, set after the start), or a caller session (`caller`,
+    /// never the person) runs in a mode that asks, so a chat it starts is
+    /// never wider than it ((a)). A caller that is the chat's starter
+    /// ([`Hub::starter_of`]) instead gives it its own level (`start_mode.rs`,
+    /// "Inherit").
+    pub(crate) async fn keeps_harness_mode(&self, caller: Option<&str>, params: &Value) -> bool {
         if StartMode::of(params, &*self.config.read().await).is_some() {
             return true;
         }
-        let caller = caller.filter(|_| !person).and_then(|id| self.resolve(id).ok());
+        if self.starter_of(false, caller).is_some() {
+            return false;
+        }
+        let caller = caller.and_then(|id| self.resolve(id).ok());
         caller.is_some_and(|s| {
             let m = s.meta();
             let family = crate::web_modes::family_of(&m);
@@ -347,6 +347,15 @@ impl Hub {
                 crate::web_modes::mode_of(&m).as_deref(),
             )
         })
+    }
+
+    /// The caller session a `session/new` inherits from (`start_mode.rs`, "Inherit"): the one
+    /// `caller` proved (an agent's call, never the person), unless the connection is `web` (a
+    /// remote one, which has none), or the session is one a remote connection started.
+    pub(crate) fn starter_of(&self, web: bool, caller: Option<&str>) -> Option<String> {
+        let id = caller.filter(|_| !web)?;
+        let s = self.resolve(id).ok().filter(|s| s.id == id)?;
+        (!s.meta().remote_origin).then(|| s.id.clone())
     }
 
     /// A `_acpmux/presets` write without the person (module docs, (b)): no
@@ -416,6 +425,13 @@ impl Hub {
         let applied = match checked {
             Ok(grant) => match self.set_mode(s, &start.mode).await {
                 Ok(_) => {
+                    // A mode granted because the caller runs in it is cmux's own only when the
+                    // caller's is: a mode the caller's harness reported by itself passes on no
+                    // `mode_set_by_cmux` (`trust_wait.rs` `full_access_by_cmux`).
+                    if matches!(grant, StartGrant::Inherit) && !self.mode_is_cmux_set(caller) {
+                        s.meta.lock().unwrap_or_else(|e| e.into_inner()).mode_set_by_cmux = None;
+                        self.save_meta(s);
+                    }
                     self.note_start_grant(s, grant, bound);
                     Ok(())
                 }
@@ -430,6 +446,14 @@ impl Hub {
             return Err(e);
         }
         Ok(())
+    }
+
+    /// Whether session `caller` runs in the mode cmux last set on it (`SessionMeta::mode_set_by_cmux`).
+    fn mode_is_cmux_set(&self, caller: Option<&str>) -> bool {
+        caller.and_then(|id| self.resolve(id).ok().filter(|s| s.id == id)).is_some_and(|s| {
+            let m = s.meta();
+            m.mode_set_by_cmux.is_some() && crate::web_modes::mode_of(&m) == m.mode_set_by_cmux
+        })
     }
 
     /// A bare "agent process closed" from a process that died while it

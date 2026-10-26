@@ -897,6 +897,19 @@ impl Brain {
                 fleet_wait.join(", ")
             ));
         }
+        // A report that says its code is not landed gets the host's landing
+        // follow-up first (no Chief turn); its next report reaches the Chief.
+        let land_followup = !held
+            && !resuming
+            && !stopped
+            && self
+                .state
+                .sub(id)
+                .is_some_and(|(_, s)| s.land_followups < crate::sub_watch::LAND_FOLLOWUPS)
+            && crate::sub_watch::unlanded(&report);
+        if land_followup {
+            stopped = true;
+        }
         let run_ms = if let Some(sub) = self.state.sub_mut(id) {
             sub.fleet_wait = fleet_wait;
             sub.status = SubStatus::Done;
@@ -905,6 +918,13 @@ impl Brain {
             sub.continued_ms = 0;
             sub.report = Some(report.clone());
             sub.stopped = stopped;
+            if land_followup {
+                sub.land_followups += 1;
+                sub.inbox.push(crate::state::InboxMessage {
+                    text: crate::sub_watch::LAND_FOLLOWUP.to_owned(),
+                    at_ms: now_ms(),
+                });
+            }
             if let Some(floor) = floor {
                 sub.floor = floor;
             }
@@ -933,6 +953,10 @@ impl Brain {
             }),
         );
         (self.log)(&format!("subagent {id} finished"));
+        if land_followup {
+            (self.log)(&format!("subagent {id}: not landed, followed up"));
+            self.trace.emit("subagent.land_followup", json!({"id": id}));
+        }
         self.mark_workspace(id, true);
         self.deliver(&spawn);
         // A tell that could not reach its run goes as its next prompt.
@@ -1850,17 +1874,11 @@ impl Brain {
             json!({"id": id, "spawn": spawn, "from": "chief", "steered": steered, "queue": queue, "message": self.trace.text(message)}),
         );
         let answer = if steered && queue {
-            format!(
-                "sent to {id}; it reads it between its tool calls, or after its current turn when its agent cannot take it mid-turn; its report answers it as a \"[{id}] ...\" message"
-            )
+            format!("sent to {id}; read between tool calls or after its turn")
         } else if steered {
-            format!(
-                "sent to {id}; it reads it between its tool calls, or, when its agent cannot take it mid-turn, its turn stops now and this is its next prompt; its report answers it as a \"[{id}] ...\" message"
-            )
+            format!("sent to {id}; read between tool calls, else its turn restarts with it")
         } else {
-            format!(
-                "sent to {id}; it reads it after its current step, and its report comes back as a \"[{id}] ...\" message"
-            )
+            format!("sent to {id}; read after its current step")
         };
         Ok(answer)
     }

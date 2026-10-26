@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
+import CmuxNextBrowser
 
 /// The gated ops: removals behind a native confirmation, and the three ops that release a
 /// secret (reveal, copy, export) behind device owner authentication. The secret never enters a
