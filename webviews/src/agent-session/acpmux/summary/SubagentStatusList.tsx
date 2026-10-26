@@ -23,7 +23,7 @@ import {
   waitingLine,
 } from "../subagents/subsessions";
 import type { StartedSession } from "../started/startedSessions";
-import { ChildSessionRows } from "../inspector/ChildSessionRows";
+import { ChildSessionRows, sessionStatus } from "../inspector/ChildSessionRows";
 import type { SummarySubagent } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
 
@@ -170,8 +170,8 @@ export function SubagentStatusList({
   const title = t("summary.subagents");
   const live =
     agents.filter((agent) => subagentStatus(agent, waiting) === "running").length +
-    subsessions.filter((session) => session.state === "working").length +
-    sessions.filter((child) => child.state === "running").length;
+    subsessions.filter((session) => session.state === "working" || sessionRetry(session).kind === "retrying").length +
+    sessions.filter((child) => sessionStatus(child) === "running").length;
   const heading = live > 0 ? `${title} · ${t("summary.subagents.running", { n: live })}` : title;
   return (
     <section className="acpmux-summary-section acpmux-summary-agents" aria-label={title}>
