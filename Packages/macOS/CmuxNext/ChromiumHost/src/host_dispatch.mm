@@ -508,9 +508,13 @@ void HostContext::Bad(const std::string& what) {
 }
 
 // Chromium never focuses a page on its own: as in process (CEFTab+Focus.swift),
-// a request is granted only inside cmux's cmux_shim_set_focus.
+// a request is granted only inside cmux's own focus ops. In host mode that is
+// cmux_shim_browser_set_embedder_active (task 046: the detached page's key
+// state, no window of the host becomes key); cmux_shim_set_focus stays for a
+// caller that still sends it.
 int HostContext::OnFocusRequest(void* ctx, int, int) {
-  return static_cast<HostContext*>(ctx)->dispatching_op_ == kOpSetFocus ? 1 : 0;
+  const uint16_t op = static_cast<HostContext*>(ctx)->dispatching_op_;
+  return op == kOpSetFocus || op == kOpBrowserSetEmbedderActive ? 1 : 0;
 }
 
 // Chromium never opens a window of its own in the host (it would be a
