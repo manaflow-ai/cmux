@@ -2032,3 +2032,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_verify_signed_dev_app.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_workflow_scripts_are_executable.py"
+lane = "linux-guard"

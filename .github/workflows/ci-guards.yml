@@ -773,6 +773,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_sources.py
 
+      - name: Validate that every script a workflow runs by path is executable in git
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_workflow_scripts_are_executable.py
+
       - name: Validate the backend migrations plan
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_backend_migrations_plan.py
