@@ -78,7 +78,7 @@ public final class FrameClient {
     /// ``MainWorkScheduler``: it ticks after the higher classes, only when ``MainFrameBudget/mayRun(_:)``
     /// lets its class run, and in turn with the other clients of its class; otherwise it stays
     /// active and ticks on the next frame. `onFrame` gets the budget: it runs its work through
-    /// ``MainFrameBudget/run(_:owner:_:)``, one task at a time, and returns true to tick again while
+    /// ``MainFrameBudget/run(_:owner:posted:_:)``, one task at a time, and returns true to tick again while
     /// work is left. The client holds `work`: it never falls back to another scheduler.
     ///
     /// While `work`'s ``StartupPhase`` does not admit the class (background while launching), an

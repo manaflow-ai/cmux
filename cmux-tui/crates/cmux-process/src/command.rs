@@ -15,7 +15,8 @@ use crate::stdio::Stdio;
 /// A process to start, as `std::process::Command`.
 ///
 /// On macOS [`Command::spawn`] gives the child descriptors 0-2 and the ones
-/// named with [`Command::inherit_fd`], and no other (the crate docs say why).
+/// named with [`Command::inherit_fd`], and no other (the crate docs say why),
+/// unless [`Command::inherit_like_std`] asks for std's inheritance.
 #[derive(Debug)]
 pub struct Command {
     pub(crate) program: OsString,
@@ -36,6 +37,12 @@ pub struct Command {
     /// (descriptor, the number the child gets it at).
     #[cfg(unix)]
     pub(crate) inherit: Vec<(OwnedFd, RawFd)>,
+    /// macOS: [`Command::inherit_like_std`].
+    #[cfg(target_vendor = "apple")]
+    pub(crate) inherit_like_std: bool,
+    /// Windows process creation flags ([`Command::creation_flags`]).
+    #[cfg(windows)]
+    pub(crate) creation_flags: u32,
 }
 
 impl Command {
@@ -57,6 +64,10 @@ impl Command {
             new_session: false,
             #[cfg(unix)]
             inherit: Vec::new(),
+            #[cfg(target_vendor = "apple")]
+            inherit_like_std: false,
+            #[cfg(windows)]
+            creation_flags: 0,
         }
     }
 
@@ -189,6 +200,55 @@ impl Command {
         Ok(self)
     }
 
+    /// Start the child as `std::process::Command` does: it keeps every
+    /// descriptor of this process that is not close-on-exec, and the signals
+    /// this process ignores stay ignored (only `SIGPIPE` resets to its
+    /// default, and the signal mask empties). For the CLI's transparent
+    /// wrappers only (`cmux status run -- CMD` and the like), which cannot know
+    /// which descriptors (`/dev/fd/N`, a make jobserver) or ignored signals
+    /// (`nohup`) the person handed them. Never in the daemon: there a
+    /// descriptor received but not yet close-on-exec would reach the child
+    /// (crate docs). Linux and Windows always start children this way.
+    pub fn inherit_like_std(&mut self) -> &mut Self {
+        #[cfg(target_vendor = "apple")]
+        {
+            self.inherit_like_std = true;
+        }
+        self
+    }
+
+    /// Windows: the process creation flags (`DETACHED_PROCESS`,
+    /// `CREATE_NEW_PROCESS_GROUP`, ...), as
+    /// `std::os::windows::process::CommandExt::creation_flags`.
+    #[cfg(windows)]
+    pub fn creation_flags(&mut self, flags: u32) -> &mut Self {
+        self.creation_flags = flags;
+        self
+    }
+
+    /// Replace this process with the program, as
+    /// `std::os::unix::process::CommandExt::exec`: returns only when that
+    /// failed. The new image keeps what `execve` keeps, as with
+    /// [`Command::inherit_like_std`]: every descriptor that is not
+    /// close-on-exec, and the ignored signals (on macOS `posix_spawn` with
+    /// `POSIX_SPAWN_SETEXEC`). For the CLI's re-exec and passthroughs; the
+    /// daemon never replaces itself.
+    #[cfg(unix)]
+    pub fn exec(&mut self) -> io::Error {
+        #[cfg(target_vendor = "apple")]
+        {
+            crate::spawn_apple::exec(self)
+        }
+        #[cfg(not(target_vendor = "apple"))]
+        {
+            use std::os::unix::process::CommandExt;
+            match self.std_command() {
+                Ok(mut command) => command.exec(),
+                Err(error) => error,
+            }
+        }
+    }
+
     /// Start the child. Returns once it runs its program (an exec failure is
     /// this call's error). The streams and descriptors given are used up, as
     /// std does with a `Stdio` it owns.
@@ -227,6 +287,16 @@ impl Command {
     /// process opens close-on-exec atomically, so nothing leaks.
     #[cfg(not(target_vendor = "apple"))]
     fn spawn_std(&mut self) -> io::Result<Child> {
+        let child = self.std_command()?.spawn()?;
+        #[cfg(unix)]
+        self.inherit.clear();
+        Ok(Child::from_std(child))
+    }
+
+    /// The `std::process::Command` of the std path; the streams given are
+    /// moved into it.
+    #[cfg(not(target_vendor = "apple"))]
+    fn std_command(&mut self) -> io::Result<std::process::Command> {
         let mut command = std::process::Command::new(&self.program);
         command.args(&self.args);
         if self.env_clear {
@@ -249,6 +319,11 @@ impl Command {
         }
         if let Some(stdio) = self.stderr.take() {
             command.stderr(stdio.into_std());
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(self.creation_flags);
         }
         #[cfg(unix)]
         {
@@ -322,9 +397,6 @@ impl Command {
                 }
             }
         }
-        let child = command.spawn()?;
-        #[cfg(unix)]
-        self.inherit.clear();
-        Ok(Child::from_std(child))
+        Ok(command)
     }
 }

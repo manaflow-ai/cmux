@@ -1814,6 +1814,7 @@ version = "0.0.0"
 name = "cmux-tui-util"
 version = "0.1.0"
 dependencies = [
+ "cmux-trace",
  "cmux-tui-platform",
  "getrandom 0.3.4",
  "libc",

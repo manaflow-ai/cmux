@@ -19,9 +19,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.
+    public static let renderStarvationGuard = Feature(
+        index: 1,
+        name: "renderStarvationGuard",
+        owner: "Performance Lead",
+        description: "Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["pane-stress", "motion"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.
     public static let taskManagerMemorySaved = Feature(
-        index: 1,
+        index: 2,
         name: "taskManagerMemorySaved",
         owner: "PL-memory",
         description: "The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.",
@@ -39,6 +56,7 @@ nonisolated extension Feature {
     /// Every feature, by index: `registered[feature.index] == feature`.
     public static let registered: [Feature] = [
         .energySaver,
+        .renderStarvationGuard,
         .taskManagerMemorySaved,
     ]
 }

@@ -13,8 +13,9 @@
 /// task 000 that the lead merges.
 ///
 /// ``actionPerform``, ``actionCommit``, ``actionGate``, ``keyToFrame``, ``keyFlow``, ``scrollToFrame``,
-/// ``stallMainTask``, ``stallOverBudget``, ``stallMainTurn`` (the trace ring's), ``webuiOpen`` and ``webuiScheme`` have an emitter today. The other cases are
-/// **reserved**: the task and owner named on each add the emitter. Until then no build records them,
+/// ``stallMainTask``, ``stallOverBudget``, ``stallMainTurn`` (the trace ring's), ``stallRenderStarved``,
+/// ``launchStartupTask``, ``launchStartupComplete``, ``webuiOpen`` and ``webuiScheme`` have an emitter today. The
+/// other cases are **reserved**: the task and owner named on each add the emitter. Until then no build records them,
 /// and no bench or report may quote them. "Ring" on a reserved case gives its record phases and the
 /// meaning of `arg0` and `arg1` (the ring v1 record, plans/cmux-next/trace.md).
 ///
@@ -186,6 +187,14 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     case stallPaletteOpen = 42
     /// Reserved (task 036, Performance Lead). Opening the icon picker on main (`DebugTimings`). Ring: B/E.
     case stallIconPickerOpen = 43
+    /// A point event: rendering starved (Chrome's `kRenderingStarved`). A display link that paces
+    /// active frame clients and whose frames show went over 100 ms and a frame without a tick
+    /// (`RenderStarvationGuard`, p06-scheduler task 004; the app's composition root builds it). With
+    /// the feature `renderStarvationGuard` on, the main-thread scheduler holds its budgeted work until
+    /// that tick. Once per late period, at the first budget check or the late tick. Message:
+    /// `link=<scheduler> gap_ms=<time since its last tick> turn=<the turn meter's top unattributed turn,
+    /// or unattributed> turn_ms=<its length> unattributed_ms=<its unattributed part>`. Ring: instant.
+    case stallRenderStarved = 74
 
     // MARK: daemon (reserved: task 025, PL-daemon)
     /// Reserved (task 025, PL-daemon). One app request to the cmux-tui daemon, from the send to the reply
@@ -312,6 +321,17 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// 100 us units (0xFFFF at 6.5 s or more). Per turn: never mirrored to MetricKit.
     case stallMainTurn = 73
 
+    // MARK: launch, continued (emitter: CmuxNextWakeups `StartupTaskLog`, task p08-startup-010)
+    /// One task the launch scheduler (`StartupScheduler`) runs, from its start to its return, on main or on
+    /// its lane. Message: `name=<Domain.step> priority=<critical|afterFirstFrame|afterStartup>`. Ring: B/E
+    /// (it begins and ends in one synchronous call on one thread); arg0 the priority's position + 1 (0 not
+    /// given). About a hundred per launch: never mirrored to MetricKit.
+    case launchStartupTask = 75
+    /// Startup completed (`StartupScheduler`'s completion, Chrome's `Startup.BrowserStartupCompleteReason`).
+    /// Message: `reason=<reason>`. Ring: instant; arg0 the reason's position + 1, arg1 the afterStartup tasks
+    /// held until then.
+    case launchStartupComplete = 76
+
     /// The name `os_signpost` records (a compile-time string, as the API requires).
     public var staticName: StaticString {
         switch self {
@@ -353,12 +373,15 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .launchFirstFrame: "launch.first_frame"
         case .launchDaemonReady: "launch.daemon_ready"
         case .launchFirstTerminalOutput: "launch.first_terminal_output"
+        case .launchStartupTask: "launch.startup_task"
+        case .launchStartupComplete: "launch.startup_complete"
         case .stallMainTask: "stall.main_task"
         case .stallOverBudget: "stall.over_budget"
         case .stallMainTurn: "stall.main_turn"
         case .stallCreateSurface: "stall.create_surface"
         case .stallPaletteOpen: "stall.palette_open"
         case .stallIconPickerOpen: "stall.icon_picker_open"
+        case .stallRenderStarved: "stall.render_starved"
         case .daemonRequest: "daemon.request"
         case .frameTick: "frame.tick"
         case .frameCommit: "frame.commit"
@@ -407,9 +430,11 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .createTab, .createWorkspace: .create
         case .cefPump, .cefCreateBrowser, .cefGeometry, .cefHostInput: .cef
         case .launchProcessToMain, .launchFirstWindow, .launchFirstFrame, .launchDaemonReady,
-             .launchFirstTerminalOutput:
+             .launchFirstTerminalOutput, .launchStartupTask, .launchStartupComplete:
             .launch
-        case .stallMainTask, .stallOverBudget, .stallMainTurn, .stallCreateSurface, .stallPaletteOpen, .stallIconPickerOpen: .stall
+        case .stallMainTask, .stallOverBudget, .stallMainTurn, .stallCreateSurface, .stallPaletteOpen, .stallIconPickerOpen,
+             .stallRenderStarved:
+            .stall
         case .daemonRequest: .daemon
         case .frameTick, .frameCommit, .frameGPUDone, .framePresentEstimate, .frameSequence: .frame
         case .taskPost, .taskRun: .task
