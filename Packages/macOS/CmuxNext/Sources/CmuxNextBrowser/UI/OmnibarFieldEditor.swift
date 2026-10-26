@@ -127,10 +127,15 @@ final class OmnibarFieldEditor: NSTextView {
            sink?.fieldEditorKey(.deleteSuggestion) == true {
             return
         }
+        handling(event) { super.keyDown(with: event) }
+    }
+
+    /// Runs `body` (AppKit's key handling) with `event` as ``handlingKeyDown``.
+    func handling(_ event: NSEvent, _ body: () -> Void) {
         let outer = handlingKeyDown
         handlingKeyDown = event
         defer { handlingKeyDown = outer }
-        super.keyDown(with: event)
+        body()
     }
 
     override func mouseDown(with event: NSEvent) {

@@ -121,13 +121,13 @@ extension TerminalSurfaceView {
         guard let previous = lastPerformKeyEventTimestamp,
               let key = interpretingKeyDown,
               previous == key.timestamp else { return }
-        NSApp.sendEvent(key)
+        resendKey(key)
     }
 
     /// Runs `translated` through the input methods for the key down `event`, which is
     /// ``interpretingKeyDown`` meanwhile (upstream reads AppKit's current event, which a key the App
     /// routes itself is not).
-    private func interpret(_ event: NSEvent, as translated: NSEvent) {
+    func interpret(_ event: NSEvent, as translated: NSEvent) {
         let outer = interpretingKeyDown
         interpretingKeyDown = event
         defer { interpretingKeyDown = outer }

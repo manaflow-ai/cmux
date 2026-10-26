@@ -125,6 +125,8 @@ public final class TerminalSurfaceView: NSView {
     var lastPerformKeyEventTimestamp: TimeInterval?
     /// The key down `keyDown` runs through `interpretKeyEvents`, which `doCommand` re-sends.
     var interpretingKeyDown: NSEvent?
+    /// Where `doCommand` re-sends a chord no one claimed: the app's dispatch (a test records it).
+    var resendKey: @MainActor (NSEvent) -> Void = { NSApp.sendEvent($0) }
     var previousPressureStage = 0
     /// The left press went to Ghostty as a link click, in a program that has the mouse or with
     /// Shift- or Option-Command (``TerminalPointerMods``): its drags and release go the same way.

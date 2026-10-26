@@ -14,6 +14,8 @@ final class SidebarCardTextButton: NSView {
     private var isHovered = false { didSet { if isHovered != oldValue { needsDisplay = true } } }
     private var isPressed = false { didSet { if isPressed != oldValue { needsDisplay = true } } }
     private var isKeyFocused = false { didSet { if isKeyFocused != oldValue { needsDisplay = true } } }
+    /// The system's Full Keyboard Access setting (a test sets its own).
+    var fullKeyboardAccess: @MainActor () -> Bool = { NSApp.isFullKeyboardAccessEnabled }
     private lazy var keyRepaint = KeyWindowRepaint(self)
 
     override init(frame: NSRect) {
@@ -132,7 +134,7 @@ final class SidebarCardTextButton: NSView {
 
     /// A click never takes the keyboard focus (the window's last dispatched event is a mouse button).
     override var acceptsFirstResponder: Bool {
-        guard NSApp.isFullKeyboardAccessEnabled else { return false }
+        guard fullKeyboardAccess() else { return false }
         return (window as? InputTapHosting)?.inputTap?.lastDispatched?.eventClass != .button
     }
 

@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBookmarks
+import CmuxNextIcons
 import CmuxNextInput
 @testable import CmuxNextSidebar
 import CmuxNextTabs
@@ -66,7 +67,56 @@ import Testing
         #expect(strip.acceptsFirstResponder, "the key view loop could not reach the strip")
     }
 
+    // MARK: Sidebar card buttons
+
+    /// A card's x takes the keyboard from Tab, never from a click (Option-click included): the card
+    /// hides after the click, and the focus must not stay on a hidden button. The tap is found
+    /// through the button's window.
+    @Test func aSidebarIconButtonTakesTheKeyboardFromTabButNotFromAnOptionClick() throws {
+        let tap = InputEventTap()
+        let button = SidebarIconButton(icon: .actionAdd, label: "Close")
+        button.takesKeyFocus = true
+        button.fullKeyboardAccess = { true }
+        let window = Self.window(holding: button, tap: tap)
+        defer { window.contentView = nil }
+        Self.dispatch(try Self.mouse(.leftMouseDown, at: 1, modifiers: .option), through: tap)
+        #expect(!button.acceptsFirstResponder, "an Option-click left the keyboard on the card's x")
+        Self.dispatch(try Self.key(at: 2), through: tap)
+        #expect(button.acceptsFirstResponder, "Tab could not reach the card's x")
+        button.fullKeyboardAccess = { false }
+        #expect(!button.acceptsFirstResponder, "Tab reached it with Full Keyboard Access off")
+    }
+
+    @Test func aSidebarCardTextButtonTakesTheKeyboardFromTabButNotFromAnOptionClick() throws {
+        let tap = InputEventTap()
+        let button = SidebarCardTextButton()
+        button.fullKeyboardAccess = { true }
+        let window = Self.window(holding: button, tap: tap)
+        defer { window.contentView = nil }
+        Self.dispatch(try Self.mouse(.leftMouseDown, at: 1, modifiers: .option), through: tap)
+        #expect(!button.acceptsFirstResponder, "an Option-click left the keyboard on the card's Hide")
+        Self.dispatch(try Self.key(at: 2), through: tap)
+        #expect(button.acceptsFirstResponder, "Tab could not reach the card's Hide")
+        button.fullKeyboardAccess = { false }
+        #expect(!button.acceptsFirstResponder, "Tab reached it with Full Keyboard Access off")
+    }
+
     // MARK: Events
+
+    /// A window that carries `tap`, as the App's windows do, holding `view`.
+    private static func window(holding view: NSView, tap: InputEventTap) -> TapWindow {
+        let window = TapWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 80), styleMask: [.titled],
+                               backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.inputTap = tap
+        view.frame = NSRect(x: 10, y: 10, width: 40, height: 20)
+        window.contentView?.addSubview(view)
+        return window
+    }
+
+    private final class TapWindow: NSWindow, InputTapHosting {
+        var inputTap: InputEventTap?
+    }
 
     private static func dispatch(_ event: NSEvent, through tap: InputEventTap) {
         tap.dispatching {

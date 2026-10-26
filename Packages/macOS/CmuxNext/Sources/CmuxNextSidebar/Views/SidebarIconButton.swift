@@ -36,6 +36,8 @@ final class SidebarIconButton: NSButton {
         didSet { refusesFirstResponder = !takesKeyFocus }
     }
     private var isKeyFocused = false { didSet { if isKeyFocused != oldValue { needsDisplay = true } } }
+    /// The system's Full Keyboard Access setting (a test sets its own).
+    var fullKeyboardAccess: @MainActor () -> Bool = { NSApp.isFullKeyboardAccessEnabled }
     private lazy var keyRepaint = KeyWindowRepaint(self)
     /// The label point size the icon sits beside, read at layout time so density changes apply live.
     private let pointSize: () -> CGFloat
@@ -135,7 +137,7 @@ final class SidebarIconButton: NSButton {
     override var acceptsFirstResponder: Bool {
         guard takesKeyFocus else { return super.acceptsFirstResponder }
         let clicked = (window as? InputTapHosting)?.inputTap?.lastDispatched?.eventClass == .button
-        return NSApp.isFullKeyboardAccessEnabled && isEnabled && !clicked
+        return fullKeyboardAccess() && isEnabled && !clicked
     }
     override var canBecomeKeyView: Bool { takesKeyFocus ? acceptsFirstResponder && !isHiddenOrHasHiddenAncestor : super.canBecomeKeyView }
 
