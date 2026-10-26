@@ -22,8 +22,9 @@ the ghostty rows print SKIP: an uninitialized submodule makes rg print nothing, 
 gitlink off the kit counts source the app does not link.
 
 LANE-ghostty-pins (task 079, the ghostty-next integrator lane) lists the commits that moved the gitlink in the
---pin-window hours before HEAD's commit (default 72): DONE at <= 3 pins that each name a ghostty-next PR
-(`ghostty-next#N`), else OPEN.
+--pin-window hours before HEAD's commit (default 72), one pin per new gitlink value: DONE at <= 3 pins that each
+name a ghostty-next PR (`ghostty-next#N`) in the commit or, for a merge, in a commit it brings that moves the
+gitlink, else OPEN.
 
 Annotations (on the hit's line or on the line directly above it, comment-only or the trailing comment of a code
 line: the plan's "on the line or the line above", the same rule as task 066's sync-layout guardrail):
@@ -503,10 +504,14 @@ def _git(cwd: Path, *args: str) -> str | None:
     return done.stdout.strip() if done.returncode == 0 else None
 
 
+def gitlink_at(root: Path, rev: str) -> str | None:
+    """The ghostty-next gitlink in REV's tree, or None when REV has none."""
+    fields = (_git(root, "ls-tree", rev, GHOSTTY) or "").split()
+    return fields[2] if len(fields) >= 3 and fields[0] == "160000" else None
+
+
 def ghostty_state(root: Path) -> GhosttyState:
-    tree = _git(root, "ls-tree", "HEAD", GHOSTTY) or ""
-    fields = tree.split()
-    pin = fields[2] if len(fields) >= 3 and fields[0] == "160000" else None
+    pin = gitlink_at(root, "HEAD")
     module = root / GHOSTTY
     head = None
     if (module / ".git").exists():
@@ -529,23 +534,40 @@ class PinCommit:
         return f"{self.sha[:11]} {named}: {self.subject}"
 
 
+def _named_prs(*messages: str) -> tuple[int, ...]:
+    return tuple(dict.fromkeys(int(n) for message in messages for n in GHOSTTY_PR.findall(message)))
+
+
 def pin_commits(root: Path, hours: int) -> list[PinCommit]:
     """The first-parent commits that moved the ghostty-next gitlink in the HOURS before HEAD's commit time (HEAD's
-    time, not the clock, so a checkout gives the same answer whenever it runs)."""
+    time, not the clock, so a checkout gives the same answer whenever it runs), one per new gitlink value.
+
+    A pin usually lands in a merge (`Merge cp/...`), so a merge names its own message's PRs and those of every
+    non-merge commit it brings that touches the gitlink (`git log --no-merges C^1..C -- ghostty-next`)."""
     now = _git(root, "log", "-1", "--format=%ct", "HEAD")
     if not now:
         return []
     since = int(now) - hours * 3600
-    out = _git(root, "log", "--first-parent", f"--since={since}", "--format=%H%x00%B%x01", "HEAD", "--", GHOSTTY)
-    commits = []
+    out = _git(root, "log", "--first-parent", f"--since={since}", "--format=%H%x00%P%x00%B%x01", "HEAD", "--",
+               GHOSTTY)
+    pins: dict[str, PinCommit] = {}
     for record in (out or "").split("\x01"):
-        sha, _, message = record.strip().partition("\x00")
-        if not sha:
+        sha, _, rest = record.strip().partition("\x00")
+        value = gitlink_at(root, sha) if sha else None
+        if value is None:  # no commit, or one that removes the gitlink: not a pin
             continue
+        parents, _, message = rest.partition("\x00")
         message = message.strip()
-        prs = tuple(dict.fromkeys(int(n) for n in GHOSTTY_PR.findall(message)))
-        commits.append(PinCommit(sha, message.splitlines()[0] if message else "", prs))
-    return commits
+        brought = ""
+        if len(parents.split()) > 1:
+            brought = _git(root, "log", "--no-merges", f"{sha}^1..{sha}", "--format=%B", "--", GHOSTTY) or ""
+        prs = _named_prs(message, brought)
+        if value in pins:  # the same gitlink value again: one pin, naming the PRs of both commits
+            seen = pins[value]
+            pins[value] = PinCommit(seen.sha, seen.subject, tuple(dict.fromkeys(seen.prs + prs)))
+        else:
+            pins[value] = PinCommit(sha, message.splitlines()[0] if message else "", prs)
+    return list(pins.values())
 
 
 def pin_lane_row(root: Path, hours: int) -> Row:
@@ -553,7 +575,9 @@ def pin_lane_row(root: Path, hours: int) -> Row:
     pins = pin_commits(root, hours)
     unnamed = sum(1 for p in pins if not p.prs)
     note = f"{len(pins)} pins in {hours} h" + (f", {unnamed} naming no ghostty-next PR" if unnamed else "")
-    return Row("LANE-ghostty-pins", "queue", f"git log --first-parent --since=HEAD-{hours}h HEAD -- {GHOSTTY}",
+    return Row("LANE-ghostty-pins", "queue",
+               f"git log --first-parent --since=HEAD-{hours}h HEAD -- {GHOSTTY} ; per merge C: "
+               f"git log --no-merges C^1..C -- {GHOSTTY}",
                len(pins), f"<= {PIN_LIMIT}, each names ghostty-next#N", len(pins) <= PIN_LIMIT and not unnamed, note,
                [p.describe() for p in pins])
 

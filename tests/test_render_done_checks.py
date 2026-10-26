@@ -383,25 +383,78 @@ class GhosttyPinLane(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name)
-        git(self.root, "init", "-q")
+        git(self.root, "init", "-q", "-b", "main")
         self.clock = 1_800_000_000
 
     def tearDown(self):
         self._tmp.cleanup()
 
-    def commit(self, message, hours_later, sha=None):
+    def timed_git(self, hours_later, *args):
         self.clock += hours_later * 3600
+        stamp = f"@{self.clock} +0000"
+        subprocess.run(["git", "-C", str(self.root), *args], check=True, capture_output=True,
+                       env={**GIT_ENV, "GIT_AUTHOR_DATE": stamp, "GIT_COMMITTER_DATE": stamp})
+
+    def commit(self, message, hours_later, sha=None):
         if sha:
             git(self.root, "update-index", "--add", "--cacheinfo", f"160000,{sha},ghostty-next")
         else:
-            (self.root / "other.txt").write_text(str(self.clock))
+            (self.root / "other.txt").write_text(f"{self.clock} {message}")
             git(self.root, "add", "other.txt")
-        stamp = f"@{self.clock} +0000"
-        subprocess.run(["git", "-C", str(self.root), "commit", "-q", "-m", message], check=True, capture_output=True,
-                       env={**GIT_ENV, "GIT_AUTHOR_DATE": stamp, "GIT_COMMITTER_DATE": stamp})
+        self.timed_git(hours_later, "commit", "-q", "-m", message)
 
     def pin(self, n, message, hours_later=1):
         self.commit(message, hours_later, sha=f"{n:x}".rjust(40, "0"))
+
+    def merge(self, branch, message, hours_later=1):
+        """Land BRANCH on the checked-out branch the way perf/chrome-parity lands task branches."""
+        self.timed_git(hours_later, "merge", "-q", "--no-ff", "-m", message, branch)
+
+    def branch(self, name, start="main"):
+        git(self.root, "checkout", "-q", "-B", name, start)
+
+    def test_a_named_pin_landed_by_a_merge_commit_is_done(self):
+        self.commit("base", 0)
+        self.branch("cp/x")
+        self.pin(1, "ghostty-next: bump (manaflow-ai/ghostty-next#88)")
+        self.branch("main", "main")
+        self.commit("unrelated on main", 1)
+        self.merge("cp/x", "Merge cp/x: x")
+        row = RDC.pin_lane_row(self.root, 72)
+        self.assertEqual((row.count, row.status), (1, "DONE"), row.items)
+        self.assertIn("ghostty-next#88: Merge cp/x: x", row.items[0])
+
+    def test_a_merge_bringing_named_upstream_pins_counts_one_named_pin(self):
+        self.commit("base", 0)
+        self.branch("feat-cmux-next")
+        self.pin(1, "ghostty-next: bump (ghostty-next#40)")
+        self.pin(2, "ghostty-next: bump again (ghostty-next#41)")
+        self.branch("main", "main")
+        self.merge("feat-cmux-next", "Merge origin/feat-cmux-next into perf/chrome-parity")
+        row = RDC.pin_lane_row(self.root, 72)
+        self.assertEqual((row.count, row.status), (1, "DONE"), row.items)  # one new gitlink value, one pin
+        self.assertIn("ghostty-next#41, ghostty-next#40", row.items[0])
+
+    def test_a_merge_bringing_an_unnamed_pin_is_open(self):
+        self.commit("base", 0)
+        self.pin(1, "ghostty-next: bump (ghostty-next#10)")  # on main: not brought by the later merge
+        self.branch("cp/y")
+        self.pin(2, "ghostty-next: bump to 723c4ab93e7")
+        self.branch("main", "main")
+        self.commit("unrelated on main", 1)
+        self.merge("cp/y", "Merge cp/y: y")
+        row = RDC.pin_lane_row(self.root, 72)
+        self.assertEqual((row.count, row.status), (2, "OPEN"), row.items)
+        self.assertIn("names no ghostty-next PR: Merge cp/y: y", row.items[0])
+        self.assertIn("1 naming no ghostty-next PR", row.note)
+
+    def test_the_same_gitlink_value_again_is_one_pin(self):
+        self.pin(1, "ghostty-next: bump (ghostty-next#1)", 0)
+        self.pin(2, "ghostty-next: bump (ghostty-next#2)")
+        self.pin(1, "ghostty-next: back to #1's pin (ghostty-next#3)")
+        row = RDC.pin_lane_row(self.root, 72)
+        self.assertEqual((row.count, row.status), (2, "DONE"), row.items)
+        self.assertIn("ghostty-next#3, ghostty-next#1", row.items[0])
 
     def test_three_named_pins_in_the_window_are_done(self):
         self.pin(1, "ghostty-next: bump (ghostty-next#40)", 0)
