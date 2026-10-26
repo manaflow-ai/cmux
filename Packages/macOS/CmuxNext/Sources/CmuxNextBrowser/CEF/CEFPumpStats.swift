@@ -9,7 +9,8 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
     public var workRuns = 0
     /// `OnScheduleMessagePumpWork(0)` requests (and cmux's own "pump now").
     public var immediateRequests = 0
-    /// `OnScheduleMessagePumpWork(delay > 0)` requests.
+    /// `OnScheduleMessagePumpWork(delay > 0)` requests, and the fork's absolute run times
+    /// (`cmux_on_schedule_delayed`, p14-energy-046).
     public var delayedRequests = 0
     /// Timer fires that arrived while `CefDoMessageLoopWork` was already
     /// running (a nested run loop) and were deferred.
@@ -39,7 +40,8 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
     /// request under 2 ms (``EarlyPassWatch``): the pass came before Chromium's task was due, because CEF
     /// truncates each delay to whole milliseconds against a stale `recent_now` (the re-ask at the end of
     /// `CefDoMessageLoopWork`), so one delayed task cost a second main wake. 0 once the fork sends
-    /// absolute run times (p14-energy-046).
+    /// absolute run times (p14-energy-046); a run time under 2 ms away still counts, so the counter
+    /// shows it if that path ever fires early.
     public var earlyPasses = 0
 
     /// One pass's main-thread time at the 99th percentile in milliseconds, 0 before any pass.
@@ -88,7 +90,13 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
 
         /// A CEF request made on the main thread.
         mutating func request(milliseconds: Int64) {
-            if delayedPassRuns, milliseconds < Self.earlyReask { reasked = true }
+            request(delay: TimeInterval(milliseconds) / 1_000)
+        }
+
+        /// A CEF request made on the main thread, `delay` seconds from now (a fork run time minus now;
+        /// 0 or less for "now").
+        mutating func request(delay: TimeInterval) {
+            if delayedPassRuns, delay < TimeInterval(Self.earlyReask) / 1_000 { reasked = true }
         }
     }
 

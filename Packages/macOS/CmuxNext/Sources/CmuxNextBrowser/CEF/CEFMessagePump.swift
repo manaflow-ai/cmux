@@ -5,7 +5,8 @@ import CoreFoundation
 import Foundation
 
 /// Drives `CefDoMessageLoopWork` on the main thread when CEF asks for it
-/// (`OnScheduleMessagePumpWork`), in common modes, so it keeps running during
+/// (`OnScheduleMessagePumpWork`, and the fork's absolute `cmux_on_schedule_delayed`
+/// where it has one), in common modes, so it keeps running during
 /// menu tracking, live resize and modal panels. `CEFPumpSchedule` decides each
 /// fire date: the pump wakes only when CEF (or cmux) asks.
 ///
@@ -170,6 +171,20 @@ final class CEFMessagePump {
         enqueue(milliseconds: milliseconds)
     }
 
+    /// Main thread: a fork `cmux_on_schedule_delayed` request (``CEFPumpSchedule/request(runTimeNanos:leewayNanos:precise:)``):
+    /// CEF's next delayed work at an absolute uptime with Chromium's leeway. It is always a delayed
+    /// request, never "now". `fromChromiumThread` as for ``request(milliseconds:fromChromiumThread:)``.
+    func request(runTimeNanos: Int64, leewayNanos: Int64, precise: Bool, fromChromiumThread: Bool = false) {
+        guard isRunning else { return }
+        let now = clock()
+        if let runTime = CEFPumpSchedule.runTime(nanos: runTimeNanos) {
+            if !fromChromiumThread { earlyPassWatch.request(delay: runTime - now) }
+            counters.delayedRequests += 1
+        }
+        schedule.request(runTimeNanos: runTimeNanos, leewayNanos: leewayNanos, precise: precise)
+        rearm()
+    }
+
     /// Main thread: cmux changed CEF state outside a CEF callback and wants
     /// the result processed on the next run loop pass. It is no CEF re-ask (``CEFPumpStats/earlyPasses``).
     func scheduleNow() {
@@ -323,30 +338,59 @@ final class CEFMessagePump {
     /// schedule: no later than the earliest of them.
     private func mergeKeptRequests() {
         guard let earliest = gate.take() else { return }
-        schedule.requestNoLater(than: TimeInterval(earliest) / 1e9)
+        schedule.requestNoLater(than: TimeInterval(earliest) / 1e9, now: clock())
     }
 }
 
 /// C entry for `OnScheduleMessagePumpWork`. `ctx` is the unretained
 /// `CEFRuntime`, which lives for the rest of the process once started.
 let cefScheduleCallback: CEFShimLibrary.ScheduleFn = { context, delayMilliseconds in
-    guard let context else { return }
-    let address = UInt(bitPattern: context)
-    let fromChromiumThread = !Thread.isMainThread
-    if fromChromiumThread,
-       let gate = CEFRuntime.pumpGate(at: address),
-       !gate.admit(delayMilliseconds: delayMilliseconds, nowNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) {
-        return // kept for the main thread's next pass or re-arm, with no wake (CEFPumpCrossThreadGate)
+    CEFPumpRequestDelivery.deliver(
+        context, admit: { gate, now in gate.admit(delayMilliseconds: delayMilliseconds, nowNanos: now) }
+    ) { pump, fromChromiumThread in
+        pump.request(milliseconds: delayMilliseconds, fromChromiumThread: fromChromiumThread)
     }
-    let deliver: @Sendable () -> Void = {
-        MainActor.assumeIsolated { // main-proof: deliver runs only in the Thread.isMainThread branch or as a CFRunLoopGetMain() block (below)
-            CEFRuntime.from(address)?.pump?.request(milliseconds: delayMilliseconds, fromChromiumThread: fromChromiumThread)
+}
+
+/// C entry for the fork's delayed work as absolute run times (`cmux_shim_schedule_delayed_fn`,
+/// p14-energy-046). `ctx` is the unretained `CEFRuntime`, as for ``cefScheduleCallback``.
+let cefScheduleDelayedCallback: CEFShimLibrary.ScheduleDelayedFn = { context, runTimeNanos, leewayNanos, precise in
+    let runTime = CEFPumpSchedule.runTimeNanos(runTimeNanos)
+    CEFPumpRequestDelivery.deliver(context, admit: { gate, now in gate.admit(runTimeNanos: runTime, nowNanos: now) }) { pump, fromChromiumThread in
+        pump.request(runTimeNanos: runTimeNanos, leewayNanos: leewayNanos, precise: precise != 0,
+                     fromChromiumThread: fromChromiumThread)
+    }
+}
+
+/// Hands a CEF schedule request to the pump on the main thread: at once on the main thread; from a
+/// Chromium thread only when the gate admits it (`admit` gets the gate and the uptime in ns), as a
+/// block on the main run loop. The seam between CEF's C callbacks and the main-actor pump.
+nonisolated struct CEFPumpRequestDelivery {
+    static func deliver(
+        _ context: UnsafeMutableRawPointer?,
+        admit: (CEFPumpCrossThreadGate, UInt64) -> Bool,
+        _ request: @escaping @MainActor @Sendable (CEFMessagePump, _ fromChromiumThread: Bool) -> Void
+    ) {
+        guard let context else { return }
+        let address = UInt(bitPattern: context)
+        let fromChromiumThread = !Thread.isMainThread
+        if fromChromiumThread,
+           let gate = CEFRuntime.pumpGate(at: address),
+           !admit(gate, clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) {
+            return // kept for the main thread's next pass or re-arm, with no wake (CEFPumpCrossThreadGate)
         }
-    }
-    if Thread.isMainThread {
-        deliver()
-    } else {
-        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue, deliver)
-        CFRunLoopWakeUp(CFRunLoopGetMain())
+        let deliver: @Sendable () -> Void = {
+            // main-proof: deliver runs only in the Thread.isMainThread branch or as a CFRunLoopGetMain() block (below)
+            MainActor.assumeIsolated {
+                guard let pump = CEFRuntime.from(address)?.pump else { return }
+                request(pump, fromChromiumThread)
+            }
+        }
+        if Thread.isMainThread {
+            deliver()
+        } else {
+            CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue, deliver)
+            CFRunLoopWakeUp(CFRunLoopGetMain())
+        }
     }
 }

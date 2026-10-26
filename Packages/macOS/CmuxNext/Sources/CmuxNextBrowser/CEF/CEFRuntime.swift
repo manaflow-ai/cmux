@@ -420,6 +420,7 @@ final class CEFRuntime {
         // patches NSApp at runtime. In host mode the host's NSApp runs Chromium.
         if case .inProcess = library, shim.prepareApplication() != 1 { throw .application }
         self.shim = shim
+        var absoluteDelayedRunTimes = false
         if case .inProcess(let loaded) = library {
             layout = loaded.layout
             let forkAPI = shim.forkAPIVersion()
@@ -437,6 +438,10 @@ final class CEFRuntime {
                                                        refreshInterval: pumpInput.refreshInterval, frameTarget: pumpInput.frameTarget))
             }
             pump.start()
+            // CEF's delayed work as absolute run times with Chromium's leeway (p14-energy-046): no
+            // whole-millisecond truncation, so no pass before a task is due. Older forks keep the ms path.
+            absoluteDelayedRunTimes = shim.setScheduleDelayed(cefScheduleDelayedCallback) == 1
+            logger.notice("CEF pump delayed work: \(absoluteDelayedRunTimes ? "absolute run times" : "whole milliseconds", privacy: .public)")
         }
 
         storage.prepareForLaunch()
@@ -444,6 +449,7 @@ final class CEFRuntime {
             .plan(resources: Bundle.main.resourceURL, profiles: storage.root)
         let switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(), rendererPaths: CEFForkFeatures(shim).rendererPaths,
+            absoluteDelayedRunTimes: absoluteDelayedRunTimes,
             bundleIdentifier: Bundle.main.bundleIdentifier,
             environment: environment,
             builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled

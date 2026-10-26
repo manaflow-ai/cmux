@@ -1147,6 +1147,9 @@ repositories.
 - Test phase: fork build through 136; `swift test --filter CEFPump`; split-spring --suite=cef-idle: earlyPasses 0 and
   pump wakes/s down in tabs-static (numbers in the commit).
 - Size M. Depends: 016. Queue fork.
+- Fork ref: manaflow-ai/cef `cp/p14-energy-046` (18f4828a, on 037's `cp/p14-energy-037`), with no API number (136
+  numbers it). cmux finds `cmux_set_on_schedule_delayed` by symbol (`cmux_shim_set_schedule_delayed` returns 1), so a
+  fork without it keeps the ms path.
 
 #### p14-energy-132 Contingency: explicit onMain DemandTimer migration
 - Files: the Q14 hit files under `Packages/macOS/CmuxNext/Sources/**`, `Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/DemandTimer.swift`.
