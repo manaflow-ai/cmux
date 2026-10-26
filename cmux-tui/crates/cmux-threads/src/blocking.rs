@@ -21,10 +21,20 @@
 //! A violation records its call site in a 256-site table (plus an overflow
 //! count) in every build. In Debug, `CMUX_DAEMON_BLOCKING=panic` (or
 //! [`set_mode`]) also panics at the caller's location. Release never panics.
+//!
+//! `CMUX_DAEMON_BLOCKING_REPORT=<dir>` (or [`set_report_dir`]) also appends one
+//! JSON line per new (site, kind) to `<dir>/blocking-<pid>.jsonl`, before a
+//! Panic-mode panic. A test suite or bench run with it set leaves the MQ-13 list
+//! of every process it started, the ones that panicked or were killed included;
+//! `cmux-tui/scripts/daemon-blocking-sweep.py` runs the suites and groups it.
 
 use std::cell::Cell;
 use std::panic::Location;
 use std::sync::atomic::{AtomicPtr, AtomicU8, AtomicU16, AtomicU64, Ordering};
+
+mod report;
+
+pub use report::{REPORT_ENV, ReportError, report_path, set_report_dir};
 
 /// What a blocking call waits on. The names are stable: `server.blocking`
 /// reports them and the app's reports group by them.
@@ -328,7 +338,11 @@ pub fn scoped_blocking_call<R>(kind: BlockingKind, f: impl FnOnce() -> R) -> R {
 #[cold]
 #[inline(never)]
 fn violation(kind: BlockingKind, location: &'static Location<'static>) {
-    SITES.record(location, kind);
+    let recorded = SITES.record(location, kind);
+    let overflow = recorded == Recorded::FirstOverflow;
+    if overflow || recorded == Recorded::NewKind {
+        report::report_first_sighting(location, kind, mode(), overflow);
+    }
     // Chrome's DCHECK: fails only in Panic mode, and Release compiles it out.
     debug_assert!(
         mode() == BlockingMode::Record || std::thread::panicking(),
@@ -538,7 +552,7 @@ impl<const N: usize> SiteTable<N> {
         Self { slots: [const { SiteSlot::new() }; N], overflow: AtomicU64::new(0) }
     }
 
-    fn record(&self, location: &'static Location<'static>, kind: BlockingKind) {
+    fn record(&self, location: &'static Location<'static>, kind: BlockingKind) -> Recorded {
         let wanted = std::ptr::from_ref(location).cast_mut();
         let start = site_hash(location) % N;
         for probe in 0..N {
@@ -557,12 +571,15 @@ impl<const N: usize> SiteTable<N> {
             }
             // SAFETY: a non-null slot location is a `&'static Location` stored above.
             if same_site(unsafe { &*current }, location) {
-                slot.kinds.fetch_or(kind.bit(), Ordering::Relaxed);
+                let seen = slot.kinds.fetch_or(kind.bit(), Ordering::Relaxed);
                 slot.count.fetch_add(1, Ordering::Relaxed);
-                return;
+                return if seen & kind.bit() == 0 { Recorded::NewKind } else { Recorded::Repeat };
             }
         }
-        self.overflow.fetch_add(1, Ordering::Relaxed);
+        match self.overflow.fetch_add(1, Ordering::Relaxed) {
+            0 => Recorded::FirstOverflow,
+            _ => Recorded::Overflow,
+        }
     }
 
     fn snapshot(&self) -> BlockingSnapshot {
@@ -590,6 +607,19 @@ impl<const N: usize> SiteTable<N> {
         });
         BlockingSnapshot { sites, overflow: self.overflow.load(Ordering::Relaxed) }
     }
+}
+
+/// What one [`SiteTable::record`] call changed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Recorded {
+    /// The site blocked with this kind for the first time.
+    NewKind,
+    /// The site already had this kind; only its count grew.
+    Repeat,
+    /// The table was full, for the first time in this process.
+    FirstOverflow,
+    /// The table was full again.
+    Overflow,
 }
 
 /// Locations of one call site can be distinct statics (inlined generics), so
@@ -872,16 +902,17 @@ mod tests {
         let first = here();
         let second = here();
         let third = here();
-        table.record(first, BlockingKind::Fs);
-        table.record(first, BlockingKind::Sleep);
-        table.record(second, BlockingKind::Recv);
-        table.record(third, BlockingKind::Join);
-        table.record(third, BlockingKind::Join);
+        assert_eq!(table.record(first, BlockingKind::Fs), Recorded::NewKind);
+        assert_eq!(table.record(first, BlockingKind::Sleep), Recorded::NewKind);
+        assert_eq!(table.record(first, BlockingKind::Sleep), Recorded::Repeat);
+        assert_eq!(table.record(second, BlockingKind::Recv), Recorded::NewKind);
+        assert_eq!(table.record(third, BlockingKind::Join), Recorded::FirstOverflow);
+        assert_eq!(table.record(third, BlockingKind::Join), Recorded::Overflow);
         let snapshot = table.snapshot();
         assert_eq!(snapshot.sites.len(), 2);
         assert_eq!(snapshot.overflow, 2);
         let first_site = snapshot.site(first.file(), first.line()).expect("first");
-        assert_eq!(first_site.count, 2);
+        assert_eq!(first_site.count, 3);
         assert_eq!(
             first_site.kinds.iter().collect::<Vec<_>>(),
             vec![BlockingKind::Fs, BlockingKind::Sleep]
