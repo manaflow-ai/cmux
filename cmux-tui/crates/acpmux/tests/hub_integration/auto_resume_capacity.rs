@@ -327,3 +327,27 @@ async fn a_cut_turn_with_no_retry_records_the_decision_for_watchers() {
     .unwrap();
     assert_eq!(records(&hub, &id, "auto_resume_settled").len(), 1);
 }
+
+/// Stop on a chat whose cut turn's retry waits records that decision too, so a peer that keeps
+/// the row hears it settle: an idle Stop records nothing else (Codex review, round 3).
+#[tokio::test]
+async fn stop_records_the_decision_for_a_retry_that_waited() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![60_000]);
+    let mut w = connect(&hub).await;
+    w.request(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
+    let id = new_session(&mut c, "cap-stop-settle").await;
+    cap_fail(&mut c, &id, "p-stop-settle").await;
+    until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_scheduled")).await;
+    c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
+    let settled = w
+        .wait_for(method::MUX_SESSION_CHANGED, |p| {
+            p["sessionId"] == id && p["kind"] == "auto_resume_settled"
+        })
+        .await;
+    assert_eq!(settled["session"]["retry"], Value::Null, "{settled}");
+    assert_eq!(settled["session"]["retryDeciding"], Value::Null, "{settled}");
+    let decided = records(&hub, &id, "auto_resume_settled");
+    assert_eq!(decided.len(), 1, "{decided:?}");
+    assert_eq!(decided[0]["why"], "stopped", "{decided:?}");
+}
