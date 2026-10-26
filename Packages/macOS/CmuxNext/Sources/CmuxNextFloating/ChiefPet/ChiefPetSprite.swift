@@ -70,8 +70,9 @@ nonisolated struct ChiefPetSprite: Equatable {
         var name = state
         while manifest.states[name.rawValue] == nil, let next = name.fallback { name = next }
         let spec = manifest.states[name.rawValue] ?? manifest.states["idle"]!
-        let own = right ? spec.rowRight : spec.rowLeft
+        // A facing's own row is only for the facing the frames are not drawn in; theirs is `row`.
         let turned = right != (manifest.faces != "left")
+        let own = turned ? (right ? spec.rowRight : spec.rowLeft) : nil
         let rows = Int(CGFloat(sheet.height) / frameSize.height)
         let columns = Int(CGFloat(sheet.width) / frameSize.width)
         return Track(row: min(own ?? spec.row, max(rows - 1, 0)), frames: max(1, min(spec.frames, columns)),
