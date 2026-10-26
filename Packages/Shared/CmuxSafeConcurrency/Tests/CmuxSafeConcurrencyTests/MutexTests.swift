@@ -213,3 +213,24 @@ private final class Holder: Sendable {
         #expect(lock.withLockIfAvailable { true } == true)
     }
 }
+
+/// Taking a lock again on the thread that holds it stops the process instead of hanging it: os_unfair_lock
+/// traps on Apple platforms, and the Debug error-checking pthread mutex returns EDEADLK elsewhere, which
+/// fails the lock's check (Chromium's base/synchronization/lock_impl_posix.cc checks the same error).
+#if canImport(os) || DEBUG
+@Suite struct LockMisuseTests {
+    @Test func takingAMutexAgainInsideItsBodyStopsTheProcess() async {
+        await #expect(processExitsWith: .failure) {
+            let mutex = Mutex(0)
+            mutex.withLock { _ in mutex.withLock { $0 += 1 } }
+        }
+    }
+
+    @Test func takingAPlatformLockAgainInsideItsBodyStopsTheProcess() async {
+        await #expect(processExitsWith: .failure) {
+            let lock = PlatformLock()
+            lock.withLock { lock.withLock {} }
+        }
+    }
+}
+#endif

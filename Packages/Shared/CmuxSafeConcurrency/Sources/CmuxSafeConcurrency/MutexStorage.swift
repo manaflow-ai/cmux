@@ -29,14 +29,25 @@ final class MutexStorage<Value: ~Copyable>: @unchecked Sendable { // crash-allow
         primitive.initialize(to: os_unfair_lock()) // concurrency-allow: see `primitive`
         #else
         primitive.initialize(to: pthread_mutex_t())
-        // Default attributes: a normal mutex; init with them cannot fail on glibc or musl.
-        _ = pthread_mutex_init(primitive, nil)
+        #if DEBUG
+        // Chromium's base/synchronization/lock_impl_posix.cc: an error-checking mutex when DCHECKs are
+        // on, so that misuse stops the process here as it does with os_unfair_lock on Apple.
+        var attributes = pthread_mutexattr_t()
+        pthread_mutexattr_init(&attributes)
+        pthread_mutexattr_settype(&attributes, Int32(PTHREAD_MUTEX_ERRORCHECK))
+        let result = pthread_mutex_init(primitive, &attributes)
+        pthread_mutexattr_destroy(&attributes)
+        #else
+        let result = pthread_mutex_init(primitive, nil)
+        #endif
+        assert(result == 0, "pthread_mutex_init failed with \(result)")
         #endif
     }
 
     deinit {
         #if !canImport(os)
-        pthread_mutex_destroy(primitive)
+        let result = pthread_mutex_destroy(primitive)
+        assert(result == 0, "pthread_mutex_destroy failed with \(result) (EBUSY: the lock is still held)")
         #endif
         primitive.deinitialize(count: 1)
         primitive.deallocate()
@@ -50,7 +61,8 @@ final class MutexStorage<Value: ~Copyable>: @unchecked Sendable { // crash-allow
         #if canImport(os)
         os_unfair_lock_lock(primitive) // concurrency-allow: see `primitive`
         #else
-        _ = pthread_mutex_lock(primitive) // a normal mutex reports no error for a valid, initialized lock
+        let result = pthread_mutex_lock(primitive)
+        assert(result == 0, "pthread_mutex_lock failed with \(result) (EDEADLK: this thread already holds the lock)")
         #endif
     }
 
@@ -60,7 +72,9 @@ final class MutexStorage<Value: ~Copyable>: @unchecked Sendable { // crash-allow
         #if canImport(os)
         os_unfair_lock_trylock(primitive) // concurrency-allow: see `primitive`
         #else
-        pthread_mutex_trylock(primitive) == 0
+        let result = pthread_mutex_trylock(primitive)
+        assert(result == 0 || result == EBUSY, "pthread_mutex_trylock failed with \(result)")
+        return result == 0
         #endif
     }
 
@@ -70,7 +84,8 @@ final class MutexStorage<Value: ~Copyable>: @unchecked Sendable { // crash-allow
         #if canImport(os)
         os_unfair_lock_unlock(primitive) // concurrency-allow: see `primitive`
         #else
-        _ = pthread_mutex_unlock(primitive)
+        let result = pthread_mutex_unlock(primitive)
+        assert(result == 0, "pthread_mutex_unlock failed with \(result) (EPERM: this thread does not hold the lock)")
         #endif
     }
 

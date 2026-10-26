@@ -6,7 +6,9 @@
 /// (base/synchronization/lock.h, lock_impl.h). On Apple platforms the lock is `os_unfair_lock`, the
 /// lock `Synchronization.Mutex` and PartitionAlloc's `SpinningMutex` use there
 /// (base/allocator/partition_allocator/src/partition_alloc/spinning_mutex.h): it donates the waiter's
-/// priority to the owner. Elsewhere it is a pthread mutex. It is not recursive.
+/// priority to the owner. Elsewhere it is a pthread mutex, error-checking in Debug as Chromium's
+/// lock_impl_posix.cc makes it when DCHECKs are on. It is not recursive: taking it again on the thread
+/// that holds it stops the process (on Apple platforms always, elsewhere in Debug).
 public struct PlatformLock: ~Copyable, Sendable {
     @usableFromInline let storage: MutexStorage<Void>
 
