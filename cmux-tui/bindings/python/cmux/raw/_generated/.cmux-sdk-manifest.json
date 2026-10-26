@@ -7,8 +7,8 @@
     },
     {
       "path": "_schema.py",
-      "sha256": "22952b19d4a5d01de3c567d5d8af3e645457d92e6befc5f9a629f95e42e11eb2",
-      "size": 427940
+      "sha256": "552ecf61b7dff5935592b99a560ee6afd33274e2bb78fe4823b5322762c2a1bb",
+      "size": 464339
     },
     {
       "path": "client.py",
@@ -22,7 +22,7 @@
     },
     {
       "path": "metadata.py",
-      "sha256": "70025586c4bbb16941706d9e205540218008db542659be9c5ee481889d32d294",
+      "sha256": "340495abbf8e2482804b5a8d875f16969a2c30afac65b90028ba7fb98797d10d",
       "size": 132289
     },
     {
@@ -32,7 +32,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "5b68299bda8b5e540da6ebee7fc8a982ee90b11e2050662e4aefe8458b8181a5",
+  "ir_sha256": "99ae6cf38c66f81f167fc68c348b16734fd957c31b35ed1f2aace34d3575877d",
   "language": "python",
   "mux_protocol": 12,
   "schema_version": 2
