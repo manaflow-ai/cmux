@@ -7,10 +7,14 @@ python3 -I scripts/cmux-next/tests/test_bench_memory_threads.py"""
 from __future__ import annotations
 
 import io
+import json
+import os
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -75,6 +79,21 @@ class TerminalThreadsTests(unittest.TestCase):
         result = bm.terminal_threads(BASE, end, 3, start, 10)
         self.assertEqual(result["renderer"]["threads"], 3)
         self.assertEqual(result["renderer"]["woke"], 1)
+
+    def test_a_base_handle_reused_by_a_surface_thread_of_another_name_is_an_added_terminals(self):
+        # Base thread 4 (NSEventThread) exited; a hidden terminal's renderer got its pthread address.
+        end = {**hidden(), 4: ("renderer", 0)}
+        result = bm.terminal_threads(BASE, end, 3)
+        self.assertEqual(result["renderer"]["threads"], 3)
+
+    def test_a_start_handle_reused_by_a_surface_thread_of_another_name_counts_from_zero(self):
+        # In the window thread 30 (cmux.lane, 5 ms of CPU) exited and a new renderer got its address.
+        start = {**hidden(), 30: ("cmux.lane", 5_000_000)}
+        end = {**hidden(), 30: ("renderer", 2_000)}
+        result = bm.terminal_threads(BASE, end, 3, start, 10)
+        self.assertEqual(result["renderer"]["threads"], 3)
+        self.assertEqual(result["renderer"]["woke"], 1, "its CPU is its own, not a delta against the lane thread")
+        self.assertEqual(result["renderer"]["cpu_us"], 2.0)
 
     def test_print_names_the_gpu_release_and_the_wakeups(self):
         result = bm.terminal_threads(BASE, hidden(), 2, hidden(), 10)
@@ -184,6 +203,54 @@ class ArgsTests(unittest.TestCase):
         self.assertIn("--gpu-release sets memory.discard.terminalGPURelease", err.getvalue())
         args, _ = bm.parse_args(["--app", "/tmp/x.app", "--hidden-workspaces", "60", "--gpu-release", "off"])
         self.assertEqual((args.gpu_release, args.thread_window), ("off", 10))
+
+
+class Launched(Exception):
+    """Stops main at the launch: the test reads what the app would get."""
+
+
+class GPUReleaseLaunchTests(unittest.TestCase):
+    def launch(self, *flags):
+        """(env, config, tunables file contents or None) that main gives BenchApp for `flags`."""
+        seen = {}
+
+        class FakeBenchApp:
+            def __init__(self, bundle, **kwargs):
+                seen.update(kwargs)
+
+            def launch(self):
+                raise Launched
+
+            def stop(self):
+                pass
+
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        with mock.patch.object(bm.sys, "platform", "darwin"), mock.patch.object(bm, "BenchApp", FakeBenchApp), \
+                mock.patch.object(bm, "note_child_launch"), \
+                mock.patch.object(bm.tempfile, "mkdtemp", return_value=folder.name), self.assertRaises(Launched):
+            bm.main(["--app", "/tmp/x.app", "--hidden-workspaces", "60", *flags])
+        path = seen["env"].get("CMUX_NEXT_DEBUG_TUNABLES_FILE")
+        if path is None:
+            return seen["env"], seen["config"], None
+        self.assertEqual(os.path.dirname(path), folder.name)
+        with open(path) as handle:
+            return seen["env"], seen["config"], json.load(handle)
+
+    def test_gpu_release_on_goes_in_the_tunables_file_the_launch_env_names(self):
+        _, config, tunables = self.launch("--gpu-release", "on")
+        self.assertEqual(tunables, {"version": 1, "values": {"memory.discard.terminalGPURelease": True}})
+        self.assertNotIn("memory", config, "the tunable is not a cmux.json setting")
+
+    def test_gpu_release_off_writes_false(self):
+        _, config, tunables = self.launch("--gpu-release", "off")
+        self.assertEqual(tunables, {"version": 1, "values": {"memory.discard.terminalGPURelease": False}})
+        self.assertNotIn("memory", config)
+
+    def test_without_gpu_release_no_tunables_file(self):
+        env, _, tunables = self.launch()
+        self.assertNotIn("CMUX_NEXT_DEBUG_TUNABLES_FILE", env)
+        self.assertIsNone(tunables)
 
 
 if __name__ == "__main__":

@@ -1387,9 +1387,13 @@ All IDs below are `p07-memory-NNN`.
   gives app threads per added terminal; `--hidden-workspaces N --gpu-release off|on` gives app threads per
   hidden terminal after --settle and after the grace, and how many hidden renderer and IO threads woke in
   `--thread-window` idle seconds (a thread whose CPU time grew woke). A hidden terminal is told apart from
-  a shown one by thread identity: its threads are the ones new since the phase's base read. Swift: a
-  parked terminal no longer takes scale and display calls on a backing change (they wake its renderer
-  thread); it applies them when shown. Open: the fleet run, which needs the 036a pin for the "on" half.
+  a shown one by thread identity: its threads are the ones new since the phase's base read, a handle
+  counting as the same thread only under the same name (a thread handle is a pthread address that a
+  later thread can reuse). `--gpu-release` sets the debug tunable `memory.discard.terminalGPURelease` in
+  a tunables file named by `CMUX_NEXT_DEBUG_TUNABLES_FILE`, so the run needs a bench build of a .dev or
+  .debug bundle. Swift: a parked terminal no longer takes scale and display calls on a backing change
+  (they wake its renderer thread); it applies them when shown. Open: the fleet run, which needs the 036a
+  pin for the "on" half.
 
 ### 079 Widen the static queues
 - Files: scripts/cmux-next/memory-queues.sh, plans/cmux-next/memory-DESIGN.md.

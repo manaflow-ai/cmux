@@ -65,6 +65,8 @@ Phases (plans/cmux-next/chrome-parity/p07-memory.md, DC6 and DC10):
           each: none, once their compression timers are armed (p07-memory-078).
           Run --gpu-release off, then on, for the numbers before and after the
           GPU release (debug.memory's budget says whether the release is live).
+          The release is a debug tunable, so --gpu-release needs a bench build
+          (reload.sh --config bench) of a .dev or .debug bundle.
 
 Threads (p07-memory-078, DC8): every sample counts each process's threads
 (proc_taskinfo), per kind and per owner of the share (THREAD_OWNERS), and each
@@ -916,6 +918,12 @@ class MemoryReport:
 SURFACE_THREADS = ("renderer", "io")
 
 
+def same_thread(read: dict, handle: int, name: str) -> bool:
+    """Whether `read` (a ``thread_times`` read) has the thread `handle` named `name`: the handle of a thread that
+    exited can come back on a thread of another name."""
+    return read.get(handle, (None,))[0] == name
+
+
 def terminal_threads(base: dict, end: dict, terminals: int | None, start: dict | None = None,
                      window_s: float = 0) -> dict:
     """App threads per added terminal, and with an idle window (`start`, `window_s`) which of their threads woke.
@@ -924,8 +932,10 @@ def terminal_threads(base: dict, end: dict, terminals: int | None, start: dict |
     the window. A surface thread (``SURFACE_THREADS``) not in `base` is an added terminal's. One whose CPU time grew
     in the window woke: proc_threadinfo counts CPU time to the microsecond, and a wakeup of the renderer's event loop
     runs longer than that. `terminals` is how many terminal surfaces were added (debug.memory), else one per added
-    renderer thread."""
-    added = {name: [handle for handle, (thread, _) in end.items() if thread == name and handle not in base]
+    renderer thread. A read's handle is the thread's pthread address, which a later thread can get once its thread
+    exits, so a thread is the one in an earlier read only when the name there is the same (``same_thread``)."""
+    added = {name: [handle for handle, (thread, _) in end.items()
+                    if thread == name and not same_thread(base, handle, name)]
              for name in SURFACE_THREADS}
     if not terminals or terminals < 0:
         terminals = len(added["renderer"])
@@ -937,7 +947,8 @@ def terminal_threads(base: dict, end: dict, terminals: int | None, start: dict |
         row = {"threads": len(handles), "per_terminal": round(len(handles) / terminals, 2) if terminals else None}
         if start is not None:
             # A thread started inside the window counts from zero.
-            grew = [end[handle][1] - (start[handle][1] if handle in start else 0) for handle in handles]
+            grew = [end[handle][1] - (start[handle][1] if same_thread(start, handle, name) else 0)
+                    for handle in handles]
             row["woke"] = sum(1 for delta in grew if delta > 0)
             row["cpu_us"] = round(sum(delta for delta in grew if delta > 0) / 1000, 1)
         out[name] = row
@@ -1584,6 +1595,23 @@ def launch_env(cef_switches: str, host_model: str | None) -> dict:
     return env
 
 
+# The debug tunable the terminalGPURelease feature replaces (MemorySettings.terminalGPURelease). Launch reads it only
+# from the debug tunables file (DebugSettingsService.launchFile), never from cmux.json.
+GPU_RELEASE_TUNABLE = "memory.discard.terminalGPURelease"
+
+
+def gpu_release_env(gpu_release: str | None, folder: str) -> dict:
+    """The launch env for --gpu-release: a debug tunables file in `folder` that sets ``GPU_RELEASE_TUNABLE``, named
+    by CMUX_NEXT_DEBUG_TUNABLES_FILE as chromium-host-bench.py does. A bench build of a .dev or .debug bundle
+    reads it; {} without --gpu-release."""
+    if not gpu_release:
+        return {}
+    path = os.path.join(folder, "debug-tunables.json")
+    with open(path, "w") as handle:
+        json.dump({"version": 1, "values": {GPU_RELEASE_TUNABLE: gpu_release == "on"}}, handle)
+    return {"CMUX_NEXT_DEBUG_TUNABLES_FILE": path}
+
+
 def interrupted(_signum, _frame):
     raise KeyboardInterrupt
 
@@ -1596,8 +1624,7 @@ def check_args(parser: argparse.ArgumentParser, args) -> list[int]:
     if args.hidden_workspaces is not None and args.tabs:
         parser.error("--hidden-workspaces and --tabs are separate runs")
     if args.gpu_release and args.socket:
-        parser.error("--gpu-release sets memory.discard.terminalGPURelease of an app this run launches, not of an "
-                     "attached one")
+        parser.error(f"--gpu-release sets {GPU_RELEASE_TUNABLE} of an app this run launches, not of an attached one")
     if args.thread_window < 0:
         parser.error("--thread-window is a number of seconds >= 0")
     if args.terminal_host_model and args.socket:
@@ -1748,9 +1775,11 @@ def parse_args(argv=None):
                              "which its daemon launch passes on as CMUX_TUI_TERMINAL_HOST_MODEL); default hosts, the "
                              "daemon's default. --hidden-workspaces names it")
     parser.add_argument("--gpu-release", choices=("on", "off"),
-                        help="launch: memory.discard.terminalGPURelease (hidden terminals let their GPU memory go; "
-                             "needs a GhosttyNextKit pin with ghostty_surface_set_gpu_resident). Run off then on for "
-                             "the app threads per hidden terminal before and after (p07-memory-078)")
+                        help="launch: the debug tunable memory.discard.terminalGPURelease, in a tunables file named "
+                             "by CMUX_NEXT_DEBUG_TUNABLES_FILE (hidden terminals let their GPU memory go). Needs a "
+                             "bench build (reload.sh --config bench) of a .dev or .debug bundle and a GhosttyNextKit "
+                             "pin with ghostty_surface_set_gpu_resident. Run off then on for the app threads per "
+                             "hidden terminal before and after (p07-memory-078)")
     parser.add_argument("--thread-window", type=float, default=10, metavar="S",
                         help="--hidden-workspaces: idle seconds after each sample in which the hidden terminals' "
                              "renderer and IO threads must not wake; 0 counts threads only")
@@ -1817,9 +1846,9 @@ def main(argv=None):
             config = merged(config, {"browser": {"hibernation": args.hibernate_after}})
         if args.cold_scrollback is not None:
             config = merged(config, cold_scrollback_config(args.cold_scrollback))
-        if args.gpu_release:
-            config = merged(config, {"memory": {"discard": {"terminalGPURelease": args.gpu_release == "on"}}})
         env = launch_env(args.cef_switches, args.terminal_host_model)
+        if args.gpu_release:
+            env.update(gpu_release_env(args.gpu_release, results_dir or tempfile.mkdtemp(prefix="bench-memory-")))
         if args.fake_agent:
             # The fake agent is a real ACP process: the bench env's agent-pane mock and launch denial would stop it.
             env.update({"CMUX_NEXT_AGENT_PANE_MOCK": None, "ACPMUX_AGENT_LAUNCH": None})
