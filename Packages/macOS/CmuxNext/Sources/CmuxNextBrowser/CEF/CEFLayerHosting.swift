@@ -51,7 +51,7 @@ import IOSurface
 ///
 /// Past its grace (p03-rendering-055: the app-wide hidden frame list dropped a hidden page's kept
 /// frame) the page keeps one volatile snapshot instead of a layer host: the fork copies its last frame
-/// off the main thread, the app drops the `CALayerHost` and the renderer evicts its frame. A show puts
+/// on its GPU thread, the app drops the `CALayerHost` and the renderer evicts its frame. A show puts
 /// the snapshot on screen in the switch's own commit and the live layer under it; the page window's
 /// next frame takes it away. A snapshot the system purged shows the page's background
 /// (``CEFHiddenPageSnapshot``).
@@ -84,9 +84,10 @@ final class CEFLayerHosting {
         /// when). Nil: Chromium's own frame eviction decides.
         let evictFrame: ((_ browser: Int32) -> Bool)?
         /// The fork's copy of a hidden page window's last frame into a new IOSurface the app owns
-        /// (p03-rendering-055; Chromium's `CopyFromCompositingSurface`), delivered once on a fork
-        /// thread, nil when there was no frame. False when no copy was started. Nil without the call.
-        let copyFrame: ((_ browser: Int32, _ done: @escaping @Sendable (IOSurface?) -> Void) -> Bool)?
+        /// (p03-rendering-055): made on the fork's GPU thread, delivered once on the main thread (nil when
+        /// there was no frame), as Chromium's `CopyFromCompositingSurface` answers on its UI thread.
+        /// False when no copy was started. Nil without the call.
+        let copyFrame: ((_ browser: Int32, _ done: @escaping @MainActor (IOSurface?) -> Void) -> Bool)?
         /// Calls `presented` once, on the main thread, when the page window presents its next frame
         /// or can present none (its renderer went away): Chromium's first surface activation after a
         /// show. False when the fork cannot tell. Nil without the call.
@@ -97,7 +98,7 @@ final class CEFLayerHosting {
              trackA: TrackA? = nil,
              setVisibility: ((_ browser: Int32, _ visibility: PageVisibility) -> Bool)? = nil,
              evictFrame: ((_ browser: Int32) -> Bool)? = nil,
-             copyFrame: ((_ browser: Int32, _ done: @escaping @Sendable (IOSurface?) -> Void) -> Bool)? = nil,
+             copyFrame: ((_ browser: Int32, _ done: @escaping @MainActor (IOSurface?) -> Void) -> Bool)? = nil,
              onNextFrame: ((_ browser: Int32, _ presented: @escaping @MainActor () -> Void) -> Bool)? = nil) {
             self.setLayerHosting = setLayerHosting
             self.setResizeSync = setResizeSync
@@ -199,18 +200,16 @@ final class CEFLayerHosting {
     ///   - refreshIntervals: the shortest frame interval of each display, which cap the wait
     ///     (``CEFResizeSyncDeadline``); tests pass fixed rates.
     ///   - afterCommit: runs a block once this run-loop pass committed its frame; tests run it when they choose.
-    ///   - deliverCopy: brings the fork's frame copy from its thread to the main actor; tests run it when they choose.
     init(isEnabled: @escaping () -> Bool = { BrowserResizeTunables.layerHosting.value },
          schedule: @escaping Scheduler = { CEFLayerHosting.atEndOfTurn($0) },
          makePage: @escaping (CGRect) -> ChromiumHostPageView = { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow) },
          resizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.syncDeadline.value * 1_000).rounded()) },
          liveResizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.liveResizeDeadline.value * 1_000).rounded()) },
          refreshIntervals: @escaping () -> [Double] = { NSScreen.screens.map(\.minimumRefreshInterval) },
-         afterCommit: @escaping Scheduler = { AfterFrameCommit().run($0) },
-         deliverCopy: @escaping CEFHiddenPageSnapshot.Delivery = { CEFLayerHosting.atEndOfTurn($0) }) {
+         afterCommit: @escaping Scheduler = { AfterFrameCommit().run($0) }) {
         self.isEnabled = isEnabled
         switchCommit = CEFSwitchCommit(afterCommit: afterCommit)
-        hiddenSnapshot = CEFHiddenPageSnapshot(deliver: deliverCopy)
+        hiddenSnapshot = CEFHiddenPageSnapshot()
         self.resizeDeadlineMs = resizeDeadlineMs
         self.liveResizeDeadlineMs = liveResizeDeadlineMs
         self.refreshIntervals = refreshIntervals

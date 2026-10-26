@@ -6,8 +6,8 @@ import IOSurface
 ///
 /// The grace is the app-wide hidden frame list's (``CEFHiddenFrames``, `HiddenFrameLRU`): while it keeps a
 /// hidden page's frame, the page keeps its `CALayerHost` and a show is its kept frame. When the list drops
-/// it, the fork copies the page's last frame into a new IOSurface on its own thread, the app marks the
-/// copy volatile there, and on the main thread the page drops its `CALayerHost`, puts the snapshot in its
+/// it, the fork copies the page's last frame into a new IOSurface on its GPU thread; when the copy is back
+/// on the main thread the app marks it volatile, the page drops its `CALayerHost`, puts the snapshot in its
 /// place and lets the renderer evict its frame. Volatile pages are outside the process's footprint: under
 /// memory pressure the system takes them without asking, and the next show finds the snapshot purged and
 /// shows the page's background until Chromium's frame.
@@ -22,9 +22,6 @@ import IOSurface
 /// Without the fork's copy and next-frame calls (``CEFLayerHosting/Fork``) past the grace is the same with
 /// no snapshot: no layer host, the renderer evicted, a show draws the background until the page's frame.
 final class CEFHiddenPageSnapshot {
-    /// Brings a block from any thread to the main actor.
-    typealias Delivery = @Sendable (_ block: @escaping @MainActor @Sendable () -> Void) -> Void
-
     enum Phase: Equatable {
         /// The page shows its layer host (shown, or hidden within its grace).
         case live
@@ -46,8 +43,6 @@ final class CEFHiddenPageSnapshot {
     private(set) var captures = 0
     /// Snapshots the system purged before they could show or be read.
     private(set) var purged = 0
-    /// Brings the fork's copy to the main actor.
-    let deliver: Delivery
     /// Bumped by every change of phase, so a late copy or frame of an older one does nothing.
     private var generation: UInt64 = 0
     /// The context the dropped layer host showed, put back at the next show.
@@ -57,10 +52,6 @@ final class CEFHiddenPageSnapshot {
     /// Hibernation's reads of the snapshot now: it stays non-volatile while one runs.
     private var readers = 0
     private weak var page: ChromiumHostPageView?
-
-    init(deliver: @escaping Delivery) {
-        self.deliver = deliver
-    }
 
     /// The fork's copy starts: returns its generation.
     func beginCapture(browser: Int32) -> UInt64 {
@@ -149,7 +140,7 @@ final class CEFHiddenPageSnapshot {
             return nil
         }
         readers += 1
-        let picture = await Self.picture(Copy(surface: snapshot))
+        let picture = await Self.picture(port: IOSurfaceCreateMachPort(snapshot))
         readers -= 1
         if readers == 0, phase == .evicted, self.snapshot === snapshot { snapshot.makeSnapshotVolatile() }
         return picture
@@ -178,15 +169,15 @@ final class CEFHiddenPageSnapshot {
         droppedContextID = 0
     }
 
-    /// The snapshot handed to the copy off the main thread or from the fork's thread.
-    // crash-allow: an IOSurface is a kernel buffer any thread may read; the main thread only marks it volatile or non-volatile.
-    nonisolated struct Copy: @unchecked Sendable {
-        let surface: IOSurface
-    }
-
-    /// The snapshot's BGRA pixels copied into a picture, off the main thread; nil for another format.
-    @concurrent nonisolated static func picture(_ copy: Copy) async -> CGImage? {
-        let surface = copy.surface
+    /// The snapshot's BGRA pixels copied into a picture, off the main thread; nil for another format. The
+    /// surface crosses threads as a mach port send right (this function deallocates it), the way Chromium
+    /// hands an IOSurface to another thread or process (`gfx::ScopedRefCountedIOSurfaceMachPort`,
+    /// ui/gfx/mac/io_surface.h).
+    @concurrent nonisolated static func picture(port: mach_port_t) async -> CGImage? {
+        guard port != 0 else { return nil }
+        let found = IOSurfaceLookupFromMachPort(port)
+        _ = mach_port_deallocate(mach_task_self_, port)
+        guard let surface = found else { return nil }
         // 'BGRA': the fork copies its frame in the compositor's format.
         guard IOSurfaceGetPixelFormat(surface) == 0x4247_5241, let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
         guard IOSurfaceLock(surface, .readOnly, nil) == KERN_SUCCESS else { return nil }
@@ -203,7 +194,7 @@ final class CEFHiddenPageSnapshot {
 
 extension CEFLayerHosting {
     /// The app-wide list dropped this hidden page's kept frame (``CEFSwitchCommit/pastGrace``): the fork
-    /// copies its last frame off the main thread, then the layer host goes and the renderer evicts.
+    /// copies its last frame on its GPU thread, then the layer host goes and the renderer evicts.
     func hiddenPastGrace(browser: Int32, fork: Fork) {
         guard let page else { return switchCommit.evictFrame(browser: browser, fork: fork) }
         switch hiddenSnapshot.phase {
@@ -218,12 +209,10 @@ extension CEFLayerHosting {
             guard fork.onNextFrame != nil, let copyFrame = fork.copyFrame else {
                 return snapshotCopied(nil, generation: generation)
             }
-            let deliver = hiddenSnapshot.deliver
             let started = copyFrame(browser) { [weak self] surface in
-                // The fork's thread: the copy is volatile before the main thread holds it.
+                // Volatile from the moment the app holds it: outside the footprint while hidden.
                 surface?.makeSnapshotVolatile()
-                let copy = surface.map(CEFHiddenPageSnapshot.Copy.init(surface:))
-                deliver { self?.snapshotCopied(copy?.surface, generation: generation) }
+                self?.snapshotCopied(surface, generation: generation)
             }
             if !started { snapshotCopied(nil, generation: generation) }
         }
@@ -260,14 +249,14 @@ extension CEFTab: BrowserHiddenPagePicture {
 
 extension IOSurface {
     /// kIOSurfacePurgeable* by value (IOSurfaceTypes.h), as `TerminalFramePurgeability`: the imported
-    /// Swift names differ by SDK. Any thread.
-    fileprivate nonisolated func makeSnapshotVolatile() {
+    /// Swift names differ by SDK.
+    fileprivate func makeSnapshotVolatile() {
         var old: UInt32 = 0
         IOSurfaceSetPurgeable(self, 1, &old)
     }
 
     /// Non-volatile for a reader; false when the system purged the pages meanwhile.
-    fileprivate nonisolated func reclaimSnapshot() -> Bool {
+    fileprivate func reclaimSnapshot() -> Bool {
         var old: UInt32 = 0
         IOSurfaceSetPurgeable(self, 0, &old)
         return old != 2

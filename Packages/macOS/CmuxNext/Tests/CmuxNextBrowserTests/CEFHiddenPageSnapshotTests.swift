@@ -5,14 +5,14 @@ import Testing
 
 /// p03-rendering-055: a hosted page hidden past its grace holds no layer host and one volatile snapshot,
 /// and a show presents the snapshot in the switch's own turn, the live page on its next frame. Without
-/// Chromium: a fake fork, a real IOSurface, and the commit and the copy's delivery run when the test says.
+/// Chromium: a fake fork, a real IOSurface, and the commit and the fork's copy run when the test says.
 @MainActor
 @Suite struct CEFHiddenPageSnapshotTests {
     /// The fork side: every call in order, as `name browser`; the copy and the next frame wait for the test.
     final class FakeFork {
         private(set) var calls: [String] = []
         var copies = true
-        private var copyDone: (@Sendable (IOSurface?) -> Void)?
+        private var copyDone: (@MainActor (IOSurface?) -> Void)?
         private var presented: (@MainActor () -> Void)?
         var fork: CEFLayerHosting.Fork {
             CEFLayerHosting.Fork(
@@ -42,7 +42,7 @@ import Testing
 
         func clear() { calls = [] }
 
-        /// The fork's copy comes back (on the main thread here; the app does not care which).
+        /// The fork's copy comes back on the main thread.
         func finishCopy(_ surface: IOSurface?) {
             copyDone?(surface)
             copyDone = nil
@@ -74,7 +74,6 @@ import Testing
     let frames = FakeFrames()
     let turn = CEFLayerHostingTests.Turn()
     let commit = CEFLayerHostingTests.Turn()
-    let deliveries = CEFLayerHostingTests.Turn()
     let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
     let window: NSWindow
 
@@ -88,13 +87,11 @@ import Testing
 
     /// A hosted page window for browser 3, every creation step run, its calls cleared.
     func makeHostedPage() -> CEFLayerHosting {
-        let turn = turn, commit = commit, deliveries = deliveries
+        let turn = turn, commit = commit
         let hosting = CEFLayerHosting(isEnabled: { true }, schedule: { turn.add($0) },
                                       makePage: { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow, makeLayerHost: { _ in CALayer() }) },
                                       resizeDeadlineMs: { 8 }, refreshIntervals: { [] },
-                                      afterCommit: { commit.add($0) },
-                                      // The fake fork copies on the main thread; the delivery waits for the test.
-                                      deliverCopy: { block in MainActor.assumeIsolated { deliveries.add(block) } })
+                                      afterCommit: { commit.add($0) })
         hosting.view = view
         hosting.switchCommit.hiddenFrames = frames
         hosting.pageWindowCreated(browser: 3, fork: fake.fork)
@@ -134,7 +131,6 @@ import Testing
         hide(hosting)
         frames.evictAll()
         fake.finishCopy(surface)
-        deliveries.end()
         fake.clear()
     }
 
@@ -148,7 +144,6 @@ import Testing
         #expect(fake.calls == ["visibility 3 hidden", "copy 3"], "the renderer keeps its frame until the copy is back")
         let surface = try frameCopy()
         fake.finishCopy(surface)
-        deliveries.end()
         #expect(page.contextID == 0, "no layer host")
         #expect(page.snapshotCover?.snapshot === surface)
         #expect(hosting.hiddenSnapshot.snapshot === surface)
@@ -207,7 +202,6 @@ import Testing
         #expect(hosting.hiddenSnapshot.phase == .live)
         let late = try frameCopy()
         fake.finishCopy(late)
-        deliveries.end()
         #expect(page.contextID == 7)
         #expect(page.snapshotCover == nil)
         #expect(!fake.calls.contains("evict 3"))
