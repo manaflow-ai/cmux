@@ -4,14 +4,7 @@
 // more, Subagents' Show 12 more, Background tasks' 4 finished) spans its list's width; a click in
 // the empty part of the row, right of its label, opens it; hovering paints no fill; and keyboard focus
 // follows the agent pane's shared policy (agent-session/shared/styles.css: the soft pill, no outline).
-import {
-  afterAll,
-  beforeAll,
-  describe,
-  expect,
-  setDefaultTimeout,
-  test,
-} from "bun:test";
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
@@ -33,9 +26,7 @@ await requireBrowserLane("chat-inspector-fold-rows.test.ts", async () => {
   try {
     await (await chromium.launch({ headless: true })).close();
   } catch {
-    console.warn(
-      "chat-inspector-fold-rows: skipping (run `bunx playwright install chromium`)",
-    );
+    console.warn("chat-inspector-fold-rows: skipping (run `bunx playwright install chromium`)");
     describe.skip("inspector fold rows", () => test("chromium", () => {}));
     return;
   }
@@ -61,13 +52,9 @@ await requireBrowserLane("chat-inspector-fold-rows.test.ts", async () => {
       `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: "subagents-busy", width: 420, height: 1600 })}`,
     );
     // A cold dev server compiles the gallery on the first request; give it longer than the default.
-    await page.waitForFunction(
-      () => document.documentElement.dataset.galleryReady === "1",
-      undefined,
-      {
-        timeout: 90_000,
-      },
-    );
+    await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+      timeout: 90_000,
+    });
   });
   afterAll(async () => {
     await browser?.close();
@@ -78,11 +65,9 @@ await requireBrowserLane("chat-inspector-fold-rows.test.ts", async () => {
   const row = (label: string) =>
     page!.evaluate((source) => {
       const pattern = new RegExp(source);
-      const button = [
-        ...document.querySelectorAll<HTMLButtonElement>(
-          "button.acpmux-chat-inspector-fold",
-        ),
-      ].find((candidate) => pattern.test(candidate.textContent ?? ""));
+      const button = [...document.querySelectorAll<HTMLButtonElement>("button.acpmux-chat-inspector-fold")].find(
+        (candidate) => pattern.test(candidate.textContent ?? ""),
+      );
       if (!button)
         return {
           found: false,
@@ -103,10 +88,7 @@ await requireBrowserLane("chat-inspector-fold-rows.test.ts", async () => {
       return {
         found: true,
         width: box.width,
-        list:
-          parent.clientWidth -
-          parseFloat(style.paddingLeft) -
-          parseFloat(style.paddingRight),
+        list: parent.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
         labelRight: range.getBoundingClientRect().right,
         right: box.right,
         y: box.top + box.height / 2,
@@ -117,11 +99,9 @@ await requireBrowserLane("chat-inspector-fold-rows.test.ts", async () => {
   const fill = (label: string) =>
     page!.evaluate((source) => {
       const pattern = new RegExp(source);
-      const button = [
-        ...document.querySelectorAll<HTMLButtonElement>(
-          "button.acpmux-chat-inspector-fold",
-        ),
-      ].find((candidate) => pattern.test(candidate.textContent ?? ""))!;
+      const button = [...document.querySelectorAll<HTMLButtonElement>("button.acpmux-chat-inspector-fold")].find(
+        (candidate) => pattern.test(candidate.textContent ?? ""),
+      )!;
       const style = getComputedStyle(button);
       return {
         color: style.backgroundColor,
@@ -152,12 +132,9 @@ await requireBrowserLane("chat-inspector-fold-rows.test.ts", async () => {
       await page!.mouse.click(x, before.y);
       await page!.waitForFunction(
         (source) =>
-          [
-            ...document.querySelectorAll("button.acpmux-chat-inspector-fold"),
-          ].some(
+          [...document.querySelectorAll("button.acpmux-chat-inspector-fold")].some(
             (button) =>
-              new RegExp(source).test(button.textContent ?? "") &&
-              button.getAttribute("aria-expanded") === "true",
+              new RegExp(source).test(button.textContent ?? "") && button.getAttribute("aria-expanded") === "true",
           ),
         open,
       );
@@ -167,12 +144,9 @@ await requireBrowserLane("chat-inspector-fold-rows.test.ts", async () => {
       await page!.mouse.click(after.right - 6, after.y);
       await page!.waitForFunction(
         (source) =>
-          [
-            ...document.querySelectorAll("button.acpmux-chat-inspector-fold"),
-          ].some(
+          [...document.querySelectorAll("button.acpmux-chat-inspector-fold")].some(
             (button) =>
-              new RegExp(source).test(button.textContent ?? "") &&
-              button.getAttribute("aria-expanded") === "false",
+              new RegExp(source).test(button.textContent ?? "") && button.getAttribute("aria-expanded") === "false",
           ),
         closed,
       );
@@ -182,17 +156,13 @@ await requireBrowserLane("chat-inspector-fold-rows.test.ts", async () => {
   test("keyboard focus on a fold takes the agent pane's soft pill, not an outline", async () => {
     await page!.mouse.move(0, 0);
     await page!.evaluate(() => {
-      const button = document.querySelector<HTMLButtonElement>(
-        "button.acpmux-chat-inspector-pr-fold",
-      )!;
+      const button = document.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-pr-fold")!;
       (button.focus as (options: { focusVisible: boolean }) => void)({
         focusVisible: true,
       });
     });
     const focused = await page!.evaluate(() => {
-      const button = document.querySelector<HTMLButtonElement>(
-        "button.acpmux-chat-inspector-pr-fold",
-      )!;
+      const button = document.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-pr-fold")!;
       const style = getComputedStyle(button);
       return {
         visible: button.matches(":focus-visible"),
