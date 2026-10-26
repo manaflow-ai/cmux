@@ -50,6 +50,10 @@ if grep -q -e '"dev",' -e 'createServer(' -e 'vite.config.gallery-dev.ts' -e 'vi
   rmdir "$DEV_RUNNING/$$"
 fi
 case "$file" in
+  *retry-hang*)
+    if [ -f "$BUN_CALLS.retry" ]; then sleep 60; fi
+    touch "$BUN_CALLS.retry"
+    echo "(fail) first attempt assertion"; exit 1 ;;
   *fail-slow*) sleep 1; echo "(fail) a slow broken test"; exit 1 ;;
   *hang*) sleep 60 ;;
   *slow*) sleep 3; echo "(pass) $file" ;;
@@ -176,6 +180,18 @@ class PerFileRunner(unittest.TestCase):
         for file in files:
             self.assertIn(f"FAIL {file}", output)
         self.assertIn("retry budget exhausted", output)
+
+    def test_a_retry_cannot_outlive_the_remaining_shared_budget(self):
+        result, elapsed, calls = self.run_runner(
+            ["test/retry-hang.test.ts"],
+            contents={"test/retry-hang.test.ts": "// cmux-web-test-timeout: 4\n"},
+            extra_env={"CMUX_WEB_TEST_RETRIES": "1", "CMUX_WEB_TEST_RETRY_BUDGET": "1"},
+        )
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertLess(elapsed, 3, output)
+        self.assertEqual(calls, ["./test/retry-hang.test.ts"] * 2)
+        self.assertIn("TIMEOUT test/retry-hang.test.ts", output)
 
     def test_passing_files_pass(self):
         result, _, calls = self.run_runner(["test/a.test.ts", "src/b.test.tsx"])
