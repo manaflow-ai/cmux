@@ -24,7 +24,7 @@
 #[path = "host_scope_watch.rs"]
 mod watch;
 
-use std::process::{Command, Stdio};
+use cmux_process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// The opt-in environment switch and its only accepted value.

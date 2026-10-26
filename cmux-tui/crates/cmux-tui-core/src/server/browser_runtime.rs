@@ -30,17 +30,16 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::ChildStdin;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+use cmux_process::{Child, Command, Stdio};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use wait_timeout::ChildExt;
 
 use super::{MessageWriter, Response, send_response};
 use crate::mux::Mux;

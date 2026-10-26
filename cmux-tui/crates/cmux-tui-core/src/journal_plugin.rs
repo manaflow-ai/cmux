@@ -7,15 +7,12 @@
 
 #[cfg(windows)]
 use std::mem::size_of;
-#[cfg(unix)]
-use std::os::unix::process::CommandExt;
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+
+use cmux_process::{Child, Command, ExitStatus, Stdio};
 
 use crate::panic_free::RecoverPoison;
 

@@ -39,9 +39,11 @@ mod macos;
 #[cfg(unix)]
 mod open_files;
 #[cfg(unix)]
+pub use macos::NativePtyChild;
+#[cfg(unix)]
 pub use open_files::{
     OPEN_FILE_LIMIT_CEILING, OpenFileLimit, original_open_file_limit, raise_open_file_limit,
-    restore_open_file_limit, restore_open_file_limit_in_child,
+    restore_open_file_limit,
 };
 
 /// Stable classification for failures at the PTY allocation boundary.
@@ -365,7 +367,7 @@ mod tests {
             println!("{}", String::from_utf8_lossy(&output).trim());
             return Ok(());
         }
-        let output = std::process::Command::new(std::env::current_exe()?)
+        let output = cmux_process::Command::new(std::env::current_exe()?)
             .args(["--exact", NAME, "--nocapture", "--test-threads=1"])
             .env(PROBE, "1")
             .output()?;
@@ -467,7 +469,7 @@ mod tests {
     fn close_range_seccomp_fallback_keeps_pty_spawn_working() {
         const CHILD_ENV: &str = "CMUX_PTY_CLOSE_RANGE_SECCOMP_CHILD";
         if std::env::var_os(CHILD_ENV).is_none() {
-            let output = std::process::Command::new(std::env::current_exe().unwrap())
+            let output = cmux_process::Command::new(std::env::current_exe().unwrap())
                 .arg("tests::close_range_seccomp_fallback_keeps_pty_spawn_working")
                 .arg("--exact")
                 .arg("--nocapture")

@@ -22,6 +22,10 @@ unsafe extern "C" {
         actions: *mut libc::posix_spawn_file_actions_t,
         path: *const libc::c_char,
     ) -> libc::c_int;
+    fn posix_spawn_file_actions_addfchdir_np(
+        actions: *mut libc::posix_spawn_file_actions_t,
+        fd: libc::c_int,
+    ) -> libc::c_int;
     fn posix_spawn_file_actions_addinherit_np(
         actions: *mut libc::posix_spawn_file_actions_t,
         fd: libc::c_int,
@@ -48,6 +52,9 @@ pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
         .collect::<io::Result<_>>()?;
     let path = c_string(path.as_os_str())?;
     let cwd = command.cwd.as_ref().map(|dir| c_string(dir.as_os_str())).transpose()?;
+    // Open until the spawn returned; the child changes to it before its exec
+    // (close-on-exec, so it is not passed on).
+    let cwd_fd = command.cwd_fd.take();
 
     // The child's descriptor plan: (source, target). Parent ends of pipes
     // go to the Child; the child ends and every source close after the spawn.
@@ -122,6 +129,14 @@ pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
             check(libc::posix_spawnattr_setpgroup(&mut setup.attr, pgid))?;
         }
         check(libc::posix_spawnattr_setflags(&mut setup.attr, flags))?;
+        // The directory first: a later dup2 may reuse the number of the
+        // descriptor `cwd_fd` holds.
+        if let Some(dir) = &cwd {
+            check(posix_spawn_file_actions_addchdir_np(&mut setup.actions, dir.as_ptr()))?;
+        }
+        if let Some(dir) = &cwd_fd {
+            check(posix_spawn_file_actions_addfchdir_np(&mut setup.actions, dir.as_raw_fd()))?;
+        }
         for (source, target) in &plan {
             check(match source {
                 Source::DevNull => libc::posix_spawn_file_actions_addopen(
@@ -149,9 +164,6 @@ pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
                 ),
             })?;
         }
-        if let Some(dir) = &cwd {
-            check(posix_spawn_file_actions_addchdir_np(&mut setup.actions, dir.as_ptr()))?;
-        }
     }
     let mut argv_ptrs: Vec<*mut libc::c_char> =
         argv.iter().map(|arg| arg.as_ptr().cast_mut()).collect();
@@ -173,6 +185,7 @@ pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
         )
     })?;
     drop(plan);
+    drop(cwd_fd);
     let [stdin, stdout, stderr] = parents;
     Ok(Child::from_pid(
         pid,

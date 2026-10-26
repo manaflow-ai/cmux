@@ -7,21 +7,15 @@ use std::io::Write;
 use std::mem::size_of;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
-#[cfg(all(test, target_os = "linux"))]
-use std::os::unix::process::CommandExt;
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
-#[cfg(any(not(unix), all(test, target_os = "linux")))]
-use std::process::Command;
-use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak, mpsc};
 use std::time::{Duration, Instant};
 
+#[cfg(any(not(unix), all(test, target_os = "linux")))]
+use cmux_process::Command;
+use cmux_process::Stdio;
 use regex::bytes::{Regex, RegexBuilder};
 use serde_json::json;
-#[cfg(windows)]
-use wait_timeout::ChildExt;
 #[cfg(windows)]
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 #[cfg(windows)]
@@ -127,7 +121,7 @@ struct WindowsHookJob {
 
 #[cfg(windows)]
 impl WindowsHookJob {
-    fn assign(child: &std::process::Child) -> std::io::Result<Self> {
+    fn assign(child: &cmux_process::Child) -> std::io::Result<Self> {
         let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if handle.is_null() {
             return Err(std::io::Error::last_os_error());
@@ -170,7 +164,7 @@ impl WindowsHookJob {
         }
     }
 
-    fn terminate_and_wait(&self, child: &mut std::process::Child) {
+    fn terminate_and_wait(&self, child: &mut cmux_process::Child) {
         self.terminate_descendants();
         let _ = child.kill();
         let _ = child.wait();
@@ -178,7 +172,7 @@ impl WindowsHookJob {
 }
 
 #[cfg(windows)]
-fn resume_suspended_hook_child(child: &std::process::Child) -> std::io::Result<()> {
+fn resume_suspended_hook_child(child: &cmux_process::Child) -> std::io::Result<()> {
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
     if snapshot == INVALID_HANDLE_VALUE {
         return Err(std::io::Error::last_os_error());
@@ -936,7 +930,9 @@ fn execute_delivery_with_shutdown(
         command.env("CMUX_JOURNAL_SESSION_ID", session_id);
     }
     #[cfg(unix)]
-    tree.configure(&mut command);
+    if let Err(error) = tree.configure(&mut command) {
+        return (None, Some(format!("prepare hook process scope: {error}")));
+    }
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => return (None, Some(format!("start hook executable: {error}"))),
@@ -1131,7 +1127,7 @@ fn wait_hook_stdin_writable(
 
 #[cfg(windows)]
 fn execute_hook_child_portable(
-    child: &mut std::process::Child,
+    child: &mut cmux_process::Child,
     mut stdin: std::process::ChildStdin,
     input: &[u8],
     process_group: u32,
@@ -1208,7 +1204,7 @@ fn execute_hook_child_portable(
 
 #[cfg(windows)]
 fn wait_for_hook_exit_windows(
-    child: &mut std::process::Child,
+    child: &mut cmux_process::Child,
     process_group: u32,
     deadline: Instant,
     timeout: Duration,
@@ -1281,7 +1277,7 @@ fn hook_exit_result(
     (code, error)
 }
 
-fn terminate_hook_child(child: &mut std::process::Child) {
+fn terminate_hook_child(child: &mut cmux_process::Child) {
     let _ = child.kill();
     let _ = child.wait();
 }
@@ -1491,7 +1487,7 @@ mod tests {
                 .stderr(Stdio::null())
                 .process_group(0);
             let mut tree = UnixProcessScope::prepare().unwrap();
-            tree.configure(&mut command);
+            tree.configure(&mut command).unwrap();
             let mut child = command.spawn().unwrap();
             tree.bind(child.id()).unwrap();
             let mut signal = accepted_receiver

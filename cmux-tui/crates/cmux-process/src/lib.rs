@@ -36,6 +36,8 @@
 //! [`Command::inherit_fd`].
 
 mod child;
+#[cfg(all(unix, not(target_vendor = "apple")))]
+mod child_setup;
 mod command;
 #[cfg(target_vendor = "apple")]
 mod spawn_apple;

@@ -1308,6 +1308,7 @@ name = "cmux-pty"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cmux-process",
  "libc",
  "portable-pty",
  "windows-sys 0.61.2",
@@ -1733,6 +1734,7 @@ name = "cmux-tui-hooks"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cmux-process",
  "cmux-tui-platform",
  "getrandom 0.3.4",
  "libc",
@@ -1741,7 +1743,6 @@ dependencies = [
  "tempfile",
  "toml",
  "toml_edit 0.22.27",
- "wait-timeout",
  "windows-sys 0.61.2",
 ]
 
