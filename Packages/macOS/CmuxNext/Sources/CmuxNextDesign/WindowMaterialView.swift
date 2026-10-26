@@ -28,7 +28,9 @@ public final class WindowMaterialView: NSView {
     public private(set) var materialView: NSView?
     private let tintView = NSView()
     private let glassTint = GlassTintBlend()
-    private let inactiveTintView = NSView()
+    /// The inactive wash sits under the in-app art. Native glass can still use it to cover the
+    /// desktop when it drops its active tint, while the person's own background remains visible.
+    let inactiveTintView = NSView()
     /// The inactive wash's alpha once its fade ends (`updateInactiveTint`).
     private var inactiveTintTarget: CGFloat = 0
     /// The theme tint at full alpha, the inactive wash's color; nil while opaque.
@@ -69,8 +71,10 @@ public final class WindowMaterialView: NSView {
     /// The web views lensing this backdrop, told when what they draw changes (`glassSource`).
     let glassFeeds = NSHashTable<GlassBackdropFeed>.weakObjects()
     private let images: BackdropImageStore
-    /// Loads the art the last `apply` asked for when it was not decoded yet.
-    private var artLoad: Task<Void, Never>?
+    /// Loads the art the last `apply` asked for when it was not decoded yet; a later `apply`
+    /// that needs other art cancels and replaces it. Tests await its `value` to see the art the
+    /// load shows.
+    private(set) var artLoad: Task<Void, Never>?
     /// The solid sheet and Reduce Transparency must never expose art.
     private(set) var hidesArt = false
     /// The blur on the art now (``WindowBackdrop/artBlurRadius``).
@@ -115,7 +119,9 @@ public final class WindowMaterialView: NSView {
         inactiveTintView.autoresizingMask = [.width, .height]
         inactiveTintView.isHidden = true
         inactiveTintView.layer?.opacity = 0
-        addSubview(inactiveTintView)
+        // The wash is a desktop shield, not a veil over the person's background. Keep it below
+        // art (and the glass/material stack above art) so losing focus cannot dim or hide that art.
+        addSubview(inactiveTintView, positioned: .below, relativeTo: artView)
         setAccessibilityElement(false)
     }
 
@@ -240,12 +246,9 @@ public final class WindowMaterialView: NSView {
         let fade = inactiveTintFade
         inactiveTintView.isHidden = false
         CATransaction.begin()
-        CATransaction.setCompletionBlock { [weak self] in
-            // main-proof: CATransaction.h: the completion block is called on the main thread
-            MainActor.assumeIsolated {
-                guard let self, self.inactiveTintFade == fade, self.inactiveTintTarget == 0 else { return }
-                self.inactiveTintView.isHidden = true
-            }
+        CATransaction.setMainCompletion { [weak self] in
+            guard let self, self.inactiveTintFade == fade, self.inactiveTintTarget == 0 else { return }
+            self.inactiveTintView.isHidden = true
         }
         // From what shows now (a reversal mid-fade continues from there), or from 0 when hidden.
         Motion.overlays.set(layer, "opacity", to: Float(alpha), fade: .scrim, from: showing ? nil : Float(0))

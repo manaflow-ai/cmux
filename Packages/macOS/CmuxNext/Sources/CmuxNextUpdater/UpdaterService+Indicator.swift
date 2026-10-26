@@ -39,6 +39,11 @@ extension UpdaterService {
         return version != identity.shortVersion
     }
 
+    /// The update sheet closed (set by the App): the tip app's feed read resumes (``TipUpdateCheck``).
+    public func updateSheetClosed() {
+        tipCheck.refresh(self)
+    }
+
     /// The note beside the circle timed out (up to date clears itself).
     public func dismissIndicatorNote() {
         // Sparkle's error is what the open sheet shows; a probe's sheet reads

@@ -610,3 +610,45 @@ fn notification_workspace_scope_names_the_workspace_and_clears_only_it() {
     assert_eq!(restored["notifications"].as_array().map(Vec::len), Some(1), "{restored}");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A ledger row names its `notification` event number and the program that
+/// held the terminal when it was posted (memory only), so a typed reply from
+/// cmux on iPhone reaches only that program (cmux-next-ios `mailbox_apply.rs`).
+#[test]
+fn a_posted_notification_remembers_its_event_number_and_poster() {
+    let mux = Mux::new("notification-poster", SurfaceOptions::default());
+    let surface = mux.new_workspace(None, None).unwrap();
+    let events = mux.subscribe();
+    mux.post_notification_as(
+        &Actor::Daemon,
+        "osc".into(),
+        "body".into(),
+        NotificationLevel::Info,
+        Some(surface.id),
+        NotificationSource::Terminal,
+    )
+    .unwrap();
+    let number = events
+        .try_iter()
+        .find_map(|event| match event {
+            MuxEvent::Notification(note) => Some(note.notification),
+            _ => None,
+        })
+        .unwrap();
+    let row = mux.resource_notifications(1).remove(0);
+    let post = mux.notification_post(&row.id).unwrap();
+    assert_eq!(post.notification, number);
+    // The poster is the terminal's foreground program when the platform can tell.
+    if let Some(pid) = surface.process_id()
+        && let Some(leader) = crate::platform::foreground_leader(pid)
+    {
+        let poster = post.poster.expect("a poster");
+        assert_eq!(poster.pid, leader);
+        assert_eq!(Some(poster.executable), crate::platform::foreground_process_name(pid));
+    }
+    // A notification with no terminal has no poster.
+    mux.post_notification("plain".into(), "".into(), NotificationLevel::Info, None).unwrap();
+    let plain = mux.resource_notifications(1).remove(0);
+    assert_eq!(mux.notification_post(&plain.id).unwrap().poster, None);
+    mux.shutdown();
+}

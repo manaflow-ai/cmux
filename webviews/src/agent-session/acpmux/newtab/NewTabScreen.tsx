@@ -1,3 +1,5 @@
+import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
+import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import type { ConnectKind } from "../environments";
@@ -13,19 +15,21 @@ import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
 import { useSavedEnvironments } from "./savedEnvironments";
 import type { ComposerAttachment, DroppedKind, LinkItem } from "../attachments";
+import type { UploadResult } from "../cloudUploads";
 import {
   AttachmentStrip,
   backspacedAttachment,
   useAttachmentIntake,
   useSendWhenAttached,
 } from "../composer/attachmentIntake";
+import { reordered } from "../composer/stripReorder";
 import { DropOverlay } from "../composer/DropOverlay";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
 import { type NowPlayingCommand, NowPlayingPlayer } from "./NowPlayingPlayer";
-import { ArrowUpIcon } from "../ComposerPickers";
+import { ArrowUpIcon, PaperclipIcon, Picker, PlusIcon } from "../ComposerPickers";
 import { newTabStart, useNewTabChipModel } from "./chipDefaults";
 import { useLastPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
@@ -36,10 +40,12 @@ import {
   canonicalAddress,
   defaultSelection,
   isAddress,
+  pairingLinkRefused,
   inlineCompletion,
   needsYouCards,
   recentChatCards,
   screenRows,
+  inStrip,
   shellEntry,
   shortHost,
   stepSelection,
@@ -69,6 +75,7 @@ import { screenSections, type ScreenTemplate } from "./templates";
 import { type Translate, useT } from "../i18n";
 import { ChromeArea } from "../../../ui/HideableChrome";
 import { Popover } from "../../../ui/Popover";
+import { PromptFocus } from "../promptFocus";
 import { useEscapingPopup } from "../../../ui/popupHost";
 import { usePopupHost } from "../../../ui/UiProvider";
 import { UI_ANCHOR_GAP } from "../../../ui/anchor";
@@ -76,13 +83,15 @@ import { useComposerChrome } from "../composerChrome";
 import { useComposerSettings } from "../composerSettings";
 import { useComposerLook } from "../composerLook";
 import { ComposerFoot } from "../ComposerFoot";
-import { FastToggle, SpeedToggleHost, type SpeedTiers } from "../FastToggle";
 import { useRowFit } from "../composerRowFit";
 import { useMenuPressGuard } from "../menuPressGuard";
 import { useMinuteClock } from "../clock";
 import { usePasteAnywhere } from "../composer/pasteAnywhere";
 import { SlashMenu } from "../SlashMenu";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand } from "../slashCommands";
+import { useHarnessesListed } from "../catalog";
+import { NewTabExtras } from "./NewTabExtras";
+import type { SuggestionOrder } from "./suggestionOrder";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
@@ -194,6 +203,8 @@ type Props = NewTabScreenActions & {
   /// true: `tabs.newTabWidgets.greeting` is set to false (not the default): with the headline off,
   /// Minimal keeps no room for it, so the composer sits where it sat with the greeting off.
   headlineOff?: boolean;
+  /// How the rows under the field rank (screenModel.ts SuggestionOrder); unset is the default.
+  suggestionOrder?: SuggestionOrder;
   /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the recent chats show where
   /// the template would list All chats.
   allChats?: boolean;
@@ -213,6 +224,8 @@ type Props = NewTabScreenActions & {
   /// On this Mac: where the files of the person's drop or paste are, so a folder or a file no prompt
   /// block takes goes with the first prompt as a link to it (the page has no upload to save one).
   localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
+  /// Saves files chosen from the New Tab plus menu when the session has no chat upload yet.
+  upload?(files: File[]): Promise<UploadResult>;
 };
 
 /// `/`, `/Users`, a home folder: never a chat's start folder (AgentPaneStartFolders drops them).
@@ -335,17 +348,27 @@ export function NewTabScreen(props: Props) {
     attachments,
     setAttachments,
     pending: reading,
+    unsettled,
+    cancel,
+    retry,
     attachError,
     drop,
     dropLanded,
+    attach,
   } = useAttachmentIntake({
     allowImages: snapshot.summary?.promptCapabilities?.image !== false,
     dropZone: () => field.current?.closest(".acpmux-main") ?? null,
     // Shell mode turns the page into a terminal, which takes no attachment: the paste stays text.
     pasteTarget: (target) => (!shell && field.current?.contains(target) ? { uploads: false } : undefined),
+    ...(props.upload ? { upload: props.upload } : {}),
     ...(props.localPaths ? { localPaths: props.localPaths } : {}),
   });
-  const holdForAttachments = useSendWhenAttached(reading.length);
+  const holdForAttachments = useSendWhenAttached(unsettled);
+  // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
+  // query (the location comes back with the page) and staged attachments (pages/shared/webSwap.ts).
+  useWebSwapHold(
+    text !== (location ?? "") ? "newtab.draft" : attachments.length || reading.length ? "newtab.attachments" : null,
+  );
   // The page a file drag covers with the drop overlay (composer/DropOverlay.tsx); a drop lands in the field.
   const [dropHost, setDropHost] = useState<Element | null>(null);
   useLayoutEffect(() => {
@@ -375,6 +398,10 @@ export function NewTabScreen(props: Props) {
   // A saved environment the picker picked names where the chat starts (askInEnvironment).
   const saved = useSavedEnvironments(props.environments ? props.savedEnvironments : undefined);
   const environment = saved.picked;
+  // WEB-SWAP: a reload also loses a pick the page keeps only in its state: shell mode, a folder or
+  // no folder, a saved environment, one being edited (pages/shared/webSwap.ts).
+  const editingEnvironment = saved.on && saved.editing !== undefined;
+  useWebSwapHold(shell || picked || none || environment || editingEnvironment ? "newtab.choice" : null);
   // A real pick names its folder; else the folder the chat really starts in (screenActions onAsk).
   const chatFolder = environment
     ? environment.kind === "local"
@@ -409,9 +436,10 @@ export function NewTabScreen(props: Props) {
   };
   // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
   const remembered = useLastPick(chatFolder);
+  const harnessesListed = useHarnessesListed();
   const { harness, snapshot: chipSnapshot } = useMemo(
-    () => newTabStart(snapshot, agents, lastAgent, chatFolder, remembered),
-    [snapshot, agents, lastAgent, chatFolder, remembered],
+    () => newTabStart(snapshot, agents, lastAgent, chatFolder, remembered, harnessesListed),
+    [snapshot, agents, lastAgent, chatFolder, remembered, harnessesListed],
   );
   const chipModel = useNewTabChipModel(chipSnapshot);
   // The Ask row names the agent Return asks and the model on its chip.
@@ -458,13 +486,22 @@ export function NewTabScreen(props: Props) {
   const suggested = useMemo(
     () =>
       touched && !shell && commandQuery === undefined
-        ? screenRows(text, { omnibar, home, create: creates, ...(ask ? { ask } : {}) })
+        ? screenRows(text, {
+            omnibar,
+            home,
+            create: creates,
+            ...(ask ? { ask } : {}),
+            createNames: { terminal: nt("create.terminal"), browser: nt("create.browser"), chat: nt("create.chat") },
+            ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
+          })
         : [],
-    [touched, shell, text, omnibar, home, ask, creates, commandQuery],
+    [touched, shell, text, omnibar, home, ask, creates, commandQuery, props.suggestionOrder, nt],
   );
   const rows = text !== dismissed ? suggested : [];
   // New tabs or pages from the host can shorten the rows under a highlight.
-  const current = selected === undefined ? defaultSelection(rows) : rows.findIndex((row) => rowKey(row) === selected);
+  // A highlighted row that went away (its tab closed) hands Return back to the top row.
+  const kept = selected === undefined ? -1 : rows.findIndex((row) => rowKey(row) === selected);
+  const current = selected === undefined || (kept < 0 && selected !== NO_ROW) ? defaultSelection(rows) : kept;
   const pick = (index: number) => {
     const row = rows[index];
     setSelected(row ? rowKey(row) : NO_ROW);
@@ -473,7 +510,7 @@ export function NewTabScreen(props: Props) {
   const chrome = useComposerChrome();
   // The chat composer's footer look (composerSettings.ts plainFooter): the New Tab row draws the
   // same plain chips, so the two composers never disagree (composerLocation.css).
-  const { plainFooter } = useComposerSettings();
+  const { plainFooter, spellChecking } = useComposerSettings();
   // The quiet row's labels step down with the composer's width, as the chat's (composerRowFit.ts).
   const foot = useRef<HTMLDivElement>(null);
   // Claude Code's split (Leo 2026-10-19, "the claude code style composer on the first dot ... the
@@ -701,6 +738,9 @@ export function NewTabScreen(props: Props) {
     setSelected(undefined);
   };
   const submit = () => {
+    // A pairing link (its room secret) is never searched, asked or opened: the host refuses it
+    // with the address bar's word, and the page keeps the text.
+    if (!shell && pairingLinkRefused(text)) return props.onOpen(text.trim());
     // A screenshot pasted a moment ago is still being read: Return goes once its chip is ready.
     if (holdForAttachments(() => submitNow.current())) return;
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com).
@@ -733,7 +773,12 @@ export function NewTabScreen(props: Props) {
     if (created.current) return;
     created.current = true;
     const prompt = shell ? "" : text.trim();
-    askChat(harness, prompt && !isAddress(prompt, home) ? prompt : "", project, chipModel);
+    askChat(
+      harness,
+      prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "",
+      project,
+      chipModel,
+    );
   };
   const send = () => {
     touch();
@@ -804,6 +849,8 @@ export function NewTabScreen(props: Props) {
   const focusFromRow = (event: React.MouseEvent<HTMLElement>) => {
     const input = field.current;
     if (!input || event.button !== 0 || event.target === input) return;
+    // The mic and Send at the row's end (Claude Code's split) keep their own press.
+    if (event.target instanceof Element && event.target.closest(".acpmux-chrome-area, .acpmux-newtab-plus")) return;
     // Keep the press from moving focus to the row; a field that had no focus gets the caret at
     // the end of its text, a focused one keeps its caret and selection.
     event.preventDefault();
@@ -970,12 +1017,45 @@ export function NewTabScreen(props: Props) {
       }
     : undefined;
   const Chips = props.chips;
-  // Codex's speed option, which the chips hand up: the bolt left of the mic (FastToggle.tsx), as
-  // the chat composer draws it. Claude Code's Fast mode stays a row of the model button's menu.
-  const [speed, setSpeed] = useState<SpeedTiers | undefined>(undefined);
+  const chooser = useRef<HTMLInputElement>(null);
   /// The Cards template (u2851): the field is a pill of its own and the chips sit under it. The
   /// split draws the chat composer's box instead.
   const pill = template === "cards" && !chatBox;
+
+  const attachmentPicker = (
+    <>
+      <input
+        ref={chooser}
+        className="acpmux-attach-input"
+        type="file"
+        multiple
+        hidden
+        aria-label={t("composer.attach")}
+        onChange={(event) => {
+          const files = [...(event.currentTarget.files ?? [])];
+          // Clear the chooser so picking the same file again still fires change.
+          event.currentTarget.value = "";
+          void attach(files, true);
+        }}
+      />
+      <Picker
+        label={t("composer.add")}
+        tooltip={t("composer.addTooltip")}
+        className={`acpmux-composer-plus acpmux-newtab-plus${split ? " nt-split-plus" : ""}`}
+        button={<PlusIcon />}
+        align="start"
+        returnFocus={false}
+        sections={[
+          {
+            choices: [{ id: "attach", name: t("composer.attach"), icon: <PaperclipIcon /> }],
+            onPick: (id) => {
+              if (id === "attach") chooser.current?.click();
+            },
+          },
+        ]}
+      />
+    </>
+  );
   // Where the chat starts: the folder Enter asks in (askFolder), picked as in the agent composer's
   // location strip; never the home ~ the tab inherited (cx-7fje0).
   const folderStrip = (
@@ -1053,25 +1133,25 @@ export function NewTabScreen(props: Props) {
   const pickers = (
     <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
       <div className="nt-pickers" data-footer-look={plainFooter ? "plain" : undefined} onPointerDownCapture={touch}>
+        {!split && attachmentPicker}
         {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
         switch is the one Enter reuses. */}
-        {!split && Chips && (
-          <SpeedToggleHost.Provider value={setSpeed}>
-            <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />
-          </SpeedToggleHost.Provider>
-        )}
+        {!split && Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
         <span className="acpmux-composer-actions">
-          {speed && <FastToggle speed={speed} />}
           {props.accessory}
           {/* Send: a click does what Return does (a prompt, a row, or a shell command). Cards draws
               none, as Aside's New Tab: Return sends. */}
           {!pill && (
             <button
               type="button"
-              className={text.trim() ? "acpmux-send acpmux-send-ready nt-send" : "acpmux-send nt-send"}
+              className={
+                text.trim() || attachments.length || reading.length
+                  ? "acpmux-send acpmux-send-ready nt-send"
+                  : "acpmux-send nt-send"
+              }
               aria-label={t("composer.send")}
               title={t("composer.sendTooltip")}
-              disabled={!text.trim()}
+              disabled={!text.trim() && attachments.length === 0 && reading.length === 0}
               onClick={send}
             >
               <ArrowUpIcon />
@@ -1133,8 +1213,10 @@ export function NewTabScreen(props: Props) {
     </>
   );
   // The composer: in the stage layout at the foot of the page, else at its top.
+  // A model pick puts the keyboard back in the field (promptFocus.ts).
+  const focusField = () => field.current?.focus();
   const composerCard = (
-    <>
+    <PromptFocus value={focusField}>
       {/* One card, the agent composer's (Composer.tsx; Leo 2026-10-13): the field on top, then the
           bar with the agent's model chip, the mic and Send. The location strip with the project the
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
@@ -1143,7 +1225,7 @@ export function NewTabScreen(props: Props) {
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
         {/* Above the box: the project strip (Cards draws it under the field). */}
         {!pill && <div className="nt-above">{folderStrip}</div>}
-        <div ref={setBox} className="nt-box">
+        <div ref={setBox} className="ui-glass ui-glass-floats nt-box">
           {commandsOpen && (
             <SlashMenu
               matches={commandMatches}
@@ -1158,6 +1240,7 @@ export function NewTabScreen(props: Props) {
             Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. */}
           {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the input inside is the control and takes the keyboard itself. */}
           <div className="nt-input" onMouseDown={focusFromRow}>
+            {split && attachmentPicker}
             {shell ? (
               <span className="nt-shell-glyph" aria-hidden="true">
                 !
@@ -1175,6 +1258,7 @@ export function NewTabScreen(props: Props) {
             <textarea
               ref={field}
               className="nt-field"
+              {...{ [WEB_SWAP_KEPT_TEXT]: "" }}
               rows={1}
               data-focus-ring="none"
               aria-label={shell ? t("composer.shell") : placeholder}
@@ -1185,7 +1269,7 @@ export function NewTabScreen(props: Props) {
               aria-activedescendant={
                 commandsOpen ? `acpmux-slash-${commandIndex}` : rows[current] ? `nt-row-${current}` : undefined
               }
-              spellCheck={!shell}
+              spellCheck={spellChecking && !shell}
               autoCapitalize="off"
               autoCorrect="off"
               onChange={(event) => edit(event.target.value)}
@@ -1198,6 +1282,10 @@ export function NewTabScreen(props: Props) {
                 composing.current = false;
               }}
             />
+            {/* Claude Code's split: the mode, model and effort went to the quiet row under the box, so
+              the mic and Send end the field's row and the empty box is one line tall, as the chat
+              composer's (Leo 2026-10-22: "it's also 2 lines tall for some reason"). */}
+            {split && pickers}
           </div>
           {/* What was pasted on the field or dropped on the page, as a chat's composer shows it, under
             the field: the box's top is where the page anchors it, so the strip grows away from the
@@ -1214,17 +1302,21 @@ export function NewTabScreen(props: Props) {
               setAttachments((current) => current.filter((item) => item.id !== id));
               field.current?.focus();
             }}
+            onCancel={(id) => {
+              cancel(id);
+              field.current?.focus();
+            }}
+            onRetry={retry}
+            onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
           />
-          {!pill && pickers}
+          {!pill && !split && pickers}
         </div>
         {/* Claude Code's split, the chat composer's (ComposerFoot.tsx): the mode, model and effort in
             a quiet row under the box; the box keeps the prompt, the mic and Send. */}
         {split && Chips && (
           <div className="nt-foot" onPointerDownCapture={touch}>
             <ComposerFoot ref={foot}>
-              <SpeedToggleHost.Provider value={setSpeed}>
-                <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />
-              </SpeedToggleHost.Provider>
+              <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />
             </ComposerFoot>
           </div>
         )}
@@ -1237,7 +1329,7 @@ export function NewTabScreen(props: Props) {
           </div>
         )}
       </div>
-    </>
+    </PromptFocus>
   );
   // The ambient widgets (weather, machines): their own row under the field, so they never move it;
   // with the stage, whose composer sits at the foot, the row is in the stage, after the widgets. The
@@ -1251,6 +1343,7 @@ export function NewTabScreen(props: Props) {
       now={at}
     />
   );
+  const extras = <NewTabExtras widgets={widgets} now={at} />;
   // The stage's widgets, in the user's order (`tabs.newTabWidgets.order`): Projects and Quick
   // Actions are cards (cards next to each other share a column), Recent Chats is the player and the
   // lists, as before the order; with Recent Chats off the player and the other lists come last.
@@ -1354,6 +1447,7 @@ export function NewTabScreen(props: Props) {
               {!order.includes("chats") && playerAndLists}
             </div>
             {composerCard}
+            {extras}
             {props.notice}
             {environmentPanel}
           </>
@@ -1370,6 +1464,7 @@ export function NewTabScreen(props: Props) {
               headline
             )}
             {composerCard}
+            {extras}
             {ambient}
             {props.notice}
             {environmentPanel}
@@ -1434,39 +1529,73 @@ export function NewTabScreen(props: Props) {
           >
             {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
             <div ref={attachList} className="nt-rows" id="nt-rows" role="listbox" aria-label={nt("suggestions")}>
-              {rows.map((row, index) => (
-                <div
-                  key={rowKey(row)}
-                  id={`nt-row-${index}`}
-                  ref={index === current ? keepInView : undefined}
-                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                  role="option"
-                  tabIndex={-1}
-                  aria-selected={index === current}
-                  data-type={row.type}
-                  className={index === current ? "nt-row is-selected" : "nt-row"}
-                  onMouseMove={() => {
-                    if (index === current) return;
-                    pick(index);
-                  }}
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    activate(row);
-                  }}
-                >
-                  {rowFavicon(row) ? (
-                    <img className="nt-row-glyph nt-row-favicon" src={rowFavicon(row)} alt="" draggable={false} />
-                  ) : (
-                    <RowGlyph kind={rowGlyph(row)} />
+              {rows.map((row, index) =>
+                inStrip(row) ? null : (
+                  <div
+                    key={rowKey(row)}
+                    id={`nt-row-${index}`}
+                    ref={index === current ? keepInView : undefined}
+                    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                    role="option"
+                    tabIndex={-1}
+                    aria-selected={index === current}
+                    data-type={row.type}
+                    className={index === current ? "nt-row is-selected" : "nt-row"}
+                    onMouseMove={() => {
+                      if (index === current) return;
+                      pick(index);
+                    }}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      activate(row);
+                    }}
+                  >
+                    {rowFavicon(row) ? (
+                      <img className="nt-row-glyph nt-row-favicon" src={rowFavicon(row)} alt="" draggable={false} />
+                    ) : (
+                      <RowGlyph kind={rowGlyph(row)} />
+                    )}
+                    <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
+                    {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
+                    <span className="nt-row-action" data-popup-skip>
+                      {rowAction(t, nt, row)}
+                      {index === current && <kbd>↵</kbd>}
+                    </span>
+                  </div>
+                ),
+              )}
+              {rows.some(inStrip) && (
+                // The create actions the rows don't list (screenModel.ts): options still, so the arrow
+                // keys and the native popup reach them, drawn as one quiet line.
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                <div className="nt-create-strip" role="group" aria-label={nt("create.label")}>
+                  {rows.map((row, index) =>
+                    inStrip(row) ? (
+                      <div
+                        key={rowKey(row)}
+                        id={`nt-row-${index}`}
+                        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                        role="option"
+                        tabIndex={-1}
+                        aria-selected={index === current}
+                        data-type={row.type}
+                        className={index === current ? "nt-create-strip-item is-selected" : "nt-create-strip-item"}
+                        onMouseMove={() => {
+                          if (index === current) return;
+                          pick(index);
+                        }}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          activate(row);
+                        }}
+                      >
+                        <RowGlyph kind={rowGlyph(row)} />
+                        <span className="nt-row-title">{rowTitle(nt, row)}</span>
+                      </div>
+                    ) : null,
                   )}
-                  <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
-                  {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
-                  <span className="nt-row-action" data-popup-skip>
-                    {rowAction(t, nt, row)}
-                    {index === current && <kbd>↵</kbd>}
-                  </span>
                 </div>
-              ))}
+              )}
             </div>
           </Popover>
         )}

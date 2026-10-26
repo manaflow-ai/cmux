@@ -6,7 +6,8 @@ public import CmuxNextDesignTokens
 /// red, green, yellow, blue, magenta and cyan, then its foreground, read
 /// from the Ghostty theme file. `ThemeCatalog` reads every theme file once,
 /// off the main thread, and keeps the strips.
-package nonisolated enum ThemeSwatch {
+package nonisolated struct ThemeSwatch {
+    package nonisolated init() {}
     /// The ANSI entries a strip shows, in order.
     package static let paletteIndices = [1, 2, 3, 4, 5, 6]
 

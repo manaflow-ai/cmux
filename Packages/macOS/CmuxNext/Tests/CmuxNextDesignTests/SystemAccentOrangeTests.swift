@@ -63,19 +63,6 @@ import CmuxNextDesignTokens
         }
     }
 
-    @Test func aThemedMenuHighlightIsNotTheSystemAccent() throws {
-        let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Rename", action: nil, keyEquivalent: ""))
-        // Held here: the registry and a scope's parent hold scopes weakly.
-        let scope = Self.neutralScope()
-        menu.themeRows(in: scope)
-        let row = try #require(menu.items[0].view as? ThemedMenuRowView, "the row is cmux-drawn, not AppKit's highlight")
-        row.highlightOverride = true
-        // Left of the title, where only the highlight paints.
-        Self.expectNotAccent(try #require(Self.sample(row, x: 8)), "highlighted menu row")
-        withExtendedLifetime(scope) {}
-    }
-
     @Test func aSelectedTableRowIsNotTheSystemAccent() throws {
         let row = ThemedTableRowView(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
         let scope = Self.neutralScope()

@@ -510,6 +510,11 @@ impl RemoteSession {
                     subtitle: value.get("subtitle").and_then(Value::as_str).map(str::to_string),
                     body: value.get("body").and_then(Value::as_str).unwrap_or_default().to_string(),
                     preview: value.get("preview").and_then(Value::as_str).map(str::to_string),
+                    question: value
+                        .get("question")
+                        .filter(|question| question.is_object())
+                        .cloned()
+                        .map(Arc::new),
                     level,
                     surface: surface_id(),
                     workspace_id: value
