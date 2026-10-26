@@ -31,17 +31,35 @@ import CmuxNextDesignTokens
         }
     }
 
-    /// Inside a backdrop glass update, the glass's material read answers active whatever the key
-    /// state; its other read (the traffic lights follow it) and every read outside get AppKit's.
+    /// The glass's environment reads the window's active appearance twice in one function, the
+    /// material first: only the lowest site of that one function is forced, whatever order the
+    /// reads are seen in, and a read from any other function never is.
     @Test func onlyTheGlassMaterialReadIsForcedActive() {
-        var site: UInt?
-        #expect(!ActiveLookScope.forcesActive(depth: 0, site: 10, materialSite: &site), "outside a glass update")
-        #expect(site == nil)
-        #expect(ActiveLookScope.forcesActive(depth: 1, site: 10, materialSite: &site), "the first read in the scope: the material")
-        #expect(site == 10)
-        #expect(!ActiveLookScope.forcesActive(depth: 1, site: 20, materialSite: &site), "the second read keeps AppKit's answer")
-        #expect(ActiveLookScope.forcesActive(depth: 2, site: 10, materialSite: &site))
-        #expect(!ActiveLookScope.forcesActive(depth: 0, site: 10, materialSite: &site))
+        var learned: (function: UInt, site: UInt)?
+        #expect(ActiveLookScope.isMaterialRead(site: 1860, function: 1000, learned: &learned),
+                "the first read seen is taken as the material until a lower one shows up")
+        #expect(ActiveLookScope.isMaterialRead(site: 1584, function: 1000, learned: &learned))
+        #expect(!ActiveLookScope.isMaterialRead(site: 1860, function: 1000, learned: &learned), "the traffic-light read keeps AppKit's answer")
+        #expect(ActiveLookScope.isMaterialRead(site: 1584, function: 1000, learned: &learned))
+        #expect(!ActiveLookScope.isMaterialRead(site: 10, function: 2000, learned: &learned), "another function's read")
+        #expect(learned?.function == 1000 && learned?.site == 1584)
+    }
+
+    /// Only the window whose backdrop glass is updating is in scope, the innermost when updates
+    /// nest; an unrelated window never is, and nothing is after the update.
+    @Test func theScopeNamesOnlyTheUpdatingWindow() {
+        let first = NSWindow(contentRect: .init(x: 0, y: 0, width: 10, height: 10), styleMask: [], backing: .buffered, defer: true)
+        let second = NSWindow(contentRect: .init(x: 0, y: 0, width: 10, height: 10), styleMask: [], backing: .buffered, defer: true)
+        first.isReleasedWhenClosed = false
+        second.isReleasedWhenClosed = false
+        #expect(ActiveLookScope.scopedWindow == nil)
+        ActiveLookScope.during(first) {
+            #expect(ActiveLookScope.scopedWindow == ObjectIdentifier(first))
+            ActiveLookScope.during(second) { #expect(ActiveLookScope.scopedWindow == ObjectIdentifier(second)) }
+            #expect(ActiveLookScope.scopedWindow == ObjectIdentifier(first))
+            ActiveLookScope.during(nil) { #expect(ActiveLookScope.scopedWindow == ObjectIdentifier(first)) }
+        }
+        #expect(ActiveLookScope.scopedWindow == nil)
     }
 
     /// The window backdrop's glass keeps its active look; other glass panels follow the key state

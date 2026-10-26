@@ -177,9 +177,9 @@ public final class GlassPanelView: NSView {
 /// `NSGlassEffectView` has no public `state` like `NSVisualEffectView.state = .active`. It draws
 /// from a private SwiftUI graph whose environment it builds from its window, and the inactive grey
 /// frost follows the window's `_hasActiveAppearanceIgnoringKeyFocus` read there. While this view
-/// updates its subtree (``ActiveLookScope``), that one read answers true, so the glass keeps the
-/// key look; every other read, including the glass's second read that the titlebar's traffic
-/// lights follow, gets AppKit's answer. Measured on macOS 27.0.1, a glass window tinted
+/// updates its own subtree, ``ActiveLookScope`` answers that one read true for this view's window;
+/// every other read (the graph's second one, which the traffic lights follow, and any read
+/// outside the glass) gets AppKit's answer. Measured on macOS 27.0.1, a glass window tinted
 /// 0.85/0.45/0.2 at 0.55: key 0.689/0.504/0.378; another app active, plain glass 0.541 grey and
 /// this view 0.689/0.504/0.378, with grey traffic lights as before. If AppKit stops reading it
 /// there, nothing is forced and the glass follows the key state again.
@@ -193,11 +193,11 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override func layout() { ActiveLookScope.during { super.layout() } }
-    override func updateConstraints() { ActiveLookScope.during { super.updateConstraints() } }
-    override func viewWillDraw() { ActiveLookScope.during { super.viewWillDraw() } }
-    override func viewDidMoveToWindow() { ActiveLookScope.during { super.viewDidMoveToWindow() } }
-    override func viewDidChangeEffectiveAppearance() { ActiveLookScope.during { super.viewDidChangeEffectiveAppearance() } }
+    override func layout() { ActiveLookScope.during(window) { super.layout() } }
+    override func updateConstraints() { ActiveLookScope.during(window) { super.updateConstraints() } }
+    override func viewWillDraw() { ActiveLookScope.during(window) { super.viewWillDraw() } }
+    override func viewDidMoveToWindow() { ActiveLookScope.during(window) { super.viewDidMoveToWindow() } }
+    override func viewDidChangeEffectiveAppearance() { ActiveLookScope.during(window) { super.viewDidChangeEffectiveAppearance() } }
 
     // AppKit lays out and updates constraints for the subtree (the glass's own hosting view, where
     // the read happens) through these, not through the public methods above.
@@ -206,7 +206,7 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
         typealias Method = @convention(c) (NSView, Selector, NSSize) -> Void
         let selector = NSSelectorFromString("_layoutSubtreeWithOldSize:")
         guard let implementation = Self.superImplementation(selector) else { return }
-        ActiveLookScope.during { unsafeBitCast(implementation, to: Method.self)(self, selector, oldSize) }
+        ActiveLookScope.during(window) { unsafeBitCast(implementation, to: Method.self)(self, selector, oldSize) }
     }
 
     @objc(_updateConstraintsForSubtreeIfNeededCollectingViewsWithInvalidBaselines:)
@@ -214,7 +214,7 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
         typealias Method = @convention(c) (NSView, Selector, UnsafeMutableRawPointer?) -> Void
         let selector = NSSelectorFromString("_updateConstraintsForSubtreeIfNeededCollectingViewsWithInvalidBaselines:")
         guard let implementation = Self.superImplementation(selector) else { return }
-        ActiveLookScope.during { unsafeBitCast(implementation, to: Method.self)(self, selector, views) }
+        ActiveLookScope.during(window) { unsafeBitCast(implementation, to: Method.self)(self, selector, views) }
     }
 
     @objc(_windowChangedKeyState)
@@ -222,7 +222,7 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
         typealias Method = @convention(c) (NSView, Selector) -> Void
         let selector = NSSelectorFromString("_windowChangedKeyState")
         guard let implementation = Self.superImplementation(selector) else { return }
-        ActiveLookScope.during { unsafeBitCast(implementation, to: Method.self)(self, selector) }
+        ActiveLookScope.during(window) { unsafeBitCast(implementation, to: Method.self)(self, selector) }
     }
 
     /// The glass's own implementation (NSView's when it has none), or nil when AppKit has none.
@@ -232,62 +232,121 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
 }
 
 /// Which reads of `NSWindow._hasActiveAppearanceIgnoringKeyFocus` answer true: only the glass's
-/// material read, and only while an ``ActiveLookGlassEffectView`` updates its subtree.
+/// material read, for the window whose ``ActiveLookGlassEffectView`` is updating its subtree.
 ///
-/// The glass's environment reads the window's active appearance twice in one pass: first for its
-/// material (the frost), then for a state the titlebar's traffic lights follow. Forcing both kept
-/// the traffic lights colored in an inactive window, so only the first call site seen inside the
-/// scope (the material read; the code runs it before the other) is forced, and every read outside
-/// the scope costs one integer check. Main thread only: AppKit lays out and draws there.
+/// A read is forced only when all of these hold: it is on the main thread; AppKit's own answer is
+/// false (a key window costs nothing more); the receiver is the window of the innermost glass
+/// update under way; the reader is AppKit code that a SwiftUI graph update called (the glass's
+/// environment, not titlebar or other chrome, which AppKit calls from Objective-C methods); and
+/// the read is the first of that graph's reads in code order. The graph reads the value twice, the
+/// material first and then a state the traffic lights follow; forcing both colored the close
+/// button of an inactive window, so the second read keeps AppKit's answer.
+@MainActor
 enum ActiveLookScope {
-    /// How deep the updates of ``ActiveLookGlassEffectView``s nest now.
-    nonisolated(unsafe) private static var depth = 0
-    /// The return address of the glass's material read, learned from the first read in the scope.
-    nonisolated(unsafe) private static var materialSite: UInt?
-    nonisolated(unsafe) private static var installed = false
+    /// The windows of the glass updates under way, innermost last.
+    private static var windows: [ObjectIdentifier] = []
+    /// Per reader return address: whether it is a SwiftUI graph's read in AppKit.
+    private static var graphReaders: [UInt: Bool] = [:]
+    /// The glass material's read: the lowest graph reader address seen in its function.
+    private static var materialSite: (function: UInt, site: UInt)?
+    private static var installed = false
 
-    static func during(_ body: () -> Void) {
-        depth += 1
-        defer { depth -= 1 }
+    /// Runs `body`, a glass update for `window`, with that window's material read forced active.
+    static func during(_ window: NSWindow?, _ body: () -> Void) {
+        guard let window else { return body() }
+        windows.append(ObjectIdentifier(window))
+        defer { windows.removeLast() }
         body()
     }
 
-    /// Whether the read from `site` answers true (`depth` updates under way, `materialSite` the
-    /// site learned so far, set by the first read inside the scope).
-    static func forcesActive(depth: Int, site: UInt, materialSite: inout UInt?) -> Bool {
-        guard depth > 0 else { return false }
-        guard let known = materialSite else {
-            materialSite = site
-            return true
-        }
-        return site == known
+    /// Learns the material site from graph read `site` in `function` and says whether to force it.
+    /// The reads of one function are ordered by address, and the material read is its first, so a
+    /// lower address seen later replaces a higher one; a read of another function is never forced.
+    static func isMaterialRead(site: UInt, function: UInt, learned: inout (function: UInt, site: UInt)?) -> Bool {
+        if let known = learned, known.function != function { return false }
+        let material = min(learned?.site ?? site, site)
+        learned = (function, material)
+        return site == material
     }
 
-    /// Routes `NSWindow._hasActiveAppearanceIgnoringKeyFocus` through ``forcesActive``, once.
-    @MainActor static func install() {
+    /// Routes `NSWindow._hasActiveAppearanceIgnoringKeyFocus` through the scope, once.
+    static func install() {
         guard !installed else { return }
         installed = true
         let selector = NSSelectorFromString("_hasActiveAppearanceIgnoringKeyFocus")
         guard let method = class_getInstanceMethod(NSWindow.self, selector) else { return }
-        typealias Getter = @convention(c) (NSWindow, Selector) -> Bool
         let original = unsafeBitCast(method_getImplementation(method), to: Getter.self)
-        let replacement: @convention(block) (NSWindow) -> Bool = { window in
-            guard depth > 0, Thread.isMainThread, let site = reader() else { return original(window, selector) }
-            return forcesActive(depth: depth, site: site, materialSite: &materialSite) || original(window, selector)
-        }
-        method_setImplementation(method, imp_implementationWithBlock(replacement))
+        method_setImplementation(method, imp_implementationWithBlock(replacement(original, selector)))
     }
 
-    /// The return address in the code that called the getter: the first frame outside this binary
-    /// (the getter's block and its trampoline are in it).
-    private static func reader() -> UInt? {
-        var own = Dl_info()
-        guard dladdr(#dsohandle, &own) != 0 else { return nil }
-        for frame in Thread.callStackReturnAddresses.prefix(8) {
-            var info = Dl_info()
-            guard dladdr(UnsafeRawPointer(bitPattern: frame.uintValue), &info) != 0 else { continue }
-            if info.dli_fbase != own.dli_fbase { return frame.uintValue }
+    typealias Getter = @convention(c) (NSWindow, Selector) -> Bool
+
+    /// The getter AppKit calls from any thread: off the main thread, or when AppKit already
+    /// answers true, it touches nothing here.
+    nonisolated private static func replacement(_ original: Getter, _ selector: Selector) -> @convention(block) (NSWindow) -> Bool {
+        { window in
+            let answer = original(window, selector)
+            guard !answer, pthread_main_np() != 0 else { return answer }
+            return MainActor.assumeIsolated { forces(window) }
         }
-        return nil
+    }
+
+    /// The window whose glass is updating now (tests read it).
+    static var scopedWindow: ObjectIdentifier? { windows.last }
+
+    private static func forces(_ window: NSWindow) -> Bool {
+        guard windows.last == ObjectIdentifier(window) else { return false }
+        // A bounded stack read: this block, then AppKit's reader, then its callers.
+        var frames = [UnsafeMutableRawPointer?](repeating: nil, count: 12)
+        let count = Int(frames.withUnsafeMutableBufferPointer { backtrace($0.baseAddress, 12) })
+        guard let reader = readerIndex(in: frames, count: count), let address = frames[reader].map({ UInt(bitPattern: $0) }) else {
+            return false
+        }
+        let isGraphRead: Bool
+        if let known = graphReaders[address] {
+            isGraphRead = known
+        } else {
+            isGraphRead = image(of: frames[reader]) == appKitImage && frames[(reader + 1)..<count].contains { isSwiftUI(image(of: $0)) }
+            graphReaders[address] = isGraphRead
+        }
+        guard isGraphRead, let function = functionStart(of: frames[reader]) else { return false }
+        return isMaterialRead(site: address, function: function, learned: &materialSite)
+    }
+
+    /// The first frame outside this binary: AppKit code that read the getter.
+    private static func readerIndex(in frames: [UnsafeMutableRawPointer?], count: Int) -> Int? {
+        let own = ownImage
+        return (0..<count).first { image(of: frames[$0]).map { $0 != own } ?? false }
+    }
+
+    private static let ownImage: UnsafeMutableRawPointer? = {
+        var info = Dl_info()
+        return dladdr(#dsohandle, &info) != 0 ? info.dli_fbase : nil
+    }()
+
+    private static let appKitImage: UnsafeMutableRawPointer? = {
+        var info = Dl_info()
+        let layout = class_getMethodImplementation(NSView.self, #selector(NSView.layout))
+        return dladdr(unsafeBitCast(layout, to: UnsafeRawPointer.self), &info) != 0 ? info.dli_fbase : nil
+    }()
+
+    private static var imageNames: [UnsafeMutableRawPointer: String] = [:]
+
+    private static func image(of frame: UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer? {
+        var info = Dl_info()
+        guard let frame, dladdr(frame, &info) != 0, let base = info.dli_fbase else { return nil }
+        if imageNames[base] == nil, let name = info.dli_fname { imageNames[base] = String(cString: name) }
+        return base
+    }
+
+    private static func isSwiftUI(_ base: UnsafeMutableRawPointer?) -> Bool {
+        guard let base, let name = imageNames[base] else { return false }
+        return name.hasSuffix("/SwiftUICore") || name.hasSuffix("/SwiftUI")
+    }
+
+    private static func functionStart(of frame: UnsafeMutableRawPointer?) -> UInt? {
+        var info = Dl_info()
+        guard let frame, dladdr(frame, &info) != 0, let start = info.dli_saddr else { return nil }
+        return UInt(bitPattern: start)
     }
 }
