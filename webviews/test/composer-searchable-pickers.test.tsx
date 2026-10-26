@@ -260,3 +260,38 @@ test("classic folder Tab completion remains a submitable absolute path", async (
   await key(field, "Enter");
   expect(calls).toEqual(["/work/atlas"]);
 });
+
+test("classic folders with duplicate names retain distinct accessible paths", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ComposerContext } = await import("../src/agent-session/acpmux/ComposerContext");
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <ComposerContext
+        sessions={[
+          { sessionId: "a", cwd: "/a/atlas", updatedAt: 0 },
+          { sessionId: "b", cwd: "/b/atlas", updatedAt: 0 },
+        ]}
+        onProject={() => {}}
+      />,
+    ),
+  );
+  await click(host.querySelector<HTMLButtonElement>('[aria-label="Folder"]')!);
+  const labels = [...document.querySelectorAll('[role="option"]')].map((row) => row.getAttribute("aria-label"));
+  expect(labels).toEqual(["atlas /a/atlas", "atlas /b/atlas"]);
+});
+
+test("an unmatched proposed project path is never checked as the private-folder choice", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ProjectChooser } = await import("../src/agent-session/acpmux/ProjectChooser");
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(<ProjectChooser projects={[]} noProject onNoProject={() => {}} icon={null} onPick={() => {}} />),
+  );
+  await click(host.querySelector<HTMLButtonElement>("button")!);
+  await type(document.querySelector<HTMLInputElement>('[role="combobox"]')!, "/tmp/new-project");
+  const proposed = document.querySelector('[role="option"]')!;
+  expect(proposed.textContent).toContain("/tmp/new-project");
+  expect(proposed.textContent).not.toContain("✓");
+  expect(proposed.getAttribute("aria-current")).toBeNull();
+});
