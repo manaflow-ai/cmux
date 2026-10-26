@@ -9,6 +9,7 @@ import CmuxNextErrorJournal
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
+import CmuxNextTrace
 import CmuxNextWakeups
 
 /// The App's control-socket wiring (architecture.md 5a): the main-thread
@@ -61,6 +62,9 @@ final class AppControl {
     /// Starts stall and busy detection. Call first thing at launch.
     func startWatchdog() {
         watchdog.start()
+        // Other threads' and lanes' hang-watch scopes (the process's slot table) are scanned on the
+        // watchdog's thread; each overrun goes to debug.hangs thread_hangs.
+        watchdog.attach(hangWatch: TraceRuntime.shared.hangWatch)
         // Stall records name the scheduled main-thread task they caught; a launch in the task
         // diagnostics mode also records tasks past their class budget, with a stack (debug.hangs
         // over_budget). It perturbs what it measures, so it is off unless asked for.

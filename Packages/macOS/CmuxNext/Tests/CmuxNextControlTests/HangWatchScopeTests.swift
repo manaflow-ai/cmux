@@ -1,163 +1,151 @@
 @testable import CmuxNextControl
 import CmuxNextCompat
 import CmuxNextSettings
+import CmuxNextTrace
 import Darwin
 import Foundation
 import Testing
 
-/// ``ThreadHangWatcher``: hang-watch scopes on per-thread atomic slots (p02-threads-016, Chrome's
-/// base/threading/hang_watcher.cc). The scopes run on named threads that spin, so the watcher
-/// samples a thread that is running its work, as a real hang does.
+/// Hang-watch scopes on other threads, scanned on the main-thread watchdog's thread (p02-threads-016,
+/// Chrome's base/threading/hang_watcher.cc): the watchdog thread runs as at launch with the main run loop
+/// asleep, and the scopes run on named threads that spin, so the monitor samples a thread that is running
+/// its work, as a real hang does.
 @Suite(.serialized, .timeLimit(.minutes(1))) struct HangWatchScopeTests {
     @Test func aScopePastItsDeadlineIsReportedOnceNamingTheThread() async throws {
-        let watcher = ThreadHangWatcher(log: HangLog(capacity: 16))
-        let reports = Reports()
-        watcher.start(onHang: { reports.add($0) })
-        defer { watcher.stop() }
+        let (watchdog, watch) = Self.running()
+        defer { watchdog.stop() }
         await onThread(named: "hang-watch-test") {
-            let token = watcher.enter("test.overrun", deadline: .milliseconds(100))
+            let thread = watch.registerThread(.io, name: "test.overrun")
+            let scope = watch.watch(thread, deadline: .milliseconds(100))
             let began = uptime()
-            // 150 ms of work, then on until the watcher sampled it (2 s at most): a hang lasts until it ends.
-            spin { uptime() - began >= 150_000_000 && (reports.count > 0 || uptime() - began >= 2_000_000_000) }
-            watcher.leave(token)
+            // 150 ms of work, then on until the monitor sampled it (2 s at most): a hang lasts until it ends.
+            spin { uptime() - began >= 150_000_000 && (watchdog.threadHangs.summary.count > 0 || uptime() - began >= 2_000_000_000) }
+            scope.close()
+            watch.unregister(thread)
         }
-        let all = reports.all
-        #expect(all.count == 1, "one report per scope, however long it overruns")
-        let report = try #require(all.first)
-        #expect(report.thread == "hang-watch-test")
-        #expect(report.scope == "test.overrun")
-        #expect(report.elapsed >= .milliseconds(100))
-        #expect(abs((report.timeout - .milliseconds(100)) / .milliseconds(1)) < 1, "\(report.timeout)")
-        #expect(!report.addresses.isEmpty, "the hung thread's stack")
-        let record = try #require(watcher.log.records().last)
+        let records = watchdog.threadHangs.records()
+        #expect(records.count == 1, "one report per scope, however long it overruns")
+        let record = try #require(records.first)
         #expect(record.kind == .hang)
         #expect(record.details["thread"] == JSONValue.string("hang-watch-test"))
         #expect(record.details["scope"] == JSONValue.string("test.overrun"))
-        #expect(watcher.log.summary.count == 0, "not a main-thread stall")
+        #expect(!record.addresses.isEmpty, "the hung thread's stack")
+        #expect(watchdog.log.records().isEmpty, "not a main-thread stall")
     }
 
     @Test func aScopeThatEndsBeforeItsDeadlineIsNotReported() async throws {
-        let watcher = ThreadHangWatcher(log: HangLog(capacity: 16))
-        let reports = Reports()
-        watcher.start(onHang: { reports.add($0) })
-        defer { watcher.stop() }
+        let (watchdog, watch) = Self.running()
+        defer { watchdog.stop() }
         await onThread(named: "hang-watch-short") {
-            let token = watcher.enter("test.short", deadline: .milliseconds(100))
+            let thread = watch.registerThread(.io, name: "test.short")
+            let scope = watch.watch(thread, deadline: .milliseconds(100))
             let began = uptime()
             spin { uptime() - began >= 50_000_000 }
-            watcher.leave(token)
+            scope.close()
+            watch.unregister(thread)
         }
-        let value = watcher.watching("test.closure", deadline: .seconds(1)) { 42 }
-        #expect(value == 42)
-        // Past the scope's deadline: the time is the scenario under test, not a wait for a condition.
-        try await Task.sleep(for: .milliseconds(150))
-        #expect(reports.count == 0)
-        #expect(watcher.log.records().isEmpty)
+        // Past the scope's deadline and one scan period: the time is the scenario under test.
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(watchdog.threadHangs.records().isEmpty)
     }
 
-    /// Chrome keeps the inner scope's deadline until it ends, then the outer one applies again: an
-    /// outer scope already past its deadline is reported as soon as the inner one leaves.
-    @Test func leavingANestedScopeRestoresTheOuterDeadline() async throws {
-        let watcher = ThreadHangWatcher(log: HangLog(capacity: 16))
-        let reports = Reports()
-        watcher.start(onHang: { reports.add($0) })
-        defer { watcher.stop() }
-        let reportedDuringInner = Atomic<Int>(-1)
+    /// An outer scope reported, then an inner one: when the inner one closes, the outer one is not
+    /// reported a second time (its reported flag comes back with it).
+    @Test func aNestedScopeDoesNotReportItsOuterScopeAgain() async throws {
+        let (watchdog, watch) = Self.running()
+        defer { watchdog.stop() }
         await onThread(named: "hang-watch-nested") {
-            let outer = watcher.enter("test.outer", deadline: .milliseconds(100))
-            let inner = watcher.enter("test.inner", deadline: .seconds(10))
+            let thread = watch.registerThread(.io, name: "test.nested")
             let began = uptime()
-            spin { uptime() - began >= 150_000_000 }
-            reportedDuringInner.store(reports.count, ordering: .relaxed)
-            watcher.leave(inner)
-            spin { reports.count > 0 || uptime() - began >= 2_000_000_000 }
-            watcher.leave(outer)
+            let outer = watch.watch(thread, deadline: .milliseconds(100))
+            spin { watchdog.threadHangs.summary.count >= 1 || uptime() - began >= 2_000_000_000 }
+            let inner = watch.watch(thread, deadline: .milliseconds(100))
+            spin { watchdog.threadHangs.summary.count >= 2 || uptime() - began >= 4_000_000_000 }
+            inner.close()
+            let closed = uptime()
+            spin { uptime() - closed >= 300_000_000 }
+            outer.close()
+            watch.unregister(thread)
         }
-        #expect(reportedDuringInner.load(ordering: .relaxed) == 0, "the inner deadline is 10 s away")
-        #expect(reports.all.map(\.scope) == ["test.outer"])
-    }
-
-    @Test func aThreadPastTheSlotTableIsCountedAndNotWatched() async throws {
-        let watcher = ThreadHangWatcher(log: HangLog(capacity: 16), capacity: 1)
-        let second = Mutex<HangWatchToken?>(nil)
-        let first = Mutex<HangWatchToken?>(nil)
-        await onThread(named: "hang-watch-first") {
-            let token = watcher.enter("test.first", deadline: .seconds(1))
-            first.withLock { $0 = token }
-            let done = Atomic<Bool>(false)
-            // The first thread keeps its slot while the second asks for one.
-            Thread {
-                second.withLock { $0 = watcher.enter("test.second", deadline: .seconds(1)) }
-                done.store(true, ordering: .releasing)
-            }.start()
-            spin { done.load(ordering: .acquiring) }
-            watcher.leave(token)
-        }
-        #expect(first.withLock { $0?.slot } != 0)
-        #expect(second.withLock { $0 } == HangWatchToken.unwatched)
-        #expect(watcher.slotOverflows == 1)
+        #expect(watchdog.threadHangs.summary.count == 2)
     }
 
     #if DEBUG
-    /// An idle process has no watcher wakeup: with no scope the thread parks with no timer.
-    @Test func anIdleWatcherNeverWakes() async throws {
-        let watcher = ThreadHangWatcher(log: HangLog(capacity: 16))
-        watcher.start()
-        defer { watcher.stop() }
+    /// An idle process has no hang-watch wakeup: with no scope the watchdog thread waits with no limit.
+    @Test func anIdleMonitorNeverWakesTheWatchdogThread() async throws {
+        let (watchdog, _) = Self.running()
+        defer { watchdog.stop() }
+        try await Task.sleep(for: .milliseconds(200)) // the attach's own wake
+        let before = watchdog.watchdogWakes.load(ordering: .relaxed)
         // Five idle seconds are the scenario under test.
         try await Task.sleep(for: .seconds(5))
-        #expect(watcher.watcherWakes.load(ordering: .relaxed) == 0)
-        #expect(watcher.isParked)
+        #expect(watchdog.watchdogWakes.load(ordering: .relaxed) == before)
     }
 
-    /// After the last scope the watcher lingers one period, then parks again with no timer.
-    @Test func theWatcherParksAgainAfterTheLastScope() async throws {
-        let watcher = ThreadHangWatcher(log: HangLog(capacity: 16))
-        watcher.start()
-        defer { watcher.stop() }
-        await onThread(named: "hang-watch-once") {
-            watcher.leave(watcher.enter("test.once", deadline: .milliseconds(100)))
+    /// One 5 s scope open for 2 s: the open wakes the watchdog thread once, and nothing wakes it again
+    /// before the deadline (no periodic scan while nothing changes).
+    @Test func aLongScopeCostsOneWake() async throws {
+        let (watchdog, watch) = Self.running()
+        defer { watchdog.stop() }
+        let lane = watch.registerLane("test.job")
+        try await Task.sleep(for: .milliseconds(200))
+        let before = watchdog.watchdogWakes.load(ordering: .relaxed)
+        let scope = watch.watch(lane, deadline: .seconds(5))
+        // Two seconds of the job are the scenario under test.
+        try await Task.sleep(for: .seconds(2))
+        scope.close()
+        let wakes = watchdog.watchdogWakes.load(ordering: .relaxed) - before
+        #expect(wakes <= 2, "\(wakes) watchdog wakes for one 5 s scope open 2 s")
+        #expect(watch.wakeRequests == 1)
+    }
+
+    /// A thread that opens short scopes back to back (16 ms deadlines, 0.2 ms of work each) for a second:
+    /// the monitor scans about once per minimum deadline (100 ms), never once per scope.
+    @Test func shortScopesBackToBackDoNotWakeTheWatchdogPerScope() async throws {
+        let (watchdog, watch) = Self.running()
+        defer { watchdog.stop() }
+        try await Task.sleep(for: .milliseconds(200))
+        let before = watchdog.watchdogWakes.load(ordering: .relaxed)
+        let opened = Atomic<Int>(0)
+        await onThread(named: "hang-watch-feed") {
+            let lane = watch.registerLane("test.feed")
+            let began = uptime()
+            while uptime() - began < 1_000_000_000 {
+                let scope = watch.watch(lane, deadline: .milliseconds(16))
+                let start = uptime()
+                spin { uptime() - start >= 200_000 }
+                scope.close()
+                opened.add(1, ordering: .relaxed)
+            }
+            watch.unregister(lane)
         }
-        // Past the linger period, then one idle second: the times are the scenario.
-        try await Task.sleep(for: .milliseconds(500))
-        let settled = watcher.watcherWakes.load(ordering: .relaxed)
-        try await Task.sleep(for: .seconds(1))
-        #expect(settled <= 3, "\(settled) wakes for one scope")
-        #expect(watcher.watcherWakes.load(ordering: .relaxed) == settled)
-        #expect(watcher.isParked)
-        #expect(watcher.wakeRequests == 1, "only the first scope after the park wakes the watcher")
+        let wakes = watchdog.watchdogWakes.load(ordering: .relaxed) - before
+        #expect(opened.load(ordering: .relaxed) > 1_000)
+        #expect(wakes <= 30, "\(wakes) watchdog wakes for \(opened.load(ordering: .relaxed)) scopes in 1 s")
     }
     #endif
 
-    /// Enter plus leave is a clock read and atomic stores: under 50 ns at p99 (per pair, over
-    /// batches of 256), and the scopes signal the watcher at most twice in the whole
-    /// run. Optimized builds only, as the trace ring's cost tests; elsewhere it shows as skipped.
-    @Test(.enabled(if: !_isDebugAssertConfiguration(), "needs an optimized build (-c release)"))
-    func enterAndLeaveCostUnderFiftyNanoseconds() async throws {
-        let watcher = ThreadHangWatcher(log: HangLog(capacity: 16))
-        watcher.start()
-        defer { watcher.stop() }
-        let p99 = Mutex<Double>(0)
-        await onThread(named: "hang-watch-cost") {
-            let batches = 2_000
-            let pairs = 256
-            watcher.leave(watcher.enter("test.cost", deadline: .milliseconds(100))) // claims the slot
-            var perPair: [Double] = []
-            perPair.reserveCapacity(batches)
-            for _ in 0..<batches {
-                let start = uptime()
-                for _ in 0..<pairs {
-                    watcher.leave(watcher.enter("test.cost", deadline: .milliseconds(100)))
-                }
-                perPair.append(Double(uptime() - start) / Double(pairs))
-            }
-            perPair.sort()
-            p99.withLock { $0 = perPair[batches * 99 / 100] }
-        }
-        let cost = p99.withLock { $0 }
-        print("hang watch enter+leave p99: \(cost) ns")
-        #expect(cost < 50, "\(cost) ns per enter+leave at p99")
-        #expect(watcher.wakeRequests <= 2, "\(watcher.wakeRequests) watcher wakes")
+    /// The watchdog runs once: a start after a stop starts no second thread.
+    @MainActor
+    @Test func aStoppedWatchdogDoesNotStartAgain() {
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), sampleStacks: false, logStalls: false))
+        watchdog.start()
+        #expect(watchdog.isRunning)
+        watchdog.stop()
+        watchdog.start()
+        #expect(!watchdog.isRunning)
+    }
+
+    /// A watchdog whose thread runs as at launch (main run loop asleep) and watches a fresh slot table.
+    private static func running() -> (MainThreadWatchdog, HangWatch) {
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), sampleStacks: false, logStalls: false))
+        let watch = HangWatch()
+        watchdog.attach(hangWatch: watch)
+        watchdog.running.store(true, ordering: .releasing)
+        let thread = Thread { watchdog.watch(sampler: nil) }
+        thread.name = "hang-watch-test-watchdog"
+        thread.start()
+        return (watchdog, watch)
     }
 }
 
@@ -179,18 +167,4 @@ private func onThread(named name: String, _ body: @escaping @Sendable () -> Void
         thread.qualityOfService = .userInitiated
         thread.start()
     }
-}
-
-/// The reports the watcher delivered, on its thread.
-private final class Reports: Sendable {
-    private let list = Mutex<[ThreadHangWatcher.Report]>([])
-    private let delivered = Atomic<Int>(0)
-
-    func add(_ report: ThreadHangWatcher.Report) {
-        list.withLock { $0.append(report) }
-        delivered.add(1, ordering: .releasing)
-    }
-
-    var count: Int { delivered.load(ordering: .acquiring) }
-    var all: [ThreadHangWatcher.Report] { list.withLock { $0 } }
 }
