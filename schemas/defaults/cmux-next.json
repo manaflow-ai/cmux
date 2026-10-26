@@ -361,6 +361,7 @@
     "setting.browser.hibernation": "moderate",
     "setting.browser.hibernationExclusions": [],
     "setting.browser.hostsToOpenInEmbeddedBrowser": [],
+    "setting.browser.import.enabled": true,
     "setting.browser.keepNeighborTabsAwake": 1,
     "setting.browser.links.cmdClick": "linkPlacement",
     "setting.browser.links.cmdShiftClick": "foregroundTab",

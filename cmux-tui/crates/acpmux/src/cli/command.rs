@@ -101,6 +101,8 @@ pub enum Command {
     /// Continue a session's work on another harness: prepare a reviewed
     /// first message for a new session there, then start or discard it.
     Continue(crate::cli::handoff::ContinueArgs),
+    /// Retry a session's failed last turn now, in the same session (a waiting retry fires).
+    Retry(crate::cli::retry::RetryArgs),
     /// One turn per turn: prompt preview, status, tools, tokens, wall time.
     History {
         session: String,
@@ -166,10 +168,12 @@ pub enum Command {
         /// Prompt text. Reads stdin when omitted or "-".
         prompt: Vec<String>,
         /// Send this message into the running turn when the agent supports steering. On by
-        /// default with --no-wait; a send that waits for the reply queues unless given this.
+        /// default for an agent's send (--from, or one in an acpmux session) and with
+        /// --no-wait; the person's send that waits for the reply queues unless given this. A
+        /// send that waits and steers prints the reply of the turn it went into.
         #[arg(long, conflicts_with = "no_steer")]
         steer: bool,
-        /// Queue behind the running turn even with --no-wait.
+        /// Queue behind the running turn, even an agent's send or one with --no-wait.
         #[arg(long)]
         no_steer: bool,
         /// Hand the message to this daemon and return at once, for a session here or on a
@@ -586,8 +590,7 @@ pub enum HarnessCmd {
     /// for Claude Code). `--status` checks it; `--list` shows the methods.
     Login {
         id: String,
-        /// The sign-in method id (default: the harness's first browser or
-        /// terminal sign-in).
+        /// The sign-in method id (default: the harness's first browser or terminal sign-in).
         #[arg(long)]
         method: Option<String>,
         /// Show the sign-in methods and whether the harness is signed in.
@@ -1020,8 +1023,7 @@ pub enum TicketCmd {
     /// Tickets and paired machines (no secrets).
     #[command(alias = "list")]
     Ls,
-    /// Revoke a ticket, or a paired machine by id or name; its open
-    /// connections close at once.
+    /// Revoke a ticket, or a paired machine by id or name; its open connections close at once.
     Revoke { id: String },
     /// Let a paired client machine run chats in Full access (on), or not
     /// (off, the default): the agent edits files and runs commands on this

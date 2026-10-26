@@ -23,8 +23,9 @@ Sessions you start are siblings, not children: they outlive you.
 
 Inside cmux your `cmux-subsessions` MCP server starts children instead:
 `start_session` (with `worktree: true` for a worktree of its own),
-`list_sessions`, `get_session`, `wait_for_sessions`, `send_message` and
-`stop_session`. Prefer them when you have them; this CLI is the fallback.
+`list_sessions`, `get_session`, `wait_for_sessions`, `send_message`,
+`stop_session` and `retry_session` (a child's failed turn, again now). Prefer
+them when you have them; this CLI is the fallback (`acpmux retry NAME`).
 At most `maxRunning` of your sub-sessions run at once (16 unless the user
 changed it); a start past it is queued and starts by itself when one finishes.
 `list_sessions` (under `self`) or `acpmux session limits @` shows your limits
@@ -113,10 +114,11 @@ acpmux run -m codex --cwd ~/proj --policy approve-edits --tag task=fix "fix the 
 acpmux --json run -m claude "…"                    # {"sessionId","name","reply","stopReason"}
 acpmux exec -m claude "…"                          # run, then delete the session
 acpmux ensure NAME -m codex --cwd DIR --tag task=review # get it, or create it with a label
-acpmux send NAME "next step"                       # stream the reply; -q for the final text only
+acpmux send NAME "next step"                       # stream the reply; -q for the final text only. From an agent it steers into a running turn and prints that turn's reply
 acpmux send NAME --no-wait "…"                     # a message: steers into the running turn when the harness steers (read at its next tool boundary; never stops it), else queues; returns at once
 acpmux send NAME --no-wait --no-steer "…"          # queue behind the running turn instead
-acpmux send NAME --steer "…"                       # steer a send that waits for its reply (it queues by default)
+acpmux send NAME --no-steer "…"                    # an agent's send that waits: queue behind the running turn instead
+acpmux send NAME --steer "…"                       # the person's send that waits: steer it (it queues by default)
 acpmux send NAME --no-wait --supersede KEY "…"     # replace your own prompt still queued under KEY (a correction is never read after the order it corrects); prints "replaced N queued", --json adds replaced and replacedPromptIds
 acpmux send PEER/NAME "see" --attach shot.png     # send files with it (repeatable; no scp): images reach the agent and transcript as images, other files as a link; saved 0600 on the session's host; 8 MiB a file, 10 MiB a message
 acpmux last NAME [-n 3]                            # last reply text
