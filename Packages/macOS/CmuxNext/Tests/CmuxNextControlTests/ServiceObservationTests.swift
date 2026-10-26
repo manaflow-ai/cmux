@@ -4,8 +4,9 @@ import Observation
 import Testing
 
 /// ServiceObservation (plans/cmux-next/chrome-parity/p06-scheduler.md, task 026): a non-view
-/// owner's observer. The first value applies at once; a burst of changes gives one apply in the
-/// observer's class on the next frame; Equatable values dedupe; releasing the token stops it.
+/// owner's observer. The first value applies at once; a burst of changes gives one apply, posted in
+/// the observer's class; a person's change applies in the input-response pass; Equatable values
+/// dedupe; releasing the token stops it.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct ServiceObservationTests {
     @MainActor @Observable final class Model {
         var count = 0
@@ -33,12 +34,13 @@ import Testing
         } apply: { applied.append($0) }
         for value in 1...5 { model.count = value }
         #expect(applied == [0], "nothing applies in the turn of the changes")
-        #expect(reads == 1)
+        #expect(reads == 6, "each change re-arms the tracking (one read), so a later person change raises the cause")
+        #expect(fixture.work.postedCount(.visible) == 1, "five changes, one posted flush")
         fixture.frame()
-        #expect(reads == 2, "five changes, one evaluation")
+        #expect(reads == 7, "five changes, one flush evaluation")
         #expect(applied == [0, 5], "five changes, one apply of the latest value")
         fixture.frame()
-        #expect(reads == 2, "no change, no work on the next frame")
+        #expect(reads == 7, "no change, no work on the next frame")
         model.count = 6
         fixture.frame()
         #expect(applied == [0, 5, 6], "the tracking re-arms after each flush")
@@ -48,16 +50,11 @@ import Testing
     @Test func anEqualValueDoesNotApplyAgain() {
         let fixture = Fixture()
         let model = Model()
-        var reads = 0
         var applied: [String] = []
-        let token = ServiceObservation(.automation, owner: "test.dedupe", on: fixture.work) {
-            reads += 1
-            return model.name
-        } apply: { applied.append($0) }
+        let token = ServiceObservation(.automation, owner: "test.dedupe", on: fixture.work) { model.name } apply: { applied.append($0) }
         model.name = "b"
         model.name = "a"
         fixture.frame()
-        #expect(reads == 2)
         #expect(applied == ["a"], "a change and its undo in one burst apply nothing")
         model.name = "c"
         fixture.frame()
@@ -88,11 +85,11 @@ import Testing
         weak var released = token
         model.count = 1
         token = nil
-        #expect(released == nil, "the frame client must not keep the observation alive")
+        #expect(released == nil, "the posted flush must not keep the observation alive")
         fixture.frame()
         model.count = 2
         fixture.frame()
-        #expect(reads == 1)
+        #expect(reads == 2, "the initial read and the change's re-arm read, nothing after the release")
         #expect(applies == 1, "only the initial apply ran")
     }
 
@@ -144,6 +141,15 @@ import Testing
         #expect(fixture.work.causes.releasedTrackingFires == 1, "the off-main release left the tracking armed")
         model.count = 1
         #expect(fixture.work.causes.releasedTrackingFires == 1)
+    }
+
+    @Test func cancelBeforeAnyChangePostsNothing() {
+        let fixture = Fixture()
+        let model = Model()
+        let token = ServiceObservation(.visible, owner: "test.cancelIdle", on: fixture.work) { model.count } apply: { _ in }
+        token.cancel()
+        model.count = 1
+        #expect(fixture.work.postedCount(.visible) == 0, "no change came before cancel: nothing was posted")
     }
 
     @Test func cancelDropsTheArmedTracking() {
@@ -200,6 +206,68 @@ import Testing
         withExtendedLifetime(token) {}
     }
 
+    /// p06 rule 2: the person's own change applies in the input's turn, before its commit, even
+    /// for an automation observer and while the person's next keys are pending.
+    @Test func aPersonChangeAppliesInTheInputResponsePassWhileInputIsPending() {
+        let fixture = Fixture()
+        let model = Model()
+        var applied: [Int] = []
+        var classes: [MainWorkClass?] = []
+        let board = fixture.work.budget.board
+        let token = ServiceObservation(.automation, owner: "test.person", on: fixture.work) { model.count } apply: {
+            applied.append($0)
+            classes.append(board.running?.workClass)
+        }
+        fixture.input.pending = true
+        fixture.work.causes.withCause(.person) { model.count = 1 }
+        #expect(fixture.work.causes.personPendingCount == 1)
+        #expect(fixture.work.causes.flushPersonCaused() == 1)
+        #expect(applied == [0, 1], "the person's value applies before any frame")
+        #expect(classes == [nil, .frame], "unbudgeted, in the pass")
+        fixture.frame()
+        fixture.frame()
+        #expect(applied == [0, 1], "the pass flushed it: its visible task finds nothing pending")
+        withExtendedLifetime(token) {}
+    }
+
+    @Test func anAutomationThenPersonChangeOnTheSamePropertyFlushesAsPerson() {
+        let fixture = Fixture()
+        let model = Model()
+        var applied: [Int] = []
+        let token = ServiceObservation(.background, owner: "test.raise", on: fixture.work) { model.count } apply: { applied.append($0) }
+        fixture.work.causes.withCause(.automation) { model.count = 1 }
+        #expect(fixture.work.causes.personPendingCount == 0)
+        // The first tracking fired on the automation change; the re-armed one sees the person's.
+        fixture.work.causes.withCause(.person) { model.count = 2 }
+        #expect(fixture.work.causes.flushPersonCaused() == 1)
+        #expect(applied == [0, 2])
+        fixture.frame()
+        #expect(applied == [0, 2], "the background task finds nothing pending")
+        withExtendedLifetime(token) {}
+    }
+
+    /// A person change the pass did not reach, and a frontend change, flush as `visible`, ahead
+    /// of the observer's own lower class.
+    @Test func aPersonOrFrontendChangeThePassDidNotTakeFlushesInTheVisibleClass() {
+        let fixture = Fixture()
+        let model = Model()
+        var classes: [MainWorkClass?] = []
+        let board = fixture.work.budget.board
+        let person = ServiceObservation(.background, owner: "test.missed", on: fixture.work) { model.count } apply: { _ in
+            classes.append(board.running?.workClass)
+        }
+        let frontend = ServiceObservation(.automation, owner: "test.frontend", on: fixture.work) { model.name } apply: { _ in
+            classes.append(board.running?.workClass)
+        }
+        fixture.work.causes.withCause(.person) { model.count = 1 }
+        fixture.work.causes.withCause(.frontend) { model.name = "b" }
+        #expect(fixture.work.postedCount(.visible) == 2)
+        #expect(fixture.work.postedCount(.background) + fixture.work.postedCount(.automation) == 0)
+        fixture.frame()
+        #expect(classes == [nil, nil, .visible, .visible])
+        withExtendedLifetime((person, frontend)) {}
+    }
+
     @Test func aChangeMadeByApplyFlushesOnTheNextFrame() {
         let fixture = Fixture()
         let model = Model()
@@ -224,6 +292,8 @@ private struct Fixture {
     let input: ServiceInputPending
     let work: MainWorkScheduler
     private let frames: FrameCounter
+    /// Keeps the display link up, so a post waits for the test's frames, not a run loop turn.
+    private let keeper: FrameClient
 
     init() {
         clock = ServiceClock()
@@ -231,6 +301,8 @@ private struct Fixture {
         frames = FrameCounter()
         let budget = MainFrameBudget(input: input, uptimeNanos: clock.read)
         work = MainWorkScheduler.testing(budget: budget) { _ in ServiceFakeLink() }
+        keeper = FrameClient(owner: "test.keeper", isAnimation: false, on: work.frames) { _ in true }
+        keeper.activate()
     }
 
     /// One display frame, a frame period after the last.

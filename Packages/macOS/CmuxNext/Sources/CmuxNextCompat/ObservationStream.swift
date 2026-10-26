@@ -12,7 +12,7 @@ internal import os
 /// rule 3 and Q2). A loop's flushes run in no class and keep no owner, and a hidden view's loop
 /// keeps reading. Use one of the two scheduled observers in CmuxNextWakeups instead, each with
 /// a class and an owner:
-/// - `VisibleObservation(node, owner, read, apply)` when `apply` only touches views: it stops
+/// - `VisibleObservation(node, owner:, on:, read:, apply:)` when `apply` only touches views: it stops
 ///   reading while its visibility node is hidden.
 /// - `ServiceObservation(class, owner:, on:, read:, apply:)` for anything else (the model, the
 ///   daemon, the disk, another owner): it keeps running while hidden.
