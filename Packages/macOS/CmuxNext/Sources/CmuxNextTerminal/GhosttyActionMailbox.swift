@@ -3,31 +3,31 @@ import CmuxNextWakeups
 /// The state a surface's Ghostty actions set, one slot each: a later action of a slot replaces the
 /// one waiting in it (``GhosttyActionMailbox``).
 nonisolated enum GhosttyActionSlot: Int, CaseIterable, Sendable {
-    case title, workingDirectory, mouseShape, mouseVisible, mouseOverLink, rendererHealth, progress,
-         backgroundColor, scrollbar, searchTotal, searchSelected
+    case title, workingDirectory, mouseVisible, rendererHealth, progress, backgroundColor, scrollbar,
+         searchTotal, searchSelected
 }
 
 extension GhosttyAction {
     /// The state this action sets, latest-wins in the surface's mailbox; nil for a discrete action: an
     /// event (a bell, a finished command, an exit), a request (a URL, a search, a config, a host action),
-    /// a toggle, or a change the key that caused it must see in its own turn (a cell size, a key sequence,
-    /// read-only), which runs at once, in order.
+    /// a toggle, or a change the input that caused it must see in its own turn, which runs at once, in
+    /// order: a cell size, a key sequence, read-only, and the link and pointer shape under the pointer,
+    /// which Ghostty reports inside the move (`ghostty_surface_mouse_pos`) and the press, Cmd-click and
+    /// link menu that follow it read (`TerminalLinkPointer`, `pointerMods`).
     nonisolated var mailboxSlot: GhosttyActionSlot? {
         switch self {
         case .setTitle: .title
         case .pwd: .workingDirectory
-        case .mouseShape: .mouseShape
         case .mouseVisible: .mouseVisible
-        case .mouseOverLink: .mouseOverLink
         case .rendererHealthy: .rendererHealth
         case .progress: .progress
         case .backgroundColor: .backgroundColor
         case .scrollbar: .scrollbar
         case .searchTotal: .searchTotal
         case .searchSelected: .searchSelected
-        case .host, .ringBell, .openURL, .cellSize, .commandFinished, .childExited, .secureInput, .readOnly,
-             .keySequence, .configChange, .reloadConfig, .openConfig, .startSearch, .endSearch,
-             .copyTitleToClipboard, .render:
+        case .host, .ringBell, .openURL, .mouseShape, .mouseOverLink, .cellSize, .commandFinished, .childExited,
+             .secureInput, .readOnly, .keySequence, .configChange, .reloadConfig, .openConfig, .startSearch,
+             .endSearch, .copyTitleToClipboard, .render:
             nil
         }
     }
@@ -42,8 +42,8 @@ extension GhosttyAction {
     }
 }
 
-/// One surface's Ghostty state actions (title, working directory, pointer shape, progress, scrollbar,
-/// search counts), applied once per frame of its window, latest wins per ``GhosttyActionSlot``
+/// One surface's Ghostty state actions (title, working directory, progress, scrollbar, search counts),
+/// applied once per frame of its window, latest wins per ``GhosttyActionSlot``
 /// (p04-input-079). A streaming program sends a scrollbar and often a title on every app tick; the
 /// surface's model now changes once per frame however many came.
 ///
@@ -73,7 +73,7 @@ final class GhosttyActionMailbox {
     /// The waiting action of each slot, by ``GhosttyActionSlot/rawValue``.
     private var slots = [GhosttyAction?](repeating: nil, count: GhosttyActionSlot.allCases.count)
     /// The filled slots in the order of their latest actions; they apply in this order, so the last
-    /// writes of different slots (a link, then the pointer shape over it) keep the order Ghostty sent them in.
+    /// writes of different slots (a working directory, then the title it sets) keep the order Ghostty sent them in.
     private var order: [GhosttyActionSlot] = []
     private var client: FrameClient?
     /// True while the frame client's tick runs: a flush from inside it leaves the client to the tick.

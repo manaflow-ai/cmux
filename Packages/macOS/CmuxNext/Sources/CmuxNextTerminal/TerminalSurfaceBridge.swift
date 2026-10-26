@@ -13,9 +13,11 @@ import GhosttyNextKit
 /// `linkFilter`; everything mutable is main-actor isolated.
 nonisolated final class SurfaceBridge: Sendable {
     let input: TerminalInputSink
-    /// Main-actor only. Weak so a late callback after the view deinitializes
-    /// is a no-op.
-    @MainActor weak var view: TerminalSurfaceView?
+    /// What the surface's callbacks reach: its view in the app, a test's recorder. Main-actor only.
+    /// Weak so a late callback after the view deinitializes is a no-op.
+    @MainActor weak var target: (any GhosttySurfaceTarget)?
+    /// The view that shows the surface (``target`` in the app).
+    @MainActor var view: TerminalSurfaceView? { target as? TerminalSurfaceView }
     /// The font scale after each font size change (nil: the configured
     /// size), `TerminalFontScale.observe`.
     @MainActor var onFontScaleChange: (@MainActor @Sendable (Double?) -> Void)?
@@ -54,14 +56,14 @@ nonisolated final class SurfaceBridge: Sendable {
         }
     }
 
-    /// The surface's ``GhosttyActionMailbox``: its state actions apply once per frame of its view's
-    /// window, to the view that shows it then.
+    /// The surface's ``GhosttyActionMailbox``: its state actions apply once per frame of its target's
+    /// window, to the target that shows it then.
     @MainActor var actionMailbox: GhosttyActionMailbox {
         if let mailbox { return mailbox }
         let made = GhosttyActionMailbox(owner: "terminal.actions", scheduler: { [weak self] in
-            self?.view.map { FrameScheduler.forView($0) } ?? .app
+            self?.target?.actionFrameScheduler ?? .app
         }, apply: { [weak self] action in
-            _ = self?.view?.applyAction(action)
+            _ = self?.target?.applyAction(action)
         })
         mailbox = made
         return made
@@ -71,6 +73,37 @@ nonisolated final class SurfaceBridge: Sendable {
     /// of this surface runs after them, in the order Ghostty sent them.
     @MainActor func flushActions() {
         mailbox?.flush()
+    }
+
+    /// One of the surface's Ghostty actions (`action_cb`): a state action waits in its mailbox for the
+    /// frame (reported performed); any other runs now, after the waiting state, and reports what it did
+    /// (a keybind that did nothing falls through to the terminal).
+    @MainActor func deliver(_ action: GhosttyAction, runtime: GhosttyRuntime?) -> Bool {
+        if let slot = action.mailboxSlot {
+            actionMailbox.post(action, in: slot)
+            return true
+        }
+        if action.flushesMailbox { flushActions() }
+        return GhosttyActionDispatcher.dispatch(action, bridge: self, runtime: runtime)
+    }
+
+    /// Ghostty asks for consent to a paste or a clipboard read or write (`confirm_read_clipboard_cb`),
+    /// after the state it sent before.
+    @MainActor func confirmClipboard(contents: String, contentBytes: Int, kind: TerminalClipboardRequestKind, state: UncheckedPointer) {
+        flushActions()
+        target?.confirmClipboard(contents: contents, contentBytes: contentBytes, kind: kind, state: state)
+    }
+
+    /// Ghostty writes the clipboard (`write_clipboard_cb`), after the state it sent before.
+    @MainActor func writeClipboard(items: [TerminalClipboardItem], location: TerminalPasteboardLocation, requiresConfirmation: Bool) {
+        flushActions()
+        target?.writeClipboard(items: items, location: location, requiresConfirmation: requiresConfirmation)
+    }
+
+    /// The surface's program asked to close it (`close_surface_cb`), after the state it sent before.
+    @MainActor func requestClose() {
+        flushActions()
+        target?.surfaceRequestedClose()
     }
 
     /// `raw` must be a surface's userdata (TerminalSurfaceView.bridge) or nil.
