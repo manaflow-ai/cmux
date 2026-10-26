@@ -13,12 +13,11 @@ import Testing
 struct ChiefSidebarUnreadTests {
     struct NoWorkspace: Error {}
 
-    /// The App's services with Home listing the Chief's conversation: read unless `unread` messages wait, muted
-    /// with `muted`, and not marked.
-    static func services(unread: Int = 0, muted: Bool = false) -> AppServices {
+    /// The App's services with Home listing the Chief's conversation: read unless `unread` messages wait, not marked.
+    static func services(unread: Int = 0) -> AppServices {
         _ = NSApplication.shared // the services read NSApp
         let services = AppServices(environment: AppEnvironment.current([:]))
-        services.home.groupMuting.debugRows = [HomeUnreadIndicatorTests.row("chief", unread: unread, muted: muted)]
+        services.home.groupMuting.debugRows = [HomeUnreadIndicatorTests.row("chief", unread: unread)]
         services.home.groupMuting.setMarkedUnread(false, ConversationID("chief"))
         return services
     }
@@ -32,16 +31,22 @@ struct ChiefSidebarUnreadTests {
         return chief
     }
 
-    /// Unread messages on a muted Chief conversation: Home shows no dot, so neither does the Chief item.
-    /// Unmuted, the same messages dot both.
+    /// Unread messages on the Chief conversation dot the item as they dot Home; muted, Home shows no dot, so neither
+    /// does the item. The muted case starts dotted, so its missing dot is the mute's, not a binding that never ran.
     @Test(arguments: [false, true])
     func theChiefItemDotsExactlyWhenHomeDoes(muted: Bool) async throws {
-        let services = Self.services(unread: 2, muted: muted)
-        try #require(services.home.unreadConversations.isEmpty == muted, "Home's own dot is not what this case expects")
+        let services = Self.services(unread: 2)
+        let home = services.home.groupMuting
         let chief = Self.follow(services)
-        await RapidWorkspaceCreateTests.wait(within: muted ? .milliseconds(300) : .seconds(5)) { chief.status.unread }
-        #expect(chief.status.unread == !muted, muted ? "a muted Chief conversation dots the item though Home shows none"
-                                                     : "an unread Chief conversation shows no dot on the item")
+        await RapidWorkspaceCreateTests.wait(within: .seconds(5)) { chief.status.unread }
+        #expect(chief.status.unread, "an unread Chief conversation shows no dot on the item")
+        guard muted else { return }
+        // The fixture rows are not observed: a mark on another conversation makes the item read them again.
+        home.debugRows = [HomeUnreadIndicatorTests.row("chief", unread: 2, muted: true)]
+        home.setMarkedUnread(true, ConversationID("other"))
+        try #require(home.unreadConversations.isEmpty, "Home dots the muted conversation")
+        await RapidWorkspaceCreateTests.wait(within: .seconds(5)) { !chief.status.unread }
+        #expect(!chief.status.unread, "a muted Chief conversation dots the item though Home shows none")
     }
 
     /// Mark as Unread on the read Chief conversation: Home dots it, so the Chief item's status shows it unread;

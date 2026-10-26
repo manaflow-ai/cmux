@@ -70,6 +70,23 @@ struct ChiefDragInTests {
         }
     }
 
+    /// Home's page goes mid-drag: the drag keeps its `ChiefDragIn` (its monitor and ghost) until it ends, then lets go.
+    @Test func aDragOutlivesItsOwnerUntilItEnds() throws {
+        let h = Harness()
+        defer { h.end() }
+        weak var weakDrag: ChiefDragIn?
+        do {
+            let owned = ChiefDragIn(host: .init(sidebar: { _, _ in nil }, isBusy: { false }, drop: {}), chief: h.chief)
+            #expect(owned.begin(at: h.outside()))
+            weakDrag = owned
+        }
+        var drag = try #require(weakDrag, "the drag went with its owner: its monitor and ghost stay behind") as ChiefDragIn?
+        _ = drag?.handle(try h.key(53))
+        #expect(drag?.isDragging == false)
+        drag = nil
+        #expect(weakDrag == nil, "the ended drag kept its ChiefDragIn")
+    }
+
     @Test func aReleaseOverTheSidebarAddsTheChiefOnce() throws {
         let h = Harness()
         defer { h.end() }
