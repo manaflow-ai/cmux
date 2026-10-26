@@ -75,6 +75,10 @@ final class TopHomePageView: NSView {
     private var previousChief: String?
     /// A conversation shown before the page had a window: the keyboard goes to it when the page gets one.
     private var focusesOnWindow = false
+    /// False in the turn that builds the page: the observations' first applies fill the list but pick no conversation,
+    /// so a rebuilt page's record (`restoreViewState`, later in that turn) shows its own conversation and nothing
+    /// builds a transcript for the default one first. The page's first posted task picks one if none was restored.
+    private var picksConversation = false
 
     init(services: AppServices, windowKey: @escaping () -> String) {
         self.services = services
@@ -88,6 +92,12 @@ final class TopHomePageView: NSView {
         addSubview(split)
         wireList(services)
         observe(services.home, on: services.mainWork)
+        services.mainWork.post(.visible, owner: "TopHomePage.firstConversation") { [weak self, home = services.home] in
+            guard let self else { return }
+            picksConversation = true
+            showPendingSelection(home)
+            showDefaultConversation(home)
+        }
         // At launch Home starts right after the first frame (its list shows the last launch's until then),
         // and the team and Chiefs read, a Cloud read, waits for that frame too (p08-startup-027).
         services.home.launchFeeds?.need()
@@ -259,15 +269,26 @@ final class TopHomePageView: NSView {
         }
         selectionObservation = ServiceObservation(.visible, owner: "TopHomePage.selection", on: work) {
             () -> (pending: ConversationID?, listed: [ConversationID]) in (pending: home.pendingSelection, listed: store.rows.map(\.id))
-        } apply: { [weak self] selection in
-            guard let self, let id = selection.pending, selection.listed.contains(id) else { return }
-            home.pendingSelection = nil
-            show(id)
-            if opening == id {
-                opening = nil
-                host?.takeKeyboardOnOpen()
-            }
+        } apply: { [weak self] _ in
+            self?.showPendingSelection(home)
         }
+    }
+
+    /// Shows the conversation an action asked for once the inbox lists it (with the keyboard when the person started it).
+    private func showPendingSelection(_ home: HomeService) {
+        guard picksConversation, let id = home.pendingSelection, home.homeStore.rows.contains(where: { $0.id == id }) else { return }
+        home.pendingSelection = nil
+        show(id)
+        if opening == id {
+            opening = nil
+            host?.takeKeyboardOnOpen()
+        }
+    }
+
+    /// With nothing shown (and no New Message page), shows the Chief conversation, else the newest one.
+    private func showDefaultConversation(_ home: HomeService) {
+        guard picksConversation, shown == nil, !isComposingNewMessage, let first = defaultConversation(rows: rows, home: home) else { return }
+        show(first)
     }
 
     /// The inbox rows changed: the Chiefs' engines and pictures are read again when their Chiefs or the owner's rows
@@ -294,7 +315,7 @@ final class TopHomePageView: NSView {
         }
         list.update(sidebar.model())
         applyPendingListScroll()
-        if shown == nil, !isComposingNewMessage, let first = defaultConversation(rows: rows, home: home) { show(first) }
+        showDefaultConversation(home)
         // The cache's conversation of a Chief home made again (cx-ebm.55).
         if shownIsGone(store), let chief = Self.chief(home) { replaceGone(with: ConversationID(chief), store: store) }
     }

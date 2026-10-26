@@ -1,6 +1,7 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextDesign
 @testable import CmuxNextApp
 @testable import CmuxNextHome
 import CmuxNextWakeups
@@ -59,8 +60,8 @@ import Testing
 
     // MARK: Service observation: the forced host pressure level
 
-    /// The forced level is a service observation: a change applies on the scheduler's frame as one posted task, not in
-    /// the change's own turn.
+    /// The forced level is a background service observation (host pressure is background work): a change applies on the
+    /// scheduler's frame as one posted background task, not in the change's own turn.
     @Test func aForcedLevelChangeAppliesOnTheFrame() {
         let store = TunableStore(), rig = MainDeadlineRig()
         store.register(HostPressureTunables.all)
@@ -69,7 +70,7 @@ import Testing
         #expect(service.level == .normal)
         _ = store.set(HostPressureTunables.force.key, HostPressureForce.critical.tunableValue)
         #expect(service.level == .normal, "the forced level applied in the change's own turn")
-        #expect(rig.deadlines.work.postedCount(.visible) > 0, "the forced level's flush is not a posted visible task")
+        #expect(rig.deadlines.work.postedCount(.background) > 0, "the forced level's flush is not a posted background task")
         rig.frame()
         #expect(service.level == .critical)
         service.stop()
@@ -86,10 +87,13 @@ import Testing
         let page = TopHomePageView(services: services, windowKey: { "sweep-317" })
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
+        // The window's node reads visible (the window is never ordered in), so the page's node follows only its own hide.
+        _ = WindowVisibilitySource.of(window, read: { _ in .visible })
         window.contentView = page
         defer { window.close() }
+        #expect(page.visibility.node.isVisible, "the page's node is not visible in a visible window")
         page.isHidden = true
-        #expect(!page.visibility.node.isVisible, "a hidden page's node stayed visible")
+        #expect(!page.visibility.node.isVisible, "a hidden page's node stayed visible (viewDidHide does not reach it)")
 
         let ada = HomeContact(id: ParticipantID("user_ada"), name: "Ada Lovelace", source: .team)
         services.home.directory.teamMembers = [ada]

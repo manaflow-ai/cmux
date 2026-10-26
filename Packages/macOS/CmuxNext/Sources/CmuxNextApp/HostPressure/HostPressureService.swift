@@ -18,9 +18,11 @@ import os
 /// subscription to the app's memory pressure feed, cancels its timer and any read in flight, and drops
 /// a level change still queued.
 ///
-/// Scheduling (p06-scheduler.md): the monitor's start and stop hops run off the main thread, each after the one
-/// before; a level change comes back as one posted visible task, the forced level is a ``ServiceObservation`` and
-/// quit an ``AppEvents`` subscription. Chromium posts the reply of thread-pool work as a typed UI-thread task
+/// Scheduling (p06-scheduler.md, task p06-scheduler-317: "HostPressure is background"): the monitor's start and stop
+/// hops run off the main thread at best effort, each after the one before; a level change comes back as one posted
+/// background task, the forced level is a background ``ServiceObservation`` and quit an ``AppEvents`` subscription.
+/// Only the indicator's own glyph apply (`HostPressureIndicatorView`'s level observation) runs as visible, as any
+/// view's model update does. Chromium posts the reply of thread-pool work as a typed UI-thread task
 /// (`base::ThreadPool::PostTaskAndReplyWithResult`, content/browser/scheduler/browser_task_queues.h).
 @MainActor @Observable
 final class HostPressureService {
@@ -88,11 +90,11 @@ final class HostPressureService {
                 return try? JSONDecoder().blockingDecode(HostBudgetVerdict.self, from: data)
             }
         }
-        // A level change reaches main as one visible task (the windows' glyph shows it).
+        // A level change reaches main as one background task; the indicators' glyphs follow it in their own flush.
         monitor = HostPressureMonitor(source: LocalHostPressureSource(acpmux: reader), memoryPressure: memoryPressure,
-                                      deliver: { change in mainWork.postFromAnyThread(.visible, owner: "HostPressureService.level") { change() } })
+                                      deliver: { change in mainWork.postFromAnyThread(.background, owner: "HostPressureService.level") { change() } })
         // A service observation: the forced level is model state every window reads, and it applies while they hide.
-        forceObservation = ServiceObservation(.visible, owner: "HostPressureService.force", on: mainWork) {
+        forceObservation = ServiceObservation(.background, owner: "HostPressureService.force", on: mainWork) {
             HostPressureTunables.force.value(in: store)
         } apply: { [weak self] force in
             guard let self else { return }
@@ -140,7 +142,8 @@ final class HostPressureService {
             }
             // One hop off main to start the monitor, after the previous hop; the monitor actor checks `wanted` before it
             // starts anything, so a stop issued meanwhile wins and this start does nothing.
-            lifecycle = work.task(.userVisible) { [self] in
+            // priority-allow: only tests await lifecycle (monitorIsRunning); no person waits for the Debug sampler's start
+            lifecycle = work.task(.bestEffort) { [self] in
                 _ = try? await previous?.value
                 await monitor.start(while: { self.isWanted(generation) }, onChange: onChange)
             }
@@ -174,7 +177,8 @@ final class HostPressureService {
         noteLevel()
         let (monitor, previous) = (monitor, lifecycle)
         // One hop off main to stop the monitor, after the previous hop; it ends when its subscription and timer are cancelled.
-        lifecycle = work.task(.userVisible) {
+        // priority-allow: only tests await lifecycle (monitorIsRunning); no person waits for the Debug sampler's stop
+        lifecycle = work.task(.bestEffort) {
             _ = try? await previous?.value
             await monitor.stop()
         }
