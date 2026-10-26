@@ -53,11 +53,11 @@ def rpc(method, params=None, timeout=60):
         return {"error": str(error)}
 
 
-def require_result(method, params=None, timeout=60):
+def require_result(method, params=None, timeout=60, allow_null=False):
     result = rpc(method, params, timeout)
     if isinstance(result, dict) and result.get("error"):
         raise RuntimeError(f"{method}: {result['error']}")
-    if result is None:
+    if result is None and not allow_null:
         raise RuntimeError(f"{method}: missing result")
     return result
 
@@ -155,7 +155,7 @@ def launch_and_seed(app_path):
     save_json("seed.json", {"windows": require_result("debug.windows"), "sidebar": sidebar()})
 
     # Keep daemon sessions/layout, then relaunch the same isolated tag.
-    require_result("debug.quit", {"fixture_quit": "keep"}, timeout=30)
+    require_result("debug.quit", {"fixture_quit": "keep"}, timeout=30, allow_null=True)
     wait_for("seed app quit", lambda: bench.process.poll() is not None, timeout=60)
     bench2 = BenchApp(app_path, out=str(OUT), config=config, fresh_state=False, teardown=False)
     bench2.launch(timeout=180)
@@ -210,10 +210,10 @@ try:
 
     strip_dir = OUT / "frame-strip"
     strip_dir.mkdir(parents=True, exist_ok=True)
-    require_result("debug.window_snapshot", {"kind": "main", "path": str(OUT / "before.png")})
-    require_result("debug.sidebar_rows", {"motion": "start"})
+    require_result("debug.window_snapshot", {"kind": "main", "path": str(OUT / "before.png")}, allow_null=True)
+    require_result("debug.sidebar_rows", {"motion": "start"}, allow_null=True)
     motion_started = True
-    require_result("debug.frames", {"action": "start"})
+    require_result("debug.frames", {"action": "start"}, allow_null=True)
     display_started = True
     save_json("pre-key.json", {"sidebar": sidebar(), "windows": require_result("debug.windows"),
                                 "surfaces": require_result("debug.surfaces")})
@@ -228,7 +228,7 @@ try:
     save_json("after-sidebar.json", after_sidebar)
     save_json("after-windows.json", require_result("debug.windows"))
     save_json("after-surfaces.json", require_result("debug.surfaces"))
-    require_result("debug.window_snapshot", {"kind": "main", "path": str(OUT / "after.png")})
+    require_result("debug.window_snapshot", {"kind": "main", "path": str(OUT / "after.png")}, allow_null=True)
 
     motion_frames = (motion or {}).get("frames") if isinstance(motion, dict) else None
     if not isinstance(motion_frames, list) or not motion_frames:
