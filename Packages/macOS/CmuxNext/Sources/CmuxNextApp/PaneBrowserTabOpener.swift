@@ -107,8 +107,7 @@ struct PaneBrowserTabOpener {
             let intent = background || beside ? nil : controller.workspace?.beginFocusIntent()
             // create.tab: a foreground tab this window shows once the daemon made it.
             let createTabs = services.cache.createTabs
-            let timing = background || beside || controller.view.window == nil || !ActionRunScope.viewChangeAllowed()
-                ? nil : createTabs.begin(choice.engine == .cef ? .chromium : .webkit)
+            let timing = createTabs.begin(choice.engine == .cef ? .chromium : .webkit, shows: !background && !beside && controller.showsNewTabs)
             services.registry.track(Task {
                 do {
                     // A new tab the user asked for opens the New Tab page; an
@@ -125,9 +124,8 @@ struct PaneBrowserTabOpener {
                     }
                     then?(surface)
                     guard !background else { return nil }
-                    if let timing {
-                        if let tab = controller.daemon.store.tab(surface: surface) { createTabs.expect(timing, tab: tab.id, standIn: false) } else { timing.end(.closed) }
-                    }
+                    // The store may list the tab after this reply: the wait is the tab's once the pane lists its surface.
+                    if let timing { createTabs.expect(timing, surface: surface.rawValue) }
                     controller.selectWhenReported(surface: surface)
                     controller.workspace?.expectFocus(on: surface, target: url == nil ? .addressBar : .content, generation: intent)
                     return nil
@@ -145,6 +143,10 @@ struct PaneBrowserTabOpener {
             services.registry.refuse(RefusalStrings.needsDaemonCapability(DaemonCapability.frontendBrowserTabs.rawValue))
             return false
         }
+        // create.tab: a foreground tab this window shows, from this turn (before the strip apply and the focus) to
+        // its page's first content frame.
+        let createTabs = services.cache.createTabs
+        let timing = createTabs.begin(.webkit, shows: !background && controller.showsNewTabs)
         child?.close()  // Session-local tabs are WebKit pages made on demand.
         // Home's pinned dock holds no tab of this Mac's (H1): it opens in the pane right of the dock,
         // and with the dock alone, where no daemon move can take an app-only tab, it is refused.
@@ -152,6 +154,7 @@ struct PaneBrowserTabOpener {
         if controller.isPinnedDockPane {
             guard case .pane(let id) = services.linkOpener.target(from: controller), id != controller.layoutPaneID,
                   let right = controller.workspace?.panes[id] else {
+                timing?.end(.closed) // refused: no tab was made
                 services.registry.refuse(RefusalStrings.needsDaemonCapability(DaemonCapability.frontendBrowserTabs.rawValue))
                 return false
             }
@@ -165,14 +168,14 @@ struct PaneBrowserTabOpener {
                 return RemoteStrings.browserRunsOnThisMac(name, route: .thisMacInstead(name, .webKit))
             }(), forKey: local.id)
         }
+        if let timing {
+            // A holder out of the window or parked never shows it: no sample.
+            if holder.view.window != nil, !holder.isSuspended { createTabs.expect(timing, tab: local.id, standIn: false) } else { timing.end(.hidden) }
+        }
         holder.state?.localBrowserTabs[holder.paneKey].append(local)
         holder.apply(holder.snapshot())
         if background { return true }
         if holder !== controller, let content = holder.workspace { PaneHandlers.focus(holder.layoutPaneID, in: content) }
-        if holder.view.window != nil, ActionRunScope.viewChangeAllowed() {
-            let createTabs = services.cache.createTabs
-            createTabs.expect(createTabs.begin(.webkit), tab: local.id, standIn: false)
-        }
         holder.select(StripTabID(local.id))
         if url == nil { holder.workspace?.focus.send(.focusTarget(.addressBar, source: .intent)) }
         return true
@@ -200,7 +203,7 @@ extension PaneBrowserTabOpener {
                              then: (@MainActor (SurfaceID) -> Void)?) {
         let controller = controller, services = controller.services, cache = services.cache, model = controller.pane
         // create.tab: from this turn to the page's first contentful paint; the stand-in shows in this turn.
-        let timing = cache.createTabs.begin(choice.engine == .cef ? .chromium : .webkit)
+        let timing = cache.createTabs.begin(choice.engine == .cef ? .chromium : .webkit, shows: controller.showsNewTabs)
         let command = NewBrowserTabCommand(pane: model.handle, url: address, engine: choice.engine.rawValue,
                                            profile: cache.browserTabs.resolveProfile(model, profile))
         let intent = controller.workspace?.beginFocusIntent(), window = controller.view.window
@@ -208,7 +211,7 @@ extension PaneBrowserTabOpener {
             command.intendNow(on: controller.daemon) { try await cache.browserTabs.open(choice, in: model, url: address, profile: profile, notice: notice) }
         }
         let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, tab: pending.tab)
-        cache.createTabs.expect(timing, tab: pending.tab, standIn: true)
+        if let timing { cache.createTabs.expect(timing, tab: pending.tab, standIn: true) }
         controller.selectWhenReported(surface: pending.surface)
         services.registry.track(Task {
             var landed = false

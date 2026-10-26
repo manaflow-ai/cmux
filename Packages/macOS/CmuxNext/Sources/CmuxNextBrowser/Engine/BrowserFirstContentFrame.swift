@@ -1,8 +1,9 @@
 public import CmuxNextSignposts
 
 /// A page that says when its document first shows content: the main frame's first contentful paint (Blink's
-/// and WebKit's own "the person can see page content now"), or the end of its load when the document paints
-/// nothing (an empty body). A new tab's `create.tab` interval ends there (p09-observability task 030).
+/// and WebKit's own "the person can see page content now"), the end of its load when the document paints
+/// nothing (an empty body), or the failed load or crashed page whose error page or sad tab shows instead. A new
+/// tab's `create.tab` interval ends there (p09-observability task 030).
 @MainActor
 public protocol BrowserFirstContentFrameReporting: AnyObject {
     /// Whether a document is on its way: false for a blank page that loads nothing (its themed background is all it
@@ -15,9 +16,9 @@ public protocol BrowserFirstContentFrameReporting: AnyObject {
 }
 
 extension BrowserFirstContentFrameReporting {
-    /// This page's first content frame as a new tab's `create.tab` end; `content` is its identity in the pane. A
-    /// page that loads nothing shows at the commit that shows it.
-    public func createTabFirstFrame(content: ObjectIdentifier) -> CreateTabTimings.FirstFrame {
+    /// This page's first content frame as a new tab's `create.tab` end; `content` is its view in the pane. A page
+    /// that loads nothing, or showed content already, shows at the commit that shows it (``CreateTabTimings``).
+    public func createTabFirstFrame(content: AnyObject) -> CreateTabTimings.FirstFrame {
         guard loadsDocument else { return .atCommit(content) }
         return .init(content: content) { [weak self] done in
             guard let self else {
@@ -35,7 +36,7 @@ extension BrowserFirstContentFrameReporting {
 @MainActor
 public final class BrowserFirstContentFrame {
     private var waiters: [@MainActor (Bool) -> Void] = []
-    /// The page showed content (a first contentful paint, or a load that ended with nothing to paint).
+    /// The page showed content.
     public private(set) var hasShownContent = false
     private var isClosed = false
 
@@ -48,7 +49,9 @@ public final class BrowserFirstContentFrame {
         waiters.append(body)
     }
 
-    /// The document showed content: every waiter runs with true. Only the first call does anything.
+    /// The page showed content (a first contentful paint, a load that ended with nothing to paint, or a failed
+    /// load or crashed page whose error page or sad tab shows): every waiter runs with true. Only the first call
+    /// does anything.
     public func contentShown() {
         guard !hasShownContent, !isClosed else { return }
         hasShownContent = true

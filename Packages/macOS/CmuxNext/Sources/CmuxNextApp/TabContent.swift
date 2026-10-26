@@ -61,7 +61,7 @@ enum TabContent {
 
     /// How this content reports its first themed frame for a new tab's `create.tab` (``CreateTabTimings``).
     @MainActor var createTabFirstFrame: CreateTabTimings.FirstFrame {
-        let identity = ObjectIdentifier(view)
+        let identity: AnyObject = view
         switch self {
         case .terminal(let entry): return entry.session.createTabFirstFrame(content: identity)
         case .browser(let entry):

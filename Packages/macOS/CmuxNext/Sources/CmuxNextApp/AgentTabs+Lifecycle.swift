@@ -1,4 +1,3 @@
-import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -144,9 +143,7 @@ extension AgentTabStore {
                  linked: Bool = false, select: Bool = true, hidden: Bool = false, split: SplitDirection? = nil, focuses: Bool = true,
                  then: (@MainActor (String) -> Void)? = nil, failed: (@MainActor () -> Void)? = nil) -> Bool {
         let daemon = pane.daemon
-        // create.tab: a chat this window shows, from this turn to its page's first paint.
-        let createTabs = pane.services.cache.createTabs
-        let timing = select && !hidden && pane.view.window != nil && ActionRunScope.viewChangeAllowed() ? createTabs.begin(.chat) : nil
+        let timing = pane.services.cache.createTabs.begin(.chat, shows: select && !hidden && pane.showsNewTabs) // create.tab: to its page's first paint
         let pending: AgentTabPending
         do {
             pending = try open(in: pane.pane.handle, of: daemon, session: session, seed: seed, newTab: newTab,
@@ -160,7 +157,7 @@ extension AgentTabStore {
         // unless the caller keeps focus where it is (`focuses` false: a tab dropped on its own pane's edge).
         let content = split == nil || !focuses ? nil : pane.workspace, intent = content?.beginFocusIntent()
         content?.focus.expect(.tab(pending.key), generation: intent)
-        if let timing { createTabs.expect(timing, tab: pending.key, standIn: true) }
+        if let timing { pane.services.cache.createTabs.expect(timing, tab: pending.key, standIn: true) }
         // The selection follows the provisional tab to the created one (`moveSelection`).
         if select { pane.selectWhenReported(surface: pending.surface) }
         if hidden {
@@ -202,6 +199,7 @@ extension AgentTabStore {
     /// `key` keeps resolving to it until the provisional tab is gone.
     func rekey(_ key: String, to real: String) {
         guard key != real else { return }
+        createTabs?.rekey(key, to: real) // the store's tab waits for the provisional one's first paint
         aliases[key] = real
         OutboundTab.rekeyed(key, to: real) // a tab on its way out of its pane stays out under its new id
         if remoteCreations[key] != nil || remoteSeeds[key] != nil { remoteAliases[key] = real }
@@ -312,6 +310,7 @@ extension AgentTabStore {
 
     /// Stops tab `key`'s page and forgets its view state.
     func release(_ key: String) {
+        createTabs?.released(key) // a chat closed (or refused) before its first paint: create.tab ends as closed
         if let view = views.removeValue(forKey: key) {
             // An untouched new tab page goes back to the pool (no teardown, no rebuild, R81); a
             // page of another machine's chat never does (NewTabSparePool.recycle, cx-k21v).

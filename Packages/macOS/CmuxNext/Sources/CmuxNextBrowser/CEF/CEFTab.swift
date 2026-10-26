@@ -332,6 +332,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // `state.processExit` is laid out shows a white page area for a frame
         // in a dark theme.
         documentDidSettle()
+        firstContentFrame.contentShown() // the sad tab is what a new tab shows
         reloadWhenShown = host.visibleTab !== self
         findRequests.cancel()
         runtime.recordRendererExit(exit, tab: self)

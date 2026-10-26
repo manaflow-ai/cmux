@@ -1,70 +1,101 @@
 import AppKit
 public import CmuxNextSignposts
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// Waits, in every build, for a terminal session's surface to hold its first frame: the first IOSurface Ghostty
 /// handed its layer (``TerminalSurfaceView/presentedFrame``), drawn in the session's theme. A new tab's
 /// `create.tab` interval ends there (p09-observability task 030).
 ///
 /// It reads the layer once per display frame of the surface's window, and only while it waits (most new
-/// terminals draw in the frame of the key that made them, so it ticks once or twice). The DEBUG
-/// `setContents:` hook (``TypingFrameProbe``) is not used: Release builds have no swizzle.
+/// terminals draw in the frame of the key that made them, so it ticks once or twice). A tab hidden first cancels
+/// it (``CreateTabTimings/hidden(_:)``), so a hidden terminal, whose rendering is suspended, costs no frames. The
+/// DEBUG `setContents:` hook (``TypingFrameProbe``) is not used: Release builds have no swizzle.
 ///
-/// `shown` runs once, at the first frame; `closed` runs instead when the session closed or went away first.
-/// ``cancel()`` runs neither.
+/// `shown` runs once, at the first frame (in the init's call when the frame exists already); `closed` runs
+/// instead when the surface closed or went away first. ``cancel()`` runs neither.
 @MainActor
 public final class TerminalFirstFrameWatch {
-    private weak var session: TerminalSession?
+    /// What the watch reads of the surface each frame.
+    public enum SurfaceState: Sendable {
+        /// The surface closed or went away.
+        case gone
+        /// Live, with no frame yet.
+        case waiting
+        /// Its layer holds a frame.
+        case framed
+    }
+
+    private let read: @MainActor () -> SurfaceState
     private var shown: (@MainActor () -> Void)?
     private var closed: (@MainActor () -> Void)?
-    private lazy var frames = FrameClient(owner: "TerminalFirstFrameWatch", isAnimation: false, scheduler: { [weak self] in
-        self?.session.map { FrameScheduler.forView($0.surfaceView) } ?? .app
-    }) { [weak self] _ in self?.check() == false }
+    private var frames: FrameClient?
 
-    /// Starts waiting; `shown` runs now when the surface has a frame already.
-    public init(session: TerminalSession, shown: @escaping @MainActor () -> Void, closed: @escaping @MainActor () -> Void) {
-        self.session = session
+    /// Starts waiting.
+    ///
+    /// - Parameters:
+    ///   - scheduler: The frame clock of the surface's window, read when the watch starts ticking.
+    ///   - read: The surface's state, read now and at each frame while it waits.
+    public init(scheduler: @escaping @MainActor () -> FrameScheduler, read: @escaping @MainActor () -> SurfaceState,
+                shown: @escaping @MainActor () -> Void, closed: @escaping @MainActor () -> Void) {
+        self.read = read
         self.shown = shown
         self.closed = closed
-        if !check() { frames.activate() }
+        guard !check() else { return }
+        let frames = FrameClient(owner: "TerminalFirstFrameWatch", isAnimation: false, scheduler: scheduler) { [weak self] _ in
+            self?.check() == false
+        }
+        self.frames = frames
+        frames.activate()
     }
 
     /// Whether it still waits.
     public var isWaiting: Bool { shown != nil }
 
+    /// Whether its frame client is on its scheduler (it ticks only while it waits).
+    public var isTicking: Bool { frames?.isActive == true }
+
     /// Stops waiting without running either callback.
     public func cancel() {
         (shown, closed) = (nil, nil)
-        frames.deactivate()
+        frames?.deactivate()
     }
 
     /// Runs a callback when the wait is over; true once over (the frame client then goes idle).
     private func check() -> Bool {
         guard let shown, let closed else { return true }
-        // `close()` takes the surface out of the session's view; a live session always has it there.
-        guard let session, session.surfaceView.superview != nil else {
+        switch read() {
+        case .waiting:
+            return false
+        case .gone:
             (self.shown, self.closed) = (nil, nil)
             closed()
-            return true
+        case .framed:
+            (self.shown, self.closed) = (nil, nil)
+            shown()
         }
-        guard session.surfaceView.presentedFrame != nil else { return false }
-        (self.shown, self.closed) = (nil, nil)
-        shown()
         return true
     }
 }
 
 extension TerminalSession {
     /// This terminal's first frame as a new tab's `create.tab` end (``TerminalFirstFrameWatch``); `content` is its
-    /// identity in the pane.
-    public func createTabFirstFrame(content: ObjectIdentifier) -> CreateTabTimings.FirstFrame {
+    /// view in the pane.
+    public func createTabFirstFrame(content: AnyObject) -> CreateTabTimings.FirstFrame {
         .init(content: content) { [weak self] done in
             guard let self else {
                 done(.closed)
                 return nil
             }
-            let watch = TerminalFirstFrameWatch(session: self, shown: { done(.shown) }, closed: { done(.closed) })
+            let watch = TerminalFirstFrameWatch(scheduler: { [weak self] in self.map { FrameScheduler.forView($0.surfaceView) } ?? .app },
+                                                read: { [weak self] in self?.firstFrameState ?? .gone },
+                                                shown: { done(.shown) }, closed: { done(.closed) })
             return { watch.cancel() }
         }
+    }
+
+    /// `close()` takes the surface out of the session's view; a live session always has it there.
+    private var firstFrameState: TerminalFirstFrameWatch.SurfaceState {
+        guard surfaceView.superview != nil else { return .gone }
+        return surfaceView.presentedFrame == nil ? .waiting : .framed
     }
 }

@@ -3,13 +3,14 @@ import os
 
 /// One new tab's ``SignpostName/createTab`` interval, in every build (p09-observability task 030, PL-cef-tab):
 /// begun in the turn of the person's key (or click), ended once at the tab's first themed content frame, or
-/// when the tab closes before that frame.
+/// when the tab closes or hides before that frame.
 ///
 /// - The `os_signpost` interval carries `kind=<terminal|chromium|webkit|chat|page>` at its begin and
-///   `outcome=<shown|closed>` at its end; only a shown one is mirrored to MetricKit (a closed tab never drew,
-///   so its time is not a create latency).
+///   `outcome=<shown|closed|hidden|missed>` at its end; only a shown one is mirrored to MetricKit (a tab that
+///   closed or hid first never drew for the person, and a missed commit holds idle time, so neither is a
+///   create latency).
 /// - The ring's async pair is keyed by the intent id (``intentID``): begin `arg0` the kind's code, end `arg0`
-///   the outcome (0 shown, 1 closed). An instant of the same name and id (``standInShown(at:)``) marks the
+///   the outcome (``Outcome``). An instant of the same name and id (``standInShown(afterCommit:)``) marks the
 ///   commit of the stand-in, the tab the app shows before the daemon made it.
 ///
 /// Chrome times the same span as one async trace event from the input to the presented frame of the new
@@ -50,11 +51,19 @@ public final class CreateTabInterval {
         case shown = 0
         /// The tab closed before its first frame.
         case closed = 1
+        /// The tab stopped showing before its first frame (another tab or workspace took its place): no sample,
+        /// as Chrome's `ContentToVisibleTimeReporter::TabWasHidden`.
+        case hidden = 2
+        /// The first frame was there, but the commit boundary that shows it fired only after the run loop slept
+        /// (``CommitBoundary/Outcome/missed``): the time holds idle time, so no sample.
+        case missed = 3
 
         var name: String {
             switch self {
             case .shown: "shown"
             case .closed: "closed"
+            case .hidden: "hidden"
+            case .missed: "missed"
             }
         }
     }
@@ -90,12 +99,14 @@ public final class CreateTabInterval {
     public var isOpen: Bool { outcome == nil }
 
     /// The stand-in shows in this turn: the instant goes at the end of the Core Animation commit that carries it
-    /// (`boundary`), unless the interval ended before. Marks once.
-    public func standInShown(at boundary: CommitBoundary = CommitBoundary()) {
+    /// (`afterCommit`; nil: the main run loop's ``CommitBoundary``), unless the interval ended before or the
+    /// boundary missed that commit (its time would be a later wake's). Marks once.
+    public func standInShown(afterCommit: CreateTabTimings.AfterCommit? = nil) {
         guard !standInMarked, isOpen else { return }
         standInMarked = true
-        boundary.after { [self] _ in
-            guard isOpen, let interval else { return }
+        let after = afterCommit ?? { CommitBoundary().after($0) }
+        after { [self] commit in
+            guard commit == .committed, isOpen, let interval else { return }
             signposter.createTabStandIn(kind, interval: interval, signpostID: signpostID, intentID: intentID)
         }
     }
@@ -128,7 +139,7 @@ extension Signposter {
     func endCreateTab(_ interval: SignpostInterval, outcome: CreateTabInterval.Outcome) {
         let name = SignpostName.createTab
         signposter.endInterval(name.staticName, interval.state, "outcome=\(outcome.name, privacy: .public)")
-        if outcome == .shown, let id = interval.metricKitID { mirror.end(name, id: id) }
+        if outcome == .shown, let id = interval.metricKitID { mirror.end(name, id: id) } // closed, hidden, missed: no sample
         closeInterval(name, interval, arg0: outcome.rawValue)
     }
 

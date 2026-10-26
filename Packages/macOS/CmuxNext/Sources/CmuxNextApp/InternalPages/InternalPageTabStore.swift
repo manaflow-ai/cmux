@@ -49,6 +49,8 @@ final class InternalPageTabStore {
     /// lifecycle, and what each discarded tab keeps by provider key (InternalPageTabStore+Show).
     @ObservationIgnored var discards: ContentDiscardScheduler?
     @ObservationIgnored weak var cache: TabContentCache?
+    /// New tabs' `create.tab` waits (the content cache's): a page tab's close or rekey here is its close or move there.
+    @ObservationIgnored weak var createTabs: CreateTabTimings?
     @ObservationIgnored let discardRecords = ContentDiscardRecords()
 
     /// Whether `daemon` keeps a page tab's route (`page-tab-route-v1`).
@@ -235,7 +237,7 @@ final class InternalPageTabStore {
         guard let provider = providers[page], daemon.supports(DaemonCapability.pageTabs.rawValue),
               case .connected = store.connectionState else { return nil }
         // create.tab: a page tab this window shows, from this turn to its page's first paint.
-        let timing = focus && pane?.view.window != nil && ActionRunScope.viewChangeAllowed() ? services.cache.createTabs.begin(.page) : nil
+        let timing = services.cache.createTabs.begin(.page, shows: focus && pane?.showsNewTabs == true)
         let provisional = ProvisionalTab()
         let key = given.flatMap { LocalPageTab.page(of: $0) == page ? $0 : nil } ?? LocalPageTab.makeKey(page)
         var snapshot = TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.id),
@@ -287,6 +289,7 @@ final class InternalPageTabStore {
     /// and the selection move to it.
     func storeTabCreated(_ provisional: String, as real: String, surface: SurfaceID) {
         guard provisional != real, let key = storeKeys[provisional] else { return }
+        createTabs?.rekey(provisional, to: real) // the store's tab waits for the provisional one's first paint
         storeKeys[real] = key
         storeTabStores[real] = storeTabStores[provisional]
         // The provisional id resolves until the tree drops it.
@@ -325,6 +328,7 @@ final class InternalPageTabStore {
                 seenLive.insert(id)
             } else if seenLive.contains(id) {
                 seenLive.remove(id)
+                createTabs?.released(id) // closed before its first paint: create.tab ends as closed
                 storeTabStores[id] = nil
                 if let key = storeKeys.removeValue(forKey: id), !storeKeys.values.contains(key) { forget(key) }
             }
@@ -364,6 +368,7 @@ final class InternalPageTabStore {
     }
 
     private func forget(_ key: String) {
+        createTabs?.released(key) // a local page tab's id is its key
         views.removeValue(forKey: key)?.removeFromSuperview()
         discardRecords.forget(key)
         windows[key] = nil
