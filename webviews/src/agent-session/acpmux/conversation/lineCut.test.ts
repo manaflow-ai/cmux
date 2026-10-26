@@ -1,27 +1,42 @@
 import { expect, test } from "bun:test";
-import { cutBetween } from "./lineCut";
+import { JSDOM } from "jsdom";
+import { cutBetween, wholeLineCut } from "./lineCut";
 
+const span = (top: number, bottom: number) => ({ top, bottom });
 test.each([
   [[], 160, 160],
-  [[{ top: 150.25, bottom: 170 }], 160, 150.25],
-  [
-    [
-      { top: 140, bottom: 160 },
-      { top: 155, bottom: 180 },
-    ],
-    160,
-    140,
-  ],
-  [[{ top: 0, bottom: 400 }], 160, 0],
-  [
-    [
-      { top: 0, bottom: 159.9 },
-      { top: 160.1, bottom: 180 },
-    ],
-    160,
-    160,
-  ],
+  [[span(150.25, 170)], 160, 150.25],
+  [[span(140, 160), span(155, 180)], 160, 140],
+  [[span(0, 400)], 160, 0],
+  [[span(0, 159.9), span(160.1, 180)], 160, 160],
 ] as const)("cut avoids crossing rendered boxes: %j", (spans, limit, expected) => {
   expect(cutBetween(spans, limit)).toBe(expected);
   expect(cutBetween([...spans].reverse(), limit)).toBe(expected);
+});
+
+// Geometry supplied by the renderer: a card starts at 120, its body crosses the 160px cut.
+test.each(["plain", "shadow-open", "shadow-closed", "host-only"])("keeps %s code cards atomic", (kind) => {
+  const dom = new JSDOM(
+    '<div id="preview" style="width:640px"><div class="cv-codeblock"><header>TypeScript</header><diffs-container></diffs-container></div></div>',
+  );
+  try {
+    const rect = (top: number, bottom: number) => new dom.window.DOMRect(0, top, 640, bottom - top);
+    const doc = dom.window.document;
+    const box = doc.getElementById("preview")!;
+    const host = box.querySelector("diffs-container")!;
+    if (kind === "plain") host.replaceWith(doc.createElement("code"));
+    else
+      host.attachShadow({ mode: kind === "shadow-closed" ? "closed" : "open" }).innerHTML =
+        "<pre><code>const sample = 1;</code></pre>";
+    if (kind === "host-only") box.replaceChildren(host);
+    box.getBoundingClientRect = () => rect(0, 400);
+    for (const element of box.querySelectorAll("*")) {
+      const top = element.matches(".cv-codeblock") ? 120 : 150;
+      element.getClientRects = () => [rect(top, 300)] as unknown as DOMRectList;
+    }
+    dom.window.Range.prototype.getClientRects = () => [rect(124, 140)] as unknown as DOMRectList;
+    expect(wholeLineCut(box, 160)).toBe(kind === "host-only" ? 150 : 120);
+  } finally {
+    dom.window.close();
+  }
 });
