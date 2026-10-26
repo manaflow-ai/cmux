@@ -949,7 +949,8 @@ jobs:
           path: tip-handoff-out/*
           compression-level: 0
           if-no-files-found: error
-          retention-days: 3
+          # A DMG on every DEV run: keep it no longer than tip needs it.
+          retention-days: 1
 
       # Only after the handoff uploaded: tip runs on this output alone.
       - name: Mark the tip DMG ready for tip
@@ -1054,18 +1055,25 @@ jobs:
             fi
           }
           read_live
-          # Archives and deltas are write-once under names unique to this
-          # attempt, so no run replaces bytes a feed already signed. Until the
-          # feed names them, they are this attempt's alone: a run that ends
-          # without writing the feed removes them (cmux_binaries_prune.py leaves
-          # this prefix alone). A feed write that failed without a clear
-          # conflict may have landed, or may still land, so after one the
-          # uploads stay.
+          # Archives and deltas are write-once under names unique to the
+          # tip-dmg attempt that made them, so no run replaces bytes a feed
+          # already signed. Until the feed names them, they are that attempt's
+          # alone: a tip of the same attempt that ends without writing the feed
+          # removes them (cmux_binaries_prune.py leaves this prefix alone). A
+          # feed write that failed without a clear conflict may have landed, or
+          # may still land, so after one the uploads stay. A re-run of tip alone
+          # (a later attempt than the names) reuses names an earlier tip may
+          # have put in a feed whose write is still landing, so it never
+          # removes them.
+          owns=false
+          [[ "${TIP_RUN_TAG##*-}" == "${GITHUB_RUN_ATTEMPT:-}" ]] && owns=true
           uploaded=() written=false unsure=false
           cleanup() {
             local status=$?  # the step's own status, kept: the trap never turns a failure green
             if [[ "$unsure" == true ]]; then
               echo "::warning::a tip feed write ended without a clear answer; keeping this attempt's uploads"
+            elif [[ "$written" != true && "$owns" != true ]]; then
+              echo "::warning::an earlier tip attempt may have put these names in the feed; keeping the uploads"
             elif [[ "$written" != true ]]; then
               for object in ${uploaded[@]+"${uploaded[@]}"}; do
                 python3 scripts/ci/r2_cas.py delete --key "$object" || echo "::warning::could not remove $object"

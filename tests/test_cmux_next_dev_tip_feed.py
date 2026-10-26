@@ -424,7 +424,7 @@ if [[ "$1" == scripts/ci/upload-r2-object.py ]]; then
 fi
 exec "$REAL_PY" "$@"
 """
-def run_tip(lives, conflicts=(), fail_upload="", lost=(), pending=()):
+def run_tip(lives, conflicts=(), fail_upload="", lost=(), pending=(), attempt="1"):
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         (tmp / "bin").mkdir()
@@ -446,7 +446,7 @@ def run_tip(lives, conflicts=(), fail_upload="", lost=(), pending=()):
                "REAL_PY": sys.executable, "TIP_R2_PREFIX": "nightly-next/tip", "TIP_APPCAST": "appcast-arm64.xml",
                "TIP_BUILD": "102", "TIP_RUN_TAG": "r7-1", "TIP_KEEP": "3", "SOURCE_SHA": "a" * 40,
                "TIP_BASE_URL": "https://files.cmux.com/nightly-next/tip", "GITHUB_STEP_SUMMARY": str(tmp / "summary"),
-               "R2_ENDPOINT": "https://r2.invalid", "FAIL_UPLOAD": fail_upload}
+               "R2_ENDPOINT": "https://r2.invalid", "FAIL_UPLOAD": fail_upload, "GITHUB_RUN_ATTEMPT": attempt}
         result = subprocess.run(["bash", "-e", "-c", tip_script], cwd=tmp, env=env, capture_output=True, text=True, timeout=60)
         log = (tmp / "log").read_text() if (tmp / "log").exists() else ""
         written = sorted(tmp.glob("written*.xml"))
@@ -469,6 +469,15 @@ check(rc != 0 and last == [102, 100, 99] and "r2 delete" not in log,
 rc, log, last, err = run_tip([(100, 99)], pending=(1,))
 check(rc != 0 and "r2 delete" not in log,
       f"a feed write that failed without an answer may still land, so the uploads stay ({rc} {log!r})")
+# Codex (2026-10-26): a re-run of tip alone reuses tip-dmg's names, which an earlier tip attempt
+# may have put in a feed whose write lands late; that re-run never removes them.
+rc, log, last, err = run_tip([(100, 99), (102, 100, 99)], conflicts=(1,), attempt="2")
+check(rc == 0 and "r2 delete" not in log,
+      f"a tip re-run that finds its build already in the feed keeps the shared uploads ({rc} {log!r})")
+rc, log, last, err = run_tip([(100, 99)], fail_upload=".delta", attempt="2")
+check(rc != 0 and "r2 delete" not in log, f"a tip re-run never removes names an earlier attempt uploaded ({rc} {log!r})")
+check("retention-days: 1" in tip_dmg.split("name: Upload the tip DMG and appcast for tip", 1)[1].split("- name:", 1)[0],
+      "the per-run DMG handoff is kept one day, not three")
 # CMUX_TIMESTAMP=none makes the Linux signer drop the time stamp and the Developer ID check
 # (scripts/ci/rcodesign-sign-bundle-dev.sh); the publisher must never set it.
 check("CMUX_TIMESTAMP" not in workflow, "the DEV workflow never sets CMUX_TIMESTAMP")
