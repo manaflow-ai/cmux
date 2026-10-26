@@ -207,7 +207,10 @@ fn write_index(path: &std::path::Path, secrets: Map<String, Value>) -> std::io::
 }
 
 /// Holds `<index>.lock` (flock) for one read-modify-write of the index; released on drop.
-struct IndexLock(std::fs::File);
+struct IndexLock(
+    // Never read: holding the open file is what keeps the flock until drop.
+    #[allow(dead_code)] std::fs::File,
+);
 
 impl IndexLock {
     fn take(index: &std::path::Path) -> std::io::Result<Self> {
