@@ -8,10 +8,9 @@ import CmuxNextWakeups
 ///
 /// Whether it hosts (``hosting(override:fork:widget:)``): the developer's
 /// `BrowserResizeTunables.layerHosting` hosts every page window from fork API
-/// 26. Without it the default-off feature `cefLayerHosting` hosts a pane's page
-/// only where the app makes every Track A call for the fork (``TrackA``);
-/// DevTools and popup windows keep drawing in their own window (``Widget``)
-/// until task p03-rendering-056 hosts them.
+/// 26. Without it the default-off feature `cefLayerHosting` hosts a page window
+/// of a kind the fork hosts (``Widget``, ``Fork/hostedWidgets``) where the app
+/// makes every Track A call for the fork (``TrackA``).
 ///
 /// The context belongs to the page window, not to a tab: every tab of a pane
 /// shares it, so a tab switch inside a hosted pane makes no fork call. A new
@@ -75,17 +74,21 @@ final class CEFLayerHosting {
         /// window kept for its next show (the app's ``CEFHiddenFrames`` decides
         /// when). Nil: Chromium's own frame eviction decides.
         let evictFrame: ((_ browser: Int32) -> Bool)?
+        /// The kinds of page window the fork hosts (``widgets(apiVersion:)``); the feature's default hosts no other.
+        let hostedWidgets: Set<Widget>
 
         init(setLayerHosting: @escaping (_ browser: Int32, _ enabled: Bool) -> UInt32,
              setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)? = nil,
              trackA: TrackA? = nil,
              setVisibility: ((_ browser: Int32, _ visibility: PageVisibility) -> Bool)? = nil,
-             evictFrame: ((_ browser: Int32) -> Bool)? = nil) {
+             evictFrame: ((_ browser: Int32) -> Bool)? = nil,
+             hostedWidgets: Set<Widget> = [.page]) {
             self.setLayerHosting = setLayerHosting
             self.setResizeSync = setResizeSync
             self.trackA = trackA
             self.setVisibility = setVisibility
             self.evictFrame = evictFrame
+            self.hostedWidgets = hostedWidgets
         }
 
         /// The shim's call; nil without a shim or below fork API 26, where
@@ -106,6 +109,7 @@ final class CEFLayerHosting {
             }
             // The fork's keep-frame-while-hidden call has no shim export yet: Chromium's own eviction decides.
             evictFrame = nil
+            hostedWidgets = CEFLayerHosting.widgets(apiVersion: apiVersion)
         }
 
         /// A page window `runtime` made in process, with its feature's Track A calls.
@@ -373,6 +377,7 @@ final class CEFLayerHosting {
 
     private func addPage(to view: NSView) -> ChromiumHostPageView {
         let page = makePage(view.bounds)
+        page.hostedWidget = widget.name
         // Below the tracker's probe and every other subview.
         view.addSubview(page, positioned: .below, relativeTo: nil)
         self.page = page

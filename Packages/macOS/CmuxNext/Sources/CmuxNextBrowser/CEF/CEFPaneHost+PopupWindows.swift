@@ -33,7 +33,10 @@ nonisolated enum CEFPopupWindows {
 /// window to its view (`cmux_popup_window_attach`). The window id then stays
 /// valid until the panel closes; `chrome.windows.update` bounds resize the
 /// panel (`.resizePopup`) and `chrome.windows.remove` closes the tab, which
-/// closes the panel.
+/// closes the panel. Like Chrome's popup browser window, which keeps its page's
+/// view in its own window (`Browser::TYPE_POPUP`, chrome/browser/ui/browser.h),
+/// the attached window's pixels show in the panel's layers where the fork hosts
+/// popup windows (``CEFLayerHosting/Widget/popupWindow``, fork API 35).
 extension CEFPaneHost {
     /// A popup host for window `window` holding its tab `browser`, announced
     /// by `opener` (a pane's visible tab) as `.openPopup`.
@@ -43,6 +46,7 @@ extension CEFPaneHost {
                                   profile: key.profile, machineKey: key.machineKey, offTheRecord: key.offTheRecord)
         let host = runtime.host(for: popupKey, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
         host.popupWindow = window
+        host.hostView.layerHosting.widget = .popupWindow
         let tab = CEFTab(id: id, profile: key.profile, host: host, runtime: runtime)
         tab.machineStore = opener.machineStore
         tab.navigationGuard = opener.navigationGuard
@@ -84,8 +88,15 @@ extension CEFPaneHost {
         window = .live(window: popupWindow)
         lastActivated = browser
         _ = shim.tabActivate(browser)
-        // Host mode: the window's pixels are its widget context, shown filling this host's view.
-        runtime.widgetHost?.place(.popupWindow, owner: browser, in: hostView)
+        if isHostMode {
+            // The window's pixels are its widget context, shown filling this host's view.
+            runtime.widgetHost?.place(.popupWindow, owner: browser, in: hostView)
+        } else {
+            // The attached window is this view's page window from now on: hosted in the panel's layers as a
+            // pane's page is (`CEFLayerHosting.Widget.popupWindow`, fork API 35 with the feature's Track A calls).
+            hostView.layerHosting.switchCommit.hiddenFrames = runtime.hiddenFrames
+            hostView.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(runtime: runtime))
+        }
         hostView.postGeometryChange()
         lifecycleTrace.record(tab.id, "popup-window-attached")
         runtime.notePopupWindow("window=\(popupWindow) attached")

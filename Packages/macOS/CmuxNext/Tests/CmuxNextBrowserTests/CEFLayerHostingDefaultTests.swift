@@ -5,8 +5,8 @@ import Testing
 
 /// Layer hosting's default (p03-rendering-050). The feature `cefLayerHosting` hosts a pane's page only where the
 /// app makes every Track A call for the fork (the resize fence, embedder visibility); no fork API alone turns it on.
-/// DevTools and popup windows keep their own window (until p03-rendering-056), and `debug.cef` counts why a page
-/// did not host. The developer's `browserResize.layerHosting` keeps its meaning: every page window from API 26.
+/// Below fork API 35 DevTools and popup windows keep their own window (per-widget hosting from 35 is
+/// `CEFWidgetHostingTests`), and `debug.cef` counts why a page did not host. The developer's `browserResize.layerHosting` keeps its meaning: every page window from API 26.
 @MainActor
 @Suite(.serialized) struct CEFLayerHostingDefaultTests {
     let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
@@ -44,10 +44,11 @@ import Testing
         #expect(host(false, fork(trackA: .required), .page) == .hosted)
         #expect(host(false, fork(trackA: .required), .devTools) == .widgetFallback)
         #expect(host(false, fork(trackA: .required), .popup) == .widgetFallback)
+        #expect(host(false, fork(trackA: .required), .popupWindow) == .widgetFallback)
     }
 
     @Test func theDeveloperOverrideHostsEveryPageWindowOnAnyFork() {
-        for widget in [CEFLayerHosting.Widget.page, .devTools, .popup] {
+        for widget in CEFLayerHosting.Widget.allCases {
             for trackA in [nil, [], CEFLayerHosting.TrackA.required] as [CEFLayerHosting.TrackA?] {
                 #expect(CEFLayerHosting.hosting(override: true, fork: fork(trackA: trackA), widget: widget) == .hosted)
             }
@@ -82,8 +83,8 @@ import Testing
         #expect(CEFHostView.trackerStats.hostingWidgetFallbacks == before.hostingWidgetFallbacks)
     }
 
-    @Test func devToolsAndPopupsKeepTheirWindowAndCountTheFallback() {
-        for widget in [CEFLayerHosting.Widget.devTools, .popup] {
+    @Test func devToolsAndPopupsKeepTheirWindowBelowAPI35AndCountTheFallback() {
+        for widget in [CEFLayerHosting.Widget.devTools, .popup, .popupWindow] {
             let before = CEFHostView.trackerStats
             let hosting = makeHosting(widget: widget)
             hosting.pageWindowCreated(browser: 6, fork: fork(trackA: .required))

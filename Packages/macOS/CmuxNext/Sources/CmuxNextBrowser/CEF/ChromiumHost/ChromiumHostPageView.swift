@@ -45,6 +45,9 @@ public final class ChromiumHostPageView: NSView {
     let inputTarget: InputTarget
     /// Names this view on the Chromium Host wire for a parent NSView* argument (host mode); 0 in process.
     var wireToken: UInt64 = 0
+    /// The kind of page window in-process layer hosting shows here (`CEFLayerHosting.Widget.name`), for
+    /// `debug.cef` `tracker.hosted_pages_by_widget`; nil for host mode's views. Set before the view enters a window.
+    var hostedWidget: String?
     /// The view's size or screen place changed (only when the rect differs from the last one reported).
     var onGeometry: ((ChromiumHostGeometry) -> Void)? {
         didSet { observeWindow() }
@@ -205,9 +208,9 @@ public final class ChromiumHostPageView: NSView {
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         if window == nil, newWindow != nil {
-            CEFHostView.trackerStats.hostedPages += 1
+            CEFHostView.trackerStats.countHostedPage(widget: hostedWidget, delta: 1)
         } else if window != nil, newWindow == nil {
-            CEFHostView.trackerStats.hostedPages -= 1
+            CEFHostView.trackerStats.countHostedPage(widget: hostedWidget, delta: -1)
         }
     }
 

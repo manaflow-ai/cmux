@@ -173,6 +173,8 @@ enum DebugCEF {
             "clip_ms": .number(stats.clipSeconds * 1_000),
             "geometry_posts": .number(Double(stats.geometryPosts)),
             "hosted_pages": .number(Double(stats.hostedPages)),
+            // Keyed by the page window's kind: "page", "devtools", "popup", "popup_window".
+            "hosted_pages_by_widget": .object(stats.hostedPagesByWidget.mapValues { JSONValue.number(Double($0)) }),
             "hosting_refused": .number(Double(stats.hostingRefused)),
             "hosting_widget_fallbacks": .number(Double(stats.hostingWidgetFallbacks)),
             "hosting_without_track_a": .number(Double(stats.hostingWithoutTrackA)),

@@ -1183,6 +1183,21 @@ every task that changes behavior or performance and is not repeated per row.
 - Acceptance: Fork-seam tests per kind; tracker.hosted_pages counts them.
 - Test phase: devtools-resize-live.py; extension popup e2e.
 - Size L. Depends: 050. Queue: MQ-child-window-pages.
+- App side landed: `CEFLayerHosting.Widget` has four kinds (`page`, `devtools`, `popup`, `popup_window`) and
+  `Fork.hostedWidgets` says which the fork hosts: a tab's page from API 26, every kind from
+  `widgetHostingForkAPI` = 35. With the feature's Track A calls the default hosts each kind the fork hosts. An
+  embedded DevTools hosts on its own host view from DEVTOOLS_OPENED, and keeps its context when a dock move takes
+  the view into cmux's DevTools window. A `window.open` popup host's window hosts like a pane's page. An
+  extension's `chrome.windows` popup window hosts in the popup panel's view once `cmux_popup_window_attach`
+  succeeds. A hidden DevTools or popup keeps its frame in the app-wide hidden frame list. `debug.cef`
+  `tracker.hosted_pages_by_widget` counts the hosted views of each kind. Tests: `CEFWidgetHostingTests` (each kind
+  through the fork seam) and `CEFLayerHostingDefaultTests` (below API 35).
+- Not landed: the fork side. API 35 is the contract written in `cmux_cef_shim.h`:
+  `cmux_browser_set_layer_hosting` also takes a DevTools frontend placed over an embedder view and an attached popup
+  window's tab, with the resize fence and embedder visibility of a tab's page window. No fork reports 35 yet, so the
+  default still keeps those kinds in their own window (`hosting_widget_fallbacks`). The developer override hosts
+  them on any fork from 26. Track B attach for these kinds waits for 044/045 (`cmux_browser_attach_view`), which
+  are not on the branch.
 
 #### p03-rendering-058 Fork: visibility from the embedder
 - Files: fork `chrome_child_window_mac.mm`; fork `content/browser/web_contents/web_contents_occlusion_checker_mac.mm`;

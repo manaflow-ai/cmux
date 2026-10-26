@@ -304,6 +304,14 @@ CMUX_SHIM_EXPORT void cmux_shim_set_file_dialogs(int enabled);
 // (NULL or "" cancels); `multiple` 0 keeps only the first (open one, save).
 // Returns 0 when the id is unknown or already answered. UI thread.
 CMUX_SHIM_EXPORT int cmux_shim_file_dialog_answer(int dialog_id, int multiple, const char* paths);
+// cmux_shim_browser_set_layer_hosting (see Fork API 26 above). Fork API 35
+// (per-widget hosting, p03-rendering-056): browser_id may also name a DevTools
+// frontend placed over an embedder view (cmux_shim_devtools_set_placement with
+// a view, docked or in the embedder's DevTools window) or the tab of a popup
+// window attached with cmux_shim_popup_window_attach; the fork hosts that
+// window like a tab's page window, and the resize fence and embedder
+// visibility apply to it the same way. Below 35 the app hosts only a tab's
+// page window by default (a developer override still asks for every one).
 CMUX_SHIM_EXPORT unsigned int cmux_shim_browser_set_layer_hosting(int browser_id, int enabled);
 // Fork API 27: how long (ms) a resize of browser_id's page window may hold
 // this app's Core Animation commit for Chromium's frame at the new size; 0
