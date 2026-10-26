@@ -4,7 +4,9 @@ import WebRTC
 
 /// The streamed screen on iOS: libwebrtc's Metal renderer (hardware-decoded
 /// frames go straight to the GPU). `onSize` reports the video's pixel size.
-public final class ScreenVideoView: UIView, @preconcurrency RTCVideoViewDelegate {
+/// The delegate conformance is main-actor isolated: `RTCMTLVideoView` reports size
+/// changes on the main queue (its `setSize:` dispatches to it).
+public final class ScreenVideoView: UIView, @MainActor RTCVideoViewDelegate {
     public var onSize: ((CGSize) -> Void)?
     /// Called on the main queue with each rendered frame's arrival time (perf).
     public var onFrame: (() -> Void)?
