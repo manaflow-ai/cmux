@@ -181,13 +181,12 @@ use crate::terminal_host_protocol::{
     decode_terminal_exit, split_flow_trailer,
 };
 
-/// Default maximum retained scrollback backing storage per terminal, in bytes
-/// (about 15,000 rows at 80 columns). Ghostty's own default is 50 MB, but
-/// the daemon keeps every terminal's scrollback resident, so a busy terminal
-/// costs this much whether or not anyone scrolls it: ten printing terminals
-/// grew the daemon by 500 MB in a 24 h soak (cx-urd.4). `scrollback-limit-bytes`
-/// in the Ghostty config raises it.
-pub const DEFAULT_SCROLLBACK_LIMIT_BYTES: usize = 10_000_000;
+/// Default maximum retained scrollback backing storage per terminal, in bytes:
+/// the per-terminal cap of the daemon's memory budget
+/// ([`cmux_memory::budget::SCROLLBACK_BYTES_PER_TERMINAL`], 10 MB).
+/// `scrollback-limit-bytes` in the Ghostty config raises it.
+pub const DEFAULT_SCROLLBACK_LIMIT_BYTES: usize =
+    cmux_memory::budget::SCROLLBACK_BYTES_PER_TERMINAL;
 
 /// Result of encoding terminal mouse input against a previously observed
 /// pointer snapshot without blocking on terminal parsing.

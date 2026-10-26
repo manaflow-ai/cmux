@@ -1,3 +1,4 @@
+public import CmuxNextWakeups
 public import Foundation
 
 /// ``FileOperating`` on the real file system, off the main actor.
@@ -6,9 +7,15 @@ public import Foundation
 /// any size is a metadata-only clone, and report bytes as they go.
 public struct FileOperator: FileOperating {
     let namer: FileNamer
+    /// Runs `ditto` for Compress and Expand.
+    let processes: any ProcessRunning
 
-    /// Makes an operator. `namer` makes "copy" and numbered names.
-    public init(namer: FileNamer = FileNamer()) { self.namer = namer }
+    /// Makes an operator. `namer` makes "copy" and numbered names; `processes` runs `ditto`
+    /// (``AsyncProcess``; tests pass a fake).
+    public init(namer: FileNamer = FileNamer(), processes: any ProcessRunning = AsyncProcess()) {
+        self.namer = namer
+        self.processes = processes
+    }
 
     @concurrent
     public func rename(_ url: URL, to name: String) async throws -> URL {

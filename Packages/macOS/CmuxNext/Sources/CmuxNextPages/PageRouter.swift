@@ -1,3 +1,4 @@
+package import CmuxNextHibernation
 public import CmuxNextSettings
 public import Foundation
 
@@ -34,6 +35,10 @@ public final class PageRouter {
     /// navigation (`reset`) and by tab close (`close`) (app-op-routing.md "Op cancel").
     private var inFlight: [UInt64: PageCallInFlight] = [:]
     private var closed = false
+    /// The document the router serves: one more at every ``close()`` (a reload, a crash, a
+    /// navigation, a rebind). A call keeps the one it arrived in, so state it sets for its document
+    /// (``PageNativeOp/keepAlive``) never lands on the next one.
+    private var document: UInt64 = 0
     /// Built-in streams every page gets (``PageNativeOp/pageCommand``, ``PageNativeOp/pageConnection``):
     /// subscription id to stream name.
     private(set) var builtIn: [UInt64: String] = [:]
@@ -48,6 +53,9 @@ public final class PageRouter {
     public internal(set) var debugPageHidden = false
     /// Events delivered while ``debugPageHidden``: one integer add per delivery (`debug.webui`).
     public internal(set) var debugDeliveriesWhileHidden = 0
+    /// The page's oracle reading may have changed (``oracleStateChangedOp``, p15-oracle-215): the page
+    /// host's feed (``WebUIHost/oracleChanges``) wakes `debug.oracle.wait_for` on the `webviews` facet.
+    public var oracleStateChanged: (@MainActor () -> Void)?
     #endif
 
     public init(descriptor: PageDescriptor, routes: [PageRoute]) {
@@ -92,7 +100,10 @@ public final class PageRouter {
                     opid = text
                 }
                 let params = message["params"] ?? .object([:])
-                let value = try await cancellable(id: id, op: op) { [self] in try await call(op, params: params, opid: opid) }
+                let document = document
+                let value = try await cancellable(id: id, op: op) { [self] in
+                    try await call(op, params: params, opid: opid, document: document)
+                }
                 return ["t": "ok", "id": .number(Double(id)), "value": value]
             } catch let error as PageError {
                 return Self.error(id: id, error)
@@ -138,7 +149,25 @@ public final class PageRouter {
     /// menu, answered once it closes.
     public var contextMenu: (@MainActor ([String: Any]) async -> JSONValue)?
 
-    private func call(_ op: String, params: JSONValue, opid: String?) async throws -> JSONValue {
+    /// The page's `cmux.page.keepAlive`, checked: one of its own reasons, on or off (``PageKeepReasons``).
+    package var keepAlive: (@MainActor (PageLifecyclePlanner.KeepReason, Bool) -> Void)?
+
+    private func call(_ op: String, params: JSONValue, opid: String?, document: UInt64) async throws -> JSONValue {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if op == Self.oracleStateChangedOp {
+            guard !closed else { throw PageError.closed }
+            oracleStateChanged?()
+            return .object([:])
+        }
+        #endif
+        if op == PageNativeOp.keepAlive {
+            // Its document ended before the call ran (its task was cancelled, but a cancelled task
+            // still runs): the next document's reasons are its own.
+            guard !closed, document == self.document, !Task.isCancelled else { throw PageError.closed }
+            let request = try PageKeepReasons.pageRequest(params)
+            keepAlive?(request.reason, request.on)
+            return .object([:])
+        }
         if op == PageNativeOp.titleBarDoubleClick {
             guard !closed else { throw PageError.closed }
             titleBarDoubleClick?()
@@ -305,15 +334,32 @@ public final class PageRouter {
     /// Calls an op the page serves (`cmux.page.command`) and waits for its reply. The call goes
     /// past the hold, after a thaw, so a frozen page answers it.
     public func callPage(_ op: String, params: JSONValue) async throws -> JSONValue {
+        try await callPage(op, params: params) { _ in }
+    }
+
+    /// ``callPage(_:params:)`` that tells `started` the call's id once it is pending, so a caller
+    /// whose deadline passed can ``abandonCall(_:)`` it.
+    func callPage(_ op: String, params: JSONValue, started: (UInt64) -> Void) async throws -> JSONValue {
         guard !closed, let send else { throw PageError.closed }
         let id = nextCall
         nextCall += 1
         lifecycle?.thawForDelivery()
         return try await withCheckedThrowingContinuation { continuation in
             pendingCalls[id] = continuation
+            started(id)
             send(["t": "call", "id": .number(Double(id)), "op": .string(op), "params": params])
         }
     }
+
+    /// Fails pending host call `id` with `CancellationError` and forgets it: its caller gave up (a
+    /// deadline passed), so a page that never replies keeps no continuation here and a late reply
+    /// resolves nothing. A finished or unknown id is a no-op.
+    func abandonCall(_ id: UInt64) {
+        pendingCalls.removeValue(forKey: id)?.resume(throwing: CancellationError())
+    }
+
+    /// Host calls still waiting for the page's reply.
+    var pendingHostCalls: Int { pendingCalls.count }
 
     private func resolve(id: UInt64, _ message: JSONValue) {
         guard let continuation = pendingCalls.removeValue(forKey: id) else { return }
@@ -330,6 +376,7 @@ public final class PageRouter {
     /// itself stays: a hidden page that reloads is still hidden.
     public func close() {
         closed = true
+        document += 1
         didClose?()
         for stream in held.drain() { reportDropped(stream.events, sub: stream.sub) }
         for subscription in subscriptions.values { subscription.cancel() }

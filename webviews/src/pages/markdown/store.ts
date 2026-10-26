@@ -3,7 +3,7 @@
 // `save` page command (Cmd-S) and page hide, and a save whose text equals the last saved text is
 // skipped. A disk change reloads the page when there are no local edits and raises the conflict
 // banner when there are.
-import { isPageError, type PageClient } from "../shared/pageClient";
+import { isPageError, PageKeepAlive, type PageClient } from "../shared/pageClient";
 import type { SourceMap } from "./sourceMap";
 import type { DiffViewerAppearance } from "../../appearance";
 import { markdownBehavior } from "./settings";
@@ -150,6 +150,8 @@ export class MarkdownStore {
   private readonly unsentPreferences = new Map<string, { value: unknown; cancel: () => void }>();
   private started = false;
   private readonly reporter;
+  /** `user_edits` while the document holds edits not on disk: the host keeps the hidden page (p13-webui-032). */
+  private readonly keepAlive: PageKeepAlive;
 
   constructor(
     private readonly client: PageClient | null,
@@ -157,6 +159,7 @@ export class MarkdownStore {
     reportSchedule: Schedule = defaultSchedule,
   ) {
     this.reporter = createEditReporter(() => this.reportEdited(), reportSchedule);
+    this.keepAlive = new PageKeepAlive(client);
   }
 
   /** `cmux.markdown.edited`: the host's unsaved state and recovery draft follow the document. */
@@ -187,6 +190,8 @@ export class MarkdownStore {
 
   private set(patch: Partial<MarkdownState>): void {
     this.state = { ...this.state, ...patch };
+    const { readOnly, status, conflict } = this.state;
+    this.keepAlive.set("user_edits", !readOnly && (status !== "saved" || conflict !== null));
     for (const listener of this.listeners) listener();
   }
 

@@ -501,6 +501,9 @@ pub struct Mux {
     connection_stats: Arc<crate::diagnostics::ConnectionStats>,
     /// Control-request latency by class and the dispatch queue.
     request_stats: Arc<crate::diagnostics::RequestStats>,
+    /// Streams, messages, parses and writes of every connection
+    /// (`server-stats` `ipc`).
+    ipc_stats: Arc<crate::diagnostics::IpcStats>,
     /// Clone of the registry's projection spans, read without its lock.
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
     /// Blocking notes of request handlers (`server-stats` `request_path_io`).
@@ -548,6 +551,10 @@ pub struct Mux {
     /// The refactor switch arms `oracle-state` reports, frozen at first read.
     #[cfg(any(debug_assertions, feature = "oracle"))]
     oracle_switches: OnceLock<crate::oracle_state::SwitchArms>,
+    /// Holders of this session that ended since this owner started
+    /// (`oracle-state` `childExits.holder`, invariant I17).
+    #[cfg(any(debug_assertions, feature = "oracle"))]
+    oracle_holder_exits: AtomicU64,
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -779,6 +786,9 @@ pub struct Mux {
     keybindings: keybindings::KeybindingsSlot,
     /// Parallel terminal host launches and reaps (`terminal_work`).
     terminal_work: terminal_work::TerminalWorkPool,
+    /// This owner's memory registry: consumers register, sources vote.
+    #[cfg_attr(not(test), expect(dead_code, reason = "read by p07-memory-044 and 109"))]
+    pub(crate) memory: Arc<crate::memory::DaemonMemory>,
     /// Hosts launched ahead of their creation, by reserved terminal id.
     #[cfg(any(unix, windows))]
     prelaunched_terminals: Mutex<HashMap<String, terminal_work::PrelaunchedTerminal>>,

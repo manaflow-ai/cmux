@@ -285,6 +285,10 @@ impl Mux {
         &self.request_stats
     }
 
+    pub(crate) fn ipc_stats(&self) -> &Arc<crate::diagnostics::IpcStats> {
+        &self.ipc_stats
+    }
+
     pub fn uptime(&self) -> Duration {
         self.started_at.elapsed()
     }

@@ -7,7 +7,9 @@
 // the namespace instead. No page file changes.
 
 import { holdPaintForClaim } from "./paintGate";
+import { PARKED_NAME, pageLifecycleFor } from "./pageLifecycle";
 import { installNativeMenu, NATIVE_MENU_OP } from "../../ui/nativeMenu";
+import { serveOracleState } from "../../protocol/oracle-state";
 
 export interface PageError extends Error {
   code: string;
@@ -83,12 +85,8 @@ export interface ReplyHandler {
 
 export const RECEIVE_NAME = "__cmuxPageReceive";
 
-/**
- * Set to `true` by the host before page code runs when the document loads in a parked pooled host
- * (the prewarmed spare, PageWebView's pooled recipe). The spare has no routes yet, so the client
- * holds every call and subscription until the host claims the document for a page.
- */
-export const PARKED_NAME = "__cmuxPageParked";
+/** The parked-document flag (pageLifecycle.ts); the client holds calls until the claim. */
+export { PARKED_NAME };
 
 /**
  * The host's claim of a parked document (`{route?}`): the claim's routes are bound, so the client
@@ -97,6 +95,44 @@ export const PARKED_NAME = "__cmuxPageParked";
  * `cmux.page.not_parked`, and the host reloads it.
  */
 export const CLAIM_OP = "cmux.page.claim";
+
+/**
+ * Built in for every page (p13-webui-032): `{reason, on}` sets or ends one of the page's own keep
+ * reasons, which keep it from being frozen or discarded while hidden. The host refuses any other
+ * reason; the page can only add reasons, and they end with its document (reload, crash).
+ */
+export const KEEP_ALIVE_OP = "cmux.page.keepAlive";
+
+/**
+ * The keep reasons a page may set (the host's `PageKeepReasons.pageSettable`): what only its
+ * document knows. The host observes the rest itself (a drop it reads, dictation, Web Inspector).
+ */
+export type PageKeepReason = "user_edits" | "form_interaction" | "before_unload" | "draft" | "capture";
+
+/**
+ * The page's keep reasons as it last told the host: `set` sends `cmux.page.keepAlive` only when a
+ * reason starts or ends, so a store may call it on every state change (no IPC per keystroke). A
+ * host without the op (an older app) answers `unknown_op`, which is ignored.
+ */
+export class PageKeepAlive {
+  private readonly held = new Set<PageKeepReason>();
+
+  constructor(private readonly client: PageClient | null) {}
+
+  /** Whether the page last said `reason` holds. */
+  has(reason: PageKeepReason): boolean {
+    return this.held.has(reason);
+  }
+
+  set(reason: PageKeepReason, on: boolean): void {
+    if (this.held.has(reason) === on) return;
+    if (on) this.held.add(reason);
+    else this.held.delete(reason);
+    this.client?.call<unknown>(KEEP_ALIVE_OP, { reason, on }).catch((error: unknown) => {
+      if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op")) console.warn("cmux keepAlive", error);
+    });
+  }
+}
 
 /** How many not-yet-registered subscriptions, and events per subscription, the client holds. */
 const EARLY_SUBS = 16;
@@ -134,7 +170,7 @@ export class BridgePageClient implements PageClient {
 
   constructor(
     private readonly handler: ReplyHandler,
-    target: Record<string, unknown> = globalThis as unknown as Record<string, unknown>,
+    private readonly target: Record<string, unknown> = globalThis as unknown as Record<string, unknown>,
   ) {
     target[RECEIVE_NAME] = (message: unknown) => this.receive(message);
     this.parked = target[PARKED_NAME] === true;
@@ -232,6 +268,8 @@ export class BridgePageClient implements PageClient {
     if (typeof route === "string" && route.startsWith("#") && this.location && this.location.hash !== route)
       this.location.replace(route);
     this.parked = false;
+    // A parked document is hidden to its timers (pageLifecycle.ts) until this claim.
+    pageLifecycleFor(this.target).claimed();
     const held = this.held;
     this.held = [];
     for (const { envelope, resolve, reject } of held) this.handler.postMessage(envelope).then(resolve, reject);
@@ -362,6 +400,8 @@ export function createPageClient(fallback?: () => PageClient): PageClient | null
     const client = new BridgePageClient(handler);
     // The page's right-click menus are the app's native menus (ui/nativeMenu.ts).
     installNativeMenu((request) => client.call(NATIVE_MENU_OP, request));
+    // The refactor oracle's page state, in developer builds only (protocol/oracle-state.ts).
+    serveOracleState(client);
     return client;
   }
   return fallback ? fallback() : null;

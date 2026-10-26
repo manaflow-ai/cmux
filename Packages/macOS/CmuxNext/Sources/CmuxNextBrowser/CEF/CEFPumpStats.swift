@@ -49,6 +49,17 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
 
     public init() {}
 
+    /// Counts one `CefDoMessageLoopWork` call of `elapsed` seconds.
+    ///
+    /// - Returns: Whether it used CEF's whole time slice (a ``longWorkRuns`` pass; `cef.pump` end `arg0` 1).
+    mutating func recordWorkRun(elapsed: TimeInterval) -> Bool {
+        let longRun = elapsed >= CEFPumpSchedule.timeSlice
+        workRuns += 1
+        workSeconds += elapsed
+        if longRun { longWorkRuns += 1 }
+        return longRun
+    }
+
     /// Decides which passes count as ``earlyPasses``: only CEF's own re-ask during the pass counts. A
     /// request after the pass is a Chromium thread's or cmux's, not the truncated re-ask, and a pass that
     /// used CEF's whole time slice is not early: the fork asks for "now" because work is left.

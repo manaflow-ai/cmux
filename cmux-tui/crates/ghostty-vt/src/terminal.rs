@@ -3231,4 +3231,6 @@ pub use history::{HistoryPage, HistoryPages, HistorySnapshot, MarkerError};
 
 #[path = "cold_pages.rs"]
 mod cold;
-pub use cold::{ColdPagesError, ColdRefused, ColdTerminal, ThawFailed};
+pub use cold::{
+    ColdPagesError, ColdRefused, ColdTerminal, PageMemory, ScrollbackCompression, ThawFailed,
+};

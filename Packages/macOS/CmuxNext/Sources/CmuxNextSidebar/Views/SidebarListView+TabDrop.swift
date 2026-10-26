@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import QuartzCore
+import CmuxNextWakeups
 // External tab drags driven by the App TabDragSession.
 extension SidebarListViewComponents {
     // MARK: - External tab drag
@@ -153,8 +154,9 @@ extension SidebarListViewComponents {
         let clock = springLoadClock
         let delay = springLoadDelay
         external.springTask = Task { [weak self] in
-            // wakeup-allow: one-shot spring-load delay while a tab hovers a row, cancelled when it leaves
-            do { try await clock.sleep(for: delay) } catch { return }
+            // wakeup-allow: deadline of the spring-load hover on a row, cancelled when the tab leaves it;
+            // not a DemandTimer: main actor (timer-class asks MainDeadline, and this type has no MainDeadlineScheduler seam)
+            do { try await clock.sleep(for: delay, tolerance: WakeLeeway.window(delay: delay).tolerance) } catch { return }
             guard let self, self.external === external,
                   external.springTarget == target, external.springGroupTarget == groupTarget else { return }
             if let target, self.model.activeWorkspaceID != target {

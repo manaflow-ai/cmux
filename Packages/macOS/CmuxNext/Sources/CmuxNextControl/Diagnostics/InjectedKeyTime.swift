@@ -1,6 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import CmuxNextSettings
-import Foundation
+public import Foundation
 
 /// The two times of a key `debug.key` injects (DEBUG and bench builds), both in seconds since boot
 /// (`CLOCK_UPTIME_RAW`, `ProcessInfo.systemUptime`).

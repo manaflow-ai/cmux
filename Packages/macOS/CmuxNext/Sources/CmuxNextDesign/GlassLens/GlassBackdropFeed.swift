@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import CmuxNextCompat
 public import CmuxNextDesignTokens
 
@@ -25,6 +25,7 @@ public final class GlassBackdropFeed {
     private let evaluate: @MainActor (String) -> Void
     private let images: GlassBackdropImages
     private let mode: @MainActor () -> GlassLensMode
+    private let scheduler: @MainActor (NSView) -> FrameScheduler
     /// What the page has; nil for a document that got nothing yet.
     private(set) var sent: GlassBackdropPayload?
     private weak var source: WindowMaterialView?
@@ -39,13 +40,17 @@ public final class GlassBackdropFeed {
     ///   - zoom: The page zoom (one CSS px is `zoom` points).
     ///   - images: Where stills are encoded and shared.
     ///   - mode: The glass mode pages draw now.
+    ///   - scheduler: The frame scheduler of the host's window (``FrameScheduler/forView(_:)``; tests pass their own).
     ///   - evaluate: Runs a script in the page's main frame.
     public init(host: NSView, zoom: @escaping @MainActor () -> Double, images: GlassBackdropImages = .shared,
-                mode: @escaping @MainActor () -> GlassLensMode = { .current }, evaluate: @escaping @MainActor (String) -> Void) {
+                mode: @escaping @MainActor () -> GlassLensMode = { .current },
+                scheduler: @escaping @MainActor (NSView) -> FrameScheduler = { FrameScheduler.forView($0) },
+                evaluate: @escaping @MainActor (String) -> Void) {
         self.host = host
         self.zoom = zoom
         self.images = images
         self.mode = mode
+        self.scheduler = scheduler
         self.evaluate = evaluate
     }
 
@@ -63,10 +68,19 @@ public final class GlassBackdropFeed {
         update()
     }
 
-    /// Pushes what changed on the next display frame.
+    /// Pushes what changed on the next display frame its window is seen in: a hidden, minimized or
+    /// covered window's page gets the push when it shows (or a capture vote holds its window).
     func setNeedsUpdate() {
-        let client = nextFrame ?? FrameClient(owner: "glass.backdrop", isAnimation: false,
-                                              scheduler: { [weak self] in self?.host.map(FrameScheduler.forView) ?? .app }) { [weak self] _ in
+        let node = host?.window.map { WindowVisibilitySource.of($0).node }
+        if let stale = nextFrame, stale.visibleOnly !== node {
+            // The host moved to another window: the pending push follows that window's visibility.
+            stale.deactivate()
+            nextFrame = nil
+        }
+        let client = nextFrame ?? FrameClient(owner: "glass.backdrop", isAnimation: false, visibleOnly: node, scheduler: { [weak self] in
+            guard let self, let host else { return .app }
+            return scheduler(host)
+        }) { [weak self] _ in
             self?.update()
             return false
         }

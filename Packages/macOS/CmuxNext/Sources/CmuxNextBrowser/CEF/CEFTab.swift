@@ -150,6 +150,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// URL of the last main-frame load that committed (Chromium's current
     /// entry). Renderer debug URLs (chrome://crash) never commit.
     @ObservationIgnored var committedURL: URL?
+    /// ``discard()`` emptied the tab in place; any commit, load or reload ends it.
+    @ObservationIgnored var isDiscardedInPlace = false
     /// Chromium's own Back/Forward state; the tab also offers the entries
     /// saved before a relaunch (`restored`).
     @ObservationIgnored var nativeHistory = (back: false, forward: false)
@@ -181,6 +183,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var deviceEmulationNeedsReset = false
     @ObservationIgnored var faviconTask: Task<Void, Never>?
     @ObservationIgnored private(set) var isClosed = false
+    /// The current document's first content frame (`CEFFirstPaintBridge`, or its load end with nothing painted).
+    @ObservationIgnored let firstContentFrame = BrowserFirstContentFrame()
     @ObservationIgnored private var isOccluded = false
     /// The pane window this tab belongs to. A popup starts in its opener's
     /// Chromium window but belongs to its own popup host from adoption on;
@@ -334,6 +338,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // `state.processExit` is laid out shows a white page area for a frame
         // in a dark theme.
         documentDidSettle()
+        firstContentFrame.contentShown() // the sad tab is what a new tab shows
         reloadWhenShown = host.visibleTab !== self
         findRequests.cancel()
         runtime.recordRendererExit(exit, tab: self)
@@ -363,6 +368,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     public func load(_ url: URL) {
         guard !isClosed else { return }
+        isDiscardedInPlace = false
         automaticDownloads.userGesture()
         let id = makeNavigationID()
         navigation = id
@@ -388,6 +394,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     public func reload() {
         reloadWhenShown = false
+        isDiscardedInPlace = false
         guard let browserID else {
             if let url = pendingURL ?? state.url { load(url) }
             return
@@ -480,6 +487,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         guard !isClosed else { return }
         isClosed = true
         agentRelay.resumeWaiters(false)
+        firstContentFrame.closed()
         titleTimer.cancel()
         faviconTask?.cancel()
         dismissPrompts()

@@ -3,6 +3,7 @@ import CmuxNextAgentActivity
 import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -16,6 +17,7 @@ import CmuxNextSidebar
 import CmuxNextTabs
 import CmuxNextTerminal
 import CmuxNextTerminalFind
+import CmuxNextWakeups
 import CryptoKit
 import Foundation
 
@@ -85,6 +87,30 @@ extension AppServices: OracleHost {
                 [weak self] () throws(OracleFacetError) -> [OracleTerminalsFacet.Terminal] in
                 guard let self else { throw OracleFacetError("the app services are gone") }
                 return try oracleTerminals()
+            },
+            // Each reachable page's own store summary (`cmux.page.oracle.state`), with the tab and pane that show it;
+            // the pages signal their changes.
+            OracleWebviewsFacet(changes: { [feed = webUI.oracleChanges] in feed.subscribe() }) {
+                [weak self] () async throws(OracleFacetError) -> OracleWebviewsFacet.Reading in
+                guard let self else { throw OracleFacetError("the app services are gone") }
+                return try await oracleWebviews()
+            },
+            // Child exits by kind: the run this launch follows, Chromium's crash log, and the daemon's loss log.
+            OracleCrashesFacet(app: { [weak self] in
+                guard let self else { return nil }
+                let log = cache.chromium.built?.crashLog, previous = crashRecovery.recovery.previous
+                return OracleCrashesFacet.AppExits(previous: previous.map { .init(signal: $0.signal, raisedException: $0.exception != nil) },
+                                                   tallies: log?.tallies ?? [:], records: log?.records ?? [])
+            }, daemon: { [weak self] () async throws(OracleFacetError) -> [String: Int]? in
+                try await OracleCrashesFacet.daemonChildExits(self?.daemon.connection)
+            }),
+            // Live objects from their owners' tables; Chromium's only once it was built (the read never starts it).
+            OracleLiveObjectsFacet { [weak self] in
+                guard let self, daemon.store.isLoaded else { return nil }
+                return OracleLiveObjectsFacet.Reading(
+                    stores: machines.daemons.map(\.store), cefBrowsers: cache.chromium.built?.liveBrowserCount ?? 0,
+                    pageViews: cache.browsers.count, terminals: cache.terminals.count,
+                    subscriptions: mainWork.observations.snapshot().reduce(0) { $0 + $1.armed }, tasks: mainWork.wakeUps.count)
             },
         ])
     }

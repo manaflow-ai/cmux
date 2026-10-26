@@ -73,6 +73,7 @@ final class NotificationCenterService {
     @ObservationIgnored let finishedBursts = FinishedBannerBursts()
     /// The Chief pet's notices (`NotificationCenterService+ChiefPet`); nil while it is off.
     @ObservationIgnored var chiefPet: ChiefPetController?
+    /// The newest notification handled; 0 at `start` (its launch post, p08-startup-031), so a live one that came before it still arrives.
     @ObservationIgnored private var lastSeen: UInt64 = 0
     /// The Dock badge this service set last (nil: none).
     @ObservationIgnored var dockBadgeLabel: String?
@@ -87,6 +88,8 @@ final class NotificationCenterService {
     @ObservationIgnored let approvals = AgentApprovalBanners()
     @ObservationIgnored var localAgentHost: @MainActor () -> String? = { nil }
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
+    /// `start()` ran: the store's notifications are followed.
+    @ObservationIgnored private(set) var isStarted = false
     /// Workspace statuses `followStatusRuns` examined since start: what a status change costs it
     /// (tests read it; it must follow the workspaces whose status changed, not the session).
     @ObservationIgnored var statusRunVisits = 0
@@ -116,11 +119,21 @@ final class NotificationCenterService {
     }
     private static let logLimit = 64
 
-    func start(services: AppServices) {
+    /// Wires the service to the app in `AppServices.init`, with no I/O: what reads `services` before the
+    /// observers start (the Chief pet the platform services make in the launch turn, a click's or a
+    /// key's read) works from the first frame.
+    func wire(services: AppServices) {
         self.services = services
         AgentTurnStateStore.shared.onTurnEnded = { [weak self] session in self?.agentTurnEnded(session: session) }
-        ProgramStatusSeenStore.shared.persist(to: .standard)
         desktopPostingEnabled = !services.environment.showcase
+    }
+
+    /// Starts the banners, rings, sounds and the Dock badge from the store's notifications, once (the
+    /// `Notifications.start` launch post, p08-startup-031). Needs `wire(services:)` first.
+    func start() {
+        guard let services, !isStarted else { return }
+        isStarted = true
+        ProgramStatusSeenStore.shared.persist(to: .standard)
         startDesktopAndStore(services)  // the feed handoff waits for Cloud's start (`startFeedHandoff`)
     }
 
@@ -162,7 +175,6 @@ final class NotificationCenterService {
         }
         followApprovals(services)
         let store = services.daemon.store
-        lastSeen = store.notifications.map(\.notification.rawValue).max() ?? 0
         tasks.append(Task { [weak self] in
             for await newest in ObservationStream({ store.notifications.last?.notification.rawValue ?? 0 }) {
                 guard let self, newest > self.lastSeen else { continue }
@@ -191,7 +203,6 @@ final class NotificationCenterService {
                 self.updateDockBadge(self.currentUnreadCount())
             }
         })
-        followChiefPet(settings)
     }
 
     /// The source of `tab`'s retained marker, from the daemon

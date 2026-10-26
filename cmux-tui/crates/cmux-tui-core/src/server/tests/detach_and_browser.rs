@@ -540,7 +540,9 @@ fn websocket_direct_writer_emits_a_tungstenite_compatible_text_frame() {
     let (server, _) = listener.accept().unwrap();
     let mut writer = SynchronizedTcpStream::new(server);
     let write = std::thread::spawn(move || {
-        writer.write_websocket_text(&"x".repeat(65_536)).unwrap();
+        writer
+            .write_websocket_text(&"x".repeat(65_536), &crate::diagnostics::IpcStats::default())
+            .unwrap();
     });
     let mut websocket =
         WebSocket::from_raw_socket(client, tungstenite::protocol::Role::Client, None);

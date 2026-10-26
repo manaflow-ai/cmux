@@ -203,6 +203,9 @@ impl Mux {
             label: "mux".to_owned(),
             ..cmux_threads::work::WorkConfig::default()
         })?;
+        // The owner's memory registry: every memory consumer of this owner
+        // registers here, and its kernel source starts on first use.
+        let memory = Arc::new(crate::memory::DaemonMemory::new());
         let mux = Arc::new(Mux {
             launch_identity,
             registry_connection: registry.connection.clone(),
@@ -211,6 +214,7 @@ impl Mux {
             machine_public_id,
             connection_stats: Arc::default(),
             request_stats: Arc::default(),
+            ipc_stats: Arc::default(),
             resource_projection_stats,
             request_path_stats: crate::request_path::stats_from_env(),
             request_qos: crate::request_qos::RequestQosGate::from_env(),
@@ -238,6 +242,8 @@ impl Mux {
             history_search: OnceLock::new(),
             #[cfg(any(debug_assertions, feature = "oracle"))]
             oracle_switches: OnceLock::new(),
+            #[cfg(any(debug_assertions, feature = "oracle"))]
+            oracle_holder_exits: AtomicU64::new(0),
             #[cfg(test)]
             client_resize_before_apply: Mutex::new(None),
             #[cfg(test)]
@@ -415,7 +421,8 @@ impl Mux {
             launch_snapshot_path: Mutex::new(None),
             settings: settings::SettingsSlot::default(),
             keybindings: keybindings::KeybindingsSlot::default(),
-            terminal_work: terminal_work::TerminalWorkPool::default(),
+            terminal_work: terminal_work::TerminalWorkPool::new(&memory),
+            memory,
             #[cfg(any(unix, windows))]
             prelaunched_terminals: Mutex::new(HashMap::new()),
             #[cfg(unix)]

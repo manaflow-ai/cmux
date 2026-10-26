@@ -4,6 +4,7 @@ import CmuxNextDesign
 @testable import CmuxNextTabs
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The browser chrome takes Helium's sizes, spacing and hover shapes, not Chrome's (Lawrence
 /// 2026-10-20: "I actually wanted to match Helium not Chrome ... size, spacing, and the hover
@@ -18,7 +19,7 @@ import Testing
 
     private func chrome(in window: NSWindow) -> BrowserChromeView {
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
-        let chrome = BrowserChromeView(tab: tab)
+        let chrome = BrowserChromeView(tab: tab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         chrome.frame = NSRect(x: 0, y: 0, width: 1000, height: 600)
         window.contentView = chrome
         chrome.layoutSubtreeIfNeeded()

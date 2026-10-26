@@ -82,6 +82,16 @@ final class SidebarListView: NSView {
     /// Recycled row views by class; only rows near the viewport have views.
     var rowPool = SidebarRowViewPool()
     var hoveredKey: SidebarRowKey?
+    /// The list's hover moves (feature `pointerFrameHover`): with `hoverFrameInput`, a frame interval's first
+    /// move hovers at once and the rest once at its frame, at the latest point; without it, each move hovers.
+    private(set) lazy var hoverMoves = PointerFrameHover(owner: "SidebarListView.hover", view: self) { [weak self] point in
+        self?.updateHover(point)
+    }
+    /// The windows' frame-aligned pointer input (feature `pointerFrameHover`); nil: each move hovers at once.
+    var hoverFrameInput: FrameInputCoalescers? {
+        get { hoverMoves.frames }
+        set { hoverMoves.frames = newValue }
+    }
     /// True while a scroll moves the hover to the row under a still pointer: that row's hover
     /// shows at once instead of fading, so a scroll does not start a fade on every row it passes.
     var hoverFollowsScroll = false
@@ -101,6 +111,9 @@ final class SidebarListView: NSView {
     var pointerIsOverList: @MainActor (SidebarListView) -> Bool = { $0.pointerIsOverVisibleRows }
     /// A model change held while the pointer was over the list; it shows when the pointer leaves (`releaseHeldModelChange`).
     var holdsModelChange = false
+    /// Told which rows each reload lists (`reportListedRows`): a new workspace's `create.workspace` interval ends
+    /// at the commit of the reload that first lists its row. Nil for a list nobody sees (a space page).
+    var newRows: SidebarNewRowTimer?
     /// Row patches held while a drag, its settle or its card's landing runs (`SidebarRowHold`).
     var rowHold = SidebarRowHold()
     /// Workspaces a pin drop took to the band: out of the list until its card lands (cx-odqn).
@@ -241,6 +254,7 @@ final class SidebarListView: NSView {
         // A move to another window (or none) ends this list's card only.
         hoverCards.unregister(hoverCard)
         if window != nil { hoverCards.register(hoverCard) }
+        reportListedRows() // the rows its last reload listed off screen show from this window's next commit
         guard observedWindow !== window else { return }
         let center = NotificationCenter.default
         observedWindow = window
@@ -284,9 +298,14 @@ final class SidebarListView: NSView {
             owner: self
         ))
     }
-    override func mouseMoved(with event: NSEvent) { updateHover(event.locationInWindow) }
-    override func mouseEntered(with event: NSEvent) { updateHover(event.locationInWindow) }
+    override func mouseMoved(with event: NSEvent) { hoverMoves.moved(event) }
+    // Enter and exit are discrete: the pending moves land first (Chromium's `ShouldFlushQueue`).
+    override func mouseEntered(with event: NSEvent) {
+        hoverMoves.flush()
+        updateHover(event.locationInWindow)
+    }
     override func mouseExited(with event: NSEvent) {
+        hoverMoves.flush()
         releaseHeldModelChange()
         setHovered(nil)
         hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })

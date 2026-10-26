@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A hidden Chromium page frozen through the page lifecycle: its timers, tasks and rendering stop
 /// until it thaws. On cmux14 this cut a hidden renderer's energy by about 90 %.
@@ -31,5 +31,31 @@ extension CEFTab: BrowserFreezing {
     func freezeNeverShownPage(_ browser: Int32) {
         guard let shim = runtime.shim else { return }
         _ = shim.devToolsCall(browser, "Page.setWebLifecycleState", CEFDevToolsResult.params(["state": "frozen"]))
+    }
+}
+
+/// Chrome's in-place discard (Memory Saver): a hidden page's renderer and document go and its tab
+/// stays, `WebContents::Discard` (content/public/browser/web_contents.h) through the fork's
+/// `cmux_shim_tab_discard` (p13-webui-018).
+extension CEFTab {
+    /// Discards the hidden page in place: the tab keeps its browser, window slot, NavigationEntry and
+    /// session storage, and Chromium reloads the entry when the page shows. Makes no call into the page.
+    ///
+    /// - Returns: False when nothing was discarded (no export, host mode, no browser, closed, or
+    ///   Chromium refused): the caller closes the page instead.
+    @discardableResult
+    public func discard() -> Bool {
+        guard let browserID, !isClosed, let discard = runtime.shim?.tabDiscard, discard(browserID) == 1 else { return false }
+        isDiscardedInPlace = true
+        return true
+    }
+
+    /// Loads `url`, except the URL of the entry ``discard()`` emptied (as `.address` last set it): that
+    /// sends nothing, because Chromium reloads the entry itself when the page shows, with its PageState
+    /// and `document.wasDiscarded` (`WebContentsImpl::WasShown` -> `NavigationControllerImpl::SetActive`
+    /// -> `LoadIfNecessary`, content/browser/renderer_host/navigation_controller_impl.cc).
+    public func loadRestoringDiscard(_ url: URL) {
+        if isDiscardedInPlace, !isClosed, (state.url ?? committedURL) == url { return }
+        load(url)
     }
 }

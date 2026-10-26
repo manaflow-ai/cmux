@@ -19,8 +19,11 @@
 //! `CanDiscard`). Refused: a Kitty upload in progress, deferred clipboard reads
 //! (their tokens live in libghostty), and Kitty state the replay stream does
 //! not carry (an image without a showing placement keeps no pixels in it, and
-//! a placement only in scrollback is not in it). Kitty state is checked by
-//! restoring a scratch terminal, only for terminals that ever held an image.
+//! a placement only in scrollback is not in it), and any image on the
+//! inactive screen (libghostty-vt reads the Kitty state of the active screen
+//! only, so the inactive one cannot be compared). For a terminal that ever
+//! held an image, cheap checks without an encode refuse the usual cases
+//! first; then a scratch terminal restored from the pages is compared.
 //!
 //! A thawed terminal is a new libghostty instance: renderers and mouse
 //! encoders rebind (new instance id) and [`super::TrackedScreenPoint`]s of the
@@ -28,6 +31,17 @@
 //! platforms without a kernel compressor; on macOS it relies on the kernel
 //! (p07-memory.md, "Memory"), so this codec is used only where 112 measured
 //! a gain of 2x or more over WKdm.
+//!
+//! libghostty-vt's own page compression ([`Terminal::compress_scrollback`],
+//! LZ4 per history page, restored on access, terminal stays live) is the
+//! cheaper first step, but it holds about 5x more: a filled 10 MB scrollback
+//! (120x40, `cold_pages_compare_with_native_page_compression`) stays at
+//! 1.0 MB resident for the corpus text and 2.2 MB for varied logs, against
+//! 0.21 MB and 0.39 MB held here (release build, Linux). Its active page
+//! stays uncompressed and its LZ4 sees one page of raw cells at a time. The
+//! price here is the freeze (50-90 ms) and a full decode (9-10 ms) before
+//! any read, where a read of native compressed pages costs 30-40 us for the
+//! viewport.
 
 use std::ffi::c_void;
 use std::io::{Read as _, Write as _};
@@ -39,10 +53,10 @@ use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 
 use super::{
-    Callbacks, KittyReplayState, NEXT_TERMINAL_ID, SNAPSHOT_CONTINUATION_MAX_BYTES, Terminal,
-    callbacks, configure_kitty_graphics, sys,
+    Callbacks, KittyReplayState, NEXT_TERMINAL_ID, SNAPSHOT_CONTINUATION_MAX_BYTES, Screen,
+    Terminal, callbacks, configure_kitty_graphics, sys,
 };
-use crate::{Error, KittyGraphicsSnapshot, Result, check};
+use crate::{Error, KittyGraphicsSnapshot, Result, check, kitty};
 
 /// Settings this wrapper writes to libghostty-vt that GHOSTSNP does not
 /// carry. Their setters record them here; a thaw writes them again.
@@ -169,6 +183,32 @@ impl ColdTerminal {
     }
 }
 
+/// What one [`Terminal::compress_scrollback`] pass left to do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrollbackCompression {
+    /// This platform cannot free memory by compressing pages.
+    Unsupported,
+    /// More incremental work remains while the terminal stays idle.
+    Pending,
+    /// Nothing more to do until the terminal changes.
+    Complete,
+}
+
+/// Page memory of both screens (`GhosttyTerminalMemoryUsage`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PageMemory {
+    /// Physical bytes of the pages; a compressed page counts its compressed size.
+    pub resident_bytes: u64,
+    /// Bytes of compressed page data, included in `resident_bytes`.
+    pub compressed_bytes: u64,
+    /// Pages, compressed ones included.
+    pub pages: u64,
+    /// Pages that are compressed.
+    pub compressed_pages: u64,
+    /// Kitty image bytes of the primary and the alternate screen.
+    pub image_bytes: (u64, u64),
+}
+
 impl Terminal {
     /// Names the terminfo entry this terminal's program runs as (its TERM),
     /// which an XTGETTCAP "TN" query reports, as Ghostty does. An empty name
@@ -206,6 +246,12 @@ impl Terminal {
         if self.raw_settings.clipboard_reads_deferred {
             return Err(ColdPagesError::ClipboardReadsDeferred);
         }
+        // Zero: the image storage of both screens never changed, so the
+        // replay stream (resets and cursors) is exact without a check.
+        let kitty_changed = self.kitty_image_generation()? != 0;
+        if kitty_changed {
+            self.precheck_kitty()?;
+        }
         let (snapshot, snapshot_len) = deflate_snapshot(self.raw)?;
         let (kitty_replay, _) = self.encode_kitty_replay(u64::MAX)?;
         let rows_below_viewport = self
@@ -218,33 +264,56 @@ impl Terminal {
             kitty_state: self.kitty_replay_state(0)?,
             rows_below_viewport,
         };
-        // Zero: the image storage of both screens never changed, so the
-        // replay stream (resets and cursors) is exact without a check.
-        if self.kitty_image_generation()? != 0 {
+        if kitty_changed {
             self.check_kitty_replay(&pages)?;
         }
         Ok(pages)
     }
 
+    /// Refusals found without an encode. libghostty-vt reads the Kitty state
+    /// of the active screen only, so the inactive screen must hold no image:
+    /// its placements cannot be compared, and the replay drops some (one only
+    /// in the primary scrollback while the alternate screen is active).
+    fn precheck_kitty(&self) -> std::result::Result<(), ColdPagesError> {
+        let (primary, alternate) = self.page_memory()?.image_bytes;
+        let inactive = match self.active_screen() {
+            Screen::Primary => alternate,
+            Screen::Alternate => primary,
+        };
+        if inactive > 0 || kitty::active_scene_drops_from_replay(self)? {
+            return Err(ColdPagesError::KittyNotReplayable);
+        }
+        Ok(())
+    }
+
     /// Restore `pages` into a scratch terminal and compare its Kitty state:
     /// the replay stream it encodes, the image bytes of each screen (an
     /// image the stream sent as metadata holds none) and every placement of
-    /// the active screen, scrollback included.
+    /// the active screen, scrollback included. The stream must also store no
+    /// image on the inactive screen: one without pixels, which the precheck
+    /// cannot see, can still hold placements the replay drops.
     fn check_kitty_replay(&self, pages: &ColdPages) -> std::result::Result<(), ColdPagesError> {
+        let inactive = match self.active_screen() {
+            Screen::Primary => REPLAY_SCREEN_ALTERNATE,
+            Screen::Alternate => REPLAY_SCREEN_PRIMARY,
+        };
+        if replay_stores_image_on(&pages.kitty_replay, inactive) {
+            return Err(ColdPagesError::KittyNotReplayable);
+        }
         let mut scratch = Terminal::new(1, 1, 0, Callbacks::default())?;
         scratch.release_raw();
         if scratch.adopt_cold(pages).is_err() {
             return Err(ColdPagesError::KittyNotReplayable);
         }
         let same = scratch.encode_kitty_replay(u64::MAX)?.0[..] == pages.kitty_replay[..]
-            && scratch.kitty_image_bytes()? == self.kitty_image_bytes()?
+            && scratch.page_memory()?.image_bytes == self.page_memory()?.image_bytes
             && kitty_scene(scratch.kitty_graphics_snapshot()?)
                 == kitty_scene(self.kitty_graphics_snapshot()?);
         if same { Ok(()) } else { Err(ColdPagesError::KittyNotReplayable) }
     }
 
-    /// Kitty image bytes of the primary and the alternate screen.
-    fn kitty_image_bytes(&self) -> Result<(u64, u64)> {
+    /// Page memory of both screens.
+    pub fn page_memory(&self) -> Result<PageMemory> {
         // SAFETY: an all-zero GhosttyTerminalMemoryUsage is a valid value of
         // the plain C struct; `size` is then set to the size the getter
         // requires, and the out-pointer is valid for the call.
@@ -257,7 +326,34 @@ impl Terminal {
                 (&mut usage as *mut sys::GhosttyTerminalMemoryUsage).cast(),
             )
         })?;
-        Ok((usage.primary_image_bytes, usage.alternate_image_bytes))
+        Ok(PageMemory {
+            resident_bytes: usage.primary_resident_bytes + usage.alternate_resident_bytes,
+            compressed_bytes: usage.primary_compressed_bytes + usage.alternate_compressed_bytes,
+            pages: usage.primary_pages + usage.alternate_pages,
+            compressed_pages: usage.primary_compressed_pages + usage.alternate_compressed_pages,
+            image_bytes: (usage.primary_image_bytes, usage.alternate_image_bytes),
+        })
+    }
+
+    /// libghostty-vt's own scrollback compression: each history page is
+    /// compressed in place and restored when something reads it, so the
+    /// terminal stays live. `full` does every page in one call; otherwise
+    /// one bounded step for an idle callback.
+    pub fn compress_scrollback(&mut self, full: bool) -> Result<ScrollbackCompression> {
+        let mode = if full {
+            sys::GHOSTTY_TERMINAL_COMPRESSION_MODE_FULL
+        } else {
+            sys::GHOSTTY_TERMINAL_COMPRESSION_MODE_INCREMENTAL
+        };
+        let mut result = sys::GHOSTTY_TERMINAL_COMPRESSION_RESULT_UNSUPPORTED;
+        // SAFETY: `raw` is this wrapper's live terminal, serialized by
+        // `&mut self`; the out-pointer is valid for the call.
+        check(unsafe { sys::ghostty_terminal_compress(self.raw, mode, &mut result) })?;
+        Ok(match result {
+            sys::GHOSTTY_TERMINAL_COMPRESSION_RESULT_PENDING => ScrollbackCompression::Pending,
+            sys::GHOSTTY_TERMINAL_COMPRESSION_RESULT_COMPLETE => ScrollbackCompression::Complete,
+            _ => ScrollbackCompression::Unsupported,
+        })
     }
 
     /// Free the libghostty terminal and everything that points into it. The
@@ -311,6 +407,27 @@ impl Terminal {
         self.reset_history_anchor();
         Ok(())
     }
+}
+
+/// Values of the replay stream's private screen key `E`
+/// (`ghostty_terminal_kitty_replay_encode`).
+const REPLAY_SCREEN_PRIMARY: u8 = b'0';
+const REPLAY_SCREEN_ALTERNATE: u8 = b'1';
+
+/// Whether `stream` transmits an image (`a=t`, with or without pixels) to
+/// `screen`. Every command is `ESC _ G <keys> [; payload] ESC \`; base64
+/// payloads hold no ESC, and continuation chunks carry no `a=`.
+fn replay_stores_image_on(stream: &[u8], screen: u8) -> bool {
+    let screen_key = [b'E', b'=', screen];
+    stream.split(|&byte| byte == 0x1b).filter_map(|part| part.strip_prefix(b"_G")).any(|command| {
+        let keys = command.split(|&byte| byte == b';').next().unwrap_or_default();
+        let (mut transmit, mut on_screen) = (false, false);
+        for key in keys.split(|&byte| byte == b',') {
+            transmit |= key == b"a=t";
+            on_screen |= key == screen_key;
+        }
+        transmit && on_screen
+    })
 }
 
 /// Images and placements without the process-local generations.
