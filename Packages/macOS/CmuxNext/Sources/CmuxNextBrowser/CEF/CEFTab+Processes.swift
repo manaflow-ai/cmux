@@ -59,6 +59,11 @@ extension CEFTab: BrowserProcessReporting {
         showProcessExit(exit)
     }
 
+    /// True from the Chromium Host's end with this tab's browser, or the one it was making
+    /// (``hostEnded(_:)``), until the tab gets a browser again or closes: the tab shows the host's
+    /// exit and has no browser, so what waited for it failed because the host ended.
+    public var browserEndedWithHost: Bool { browserID == nil && !isClosed && state.processExit != nil }
+
     /// The page's process ended: the sad tab shows, and a hidden tab reloads when it is shown. False
     /// for a closed tab, which shows nothing.
     @discardableResult
