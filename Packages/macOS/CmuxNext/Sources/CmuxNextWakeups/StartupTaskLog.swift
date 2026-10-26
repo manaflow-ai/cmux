@@ -144,6 +144,27 @@ public final class StartupTaskLog: Sendable {
         }
     }
 
+    /// Runs a launch start the launch turn calls directly (`LaunchStart.runNow`, no post and no record):
+    /// its `launch.startup_task` interval with `priority=launchTurn` and arg0 0, and the watchdog's
+    /// current-task word while it runs.
+    ///
+    /// - Parameters:
+    ///   - name: The start's name (`Domain.step`).
+    ///   - body: The start.
+    /// - Returns: What the start returns.
+    @MainActor @discardableResult
+    public func runInLaunchTurn<T>(_ name: StaticString, _ body: () -> T) -> T {
+        let outer = current.exchange(Self.pack(name), ordering: .acquiringAndReleasing)
+        let interval = signposter.map { signposter in
+            signposter.begin(.launchStartupTask, "name=\(name) priority=launchTurn", arg0: 0)
+        }
+        defer {
+            if let signposter, let interval { signposter.end(.launchStartupTask, interval) }
+            current.store(outer, ordering: .releasing)
+        }
+        return body()
+    }
+
     /// Marks the completion in the signpost stream and the ring (`launch.startup_complete reason=<reason>`;
     /// arg0 the reason's position + 1, arg1 the afterStartup tasks held until then).
     func completed(_ reason: StartupInProgressRef.Reason, heldTasks: Int) {

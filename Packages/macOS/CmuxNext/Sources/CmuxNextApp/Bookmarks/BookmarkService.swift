@@ -43,6 +43,9 @@ final class BookmarkService {
     var awaitedFolderIcons: Set<String> = []
     @ObservationIgnored var folderIconObservation: Task<Void, Never>?
     @ObservationIgnored var migrating = false
+    /// Finished by ``startSync()``: the launch read's import migration waits for it (`LaunchStart.bookmarkSync`).
+    private let syncStarted: AsyncStream<Void>
+    private let syncStart: AsyncStream<Void>.Continuation
     /// The folder each profile's last bookmark went to, offered for the next one.
     @ObservationIgnored var lastFolder: [String: String] = [:]
     /// Live browser chromes, by tab key, for the star and bar fan-out.
@@ -65,21 +68,23 @@ final class BookmarkService {
 
     init(services: AppServices) {
         self.services = services
+        (syncStarted, syncStart) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))  // only finished
     }
 
-    /// Reads the file, observes the home daemon, and runs the one-time
-    /// migrations (file to daemon, earlier browser imports into bookmarks).
+    /// Reads the file, follows the daemon's bookmark changes and observes the
+    /// home daemon (the file-to-daemon migration): the store the restored
+    /// pages read (`LaunchStart.bookmarks`). Earlier browser imports become
+    /// bookmarks once ``startSync()`` ran.
     func start(directory: URL, importStore: ImportedDataStore?) {
         self.directory = directory
         self.importStore = importStore
         let file = BookmarkFileStore(file: directory.appending(path: "bookmarks.json"))
         self.file = file
         services.importedBookmarkSink = BookmarkImportSink(service: self)
-        chromium = BookmarkChromiumSync(service: self)
         services.machines.local.store.sideEvents.subscribe { [weak self] event in
             if case .bookmarksChanged(let profile, _) = event { self?.daemonChanged(profile) }
         }
-        // task-owner: one-shot launch read of the bookmark file
+        // task-owner: one-shot launch read of the bookmark file, then the imports' migration once the sync started
         Task { [weak self] in
             let loaded = await file.load()
             guard let self else { return }
@@ -90,7 +95,20 @@ final class BookmarkService {
                 changed(profiles: Set(loaded.keys))
             }
             observeHome()
+            for await _ in syncStarted {}
             await migrateLegacyImports()
+        }
+    }
+
+    /// Chromium's bookmark models follow the trees, and earlier browser imports
+    /// become bookmarks after the file read: no first frame needs either, so with
+    /// feature `launchStartDeferral` they wait for startup to complete
+    /// (`LaunchStart.bookmarkSync`). After ``start(directory:importStore:)``.
+    func startSync() {
+        services.runLaunchStart(.bookmarkSync) { [weak self] in
+            guard let self, chromium == nil else { return }
+            chromium = BookmarkChromiumSync(service: self)
+            syncStart.finish()
         }
     }
 

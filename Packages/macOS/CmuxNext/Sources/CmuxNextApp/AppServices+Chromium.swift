@@ -34,8 +34,11 @@ extension AppServices {
                 for await _ in engineChanges { self?.chromiumWarmup.pagesSpareChanged() }
             })
         }
-        runLaunchStart(.chromiumLikely) { [weak self] in self?.followChromiumLikely() }
+        postChromiumLikely()
     }
+
+    /// The Chromium likelihood hint (``LaunchStart/chromiumLikely``): after startup with feature `launchStartDeferral`.
+    func postChromiumLikely() { runLaunchStart(.chromiumLikely) { [weak self] in self?.followChromiumLikely() } }
 
     /// The Chromium likelihood hint: a Chromium tab in any window, and the palette's Chromium entries.
     private func followChromiumLikely() {

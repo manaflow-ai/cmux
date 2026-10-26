@@ -163,7 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let rateClasses = services.features.isEnabled(.frameRateClasses)
         FrameScheduler.appDisplays.followsClientRates = rateClasses
         DesignSettings.shared.loopsFollowFrameRate = rateClasses
-        services.startEnergy()  // before any tab: WebKit, KeepAwake and the video wallpaper start from the inputs
+        LaunchStart.energy.runNow(on: order.startup) { services.startEnergy() }  // before any tab: WebKit, KeepAwake and the video wallpaper start from the inputs
         // VSyncHub (p03-rendering-014): each display's link on that display's vsync thread, one
         // coalesced main post per vsync. Off until the hop measurement is recorded (threading-model.md).
         if services.features.isEnabled(.vsyncHub) { FrameScheduler.appDisplays.hub = VSyncHub() }
@@ -180,21 +180,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.quit.watchdog = control.watchdog
         DebugTimings.markReveal(services.launchReveal)
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
-        services.debugSettings.start()
+        LaunchStart.debugSettings.runNow(on: order.startup) { services.debugSettings.start() }
         DebugTimings.markLaunch("dfl.services")
         AppActions.bind(services)
         HandlerCoverage.verify(services.registry)
         services.palettes.bindRegistryActions()  // the palette itself is built after the first frame, or by the first palette key
         let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter, launchImages: launchImageHold)
         self.ghosttyKeybinds = ghosttyKeybinds
-        ghosttyKeybinds.start()
+        LaunchStart.ghosttyKeybinds.runNow(on: order.startup) { ghosttyKeybinds.start() }
         let ghosttyConfigLiveReload = GhosttyConfigLiveReload()
         self.ghosttyConfigLiveReload = ghosttyConfigLiveReload
-        ghosttyConfigLiveReload.start()
+        LaunchStart.ghosttyConfigReload.runNow(on: order.startup) { ghosttyConfigLiveReload.start() }
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
         TerminalHooks(services: services).install()
         // The terminal key path's input-source switch keys, read off main now and on each activation.
-        GhosttyRuntime.shared.inputSources.start(runner: services.work)
+        LaunchStart.inputSources.runNow(on: order.startup) { GhosttyRuntime.shared.inputSources.start(runner: services.work) }
         DebugTimings.markLaunch("dfl.bind")
         startSettingsAndControl(services: services, launch: settingsRead)
         services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
@@ -204,9 +204,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         WindowActivation.activateApp()
         launchSettle.install(daemon: services.daemon, warmup: services.agentPageWarmup)
-        daemonPrompts = DaemonPrompts.start(services)
-        services.startLocalDaemon(prestart: daemonPrestart)  // the painted terminal colors first (OSC 10/11/12)
-        FeaturePolicyEnforcer(services: services).start()
+        daemonPrompts = LaunchStart.daemonPrompts.runNow(on: order.startup) { DaemonPrompts.start(services) }
+        LaunchStart.localDaemon.runNow(on: order.startup) { services.startLocalDaemon(prestart: daemonPrestart) }  // the painted terminal colors first (OSC 10/11/12)
+        LaunchStart.featurePolicy.runNow(on: order.startup) { FeaturePolicyEnforcer(services: services).start() }
         services.postCloudStart(on: order.startup)  // no Cloud restore or connect before the first frame (p08-startup 020)
         services.postNonPaintServices(on: order.startup)
         // Before the first window opens (restoreWhenLoaded opens one at once).
@@ -244,13 +244,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         launchCleanup.schedule(on: order.startup)
         services.iconPicker.onOpened = { DebugTimings.iconPickerOpened($0) }
         let profilesDirectory = BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID)
-        services.browserProfiles.load(directory: profilesDirectory, importStore: services.onboarding.importStore)
+        LaunchStart.browserProfiles.runNow(on: order.startup) { services.browserProfiles.load(directory: profilesDirectory, importStore: services.onboarding.importStore) }
         DebugTimings.markLaunch("dfl.first_window_hooks")
-        services.home.startWorkspace()  // the restore's first workspace waits for ensure_home; the Chief owner is a feed post
-        mouseSideButtons.start { [weak services] in _ = services?.registry.perform($0 == .back ? "focusHistoryBack" : "focusHistoryForward") }
-        services.keybindingsFile.start()
-        services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore)
-        services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent())
+        LaunchStart.homeWorkspace.runNow(on: order.startup) { services.home.startWorkspace() }  // the restore's first workspace waits for ensure_home; the Chief owner is a feed post
+        LaunchStart.mouseSideButtons.runNow(on: order.startup) { mouseSideButtons.start { [weak services] in _ = services?.registry.perform($0 == .back ? "focusHistoryBack" : "focusHistoryForward") } }
+        LaunchStart.keybindingsFile.runNow(on: order.startup) { services.keybindingsFile.start() }
+        LaunchStart.bookmarks.runNow(on: order.startup) { services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore) }
+        services.bookmarks.startSync()  // Chromium's bookmark models and the imports' migration: after startup with launchStartDeferral
+        LaunchStart.historyPages.runNow(on: order.startup) { services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent()) }
         // cmux-page:// first-party pages for Chromium, before any window can start it.
         FirstPartyPageSchemes.install(processGroups: services.features.isEnabled(.pageProcessGroups))
         // The page host already exists (`services.iconPicker` above reads it) but has opened no page;
@@ -264,7 +265,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // After two quick unexpected ends in a row, Chromium starts only
         // when the user reloads a browser tab.
         // The runtime pack check wires the engine reason at once; its download waits until asked.
-        services.startChromiumRuntime()
+        LaunchStart.chromiumRuntime.runNow(on: order.startup) { services.startChromiumRuntime() }
         services.postLaterTabWarmups(on: order.startup)
         // Other apps' sign-ins, before any request a launch by one delivers.
         // The engines' incognito profiles and the Chromium engine's sign-in tabs (AppServices).
@@ -301,7 +302,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
         settings.applyManagedFeaturesNow()
-        ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloudAuth).start()
+        LaunchStart.managedPolicy.runNow(on: order.startup) { ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloudAuth).start() }
         self.settings = settings
         services.settings = settings
         // No socket write asks for a confirmation before the first frame: the control socket starts after it.
@@ -328,14 +329,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                     context: ManagedStatusReport.Context(appVersion: version, bundleID: bundleID)) { [startup = order.startup] write in
             startup.post(.afterStartup, "Settings.writeManagedStatus", on: .lane(.files, .bestEffort), write)
         }
-        settings.start(announcingDiagnostics: true)
-        AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, firstWindow: { [startup = order.startup] in await startup.afterFirstFrame() })
+        LaunchStart.settings.runNow(on: order.startup) { settings.start(announcingDiagnostics: true) }
+        LaunchStart.hangReports.runNow(on: order.startup) { AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, firstWindow: { [startup = order.startup] in await startup.afterFirstFrame() }) }
         // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings.
         let acpmux = QuitAgents.environment(services)
-        ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath)
+        LaunchStart.chatSettingsPush.runNow(on: order.startup) { ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath) }
         // The platform services: what the first frame or the restore reads now, the rest posted (p08-startup-029).
         services.startPlatformServices(settings: settings, on: order.startup, hotKeys: !environment.isolatedLaunch)
-        services.followEnergySaver(settings)
+        LaunchStart.energySaver.runNow(on: order.startup) { services.followEnergySaver(settings) }
         // A page's chat clicks and All chats pages work from its first frame; the feeds come after it (p08-startup-027).
         AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
         services.home.postLaunchFeeds(startup: order.startup)
@@ -349,16 +350,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 services?.configureFeedGitHub(enabled: github.enabled, pollIntervalSeconds: github.pollIntervalSeconds)  // builds no feed
             }
         }
-        services.configActions.start(settings: settings)
+        LaunchStart.configActions.runNow(on: order.startup) { services.configActions.start(settings: settings) }
         // What an engine reads when it makes a page or starts, before any does (managed policy included).
         services.cache.browserTabs.preference.follow(settings)
         BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, chromium: services.cache.chromium)
         WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
         BrowserOmnibarPreference.follow(settings, cache: services.cache)
         services.terminalTheme.follow(settings)
-        services.themes.start()
+        LaunchStart.themes.runNow(on: order.startup) { services.themes.start() }
         services.themes.followChromeTheme(settings)
-        services.bookmarks.follow(settings)
+        LaunchStart.bookmarksBar.runNow(on: order.startup) { services.bookmarks.follow(settings) }
         // controlSocketEarlyBind: the control posts, after the first frame (p08-startup-019).
         control.postLaunch(socket: controlSocket, order: order, services: services, settings: settings, launch: environment.launch, logger: logger)
         Task {

@@ -75,6 +75,9 @@ public final class DeviceHubService {
         settingsModel.thisDeviceRenamed = { [weak pages] name in pages?.store.setHubDeviceName(name) }
     }
 
+    /// ``start(settings:)`` ran.
+    public var isStarted: Bool { watch != nil }
+
     /// Follows the hub address and the account from now on.
     public func start(settings: SettingsController) {
         guard watch == nil else { return }
