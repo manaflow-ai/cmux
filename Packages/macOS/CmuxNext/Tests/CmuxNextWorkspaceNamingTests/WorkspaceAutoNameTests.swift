@@ -128,9 +128,11 @@ struct WorkspaceAutoNameTests {
 
     private static func persisted(_ front: WorkspaceAutoName.Front?, name: String = "workspace-3", title: String? = nil,
                                   local: Bool = true, supportsNameSource: Bool = false, alreadyRenamed: Bool = false,
+                                  nameSource: WorkspaceNameSource = .auto, nameRevision: UInt64 = 0,
                                   rule: WorkspaceAutoName = persist) -> String? {
         rule.persistedName(name: name, title: title, front: front, isLocalMachine: local,
-                           supportsNameSource: supportsNameSource, alreadyRenamed: alreadyRenamed)
+                           supportsNameSource: supportsNameSource, alreadyRenamed: alreadyRenamed,
+                           nameSource: nameSource, nameRevision: nameRevision)
     }
 
     private static let titledChat = WorkspaceAutoName.Front.chat(userName: nil, title: "Fix the sidebar drag", generatedTitle: "Fix the sidebar drag")
@@ -163,8 +165,13 @@ struct WorkspaceAutoNameTests {
         #expect(Self.persisted(.browser(title: "Secret", offTheRecord: true)) == nil)
     }
 
+    @Test func persistFollowsAnAutomaticWorkspaceAndSkipsTheCurrentTitle() {
+        #expect(Self.persisted(Self.titledChat, name: "Old generated title", nameSource: .auto) == "Fix the sidebar drag")
+        #expect(Self.persisted(Self.titledChat, name: "Fix the sidebar drag", nameSource: .auto) == nil)
+    }
+
     @Test func persistNeverRenamesAUserNamedOrTitledWorkspace() {
-        #expect(Self.persisted(Self.titledChat, name: "api") == nil)
+        #expect(Self.persisted(Self.titledChat, name: "api", nameSource: .user, nameRevision: 1) == nil)
         #expect(Self.persisted(Self.titledChat, title: "Mine") == nil)
     }
 
