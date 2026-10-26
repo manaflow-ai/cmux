@@ -70,6 +70,11 @@ import Dispatch
 /// any other job is dropped (queued) or refused (yielded later), so its caller gets `CancellationError` whenever the
 /// job yields. ``close()`` asks running ``ShutdownBehavior/skipOnShutdown`` jobs to yield; a running
 /// continue-on-shutdown run is not asked by shutdown and may end the job in that run.
+///
+/// Every item's queue wait (submit to start on its slot thread) and run time count in the lane's ``LaneStats`` at
+/// the level it ran, in every build: three reads of the lane's clock (submit, start, end) and four relaxed atomic
+/// adds per item, no lock (Chrome's `TaskTracker::RecordLatencyHistogram` counts post to start the same way). The
+/// item's own run report (``BackgroundWork``'s `onRan`, the block-shutdown check) gets the same start and end.
 final class LaneScheduler: Sendable {
     /// How the lane's slots register with the hang watch: each slot under `name`, each item with `deadline`.
     struct HangWatching: Sendable {
@@ -121,6 +126,8 @@ final class LaneScheduler: Sendable {
         var cap: LaneCap?
         /// A ``WorkHandle`` item, which ``raise(_:to:awaited:)`` may boost while it runs.
         var raisable: Bool
+        /// When it was submitted, on the lane's stats clock.
+        var queuedAt: UInt64
         /// A run of a yieldable job: the lane asks it to yield through this delegate while it runs.
         var delegate: JobDelegate?
     }
@@ -267,6 +274,8 @@ final class LaneScheduler: Sendable {
         var raisable: Bool
         /// Shutdown had started when the item was claimed.
         var closed: Bool
+        /// When it was submitted, on the lane's stats clock.
+        var queuedAt: UInt64
 
         /// A block-shutdown item claimed after shutdown started runs at user-blocking's QoS, from any level.
         var qos: DispatchQoS {
@@ -297,6 +306,10 @@ final class LaneScheduler: Sendable {
     private let hooks: Hooks
     /// For a `perPriority` lane, the slots of each level (by `rawValue`); empty for a `shared` lane.
     private let levelSlots: [Range<Int>]
+    /// Each item's queue wait and run time, per priority.
+    let stats: LaneStats
+    /// The clock of ``stats`` (`CLOCK_UPTIME_RAW` nanoseconds); tests pass their own.
+    private let clock: @Sendable () -> UInt64
     // concurrency-allow: a short non-blocking critical section over the pending lists, taken from lane threads, cancel handlers and submitters that must not await (lock carve-out).
     private let state: Mutex<State>
 
@@ -307,12 +320,16 @@ final class LaneScheduler: Sendable {
     ///   - hangWatching: how each slot registers with the hang watch; nil watches nothing.
     ///   - qosOverride: the override a raise or shutdown of a running item starts; tests count its calls.
     ///   - hooks: test seams on the slot threads.
+    ///   - clock: stamps each item's submit, start and end for ``stats``, in nanoseconds.
     init(label: String, policy: Policy, mayBlock: Bool, caps: [LaneCap: Int] = [:],
          compensation: MayBlockCompensation? = nil, hangWatching: HangWatching? = nil,
-         qosOverride: ThreadQoSOverride = .system, hooks: Hooks = .none) {
+         qosOverride: ThreadQoSOverride = .system, hooks: Hooks = .none,
+         clock: @escaping @Sendable () -> UInt64 = { LaneStats.uptimeNanos() }) {
         self.policy = policy
         self.qosOverride = qosOverride
         self.hooks = hooks
+        self.clock = clock
+        stats = LaneStats()
         self.mayBlock = mayBlock
         self.compensation = compensation
         recheck = compensation.map { DemandTimer(owner: "\(label).may-block", clock: $0.clock) }
@@ -364,10 +381,12 @@ final class LaneScheduler: Sendable {
     /// A `delegate` makes the item one run of a yieldable job, which the lane asks to yield while it runs.
     func submit(_ job: LaneJob, at priority: WorkPriority, posted: Bool, cap: LaneCap? = nil, raisable: Bool = false,
                 delegate: JobDelegate? = nil, unless cancelled: () -> Bool) -> Submitted {
+        let queuedAt = clock()
         let taken: (starts: [Start], level: WorkPriority)? = state.withLock { state in
             if cancelled() || (state.closed && job.shutdown != .blockShutdown) { return nil }
             let level = state.closed && liftsBlockItems ? WorkPriority.userBlocking : priority
-            state.pending[level.rawValue].append(Entry(job: job, posted: posted, cap: cap, raisable: raisable, delegate: delegate))
+            state.pending[level.rawValue].append(Entry(job: job, posted: posted, cap: cap, raisable: raisable,
+                                                     queuedAt: queuedAt, delegate: delegate))
             return (pump(&state), level)
         }
         return launched(taken, job)
@@ -382,11 +401,13 @@ final class LaneScheduler: Sendable {
     /// CONTINUE_ON_SHUTDOWN or SKIP_ON_SHUTDOWN task source once shutdown has started. So after ``close()`` only a
     /// block-shutdown rest is queued, and only it moves to the user-blocking list on a `shared` lane.
     func requeue(_ job: LaneJob, at priority: WorkPriority, delegate: JobDelegate, unless cancelled: () -> Bool) -> Submitted {
+        let queuedAt = clock()
         let taken: (starts: [Start], level: WorkPriority)? = state.withLock { state in
             if cancelled() || (state.closed && job.shutdown != .blockShutdown) { return nil }
             let level = state.closed && liftsBlockItems ? WorkPriority.userBlocking : priority
             let list = state.pending[level.rawValue]
-            state.pending[level.rawValue].insert(Entry(job: job, posted: false, cap: nil, raisable: false, delegate: delegate),
+            state.pending[level.rawValue].insert(Entry(job: job, posted: false, cap: nil, raisable: false,
+                                                       queuedAt: queuedAt, delegate: delegate),
                                                  at: list.firstIndex { $0.job.id > job.id } ?? list.endIndex)
             return (pump(&state), level)
         }
@@ -591,7 +612,8 @@ final class LaneScheduler: Sendable {
         state.running[slot] = Running(id: entry.job.id, priority: level, cap: entry.cap, started: state.now,
                                       raisable: raisable, blockShutdown: blockShutdown, delegate: entry.delegate,
                                       skipsOnShutdown: entry.job.shutdown == .skipOnShutdown)
-        return Start(job: entry.job, slot: slot, priority: level, raisable: raisable, closed: state.closed)
+        return Start(job: entry.job, slot: slot, priority: level, raisable: raisable, closed: state.closed,
+                     queuedAt: entry.queuedAt)
     }
 
     /// Sets the recheck timer to the next threshold crossing when that is earlier than the one it is set to.
@@ -615,26 +637,40 @@ final class LaneScheduler: Sendable {
 
     private func launch(_ starts: [Start]) {
         for start in starts {
-            slots[start.slot].async(qos: start.qos, flags: .enforceQoS) { [self] in
-                hooks.beforeBegin(start.slot)
-                if start.raisable { began(slot: start.slot) }
-                // Chrome's task_tracker.cc runs a MayBlock() task with blocking allowed and any other task
-                // under ScopedDisallowBlocking: a files or system item may block, a cpu item may not.
-                if mayBlock {
-                    BlockingContext.runAsLane { run(start) }
-                } else {
-                    BlockingContext.runAsCPULane { run(start) }
-                }
-                finish(slot: start.slot, raisable: start.raisable)
-            }
+            slots[start.slot].async(qos: start.qos, flags: .enforceQoS) { [self] in runOnSlot(start) }
         }
     }
 
+    /// One item on its slot thread: its start and end stamps (the item's ``LaneJob`` reports them too, so nothing
+    /// else reads the clock for it), its body, its ``stats``, then the next items. An item abandoned before it
+    /// started counts nothing.
+    // perf-hot: 100ns lane-item
+    private func runOnSlot(_ start: Start) {
+        hooks.beforeBegin(start.slot)
+        if start.raisable { began(slot: start.slot) }
+        let started = clock()
+        // Chrome's task_tracker.cc runs a MayBlock() task with blocking allowed and any other task
+        // under ScopedDisallowBlocking: a files or system item may block, a cpu item may not.
+        let ended: UInt64?
+        if mayBlock {
+            ended = BlockingContext.runAsLane { run(start, startedAt: started) }
+        } else {
+            ended = BlockingContext.runAsCPULane { run(start, startedAt: started) }
+        }
+        if let ended {
+            stats.record(start.priority, waitNanos: started > start.queuedAt ? started - start.queuedAt : 0,
+                         runNanos: ended > started ? ended - started : 0)
+        }
+        finish(slot: start.slot, raisable: start.raisable)
+    }
+
     /// Runs the started job on its slot's thread at the level the slot runs it at, inside the slot's hang scope
-    /// when the lane is watched.
-    private func run(_ start: Start) {
-        guard hangWatched.indices.contains(start.slot) else { return start.job.execute(at: start.priority) }
-        hangWatched[start.slot].run { start.job.execute(at: start.priority) }
+    /// when the lane is watched; its end stamp, or nil when it was abandoned first.
+    private func run(_ start: Start, startedAt started: UInt64) -> UInt64? {
+        guard hangWatched.indices.contains(start.slot) else {
+            return start.job.execute(at: start.priority, startedAt: started, clock: clock)
+        }
+        return hangWatched[start.slot].run { start.job.execute(at: start.priority, startedAt: started, clock: clock) }
     }
 
     /// Records the thread the raisable item on `slot` runs on, and starts the override a raise asked for before it
