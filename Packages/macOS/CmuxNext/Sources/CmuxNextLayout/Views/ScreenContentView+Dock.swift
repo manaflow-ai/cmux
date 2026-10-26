@@ -23,8 +23,8 @@ extension ScreenContentView {
     var coverRects: [CGRect] { PaneArrival.covers(geometry, docks: growingDocks) }
 
     /// For each shown pane host, the frames of shown panes stacked above it
-    /// that overlap it (local coordinates), from one walk of the subviews
-    /// front to back. Overlaps happen only mid-motion (an unzoom's pane
+    /// that overlap it (local coordinates, where they show: `placedFrame`), from
+    /// one walk of the stacked views front to back. Overlaps happen only mid-motion (an unzoom's pane
     /// springing back over the panes it uncovers, a zoom's growing over the
     /// others) and under docked columns; their headers are see-through, so
     /// what is under them is masked out. Computed once per presentation
@@ -32,11 +32,12 @@ extension ScreenContentView {
     func panesAbove() -> [ObjectIdentifier: [CGRect]] {
         var covers: [ObjectIdentifier: [CGRect]] = [:]
         var front: [CGRect] = []
-        for case let host as PaneHostView in subviews.reversed() {
-            let overlapping = front.filter { $0.intersection(host.frame).width > 0.5 && $0.intersection(host.frame).height > 0.5 }
+        for case let host as PaneHostView in stackedSubviews.reversed() {
+            let frame = placedFrame(of: host)
+            let overlapping = front.filter { $0.intersection(frame).width > 0.5 && $0.intersection(frame).height > 0.5 }
             if !overlapping.isEmpty { covers[ObjectIdentifier(host)] = overlapping.reversed() }
             guard !host.isHidden && host.alphaValue > 0.99 else { continue }
-            front.append(host.frame)
+            front.append(frame)
         }
         return covers
     }
@@ -81,7 +82,8 @@ extension ScreenContentView {
     func clipToStrip(_ host: PaneHostView, scrolls: Bool, clip: CGRect?, above: [ObjectIdentifier: [CGRect]], force: Bool = false) -> Bool {
         // A pane scrolled partly out of its scroll area shows only inside the area's window.
         let areaWindow = displayedAreaWindow(of: host.pane)
-        let input = StripClipInput(frame: host.frame, clip: scrolls ? clip : nil, areaWindow: areaWindow,
+        // Where it shows (`placedFrame`), as `above` and the area window are.
+        let input = StripClipInput(frame: placedFrame(of: host), clip: scrolls ? clip : nil, areaWindow: areaWindow,
                                    covers: above[ObjectIdentifier(host)] ?? [])
         guard force || host.stripClipInput != input else { return false }
         host.stripClipInput = input
@@ -141,6 +143,7 @@ extension ScreenContentView {
     /// all of them until it lands (DESIGN Z2, Z4).
     private func rank(_ view: NSView) -> Int {
         switch view {
+        case is StripPanContainerView: return 0
         case let host as PaneHostView:
             if host.pane == zoomMotion.pane { return 10 }
             // A zoom's covered panes stay under every pane.
@@ -167,15 +170,34 @@ extension ScreenContentView {
         geometry.dock.first { $0.frame.contains(CGPoint(x: rect.midX, y: rect.midY)) }
     }
 
-    /// Reorders subviews only when the order is wrong. `sortSubviews`
-    /// keeps every view in the window (no detach), so terminal surfaces and
+    /// Puts each host and divider in its parent (`hostParent`, `dividerParent`: the motion container
+    /// or this view), then reorders subviews only when the order is wrong. A view changes parent only
+    /// at a structural change (docks come or go, `motion.renderServer` flips) and at a zoom's start and
+    /// landing. `sortSubviews` keeps every view in the window (no detach), so terminal surfaces and
     /// page windows are not torn down.
     func ensureStacking() {
-        let ranks = subviews.enumerated().map { rank($1) * 100_000 + $0 }
+        let inContainer = usesPanContainer
+        stripInPanContainer = inContainer
+        // A zoom's covered panes left `paneFrames`: they stay where they are, under the zooming pane.
+        for pane in paneFrames.keys {
+            guard let host = context.hosts[pane], holds(host) else { continue }
+            let parent = hostParent(for: pane, inContainer: inContainer)
+            if host.superview !== parent { move(host, to: parent) }
+        }
+        for (kind, view) in dividerViews {
+            let parent = dividerParent(for: kind, inContainer: inContainer)
+            if view.superview !== parent { parent.addSubview(view) }
+        }
+        sortByRank(self)
+        sortByRank(panContainer)
+    }
+
+    private func sortByRank(_ view: NSView) {
+        let ranks = view.subviews.enumerated().map { rank($1) * 100_000 + $0 }
         guard ranks != ranks.sorted() else { return }
-        let table = StackingTable(ranks: Dictionary(uniqueKeysWithValues: zip(subviews.map(ObjectIdentifier.init), ranks)))
+        let table = StackingTable(ranks: Dictionary(uniqueKeysWithValues: zip(view.subviews.map(ObjectIdentifier.init), ranks)))
         withExtendedLifetime(table) {
-            sortSubviews(compareStacking, context: Unmanaged.passUnretained(table).toOpaque())
+            view.sortSubviews(compareStacking, context: Unmanaged.passUnretained(table).toOpaque())
         }
     }
 
@@ -190,7 +212,7 @@ extension ScreenContentView {
             guard !covered.isEmpty, let hit, coveredHost(containing: hit) != nil else { return hit }
             return self
         }
-        for view in subviews.reversed() where !view.isHidden {
+        for view in subviews.reversed() where !view.isHidden && view !== panContainer {
             if let host = view as? PaneHostView, geometry.scrolls(pane: host.pane) || covered.contains(host.pane) { continue }
             if let divider = view as? DividerHandleView, scrolls(divider.kind) { continue }
             if let hit = view.hitTest(local) { return hit }

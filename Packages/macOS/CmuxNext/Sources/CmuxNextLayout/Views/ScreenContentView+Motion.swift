@@ -50,8 +50,10 @@ extension ScreenContentView {
     }
 
     // MARK: Animation
+    /// Motion the CPU steps: a fling on the render server is not (the reducer's spring rests on its target).
     var hasMotion: Bool {
-        if !isUserScrolling && (scroll.value != scroll.target || scroll.velocity != 0) { return true }
+        let camera = scrollState.spring
+        if !isUserScrolling && (camera.value != camera.target || camera.velocity != 0) { return true }
         if rowsMoving || areasMoving { return true }
         return paneFrames.values.contains { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }
             || dividerFrames.values.contains { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }
@@ -94,7 +96,7 @@ extension ScreenContentView {
         // The panes landed: their terminals' grids go to the PTY once, now.
         if holdsGrids, !panesMoving { holdsGrids = false }
         if !isUserScrolling {
-            if scroll.advance(dt, parameters: cameraSpring, epsilon: 0.25) {
+            if scrollState.spring.advance(dt, parameters: cameraSpring, epsilon: 0.25) {
                 moving = true
                 scrollbarFlash = true
             } else if reportScrollOnSettle {
@@ -126,7 +128,7 @@ extension ScreenContentView {
         }
         for key in Array(dividerFrames.keys) { _ = dividerFrames[key]?.advanceUnsettled(dt, parameters: frameSpring) }
         if scrollRidesFrames {
-            if !isUserScrolling { _ = scroll.advance(dt, parameters: frameSpring, epsilon: 0.25) }
+            if !isUserScrolling { _ = scrollState.spring.advance(dt, parameters: frameSpring, epsilon: 0.25) }
             _ = stepRows(dt, spring: frameSpring)
         }
         return true
@@ -135,6 +137,7 @@ extension ScreenContentView {
     /// Frame ticks a strip pan keeps after its last event: a trackpad sends about one event per
     /// frame, and a gap of a frame or two must not drop the window's display link (an idle
     /// scheduler drops its link, and the next event would make a new one). About 67 ms at 120 Hz.
+    /// A pan on the motion container (``presentPanOnContainer()``) asks for no frame and keeps none.
     static let panTickTail = 8
 
     /// Shows a strip pan event: now when this display frame shows no pan yet, else at the frame's
@@ -195,14 +198,26 @@ extension ScreenContentView {
         }
         // Every presentation shows the latest pan: no pan event waits after it.
         panPresentationPending = false
-        let strip = stripShift, restStrip = geometry.viewShift(offset: isUserScrolling ? scroll.value : scroll.target)
+        // A pan on the motion container keeps the strip laid out at its base; anything else lays it out
+        // at the camera, and the container's translation goes back to zero (``presentPanOnContainer()``).
+        if panBase != nil, !(isUserScrolling && pansOnContainer) { panBase = nil }
+        let layoutOffset = self.layoutOffset
+        laidOutStripOffset = layoutOffset
+        let strip = geometry.viewShift(offset: layoutOffset)
+        let restStrip = isUserScrolling ? strip : geometry.viewShift(offset: scrollState.spring.target)
         let uncovered = uncoveredRect, clip = PaneArrival.stripClip(geometry, docks: growingDocks), zooming = zoomMotion.pane
         var clips: [(host: PaneHostView, scrolls: Bool)] = []
         var changed = force
+        // The container shows the camera; a fling on the render server owns it until it lands.
+        let translation = geometry.viewShift(offset: scrollState.spring.value) - strip
+        if panContainer.fling == nil, panContainer.translation != translation {
+            panContainer.setTranslation(translation)
+            changed = true
+        }
         let scale = self.scale
         let laysOutNow = window != nil && bounds.width >= 1 && bounds.height >= 1
         for (pane, frame) in paneFrames {
-            guard let host = context.hosts[pane], host.superview === self else { continue }
+            guard let host = context.hosts[pane], holds(host) else { continue }
             let scrolls = geometry.scrolls(pane: pane)
             if arriving.contains(pane), frame.rect == frame.targetRect { arriving.remove(pane) }
             // On the pixel grid, each edge rounded on its own: two edges a whole number of pixels
@@ -290,8 +305,9 @@ extension ScreenContentView {
         if gesturing, changed {
             userMotionActive = true
             context.userMotionStepped()
-        } else if !gesturing, userMotionActive {
-            // The gesture ended: a fling springs on (advanceFrame ends the motion when it lands), else it ends now.
+        } else if !gesturing, userMotionActive, panContainer.fling == nil {
+            // The gesture ended: a fling springs on (advanceFrame ends the motion when it lands, or, on the render
+            // server, `panFlingLanded`), else it ends now.
             userMotionActive = false
             if !hasMotion { context.userMotionEnded() }
         }
@@ -306,12 +322,12 @@ extension ScreenContentView {
     /// dims stay as they were, under the zooming pane, until it lands).
     var displayedHosts: [PaneHostView] {
         paneFrames.keys.compactMap { pane in
-            context.hosts[pane].flatMap { $0.superview === self ? $0 : nil }
+            context.hosts[pane].flatMap { holds($0) ? $0 : nil }
         } + coveredHosts
     }
 
     var coveredHosts: [PaneHostView] {
-        covered.compactMap { pane in context.hosts[pane].flatMap { $0.superview === self ? $0 : nil } }
+        covered.compactMap { pane in context.hosts[pane].flatMap { holds($0) ? $0 : nil } }
     }
     var dividerMouseAreas: [LayoutMouseArea] { ScreenDividers(screen: self).mouseAreas }
     var dividerLineRects: [CGRect] { ScreenDividers(screen: self).lineRects }

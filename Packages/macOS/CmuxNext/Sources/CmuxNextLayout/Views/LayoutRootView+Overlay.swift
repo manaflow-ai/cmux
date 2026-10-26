@@ -78,13 +78,16 @@ extension LayoutRootView {
                 // A ring never draws over a docked column (strip panes) or a pane in front of it.
                 let covers = screen.ringCovers(of: host, docks: docks, above: above)
                 let alpha = host.alphaValue * screenAlpha
-                let key = PaneOverlaySyncKey(hostFrame: host.frame, screenFrame: screen.frame, screenBounds: screen.bounds,
+                // A strip pan on the motion container moves the host by its translation, which `convert` does not see.
+                let panned = screen.panTranslation(of: host)
+                let key = PaneOverlaySyncKey(hostFrame: host.frame.offsetBy(dx: panned, dy: 0), screenFrame: screen.frame,
+                                             screenBounds: screen.bounds,
                                              rootInWindow: inWindow, covers: covers, alpha: alpha, hidden: host.isHidden)
                 if chrome.superview === plane, host.overlaySyncKey == key { continue }
                 host.overlaySyncKey = key
                 moved.insert(host.pane)
                 if chrome.superview !== plane { plane.addSubview(chrome, positioned: .below, relativeTo: highlight) }
-                let rect = convert(host.bounds, from: host)
+                let rect = convert(host.bounds, from: host).offsetBy(dx: panned, dy: 0)
                 if chrome.frame != rect { chrome.frame = rect }
                 chrome.setExcluded(covers.map { convert($0, from: screen).offsetBy(dx: -rect.minX, dy: -rect.minY) })
                 if chrome.alphaValue != alpha { chrome.alphaValue = alpha }

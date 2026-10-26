@@ -27,12 +27,15 @@ extension ScreenContentView {
         guard let screen = view as? ScreenContentView else { return nil }
         guard let window = screen.window, !screen.isHiddenOrHasHiddenAncestor else { return [:] }
         let height = window.frame.height
-        func topLeft(_ rect: CGRect, in view: NSView) -> [Double] {
-            let shown = view.convert(rect, to: nil)
+        func topLeftShown(_ rect: CGRect, in view: NSView, dx: CGFloat) -> [Double] {
+            let shown = view.convert(rect, to: nil).offsetBy(dx: dx, dy: 0)
             return [shown.minX, height - shown.maxY, shown.width, shown.height].map { (Double($0) * 100).rounded() / 100 }
         }
         var panes: [Any] = [], dividers: [Any] = []
-        for (index, subview) in screen.subviews.enumerated() {
+        for (index, subview) in screen.stackedSubviews.enumerated() {
+            // Where it shows: a strip pan on the motion container moves it by the translation shown now.
+            let dx = subview.superview === screen.panContainer ? screen.panContainer.shownTranslation : 0
+            func topLeft(_ rect: CGRect, in view: NSView) -> [Double] { topLeftShown(rect, in: view, dx: dx) }
             if let host = subview as? PaneHostView {
                 var visible = host.frame
                 if let mask = host.layer?.mask { visible = visible.intersection(mask.frame.offsetBy(dx: host.frame.minX, dy: host.frame.minY)) }

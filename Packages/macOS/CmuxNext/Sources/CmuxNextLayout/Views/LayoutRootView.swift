@@ -480,7 +480,7 @@ public final class LayoutRootView: NSView {
         flushOverlaySync()
         if !moving && !gesturing { setLayoutInMotion(false) }
         // A strip pan keeps the ticks a little after each event (`ScreenContentView.panTickTail`);
-        // a gesture with a still pointer needs none after that.
+        // a gesture with a still pointer needs none after that, and a pan on the motion container none at all.
         return moving || panning
     }
 
@@ -503,6 +503,8 @@ public final class LayoutRootView: NSView {
         if isLive, let active = model.activeScreenID, let view = screenViews[active] {
             visible = view.visiblePanes()
             keepAlive = view.keepAlivePanes().union(visible)
+            // A strip pan event inside this span reports nothing: it skips the pass (`LayoutRootView+Scroll`).
+            view.recordVisibilitySpan()
         }
         guard visible != reportedVisible || keepAlive != reportedKeepAlive else { return }
         var changes: [(PaneID, PanePresence)] = []

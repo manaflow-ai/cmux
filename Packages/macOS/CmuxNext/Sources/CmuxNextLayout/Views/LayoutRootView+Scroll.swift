@@ -406,7 +406,8 @@ extension LayoutRootView: ScrollGestureOwning {
                 driver.start()
             } else {
                 view.userScroll(deltaX: verticalDeltas ? event.scrollingDeltaY : event.scrollingDeltaX, timestamp: event.timestamp)
-                updateVisibility()
+                // Only a pan that brings a pane in or out of the viewport or its keep-alive band reports.
+                if !view.panKeepsVisibility { updateVisibility() }
             }
             return nil
         }

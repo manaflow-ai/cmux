@@ -66,7 +66,9 @@ extension LayoutRootView: PaneCardSource {
         let visible = convert(bounds, to: nil)
         return screenViews.values.filter { !$0.isHidden && $0.alphaValue > 0.01 }.flatMap { screen in
             screen.displayedHosts.filter { !$0.isHidden && $0.alphaValue > 0.01 }.compactMap { host in
-                let rect = host.cardInWindow.intersection(visible)
+                // A strip pan on the motion container shows the card moved by its translation.
+                let card = host.cardInWindow.offsetBy(dx: screen.panTranslation(of: host), dy: 0)
+                let rect = card.intersection(visible)
                 return rect.isEmpty ? nil : PaneCard(rect: rect, radius: PaneChromeGeometry.cornerRadius(for: host.contentRect, style: context.style))
             }
         }

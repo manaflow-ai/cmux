@@ -12,11 +12,13 @@ extension LayoutRootView {
     func paneContentClaimsHorizontalScroll(at locationInWindow: NSPoint) -> Bool {
         guard let active = model.activeScreenID, let screen = screenViews[active],
               let pane = screen.pane(at: screen.convert(locationInWindow, from: nil)),
-              let host = context.hosts[pane], let parent = host.superview,
-              var view = host.hitTest(parent.convert(locationInWindow, from: nil)) else { return false }
+              let host = context.hosts[pane], let parent = host.superview else { return false }
+        // Where the host is laid out under the point: a strip pan on the motion container shows it moved.
+        let laidOut = screen.laidOutWindowPoint(locationInWindow, for: host)
+        guard var view = host.hitTest(parent.convert(laidOut, from: nil)) else { return false }
         while view !== host {
             if let claiming = view as? any HorizontalScrollClaiming {
-                return claiming.claimsHorizontalScroll(at: view.convert(locationInWindow, from: nil))
+                return claiming.claimsHorizontalScroll(at: view.convert(laidOut, from: nil))
             }
             guard let next = view.superview else { return false }
             view = next

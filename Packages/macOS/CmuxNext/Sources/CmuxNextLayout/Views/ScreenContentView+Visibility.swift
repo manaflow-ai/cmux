@@ -56,10 +56,12 @@ extension ScreenContentView {
 
     // MARK: Visibility and hit testing
 
-    /// Panes whose displayed frame intersects the viewport.
+    /// Panes whose displayed frame intersects the viewport. During a fling on the render server, the
+    /// panes it shows on its way to rest too: the strip's viewport is swept over the translation left.
     func visiblePanes() -> Set<PaneID> {
         var result: Set<PaneID> = []
-        let uncovered = uncoveredRect
+        let left = panContainer.fling == nil ? 0 : panContainer.shownTranslation
+        let uncovered = uncoveredRect.union(uncoveredRect.offsetBy(dx: left, dy: 0))
         for (pane, frame) in paneFrames {
             // A strip pane wholly under a docked column is hidden.
             let scrolls = geometry.scrolls(pane: pane)
