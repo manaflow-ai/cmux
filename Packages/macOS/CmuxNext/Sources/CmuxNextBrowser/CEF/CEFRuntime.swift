@@ -47,6 +47,8 @@ final class CEFRuntime {
     var tabBeingAdded: CEFTab?
     /// Tabs Chromium created itself, until a pane adopts them.
     private(set) lazy var orphans = CEFOrphanTabs(runtime: self)
+    /// The spare windows a pane's first tab joins (one per store kind, `CEFSpareWindow`).
+    let spareWindow = CEFSpareWindow()
     /// How the next tabs inserted into a window open, by window id, from the
     /// window requests that sent them there (oldest first).
     var placements = CEFPlacementQueue()
@@ -493,7 +495,7 @@ final class CEFRuntime {
     }
 
     func host(for key: CEFPaneKey, lifecycleTrace: BrowserLifecycleTrace = .shared, contextMenus: BrowserContextMenuBuilder = .shared) -> CEFPaneHost {
-        if let host = hosts[key] ?? CEFSpareWindow.shared.take(for: key, runtime: self) { return host }
+        if let host = hosts[key] ?? spareWindow.take(for: key, runtime: self) { return host }
         usedProfiles.insert(key.profile)
         let host = CEFPaneHost(key: key, runtime: self, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
         hosts[key] = host

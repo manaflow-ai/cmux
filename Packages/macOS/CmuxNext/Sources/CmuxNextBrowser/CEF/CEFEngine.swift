@@ -156,33 +156,54 @@ public final class CEFEngine: BrowserEngine {
         try? await CEFRuntime.shared.start(layout: layout, trigger: reason)
     }
 
-    /// Builds a spare Chromium window (`CEFSpareWindow`) once Chromium runs
-    /// and no Chromium window exists, so the first tab skips building one.
-    /// Call at an idle moment: building it holds the main thread. True when
-    /// it started.
+    /// Builds the next spare Chromium window (`CEFSpareWindow`) once Chromium runs and no other
+    /// Chromium window is being built, so a pane's first tab skips building one: the default
+    /// profile's first, then, with `pages`, the cmux pages profile's (``pagesProfile``), so a
+    /// cmux page's key joins a live window too. One spare per kind at a time; each later idle
+    /// moment builds the next missing one (`onSpareWindowNeeded`). `pages` false closes an
+    /// untaken pages spare. Call at an idle moment: building one holds the main thread. True
+    /// when one started.
     @discardableResult
-    public func prepareSpareWindow() -> Bool {
+    public func prepareSpareWindow(pages: Bool = false) -> Bool {
         adoptStores()
-        return CEFSpareWindow.shared.prepare(runtime: .shared)
+        let spares = CEFRuntime.shared.spareWindow
+        if pages { _ = pagesProfile }
+        spares.setWantsPages(pages, runtime: .shared)
+        return spares.prepareNext(runtime: .shared)
     }
+
+    /// The one off-the-record profile every cmux page in Chromium uses (`ChromiumPageHost`):
+    /// like the WebKit pages' non-persistent store, a page keeps nothing on disk, and no profile
+    /// of the person's (their extensions, cookies) touches a cmux page. Begun on the first read,
+    /// at the warm start that builds its spare window (``prepareSpareWindow(pages:)``) or at the
+    /// first page, whichever is first; never ended. Its keys take the pages spare window; an
+    /// incognito window's profile never does.
+    public var pagesProfile: BrowserProfileID {
+        let profile = pagesProfileID ?? stores.offTheRecord.begin()
+        pagesProfileID = profile
+        CEFRuntime.shared.spareWindow.pagesProfile = profile
+        return profile
+    }
+
+    private var pagesProfileID: BrowserProfileID?
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// The new Chromium tab bench's recorder (`debug.new_tab bench_browser`).
     public var benchMarks: CEFBenchMarks { CEFRuntime.shared.benchMarks }
     #endif
 
-    /// Closes the untaken spare Chromium window, if one is up (`debug.cef drop_spare`: what the
-    /// spare costs). The next take-free idle moment does not make another; a warm start or a
+    /// Closes the untaken spare Chromium windows, if any are up (`debug.cef drop_spare`: what
+    /// the spares cost). The next take-free idle moment does not make another; a warm start or a
     /// take does.
     public func dropSpareWindow() {
-        CEFSpareWindow.shared.drop(runtime: .shared)
+        CEFRuntime.shared.spareWindow.drop(runtime: .shared)
     }
 
-    /// Runs when no spare Chromium window is ready (a pane took it, or a tab's own window came
+    /// Runs when a wanted spare Chromium window is not ready (a pane took it, or a window came
     /// up first), so the caller can make one at an idle moment (`prepareSpareWindow`). Nil: none.
     public var onSpareWindowNeeded: (@MainActor () -> Void)? {
-        get { CEFSpareWindow.shared.onNeeded }
-        set { CEFSpareWindow.shared.onNeeded = newValue }
+        get { CEFRuntime.shared.spareWindow.onNeeded }
+        set { CEFRuntime.shared.spareWindow.onNeeded = newValue }
     }
 
     /// Returns once the framework load that `preload` started ended (at once
@@ -220,12 +241,26 @@ public final class CEFEngine: BrowserEngine {
         }
     }
 
-    /// `none`, `creating`, `live`, `taken` or `closed` (`debug.cef`).
-    public var spareWindowState: String { CEFSpareWindow.shared.state.rawValue }
+    /// The default profile's spare window: `none`, `creating`, `live`, `taken` or `closed` (`debug.cef`).
+    public var spareWindowState: String { CEFRuntime.shared.spareWindow.state(of: .browser).rawValue }
+
+    /// The cmux pages profile's spare window, in the same states (`debug.cef` `pages_spare_window`).
+    public var pagesSpareWindowState: String { CEFRuntime.shared.spareWindow.state(of: .pages).rawValue }
+
+    /// Windows built in this process for a key a spare serves because no spare of its kind was
+    /// ready (`debug.cef` `window_built_on_key_turn`).
+    public var windowsBuiltOnKeyTurn: Int { CEFRuntime.shared.spareWindow.windowsBuiltOnKeyTurn }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// The renderer client ids of the untaken spare window's about:blank placeholder (`debug.webui`).
-    public var spareWindowRendererClients: [Int32] { CEFSpareWindow.shared.host?.placeholder?.rendererClientIDs ?? [] }
+    /// The renderer client ids of the untaken default-profile spare window's about:blank placeholder (`debug.webui`).
+    public var spareWindowRendererClients: [Int32] {
+        CEFRuntime.shared.spareWindow.host(of: .browser)?.placeholder?.rendererClientIDs ?? []
+    }
+
+    /// The renderer client ids of the untaken pages spare window's about:blank placeholder (`debug.webui`).
+    public var pagesSpareWindowRendererClients: [Int32] {
+        CEFRuntime.shared.spareWindow.host(of: .pages)?.placeholder?.rendererClientIDs ?? []
+    }
     #endif
 
     /// Main-thread time in Chromium's start steps so far (`MainThreadEngineStart`).

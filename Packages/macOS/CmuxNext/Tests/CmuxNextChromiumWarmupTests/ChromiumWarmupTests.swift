@@ -30,6 +30,22 @@ import Testing
         #expect(input.liveSubscriptions == 0, "no wait for an idle moment, no input subscription")
     }
 
+    /// p13-webui-016: the pages spare is a warm-start step; with no Chromium to start, nothing
+    /// asks whether to keep one, and no pages spare window is made.
+    @Test func anUnavailableEngineNeverAsksForThePagesSpare() {
+        let engine = CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks())
+        let warmup = ChromiumWarmup(engine: engine, input: input, clock: ManualClock(), now: { [clock] in clock.now })
+        var asked = false
+        warmup.start(defaultIsChromium: { true }, pagesSpare: {
+            asked = true
+            return true
+        })
+        warmup.chromiumLikely(.launch)
+        #expect(!asked)
+        #expect(engine.pagesSpareWindowState == "none")
+        #expect(engine.windowsBuiltOnKeyTurn == 0)
+    }
+
     /// A wait for an idle moment hears the input tap (p04-input-012): a key-down, click or left drag
     /// restarts the quiet period, a key-up, button-up or modifier change does not, and the wait's end
     /// drops the subscription.
