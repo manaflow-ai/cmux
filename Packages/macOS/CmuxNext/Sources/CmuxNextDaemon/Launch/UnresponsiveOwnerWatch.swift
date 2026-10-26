@@ -193,9 +193,10 @@ public final class UnresponsiveOwnerWatch: Sendable {
         }
         guard let started else { return }
         let replace = replace
+        let claim: @Sendable () -> Bool = { [weak self] in self?.claim(started.streak, owner: started.owner) ?? false }
         // task-owner: one replace per stuck owner; it ends with `server ensure --replace-unresponsive` or a claim that says no
         Task { [weak self] in
-            _ = await replace({ self?.claim(started.streak, owner: started.owner) ?? false })
+            _ = await replace(claim)
             self?.finish(started.streak, owner: started.owner)
         }
     }
