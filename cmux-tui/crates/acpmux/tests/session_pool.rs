@@ -652,56 +652,93 @@ async fn a_pooled_chat_pinned_to_full_access_by_its_argv_keeps_it_when_off() {
     assert_eq!(info["modes"]["currentModeId"], "full-access", "{info}");
 }
 
+/// Whether `status` shows a ready fakeb entry.
+fn fakeb_ready(status: &Value) -> bool {
+    status["pool"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|e| e["harness"] == "fakeb" && e["state"] == "ready")
+}
+
+/// A daemon whose fakeb harness runs with `env`, once MDM forced full access off and fakeb was
+/// prewarmed, and whether the pool kept a ready fakeb entry.
+async fn prewarmed_under_an_off(tag: &str, env: &[(&str, &str)]) -> (Daemon, Rpc, bool) {
+    let mut fakeb = profile("b");
+    for (key, value) in env {
+        fakeb["env"][*key] = json!(value);
+    }
+    let daemon = Daemon::with_fakeb(tag, 0, &fakeb);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    let off = json!({"enabled": true, "discovery": false, "roots": [], "managedRoots": [],
+                     "allowFullAccess": false, "allowFullAccessManaged": true});
+    let pushed = rpc.call("_acpmux/chat_settings", off).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    let kept = fakeb_ready(&warmed);
+    (daemon, rpc, kept)
+}
+
 /// MDM forces `sessions.allowFullAccess` off (#23322, review 25): a harness whose own settings
 /// start it in full access is never kept warm in the pool, where nothing runs `cap_full_access`
 /// until a chat takes it. The pooled agent ends instead, and a chat starts cold.
 #[tokio::test(flavor = "multi_thread")]
 async fn under_an_mdm_off_a_pooled_agent_that_came_up_in_full_access_is_not_kept() {
-    let mut fakeb = profile("b");
-    fakeb["env"]["FAKE_FULL_ACCESS"] = json!("1");
-    fakeb["env"]["FAKE_NEW_MODE"] = json!("full-access");
-    let daemon = Daemon::with_fakeb("famdm", 0, &fakeb);
-    let mut rpc = daemon.rpc().await;
-    let home = daemon.home.clone();
-    let off = json!({"enabled": true, "discovery": false, "roots": [], "managedRoots": [],
-                     "allowFullAccess": false, "allowFullAccessManaged": true});
-    let pushed = rpc.call("_acpmux/chat_settings", off).await;
-    assert_eq!(pushed["applied"], true, "{pushed}");
-    let warmed =
-        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
-    let kept = warmed["pool"]["entries"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|e| e["harness"] == "fakeb" && e["state"] == "ready");
-    assert!(!kept, "a pooled agent in full access was kept under the MDM off: {warmed}");
-    let (claimed, _) = new_session(&mut rpc, &home, "fakeb").await;
+    let env = [("FAKE_FULL_ACCESS", "1"), ("FAKE_NEW_MODE", "full-access")];
+    let (daemon, mut rpc, kept) = prewarmed_under_an_off("famdm", &env).await;
+    assert!(!kept, "a pooled agent in full access was kept under the MDM off");
+    let (claimed, _) = new_session(&mut rpc, &daemon.home, "fakeb").await;
     assert!(!taken(&daemon, &claimed), "a chat took the pooled agent in full access");
 }
 
-/// MDM forces `sessions.allowFullAccess` off (#23322, review 32): a harness that declares no modes
-/// and reports a full-access one while its pooled session starts is not kept either. The report is
-/// held with the entry's other traffic until a chat takes it, so the check reads it there.
+/// MDM forces `sessions.allowFullAccess` off (#23322, reviews 32 and 46): a harness that reports
+/// full access while its pooled session starts is not kept either, whatever it reported in its
+/// other updates or its `session/new` answer, before or after. The reports are held with the
+/// entry's other traffic until a chat takes it, so the check reads them there.
 #[tokio::test(flavor = "multi_thread")]
 async fn under_an_mdm_off_a_pooled_agent_that_reported_full_access_at_start_is_not_kept() {
-    let mut fakeb = profile("b");
-    fakeb["env"]["FAKE_NO_MODES"] = json!("1");
-    fakeb["env"]["FAKE_STARTUP_MODE"] = json!("bypassPermissions");
-    let daemon = Daemon::with_fakeb("faheld", 0, &fakeb);
-    let mut rpc = daemon.rpc().await;
-    let home = daemon.home.clone();
-    let off = json!({"enabled": true, "discovery": false, "roots": [], "managedRoots": [],
-                     "allowFullAccess": false, "allowFullAccessManaged": true});
-    let pushed = rpc.call("_acpmux/chat_settings", off).await;
-    assert_eq!(pushed["applied"], true, "{pushed}");
-    let warmed =
-        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
-    let kept = warmed["pool"]["entries"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|e| e["harness"] == "fakeb" && e["state"] == "ready");
-    assert!(!kept, "a pooled agent that reported full access was kept under the MDM off: {warmed}");
+    for (tag, env, why) in [
+        (
+            "faheld",
+            &[("FAKE_NO_MODES", "1"), ("FAKE_STARTUP_MODE", "bypassPermissions")][..],
+            "reported bypassPermissions, declaring no modes",
+        ),
+        (
+            "famask",
+            &[
+                ("FAKE_FULL_ACCESS", "1"),
+                ("FAKE_NEW_MODE", "full-access"),
+                ("FAKE_STARTUP_MODE", "normal"),
+            ],
+            "answered in full access after reporting an asking mode",
+        ),
+    ] {
+        let (_daemon, _rpc, kept) = prewarmed_under_an_off(tag, env).await;
+        assert!(!kept, "a pooled agent that {why} was kept under the MDM off");
+    }
+}
+
+/// MDM forces `sessions.allowFullAccess` off (#23322, review 46): a ready pooled agent that
+/// reports full access while it waits ends then, though no chat takes it.
+#[tokio::test(flavor = "multi_thread")]
+async fn under_an_mdm_off_a_ready_pooled_agent_that_reports_full_access_ends() {
+    let env = [("FAKE_NO_MODES", "1"), ("FAKE_LATE_MODE", "bypassPermissions")];
+    let (_daemon, mut rpc, kept) = prewarmed_under_an_off("falate", &env).await;
+    assert!(kept, "fakeb reports nothing until it is ready, so it is kept then");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let status = rpc.call("_acpmux/status", json!({})).await;
+        if !fakeb_ready(&status) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "a ready pooled agent that reported full access stayed under the MDM off: {status}"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
 }
 
 /// `sessions.allowFullAccess` off and a pooled chat in full access whose harness never answers

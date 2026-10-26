@@ -289,6 +289,28 @@ mod tests {
         assert_eq!(runs_full_access(&split), Some(Option));
     }
 
+    /// Review 46: an off a probe started before ends it, though an unset follows it before the
+    /// probe looks.
+    #[tokio::test]
+    async fn an_off_ends_a_probe_though_an_unset_follows_it() {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut cfg: crate::config::Config =
+            serde_json::from_value(json!({"harnesses": {"fake": {"argv": ["python3", fake]}}}))
+                .unwrap();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let mut bound = hub.probe_bound(&["agent".to_owned(), "--yolo".to_owned()]).unwrap();
+        hub.apply_full_access_push(Some(false)).await;
+        hub.apply_full_access_push(None).await;
+        let ended = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            full_access_forced_off(bound.as_mut()),
+        )
+        .await;
+        assert!(ended.is_ok(), "the unset after the off hid it from the probe");
+    }
+
     /// claude-sr2's bound: a forced off wins over the person's on; a forced on, or nothing
     /// forced, leaves the person's own answer.
     #[test]

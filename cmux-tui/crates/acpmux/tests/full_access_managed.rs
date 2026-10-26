@@ -103,6 +103,13 @@ fn home(name: &str) -> PathBuf {
             // starts (a `current_mode_update` before it answers `session/new`).
             "self-reporter": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1",
                               "FAKE_STARTUP_MODE": "bypassPermissions"}},
+            // One that reports an asking mode while its session starts, then answers
+            // `session/new` in full access.
+            "self-masked": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_FULL_ACCESS": "1",
+                            "FAKE_NEW_MODE": "full-access", "FAKE_STARTUP_MODE": "normal"}},
+            // `self-reporter` whose report comes after 300 other updates.
+            "self-busy": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1",
+                          "FAKE_STARTUP_NOISE": "300", "FAKE_STARTUP_MODE": "bypassPermissions"}},
             // A harness with a full-access mode whose mode changes take 1.5 s to answer.
             "slow-switcher": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_PLAN_MODE": "1",
                               "FAKE_FULL_ACCESS": "1", "FAKE_SET_MODE_DELAY_MS": "1500"}},
@@ -477,45 +484,24 @@ const PROBES: &[Case] = &[
             assert!(ends(claude).await, "the live list of claude-pinned runs on under the off");
         })
     }),
-    (
-        "review 32: a probe whose session comes up in full access keeps nothing under the off",
-        |name| {
-            Box::pin(async move {
-                let (_dir, _daemon, mut app) = daemon(name, true).await;
-                app.push(off()).await;
-                let listed = app.call("_acpmux/models", json!({"refresh": true})).await;
-                let entry = listed["result"]["harnesses"]
-                    .as_array()
-                    .and_then(|all| all.iter().find(|h| h["harness"] == "self-full"))
-                    .cloned()
-                    .unwrap_or_default();
-                assert!(
-                    entry["probeError"].as_str().is_some_and(|e| e.contains("full access")),
-                    "a probe of self-full, in full access under the off, was kept: {entry}"
-                );
-            })
-        },
-    ),
-    (
-        "review 41: a probe whose harness reports full access while it starts keeps nothing",
-        |name| {
-            Box::pin(async move {
-                let (_dir, _daemon, mut app) = daemon(name, true).await;
-                app.push(off()).await;
-                let listed = app.call("_acpmux/models", json!({"refresh": true})).await;
-                let entry = listed["result"]["harnesses"]
-                    .as_array()
-                    .and_then(|all| all.iter().find(|h| h["harness"] == "self-reporter"))
-                    .cloned()
-                    .unwrap_or_default();
-                assert!(
-                    entry["probeError"].as_str().is_some_and(|e| e.contains("full access")),
-                    "a probe of self-reporter, which reported bypassPermissions under the off, \
-                     was kept: {entry}"
-                );
-            })
-        },
-    ),
+    ("reviews 32, 41, 46: a probe in full access as its session starts keeps nothing", |name| {
+        Box::pin(async move {
+            let (_dir, _daemon, mut app) = daemon(name, true).await;
+            app.push(off()).await;
+            let listed = app.call("_acpmux/models", json!({"refresh": true})).await;
+            let kept: Vec<Value> = ["self-full", "self-reporter", "self-masked", "self-busy"]
+                .iter()
+                .filter_map(|name| {
+                    let all = listed["result"]["harnesses"].as_array()?;
+                    let entry = all.iter().find(|h| h["harness"] == *name)?;
+                    let refused =
+                        entry["probeError"].as_str().is_some_and(|e| e.contains("full access"));
+                    (!refused).then(|| entry.clone())
+                })
+                .collect();
+            assert!(kept.is_empty(), "probes in full access kept under the off: {kept:?}");
+        })
+    }),
 ];
 
 /// Runs `cases` one at a time and names every one that fails.
