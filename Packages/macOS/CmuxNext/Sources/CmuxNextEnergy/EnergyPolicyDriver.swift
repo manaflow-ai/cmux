@@ -46,6 +46,21 @@ public final class EnergyPolicyDriver {
         publish()
     }
 
+    /// "Turn Off Energy Saver for Now" (action `energy.saver.turnOffForNow`): the saver stays off until
+    /// the battery -> AC edge or a change of `energy.saver`, and the policy publishes now. Chrome's
+    /// `BatterySaverModeManager::SetTemporaryBatterySaverDisabledForSession(true)`.
+    public func turnOffForNow() {
+        resolver.turnOffForNow()
+        publish()
+    }
+
+    /// Ends "Turn Off for Now" before its edge (action `energy.saver.turnOnNow`); the setting and the
+    /// inputs decide again, now.
+    public func turnOnNow() {
+        resolver.turnOnNow()
+        publish()
+    }
+
     private func publish() {
         guard let setting, let inputs else { return }
         let reason = resolver.update(setting: setting, inputs: inputs)
