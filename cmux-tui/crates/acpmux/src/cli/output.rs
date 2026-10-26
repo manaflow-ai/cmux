@@ -679,7 +679,9 @@ async fn collect_once(
                         match opts.on_permission {
                             OnPermission::Wait => {
                                 let title = p.pointer("/request/toolCall/title").and_then(Value::as_str).unwrap_or("permission");
-                                eprintln!("permission needed: {title}  (acpmux session allow {id} | acpmux session deny {id})");
+                                let request = p.get("request").cloned().unwrap_or(Value::Null);
+                                let hint = crate::question_answer::pending_hint(&request, id);
+                                eprintln!("permission needed: {title}  ({hint})");
                             }
                             mode => {
                                 denied += 1;
