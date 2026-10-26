@@ -10,6 +10,8 @@ public final class CmuxToastView: NSView {
     public let toast: CmuxToast
     public private(set) var actionButton: CmuxToastButton?
     public let closeButton = CmuxToastButton(style: .close, title: CmuxToastStrings.dismiss, target: nil, action: nil)
+    /// The message; its tooltip is the toast's `detail`.
+    public private(set) var messageLabel: ChromeLabel?
     var onAction: (() -> Void)?
     var onClose: (() -> Void)?
     /// The pointer came onto or left the toast, or the toast moved or went
@@ -40,6 +42,7 @@ public final class CmuxToastView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel(toast.message)
+        setAccessibilityHelp(toast.detail)
         setAccessibilityIdentifier("cmux.toast.\(toast.id)")
         // Stable names for agents and UI tests (AccessibilityAudit wants one on every button).
         actionButton?.setAccessibilityIdentifier("cmux.toast.\(toast.id).action")
@@ -60,6 +63,9 @@ public final class CmuxToastView: NSView {
         // buttons. The message keeps its width (up to 360 pt, then it wraps).
         label.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         performWithTheme { label.textColor = Palette.textPrimary }
+        // The details stay out of the toast: the pointer on the message shows them.
+        label.themedToolTip = toast.detail
+        messageLabel = label
         let row = NSStackView(views: [label])
         row.orientation = .horizontal
         row.alignment = .centerY
@@ -103,8 +109,17 @@ public final class CmuxToastView: NSView {
             surface.bottomAnchor.constraint(equalTo: bottomAnchor),
             widthAnchor.constraint(equalTo: row.widthAnchor),
             heightAnchor.constraint(equalTo: row.heightAnchor),
+            // The stack's vertical edge insets do not hold its height (a toast's fitting height
+            // was its tallest view's, so a message of two or three lines touched the glass's
+            // top and bottom). The message keeps the room the buttons give a one-line message.
+            label.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor, constant: Self.messageInset),
+            row.bottomAnchor.constraint(greaterThanOrEqualTo: label.bottomAnchor, constant: Self.messageInset),
         ])
     }
+
+    /// The least room above and below the message: about what a one-line message has beside
+    /// the 22 pt buttons, so one-line toasts keep their height.
+    static var messageInset: CGFloat { Metrics.space2 }
 
     /// The shared toast glass radius, never a capsule.
     static let cornerRadius = FloatingGlassStyle.toast.cornerRadius

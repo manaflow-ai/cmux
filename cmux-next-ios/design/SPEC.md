@@ -460,6 +460,41 @@ snapshot test in light and dark at Large and AX3 Dynamic Type.
   agent's glyph on `surfaceRaised`: Claude Code, Codex, Cursor, Gemini use monochrome SF
   Symbols or template assets; never brand colors in chrome).
 
+### 4.2.1 Lists: one text column (rule, every list)
+
+Every list has one text column, and everything that reads as text starts on it. User
+direction, 2026-10-23: "headers like Needs You and Pinned should be left aligned with all
+text, this should be a principle in general."
+
+- **Text column.** Each row's primary text (the title, and the subtitle under it) starts at
+  the list's text column. Section headers, footers, inline labels ("Loading…", "No Macs
+  yet", a Mac's offline line), group and disclosure titles, and icon-less rows on the same
+  page start there too. Every title in a list starts at one x.
+- **Gutter.** Marks hang in a leading gutter before the text column: status and unread dots,
+  disclosure chevrons, icons, small avatars, spinners, selection marks (Apple Mail's unread
+  dots, iOS Settings' row icons). A group or disclosure row puts its chevron in the gutter
+  and its title on the text column; extra marks (a group's color dot) follow the title.
+- **Separators** start at the text column, never under the gutter.
+- **Metrics** (`CmuxMobileListColumn`, `CmuxMobileDesign/ListColumn.swift`), measured from
+  the row content's leading edge and scaled like `.body` with Dynamic Type:
+  - plain lists (Workspaces): `plain`, a 32 pt gutter from the screen edge, text at 32 pt;
+  - grouped lists (Settings and its pages, Devices): `grouped`, a 22 pt icon column (up to
+    44 pt) and 14 pt to the text, so text at 36 pt from the cell's content margin, where the
+    system header and footer text start;
+  - a list with its own glyph size declares its column (`CmuxMobileListColumn(mark:gap:)`,
+    e.g. Continue in… 32 + 12, Checkpoints 24 + 12); the Team drawer uses
+    `SidebarTeamRow.textLeading` (side margin + 36 pt avatar + 12 pt).
+- **How to build it.** A row puts its mark in `CmuxMobileGutterRow`; a header, footer or
+  icon-less row in a list with marks takes `.cmuxMobileTextColumn(kind)`. A page whose rows
+  have no marks keeps the system alignment (its text, headers and footers already share
+  the cell margin) and adds no icons to only some rows.
+- **Exceptions.** A row's own icon or emoji that is part of its name (a workspace's icon)
+  sits on the text column with the name. Centered hero cards (the account card, Chief's
+  header, the Continue in… review header), empty states and centered status notes (Home's
+  "Connecting to …") are not rows. Menus are the system's and already follow the rule.
+- **Check.** Measure the x of each header and each row title per screen (accessibility
+  frames or a pixel scan): they match within 1 pt at the default and a large text size.
+
 ### 4.3 Composer (`CmuxMobileComposer`)
 
 States: `collapsed`, `expanded` (idle), `focused`, `running` (agent working), `queued`
@@ -926,7 +961,7 @@ permission requests, errors, PR events.
   toggle per Mac; pattern `chatgpt-31-filter-menu`).
 - Chip row under the toolbar (scrolls with content): All, Needs you (with count), Finished,
   Errors (4.1 `Chip`). Chips mirror the filter menu.
-- `List(.plain)` with full-bleed 0.5 pt separators (X style), `bg`. New events above the
+- `List(.plain)` with 0.5 pt separators from the text column (4.2.1), `bg`. New events above the
   viewport: glass capsule "↑ 3 new" centered under the toolbar; tap scrolls to top with `smooth`.
 - Tab bar minimizes on scroll (3.2).
 
