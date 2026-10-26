@@ -163,6 +163,21 @@ public final class PageHostPool {
         scheduleBuild()
     }
 
+    /// Whether an open of Settings, History or Cloud shows in WebKit now, so a spare could serve it: the engine
+    /// decision ``claim(_:routes:route:documentAttributes:options:surface:dynamicResources:window:focus:)`` takes,
+    /// with no side effect (it arms no web-override watch). With Chromium as their engine a spare is a WebKit
+    /// page no open takes.
+    ///
+    /// - Parameter hosting: The app's Chromium page maker (`WebUIHost.chromium`); nil for WebKit only.
+    public func servesOpens(hosting: (any PageChromiumHosting)?) -> Bool {
+        guard let hosting else { return true }
+        let liveWebOverride = WebDevOverride.current.isActive
+        return PageServedHosts.pooledDescriptors.contains { page in
+            PageEnginePolicy(preference: hosting.preference, chromiumAvailable: hosting.isAvailable, chromiumServes: hosting.serves(page),
+                             liveWebOverride: liveWebOverride).decide(for: page, options: options).engine == .webKit
+        }
+    }
+
     /// Marks one of the bundled page surfaces as likely to open soon.
     public func noteLikely() {
         isLikely = true
