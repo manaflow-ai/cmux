@@ -286,7 +286,8 @@ async fn a_refused_person_retry_answers_at_once() {
     let (hub, session, _conn) = chat(vec![60_000, 60_000]).await;
     hub.observe_subagents(&session, &[failed("s/t1")]);
     settle().await;
-    let by = crate::hub::auto_resume::retry_turn::RetryBy { from: Some("gone".into()), ..by_person() };
+    let by =
+        crate::hub::auto_resume::retry_turn::RetryBy { from: Some("gone".into()), ..by_person() };
     let answer = hub.retry_subagent(&session, "s/t1", by);
     let refused = tokio::time::timeout(Duration::from_secs(10), answer).await;
     let refused = refused.expect("answered at once").unwrap_err();

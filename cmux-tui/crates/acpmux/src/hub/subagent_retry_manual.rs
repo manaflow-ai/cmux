@@ -87,8 +87,9 @@ impl Hub {
             let Claim { id, wait, failure, name, idle } = claim;
             let sent = hub.send_attempt(&s, &id, &wait, &failure, name.as_deref(), opts, Some(tx));
             let (result, failed) = sent.await;
+            // Its own task: the answer to a refused prompt never waits for the next attempt.
             if failed {
-                hub.after_manual(&s, &id, idle).await;
+                tokio::spawn(async move { hub.after_manual(&s, &id, idle).await });
             }
             result
         });
