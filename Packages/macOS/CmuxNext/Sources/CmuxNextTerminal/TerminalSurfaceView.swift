@@ -28,6 +28,8 @@ public final class TerminalSurfaceView: NSView {
     private(set) var lane: TerminalOutputLane?
     /// Watches each output chunk's parse on ``lane`` (``TerminalOutputLane``); nil watches nothing.
     private let hangWatch: (any HangWatchScoping)?
+    /// Where Ghostty's secure keyboard entry requests for this view go (``TerminalSecureInput``).
+    let secureInput: TerminalSecureInput
     weak var session: TerminalSession?
 
     /// Which grid the surface renders and reports (``TerminalGridPolicy``):
@@ -119,11 +121,12 @@ public final class TerminalSurfaceView: NSView {
     // MARK: Lifecycle
 
     init(io mode: ghostty_surface_io_mode_e, input: TerminalInputSink, session: TerminalSession?,
-         echoStages: TerminalEchoStages, hangWatch: (any HangWatchScoping)? = nil) {
+         echoStages: TerminalEchoStages, hangWatch: (any HangWatchScoping)? = nil, secureInput: TerminalSecureInput) {
         let bridge = SurfaceBridge(input: input)
         self.bridge = Unmanaged.passRetained(bridge)
         self.session = session
         self.hangWatch = hangWatch
+        self.secureInput = secureInput
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         bridge.view = self
         createSurface(mode: mode, echoStages: echoStages)
@@ -139,7 +142,7 @@ public final class TerminalSurfaceView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             for observer in windowObservers { NotificationCenter.default.removeObserver(observer) }
-            TerminalSecureInput.release(self)
+            secureInput.release(ObjectIdentifier(self))
             if let surface {
                 lane?.close()
                 ghostty_surface_free(surface)

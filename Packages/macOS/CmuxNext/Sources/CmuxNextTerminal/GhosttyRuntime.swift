@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextProcessEnvironment
 public import CmuxNextDesign
+import CmuxNextTrace
 import CmuxNextWakeups
 import GhosttyNextKit
 import os
@@ -66,6 +67,9 @@ public final class GhosttyRuntime {
     /// The terminals' key-to-echo stages and the process's contents gate; the app installs its input
     /// latency tracker here (``TerminalEchoStages/install(_:)``, p04-input-094) before its first terminal.
     public let echoStages = TerminalEchoStages(contentsGate: TerminalContentsGate())
+    /// The process's secure keyboard entry for its terminals (HIToolbox counts it per process); it holds the
+    /// app trace runtime's keystroke-timing gate closed while on (p09-observability-128).
+    public let secureInput = TerminalSecureInput(trace: .shared)
     private var observers: [any NSObjectProtocol] = []
     private var appearanceObservation: NSKeyValueObservation?
 
