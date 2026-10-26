@@ -42,19 +42,30 @@ struct Envelope {
     origin: Option<Value>,
 }
 
-/// `Some(keep_open)` when `message`, a v2 line the catalog parse refused,
-/// is a request of a routed operation (answered here), else `None`.
-pub(super) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if message.len() > crate::resource::MAX_MESSAGE_BYTES {
-        return None;
-    }
-    let envelope: Envelope = serde_json::from_str(message).ok()?;
-    let route = page_router_table::routed(&envelope.operation)?;
+/// A routed handler: the request's connection, whole line and writer; the
+/// result keeps the connection open.
+type Handler = fn(&Arc<Mux>, u64, &str, &MessageWriter) -> bool;
+
+/// This module's v2 route. server/routes.rs (p05-ipc-062) asks it for the
+/// operation of a v2 request head that the operation catalog does not name;
+/// the routed namespaces of spec/page-router.json are this module's op table,
+/// as a Mojo stub owns the method table of its interface
+/// (mojo/public/cpp/bindings/lib/interface_endpoint_client.cc).
+pub(super) fn route(operation: &str) -> Option<Handler> {
+    page_router_table::routed(operation).map(|_| handle as Handler)
+}
+
+/// Answers one request of a routed operation. A line that is not exactly
+/// one routed request gets the catalog parse's answer, as before routing.
+fn handle(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWriter) -> bool {
+    let envelope = (message.len() <= crate::resource::MAX_MESSAGE_BYTES)
+        .then(|| serde_json::from_str::<Envelope>(message).ok())
+        .flatten();
+    let Some((route, envelope)) = envelope
+        .and_then(|envelope| Some((page_router_table::routed(&envelope.operation)?, envelope)))
+    else {
+        return catalog_answer(mux, client, message, writer);
+    };
     let id = envelope.id.as_str().and_then(|id| RequestId::parse(id).ok());
     let Some(id) = id else {
         let error = ResourceError::validation_invalid(
@@ -62,14 +73,23 @@ pub(super) fn try_handle(
             "request id must be a string of 1 to 128 UTF-8 bytes",
         );
         let response = crate::resource_router::malformed_resource_response(message, error);
-        return Some(writer.send_control(&response).is_ok());
+        return writer.send_control(&response).is_ok();
     };
     let response = match run(mux, client, envelope, route) {
         Ok(result) => ResponseEnvelope::success(id, result),
         Err(error) => ResponseEnvelope::failure(id, error),
     };
     let response = serde_json::to_value(response).unwrap_or_else(|_| json!({}));
-    Some(writer.send_control(&response).is_ok())
+    writer.send_control(&response).is_ok()
+}
+
+/// The catalog's answer to `message`, a v2 line: its envelope parse refuses
+/// an operation it does not name, and the origin gate answers the refusal.
+fn catalog_answer(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWriter) -> bool {
+    let envelope = crate::resource_router::parse_resource_line(message).unwrap_or_else(|| {
+        Err(ResourceError::validation_invalid(Some("protocol"), "unsupported protocol"))
+    });
+    super::origin_gate::handle_resource_line(mux, client, message, envelope, writer)
 }
 
 fn run(
@@ -232,3 +252,7 @@ fn apps_store(
         json!({"code": "apps.unavailable"}),
     ))
 }
+
+#[cfg(test)]
+#[path = "page_router_tests.rs"]
+mod tests;

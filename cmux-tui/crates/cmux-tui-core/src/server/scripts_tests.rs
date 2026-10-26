@@ -33,8 +33,15 @@ fn reply_to(
     out: &BoundedOutbound,
     request: Value,
 ) -> Value {
-    assert_eq!(try_handle(mux, client, &request.to_string(), writer), Some(true));
+    let cmd = request["cmd"].as_str().expect("a cmd");
+    let handler = routed(cmd).expect("a script route");
+    assert!(handler(mux, client, &request.to_string(), writer));
     serde_json::from_str(&out.try_pop().expect("reply")).unwrap()
+}
+
+/// The handler `ROUTES` names for `cmd`, as server/routes.rs finds it.
+fn routed(cmd: &str) -> Option<Handler> {
+    ROUTES.iter().find(|(name, _)| *name == cmd).map(|(_, handler)| *handler)
 }
 
 #[test]
@@ -68,15 +75,42 @@ fn malformed_requests_and_other_commands() {
     let (client, out, writer) = connection(&mux, ClientTransport::Unix, false);
     let reply = reply_to(&mux, client, &writer, &out, json!({ "id": 3, "cmd": "script-run" }));
     assert_eq!(reply["error_code"], "bad-request");
-    // Not a script command: left to the next handler.
-    assert_eq!(
-        try_handle(&mux, client, &json!({ "id": 4, "cmd": "identify" }).to_string(), &writer),
-        None
-    );
-    assert_eq!(
-        try_handle(&mux, client, r#"{"id":5,"cmd":"apps-list","x":"script-"}"#, &writer),
-        None
-    );
+    // Not a script command: no route here, whatever its other members say.
+    assert!(routed("identify").is_none());
+    assert!(routed("apps-list").is_none());
+}
+
+/// A connection frame reaches the script route by its `cmd`; a line that
+/// only mentions a script command is not routed here.
+#[test]
+fn a_connection_frame_routes_script_commands_by_cmd() {
+    let mux = Mux::new_for_test("scripts-frame", SurfaceOptions::default());
+    let (client, out, writer) = connection(&mux, ClientTransport::Unix, true);
+    let scheduler = Arc::new(crate::server::ConnectionSurfaceScheduler::new(
+        mux.surface_operation_admission.clone(),
+    ));
+    let send = |line: String| {
+        assert!(crate::server::handle_connection_message(&mux, client, &line, &writer, &scheduler));
+        serde_json::from_str::<Value>(&out.try_pop().expect("reply")).unwrap()
+    };
+    let reply = send(json!({ "id": 9, "cmd": "script-run", "code": "1" }).to_string());
+    assert_eq!(reply["error_code"], "script.forbidden", "{reply}");
+    assert_eq!(reply["id"], 9);
+    let reply = send(r#"{"id":10,"cmd":"no-such-command","x":"script-run"}"#.to_string());
+    assert_ne!(reply["error_code"], "script.forbidden", "{reply}");
+    assert_eq!(reply["ok"], false, "{reply}");
+}
+
+/// Every routed name is a variant of the module's `Command`, so a routed
+/// request never meets an `unknown variant` refusal.
+#[test]
+fn every_route_names_a_script_command() {
+    assert_eq!(ROUTES.len(), 4);
+    for (cmd, _) in ROUTES {
+        let request = json!({ "cmd": cmd, "code": "1", "session": "scr_1" });
+        let parsed = serde_json::from_value::<Request>(request);
+        assert!(parsed.is_ok(), "{cmd}: {:?}", parsed.err());
+    }
 }
 
 #[test]

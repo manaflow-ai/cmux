@@ -46,9 +46,11 @@ pub(super) fn handle_connection_frame(
         // operation (page-router-v1): the same JSON parse decides, so every
         // spelling of the line gets one answer.
         if request.is_err()
-            && let Some(keep_open) = page_router::try_handle(mux, client, message, writer)
+            && let Some(handler) = RouteHead::of(message)
+                .and_then(|head| head.operation)
+                .and_then(|operation| page_router::route(&operation))
         {
-            return keep_open;
+            return handler(mux, client, message, writer);
         }
         // Debug timing marks of a resource create, from the arrival of its
         // line to its reply (`CMUX_TUI_DEBUG_SPANS`; cx-b4sjc).
@@ -99,16 +101,19 @@ pub(super) fn handle_connection_frame(
         return keep_open;
     }
     #[cfg(unix)]
-    if let Some(keep_open) = scripts::try_handle(mux, client, message, writer) {
-        return keep_open;
-    }
-    #[cfg(unix)]
     if let Some(keep_open) = fs_wire::try_handle(mux, client, message, writer) {
         return keep_open;
     }
     let request = match serde_json::from_str::<Request>(message) {
         Ok(request) => request,
-        Err(error) => return send_bad_request(writer, message, &error),
+        Err(error) => {
+            // A module's command (its `ROUTES`), which `Command` does not name.
+            #[cfg(unix)]
+            if let Some(handler) = RouteHead::of(message).and_then(|head| head.command_route()) {
+                return handler(mux, client, message, writer);
+            }
+            return send_bad_request(writer, message, &error);
+        }
     };
     let mut pending = Some(request);
     match scheduler.dispatch(mux.clone(), client, &mut pending, message.len(), writer.clone()) {
@@ -117,6 +122,34 @@ pub(super) fn handle_connection_frame(
             Some(request) => handle_request(mux, client, request, writer),
             None => true,
         },
+    }
+}
+
+/// A routed handler: the request's connection, whole line and writer; the
+/// result keeps the connection open.
+type RouteHandler = fn(&Arc<Mux>, u64, &str, &MessageWriter) -> bool;
+
+/// The names a line is routed by. p05-ipc-062's borrowed RequestHead and
+/// routes.rs table replace it; until then it serves the modules whose
+/// `ROUTES` exist.
+#[derive(Deserialize)]
+struct RouteHead<'a> {
+    #[serde(borrow, default)]
+    cmd: Option<std::borrow::Cow<'a, str>>,
+    #[serde(borrow, default)]
+    operation: Option<std::borrow::Cow<'a, str>>,
+}
+
+impl<'a> RouteHead<'a> {
+    fn of(message: &'a str) -> Option<Self> {
+        serde_json::from_str(message).ok()
+    }
+
+    /// The handler a module's `ROUTES` names for this `cmd`.
+    #[cfg(unix)]
+    fn command_route(&self) -> Option<RouteHandler> {
+        let cmd = self.cmd.as_deref()?;
+        scripts::ROUTES.iter().find(|(name, _)| *name == cmd).map(|(_, handler)| *handler)
     }
 }
 

@@ -169,43 +169,51 @@ fn answer_later(
     }
 }
 
-/// Handles a `script-*` command; `None` when the message is not one.
-pub(super) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains("\"script-") {
-        return None;
-    }
-    let value: Value = serde_json::from_str(message).ok()?;
-    if !value.get("cmd").and_then(Value::as_str)?.starts_with("script-") {
-        return None;
-    }
+/// A routed handler: the request's connection, whole line and writer; the
+/// result keeps the connection open.
+type Handler = fn(&Arc<Mux>, u64, &str, &MessageWriter) -> bool;
+
+/// This module's commands and their handler. server/routes.rs (p05-ipc-062)
+/// looks a request's `cmd` up once in every module's `ROUTES`, as a Mojo stub
+/// dispatches on the message name (mojo/public/cpp/bindings/lib/
+/// interface_endpoint_client.cc), instead of offering each line to every
+/// module in turn.
+pub(super) const ROUTES: &[(&str, Handler)] = &[
+    ("script-run", handle),
+    ("script-repl-open", handle),
+    ("script-repl-eval", handle),
+    ("script-repl-close", handle),
+];
+
+/// Answers one `script-*` request, which its `cmd` routed here.
+fn handle(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWriter) -> bool {
+    // Through `Value`: the typed error then names no line and column, as the
+    // replies always have.
+    let value: Value = match serde_json::from_str(message) {
+        Ok(value) => value,
+        Err(e) => return reply(writer, None, Err(ScriptError::new("bad-request", e.to_string()))),
+    };
     let id = value.get("id").cloned();
     let request = match serde_json::from_value::<Request>(value) {
         Ok(request) => request,
-        Err(e) => {
-            return Some(reply(writer, id, Err(ScriptError::new("bad-request", e.to_string()))));
-        }
+        Err(e) => return reply(writer, id, Err(ScriptError::new("bad-request", e.to_string()))),
     };
     let Request { id, command } = request;
     // Cancel and bookkeeping key by request id: a cell needs one.
     let request_id = id.clone().filter(|id| !id.is_null());
     if request_id.is_none() && !matches!(command, Command::Close { .. }) {
-        return Some(reply(
+        return reply(
             writer,
             id,
             Err(ScriptError::new("bad-request", "script requests need an id")),
-        ));
+        );
     }
     if let Some(refused) = refusal(mux, client) {
-        return Some(reply(writer, id, Err(refused)));
+        return reply(writer, id, Err(refused));
     }
     let request_id = request_id.unwrap_or_default();
     let request_key = request_id.to_string();
-    Some(match command {
+    match command {
         Command::Run { code, args, timeout_ms } => {
             let mux = mux.clone();
             let budget = Arc::new(LogBudget::default());
@@ -269,7 +277,7 @@ pub(super) fn try_handle(
             let closed = mux.control_clients.scripts.close(client, &session);
             reply(writer, id, Ok(json!({ "closed": closed })))
         }
-    })
+    }
 }
 
 #[cfg(test)]
