@@ -101,6 +101,9 @@ acpmux = { path = "../acpmux" }
 
 [target.'cfg(unix)'.dependencies]
 cmux-holder.workspace = true
+# `cmux vnc`: the RFB client and the zlib compression of its Kitty graphics frames.
+cmux-vnc.workspace = true
+flate2.workspace = true
 # `cmux host …`, the machine supervisor and process roles (server.md 5.1).
 cmux-host.workspace = true
 # Reads the enclosing app bundle's Info.plist (app_identity.rs).

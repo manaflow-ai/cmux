@@ -52,6 +52,8 @@ mod lifecycle;
 #[cfg(unix)]
 mod vm;
 #[cfg(unix)]
+mod vnc;
+#[cfg(unix)]
 pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
 #[cfg(unix)]
 #[cfg(unix)]
@@ -349,6 +351,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| coderouter::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
+        .or_else(|| vnc::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
