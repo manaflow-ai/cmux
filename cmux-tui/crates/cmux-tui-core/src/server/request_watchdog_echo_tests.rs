@@ -2,7 +2,8 @@
 //! `mux-pty-input`, `mux-attach-out` and `mux-render-attach-out` work is a
 //! 100 ms scope of the request watchdog. One busy past it is one hang
 //! record naming the thread's scope; a short one is none; an idle watchdog
-//! does not wake. A holder's own loop hang comes back as one record too.
+//! does not wake. A holder's own loop hang comes back as one record too,
+//! written by the watchdog thread.
 
 use std::sync::Mutex;
 use std::sync::mpsc::{Receiver, channel};
@@ -137,15 +138,64 @@ fn a_stopped_watchdog_watches_no_item() {
 }
 
 /// A holder's report of its own loop is one `holder-loop` row with no
-/// stack (the thread is in the holder), counted in `hangs`.
+/// stack (the thread is in the holder), counted in `hangs`, written by the
+/// watchdog thread and never by the holder link's reader that received it.
 #[cfg(unix)]
 #[test]
-fn a_holder_loop_report_is_one_row_counted_in_hangs() {
-    let (watchdog, received) = echo_watchdog();
-    watchdog.shared.report_hang("holder-loop", "holder-loop", 100, 153);
-    let record = received.try_recv().expect("a hang record");
+fn a_holder_loop_report_is_one_row_written_on_the_watchdog_thread() {
+    let (records, received) = channel();
+    let records = Mutex::new(records);
+    let sink: HangSink = Box::new(move |record| {
+        let writer = std::thread::current().name().map(str::to_owned);
+        let _ = records.lock().unwrap().send((writer, record));
+    });
+    let capture = Box::new(thread_backtrace::capture);
+    let watchdog =
+        RequestWatchdog::build(REQUEST_WATCHDOG_THRESHOLD, spawn_watchdog_thread, capture, sink);
+    let reader = std::thread::Builder::new()
+        .name("holder-link".into())
+        .spawn({
+            let shared = watchdog.shared.clone();
+            move || shared.report_hang("holder-loop", "holder-loop", 100, 153)
+        })
+        .unwrap();
+    reader.join().unwrap();
+    let (writer, record) = received.recv_timeout(Duration::from_secs(10)).expect("a hang record");
+    assert_eq!(writer.as_deref(), Some(THREAD_NAME), "written on the watchdog thread");
     assert_eq!(scope_and_method(&record), (Some("holder-loop"), Some("holder-loop")), "{record}");
     assert_eq!((record["hang_ms"].as_u64(), record["busy_ms"].as_u64()), (Some(100), Some(153)));
     assert_eq!(record["stack_error"], "other-process", "{record}");
+    assert_eq!(record["stack"], serde_json::json!([]), "{record}");
+    wait_disarmed(&watchdog.shared);
+    assert!(received.try_recv().is_err(), "one row");
     assert_eq!(watchdog.snapshot().hangs, 1);
+}
+
+/// Reports past the queue's bound, while the watchdog thread cannot take
+/// them, are dropped and counted; the reporter never writes one itself.
+#[cfg(unix)]
+#[test]
+fn reports_past_the_queue_bound_are_dropped_and_counted() {
+    fn no_thread(_: Box<dyn FnOnce() + Send>) -> std::io::Result<Thread> {
+        Err(std::io::Error::other("no watchdog thread"))
+    }
+    let written = Arc::new(AtomicU64::new(0));
+    let sink: HangSink = Box::new({
+        let written = written.clone();
+        move |_| {
+            written.fetch_add(1, Ordering::Relaxed);
+        }
+    });
+    let capture = Box::new(thread_backtrace::capture);
+    let watchdog = RequestWatchdog::build(REQUEST_WATCHDOG_THRESHOLD, no_thread, capture, sink);
+    let bound = u64::try_from(reported::REPORTED_HANG_QUEUE).unwrap();
+    for _ in 0..bound + 3 {
+        watchdog.shared.report_hang("holder-loop", "holder-loop", 100, 153);
+    }
+    assert_eq!(watchdog.shared.reported.dropped.load(Ordering::Relaxed), 3);
+    assert_eq!(written.load(Ordering::Relaxed), 0, "nothing written off the watchdog thread");
+    assert_eq!(watchdog.snapshot().hangs, 0);
+    watchdog.shared.write_reported();
+    assert_eq!(written.load(Ordering::Relaxed), bound);
+    assert_eq!(watchdog.snapshot().hangs, bound);
 }

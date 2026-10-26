@@ -263,10 +263,6 @@ type CaptureStack = Box<dyn Fn(ThreadHandle) -> Result<Backtrace, BacktraceError
 /// frames would be the thread's next work.
 const RUN_ENDED: &str = "run-ended";
 
-/// `stack_error` of a hang another process reported: the thread is there.
-#[cfg(unix)]
-const OTHER_PROCESS: &str = "other-process";
-
 /// A recorded request in the ring, with the run it came from so its final
 /// duration can be filled in.
 struct RecentEntry {
@@ -286,6 +282,9 @@ struct Shared {
     hang_sink: HangSink,
     /// Runs written to the hang log.
     hangs: AtomicU64,
+    /// Hangs another process reported, for the watchdog thread to write.
+    #[cfg(unix)]
+    reported: reported::ReportedHangs,
     slots: Box<[Slot]>,
     /// Set by the first run that finds it clear; cleared by the watchdog
     /// thread when nothing is left to watch.
@@ -428,6 +427,8 @@ impl Shared {
         while !self.stopping.load(Ordering::Acquire) {
             #[cfg(test)]
             drop(self.scan_hold.lock().recover_poison());
+            #[cfg(unix)]
+            self.write_reported();
             let now = self.now_us();
             let scan = self.scan(now, previous_scan);
             previous_scan = now;
@@ -475,8 +476,12 @@ impl Shared {
     }
 
     /// A run left to watch: one not yet written as a hang (its last tier),
-    /// or one that finished slow.
+    /// or one that finished slow; or a reported hang left to write.
     fn any_pending(&self) -> bool {
+        #[cfg(unix)]
+        if self.has_reported() {
+            return true;
+        }
         self.slots.iter().any(|slot| {
             let word = slot.busy.load(Ordering::SeqCst);
             word_start_us(word).is_some() && word & (FINISHED | HUNG) != HUNG
@@ -569,28 +574,6 @@ impl Shared {
             record["client"] = run.client.into();
         }
         (self.hang_sink)(record);
-    }
-
-    /// Write a hang another process's watcher saw (a holder's loop pass)
-    /// to the hang log, counted in `hangs`. It has no stack: the hung
-    /// thread is in that process.
-    #[cfg(unix)]
-    fn report_hang(&self, scope: &str, method: &str, hang_ms: u64, busy_ms: u64) {
-        self.hangs.fetch_add(1, Ordering::Relaxed);
-        let at_ms = self.epoch_ms.saturating_add(self.now_us() / 1000);
-        (self.hang_sink)(serde_json::json!({
-            "event": "hang",
-            "scope": scope,
-            "method": method,
-            "hang_ms": hang_ms,
-            "busy_ms": busy_ms,
-            "duration_ms": null,
-            "started_at_ms": at_ms.saturating_sub(busy_ms),
-            "at_ms": at_ms,
-            "stack": [],
-            "stack_truncated": false,
-            "stack_error": OTHER_PROCESS,
-        }));
     }
 
     /// The stack of the thread running the recorded run `word` in `slot`.
@@ -777,6 +760,8 @@ impl RequestWatchdog {
                 hang_for_test: None,
                 hang_sink,
                 hangs: AtomicU64::new(0),
+                #[cfg(unix)]
+                reported: reported::ReportedHangs::default(),
                 slots: (0..SLOT_COUNT).map(|_| Slot::default()).collect(),
                 armed: AtomicBool::new(false),
                 stopping: AtomicBool::new(false),
@@ -925,6 +910,9 @@ impl Drop for RequestScope<'_> {
     }
 }
 
+#[cfg(unix)]
+#[path = "request_watchdog_reported.rs"]
+mod reported;
 #[path = "request_watchdog_scopes.rs"]
 mod scopes;
 use scopes::PROCESS;

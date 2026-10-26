@@ -645,7 +645,7 @@ QoS with them, and ThreadsControlTests fails when a label or QoS here and there 
   one hang watcher (p10-stability-032; no second watcher thread): it owns the scope slots of requests, journal
   writer commits, holder-link frames and the echo threads' items (p02-threads-232: each `mux-line-out` write,
   local `mux-pty-input` write and attach frame encode at 100 ms, never the wait for the next item); a holder's
-  `holder-loop` hang arrives on its link as one hang-log line. It wakes only when a scope opens on a disarmed watchdog and then on
+  `holder-loop` hang arrives on its link and the link's reader only queues it (16 at most, more are dropped and counted): this thread writes it as one hang-log line. It wakes only when a scope opens on a disarmed watchdog and then on
   250 ms grid ticks (at most 4/s plus one, 0 while idle: it parks with no timeout). It blocks only on a stack
   capture of a scope past a tier (`thread_backtrace`, shares its capture mutex; under 1 ms), the
   `slow_requests` ring's short lock, and one append to `owner-hangs-<session>.jsonl` per hang (each scope is

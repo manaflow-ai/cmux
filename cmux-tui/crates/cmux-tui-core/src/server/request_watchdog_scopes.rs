@@ -171,9 +171,10 @@ pub struct EchoItem<'a> {
 }
 
 /// A holder's loop pass that its own hang watcher saw busy past
-/// `deadline_ms` (its HANG frame): written to the process's hang log as
-/// scope `holder-loop` and counted in `slow_requests.hangs`. Nothing with
-/// no process watchdog.
+/// `deadline_ms` (its HANG frame): queued for the watchdog thread, which
+/// writes it to the process's hang log as scope `holder-loop` and counts it
+/// in `slow_requests.hangs`; the caller (a holder link's reader) does no
+/// disk I/O. Nothing with no process watchdog.
 #[cfg(unix)]
 pub(crate) fn process_report_holder_hang(site: &str, deadline_ms: u64, busy_ms: u64) {
     if let Some(shared) = PROCESS.get() {
