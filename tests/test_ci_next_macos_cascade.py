@@ -545,11 +545,11 @@ class Wiring(unittest.TestCase):
         # A free owned Mac wins; the Blacksmith pool is the last resort.
         self.assertEqual(evaluate(runs_on, push(runner="free-owned-mac")), "free-owned-mac")
         self.assertEqual(evaluate(runs_on, push()), SIDE)
-        self.assertEqual(evaluate(runs_on, push(runner="")), LARGE)
+        self.assertEqual(evaluate(runs_on, push(runner="")), SMALL)
         self.assertEqual(evaluate(runs_on, push(large=" release-compile ")), SIDE)
         self.assertEqual(evaluate(runs_on, push(small=" release-compile ")), SIDE)
-        self.assertEqual(evaluate(runs_on, push(runner="", large=" release-compile ")), LARGE)
-        self.assertEqual(evaluate(runs_on, push(runner="", small=" release-compile ")), LARGE)
+        self.assertEqual(evaluate(runs_on, push(runner="", large=" release-compile ")), SMALL)
+        self.assertEqual(evaluate(runs_on, push(runner="", small=" release-compile ")), SMALL)
         # Another job's slot is not the Release compile's.
         self.assertEqual(evaluate(runs_on, push(large=" cmux-scheme-compile ")), SIDE)
         self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL)), SMALL)
@@ -660,7 +660,8 @@ class Wiring(unittest.TestCase):
         job = self.jobs["macos-placement"]
         self.assertEqual(job["permissions"].get("actions"), "read")
         place = next(step for step in job["steps"] if step.get("id") == "place")
-        self.assertEqual(place["env"]["SNAPSHOT_TOKEN"], "${{ github.token }}")
+        # The pool snapshot reads with the glaeda read token (its own budget), else GITHUB_TOKEN.
+        self.assertEqual(place["env"]["SNAPSHOT_TOKEN"], "${{ steps.snapshot-read-token.outputs.token || github.token }}")
         for output in ("blacksmith_12_jobs", "blacksmith_6_jobs", "hosted_jobs", "hosted_runner",
                        "nightly_runner_ready"):
             self.assertEqual(job["outputs"][output], f"${{{{ steps.place.outputs.{output} }}}}")

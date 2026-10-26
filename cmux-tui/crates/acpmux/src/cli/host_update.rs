@@ -2,7 +2,8 @@
 //! their target in `--binary-dir`), check the restarted daemon answers with
 //! it, and roll back what does not. The scripts it runs live in the parent
 //! module (`hosts.rs`), the unit migration in `host_migrate.rs`, the lock
-//! that keeps two updates of one host apart in `host_lock.rs`.
+//! that keeps two updates of one host apart in `host_lock.rs`; `host
+//! self-update` (`host_self_update.rs`) runs the same update on this machine.
 
 use super::{
     DAEMON_UNIT, LAUNCHD_RELOAD, LockLost, MIGRATING, REFUSED, RESTORE_PREV, Remote, RemoteOut,
@@ -16,6 +17,10 @@ use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::process::Child;
 use std::sync::Arc;
+
+#[path = "host_self_update.rs"]
+mod host_self_update;
+pub(crate) use host_self_update::self_update;
 
 /// Restart the launchd daemon of a macOS host ([`LAUNCHD_RELOAD`]: bootout,
 /// then bootstrap, never `kickstart -k`), then give it
@@ -31,9 +36,9 @@ fn launchd_restart() -> String {
 /// every script reads them back here, as systemd gives them to the daemon.
 /// When the unit sets either, the pair replaces what the script inherited; a
 /// unit that sets neither leaves the inherited pair. So a status read or a
-/// check reaches the daemon the unit runs, not the one an ssh session's own
-/// environment would name. Read again by every script, so a drop-in a move
-/// just wrote counts at once.
+/// check reaches the daemon the unit runs, from an ssh session and from
+/// `acpmux-update.service`, whose own environment has neither. Read again by
+/// every script, so a drop-in a move just wrote counts at once.
 ///
 /// `systemctl show -p Environment --value` prints the assignments separated
 /// by spaces and quotes one that needs it as a shell would read it
@@ -441,15 +446,16 @@ pub(crate) struct Caller {
 }
 
 /// [`update_peer`] holding the host's update lock ([`lock_updates`]), so
-/// another update of the host (a `host update`, `host setup` or `host enroll
-/// --fix` from another machine) does not change the binary or `acpmux.prev`
-/// under it; `updateRunning` (nothing changed) while one does.
+/// another update of the host (its self-update timer, or a `host update`,
+/// `host setup` or `host enroll --fix` from another machine) does not change
+/// the binary or `acpmux.prev` under it; `updateRunning` (nothing changed)
+/// while one does.
 fn update_locked(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     match lock_updates(remote) {
         Ok(Some(lock)) => update_peer(&lock.fence(remote), opts),
         Ok(None) => {
             let why = format!(
-                "another update of {} is running (a host update, setup or enroll --fix): run this again once it ended",
+                "another update of {} is running (its acpmux-update.timer, or a host update): run this again once it ended",
                 remote.host()
             );
             PeerUpdate::new().end(Outcome::Failed, "updateRunning", why)
@@ -544,7 +550,8 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
         return up.end(Outcome::Failed, reason, why.clone());
     }
     // From here on the peer changes.
-    let version = match push_update(remote, &binary) {
+    let running = probe.build.as_deref().and_then(build_commit);
+    let version = match push_update(remote, &binary, running) {
         Ok(version) => version,
         // The install checks the pushed binary runs before it replaces
         // anything, so the installed one is still the old one.
@@ -738,7 +745,8 @@ fn cut(mut text: String, max: usize) -> String {
 /// - `reason` and `error`, on every outcome but `updated` and `current`: a
 ///   code (`busy`, `unknown`, `noBinary`, `wrongPlatform`,
 ///   `unsupportedPlatform`, `cloudMachine`, `unreachable`, `updateRunning`
-///   (another update of the host holds its update lock), `lockLost` (this update's hold on that lock ended, its
+///   (another update of the host, such as its self-update timer, holds its
+///   update lock), `lockLost` (this update's hold on that lock ended, its
 ///   connection dropped: it changed nothing more), `pushFailed`, `pushMismatch`,
 ///   `restartFailed`, `noAnswer`, `buildMismatch`, and for a daemon under a
 ///   hand-written unit `unitConflict`, `listenConflict`, `unitArgs`,

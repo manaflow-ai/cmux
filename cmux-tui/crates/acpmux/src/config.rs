@@ -767,24 +767,14 @@ pub struct Config {
     pub store: StoreConfig,
     #[serde(default)]
     pub permission_policy: PermissionPolicy,
-    /// `defaultPermissionMode`: the permission mode a new chat starts in when
-    /// the person has not picked one for its harness (`hub/start_mode.rs`):
-    /// `fullAccess`, `standard` or `ask`. Absent: the cmux setting
-    /// `agents.defaultPermissionMode`, else `fullAccess`. For acpmux without
-    /// the cmux app, and for hermetic tests.
+    /// `defaultPermissionMode`: the permission mode a new chat starts in
+    /// (`hub/start_mode.rs`): `fullAccess`, `standard` or `ask`. Absent: the
+    /// cmux setting `agents.defaultPermissionMode`, else `fullAccess`. For
+    /// acpmux without the cmux app, and for hermetic tests. A
+    /// `lastPermissionMode` an older build wrote beside it is ignored and
+    /// dropped at the next save.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_permission_mode: Option<String>,
-    /// `lastPermissionMode`, `lastPermissionModeChange`: the level of the latest mode pick
-    /// from the app pane, and how many changes to the cmux setting acpmux had counted then,
-    /// in which count (`hub/start_mode_state.rs`; `hub/start_mode.rs` `start_level`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_permission_mode: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_permission_mode_change: Option<PermissionModeChange>,
-    /// `lastPermissionModeSetting`: an older build's record beside a pick (the setting's value
-    /// then). Read once to upgrade the pick (`Hub::start_level`), never written.
-    #[serde(default, skip_serializing)]
-    pub last_permission_mode_setting: Option<String>,
     /// `composerMaxRows`: most rows the TUI composer grows to before it
     /// scrolls. Env `ACPMUX_COMPOSER_ROWS` overrides. Default 12.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -804,6 +794,10 @@ pub struct Config {
     /// ended. Default 90000.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_start_timeout_ms: Option<u64>,
+    /// Free bytes on acpmux's disk under which `daemon status` says `disk.low`
+    /// (`recovery.rs`; 1 GiB when unset).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk_low_bytes: Option<u64>,
     /// `silentTurnMs`: how long a turn may go with no sign of its model at work
     /// (no message, thought, tool call, plan, request or model harness line;
     /// the agent's own bookkeeping does not count) before the chat logs
@@ -827,7 +821,7 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stalled_turn_end_ms: Option<u64>,
     /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a
-    /// connection error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
+    /// connection or capacity error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
     /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 4
     /// entries of 1 s to 1 h; anything else falls back to the default with a warning.
     #[serde(
@@ -1225,17 +1219,6 @@ impl Config {
     pub fn web_listener(&self) -> Option<&WebSocketConfig> {
         self.websocket.as_ref().filter(|_| !self.web_unbound)
     }
-}
-
-/// `lastPermissionModeChange`: where acpmux's count of changes to the cmux
-/// setting `agents.defaultPermissionMode` stood at a mode pick
-/// (`hub/start_mode_state.rs`). `epoch` names the count: a count started
-/// again (its state file lost) has another, so an older pick never matches it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PermissionModeChange {
-    pub epoch: String,
-    pub changes: u64,
 }
 
 fn is_default_kind(k: &HarnessKind) -> bool {
