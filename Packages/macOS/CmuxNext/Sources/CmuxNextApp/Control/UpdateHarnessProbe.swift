@@ -38,9 +38,21 @@ final class UpdateHarnessProbe {
         probe.start(updater, mainWork: mainWork, appEvents: appEvents)
     }
 
+    /// Follows `isInstalling` as the probe follows the card: a `visible` service observation. The person's Install
+    /// click is the change: its flush runs in that click's input response, before the commit. The updater's own move
+    /// to Installing flushes on the next frame, never held behind the person's response as automation is.
+    ///
+    /// - Parameters:
+    ///   - mainWork: The app's main-thread scheduler.
+    ///   - isInstalling: Whether the card says Installing; read on the main actor with tracking.
+    ///   - apply: Each new value, the first one before this returns.
+    static func followInstalling(on mainWork: MainWorkScheduler, _ isInstalling: @escaping @MainActor () -> Bool,
+                                 apply: @escaping @MainActor (Bool) -> Void) -> ServiceObservation<Bool> {
+        ServiceObservation(.visible, owner: "UpdateHarnessProbe.installing", on: mainWork, read: isInstalling, apply: apply)
+    }
+
     private func start(_ updater: UpdaterService, mainWork: MainWorkScheduler, appEvents: AppEvents) {
-        // The person's Install click is the change: its flush runs in that click's input response, before the commit.
-        installing = ServiceObservation(.visible, owner: "UpdateHarnessProbe.installing", on: mainWork) { [weak updater] in
+        installing = Self.followInstalling(on: mainWork) { [weak updater] in
             updater?.readyCard?.isInstalling == true || updater?.card == .installing
         } apply: { [weak self] isInstalling in
             guard isInstalling, let self, !self.sawInstalling else { return }
