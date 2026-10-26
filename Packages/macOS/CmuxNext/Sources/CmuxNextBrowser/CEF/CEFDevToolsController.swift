@@ -192,7 +192,7 @@ final class CEFDevToolsController {
             tab.container.layoutContent()
             if views.host.bounds.isEmpty { views.host.frame = tab.container.bounds }
             let size = views.host.bounds.size
-            shim.devToolsSetPlacement(browserID, Unmanaged.passUnretained(views.host).toOpaque(), 0, 0,
+            shim.devToolsSetPlacement(browserID, CEFParentView(view: views.host), 0, 0,
                                       Int32(max(size.width, 1)), Int32(max(size.height, 1)))
         } else {
             opening = false
@@ -291,9 +291,9 @@ final class CEFDevToolsController {
     /// cmux's own emulation of the tab yields to the frontend's until it ends.
     func deviceModeChanged(on: Bool) {
         guard let tab, let browserID = tab.browserID, let shim = tab.runtime.shim else { return }
-        var x: Int32 = 0, y: Int32 = 0, width: Int32 = 0, height: Int32 = 0
-        let bounds = on && shim.devToolsInspectedBounds(browserID, &x, &y, &width, &height) == 1
-            ? CGRect(x: CGFloat(x), y: CGFloat(y), width: CGFloat(width), height: CGFloat(height)) : nil
+        let read = on ? shim.devToolsInspectedBounds(browserID) : CEFShimBounds()
+        let bounds = read.result == 1
+            ? CGRect(x: CGFloat(read.x), y: CGFloat(read.y), width: CGFloat(read.width), height: CGFloat(read.height)) : nil
         let wasOn = deviceModeBounds != nil
         guard bounds != deviceModeBounds else { return }
         deviceModeBounds = bounds

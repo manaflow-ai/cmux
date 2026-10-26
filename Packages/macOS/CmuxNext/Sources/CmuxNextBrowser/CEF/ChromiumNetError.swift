@@ -71,6 +71,6 @@ nonisolated struct ChromiumNetError {
         let chromiumDecides = !(isAddress && overridableCertificateCodes.contains(code))
         // Chromium's host keeps an IPv6 address in brackets.
         let chromiumHost = host.contains(":") ? "[\(host)]" : host
-        _ = chromiumHost.withCString { shim.certificateProceed(browser, $0, Int32(code), chromiumDecides ? 1 : 0) }
+        _ = shim.certificateProceed(browser, chromiumHost, Int32(code), chromiumDecides ? 1 : 0)
     }
 }

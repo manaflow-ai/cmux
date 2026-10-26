@@ -30,8 +30,9 @@ nonisolated struct CEFPumpRequestDelivery {
         admit: (CEFPumpCrossThreadGate, UInt64) -> Bool,
         _ request: @escaping @MainActor @Sendable (CEFMessagePump, _ fromChromiumThread: Bool) -> Void
     ) {
-        guard let context else { return }
-        let address = UInt(bitPattern: context)
+        // SAFETY: only the context's address is read; CEFRuntime.from and pumpGate(at:) turn it back.
+        let address = unsafe UInt(bitPattern: context)
+        guard address != 0 else { return }
         let fromChromiumThread = !Thread.isMainThread
         if fromChromiumThread,
            let gate = CEFRuntime.pumpGate(at: address),

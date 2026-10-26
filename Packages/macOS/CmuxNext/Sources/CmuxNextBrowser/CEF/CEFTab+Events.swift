@@ -253,7 +253,7 @@ extension CEFTab {
 
     func refreshExtensionActions() {
         guard let browserID, let shim = runtime.shim, runtime.forkAPIVersion >= 1 else { return }
-        let json = shim.takeString(shim.extActions(browserID, CEFExtensionAction.iconPixels)) ?? "[]"
+        let json = shim.extActions(browserID, CEFExtensionAction.iconPixels) ?? "[]"
         let actions = CEFExtensionAction.decodeList(json)
         if actions != extensionActions { extensionActions = actions }
     }
