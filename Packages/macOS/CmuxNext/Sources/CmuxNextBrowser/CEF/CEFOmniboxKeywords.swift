@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// chrome.omnibox keyword sessions over the fork (API 12): keyword lists,
@@ -13,7 +14,7 @@ import Foundation
     /// Decodes `cmux_omnibox_keywords` JSON.
     nonisolated static func keywords(json: String) -> [OmnibarKeyword] {
         guard let data = json.data(using: .utf8),
-              let items = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
+              let items = try? JSONSerialization.blockingJSONObject(with: data) as? [[String: Any]] else { return [] }
         return items.compactMap { item in
             guard let id = item["extension_id"] as? String, let keyword = item["keyword"] as? String,
                   !id.isEmpty, !keyword.isEmpty else { return nil }
@@ -34,7 +35,7 @@ import Foundation
                                                      description: description, rank: 0))
         }
         guard let data = json.data(using: .utf8),
-              let items = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return rows }
+              let items = try? JSONSerialization.blockingJSONObject(with: data) as? [[String: Any]] else { return rows }
         for item in items {
             guard let content = item["content"] as? String, !content.isEmpty,
                   !rows.contains(where: { $0.content == content }) else { continue }

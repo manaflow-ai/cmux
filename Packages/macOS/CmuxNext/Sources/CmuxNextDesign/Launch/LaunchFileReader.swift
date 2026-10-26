@@ -50,9 +50,8 @@ public nonisolated struct LaunchFileReader: Sendable {
     ///   - maximumBytes: The largest file that is read.
     /// - Returns: The image; nil when the file is missing, larger than `maximumBytes` or not an image.
     public func image(at url: URL, maximumBytes: Int) -> CGImage? {
-        guard let data = data(at: url, maximumBytes: maximumBytes),
-              let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-        return CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+        guard let data = data(at: url, maximumBytes: maximumBytes) else { return nil }
+        return blockingImageDecode(data)
     }
 
     /// The file's bytes from disk when it holds at most `maximumBytes`.

@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextCompat
 import Foundation
 
 /// The CDP id remap of one relayed CEF tab. The shim takes raw sends only
@@ -54,7 +55,7 @@ public nonisolated struct CDPRawIDMap: Sendable {
     /// command names one (most go to the page session's own flat session).
     static func sessionID(of message: String) -> String? {
         guard message.contains("\"sessionId\""),
-              let object = (try? JSONSerialization.jsonObject(with: Data(message.utf8))) as? [String: Any] else { return nil }
+              let object = (try? JSONSerialization.blockingJSONObject(with: Data(message.utf8))) as? [String: Any] else { return nil }
         return object["sessionId"] as? String
     }
 

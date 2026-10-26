@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import Observation
 import os
@@ -89,7 +90,7 @@ final class TerminalThemeStore {
         guard manager.fileExists(atPath: url.path) else { return ([:], true) }
         // concurrency-allow: called from a detached task in load(), off the main actor
         guard let data = try? Data(contentsOf: url) else { return ([:], false) }
-        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+        guard let object = (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any] else {
             let first = url.appendingPathExtension("corrupt")
             let aside = manager.fileExists(atPath: first.path) ? url.appendingPathExtension("corrupt-\(UUID().uuidString)") : first
             do {

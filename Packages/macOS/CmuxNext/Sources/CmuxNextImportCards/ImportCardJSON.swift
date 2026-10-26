@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextImportSuggestions
 import CmuxNextSettings
 
@@ -11,7 +12,7 @@ struct ImportCardJSON {
     /// `icons` when it is rendered (never rendered here); nil `icons` adds none.
     static func value(_ list: ImportCardList, icons: ImportAppIconCache?, keepEmpty: Bool = false) -> JSONValue {
         guard keepEmpty || !list.cards.isEmpty, let data = try? JSONEncoder().encode(list),
-              let object = try? JSONSerialization.jsonObject(with: data), var value = JSONValue(foundation: object) else { return .null }
+              let object = try? JSONSerialization.blockingJSONObject(with: data), var value = JSONValue(foundation: object) else { return .null }
         if let icons, case .object(var members) = value, case .array(let cards) = members["cards"] {
             members["cards"] = .array(cards.map { card in
                 guard case .object(var fields) = card, let app = fields["app"]?.stringValue, let icon = icons.url(app) else { return card }

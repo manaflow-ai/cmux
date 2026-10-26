@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextSettings
+public import CmuxNextWakeups
 public import Foundation
 
 /// Makes Chromium pages for the page host (``PageWebView``). The app implements it with its CEF
@@ -12,6 +13,9 @@ public protocol PageChromiumHosting: AnyObject {
     /// Whether Chromium can host a page now: false when the build has no Chromium or it failed to
     /// start.
     var isAvailable: Bool { get }
+    /// The app's lanes: what a page answers that costs CPU by its size (a `Page.captureScreenshot` reply, megabytes
+    /// of base64 image) is parsed and decoded on their `.cpu` lane, never on the main thread.
+    var work: BackgroundWork { get }
     /// Whether Chromium's `cmux-page://` scheme serves `page` (its bundled folder is registered).
     ///
     /// - Parameter page: The page to show.

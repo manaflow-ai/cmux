@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextPalette
 import Foundation
@@ -39,7 +40,7 @@ nonisolated enum PaletteUsageWire {
     }
 
     private static func decode<T: Decodable>(_ type: T.Type, _ value: JSONValue) throws -> T {
-        try JSONDecoder().decode(type, from: JSONEncoder().encode(value))
+        try JSONDecoder().blockingDecode(type, from: JSONEncoder().encode(value))
     }
 
     private static func pick(_ pick: Pick) -> FrecencyStore.Pick {

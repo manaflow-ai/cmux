@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextPages
 import Darwin
 import Foundation
@@ -63,7 +64,7 @@ nonisolated struct DiffPatchResolver: Sendable {
         guard lstat(url.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size <= Int64(Self.maximumManifestBytes),
               // concurrency-allow: nonisolated resolver; DiffPatchSource calls it from a @concurrent read
               let data = try? Data(contentsOf: url),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
               object["token"] as? String == token,
               let files = object["files"] as? [[String: Any]], files.count <= Self.maximumFiles else { return nil }
         return files.compactMap { file in

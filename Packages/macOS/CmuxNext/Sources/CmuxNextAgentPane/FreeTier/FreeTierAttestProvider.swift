@@ -1,4 +1,5 @@
 public import CmuxAppAttest
+import CmuxNextCompat
 import CmuxNextWakeups
 public import Foundation
 public import os
@@ -169,7 +170,7 @@ public actor FreeTierAttestProvider {
 
     private func received(_ data: Data, on connection: AcpmuxCheckedLine) async {
         guard connection === line,
-              let message = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
+              let message = (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any] else { return }
         if message["provider"] as? Bool == true {
             backoff.reset()
             return

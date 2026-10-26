@@ -2,6 +2,7 @@ import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentIntegrations
 import CmuxNextApps
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextMacScreen
@@ -146,7 +147,7 @@ struct PageFactory {
         provider.devicesRun = { params in
             let run: MacScreenDevicesSettings.Run
             do {
-                run = try JSONDecoder().decode(MacScreenDevicesSettings.Run.self,
+                run = try JSONDecoder().blockingDecode(MacScreenDevicesSettings.Run.self,
                                                from: JSONSerialization.data(withJSONObject: params.foundationObject))
             } catch {
                 throw PageError.invalidParams("unknown devices action")

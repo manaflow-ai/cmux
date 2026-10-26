@@ -26,16 +26,21 @@ final class ChromiumPageHost: PageChromiumHosting {
     private let cef: CEFEngine
     private let enginePreference: @MainActor () -> BrowserDefaultEngine
     private weak var keyRouter: KeyRouter?
+    /// The app's lanes: a page's screenshot reply is decoded on their `.cpu` lane.
+    let work: BackgroundWork
 
     /// - Parameters:
     ///   - cef: The app's Chromium engine.
     ///   - preference: Reads `browser.defaultEngine` now (the settings snapshot, so pages made while
     ///     windows restore already follow the file).
     ///   - keyRouter: Gets the app's shortcuts from a focused Chromium page.
-    init(cef: CEFEngine, preference: @escaping @MainActor () -> BrowserDefaultEngine, keyRouter: KeyRouter?) {
+    ///   - work: The app's lanes (``PageChromiumHosting/work``).
+    init(cef: CEFEngine, preference: @escaping @MainActor () -> BrowserDefaultEngine, keyRouter: KeyRouter?,
+         work: BackgroundWork) {
         self.cef = cef
         enginePreference = preference
         self.keyRouter = keyRouter
+        self.work = work
     }
 
     var preference: BrowserDefaultEngine { enginePreference() }

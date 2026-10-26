@@ -77,7 +77,7 @@ extension AgentPaneTransport {
         /// Replaces the frame with the parse of `text`; false when `text` is not one JSON object.
         func replace(withJSON text: String) -> Bool {
             frame.withLock { object in
-                guard let parsed = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return false }
+                guard let parsed = (try? JSONSerialization.blockingJSONObject(with: Data(text.utf8))) as? [String: Any] else { return false }
                 object = parsed
                 return true
             }

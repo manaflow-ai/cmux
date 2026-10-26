@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CoreGraphics
 import Foundation
 
@@ -31,7 +32,7 @@ nonisolated struct CEFSidePanelState: Equatable, Sendable {
     /// JSON has no header.
     init?(json: String) {
         guard let data = json.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
               object["open"] as? Bool == true,
               let rect = object["header"] as? [String: Any],
               let width = rect["width"] as? Double, let height = rect["height"] as? Double,

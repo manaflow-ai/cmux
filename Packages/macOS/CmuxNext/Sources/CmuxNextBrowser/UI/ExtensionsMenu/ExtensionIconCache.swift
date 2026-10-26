@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextIcons
 
 /// Extension icons for the Extensions bubble, decoded once per file and kept at the size the
@@ -24,9 +25,11 @@ final class ExtensionIconCache {
         let decoded: NSImage? = {
             if let path = info.iconPath {
                 loads += 1
-                if let image = NSImage(contentsOfFile: path) { return image }
+                if let data = try? Data(blockingContentsOf: URL(fileURLWithPath: path)), let image = blockingNSImage(data) {
+                    return image
+                }
             }
-            return png.flatMap(NSImage.init(data:))
+            return png.flatMap { blockingNSImage($0) }
         }()
         let image = decoded.map(downsampled) ?? fallback(name: info.name)
         if let path = info.iconPath, decoded != nil { images[path] = image }
