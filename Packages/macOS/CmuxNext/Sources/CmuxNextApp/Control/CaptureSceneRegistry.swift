@@ -235,7 +235,7 @@ final class CaptureSceneRegistry {
     /// over the app's sample plus ``TaskManagerFixtureSource/captureDiscarded``, then waits until its
     /// page is in the window and lists those pages. An error names what never appeared.
     private func showTaskManager(windowID: String) async -> JSONValue {
-        guard let controller = services.windows.controller(for: windowID) else {
+        guard let controller = services.windows.controllerBuildingIfWaiting(for: windowID) else {
             return .object(["error": .string("capture window is gone")])
         }
         let taskManager = services.taskManager
