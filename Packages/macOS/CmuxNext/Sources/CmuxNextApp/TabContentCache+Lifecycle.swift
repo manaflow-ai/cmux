@@ -111,6 +111,7 @@ extension TabContentCache {
             // Hides first, so a frame never shows two tabs of one pane.
             applyLifecycle(lifecycle.send(render ? .show(key) : .hide(key)))
         }
+        for (key, away) in effects.away { terminals[key]?.session.releasesGPUWhilePaused = away } // after the hides: paused, away lets GPU memory go
         for key in effects.evicted {
             if let entry = terminals.removeValue(forKey: key) { evict(entry, key: key, atOnce: evictsAtOnce) }
             applyLifecycle(lifecycle.send(.released(key)))
