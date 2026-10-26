@@ -44,6 +44,7 @@ public final class BrowserPictureView: NSImageView {
         decodedPicture = nil
         image = nil
         guard newWindow != nil, let picture = picture() else { return }
+        // main-hop-allow: the decode runs detached; the resume is this view's one image store, only for the window it is moving into (a move out cancels it)
         decoding = Task { [weak self] in
             let decoded = await Task.detached(priority: .userInitiated) { Self.decoded(picture) }.value
             guard let self, !Task.isCancelled else { return }

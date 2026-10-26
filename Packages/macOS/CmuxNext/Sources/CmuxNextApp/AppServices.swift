@@ -201,7 +201,7 @@ final class AppServices {
     let signInCallbacks = CEFSignInCallbacks()
     /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
     let resizes = ResizeCoordinator()
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: makeChromiumSlot(), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap), terminalPointerFrames: terminalPointerFrames, mainWork: mainWork, imageCaches: ImageCacheShares(.forThisMac(gpuResidentAvailable: false), budgeted: features.isEnabled(.memoryImageCaches)), gpuResidency: features.isEnabled(.terminalGPURelease) ? GhosttyGPUResidency() : nil)  // first read in init (no IUO); its Chromium engine at its first read
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: makeChromiumSlot(), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap), terminalPointerFrames: terminalPointerFrames, mainWork: mainWork, deadlines: mainDeadlines, appEvents: appEvents, imageCaches: ImageCacheShares(.forThisMac(gpuResidentAvailable: false), budgeted: features.isEnabled(.memoryImageCaches)), gpuResidency: features.isEnabled(.terminalGPURelease) ? GhosttyGPUResidency() : nil)  // first read in init (no IUO); its Chromium engine at its first read
     /// What the Now Playing card shows and drives: the player while it plays, else the playing tab,
     /// else another app that plays (Spotify, Music: macOS Now Playing, cmux's own entries left out)
     /// while `sidebar.nowPlaying.otherApps` is on (off by default: only what plays in cmux). Its
@@ -478,7 +478,7 @@ final class AppServices {
     private(set) lazy var verificationAutofill = VerificationAutofillCoordinator(
         inbox: VerificationInbox(policy: VerificationOfferPolicy(publicSuffixes: PublicSuffixList.bundled() ?? PublicSuffixList(listText: ""))),
         source: MailAppVerificationSource(),
-        isEnabled: { [weak self] in self?.settings.map { BrowserVerificationAutofillSetting.current($0).enabled } ?? false }
+        isEnabled: { [weak self] in self?.settings.map { BrowserVerificationAutofillSetting.current($0).enabled } ?? false }, deadlines: mainDeadlines
     )
     /// Design mode in browser panes: highlights become cards in an agent chat
     /// (plans/cmux-next/design-mode-DESIGN.md).
@@ -508,6 +508,7 @@ final class AppServices {
             .view(SidebarContainerView.self, is: .sidebar), .view(LayoutRootView.self, is: .layout)])
     }
     private var mouseDownSubscription: InputSubscription?  // a click after dispatch (start)
+    private var scrollerStyleWatch: EventSubscription?  // the scroll bar setting's notice, for every native scroller
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
     private(set) lazy var routeKeyDown: (NSEvent, NSWindow?) -> Bool = PerfLabCanaryKeyDown(features: { [weak self] in self?.features })
         .wrap { [weak self] (event: NSEvent, window: NSWindow?) in self?.keyRouter.interceptKeyDown(event, in: window) ?? false }  // debug.key calls it too
@@ -520,7 +521,8 @@ final class AppServices {
     /// The Settings window (Settings…, Cmd-,).
     private(set) lazy var settingsWindow = SettingsWindowService(services: self)
     /// The wallpaper choices, built off main and kept current by folder events (BackdropCatalogStore).
-    private(set) lazy var backdropCatalog = BackdropCatalogStore(systemDirectory: AppleWallpapers.system.desktopPictures, userImages: SettingsWindowService.userImages)
+    private(set) lazy var backdropCatalog = BackdropCatalogStore(systemDirectory: AppleWallpapers.system.desktopPictures, userImages: SettingsWindowService.userImages,
+                                                                 mainWork: mainWork)
     let chiefPetHomes = ChiefPetHomes()  // the Chief Settings popovers the Chief pet's Chief Pet Settings… opens
     /// Each Chief's own pet character (the default Chief's is `home.chiefPetMascot`).
     let chiefMascotPicks = ChiefMascotPicks(defaults: .standard, defaultChief: HomeChiefAvatars.defaultChief)
@@ -879,6 +881,7 @@ final class AppServices {
             windowHints.cancel()
             keyRouter.cancelChord()
         }
+        scrollerStyleWatch = SystemScrollers.follow(settingChangesOn: appEvents)
         AppMemoryConsumers(services: self).registerMemoryConsumers()  // AppServices+Memory.swift
     }
     /// Builds and starts the browser host's engine provider once, from its launch post (p08-startup-031). Its
@@ -892,6 +895,8 @@ final class AppServices {
     func startEnergy(keepAwake: KeepAwakeService = .shared, videos: BackdropVideoPlayers = .shared, design: DesignSettings = .shared) {
         energy.start(inputs: energyMonitor, suspend: features.isEnabled(.sleepWakeKeepalives) ? SuspendWatch(events: workspaceEvents, path: .system(on: mainWork)) : nil)
         energyMotion = MotionEnergyLink(mainWork.energy, design: design)
+        // The video wallpaper's release and coverage deadlines, and the session notices every video holds for.
+        videos.follow(deadlines: mainDeadlines, session: workspaceEvents)
         daemon.follow(mainWork.energy, on: mainWork)
         energyLink = energyMonitor.follow { [weak self] inputs in
             keepAwake.setOnBattery(inputs.onBattery)
