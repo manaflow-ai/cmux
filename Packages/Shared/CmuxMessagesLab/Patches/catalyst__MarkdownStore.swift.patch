@@ -1,0 +1,100 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/MarkdownStore.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/MarkdownStore.swift
+@@ -3,36 +3,49 @@
+ #else
+ import AppKit
+ #endif
++import os
+ 
+ /// Parsed documents and the per-message "Show Markdown Source" state.
+ /// Parse results are cached by text. A text that extends a cached text (a stream)
+ /// re-parses only from its previous last top-level block: every block before it is
+ /// final (CommonMark decides a block from the lines before it, except the open
+ /// one at the end), so finished blocks keep their identity and their cached layout.
+-final class MarkdownStore: @unchecked Sendable {
++final class MarkdownStore: Sendable {
+     static let shared = MarkdownStore()
+-    private let lock = NSLock()
+-    private var docs: [String: MDDocument] = [:]
+-    /// Recent texts in insertion order (stream prefix lookup).
+-    private var recent: [String] = []
+-    private(set) var fullParses = 0, tailParses = 0
+-    /// Messages shown as source (main thread writes; the measure key reads).
+-    private var source = Set<ID>()
++    /// cmux: every field is read and written on the main thread and the render queues: the lock owns them.
++    private struct State {
++        var docs: [String: MDDocument] = [:]
++        /// Recent texts in insertion order (stream prefix lookup).
++        var recent: [String] = []
++        var fullParses = 0, tailParses = 0
++        /// Messages shown as source (main thread writes; the measure key reads).
++        var source = Set<ID>()
++    }
++    private let state = OSAllocatedUnfairLock(initialState: State())
++    var fullParses: Int { state.withLock { $0.fullParses } }
++    var tailParses: Int { state.withLock { $0.tailParses } }
+ 
+-    func showsSource(_ id: ID) -> Bool { lock.lock(); defer { lock.unlock() }; return source.contains(id) }
+-    func setShowsSource(_ id: ID, _ on: Bool) { lock.lock(); if on { source.insert(id) } else { source.remove(id) }; lock.unlock() }
++    func showsSource(_ id: ID) -> Bool { state.withLock { $0.source.contains(id) } }
++    func setShowsSource(_ id: ID, _ on: Bool) {
++        state.withLock { st in
++            guard on else { st.source.remove(id); return }
++            st.source.insert(id)
++        }
++    }
+ 
+     func document(_ text: String) -> MDDocument {
+-        lock.lock()
+-        if let d = docs[text] { lock.unlock(); return d }
+-        // The newest cached text that this text extends.
+-        var base: (String, MDDocument)?
+-        for t in recent.reversed() where t.utf8.count < text.utf8.count && text.hasPrefix(t) {
+-            if let d = docs[t] { base = (t, d); break }
++        // The cached document, or the newest cached text that this text extends.
++        let (hit, base): (MDDocument?, MDDocument?) = state.withLock { st in
++            if let d = st.docs[text] { return (d, nil) }
++            for t in st.recent.reversed() where t.utf8.count < text.utf8.count && text.hasPrefix(t) {
++                if let d = st.docs[t] { return (nil, d) }
++            }
++            return (nil, nil)
+         }
+-        lock.unlock()
++        if let hit { return hit }
+         let doc: MDDocument
+-        if let (_, old) = base, let last = old.blocks.last, !last.lines.isEmpty, !Self.hasDefinitions(text) {
++        let streamed: Bool
++        if let old = base, let last = old.blocks.last, !last.lines.isEmpty, !Self.hasDefinitions(text) {
+             let lines = MDLines.split(text).map { MDLine($0) }
+             let from = last.lines.lowerBound
+             var refs = MDRefs()
+@@ -44,19 +57,20 @@
+             }
+             let blocks = Array(old.blocks.dropLast()) + tail
+             doc = MDDocument(blocks: blocks, isRich: blocks.contains { $0.rich })
+-            lock.lock(); tailParses += 1; lock.unlock()
++            streamed = true
+         } else {
+             doc = Markdown.parse(text)
+-            lock.lock(); fullParses += 1; lock.unlock()
++            streamed = false
+         }
+-        lock.lock()
+-        docs[text] = doc
+-        recent.append(text)
+-        if recent.count > 64 {
+-            let drop = recent.removeFirst()
+-            if !recent.contains(drop) { docs[drop] = nil }
++        state.withLock { st in
++            if streamed { st.tailParses += 1 } else { st.fullParses += 1 }
++            st.docs[text] = doc
++            st.recent.append(text)
++            if st.recent.count > 64 {
++                let drop = st.recent.removeFirst()
++                if !st.recent.contains(drop) { st.docs[drop] = nil }
++            }
+         }
+-        lock.unlock()
+         return doc
+     }
+ 

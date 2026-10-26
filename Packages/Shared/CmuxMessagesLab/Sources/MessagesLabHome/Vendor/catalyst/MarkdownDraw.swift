@@ -3,6 +3,7 @@ import UIKit
 #else
 import AppKit
 #endif
+import os
 
 /// Colours of markdown elements on one bubble. Every colour derives from the
 /// bubble's own text colour (so incoming grey, outgoing blue, light and dark keep
@@ -40,21 +41,19 @@ struct MDPalette {
         #endif
     }
 
-    /// Cached per bubble side and palette generation (a theme or appearance change makes new ones).
-    private static var cache: [Int: MDPalette] = [:]
-    private static let cacheLock = NSLock()
+    /// Cached per bubble side and palette generation (a theme or appearance change makes new ones). Row
+    /// bitmaps draw on the render queues and the main thread: the lock owns the cache.
+    private static let cache = OSAllocatedUnfairLock<[Int: MDPalette]>(initialState: [:])
     static func palette(outgoing: Bool) -> MDPalette {
         let k = Fixture.paletteGeneration &* 4 &+ (Fixture.lightAppearance ? 2 : 0) &+ (outgoing ? 1 : 0)
         let text = outgoing ? Fixture.outgoingText : Fixture.incomingText
-        cacheLock.lock()
         // The text colour can change without a new generation (an elevated window): compare it.
-        if let p = cache[k], p.text.isEqual(text) { cacheLock.unlock(); return p }
-        cacheLock.unlock()
+        if let p = cache.withLock({ $0[k] }), p.text.isEqual(text) { return p }
         let p = make(outgoing: outgoing)
-        cacheLock.lock()
-        if cache.count > 8 { cache.removeAll() }
-        cache.updateValue(p, forKey: k) // dictionary write
-        cacheLock.unlock()
+        cache.withLock { cache in
+            if cache.count > 8 { cache.removeAll() }
+            cache.updateValue(p, forKey: k) // dictionary write
+        }
         return p
     }
 

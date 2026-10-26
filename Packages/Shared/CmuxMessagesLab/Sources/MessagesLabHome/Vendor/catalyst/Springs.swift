@@ -3,6 +3,7 @@ import UIKit
 #else
 import AppKit
 #endif
+import os
 
 /// A damped spring in UIKit's parametrisation: mass 1, stiffness
 /// (2 pi / duration)^2, damping 4 pi (1 - bounce) / duration (for bounce >= 0;
@@ -45,17 +46,15 @@ struct Spring: Equatable {
 
     /// Time after which the motion stays within `epsilon` (fraction of the distance).
     private struct SettleKey: Hashable { var d, b, v, e: Double }
-    private static var settleCache: [SettleKey: Double] = [:]
-    private static let settleLock = NSLock()
+    /// cmux: the lock owns the cache (any thread asks: commits on main, prepared sends off main).
+    private static let settleCache = OSAllocatedUnfairLock<[SettleKey: Double]>(initialState: [:])
     /// Cached: every animation commit asks for it, and the search below runs
     /// up to 960 closed-form evaluations.
     func settlingTime(epsilon: Double = 2e-4) -> Double {
         let k = SettleKey(d: duration, b: bounce, v: initialVelocity, e: epsilon)
-        Spring.settleLock.lock()
-        if let v = Spring.settleCache[k] { Spring.settleLock.unlock(); return v }
-        Spring.settleLock.unlock()
+        if let v = Spring.settleCache.withLock({ $0[k] }) { return v }
         let v = searchSettlingTime(epsilon: epsilon)
-        Spring.settleLock.lock(); Spring.settleCache[k] = v; Spring.settleLock.unlock()
+        Spring.settleCache.withLock { $0[k] = v }
         return v
     }
     private func searchSettlingTime(epsilon: Double) -> Double {
@@ -175,19 +174,28 @@ struct TravelLaw {
 /// from here; nothing else defines a curve.
 enum Springs {
     private final class Token {}
-    private static let lock = NSLock()
-    private static var current: Bundle?
+    /// cmux: the lock owns the host's bundle (set on main at install, read by the first motion on any thread).
+    private static let current = OSAllocatedUnfairLock<Bundle?>(initialState: nil)
     /// Where springs.json is read from. A host that embeds this code sets it before the first motion (a Swift
     /// package: `Bundle.module`), as `MessagesLabLocalization.bundle`. Default: the bundle that contains this
     /// code, then `Bundle.main` (the app's own build). Not `Bundle.main` alone: in a host app Bundle.main has
     /// no springs.json, and every curve would fall back to the default spring without a sign (cx-3cb, hq-6d).
     static var bundle: Bundle? {
-        get { lock.lock(); defer { lock.unlock() }; return current }
-        set { lock.lock(); current = newValue; lock.unlock() }
+        get { current.withLock { $0 } }
+        set { current.withLock { $0 = newValue } }
     }
+    /// cmux: springs.json parsed once into values; no `[String: Any]` is kept for the process.
+    private struct Table: Sendable {
+        var all: [String: SpringElement]
+        var travelLaws: [String: TravelLaw]
+    }
+    private static let table: Table = {
+        let obj = json()
+        return Table(all: parseElements(obj), travelLaws: parseTravelLaws(obj))
+    }()
     /// springs.json, read once for `all` and `travelLaws`. A missing or unreadable file is a build fault: it
     /// stops a debug build and logs in a release build (the curves then are the default spring).
-    private static let json: [String: [String: Any]] = {
+    private static func json() -> [String: [String: Any]] {
         let candidates = [bundle, Bundle(for: Token.self), Bundle.main].compactMap { $0 }
         guard let url = candidates.lazy.compactMap({ $0.url(forResource: "springs", withExtension: "json") }).first,
               let data = try? Data(contentsOf: url),
@@ -197,9 +205,9 @@ enum Springs {
             return [:]
         }
         return obj
-    }()
-    static let all: [String: SpringElement] = {
-        let obj = json
+    }
+    static var all: [String: SpringElement] { table.all }
+    private static func parseElements(_ obj: [String: [String: Any]]) -> [String: SpringElement] {
         var out: [String: SpringElement] = [:]
         for (name, e) in obj {
             let comps = (e["components"] as? [[String: Any]] ?? []).map { c in
@@ -214,10 +222,10 @@ enum Springs {
             out.updateValue(SpringElement(name: name, from: e["from"] as? Double ?? 0, to: e["to"] as? Double ?? 0, components: comps), forKey: name)
         }
         return out
-    }()
+    }
     /// The `travelLaw` objects of springs.json, by element name.
-    static let travelLaws: [String: TravelLaw] = {
-        let obj = json
+    static var travelLaws: [String: TravelLaw] { table.travelLaws }
+    private static func parseTravelLaws(_ obj: [String: [String: Any]]) -> [String: TravelLaw] {
         var out: [String: TravelLaw] = [:]
         for (name, e) in obj {
             guard let l = e["travelLaw"] as? [String: Double], let r = l["refPt"], let k0 = l["k0"], let q = l["q"], let d0 = l["d0"],
@@ -225,7 +233,7 @@ enum Springs {
             out.updateValue(TravelLaw(refPt: r, k0: k0, q: q, d0: d0, d1: d1, minPt: lo, maxPt: hi), forKey: name)
         }
         return out
-    }()
+    }
     static func element(_ name: String) -> SpringElement {
         all[name] ?? SpringElement(name: name, from: 0, to: 1, components: [.init(delay: 0, spring: Spring(duration: 0.3, bounce: 0), delta: 1)])
     }
@@ -441,12 +449,14 @@ enum Springs {
 /// value; each component animates `-delta_i -> 0`, so the presented value is
 /// `final + sum_i delta_i (p_i(t) - 1)`, which equals the fitted element.
 /// Further animations on the same key path add up (no snap on interruption).
+/// cmux: main actor (animations are added in the main thread's transaction; `serial` counts them).
+@MainActor
 enum Animate {
     /// Animations added so far (also the key serial; the bench counts animations per commit).
     private(set) static var serial = 0
 
     /// Local time of `layer` now (virtual time when the root is paused).
-    static func now(_ layer: CALayer) -> CFTimeInterval { layer.convertTime(CACurrentMediaTime(), from: nil) }
+    nonisolated static func now(_ layer: CALayer) -> CFTimeInterval { layer.convertTime(CACurrentMediaTime(), from: nil) }
 
     /// Animate `keyPath` (a scalar sub key path such as "position.y",
     /// "bounds.size.width", "opacity", "transform.scale") from `from` to the
@@ -537,7 +547,7 @@ enum Animate {
 
     /// `--x-two-animation-springs`: the hold-and-spring form in live trees too (the before arm of
     /// the A/B bench of the one-animation form; animations per send).
-    static let twoAnimationForm = ProcessInfo.processInfo.arguments.contains("--x-two-animation-springs")
+    nonisolated static let twoAnimationForm = ProcessInfo.processInfo.arguments.contains("--x-two-animation-springs")
 
     /// Whether `layer` is in a paused tree (an ancestor with speed 0: captures, checks, live grabs),
     /// where the render server did not hold a backward fill for a start that lay ahead. A layer
@@ -555,7 +565,7 @@ enum Animate {
 
     /// Model opacity for "hidden" layers that still animate: the render
     /// server skips layers whose model opacity is exactly 0, animations or not.
-    static let hiddenOpacity: Float = 0.01
+    nonisolated static let hiddenOpacity: Float = 0.01
 
     /// A delayed spring component without per-sample boxing: an additive hold
     /// at -delta from `begin` to `begin + delay` (two values), then a real

@@ -3,6 +3,7 @@ import UIKit
 #else
 import AppKit
 #endif
+import os
 
 /// Row drawing, independent of views (thread safe; the loader queue and the
 /// bitmap renderer call it).
@@ -862,6 +863,9 @@ enum TapbackGlyph {
 /// keyed by its row and the scale it is drawn at (`Key`), so two views at two backing scales (cmux Home: windows on a
 /// 2x and a 1x display) share the cache and never show each other's bitmaps. Every call takes the caller's scale
 /// (default `Fixture.renderScale`: inside a view's `Fixture.withRenderScale`, the view's).
+/// cmux: the cache and its waiters belong to the main actor; a render job touches only the drawing (`render`, a
+/// function of the row's value) and the lock-owned demand and finished batch.
+@MainActor
 final class RowBitmaps {
     static let shared = RowBitmaps()
     /// `space`: the colour space the bitmap is drawn in (WideBitmap.drawSpace; AppKit: the window's display space,
@@ -885,7 +889,7 @@ final class RowBitmaps {
     /// (RowDraw.widthInvariant), so a divider drag or live resize shows the bitmap drawn at the
     /// previous width instead of drawing the same pixels again (the visible rows' bitmaps were
     /// about 6 % of main in a divider drag).
-    static func key(_ spec: RowSpec, scale: CGFloat = Fixture.renderScale, space: CGColorSpace? = WideBitmap.drawSpace) -> Key {
+    nonisolated static func key(_ spec: RowSpec, scale: CGFloat = Fixture.renderScale, space: CGColorSpace? = WideBitmap.drawSpace) -> Key {
         guard !TiledBubble.applies(spec), RowDraw.widthInvariant(spec) else { return Key(spec: spec, scale: scale, space: space) }
         var k = spec
         k.width = 0
@@ -942,33 +946,32 @@ final class RowBitmaps {
         queue.addOperation(op)
     }
 
-    /// Rows that visible cells wait for (any thread reads; main writes).
-    private let demandLock = NSLock()
-    private var demand: [RowSpec: Int] = [:]
+    /// Rows that visible cells wait for (any thread reads; main writes). cmux: the lock owns them.
+    nonisolated private let demand = OSAllocatedUnfairLock<[RowSpec: Int]>(initialState: [:])
     static var skipped = 0
-    func want(_ s: RowSpec) { demandLock.lock(); demand[s, default: 0] += 1; demandLock.unlock() }
-    func unwant(_ s: RowSpec) {
-        demandLock.lock()
-        if let n = demand[s] { demand[s] = n > 1 ? n - 1 : nil }
-        demandLock.unlock()
+    nonisolated func want(_ s: RowSpec) { demand.withLock { $0[s, default: 0] += 1 } }
+    nonisolated func unwant(_ s: RowSpec) {
+        demand.withLock { demand in
+            if let n = demand[s] { demand[s] = n > 1 ? n - 1 : nil }
+        }
     }
-    func isWanted(_ s: RowSpec) -> Bool { demandLock.lock(); defer { demandLock.unlock() }; return demand[s] != nil }
+    nonisolated func isWanted(_ s: RowSpec) -> Bool { demand.withLock { $0[s] != nil } }
 
     /// Finished bitmaps reach the main thread in batches: one main-queue
-    /// block applies everything rendered since the last one.
-    private let pendingLock = NSLock()
-    private var pending: [(Key, CGImage, Int)] = []
-    private func deliver(_ w: Key, _ img: CGImage, _ gen: Int) {
-        pendingLock.lock()
-        let first = pending.isEmpty
-        pending.append((w, img, gen))
-        pendingLock.unlock()
+    /// block applies everything rendered since the last one. cmux: the lock owns the batch.
+    nonisolated private let pending = OSAllocatedUnfairLock<[(Key, CGImage, Int)]>(initialState: [])
+    nonisolated private func deliver(_ w: Key, _ img: CGImage, _ gen: Int) {
+        let first = pending.withLock { pending in
+            pending.append((w, img, gen))
+            return pending.count == 1
+        }
         guard first else { return }
         DispatchQueue.main.async {
-            self.pendingLock.lock()
-            let batch = self.pending
-            self.pending = []
-            self.pendingLock.unlock()
+            let batch = self.pending.withLock { pending in
+                let batch = pending
+                pending = []
+                return batch
+            }
             if RowBitmaps.testHold { self.held += batch; return }
             self.apply(batch)
         }
@@ -978,7 +981,7 @@ final class RowBitmaps {
     /// wait on main instead of reaching their cells; `releaseHeld()` delivers them. The control
     /// holds them during each page slide, so rows slide in without text and the bench's empty-row
     /// check must find them.
-    static var testHold = false
+    nonisolated static let testHold = false // cmux: let (no shared mutable state; no host sets it)
     private var held: [(Key, CGImage, Int)] = []
     func releaseHeld() {
         guard !held.isEmpty else { return }
@@ -1023,7 +1026,7 @@ final class RowBitmaps {
             let imgs = drop.compactMap { cache.removeValue(forKey: $0) }
             bytes -= imgs.reduce(0) { $0 + $1.bytesPerRow * $1.height }
             // Freed off the main thread (vm_deallocate blocked main for up to 291 ms).
-            Reclaimer.release(imgs)
+            Reclaimer.release(bitmaps: imgs)
             order.removeFirst(drop.count)
         }
     }
@@ -1042,12 +1045,12 @@ final class RowBitmaps {
             return true
         }
         bytes -= imgs.reduce(0) { $0 + $1.bytesPerRow * $1.height }
-        Reclaimer.release(imgs)
+        Reclaimer.release(bitmaps: imgs)
     }
 
     /// Palette change: every cached bitmap is stale (freed off main).
     func removeAll() {
-        Reclaimer.release(Array(cache.values))
+        Reclaimer.release(bitmaps: Array(cache.values))
         bytes = 0
         cache.removeAll()
         order.removeAll()
@@ -1064,9 +1067,9 @@ final class RowBitmaps {
 
     /// Test hook (`--scroller-control`): no bitmaps rendered ahead (pager prerender, scroll
     /// prefetch), so a check for rows without bitmaps has something to find.
-    static var prerenderEnabled = true
+    nonisolated static let prerenderEnabled = true // cmux: let (no shared mutable state; no host sets it)
     /// Render the rows that will be on screen first (loader queue), at `scale` (insert them with the same scale).
-    static func prerender(_ specs: ArraySlice<RowSpec>, scale: CGFloat = Fixture.renderScale) -> [(RowSpec, CGImage)] {
+    nonisolated static func prerender(_ specs: ArraySlice<RowSpec>, scale: CGFloat = Fixture.renderScale) -> [(RowSpec, CGImage)] {
         guard prerenderEnabled else { return [] }
         return specs.compactMap { spec in
             switch spec.kind { case .receipt, .typing: return nil; default: return render(spec, scale: scale).map { (spec, $0) } } // unallocated rows are skipped
@@ -1075,7 +1078,7 @@ final class RowBitmaps {
 
     /// Thread safe. The drawing runs with `Fixture.renderScale` = `scale` on this thread (the balloon inset, the soft
     /// edge and image decodes read it).
-    static func render(_ spec: RowSpec, scale: CGFloat = Fixture.renderScale) -> CGImage? { // nil when allocation fails
+    nonisolated static func render(_ spec: RowSpec, scale: CGFloat = Fixture.renderScale) -> CGImage? { // nil when allocation fails
         if TiledBubble.applies(spec) { return TiledBubble.emptyImage }
         let span = RowDraw.drawSpan(spec)
         let size = CGSize(width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
@@ -1127,11 +1130,19 @@ enum WideBitmap {
 /// thread for up to 291 ms in a profile. The hop through the main queue lets
 /// Core Animation drop its references in the current turn first, so the
 /// background block holds the last one.
+/// cmux: only Sendable values cross to the queue: bitmaps (`release(bitmaps:)`), and a layer's contents
+/// when it is a CGImage (other contents are released where the caller drops them).
 enum Reclaimer {
     private static let queue = DispatchQueue(label: "messages.reclaim", qos: .utility)
-    static func release(_ object: Any?) {
-        guard let object else { return }
-        DispatchQueue.main.async { queue.async { withExtendedLifetime(object) {} } }
+    static func release(_ contents: Any?) {
+        guard let raw = contents else { return }
+        let object = raw as AnyObject
+        guard CFGetTypeID(object) == CGImage.typeID else { return }
+        release(bitmaps: [unsafeDowncast(object, to: CGImage.self)]) // type checked above (ComposeAttachments' pattern)
+    }
+    static func release<Bitmap: Sendable>(bitmaps: [Bitmap]) {
+        guard !bitmaps.isEmpty else { return }
+        DispatchQueue.main.async { queue.async { withExtendedLifetime(bitmaps) {} } }
     }
 }
 

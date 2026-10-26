@@ -369,7 +369,7 @@ final class ChatLayout: UICollectionViewLayout {
         return a
     }
 
-    static var longConnectors = !ProcessInfo.processInfo.arguments.contains("--no-long-connectors")
+    static let longConnectors = !ProcessInfo.processInfo.arguments.contains("--no-long-connectors")
     /// Content y of a connector's top (the root's vertical center).
     func connectorTop(_ c: (reply: Int, root: Int?)) -> CGFloat {
         guard let r = c.root else { return rowsTop }
@@ -551,7 +551,7 @@ final class RowCell: UICollectionViewCell {
     /// text off main while its previous bitmap stays (drawing the whole bubble on main per token was the
     /// largest part of a streaming frame); a shorter one draws on main as before (cheap, and its look is
     /// unchanged).
-    static var streamOffMainHeight: CGFloat = 160
+    static let streamOffMainHeight: CGFloat = 160 // cmux: let (no shared mutable state)
     /// Streaming rows that kept their previous bitmap while the next one is drawn off main (tests).
     static var streamKeptBitmaps = 0
     /// Whether `spec` is a tall streaming bubble's text row (it draws off main: `streamOffMainHeight`).
@@ -1793,7 +1793,8 @@ extension UIView {
 
 /// Where a display change's main-thread time goes (bench and audit evidence, cx-3cb display-budget): the outermost
 /// MessagesWindowView.displayChange's ms per named step, and the drawing in the commit after it (shim views by class).
-/// Main thread only.
+/// Main thread only. cmux: main actor.
+@MainActor
 enum DisplayTiming {
     /// The last display change's ms per step (nested steps are also counted in their outer step).
     static var phases: [String: Double] = [:]

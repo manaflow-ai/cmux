@@ -1,0 +1,37 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/MarkdownLayout.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/MarkdownLayout.swift
+@@ -3,6 +3,7 @@
+ #else
+ import AppKit
+ #endif
++import os
+ 
+ // Markdown layout (shared/MARKDOWN.md): a parsed document at a column width becomes
+ // a display list in body-local points (origin = the bubble's top-left; text starts
+@@ -128,7 +129,8 @@
+ /// never loads a URL and never reads a file for `![alt](src)`: it asks this provider, and shows
+ /// the image only when the host returns one (an attachment, a local file the host allows).
+ /// Without a provider (the default) an image is a link or the text "[Image: alt]".
+-protocol MarkdownImageProvider: AnyObject {
++/// Sendable: layouts run on any thread and call it concurrently.
++protocol MarkdownImageProvider: AnyObject, Sendable {
+     /// The image for `source` (the destination exactly as written), or nil. Called during layout,
+     /// off the main thread: return only what the host already has, never fetch here. Answers
+     /// must be stable per source (block layouts are cached by content and width).
+@@ -136,12 +138,12 @@
+ }
+ 
+ enum MarkdownImages {
+-    private static let lock = NSLock()
+-    private static weak var current: MarkdownImageProvider?
++    private struct Current: Sendable { weak var provider: MarkdownImageProvider? }
++    private static let current = OSAllocatedUnfairLock(initialState: Current())
+     /// The host's provider (weak; nil by default). Set it before the first layout.
+     static var provider: MarkdownImageProvider? {
+-        get { lock.lock(); defer { lock.unlock() }; return current }
+-        set { lock.lock(); current = newValue; lock.unlock() }
++        get { current.withLock { $0.provider } }
++        set { current.withLock { $0.provider = newValue } }
+     }
+     /// Largest image height in a bubble (points).
+     static let maxHeight: CGFloat = 320

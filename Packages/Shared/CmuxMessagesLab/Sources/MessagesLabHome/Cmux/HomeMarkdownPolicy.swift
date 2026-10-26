@@ -104,8 +104,8 @@ extension URL {
 /// alt]" or a link); nothing is fetched. Called off the main thread.
 final class HomeMarkdownImages: MarkdownImageProvider {
     private let directory: String
-    private let lock = NSLock()
-    private var pictures: [String: CGImage] = [:]
+    /// Layouts on any thread ask at once (MarkdownImageProvider is Sendable): the lock owns the pictures.
+    private let pictures = OSAllocatedUnfairLock<[String: CGImage]>(initialState: [:])
 
     init(directory: URL) {
         self.directory = directory.standardizedFileURL.resolvingSymlinksInPath().path
@@ -115,12 +115,11 @@ final class HomeMarkdownImages: MarkdownImageProvider {
         guard let url = URL(string: source), url.isFileURL else { return nil }
         let file = url.standardizedFileURL.resolvingSymlinksInPath()
         guard file.deletingLastPathComponent().path == directory else { return nil }
-        lock.lock()
-        if let hit = pictures[file.path] { lock.unlock(); return hit }
-        lock.unlock()
+        let path = file.path
+        if let hit = pictures.withLock({ $0[path] }) { return hit }
         guard let src = CGImageSourceCreateWithURL(file as CFURL, nil),
               let image = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
-        lock.lock(); pictures[file.path] = image; lock.unlock()
+        pictures.withLock { $0[path] = image }
         return image
     }
 }

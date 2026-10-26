@@ -16,7 +16,7 @@ enum TiledBubble {
     static func applies(_ spec: RowSpec) -> Bool { LongText.isLongRow(spec) }
 
     /// RowCell.configure for a long text row (inside the cell's transaction).
-    static func configure(_ cell: RowCell, _ spec: RowSpec) {
+    @MainActor static func configure(_ cell: RowCell, _ spec: RowSpec) {
         guard case let .part(p) = spec.kind, case let .text(t, _) = p.part else { return }
         let body = cell.tiled ?? TiledBody()
         cell.tiled = body
@@ -78,6 +78,8 @@ enum TiledBubble {
 
 /// Bubble outline as a three-slice image: top cap, a 1 px middle that stretches,
 /// bottom cap with the tail. Pixel aligned; the body's sub-pixel x is baked in.
+/// cmux: main actor (the tiled cells' cache).
+@MainActor
 enum BubbleSlices {
     static let cap: CGFloat = 32, pad: CGFloat = 24, vpad: CGFloat = 8
     private static var cache: [String: CGImage] = [:]
@@ -96,7 +98,8 @@ enum BubbleSlices {
     }
 }
 
-/// Live tile and measurement counters (bench evidence).
+/// Live tile and measurement counters (bench evidence). cmux: main actor.
+@MainActor
 enum TiledStats {
     static var tilesMain = 0, tilesAsync = 0, tilesCancelled = 0
     /// Visible tiles without pixels at the end of a layout pass (text pop-in).
@@ -104,7 +107,8 @@ enum TiledStats {
     static var liveTiles = 0, maxLiveTiles = 0
 }
 
-/// Rendered tiles, LRU by bytes (main thread).
+/// Rendered tiles, LRU by bytes (main thread). cmux: main actor.
+@MainActor
 final class TileCache {
     static let shared = TileCache()
     struct Key: Hashable {
@@ -142,10 +146,10 @@ final class TileCache {
             bytes -= e.1
             freed.append(e.0)
         }
-        Reclaimer.release(freed)
+        Reclaimer.release(bitmaps: freed)
     }
     var count: Int { map.count }
-    func removeAll() { Reclaimer.release(map.values.map(\.0)); map.removeAll(); bytes = 0 }
+    func removeAll() { Reclaimer.release(bitmaps: map.values.map(\.0)); map.removeAll(); bytes = 0 }
     /// cmux: a hidden transcript released its rows (MessagesWindowView.releaseRows): the tiles of these long texts go
     /// (freed off main).
     func evict(lineages: Set<Int>) {
@@ -154,11 +158,12 @@ final class TileCache {
         guard !gone.isEmpty else { return }
         for k in gone.keys { map.removeValue(forKey: k) } // dictionary write
         bytes -= gone.values.reduce(0) { $0 + $1.1 }
-        Reclaimer.release(gone.values.map(\.0))
+        Reclaimer.release(bitmaps: gone.values.map(\.0))
     }
 }
 
-/// The long-text layers of one RowCell.
+/// The long-text layers of one RowCell. cmux: main actor (its tiles render on `tileQueue` and land on main).
+@MainActor
 final class TiledBody {
     let container = CALayer()
     let shape = CALayer()

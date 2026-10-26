@@ -4,6 +4,7 @@ import UIKit
 import AppKit
 #endif
 import Accelerate
+import os
 
 /// The send morph: the compose field turns into the new bubble.
 ///
@@ -17,6 +18,8 @@ import Accelerate
 /// - `text` / `blurred`: the bubble's text, left aligned in the body; the
 ///   blurred copy fades out as the sharp text fades in.
 /// - `tail`: fixed at the right-bottom corner.
+/// cmux: main actor (its layers); the prepared send's text images draw on `prepQueue` (the nonisolated statics).
+@MainActor
 final class MorphBubble {
     let key: String
     /// The scale its images are drawn at: the sending window view's renderScale (`rescale` on a change).
@@ -241,52 +244,61 @@ final class MorphBubble {
     /// approximate the sigma-5 Gaussian it replaces; no Core Image.
     /// Margin around the blurred text: three box passes of radius 4.5 pt
     /// spread about 13.5 pt.
-    static let blurPad: CGFloat = 14
+    nonisolated static let blurPad: CGFloat = 14
     /// The grey (0-255) under the translucent flying bubble: 34, fitted inside the field glass on
     /// the lossless send takes against two takes of ours at 76 and 30 (was 76, fitted on the lossy
     /// 4:2:0 original). In DEV and self-test builds only, MORPH_UNDERLAY overrides it for A/B takes.
     #if DEBUG || MESSAGESLAB_SELFTEST
-    static let underlayGrey: CGFloat = ProcessInfo.processInfo.environment["MORPH_UNDERLAY"].flatMap { Double($0) }.map { CGFloat($0) } ?? 34
+    nonisolated static let underlayGrey: CGFloat = ProcessInfo.processInfo.environment["MORPH_UNDERLAY"].flatMap { Double($0) }.map { CGFloat($0) } ?? 34
     #else
-    static let underlayGrey: CGFloat = 34
+    nonisolated static let underlayGrey: CGFloat = 34
     #endif
 
     /// The send frame's text and blur, prepared off main while the draft changes (the same
     /// layout the send derives: trimmed text, TextParts, Sizing at the window width). The
     /// send uses them only for an equal layout, size and scale; else it renders as before.
-    private static let prepQueue = DispatchQueue(label: "morph.prepare", qos: .userInitiated)
-    private static let prepLock = NSLock()
-    private static var prepared: (tl: TextLayout, size: CGSize, scale: CGFloat, images: (CGImage?, CGImage?))?
-    private static var prepSerial = 0
-    static var preparedHits = 0
+    nonisolated private static let prepQueue = DispatchQueue(label: "morph.prepare", qos: .userInitiated)
+    /// cmux: the main thread asks and takes, prepQueue fills: the lock owns the prepared send.
+    private struct Prepared {
+        var prepared: (tl: TextLayout, size: CGSize, scale: CGFloat, images: (CGImage?, CGImage?))?
+        var serial = 0
+        var hits = 0
+    }
+    nonisolated private static let prepLock = OSAllocatedUnfairLock(initialState: Prepared())
+    nonisolated static var preparedHits: Int { prepLock.withLock { $0.hits } }
     /// `scale`: the sending view's (its renderScale); a send at another scale draws its own images.
     static func prepare(draft: String, width: CGFloat, scale: CGFloat = Fixture.renderScale) {
         let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty, !LongText.isLong(t) else { return }
-        prepLock.lock(); prepSerial += 1; let serial = prepSerial; prepLock.unlock()
+        let serial = prepLock.withLock { p in
+            p.serial += 1
+            return p.serial
+        }
         prepQueue.async {
-            prepLock.lock(); let latest = serial == prepSerial; prepLock.unlock()
+            let latest = prepLock.withLock { $0.serial == serial }
             guard latest, let part = TextParts.parts(for: t).first(where: { $0.plainText != nil }) else { return }
             let (size, tl) = Sizing.size(of: part, width: width, scale: scale)
             guard let tl else { return }
             let images = textImages(tl, size, scale: scale)
-            prepLock.lock()
-            if serial == prepSerial { prepared = (tl, size, scale, images) }
-            prepLock.unlock()
+            prepLock.withLock { p in
+                guard p.serial == serial else { return }
+                p.prepared = (tl, size, scale, images)
+            }
         }
     }
     private static func preparedImages(_ tl: TextLayout, _ size: CGSize, scale: CGFloat) -> (CGImage?, CGImage?)? {
-        prepLock.lock(); defer { prepLock.unlock() }
-        guard let p = prepared, p.size == size, p.scale == scale, p.tl == tl else { return nil }
-        preparedHits += 1
-        return p.images
+        prepLock.withLock { p in
+            guard let prepared = p.prepared, prepared.size == size, prepared.scale == scale, prepared.tl == tl else { return nil }
+            p.hits += 1
+            return prepared.images
+        }
     }
 
     /// Any thread (prepQueue, main): the drawing reads `scale`.
-    private static func textImages(_ tl: TextLayout, _ size: CGSize, scale: CGFloat) -> (CGImage?, CGImage?) {
+    nonisolated private static func textImages(_ tl: TextLayout, _ size: CGSize, scale: CGFloat) -> (CGImage?, CGImage?) {
         Fixture.withRenderScale(scale) { textImagesScoped(tl, size, scale: scale) }
     }
-    private static func textImagesScoped(_ tl: TextLayout, _ size: CGSize, scale: CGFloat) -> (CGImage?, CGImage?) {
+    nonisolated private static func textImagesScoped(_ tl: TextLayout, _ size: CGSize, scale: CGFloat) -> (CGImage?, CGImage?) {
         let fmt = UIGraphicsImageRendererFormat()
         fmt.scale = scale * MorphBubble.peakScale
         fmt.opaque = false
@@ -424,7 +436,7 @@ final class MorphBubble {
     static let fadeOutTime = 0.3
 
     /// The largest value of the fitted scale pulse (sampled at 240 Hz).
-    static let peakScale: CGFloat = {
+    nonisolated static let peakScale: CGFloat = {
         var peak = 1.0
         for e in [Springs.Bubble(fieldShrinks: false).scale, Springs.Bubble(fieldShrinks: true).scale] {
             for i in 0..<CrashGuard.int(max(1, e.settleTime) * 240, in: 0...14_400) { peak = max(peak, e.value(Double(i) / 240, from: 1, to: 1)) } // at most 60 s of samples
@@ -433,7 +445,7 @@ final class MorphBubble {
     }()
 
     /// Three box-convolution passes (about a Gaussian), at the source's pixel size.
-    static func boxBlur(_ cg: CGImage, radiusPx r: Int) -> CGImage? {
+    nonisolated static func boxBlur(_ cg: CGImage, radiusPx r: Int) -> CGImage? {
         guard var format = vImage_CGImageFormat(cgImage: cg),
               var src = try? vImage_Buffer(cgImage: cg, format: format),
               let width = Int(exactly: src.width), let height = Int(exactly: src.height), // no trapping conversion
