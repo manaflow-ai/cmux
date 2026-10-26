@@ -54,13 +54,15 @@ struct DebugSidebarNestedFixture {
 ///   ``DaemonUpdateEvent`` to ``DaemonUpdateBoard/shared`` for the machine `id` (default
 ///   `ssh:build-box`), named `name` (`build-box`), on `ssh_host` (`build-box.example.com`); `reason`
 ///   for a failure, `build` for an update, `notify` as the policy sets it for a recorded failure.
-/// - `sidebar: true`: the window's sidebar shows a fixture This Mac and that ssh machine, whose
+/// - `sidebar: true`: the window's sidebar shows a fixture This Mac and that ssh machine, a section each, whose
 ///   header tooltip is composed as a live connected one's (``SidebarBridge/sshTooltip(destination:session:detail:)``,
 ///   so whatever the live tooltip adds shows here too); `false` brings the live rows back. Shown again
 ///   after a `state`, it reads the board anew.
 /// - `tooltip: true`: the synthetic pointer rests on that header (`debug.pointer_hover`), so its tooltip
 ///   opens after the usual delay; `false` moves the pointer away.
 extension DebugSidebarNestedFixture {
+    /// The window's `groupsByComputer` before `sidebar: true` turned it on.
+    private static var groupsByComputerBefore: Bool?
 
     static func daemonUpdate(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let id = params["id"]?.stringValue ?? "ssh:build-box"
@@ -84,6 +86,11 @@ extension DebugSidebarNestedFixture {
         let sidebar = controller.sidebar
         let machine = MachineID(id)
         if let show = params["sidebar"]?.boolValue {
+            // A machine header (and its tooltip) is drawn only with a section per computer
+            // (`sidebar.groupByComputer`); the fixture turns it on and puts back what it found.
+            if show, groupsByComputerBefore == nil { groupsByComputerBefore = sidebar.model.groupsByComputer }
+            sidebar.model.groupsByComputer = show || (groupsByComputerBefore ?? sidebar.model.groupsByComputer)
+            if !show { groupsByComputerBefore = nil }
             sidebar.rows.fixture = show ? fixture(machine: machine, name: name, host: host) : nil
             sidebar.container.layoutSubtreeIfNeeded()
             answer["sidebar"] = .bool(show)
