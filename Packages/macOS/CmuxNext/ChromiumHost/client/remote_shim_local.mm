@@ -45,22 +45,12 @@ class LocalClient {
 
   void Detach() {
     transport_ = nullptr;
-    initialize_sent_ = false;
     drag_sent_installed_ = false;
     text_input_.clear();
     // Swapped out first: a reveal that done starts finds no host and returns 0.
     std::unordered_map<uint32_t, Callback<cmux_shim_password_reveal_fn>> ended;
     ended.swap(reveals_);
     for (auto& [token, done] : ended) done.fn(done.context, nullptr, 0);
-  }
-
-  int Initialize(const InitializeRequest& request, void* ctx, cmux_shim_event_fn event) {
-    // CefInitialize runs once per host; the next host needs Detach first.
-    if (initialize_sent_ || transport_ == nullptr) return 0;
-    if (!transport_->send_initialize(transport_->context, request)) return 0;
-    initialize_sent_ = true;
-    event_ = {event, ctx};
-    return 1;
   }
 
   int TextInputWatch(int browser_id, TextInputFn fn, void* context) {
@@ -89,12 +79,6 @@ class LocalClient {
     if (!transport_->send_password_reveal(transport_->context, token, profile_cache_path, id)) return 0;
     reveals_[token] = {done, ctx};
     return 1;
-  }
-
-  bool DeliverEvent(int kind, int browser_id, int request, int64_t a, int64_t b, const char* s1, const char* s2) {
-    if (event_.fn == nullptr) return false;
-    event_.fn(event_.context, kind, browser_id, request, a, b, s1 != nullptr ? s1 : "", s2 != nullptr ? s2 : "");
-    return true;
   }
 
   bool DeliverTextInputState(int browser_id, const void* state) {
@@ -137,8 +121,6 @@ class LocalClient {
   }
 
   const LocalTransport* transport_ = nullptr;
-  bool initialize_sent_ = false;
-  Callback<cmux_shim_event_fn> event_;
   Callback<DragSourceFn> drag_;
   bool drag_sent_installed_ = false;  // what the attached host last took
   std::unordered_map<int, Callback<TextInputFn>> text_input_;                     // by browser id
@@ -164,11 +146,6 @@ void Detach() {
   Client().Detach();
 }
 
-bool DeliverEvent(int kind, int browser_id, int request, int64_t a, int64_t b, const char* s1, const char* s2) {
-  AssertMainThread();
-  return Client().DeliverEvent(kind, browser_id, request, a, b, s1, s2);
-}
-
 bool DeliverTextInputState(int browser_id, const void* state) {
   AssertMainThread();
   return Client().DeliverTextInputState(browser_id, state);
@@ -187,25 +164,6 @@ bool DeliverPasswordReveal(uint32_t token, const char* password, size_t length) 
 }  // namespace cmux_remote
 
 extern "C" {
-
-// The host's Chromium runs CefInitialize (task 013). schedule never runs: the
-// host runs its own message loop, so there is no pump (task 034). key is not
-// kept: keys route cmux-first and come back as KEY_UNHANDLED (task 030).
-// Returns 1 when INITIALIZE is sent; success is CONTEXT_INITIALIZED later.
-CMUX_SHIM_EXPORT int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path,
-                                          const char* subprocess_path, const char* root_cache_path,
-                                          const char* log_file, int log_severity, const char* locale,
-                                          const char* accept_languages, const char* const* switches, void* ctx,
-                                          cmux_shim_schedule_fn schedule, cmux_shim_event_fn event,
-                                          cmux_shim_key_fn key) {
-  cmux_remote::AssertMainThread();
-  (void)schedule;
-  (void)key;
-  const cmux_remote::InitializeRequest request{framework_dir, main_bundle_path, subprocess_path,
-                                               root_cache_path, log_file, log_severity,
-                                               locale, accept_languages, switches};
-  return cmux_remote::Client().Initialize(request, ctx, event);
-}
 
 // The host posts input to its own user-input queue (tasks 041 and 042); no
 // task of cmux's runs on Chromium's UI thread. 0, as when the fork lacks the

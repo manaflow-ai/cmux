@@ -1120,7 +1120,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Function-pointer args (schedule, event, key). The client (ChromiumHost/client/remote_shim_local.mm) stores event_fn and ctx and calls them on main for each EVENT of a batch, never calls schedule_fn (no pump, task 034), ignores key_fn (keys route cmux-first, task 030) and sends one INITIALIZE op after the queued preinit ops; it returns 1 when INITIALIZE is sent and 0 when the host is not attached or one was already sent to this host. CefInitialize runs in the host: success is CONTEXT_INITIALIZED, and a failure is the host's exit before it (host_mode_rewrites)."
+      "reason": "Function-pointer args (schedule, event, key). The remote shim stores event_fn and ctx, never calls schedule_fn (no pump, task 034), ignores key_fn (keys route cmux-first, task 030) and sends one INITIALIZE op after the queued preinit ops; it returns 1 when INITIALIZE is sent and 0 when the host is not attached. CefInitialize runs in the host: success is CONTEXT_INITIALIZED, and a failure is the host's exit before it (host_mode_rewrites)."
     },
     {
       "name": "cmux_shim_do_work",

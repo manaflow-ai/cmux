@@ -28,18 +28,7 @@ struct FakeTransport {
   bool accept = true;
   uint32_t token = 100;
   std::vector<std::string> sent;
-  std::vector<std::string> switches;
-  std::string root_cache_path;
 };
-
-bool SendInitialize(void* context, const cmux_remote::InitializeRequest& request) {
-  auto* t = static_cast<FakeTransport*>(context);
-  if (!t->accept) return false;
-  t->sent.push_back("initialize");
-  t->root_cache_path = request.root_cache_path ? request.root_cache_path : "";
-  for (const char* const* it = request.switches; it && *it; ++it) t->switches.emplace_back(*it);
-  return true;
-}
 
 bool SendTextInputWatch(void* context, int browser_id, bool watching) {
   auto* t = static_cast<FakeTransport*>(context);
@@ -70,32 +59,6 @@ std::string Last(const FakeTransport& t) {
   return t.sent.empty() ? std::string() : t.sent.back();
 }
 
-int schedule_calls = 0;
-void Schedule(void*, int64_t) { ++schedule_calls; }
-
-int key_calls = 0;
-int Key(void*, int, void*) {
-  ++key_calls;
-  return 1;
-}
-
-struct EventSeen {
-  void* ctx = nullptr;
-  int kind = 0;
-  int browser_id = 0;
-  std::string s1 = "unset";
-  std::string s2 = "unset";
-  int calls = 0;
-} event_seen;
-
-void Event(void* ctx, int kind, int browser_id, int, int64_t, int64_t, const char* s1, const char* s2) {
-  event_seen.ctx = ctx;
-  event_seen.kind = kind;
-  event_seen.browser_id = browser_id;
-  event_seen.s1 = s1;
-  event_seen.s2 = s2;
-  ++event_seen.calls;
-}
 
 int user_input_calls = 0;
 void UserInput(void*) { ++user_input_calls; }
@@ -151,25 +114,17 @@ bool OffMainDeliveryAborts() {
   return child > 0 && waitpid(child, &status, 0) == child && WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT;
 }
 
-int InitializeShim(void* ctx) {
-  static const char* const kSwitches[] = {"disable-gpu-shader-disk-cache", "lang=en-US", nullptr};
-  return cmux_shim_initialize("/fw", "/app", "/helper", "/cache", nullptr, 0, "en-US", "en-US,en", kSwitches, ctx,
-                              Schedule, Event, Key);
-}
-
 }  // namespace
 
 int main() {
   FakeTransport t;
-  const cmux_remote::LocalTransport transport{&t,                 SendInitialize, SendTextInputWatch,
-                                              SendDragSourceHandler, SendPasswordReveal, NextToken};
+  const cmux_remote::LocalTransport transport{&t, SendTextInputWatch, SendDragSourceHandler, SendPasswordReveal,
+                                              NextToken};
   int ctx = 0, other = 0;
 
   // Before the host attaches nothing is sent and nothing pretends to start.
-  Check(InitializeShim(&ctx) == 0, "initialize before attach returns 0");
   Check(cmux_shim_browser_text_input_watch(7, WatchA, &ctx) == 0, "watch before attach returns 0");
   Check(cmux_shim_password_reveal("/profile", "id1", Reveal, &ctx) == 0, "reveal before attach returns 0");
-  Check(!cmux_remote::DeliverEvent(1, 0, 0, 0, 0, "", ""), "no event before initialize");
   cmux_shim_set_drag_source_handler(Drag, &ctx);
   Check(t.sent.empty(), "nothing sent before attach");
 
@@ -180,17 +135,6 @@ int main() {
   // Attach sends the drag handler set before it.
   cmux_remote::Attach(&transport);
   Check(Last(t) == "drag on", "attach sends the earlier drag handler");
-
-  // initialize: one INITIALIZE with the arguments; schedule and key never run.
-  Check(InitializeShim(&ctx) == 1, "initialize returns 1 once sent");
-  Check(Last(t) == "initialize", "initialize sends INITIALIZE");
-  Check(t.root_cache_path == "/cache", "initialize carries root_cache_path");
-  Check(t.switches.size() == 2 && t.switches[1] == "lang=en-US", "initialize carries the switches");
-  Check(InitializeShim(&ctx) == 0, "a second initialize returns 0");
-  Check(cmux_remote::DeliverEvent(5, 9, 0, 0, 0, nullptr, "x"), "event delivered after initialize");
-  Check(event_seen.ctx == &ctx && event_seen.kind == 5 && event_seen.browser_id == 9, "event_fn gets ctx and fields");
-  Check(event_seen.s1.empty() && event_seen.s2 == "x", "NULL event strings arrive as empty");
-  Check(schedule_calls == 0 && key_calls == 0, "schedule and key never run");
 
   // Text input: the watch on/off crosses the wire once; the callback stays here.
   const size_t before_watch = t.sent.size();
@@ -266,7 +210,7 @@ int main() {
   t.accept = true;
   Check(!cmux_remote::DeliverPasswordReveal(t.token, "x", 1), "a refused reveal is not pending");
 
-  // Host gone: pending reveals end, watches end, the next host initializes again.
+  // Host gone: pending reveals end, watches end.
   cmux_shim_set_drag_source_handler(Drag, &ctx);
   Check(cmux_shim_browser_text_input_watch(11, WatchA, &ctx) == 1, "watch before detach");
   Check(cmux_shim_password_reveal("/profile", "id4", Reveal, &other) == 1, "reveal before detach");
@@ -276,11 +220,9 @@ int main() {
         "detach ends a pending reveal with done(NULL, 0)");
   Check(!cmux_remote::DeliverPasswordReveal(pending, "late", 4), "a late REPLY after detach is refused");
   Check(!cmux_remote::DeliverTextInputState(11, &state), "detach ends the watches");
-  Check(InitializeShim(&ctx) == 0, "initialize with no host returns 0");
   t.sent.clear();
   cmux_remote::Attach(&transport);
   Check(Last(t) == "drag on", "re-attach sends the drag handler again");
-  Check(InitializeShim(&ctx) == 1, "the next host initializes");
 
   // An attach whose drag send is refused sends it at the next set.
   cmux_remote::Detach();

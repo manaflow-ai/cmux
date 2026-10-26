@@ -35,9 +35,12 @@ for e in header["exports"]:
     if "F" in e["wire"] and classes.get(e["name"]) == "local":
         print(e["name"])
 PY
-want="cmux_shim_browser_text_input_watch cmux_shim_initialize cmux_shim_password_reveal cmux_shim_post_user_input_task cmux_shim_set_drag_source_handler"
-got="$(sort "$work/local" | tr '\n' ' ' | sed 's/ $//')"
-[[ "$got" == "$want" ]] || fail "local function-pointer exports: '$got', expected '$want'"
+# The exports remote_shim_local.mm owns. Other tasks add local callback
+# exports with their own client files (228, 229, 093), so this is a subset.
+owned="cmux_shim_browser_text_input_watch cmux_shim_password_reveal cmux_shim_post_user_input_task cmux_shim_set_drag_source_handler"
+for name in $owned; do
+  grep -qx "$name" "$work/local" || fail "$name: not a local function-pointer export"
+done
 
 # A fresh generated client: generated from the header and ops JSON alone, so
 # it does not depend on a committed or stale remote_shim.inc.
@@ -49,9 +52,11 @@ python3 "$gen" --root "$work/tree" >/dev/null
 python3 "$gen" --list-missing >"$work/missing"
 while read -r name; do
   ! grep -qE "\\b$name\\b" "$work/tree/$client_inc" || fail "$name: local but the generated client marshals it"
-  ! grep -qE "^$name"$'\t' "$work/missing" || fail "$name: local but not defined by hand in ChromiumHost/client"
 done <"$work/local"
-echo "local function-pointer exports: $(wc -l <"$work/local" | tr -d ' '), hand-written, none in the generated client"
+for name in $owned; do
+  ! grep -qE "^$name"$'\t' "$work/missing" || fail "$name: local but not defined by hand in ChromiumHost/client"
+done
+echo "local function-pointer exports: $(wc -l <"$work/local" | tr -d ' '), none in the generated client; the $(wc -w <<<"$owned" | tr -d ' ') of remote_shim_local.mm hand-written"
 
 # shellcheck source=../lib/cxx.sh
 source "$root/scripts/cmux-next/lib/cxx.sh"
