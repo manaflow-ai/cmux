@@ -72,10 +72,16 @@ final class LayoutViewContext {
     /// click-catching panels over page windows (`DividerMouseCatchers`).
     var hoverPassThroughWindows: () -> Set<Int> = { [] }
 
-    init(model: LayoutModel, provider: any LayoutPaneContentProvider, scrollbarClock: any Clock<Duration> = ContinuousClock()) {
+    /// Whether layout motion runs on the render server (`motion.renderServer`): every host's
+    /// `MotionBackends` reads it once per change turn, and only with a variant registered.
+    let rendersMotionOnServer: () -> Bool
+
+    init(model: LayoutModel, provider: any LayoutPaneContentProvider, scrollbarClock: any Clock<Duration> = ContinuousClock(),
+         rendersMotionOnServer: @escaping () -> Bool = { LayoutTunables.motionRenderServer.value }) {
         self.model = model
         self.provider = provider
         self.scrollbarClock = scrollbarClock
+        self.rendersMotionOnServer = rendersMotionOnServer
         // The shared pointer source (`PointerHover`, CmuxNextDesign): the
         // real pointer while the window is key and visible, `debug.mouse`'s
         // synthesized pointer in DEBUG builds (it also passes the topmost check).
