@@ -2637,6 +2637,9 @@
             }
           ]
         },
+        "annotations": {
+          "description": "Claude Code AskUserQuestion annotations beside the answers, by question text: `{preview?, notes?}`."
+        },
         "answers": {
           "description": "A question's answers, by question."
         },
