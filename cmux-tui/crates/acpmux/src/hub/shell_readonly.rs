@@ -811,6 +811,7 @@ mod tests {
             "test -f x",
             "rg -n foo",
             "git log --oneline --stat -1",
+            "git grep -no needle",
         ] {
             assert!(is_read_only(script), "{script}");
         }
@@ -895,6 +896,12 @@ mod tests {
             "pwd\rx",
             "pwd\u{0b}x",
             "date 102612002026",
+            // Codex review at 630c4878.
+            "git diff -o /tmp/out",
+            "git log -po x",
+            "sort -T /tmp x",
+            "sort --temporary-directory=/tmp x",
+            "sort --temp=/tmp x",
             // Codex review at a29dca90.
             "git -C repo[1] status",
             "git -C 'repo[1]' status",
@@ -996,6 +1003,9 @@ mod tests {
             );
             std::fs::remove_dir_all(dir).unwrap();
         }
+        let dir = repo(&[("core.fsmonitor", "true")]);
+        assert!(!request_is_read_only(&execute(json!("git status")), &dir, &system_env()));
+        std::fs::remove_dir_all(dir).unwrap();
         let dir = repo(&[("core.fsmonitor", "false"), ("remote.origin.url", "/x")]);
         assert!(request_is_read_only(&execute(json!("git status")), &dir, &system_env()));
         std::fs::remove_dir_all(dir).unwrap();
