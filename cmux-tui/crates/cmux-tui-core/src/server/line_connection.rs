@@ -193,7 +193,7 @@ pub(super) fn serve_connection(
     if write_half.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)).is_err() {
         return ConnectionEnd::Dropped;
     }
-    let outbound = Arc::new(BoundedOutbound::default());
+    let outbound = Arc::new(BoundedOutbound::with_chunk_bytes(mux.bulk_frame_max()));
     let writer = MessageWriter::new_with_render_service(
         QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::Unix(control)) },
         render_service,
@@ -206,7 +206,7 @@ pub(super) fn serve_connection(
         while let Some(item) = writer_outbound.recv() {
             match &item {
                 OutboundItem::Text(text) => writer_ipc.line_sent(text.len() + 1),
-                OutboundItem::Frame(header, _) => {
+                OutboundItem::Frame(header, _) | OutboundItem::Chunk { header, .. } => {
                     writer_ipc.frame_sent(header.kind(), header.frame_len());
                 }
                 OutboundItem::Flush(_) => {}

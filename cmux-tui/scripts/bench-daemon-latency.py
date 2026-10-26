@@ -953,8 +953,8 @@ def collect(procs, queue, timeout):
 # Bench
 
 
-# The daemon's bulk frame cut (p05-ipc.md 3.2), once p05-ipc-072 makes it a knob: identify reports
-# it in bytes and the daemon takes it from this environment variable at start.
+# The daemon's bulk frame cut (p05-ipc.md 3.2, p05-ipc-072): identify with `revisions` reports it in
+# bytes and the daemon takes it from this environment variable at start.
 BULK_FRAME_MAX_FIELD = "bulk_frame_max"
 BULK_FRAME_MAX_ENV = "CMUX_IPC_BULK_FRAME_MAX"
 FLOOD_PERL = (
@@ -1015,7 +1015,8 @@ class Bench:
             if os.path.exists(self.sock_path):
                 try:
                     c = Conn(self.sock_path)
-                    self.ident = must(c.call("identify"), "identify")
+                    # `revisions` adds the opt-in fields, bulk_frame_max among them; older daemons ignore it.
+                    self.ident = must(c.call("identify", revisions=True), "identify")
                     c.close()
                     break
                 except OSError:

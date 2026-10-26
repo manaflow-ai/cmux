@@ -383,11 +383,15 @@ Each connection has one control sequence (stream 0): command replies, the events
 stream, and the items of its `session.events` stream. The server writes them in one FIFO, in the
 order they were enqueued. Every other stream (attach output, journal reads, loopback forwards,
 agent-session attaches and other resource streams) keeps its own FIFO: its items are never
-reordered among themselves, but priority may move them relative to other streams. The control FIFO
-goes first, with a bound: after 8 control-sequence items in a row, the writer writes one waiting
-item of another stream, so an event flood never starves attach output. A reply or terminal never
-yields, and the bound never changes the order inside the control FIFO. These rules hold on the
-Unix socket and WebSocket transports:
+reordered among themselves, but priority may move them relative to other streams. Each such stream
+rides a lane, and the writer takes lanes in this order: input streams, the control FIFO, bulk
+streams (attach output and the other streams today), background streams. The order has a
+starvation bound: a lower lane passed over for 8 items writes one, so an event flood never starves
+attach output; the bound never changes the order inside a FIFO. Streams of one lane take turns of 2
+items. On a connection that carries frames, a stream frame longer than the daemon's frame cut
+(`bulk_frame_max` in `identify` with `revisions`, 32 KiB unless `CMUX_IPC_BULK_FRAME_MAX` sets it)
+is written in chunks with the MORE flag or as SNAPSHOT then SNAPSHOT_MORE, so a reply waits for at
+most one chunk. These rules hold on the Unix socket and WebSocket transports:
 
 1. Control replies and control events share one FIFO.
 2. **Not in force until chrome-parity p05-ipc-120 lands.** After p05-ipc-120, a reply is enqueued

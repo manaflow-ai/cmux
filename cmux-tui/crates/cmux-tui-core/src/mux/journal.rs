@@ -289,6 +289,11 @@ impl Mux {
         &self.ipc_stats
     }
 
+    /// The frame cut of this daemon's connections, in bytes.
+    pub(crate) fn bulk_frame_max(&self) -> usize {
+        self.bulk_frame_max
+    }
+
     pub fn uptime(&self) -> Duration {
         self.started_at.elapsed()
     }
