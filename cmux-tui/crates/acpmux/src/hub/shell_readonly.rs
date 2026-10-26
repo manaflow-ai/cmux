@@ -92,6 +92,8 @@ fn env_runs_nothing(env: &Env) -> bool {
     env.keys().all(|k| {
         !(RUNS_ENV.contains(&k.as_str())
             || matches!(k.as_str(), "LD_PRELOAD" | "LD_AUDIT" | "DYLD_INSERT_LIBRARIES")
+            // An exported bash function (`BASH_FUNC_pwd%%`) runs in place of the command it names.
+            || k.starts_with("BASH_FUNC_")
             || (k.starts_with("GIT_") && !HARMLESS_GIT_ENV.contains(&k.as_str())))
     })
 }
@@ -368,7 +370,14 @@ fn segment_ok(words: &[String]) -> Option<Reads> {
                 || a.starts_with("--compress-program")
                 || short_has(a, 'o')
         }),
-        "uniq" => args.iter().filter(|a| a.as_str() == "-" || !a.starts_with('-')).count() <= 1,
+        // A second operand is the output file; after `--` every word is an operand.
+        "uniq" => {
+            let end = args.iter().position(|a| a == "--").unwrap_or(args.len());
+            let operands =
+                args[..end].iter().filter(|a| a.as_str() == "-" || !a.starts_with('-')).count()
+                    + args.len().saturating_sub(end + 1);
+            operands <= 1
+        }
         "date" => !any(&|a| a.starts_with("--set") || short_has(a, 's')),
         "hostname" => args.iter().all(|a| {
             matches!(
