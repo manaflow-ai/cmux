@@ -199,4 +199,31 @@ import Testing
         #expect(rig.clock.sleepRequests.last?.deadline.offset == .seconds(120))
         rig.source.stop()
     }
+
+    /// A restart while no window shows (a new interval, an account change, a reconnect) forgets
+    /// the old generation's last refresh: the first show refreshes at once, as a shown restart does.
+    @Test(.timeLimit(.minutes(1))) func aRestartWhileHiddenRefreshesAtOnceOnTheFirstShow() async throws {
+        let shown = ShownWindows()
+        let window = VisibilityNode(root: "window", own: .visible)
+        shown.track(window)
+        let rig = Rig(shown: shown)
+        rig.source.start()
+        #expect(await rig.nextCall() == 1)
+        try await rig.clock.waitForSleeper()
+
+        window.set(.hidden)
+        rig.clock.advance(by: .seconds(10))
+        rig.source.stop()
+        rig.source.start()
+        #expect(rig.source.runner == nil, "a hidden restart refreshed")
+        #expect(rig.clock.sleeperCount == 0)
+
+        window.set(.visible)
+        #expect(rig.clock.sleeperCount == 0, "a show after a hidden restart booked the old interval's rest")
+        #expect(await rig.nextCall() == 2, "a show after a hidden restart did not refresh at once")
+        try await rig.clock.waitForSleeper()
+        #expect(rig.clock.sleepRequests.last?.deadline.offset == .seconds(130))
+        #expect(await rig.script.notificationETags.count == 2)
+        rig.source.stop()
+    }
 }

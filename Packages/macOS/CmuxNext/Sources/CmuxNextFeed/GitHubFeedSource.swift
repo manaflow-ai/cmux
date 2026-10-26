@@ -27,7 +27,8 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
     private var polling = false
     /// A refresh of the poll runs now; it books the next one itself when it ends.
     private var pollRefreshing = false
-    /// The time since the last poll refresh ended, on the injected clock; nil before the first.
+    /// The time since the last poll refresh of this generation ended, on the injected clock; nil
+    /// before its first, so a start while hidden refreshes on the first show.
     private var sinceLastRefresh: (@MainActor () -> Duration)?
     private let clock: any Clock<Duration>
     private let now: @MainActor () -> Date
@@ -97,6 +98,7 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
         polling = false
         pollRefreshing = false
         pollGeneration += 1
+        sinceLastRefresh = nil
         runner?.cancel()
         runner = nil
         nextRefresh.cancel()
