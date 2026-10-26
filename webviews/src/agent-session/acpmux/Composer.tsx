@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, us
 import { createPortal } from "react-dom";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
 import "../../theme/messages.css";
-import type { ConnectKind, OffloadKind } from "./environments";
+import type { ConnectKind, EnvironmentKind, OffloadKind } from "./environments";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import { type AttachmentError, type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
@@ -256,6 +256,13 @@ type Props = {
   offloads?: readonly OffloadKind[];
   /// The environment picker opened: read the machines and their status again.
   onRefreshMachines?(): void;
+  onMachineAction?(
+    machine: string,
+    action: "resume" | "update" | "login" | "open",
+    kind: EnvironmentKind,
+    native?: boolean,
+  ): void;
+  onSetupDocs?(): void;
   /// This Mac's name for the location row.
   localName?: string;
   /// Preview features on: the location row's computer is the environment picker (ComposerContext).
@@ -328,6 +335,8 @@ export function Composer({
   onOffload,
   offloads,
   onRefreshMachines,
+  onMachineAction,
+  onSetupDocs,
   localName,
   environments,
   onNewChat,
@@ -1496,7 +1505,11 @@ export function Composer({
       peers={snapshot.peers}
       {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
       {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
+      {...(snapshot.peerStatus ? { peerStatus: snapshot.peerStatus } : {})}
+      {...(snapshot.machines ? { machines: snapshot.machines } : {})}
       {...(onRefreshMachines ? { onRefreshMachines } : {})}
+      {...(onMachineAction ? { onMachineAction } : {})}
+      {...(onSetupDocs ? { onSetupDocs } : {})}
       environments={environments}
       onProject={
         onProject &&

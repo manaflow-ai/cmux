@@ -6,7 +6,13 @@ import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import { EnvironmentIcon, EnvironmentPicker, type SavedEnvironmentRows } from "./EnvironmentPicker";
 import { machineColor } from "./machineColor";
-import { knownMachines, type ConnectKind, type EnvironmentKind, type OffloadKind } from "./environments";
+import {
+  knownMachines,
+  type ConnectKind,
+  type EnvironmentKind,
+  type Environment,
+  type OffloadKind,
+} from "./environments";
 import { FolderPopover } from "./FolderPopover";
 import type { Project } from "./ProjectChooser";
 import { ProjectBadge } from "./ProjectBadge";
@@ -37,10 +43,18 @@ export const CONTEXT_LABELS = {
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 type Session = AcpmuxSnapshot["sessions"][number];
 type Location = { id: string; label: string; detail?: string; repo?: ProjectRepo };
-type Computer = Location & { kind: EnvironmentKind; connected?: boolean };
+type Computer = Location & {
+  kind: EnvironmentKind;
+  native?: boolean;
+  connected?: boolean;
+  status?: import("./environments").EnvironmentStatus;
+  statusDetail?: string;
+};
 const NO_PEER_KINDS: Record<string, "ssh" | "cloud"> = {};
 const NO_PEER_CONNECTED: Record<string, boolean> = {};
 const NO_OFFLOADS: readonly OffloadKind[] = [];
+const NO_MACHINES: NonNullable<AcpmuxSnapshot["machines"]> = [];
+const NO_PEER_STATUS: NonNullable<AcpmuxSnapshot["peerStatus"]> = {};
 
 /// The location strip on the composer card's top edge (hq#1957 composer location strip): folder ·
 /// computer, and the branch at the end. New chats can choose a local or Cloud computer and one of
@@ -53,9 +67,12 @@ export function ComposerContext({
   peers = [],
   peerKinds = NO_PEER_KINDS,
   peerConnected = NO_PEER_CONNECTED,
+  peerStatus = NO_PEER_STATUS,
+  machines = NO_MACHINES,
   environments = false,
   started = false,
   onProject,
+  onComputer,
   projectChoices,
   onBrowseProject,
   onNewWorktree,
@@ -69,6 +86,8 @@ export function ComposerContext({
   offloads = NO_OFFLOADS,
   saved,
   onRefreshMachines,
+  onMachineAction,
+  onSetupDocs,
 }: {
   summary?: Summary;
   sessions?: Session[];
@@ -77,11 +96,15 @@ export function ComposerContext({
   peerKinds?: Record<string, "ssh" | "cloud">;
   /// Whether each peer is connected (`AcpmuxSnapshot.peerConnected`): the picker's status mark.
   peerConnected?: Record<string, boolean>;
+  /// Explicit daemon/cloud status for each peer.
+  peerStatus?: AcpmuxSnapshot["peerStatus"];
+  machines?: AcpmuxSnapshot["machines"];
   /// Preview features on (`labs.previewFeatures`): the computer control is the environment picker
   /// (EnvironmentPicker.tsx), with Local, SSH and Cloud sections and ⌥⌘1–9.
   environments?: boolean;
   started?: boolean;
   onProject?(cwd: string, peer?: string): void;
+  onComputer?(id: string): void;
   projectChoices?: Project[];
   onBrowseProject?(): void;
   /// New Worktree (cx-lyqio.2): a new chat on this Mac starts in a worktree of its folder.
@@ -111,20 +134,29 @@ export function ComposerContext({
   saved?: SavedEnvironmentRows;
   /// The environment picker opened: read the machines and their status again.
   onRefreshMachines?(): void;
+  onMachineAction?(
+    machine: string,
+    action: "resume" | "update" | "login" | "open",
+    kind: EnvironmentKind,
+    native?: boolean,
+  ): void;
+  onSetupDocs?(): void;
 }) {
   const computers = useMemo(
     // The peers' transports and status draw only in the environment picker: the plain menu stays
     // as it was.
-    () =>
-      availableComputers(
-        summary,
-        sessions,
-        peers,
-        environments ? peerKinds : NO_PEER_KINDS,
-        localName,
-        environments ? peerConnected : NO_PEER_CONNECTED,
+    () => [
+      ...availableComputers(summary, sessions, peers, peerKinds, localName, peerConnected, peerStatus).filter(
+        (machine) =>
+          machine.id === "local" ||
+          peers.includes(machine.id) ||
+          summary?.peer === machine.id ||
+          sessions.some((session) => session.peer === machine.id) ||
+          !machines.some((native) => native.id === machine.id),
       ),
-    [summary, sessions, peers, peerKinds, peerConnected, environments, localName],
+      ...machines,
+    ],
+    [summary, sessions, peers, peerKinds, peerConnected, peerStatus, machines, localName],
   );
   const initialComputer = computerId(summary);
   // A pick in the Computer menu holds until the chat or its computer changes; then the new chat's
@@ -136,8 +168,9 @@ export function ComposerContext({
   if (picked.key !== pickKey) setPicked({ key: pickKey });
   const selectedComputer = picked.key === pickKey && picked.computer ? picked.computer : initialComputer;
   const setSelectedComputer = (computer: string) => setPicked({ key: pickKey, computer });
+  const preferNative = picked.computer === undefined && !summary?.peer && summary?.hostKind === "cloud";
   const folders = useMemo(() => {
-    const known = availableFolders(summary, sessions, selectedComputer);
+    const known = availableFolders(summary, sessions, selectedComputer, preferNative);
     if (selectedComputer !== "local" || !projectChoices) return known;
     const projects = projectChoices.map((project) => ({
       id: normalizeCwd(project.cwd)!,
@@ -147,8 +180,13 @@ export function ComposerContext({
     }));
     const seen = new Set(projects.map((project) => project.id));
     return [...projects, ...known.filter((folder) => !seen.has(folder.id))];
-  }, [summary, sessions, selectedComputer, projectChoices]);
-  const summaryFolder = summary?.cwd && computerId(summary) === selectedComputer ? summary.cwd : undefined;
+  }, [summary, sessions, selectedComputer, preferNative, projectChoices]);
+  const summaryFolder =
+    summary?.cwd &&
+    computerId(summary) === selectedComputer &&
+    (!summary.peer && summary.hostKind === "cloud") === preferNative
+      ? summary.cwd
+      : undefined;
   // A chat in its private agent-home folder has no project yet: the row offers a folder instead.
   const currentFolder = summaryFolder
     ? isAgentHome(summaryFolder)
@@ -157,7 +195,10 @@ export function ComposerContext({
     : projectChoices
       ? undefined
       : folders[0]?.id;
-  const currentComputer = computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
+  const currentComputer =
+    computers.find((computer) => computer.id === selectedComputer && (computer.native === true) === preferNative) ??
+    computers.find((computer) => computer.id === selectedComputer) ??
+    computers[0];
   if (!currentComputer && !currentFolder && !projectChoices) return <div className="acpmux-composer-strip" />;
   const readOnly = started || onProject === undefined;
   const newChats = started && onNewChat !== undefined;
@@ -195,8 +236,9 @@ export function ComposerContext({
       }
     : undefined;
   const pickComputer = (id: string) => {
-    if (!readOnly && id !== selectedComputer) {
+    if (!readOnly && (id !== selectedComputer || currentComputer?.native)) {
       setSelectedComputer(id);
+      onComputer?.(id);
       const folder = availableFolders(summary, sessions, id)[0]?.id;
       if (folder) onProject?.(folder, id === "local" ? undefined : id);
     }
@@ -205,17 +247,28 @@ export function ComposerContext({
   const offload: OffloadKind | undefined = started && environments && onOffload ? offloads[0] : undefined;
   const computerDisabled = readOnly && !offload && (started || !onConnect);
   // Preview (`labs.previewFeatures`): the computer control is the environment picker.
-  const environmentsShown = environments && !computerDisabled;
-  const savedRows = environmentsShown && !readOnly ? saved : undefined;
+  const environmentsShown = !computerDisabled;
+  const savedRows = environments && environmentsShown && !readOnly ? saved : undefined;
   const savedPick = savedRows?.environments.find((environment) => environment.id === savedRows.current);
-  const pickEnvironment = (id: string) => {
+  const pickEnvironment = (id: string, row?: Environment) => {
+    const native = row?.native ? row : undefined;
+    if (native) {
+      onMachineAction?.(id, native.status === "paused" ? "resume" : "open", "cloud", true);
+      return;
+    }
     if (savedRows?.current !== undefined) savedRows.onClear();
     pickComputer(id);
   };
   // Preview: New Worktree is a control of its own beside the folder, as Codex's Worktree and
   // Claude's chips are (hq#2569 #9), for a new chat on this computer in a folder.
   const worktree =
-    environmentsShown && !readOnly && !savedPick && selectedComputer === "local" && currentFolder && onNewWorktree
+    environments &&
+    environmentsShown &&
+    !readOnly &&
+    !savedPick &&
+    selectedComputer === "local" &&
+    currentFolder &&
+    onNewWorktree
       ? () => onNewWorktree(currentFolder)
       : undefined;
   const folderShown = !savedPick && !(readOnly && !newChats && !currentFolder);
@@ -316,11 +369,14 @@ export function ComposerContext({
               }
               environments={offload && currentComputer ? [currentComputer] : computers}
               current={selectedComputer}
+              currentNative={currentComputer?.native === true}
               onPick={pickEnvironment}
               {...(offload && onOffload ? { offload, onOffload } : {})}
               {...(!started && onConnect ? { onConnect } : {})}
               {...(savedRows ? { saved: savedRows } : {})}
               {...(onRefreshMachines ? { onOpen: onRefreshMachines } : {})}
+              {...(onMachineAction ? { onMachineAction } : {})}
+              {...(onSetupDocs ? { onSetup: onSetupDocs } : {})}
             />
           ) : (
             <LocationPicker
@@ -404,18 +460,31 @@ function availableComputers(
   peerKinds: Record<string, "ssh" | "cloud">,
   localName: string | undefined,
   peerConnected: Record<string, boolean>,
+  peerStatus: NonNullable<AcpmuxSnapshot["peerStatus"]>,
 ): Computer[] {
   const localLabel =
     localName || (summary?.hostKind === "local" && summary.host ? summary.host : t(CONTEXT_LABELS.local));
   const computers: Computer[] = [{ id: "local", label: localLabel, kind: "local" }];
-  for (const machine of knownMachines(peers, sessions, peerKinds, summary ? [summary] : [], peerConnected)) {
+  for (const machine of knownMachines(
+    peers,
+    sessions,
+    peerKinds,
+    summary ? [summary] : [],
+    peerConnected,
+    peerStatus,
+  )) {
     const detail = t(machine.kind === "ssh" ? "composer.envSSH" : CONTEXT_LABELS.cloud);
     computers.push({ ...machine, detail });
   }
   return computers;
 }
 
-function availableFolders(summary: Summary | undefined, sessions: Session[], computer: string): Location[] {
+function availableFolders(
+  summary: Summary | undefined,
+  sessions: Session[],
+  computer: string,
+  native = false,
+): Location[] {
   const seen = new Set<string>();
   const folders: Location[] = [];
   const add = (cwd?: string) => {
@@ -425,10 +494,11 @@ function availableFolders(summary: Summary | undefined, sessions: Session[], com
     seen.add(id);
     folders.push({ id, label: projectLabel(id), detail: id });
   };
-  if (summary && computerId(summary) === computer) add(summary.cwd);
+  if (summary && computerId(summary) === computer && (!summary.peer && summary.hostKind === "cloud") === native)
+    add(summary.cwd);
   for (const session of sessions) {
     const sessionComputer = session.peer ?? (session.hostKind === "cloud" ? session.host : "local");
-    if (sessionComputer === computer) add(session.cwd);
+    if (sessionComputer === computer && (!session.peer && session.hostKind === "cloud") === native) add(session.cwd);
   }
   return folders;
 }

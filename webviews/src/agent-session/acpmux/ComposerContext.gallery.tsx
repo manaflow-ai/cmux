@@ -354,6 +354,63 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: baseProps,
       play: openComputer,
     },
+    "environment-status-matrix": {
+      note: "Machine picker status matrix: connected, connecting, paused with Resume, offline, unreachable, needs update and needs login are rendered only from daemon status; the footer keeps cloud creation, SSH connection and ticket pairing actions together.",
+      props: {
+        ...baseProps,
+        environments: true,
+        peers: ["gpu-box", "build-mini", "Cloud machine", "offline-box", "ticket-box"],
+        peerKinds: {
+          "gpu-box": "ssh",
+          "build-mini": "ssh",
+          "Cloud machine": "cloud",
+          "offline-box": "ssh",
+          "ticket-box": "cloud",
+        },
+        peerConnected: {
+          "gpu-box": true,
+          "build-mini": false,
+          "Cloud machine": true,
+          "offline-box": false,
+          "ticket-box": false,
+        },
+        peerStatus: {
+          "gpu-box": { state: "connected", connected: true },
+          "build-mini": { state: "connecting", connected: false },
+          "Cloud machine": { state: "paused", connected: false },
+          "offline-box": { state: "offline", connected: false },
+          "ticket-box": { state: "unreachable", connected: false, error: "peer unreachable" },
+        },
+        onMachineAction: () => undefined,
+      },
+      play: openComputer,
+    },
+    "environment-needs-update": {
+      note: "An outdated peer's explicit daemon marker reads Needs update and offers Update without guessing from its name or version.",
+      props: {
+        ...baseProps,
+        environments: true,
+        peers: ["old-box"],
+        peerKinds: { "old-box": "ssh" },
+        peerConnected: { "old-box": true },
+        peerStatus: { "old-box": { state: "connected", connected: true, outdated: true } },
+        onMachineAction: () => undefined,
+      },
+      play: openComputer,
+    },
+    "environment-needs-login": {
+      note: "A machine that explicitly needs login stays visible with a Log in action; the picker never treats a missing status as login required.",
+      props: {
+        ...baseProps,
+        environments: true,
+        peers: ["signed-out"],
+        peerKinds: { "signed-out": "ssh" },
+        peerConnected: { "signed-out": false },
+        peerStatus: { "signed-out": { state: "offline", connected: false, needsLogin: true } },
+        onMachineAction: () => undefined,
+      },
+      play: openComputer,
+    },
     "environment-picker": {
       note: "Preview: the computer is the environment picker, one searchable list in Local, SSH and Cloud sections with ⌥⌘1–9; New Cloud Machine ends the Cloud section and New environment (SSH…) comes last. gpu-box is connected (a filled dot), Cloud machine is not (a ring); this Mac has no status.",
       props: {

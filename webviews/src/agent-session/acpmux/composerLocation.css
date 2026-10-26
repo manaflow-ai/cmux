@@ -1307,24 +1307,31 @@
 /* A remote machine's status, as acpmux last said: a filled dot when connected, a ring when not. */
 .acpmux-env-row .acpmux-env-status {
   flex: none;
-  width: 6px;
-  height: 6px;
-  margin-left: 6px;
-  position: relative;
-  border-radius: 50%;
-  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: 18px;
 }
-/* The status in words, for screen readers only (the pane does not load ui.css's .ui-sr-only). */
-.acpmux-env-status-text {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
+.acpmux-env-status-text { white-space: nowrap; }
+.acpmux-env-row .acpmux-env-status[data-status="connected"] { color: var(--agent-success, var(--acpmux-add, currentColor)); }
+.acpmux-env-row .acpmux-env-status[data-status="paused"],
+.acpmux-env-row .acpmux-env-status[data-status="needsUpdate"],
+.acpmux-env-row .acpmux-env-status[data-status="needsLogin"] { color: var(--agent-warning, var(--agent-ansi-3, currentColor)); }
+.acpmux-env-status-action {
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: var(--agent-text, currentColor);
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  font: inherit;
+  font-size: var(--text-caption);
+  cursor: pointer;
 }
-.acpmux-env-row .acpmux-env-status[data-connected="true"] { background: var(--agent-success, var(--acpmux-add, currentColor)); }
-.acpmux-env-row .acpmux-env-status[data-connected="false"] { border: 1px solid var(--agent-muted); }
+.acpmux-env-status-action:hover { background: color-mix(in srgb, currentColor 20%, transparent); }
 /* New Cloud Machine, Move to Cloud and Bring Back Local: the name, then one quiet line of what it does. */
 .acpmux-env-new:is([data-kind="cloud"], [data-kind="local"]) .acpmux-menu-text {
   display: flex;

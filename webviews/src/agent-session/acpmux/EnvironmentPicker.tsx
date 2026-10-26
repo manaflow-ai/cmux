@@ -49,12 +49,15 @@ export function EnvironmentPicker({
   face,
   environments,
   current,
+  currentNative = false,
   onPick,
   onConnect,
   saved,
   onOpen,
   offload,
   onOffload,
+  onMachineAction,
+  onSetup,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -65,8 +68,18 @@ export function EnvironmentPicker({
   face: React.ReactNode;
   environments: Environment[];
   current: string;
-  onPick(id: string): void;
+  currentNative?: boolean;
+  onPick(id: string, environment?: Environment): void;
   onConnect?(kind: ConnectKind): void;
+  /// A status action is only offered when the daemon explicitly reports that state.
+  onMachineAction?(
+    machine: string,
+    action: "resume" | "update" | "login" | "open",
+    kind: EnvironmentKind,
+    native?: boolean,
+  ): void;
+  /// Documentation fallback for setup when no native chat flow exists.
+  onSetup?(): void;
   saved?: SavedEnvironmentRows;
   /// The list opened: the host reads the machines again, so each one's status is current.
   onOpen?(): void;
@@ -75,7 +88,8 @@ export function EnvironmentPicker({
   onOffload?(kind: OffloadKind): void;
 }) {
   // A picked saved environment is the current row: every machine row is then a change.
-  const currentRow = saved?.current !== undefined ? SAVED + saved.current : current;
+  const currentRow =
+    saved?.current !== undefined ? SAVED + saved.current : machineRowKey({ id: current, native: currentNative });
   const [query, setQuery] = useState("");
   const trigger = useRef<HTMLButtonElement>(null);
   const escaped = useRef(false);
@@ -90,7 +104,7 @@ export function EnvironmentPicker({
   useLocationOpener(menu, () => setOpen(true));
   const ordered = useMemo(() => orderEnvironments(environments), [environments]);
   const numbers = useMemo(
-    () => new Map(ordered.slice(0, 9).map((environment, index) => [environment.id, index + 1])),
+    () => new Map(ordered.slice(0, 9).map((environment, index) => [machineRowKey(environment), index + 1])),
     [ordered],
   );
   const words = useMemo(() => query.trim().toLowerCase().split(/\s+/).filter(Boolean), [query]);
@@ -112,7 +126,7 @@ export function EnvironmentPicker({
     () =>
       new Map(
         shown.map((environment, index) => [
-          environment.id,
+          machineRowKey(environment),
           { environment, index, sectionStart: index === 0 || shown[index - 1]!.kind !== environment.kind },
         ]),
       ),
@@ -165,6 +179,12 @@ export function EnvironmentPicker({
             kind: "cloud" as const,
             run: () => onConnect("cloudPage"),
           },
+          {
+            value: ACTION + "pair",
+            text: t("composer.pairWithTicket"),
+            kind: "cloud" as const,
+            run: () => onConnect("pair"),
+          },
         ]
       : []),
     ...(saved
@@ -192,10 +212,13 @@ export function EnvironmentPicker({
     ...(onConnect
       ? [{ value: ACTION + "ssh", text: t("composer.connectSSH"), kind: "ssh" as const, run: () => onConnect("ssh") }]
       : []),
+    ...(onSetup
+      ? [{ value: ACTION + "setup", text: t("composer.askAgentSetup"), kind: "ssh" as const, run: onSetup }]
+      : []),
   ];
   const suggestions = [
     ...savedShown.map((environment) => SAVED + environment.id),
-    ...shown.map((environment) => environment.id),
+    ...shown.map(machineRowKey),
     ...actions.map((action) => action.value),
   ];
   const cloudShown = shown.some((environment) => environment.kind === "cloud");
@@ -235,11 +258,11 @@ export function EnvironmentPicker({
       if (!openRef.current && !(scope && active && scope.contains(active))) return;
       const environment = environmentForDigit(latest.current.ordered, digit);
       // A digit that changes nothing in a closed picker stays the app's (a keymap may bind ⌥⌘1–9).
-      if (!environment || (!openRef.current && environment.id === latest.current.current)) return;
+      if (!environment || (!openRef.current && machineRowKey(environment) === latest.current.current)) return;
       event.preventDefault();
       event.stopPropagation();
       if (openRef.current) closeRef.current();
-      if (environment.id !== latest.current.current) latest.current.onPick(environment.id);
+      if (machineRowKey(environment) !== latest.current.current) latest.current.onPick(environment.id, environment);
       else focusPromptRef.current();
     };
     // ui-allow: ⌥⌘1–9 pick an environment while the list is open or the composer has focus, like an app menu key.
@@ -255,7 +278,10 @@ export function EnvironmentPicker({
     if (action) action.run();
     else if (value === currentRow) focusPrompt();
     else if (value.startsWith(SAVED)) saved?.onPick(value.slice(SAVED.length));
-    else if (positions.has(value)) onPick(value);
+    else {
+      const environment = positions.get(value)?.environment;
+      if (environment) onPick(environment.id, environment);
+    }
   };
   const row = (value: string) => {
     const action = actions.find((candidate) => candidate.value === value);
@@ -315,22 +341,59 @@ export function EnvironmentPicker({
     const position = positions.get(value);
     if (!position) return null;
     const { environment, index, sectionStart } = position;
-    const number = numbers.get(environment.id);
+    const number = numbers.get(value);
     return (
       <span
         className="acpmux-location-row acpmux-env-row"
         data-kind={environment.kind}
         data-section={sectionStart ? t(SECTION_LABELS[environment.kind]) : undefined}
         data-first-section={sectionStart && index === 0 && savedShown.length === 0 ? "" : undefined}
-        data-current={environment.id === currentRow ? "" : undefined}
+        data-current={value === currentRow ? "" : undefined}
       >
         <EnvironmentIcon kind={environment.kind} name={environment.label} />
         <span className="acpmux-menu-text acpmux-location-name">
           <span className="acpmux-menu-label">{environment.label}</span>
         </span>
-        {/* Only an SSH or Cloud machine acpmux lists has a status; this Mac never shows one. */}
-        {environment.kind !== "local" && environment.connected !== undefined && (
-          <span className="acpmux-env-status" data-connected={String(environment.connected)}>
+        {/* Only a remote machine with an explicit daemon status shows a state; this Mac stays quiet. */}
+        {environment.kind !== "local" && environment.status && (
+          <span
+            className="acpmux-env-status"
+            data-connected={environment.connected === undefined ? undefined : String(environment.connected)}
+            data-status={environment.status}
+            title={environment.statusDetail}
+          >
+            <span className="acpmux-env-status-text">{statusLabel(environment.status)}</span>
+            {(environment.status === "paused" ||
+              environment.status === "needsUpdate" ||
+              environment.status === "needsLogin") &&
+              onMachineAction && (
+                <button
+                  type="button"
+                  className="acpmux-env-status-action"
+                  onPointerDown={(event) => event.preventDefault()}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onMachineAction(
+                      environment.id,
+                      statusAction(environment.status!),
+                      environment.kind,
+                      environment.native === true,
+                    );
+                    close();
+                  }}
+                >
+                  {statusActionLabel(environment.status)}
+                </button>
+              )}
+          </span>
+        )}
+        {!environment.status && environment.kind !== "local" && environment.connected !== undefined && (
+          <span
+            className="acpmux-env-status"
+            data-connected={String(environment.connected)}
+            data-status={environment.connected ? "connected" : "offline"}
+          >
             <span className="acpmux-env-status-text">
               {t(environment.connected ? "composer.envConnected" : "composer.envNotConnected")}
             </span>
@@ -338,7 +401,7 @@ export function EnvironmentPicker({
         )}
         {number !== undefined && <kbd className="acpmux-env-key">⌥⌘{number}</kbd>}
         <span className="acpmux-location-check" aria-hidden="true">
-          {environment.id === currentRow && <CheckIcon />}
+          {value === currentRow && <CheckIcon />}
         </span>
       </span>
     );
@@ -417,6 +480,37 @@ const SAVED = "\u0000saved:";
 function matches(words: readonly string[], text: string): boolean {
   const lower = text.toLowerCase();
   return words.every((word) => lower.includes(word));
+}
+
+function statusLabel(status: NonNullable<Environment["status"]>): string {
+  switch (status) {
+    case "connected":
+      return t("composer.envConnected");
+    case "connecting":
+      return t("rail.connectorPending");
+    case "paused":
+      return t("goal.paused");
+    case "offline":
+      return t("composer.envOffline");
+    case "unreachable":
+      return t("composer.envUnreachable");
+    case "needsUpdate":
+      return t("composer.envNeedsUpdate");
+    case "needsLogin":
+      return t("composer.envNeedsLogin");
+  }
+}
+
+function statusAction(status: NonNullable<Environment["status"]>): "resume" | "update" | "login" {
+  return status === "paused" ? "resume" : status === "needsLogin" ? "login" : "update";
+}
+
+function statusActionLabel(status: NonNullable<Environment["status"]>): string {
+  return status === "paused"
+    ? t("composer.envResume")
+    : status === "needsLogin"
+      ? t("composer.envLogin")
+      : t("harnesses.update");
 }
 
 function PlusIcon() {
@@ -513,4 +607,9 @@ function CheckIcon() {
       <path d="m3.5 8.5 3 3 6-7" />
     </svg>
   );
+}
+
+/** Peer names and native registry ids are independent namespaces, including in keyboard picks. */
+function machineRowKey(environment: Pick<Environment, "id" | "native">): string {
+  return JSON.stringify([environment.native ? "native" : "peer", environment.id]);
 }

@@ -1,3 +1,4 @@
+import { cloudEnvironments } from "./machineInventory";
 import React, {
   lazy,
   memo,
@@ -5680,6 +5681,53 @@ function AcpmuxPane() {
   // SSH… opens Connect to Machine; New Cloud Machine opens the host's create flow (Lawrence 2026-10-06).
   const connectMachine = (kind: ConnectKind) =>
     void callNative("action.run", { id: CONNECT_ACTIONS[kind] }).catch(() => undefined);
+  const [cloudMachines, setCloudMachines] = useState<import("./environments").Environment[]>([]);
+  const refreshCloudMachines = () => {
+    void callNative("machine.list", {}).then(
+      (reply) => setCloudMachines(cloudEnvironments(reply)),
+      () => undefined,
+    );
+  };
+  useEffect(() => {
+    if (!handshaken) return;
+    let active = true;
+    void callNative("machine.list", {}).then(
+      (reply) => {
+        if (active) setCloudMachines(cloudEnvironments(reply));
+      },
+      () => undefined,
+    );
+    return () => {
+      active = false;
+    };
+  }, [handshaken]);
+  const setupDocs = () =>
+    void callNative("tab.open", {
+      kind: "browser",
+      text: "https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/docs/remote-agents-and-cloud.md",
+    }).catch(() => undefined);
+  const machineAction = (
+    machine: string,
+    action: "resume" | "update" | "login" | "open",
+    _kind: import("./environments").EnvironmentKind,
+    native = false,
+  ) => {
+    if (
+      (action === "resume" || action === "open") &&
+      (!native || !cloudMachines.some((row) => row.id === machine && row.native))
+    ) {
+      setupDocs();
+      return;
+    }
+    if (action === "update" || action === "login") {
+      setupDocs();
+      return;
+    }
+    void callNative(action === "resume" ? "machine.resume" : "machine.open", { machine }).then(
+      refreshCloudMachines,
+      (error: unknown) => directClient.current?.notice(errorMessage(error)),
+    );
+  };
   // Move to Cloud and Bring Back Local report their own progress and failures as the app's toasts;
   // the notice says only that the app did not start the move (turned off, or not for this chat).
   const offloadChat = (kind: OffloadKind) =>
@@ -8815,7 +8863,7 @@ function AcpmuxPane() {
         {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
         <ImageViewerContext.Provider value={openImage}>
           <Composer
-            snapshot={composerSnapshot}
+            snapshot={{ ...composerSnapshot, machines: cloudMachines }}
             headerCwd={snapshot.summary?.cwd ?? ""}
             sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
             placeholder={isSideSession ? t("sideSession.placeholder") : undefined}
@@ -9020,11 +9068,14 @@ function AcpmuxPane() {
             onProject={chooseProject}
             onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
             onConnect={connectMachine}
+            onMachineAction={machineAction}
+            onSetupDocs={setupDocs}
             // The floating chat has no tab to move.
             {...(quick ? {} : { onOffload: offloadChat, offloads })}
             // The list opened: the machines' status and the chat's moves are read again.
             onRefreshMachines={() => {
               void directClient.current?.refreshPeers();
+              refreshCloudMachines();
               refreshTabState();
             }}
             // A started local chat lists the same folders to move to (dogfood 09); Start Agent's

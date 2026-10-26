@@ -1,10 +1,29 @@
+import type { PeerStatus } from "./chatUnavailable";
 /// Where a chat runs, as the environment picker (EnvironmentPicker.tsx) lists it: this computer, an
 /// SSH machine (an `ssh://` acpmux peer) or a Cloud machine (any other peer, or a Cloud chat's host).
 /// The machines are the composer's computers (ComposerContext availableComputers): acpmux's peers
 /// and the hosts its chats ran on. Nothing here keeps a list of its own.
 export type EnvironmentKind = "local" | "ssh" | "cloud";
 /// `connected`: what acpmux last said of an SSH or Cloud machine it lists; absent when it said nothing.
-export type Environment = { id: string; label: string; kind: EnvironmentKind; connected?: boolean };
+export type EnvironmentStatus =
+  | "connected"
+  | "connecting"
+  | "paused"
+  | "offline"
+  | "unreachable"
+  | "needsUpdate"
+  | "needsLogin";
+export type Environment = {
+  id: string;
+  label: string;
+  kind: EnvironmentKind;
+  connected?: boolean;
+  /// A status shown only when the daemon explicitly supplied it.
+  status?: EnvironmentStatus;
+  statusDetail?: string;
+  /// This row is an app Cloud machine id, opened through its typed native flow.
+  native?: boolean;
+};
 
 /// The location row's connect choices and the app action each runs (the agent pane allows exactly
 /// these; AgentPaneModel.connectActions): SSH… connects a machine, New Cloud Machine creates one on
@@ -15,10 +34,11 @@ export const CONNECT_ACTIONS = {
   ssh: "remote.connect",
   cloud: "newCloudMachine",
   cloudPage: "palette.openCloudPane",
+  pair: "device.add",
   move: "cloudMove",
   bringBack: "cloudBringBack",
 } as const;
-export type ConnectKind = keyof typeof CONNECT_ACTIONS;
+export type ConnectKind = keyof typeof CONNECT_ACTIONS | "pair";
 /// A started chat's move: to a Cloud machine, or back to this Mac.
 export type OffloadKind = Extract<ConnectKind, "move" | "bringBack">;
 
@@ -54,6 +74,29 @@ export function peerConnectedFromStatus(status: unknown): Record<string, boolean
     if (typeof name === "string" && name && typeof flag === "boolean") connected[name] = flag;
   }
   return connected;
+}
+
+/// Turns the daemon's explicit peer status into the small set of labels the picker can render.
+/// Unknown fields remain unknown; no status is inferred from a host name or transport.
+export function environmentStatus(status: PeerStatus | undefined): EnvironmentStatus | undefined {
+  if (!status) return undefined;
+  if (status.needsLogin) return "needsLogin";
+  if (status.outdated) return "needsUpdate";
+  switch (status.state) {
+    case "paused":
+      return "paused";
+    case "connecting":
+    case "degraded":
+    case "reconnecting":
+      return "connecting";
+    case "unreachable":
+      return "unreachable";
+    case "offline":
+      return "offline";
+    case "connected":
+      return "connected";
+  }
+  return status.connected === true ? "connected" : status.connected === false ? "offline" : undefined;
 }
 
 /// The environments in the order the picker lists them and ⌥⌘1–9 number them: Local, then SSH,
@@ -177,6 +220,7 @@ export function knownMachines(
   peerKinds: Record<string, "ssh" | "cloud">,
   extra: readonly Host[] = [],
   peerConnected: Record<string, boolean> = {},
+  peerStatuses: Record<string, PeerStatus> = {},
 ): Environment[] {
   const machines: Environment[] = [];
   const seen = new Set<string>();
@@ -184,11 +228,13 @@ export function knownMachines(
     if (id === "local" || seen.has(id)) return;
     seen.add(id);
     const connected = cloudHost ? undefined : peerConnected[id];
+    const status = cloudHost ? undefined : environmentStatus(peerStatuses[id]);
     machines.push({
       id,
       label,
       kind: !cloudHost && peerKinds[id] === "ssh" ? "ssh" : "cloud",
       ...(connected !== undefined ? { connected } : {}),
+      ...(status ? { status, ...(peerStatuses[id]?.error ? { statusDetail: peerStatuses[id]!.error } : {}) } : {}),
     });
   };
   for (const peer of peers) add(peer, peer, false);

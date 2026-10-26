@@ -21,6 +21,12 @@ export type PeerStatus = {
   lastSeen?: number;
   /// Failed attempts since the link was last ready.
   attempts?: number;
+  /// A remote binary differs from this daemon's build. The daemon reports this explicitly.
+  outdated?: boolean;
+  /// A peer that needs the person's credentials says so explicitly.
+  needsLogin?: boolean;
+  /// The daemon's last error, retained for the status detail only.
+  error?: string;
 };
 
 /// What the pane shows in place of a chat the daemon does not list.
@@ -43,13 +49,19 @@ export function peerStatusFromStatus(status: unknown): Record<string, PeerStatus
   if (!Array.isArray(peers)) return {};
   const out: Record<string, PeerStatus> = {};
   for (const peer of peers) {
-    const { name, connected, state, lastSeen, attempts } = (peer ?? {}) as Record<string, unknown>;
+    const { name, connected, state, lastSeen, attempts, outdated, needsLogin, error } = (peer ?? {}) as Record<
+      string,
+      unknown
+    >;
     if (typeof name !== "string" || !name) continue;
     out[name] = {
       ...(typeof connected === "boolean" ? { connected } : {}),
       ...(typeof state === "string" && state ? { state } : {}),
       ...(typeof lastSeen === "number" && Number.isFinite(lastSeen) && lastSeen > 0 ? { lastSeen } : {}),
       ...(typeof attempts === "number" && Number.isFinite(attempts) ? { attempts } : {}),
+      ...(typeof outdated === "boolean" ? { outdated } : {}),
+      ...(typeof needsLogin === "boolean" ? { needsLogin } : {}),
+      ...(typeof error === "string" && error ? { error } : {}),
     };
   }
   return out;

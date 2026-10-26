@@ -544,6 +544,9 @@ export type AcpmuxSnapshot = {
   peerKinds?: Record<string, "ssh" | "cloud">;
   /// Whether each peer is connected, as `_acpmux/status` last said (environments.ts).
   peerConnected?: Record<string, boolean>;
+  /// The full daemon status for each peer, including explicit health and update markers.
+  peerStatus?: Record<string, import("./chatUnavailable").PeerStatus>;
+  machines?: import("./environments").Environment[];
   /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
   forkedAtSeq?: number;
   summary?: {
