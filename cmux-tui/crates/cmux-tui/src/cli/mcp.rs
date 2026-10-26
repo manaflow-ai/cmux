@@ -22,6 +22,7 @@ mod agent_wait_tool;
 mod browser_tools;
 mod caller_scope;
 mod code_mode;
+mod computer_use_gate;
 mod config;
 mod keybinding_tools;
 mod messages;
@@ -168,6 +169,12 @@ pub(super) trait Backend {
             "this server cannot reach acpmux agent dispatch",
         ))
     }
+    /// App calls that may run on another thread: a computer use call's
+    /// setup card waits with the call, not on this server's thread
+    /// (`computer_use_gate`). `None`: the call runs without the card.
+    fn app_caller(&self) -> Option<computer_use_gate::AppCaller> {
+        None
+    }
     /// The app's `system.identify` (`caller`, `beside`); `None` with no caller (placement.rs).
     fn identity(&self) -> Result<Option<Value>, CallFailure> {
         Ok(None)
@@ -244,6 +251,13 @@ impl Backend for LiveBackend {
 
     fn identity(&self) -> Result<Option<Value>, CallFailure> {
         placement::app_identity(&self.global)
+    }
+
+    fn app_caller(&self) -> Option<computer_use_gate::AppCaller> {
+        let global = self.global.clone();
+        Some(std::sync::Arc::new(move |method: &str, params: Value, timeout: Duration| {
+            transport::app_method(&global, method, params, timeout, None, false)
+        }))
     }
 
     fn focus(&self) -> Result<Option<Value>, CallFailure> {

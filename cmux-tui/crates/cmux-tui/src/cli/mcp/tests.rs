@@ -41,6 +41,13 @@ struct Fake {
     beside: Value,
     /// What `Backend::focus` answers.
     focus: Option<Value>,
+    /// The app's `computer_use.status`; `{"ran": true}` when unset.
+    computer_use: Option<Value>,
+    /// The card's answer to `permissions.request` through
+    /// `Backend::app_caller`; no app caller when unset.
+    setup_outcome: Option<Value>,
+    /// The `permissions.request` params the app caller got.
+    setup_requests: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
     sent: RefCell<Vec<Value>>,
 }
 
@@ -138,6 +145,16 @@ impl Fake {
 }
 
 impl Backend for Fake {
+    fn app_caller(&self) -> Option<computer_use_gate::AppCaller> {
+        let outcome = self.setup_outcome.clone()?;
+        let requests = self.setup_requests.clone();
+        Some(std::sync::Arc::new(move |method: &str, params: Value, _timeout: Duration| {
+            assert_eq!(method, "permissions.request");
+            requests.lock().unwrap().push(params);
+            Ok(outcome.clone())
+        }))
+    }
+
     fn resource(
         &self,
         session: Option<&str>,
@@ -232,6 +249,9 @@ impl Backend for Fake {
         }
         match method {
             "action.list" => Ok(self.actions.clone()),
+            "computer_use.status" if self.computer_use.is_some() => {
+                Ok(self.computer_use.clone().unwrap_or_default())
+            }
             "snapshot.get" => {
                 let mut live = self.live.borrow_mut();
                 live.settle();

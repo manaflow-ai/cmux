@@ -17,6 +17,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 
+use super::computer_use_gate::{self, Gate};
+
 /// The env acpmux gives the `cmux` server: a JSON array of
 /// `{name, command, args, env}`.
 pub(super) const ENV: &str = "CMUX_MCP_UPSTREAMS";
@@ -374,11 +376,23 @@ pub(super) struct ProxiedCall {
     pub inner: std::sync::Arc<std::sync::Mutex<Upstream>>,
     pub name: String,
     pub arguments: Value,
+    /// A computer use call's setup check (`computer_use_gate`).
+    pub gate: Gate,
 }
 
 impl ProxiedCall {
-    /// The server's result, or a tool error with the call's state.
+    /// The server's result, or a tool error with the call's state. A
+    /// computer use call first waits for setup when it is not done.
     pub(super) fn run(self, cap: Option<Duration>) -> Value {
+        match self.gate {
+            Gate::Run => {}
+            Gate::Refuse(result) => return result,
+            Gate::Wait(setup) => {
+                if let Some(result) = setup.run() {
+                    return result;
+                }
+            }
+        }
         let mut upstream = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let Some(tool) = upstream.owns(&self.name) else {
             let error = json!({"code": "upstream.failed", "message": format!(
@@ -461,10 +475,35 @@ impl<B: super::Backend> super::Server<B> {
             // Not started yet (no list so far), or gone: list it now.
             proxied.refresh();
         }
-        proxied.lists(name).then(|| ProxiedCall {
-            inner: proxied.inner.clone(),
+        if !proxied.lists(name) {
+            return None;
+        }
+        let inner = proxied.inner.clone();
+        let computer_use = (proxied.name == computer_use_gate::SERVER)
+            .then(|| name[proxied.prefix.len() + 1..].to_owned());
+        let gate = match computer_use {
+            Some(tool) => self.computer_use_gate(&tool),
+            None => Gate::Run,
+        };
+        Some(ProxiedCall {
+            inner,
             name: name.to_owned(),
             arguments: Value::Object(arguments.clone()),
+            gate,
         })
+    }
+
+    /// Whether computer use `tool` may run now: one read of the app's
+    /// Computer Use Setup; the card's wait itself runs with the call.
+    fn computer_use_gate(&self, tool: &str) -> Gate {
+        let status = self.backend.app(
+            computer_use_gate::STATUS_METHOD,
+            json!({}),
+            super::super::app::READ_TIMEOUT,
+            None,
+            false,
+        );
+        let caller = super::super::app::caller_from(|key| std::env::var(key).ok());
+        computer_use_gate::decide(tool, status, self.backend.app_caller(), caller, self.call_cap)
     }
 }
