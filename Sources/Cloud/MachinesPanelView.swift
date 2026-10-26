@@ -132,10 +132,12 @@ struct MachinesPanelView: View {
         // Pins are scoped per account and team; a switch re-reads the scope and
         // the fleet so the tree never shows another scope's pins.
         .onChange(of: accountFlow?.confirmedTeamID) { _, _ in
+            coderouterStore.cancelAddTask()
             coderouterStore.state.select(currentCoderouterScope)
             viewModel.refreshAccountScope()
         }
         .onChange(of: accountFlow?.currentIdentity?.id) { _, _ in
+            coderouterStore.cancelAddTask()
             coderouterStore.state.select(currentCoderouterScope)
             viewModel.refreshAccountScope()
         }
@@ -143,6 +145,7 @@ struct MachinesPanelView: View {
             viewModel.refreshLocalWorkspaces(selectedWorkspaceID: selectedWorkspaceID)
         }
         .onDisappear {
+            coderouterStore.cancelAddTask()
             viewModel.stopPolling()
             viewModel.cancelCloudAgentTask()
         }
@@ -677,14 +680,16 @@ struct MachinesPanelView: View {
             return
         }
         let teamName = accountFlow?.availableTeams.first(where: { $0.id == scope.teamID })?.displayName
+        let addGeneration = coderouterStore.beginAddTask()
 
         Task { @MainActor in
+            guard coderouterStore.isCurrentAddTask(addGeneration) else { return }
             let sessionDirectory: URL
             do {
                 let credentials = try await session.credentials.credentials(expectedAccountID: scope.identityID)
                 // A refresh can replace or withdraw the destination while the
                 // session resolves; never launch setup for a stale one.
-                guard currentCoderouterScope == scope else { return }
+                guard coderouterStore.isCurrentAddTask(addGeneration), currentCoderouterScope == scope else { return }
                 switch coderouterStore.state.addAvailability(for: scope) {
                 case .ready(let current) where current.organizationID == destination.organizationID:
                     break
@@ -740,6 +745,7 @@ struct MachinesPanelView: View {
                 provider: provider,
                 initialTerminalCommand: command
             )
+            guard coderouterStore.isCurrentAddTask(addGeneration), currentCoderouterScope == scope else { return }
             guard let route = coordinator.resolveDestination() else {
                 viewModel.noteTreeHint(String(
                     localized: "coderouter.setup.localWorkspaceUnavailable",
@@ -762,6 +768,7 @@ struct MachinesPanelView: View {
             }
 
             do {
+                guard coderouterStore.isCurrentAddTask(addGeneration), currentCoderouterScope == scope else { return }
                 _ = try await TerminalController.surfaceNewTerminal(
                     machine: .local,
                     command: ["sh", "-lc", command],
