@@ -113,7 +113,8 @@ final class TopPageHost {
             guard let provider = TopPages.provider(id, services: services) else { return nil }
             let key = LocalPageTab.makeKey(id)
             let content = provider.makeView(for: key, in: window)
-            let page = InternalPageView(key: key, page: id, content: content, topBar: provider.makeTopBar(for: key))
+            let page = InternalPageView(key: key, page: id, content: content, topBar: provider.makeTopBar(for: key),
+                                        standInTitle: services.features.isEnabled(.pageStandIn) ? provider.title(for: key) : nil)
             page.navigate = services.pages.navigate
             return (page, key)
         }
