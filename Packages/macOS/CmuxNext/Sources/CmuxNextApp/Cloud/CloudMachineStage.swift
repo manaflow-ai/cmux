@@ -89,9 +89,10 @@ nonisolated struct CloudMachineStageInput: Hashable, Sendable {
         }
         if daemonConnected, daemonLoaded { return .ready }
         if machineStatus == .paused {
-            // A paused machine is not a failure: it reads as paused until an
-            // attach resumes it. An app link ends when its machine pauses, so
-            // an ended link on a paused machine is the pause, not a failure.
+            // A paused machine is not a failure: it reads "Paused (idle)" or
+            // "Paused" until an attach resumes it. An app link ends when its
+            // machine pauses, so an ended link on a paused machine is the
+            // pause, not a failure.
             if resuming { return .booting }
             if let resumeFailure { return .failed(resumeFailure) }
             if link == .idle || linkEnded != nil { return .paused(idle: pauseReason == .idle) }

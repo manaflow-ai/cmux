@@ -55,6 +55,8 @@ type Row = {
   /** The theme's --agent-text and --acpmux-base, resolved in the bar. */
   text: string;
   base: string;
+  /** The pane's secondary text color (--agent-muted), resolved in the bar: the ink of the mic, Send and Stop. */
+  muted: string;
 };
 
 await requireBrowserLane("composer-row-layout.test.ts", async () => {
@@ -327,6 +329,42 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       // The transcript keeps a row's worth above the stack.
       expect(drawn.transcriptRoom).toBeGreaterThanOrEqual(64);
     });
+
+  // Leo 2026-10-21: "WE HAVE TOO MUCH FUCKING STUPID SPACE AT THE BOTTOM COMPAREDE TO CLAUDE CODE".
+  // Claude Code leaves about 8 px under its quiet row; the row's own 10 px margin is the room under
+  // it (Leo 2026-10-20: never on the window's edge), with no composer padding added below that.
+  for (const variant of ["claude-auto", "queued"])
+    test(`${variant}: the quiet row sits about 10 px over the pane's bottom edge`, async () => {
+      const page = await browser!.newPage({ viewport: { width: 720, height: 600 } });
+      await page.goto(stageURL(variant));
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+      await page.locator(".acpmux-composer-foot .acpmux-model .acpmux-model-detail:visible").first().waitFor();
+      const under = await page.evaluate(() => {
+        const main = document.querySelector(".acpmux-main")!.getBoundingClientRect();
+        const foot = document.querySelector(".acpmux-composer-foot")!.getBoundingClientRect();
+        return Math.round(main.bottom - foot.bottom);
+      });
+      await page.close();
+      expect(under).toBeGreaterThanOrEqual(6);
+      expect(under).toBeLessThanOrEqual(12);
+    });
+
+  // Only the floating chat dock drops it: a fresh chat's hero layout (no data-dock) keeps the
+  // composer's own 16 px bottom padding.
+  test("a dock that does not float keeps the composer's bottom padding", async () => {
+    const page = await browser!.newPage({ viewport: { width: 720, height: 600 } });
+    await page.goto(stageURL("claude-auto"));
+    await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+    await page.locator(".acpmux-composer-foot .acpmux-model .acpmux-model-detail:visible").first().waitFor();
+    const padding = await page.evaluate(() => {
+      const composer = () => getComputedStyle(document.querySelector(".acpmux-dock > .acpmux-composer")!);
+      const floating = composer().paddingBottom;
+      document.querySelector(".acpmux-main")!.removeAttribute("data-dock");
+      return { floating, fresh: composer().paddingBottom };
+    });
+    await page.close();
+    expect(padding).toEqual({ floating: "0px", fresh: "16px" });
+  });
 
   for (const width of [420, 720, 1100])
     test(`at ${width} px Stop has Send's footprint as a plain glyph in the secondary text color`, async () => {

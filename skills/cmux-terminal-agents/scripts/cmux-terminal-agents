@@ -512,6 +512,10 @@ def verified_send(rec, text, submit=True, ready_timeout=30, render_timeout=10, s
         write_bytes(rec, paste)
         pastes = 1
         rendered, shown = poll_screen(rec, lambda t: in_composer(t, text), render_timeout)
+    if not rendered and blocking_prompt(shown):
+        raise ActionFailed({"submitted": False, "stage": "blocked_on_prompt", "pastes": pastes,
+                            "error": "a prompt or menu came up; answer it (choose/steer/key) first",
+                            "prompt": blocking_prompt(shown), "screen": screen_tail(shown)})
     if not rendered and snippet(text) not in norm(shown or ""):
         # Nothing of it anywhere on screen: the TUI dropped the input. Paste once more.
         write_bytes(rec, paste)
@@ -626,6 +630,9 @@ def wait_turn(rec, timeout, idle_seconds):
     before = turn.get("before") or {}
     start = time.time()
     seen_running = False
+    # Each signal ends the wait only after it saw this turn running itself:
+    # Codex's hook says idle right after submit, before it says working.
+    hook_running_ms, osc_working = None, False
     last_text, last_change = None, time.time()
     probes = Probes(term)
     path, seen_at = None, None
@@ -648,14 +655,16 @@ def wait_turn(rec, timeout, idle_seconds):
                 if hook:
                     st = hook.get("state")
                     upd = int(hook.get("updated_at_ms") or 0)
-                    if st == "running":
+                    if st in ("running", "working"):
                         seen_running = True
-                    elif upd > sent and seen_running and st in ("idle", "done", "needs_input", "blocked", "waiting"):
+                        if upd >= sent - 1000:
+                            hook_running_ms = max(hook_running_ms or 0, upd)
+                    elif hook_running_ms and upd > hook_running_ms and st in ("idle", "done", "needs_input", "blocked", "waiting"):
                         return ended("hook", start, sent, state=st, signal_ms=upd)
                 app = [r for r in got.get("status") or [] if r.get("app") in ("claude-code", "codex")]
                 if any(r.get("state") == "working" for r in app):
-                    seen_running = True
-                elif seen_running and app and all(r.get("state") in ("idle", "done", "blocked", "error") for r in app):
+                    seen_running = osc_working = True
+                elif osc_working and app and all(r.get("state") in ("idle", "done", "blocked", "error") for r in app):
                     return ended("osc7501", start, sent, state=app[0].get("state"), signal_ms=max(int(r.get("updated_at_ms") or 0) for r in app))
                 if (got.get("proc") or {}).get("exited"):
                     return ended("exit", start, sent)
@@ -676,7 +685,8 @@ def wait_turn(rec, timeout, idle_seconds):
 
 def ended(via, start, sent, **extra):
     t = time.time()
-    out = {"ended": True, "via": via, "waited_seconds": round(t - start, 2), "since_send_seconds": round(t - sent / 1000, 2)}
+    out = {"ended": True, "via": via, "waited_seconds": round(t - start, 2),
+           "since_send_seconds": round(t - sent / 1000, 2) if sent else None}
     if "signal_ms" in extra:
         out["detect_lag_seconds"] = round(t - extra.pop("signal_ms") / 1000, 2)
     out.update(extra)
@@ -713,7 +723,8 @@ def cmd_continue(a):
 
 PROMPT_MARKS = ("Do you want to proceed", "Do you want to make this edit", "Do you want to create",
                 "❯ 1. Yes", "Esc to cancel", "(y/n)", "[Y/n]", "Allow command?", "Press Enter to continue",
-                "Trust this folder", "I trust this folder")
+                "Trust this folder", "I trust this folder", "Hooks need review", "enter confirm · esc",
+                "enter continue · esc")
 
 
 def target(name_or_term):
@@ -733,10 +744,23 @@ def prompt_on_screen(text):
     return tail if any(m in tail for m in PROMPT_MARKS) else None
 
 
+# A selected numbered option ("› 1. Trust and continue", "❯ 2. No"): a menu.
+MENU_ROW = re.compile(r"^\s*[›❯]\s*\d+\.\s", re.M)
+
+
+def selected_row(text):
+    """The number of the selected option of a numbered menu on screen, or None."""
+    rows = MENU_ROW.findall("\n".join([l for l in (text or "").splitlines() if l.strip()][-12:]))
+    if not rows:
+        return None
+    m = re.search(r"\d+", rows[-1])
+    return int(m.group(0)) if m else None
+
+
 def blocking_prompt(text):
     """A prompt/menu in the bottom lines of the screen (where a live one sits)."""
     tail = "\n".join([l for l in (text or "").splitlines() if l.strip()][-12:])
-    return tail if any(m in tail for m in PROMPT_MARKS) else None
+    return tail if any(m in tail for m in PROMPT_MARKS) or MENU_ROW.search(tail) else None
 
 
 def cmd_prompts(a):
@@ -823,9 +847,25 @@ def cmd_choose(a):
         return None
 
     how, text = poll_screen(rec, check, a.timeout)
-    out = {"chose": a.option, "agent": rec["name"], "verified": how, "screen": screen_tail(text)}
+    method = "digit"
+    if not how and selected_row(text):
+        # Some menus ignore digits (Codex): move the selection with arrows, checking
+        # each step on screen, then Enter.
+        method = "arrows"
+        for _ in range(12):
+            cur = selected_row(text)
+            if cur is None or cur == a.option:
+                break
+            write_bytes(rec, b"\x1b[B" if cur < a.option else b"\x1b[A")
+            moved, text = poll_screen(rec, lambda t, c=cur: selected_row(t) != c, a.timeout)
+            if not moved:
+                break
+        if selected_row(text) == a.option:
+            write_bytes(rec, b"\r")
+            how, text = poll_screen(rec, check, a.timeout)
+    out = {"chose": a.option, "agent": rec["name"], "verified": how, "method": method, "screen": screen_tail(text)}
     if not how:
-        out.update(stage="menu_unchanged", error=f"typed {a.option}; the same menu is still on screen after {a.timeout:g}s")
+        out.update(stage="menu_unchanged", error=f"tried option {a.option} ({method}); the same menu is still on screen after {a.timeout:g}s")
         fail_json(out)
     print(json.dumps(out, indent=2, ensure_ascii=False))
 

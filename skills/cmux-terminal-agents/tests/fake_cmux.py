@@ -75,7 +75,15 @@ def main():
             pass
         out({"value": {}})
     if a[:2] == ["agent", "list"]:
-        out([])
+        recs = []
+        for path in sorted(os.listdir(DIR)):
+            if path.endswith(".hook"):
+                try:
+                    with open(os.path.join(DIR, path)) as f:
+                        recs.append(json.load(f))
+                except ValueError:
+                    pass
+        out(recs)
     if a[0] == "terminal" and len(a) >= 3:
         term, verb = a[1], a[2:]
         if not os.path.exists(os.path.join(DIR, term + ".in")):

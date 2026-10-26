@@ -189,14 +189,14 @@ await requireBrowserLane("agent-pane-permission-queue.test.ts", async () => {
   test("the oldest ask shows first, says one more waits, and the next shows once it is answered", async () => {
     const page = await open(LIVE);
     await card(page).waitFor();
-    expect(await card(page).textContent()).toContain("Run npm test");
+    expect(await card(page).textContent()).toContain("npm test");
     expect(await card(page).textContent()).toContain("1 more waiting");
     responses.length = 0;
-    await card(page).getByRole("button", { name: "Yes" }).click();
+    await card(page).getByRole("button", { name: "Allow once" }).click();
     await answered();
     expect(responses.map((params) => params.permissionId)).toEqual(["p1"]);
     push(LIVE, ["mux", "permission_decision", { permissionId: "p1", optionId: "allow" }]);
-    const next = await cardShowing(page, "Run git push");
+    const next = await cardShowing(page, "git push");
     expect(next).not.toContain("more waiting");
     push(LIVE, ["mux", "permission_decision", { permissionId: "p2", optionId: "allow" }]);
     await card(page).first().waitFor({ state: "detached", timeout: 10_000 });
@@ -206,10 +206,10 @@ await requireBrowserLane("agent-pane-permission-queue.test.ts", async () => {
   test("a reopened chat lists every ask acpmux still holds", async () => {
     const page = await open(REOPENED);
     await card(page).waitFor();
-    expect(await card(page).textContent()).toContain("Run npm test");
+    expect(await card(page).textContent()).toContain("npm test");
     expect(await card(page).textContent()).toContain("1 more waiting");
     push(REOPENED, ["mux", "permission_decision", { permissionId: "p1", optionId: "allow" }]);
-    expect(await cardShowing(page, "Run git push")).toContain("Run git push");
+    expect(await cardShowing(page, "git push")).toContain("git push");
     await page.close();
   });
 });

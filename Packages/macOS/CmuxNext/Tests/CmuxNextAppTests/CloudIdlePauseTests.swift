@@ -2,6 +2,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCloud
 import CmuxNextCompat
+import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Foundation
 import Testing
@@ -54,6 +55,7 @@ struct CloudIdlePauseTests {
         #expect(stage.failure == nil, "a paused machine is not a failure")
         #expect(stage.isFinished)
         #expect(stage.name == "paused")
+        #expect(CloudStrings.stage(stage) == "Paused (idle)")
         #expect(CloudStrings.stage(stage) != CloudStrings.stage(.failed("x")))
     }
 
@@ -84,11 +86,31 @@ struct CloudIdlePauseTests {
         #expect(refused.stage == .failed("no capacity"))
     }
 
-    @Test func aPausedMachinesSidebarHeaderIsNotFailed() {
+    @Test func theSidebarHeaderSaysPausedIdleAndNeedsNoAttention() {
         let f = Self.pausedMachine(reason: .idle)
         let header = CloudCreationRows.machine(f.session, compatibility: nil)
+        #expect(header.status == .pausedIdle)
         #expect(header.status != .failed)
         #expect(!header.status.needsAttention)
+        #expect(SectionHeaderRowView.statusText(header.status, hostGroup: false) == "Paused (idle)")
+        #expect(Strings.attentionStatus(.pausedIdle) == "Paused (idle)")
+
+        f.session.machine.pauseReason = .user
+        #expect(CloudCreationRows.machine(f.session, compatibility: nil).status == .paused)
+        #expect(SectionHeaderRowView.statusWords(.paused) == "Paused")
+    }
+
+    @Test func aPausedMachinesCreationRowHasNoSpinner() throws {
+        let f = Self.pausedMachine(reason: .idle)
+        let creation = CloudMachineCreation(windowID: nil, session: f.session)
+        let row = try #require(CloudCreationRows.adding([creation], to: []).flatMap(\.workspaces).first)
+        #expect(row.progress == nil)
+        #expect(row.status == "Paused (idle)")
+    }
+
+    @Test func aPausedMachinesHoverCardIsQuietNotDanger() {
+        #expect(WorkspaceHoverCardContent.connectionTone(.pausedIdle) == .secondary)
+        #expect(WorkspaceHoverCardContent.connectionTone(.paused) == .secondary)
     }
 
     @Test func theProgressViewOffersOneClickResume() {
@@ -96,6 +118,7 @@ struct CloudIdlePauseTests {
         let creation = CloudMachineCreation(windowID: nil, session: f.session)
         let view = CloudMachineProgressView(creation: creation, actions: .init(retry: { _ in }, dismiss: { _ in }))
         #expect(view.showsButtons)
+        #expect(view.primaryButtonTitle == CloudStrings.resume)
         #expect(!view.detailText.contains(CloudStrings.progressFailed("")), "paused must not read as a failed start")
     }
 

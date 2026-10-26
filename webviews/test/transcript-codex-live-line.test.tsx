@@ -88,7 +88,7 @@ test("the live line carries the turn's tokens while it times the turn, not besid
         <WorkingCountsContext.Provider value={{ ...counts, tokens: 2_140_000 }}>{node}</WorkingCountsContext.Provider>,
       ),
     );
-  expect(drawn(<Thinking since={start} now={() => start + 354_000} />)).toBe("Thinking 5m 54s · 2.1M tokens");
+  expect(drawn(<Thinking since={start} now={() => start + 354_000} />)).toBe("Thinking 5m 54s · 2.1M out");
   expect(drawn(<Thinking doing="cargo test" doingShell doingAt={start} now={() => start + 4_000} />)).toBe(
     "Running cargo test 4s",
   );
@@ -100,9 +100,9 @@ test("with the tray off the live line counts the work still going, beside a call
   const drawn = (node: ReactElement) =>
     words(renderToStaticMarkup(<WorkingCountsContext.Provider value={counts}>{node}</WorkingCountsContext.Provider>));
   expect(drawn(<Thinking doing="Read app.ts" doingAt={start} now={() => start + 3_000} />)).toBe(
-    "Read app.ts 3s · 2 agents · 1 command",
+    "Read app.ts 3s · 2 subagents · 1 command",
   );
-  expect(drawn(<Thinking since={start} now={() => start + 18_000} />)).toBe("Thinking 18s · 2 agents · 1 command");
+  expect(drawn(<Thinking since={start} now={() => start + 18_000} />)).toBe("Thinking 18s · 2 subagents · 1 command");
   // Not on the start status line, before the agent runs.
   expect(drawn(<Thinking status="Starting Claude Code…" />)).toBe("Starting Claude Code…");
 });

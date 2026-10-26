@@ -173,10 +173,10 @@ class WorkflowRoutingTests(unittest.TestCase):
         return bool(self.evaluate(step.get("if", "true"), resuming))
 
     def test_only_restore_workloads_take_linux_and_fresh_builds_keep_macos(self):
-        for name, native_runner in (("build-nightly-app", "macos-26"),
-                                    ("build-nightly-ghostty-cli-helper", "macos-15")):
+        for name, native_runner, resume_runner in (("build-nightly-app", "blacksmith-6vcpu-macos-26", "blacksmith-4vcpu-ubuntu-2404"),
+                                                   ("build-nightly-ghostty-cli-helper", "macos-15", "ubuntu-24.04")):
             with self.subTest(name=name):
-                self.assertEqual(self.evaluate(self.jobs[name]["runs-on"], True), "ubuntu-24.04")
+                self.assertEqual(self.evaluate(self.jobs[name]["runs-on"], True), resume_runner)
                 self.assertEqual(self.evaluate(self.jobs[name]["runs-on"], False), native_runner)
 
     def test_resume_selects_restore_and_zero_native_or_cache_work(self):
