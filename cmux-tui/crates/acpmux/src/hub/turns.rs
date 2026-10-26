@@ -623,7 +623,8 @@ impl Hub {
                 self.save_meta(session);
             }
         }
-        // Quit Everything already recorded this turn as cancelled.
+        // Quit Everything already recorded this turn as cancelled. It ends the lane's parent too and
+        // no agent starts after it, so the lane reports nothing (`lane_reports.rs`).
         if self.settled_by_shutdown.lock().unwrap().contains(turn_id) {
             return result;
         }

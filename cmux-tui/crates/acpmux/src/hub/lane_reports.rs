@@ -461,10 +461,10 @@ impl Hub {
             })),
             ..PromptOptions::default()
         };
-        // The last step before the parent's queue: a lane that closed (or a parent that changed)
-        // since its report was taken has its link retired, and sends nothing. The queueing
-        // itself is async (`prompt_with`), so the lock is not held across it: a close in the few
-        // steps between here and the queue still lets that one report in.
+        // A lane that closed (or a parent that changed) since its report was taken has its link
+        // retired, and sends nothing. A parent's close that begins after this is refused at its
+        // queue (`queue.rs`, by the report's provenance kind). A lane closing after this check still sends this one report,
+        // of a turn that ended before its close.
         if !self.lane_links(|links| links.get(lane).is_some_and(|l| l.parent == parent)) {
             return Ok(());
         }

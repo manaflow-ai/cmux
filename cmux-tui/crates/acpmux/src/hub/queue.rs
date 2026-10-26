@@ -170,6 +170,9 @@ impl Hub {
             None if session.meta().watching.is_some() => {
                 return Err(Err(super::watch::read_only()));
             }
+            // A lane's report to a parent whose close has begun: refused, never reopening it
+            // (`lane_reports.rs`). Nothing is awaited from this check to the commit below.
+            None if refuses_closing(&p) && closing(session) => return Err(Err(closing_error())),
             None => {
                 let turn_id = uuid::Uuid::now_v7().to_string();
                 // Another agent's message never overtakes the ones a failed turn held: they run
@@ -198,6 +201,10 @@ impl Hub {
             None => {
                 let guard = session.turn_lock.lock().await;
                 session.queued.fetch_sub(1, Ordering::SeqCst);
+                // Its close may have begun while it waited for the turn.
+                if refuses_closing(&p) && closing(session) {
+                    return Err(Err(closing_error()));
+                }
                 // A move began while it waited for the lock (`transfer_out.rs`): it runs nowhere.
                 if session.moving().is_some() {
                     return Err(Err(moving_error()));
@@ -972,4 +979,21 @@ impl Hub {
             }
         }
     }
+}
+
+/// Whether the prompt is one a closing session refuses: a lane's report.
+fn refuses_closing(p: &Slot<'_>) -> bool {
+    p.provenance.and_then(|v| v.get("kind")).and_then(Value::as_str)
+        == Some(super::lane_reports::KIND)
+}
+
+/// Whether `session`'s close has begun (`kill` marks it before anything else) or it is closed.
+fn closing(session: &Session) -> bool {
+    session.closing.load(Ordering::SeqCst) || session.status() == SessionStatus::Closed
+}
+
+/// The refusal of a lane's report to a session whose close has begun.
+pub(super) fn closing_error() -> RpcError {
+    RpcError::invalid_params("the session is closing or closed: it takes no prompt")
+        .with_data(json!({"reason": "session.closing", "closing": true}))
 }
