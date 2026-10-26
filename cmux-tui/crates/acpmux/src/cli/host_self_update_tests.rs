@@ -245,6 +245,24 @@ async fn an_install_that_never_restarted_keeps_the_last_build_that_ran_as_the_ba
     assert_eq!(peer.read(".local/bin/acpmux.prev"), old, "the backup is the build that last ran");
 }
 
+/// Re-review of #24232: with no daemon answering (an update that stopped
+/// the old one and died), pushing the installed binary again took the
+/// backup of the build that last ran.
+#[tokio::test]
+async fn a_retry_with_no_daemon_keeps_the_backup() {
+    let peer = FakePeer::new("self-unrestarted-down");
+    let old = peer.read(".local/bin/acpmux");
+    peer.exe(".local/bin/acpmux.prev", &old);
+    let new = fake_acpmux(NEW, Some(NEW));
+    peer.exe(".local/bin/acpmux", &new);
+    let _ = std::fs::remove_file(peer.home.join("daemon"));
+    let files = serving(&new);
+    let plan = ready(&peer, &files).await;
+    let up = apply(&peer, &plan, TARGET);
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
+    assert_eq!(peer.read(".local/bin/acpmux.prev"), old, "the backup is the build that last ran");
+}
+
 #[tokio::test]
 async fn a_download_that_does_not_match_the_channel_is_never_installed() {
     let peer = FakePeer::new("self-bad-sha");
@@ -500,6 +518,12 @@ fn install_units(home: &Path) -> (Vec<String>, String) {
     let systemctl = bin.join("systemctl");
     std::fs::write(&systemctl, format!("#!/bin/sh\n{FAKE_MANAGER}\n")).unwrap();
     std::fs::set_permissions(&systemctl, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // With `cat-cut` in the home, a write from stdin fails (a full /tmp).
+    let cat = bin.join("cat");
+    let fail =
+        "if [ -e \"$HOME/cat-cut\" ] && [ $# -eq 0 ]; then head -c 20 > /dev/null; exit 1; fi";
+    std::fs::write(&cat, format!("#!/bin/sh\n{fail}\nexec /bin/cat \"$@\"\n")).unwrap();
+    std::fs::set_permissions(&cat, std::fs::Permissions::from_mode(0o755)).unwrap();
     // With `cp-cut` in the home, a copy stops halfway (a full disk, a kill).
     let cp = bin.join("cp");
     let cut = "if [ -e \"$HOME/cp-cut\" ]; then head -c 20 \"$1\" > \"$2\"; exit 1; fi";
@@ -553,6 +577,16 @@ fn the_timer_units_install_once_and_a_unit_someone_else_wrote_is_left_alone() {
     let (calls, err) = install_units(&home);
     assert_eq!(calls, ["systemctl --user daemon-reload", enable], "{err}");
     assert_eq!(read("acpmux-update.timer"), UPDATE_TIMER);
+
+    // Re-review: a unit that could not be staged was installed empty.
+    std::fs::remove_dir_all(&units).unwrap();
+    std::fs::write(home.join("cat-cut"), "").unwrap();
+    let (calls, _) = install_units(&home);
+    assert!(calls.is_empty(), "{calls:?}");
+    assert!(!units.exists(), "nothing is installed");
+    std::fs::remove_file(home.join("cat-cut")).unwrap();
+    let (calls, err) = install_units(&home);
+    assert_eq!(calls, ["systemctl --user daemon-reload", enable], "{err}");
 
     // A timer someone else wrote is kept, its service is not written, and
     // nothing is started.
