@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 import Darwin
 import Foundation
 
@@ -84,19 +85,27 @@ public protocol RemoteAddressResolving: Sendable {
     func resolve(_ host: String) async throws -> [RemoteAddress]
 }
 
-/// getaddrinfo off the caller's actor.
+/// getaddrinfo on the app's system lane (``MayBlockRunner/runHostResolution(_:shutdown:site:_:)``): never on the
+/// main thread or the cooperative pool, and at most four lookups at once, so a hung resolver never holds the
+/// slots keychain or Accessibility work needs.
 public nonisolated struct SystemRemoteResolver: RemoteAddressResolving {
-    public init() {}
+    private let runner: any MayBlockRunner
 
-    public func resolve(_ host: String) async throws -> [RemoteAddress] {
-        try await Self.lookup(host)
+    /// - Parameter runner: The app's lanes (BackgroundWork).
+    public init(runner: any MayBlockRunner) {
+        self.runner = runner
     }
 
-    @concurrent private static func lookup(_ host: String) async throws -> [RemoteAddress] {
+    public func resolve(_ host: String) async throws -> [RemoteAddress] {
+        // Page content is waiting for the image or the media.
+        try await runner.runHostResolution(.userVisible) { try Self.lookup(host) }
+    }
+
+    private static func lookup(_ host: String) throws -> [RemoteAddress] {
         var hints = addrinfo(ai_flags: AI_ADDRCONFIG, ai_family: AF_UNSPEC, ai_socktype: SOCK_STREAM, ai_protocol: IPPROTO_TCP,
                              ai_addrlen: 0, ai_canonname: nil, ai_addr: nil, ai_next: nil)
         var result: UnsafeMutablePointer<addrinfo>?
-        guard getaddrinfo(host, nil, &hints, &result) == 0, let first = result else { throw URLError(.cannotFindHost) }
+        guard blockingGetaddrinfo(host, nil, &hints, &result) == 0, let first = result else { throw URLError(.cannotFindHost) }
         defer { freeaddrinfo(first) }
         var addresses: [RemoteAddress] = []
         var node: UnsafeMutablePointer<addrinfo>? = first

@@ -94,7 +94,7 @@ import Testing
         _ = NSApplication.shared
         let registry = ActionRegistry.standard()
         let layout = NSView()
-        let view = WorkspaceContentView(layoutView: layout, bar: TabStripView(model: TabStripModel()))
+        let view = WorkspaceContentView(layoutView: layout, bar: TabStripView.testing(model: TabStripModel()))
         view.backgroundMenu = { registry.makeContextMenu(for: .windowBackground) }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 700), styleMask: [.borderless],
                               backing: .buffered, defer: true)
