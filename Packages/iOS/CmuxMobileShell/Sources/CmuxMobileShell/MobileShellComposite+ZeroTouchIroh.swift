@@ -21,6 +21,7 @@ extension MobileShellComposite {
         let discovered = await personalIrohDiscovery.discoverLiveMacs()
         guard generation == storedMacReconnectGeneration,
               await isScopeCurrent(scope) else { return [] }
+        discoveredIrohMacs = discovered
 
         return await zeroTouchIrohCandidates(
             from: discovered,
@@ -119,6 +120,7 @@ extension MobileShellComposite {
         guard let personalIrohDiscovery else { return [] }
         let discovered = await personalIrohDiscovery.discoverLiveMacs()
         guard await isScopeCurrent(scope) else { return [] }
+        discoveredIrohMacs = discovered
 
         return await zeroTouchIrohCandidates(
             from: discovered,
