@@ -39,6 +39,7 @@ struct TextBoxComposerTests {
 
     static func harness() throws -> Harness {
         _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
         let io = ScriptedTerminalIO()
         let session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         try #require(session.surfaceView.surface != nil, "libghostty created no surface")

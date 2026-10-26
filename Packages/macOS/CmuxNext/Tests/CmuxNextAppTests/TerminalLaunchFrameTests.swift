@@ -49,6 +49,7 @@ import Testing
 
         init(reveal: LaunchReveal) {
             _ = NSApplication.shared
+            GhosttyRuntime.startedForTests()
             session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             window = NSWindow(contentRect: NSRect(origin: NSPoint(x: 200, y: 200), size: TerminalLaunchFrameTests.size),
                               styleMask: [.borderless], backing: .buffered, defer: false)

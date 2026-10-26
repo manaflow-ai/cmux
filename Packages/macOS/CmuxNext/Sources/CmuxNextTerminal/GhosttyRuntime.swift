@@ -16,22 +16,33 @@ import CmuxNextCompat
 /// ghostty.h:1318-1319). Every `ghostty_*` call stays inside this module so a
 /// GhosttyKit bump touches one target (plans/cmux-next/shell.md 2.3).
 ///
-/// Created lazily; the first access to ``shared`` runs `ghostty_init`.
+/// Created lazily, on the main actor. No config build runs there: the app
+/// starts the runtime with a config built on its loader
+/// (``start(loadingOn:then:)``, GhosttyRuntime+ConfigLoad.swift). Until that
+/// build lands, ``app`` and ``config`` are nil, as when libghostty failed.
 public final class GhosttyRuntime {
     public static let shared = GhosttyRuntime()
 
-    /// Nil when libghostty failed to initialize; surfaces then stay blank.
+    /// Nil before the app starts (``start(with:)``) or when libghostty failed to initialize; surfaces then stay blank.
     private(set) var app: ghostty_app_t?
 
-    /// The finalized configuration currently applied to the app.
+    /// The finalized configuration currently applied to the app; nil before the app starts.
     private(set) var config: ghostty_config_t?
+    /// Whether the app was started (``start(with:)``), with or without success.
+    private(set) var isStarted = false
+    /// Where config builds run (``start(loadingOn:then:)``, or a test's); nil: no reload or theme build runs.
+    var configLoader: (any GhosttyConfigLoading)?
     /// `background-opacity` from the user's config with cmux.json's
     /// `appearance.backgroundOpacity` over it (not the surface override).
-    private var configuredBackgroundOpacity: Double = 1
+    var configuredBackgroundOpacity: Double = 1
 
     /// The user's config with one theme applied, per theme name, built on
-    /// demand (`themeConfig(named:)`) and dropped on every config change.
-    var themeConfigs: [String: GhosttyThemeConfig] = [:]
+    /// demand (`themeConfig(named:)`) and rebuilt on every config change.
+    let themeConfigs = GhosttyThemeConfigCache()
+    /// Counts ``reloadConfig()`` requests; only the latest one's build is applied.
+    var reloadRequests = 0
+    /// A ``reloadConfig()`` came before the first config landed (``start(loadingOn:then:)`` runs it then).
+    var reloadAfterStart = false
     /// Bumps on every config change (reload, conditional theme switch), after the new config is in
     /// place. Visible views observe it; hidden ones read it when they show.
     public let configRevision = GhosttyConfigRevision()
@@ -44,7 +55,7 @@ public final class GhosttyRuntime {
     var adoptedDuringReload = false
 
     /// Messages from the last config load (unknown keys, bad values).
-    public private(set) var configDiagnostics: [String] = []
+    public internal(set) var configDiagnostics: [String] = []
 
     /// Frontend-level actions that have no surface target (for example
     /// `quit` or `new_window` from an app-scoped keybind). Return true when
@@ -66,7 +77,7 @@ public final class GhosttyRuntime {
         configChangeHandlers.append(handler)
     }
 
-    static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "terminal")
+    nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "terminal")
 
     private let context = RuntimeCallbackContext()
     let hostKeybindCache = HostKeybindCache()
@@ -84,35 +95,41 @@ public final class GhosttyRuntime {
     private var observers: [any NSObjectProtocol] = []
     private var appearanceObservation: NSKeyValueObservation?
 
-    private init() {
+    /// Runs `ghostty_init` when `main` did not (tests); the app starts at ``start(with:)``. The app has one
+    /// runtime, ``shared``; a test makes its own only to check one that never started.
+    init() {
         let contentsGate = TerminalContentsGate()
         traceHook = GhosttyTraceHook(gate: contentsGate)
         echoStages = TerminalEchoStages(contentsGate: contentsGate, traceHook: traceHook)
+        Self.initializeLibrary()
+    }
+
+    /// Starts libghostty's app once, with `built` (nil: the build failed); a later call frees what it was given.
+    func start(with built: GhosttyBuiltConfig?) {
+        guard !isStarted else {
+            built?.free()
+            return
+        }
+        isStarted = true
         var phase = ContinuousClock.now
         func mark(_ name: String) {
             let now = ContinuousClock.now
             TerminalTimings.runtimePhase(name, phase.duration(to: now))
             phase = now
         }
-        // The app froze the environment in main after preparing it; a
-        // process that skips main (tests) prepares it here. Either way no
-        // write may follow ghostty_init.
-        let environmentGuard = ProcessEnvironmentGuard.process
-        if !environmentGuard.isFrozen { Self.prepareProcessEnvironment(resources: Self.resourcesDirectory(), environmentGuard: environmentGuard) }
-        environmentGuard.freeze()
         defer { mark("app_new") }
-        guard ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == 0 else {
+        guard Self.initializeLibrary() else {
             Self.logger.error("ghostty_init failed; terminal surfaces are disabled")
             return
         }
         mark("ghostty_init")
-        guard let config = Self.loadConfig(diagnostics: &configDiagnostics, opacity: &configuredBackgroundOpacity) else { return }
+        guard let built else { return }
         mark("config_load")
-        self.config = config
+        recordUserConfigLoad(built)
+        config = built.config
         // Callbacks reach the runtime through this context, never through
-        // `shared`: Ghostty can call back synchronously while `shared` is
-        // still being initialized (for example set_color_scheme emits
-        // CONFIG_CHANGE), and re-entering a lazy static traps.
+        // `shared`: Ghostty can call back synchronously while it starts (for
+        // example set_color_scheme emits CONFIG_CHANGE).
         context.runtime = self
 
         var runtime = ghostty_runtime_config_s()
@@ -124,7 +141,7 @@ public final class GhosttyRuntime {
         runtime.confirm_read_clipboard_cb = ghosttyConfirmReadClipboard
         runtime.write_clipboard_cb = ghosttyWriteClipboard
         runtime.close_surface_cb = ghosttyCloseSurface
-        app = ghostty_app_new(&runtime, config)
+        app = ghostty_app_new(&runtime, built.config)
         guard let app else {
             Self.logger.error("ghostty_app_new failed; terminal surfaces are disabled")
             return
@@ -136,23 +153,19 @@ public final class GhosttyRuntime {
 
     // MARK: Config
 
-    /// Reloads the user's Ghostty config and pushes it to every surface
-    /// (`ghostty_app_update_config`, ghostty.h:1339).
-    public func reloadConfig() {
-        guard let app else { return }
-        var diagnostics: [String] = []
-        var opacity: Double = 1
-        guard let fresh = Self.loadConfig(diagnostics: &diagnostics, opacity: &opacity) else { return }
-        configuredBackgroundOpacity = opacity
-        adoptedDuringReload = false
-        applyColorTransitionToSurfaces()
-        ghostty_app_update_config(app, fresh)
-        // Ghostty answers with CONFIG_CHANGE on this thread: the config it
-        // applied carries the light/dark variant, `fresh` does not (it
-        // would put a dark app's chrome back on the light variant).
-        if adoptedDuringReload { ghostty_config_free(fresh) } else { replaceConfig(fresh) }
-        configDiagnostics = diagnostics
-    }
+    /// Runs `ghostty_init` once per process; true when it succeeded. The app calls it first in `main`, after the
+    /// environment freeze and before any other thread starts: ghostty_init may setenv `LANG` and call `setlocale`
+    /// (Ghostty's `internal_os.ensureLocale`), which must not race another thread's `environ` read. Later calls
+    /// only read the result. A process that skips `main` (tests) prepares and freezes the environment here.
+    @discardableResult
+    public nonisolated static func initializeLibrary() -> Bool { libraryInitialized }
+
+    private nonisolated static let libraryInitialized: Bool = {
+        let environment = ProcessEnvironmentGuard.process
+        if !environment.isFrozen { GhosttyRuntime.prepareProcessEnvironment(resources: GhosttyRuntime.resourcesDirectory(), environmentGuard: environment) }
+        environment.freeze()
+        return ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == 0
+    }()
 
     /// Adopts a config Ghostty already applied (`GHOSTTY_ACTION_CONFIG_CHANGE`).
     func adoptAppliedConfig(_ applied: ghostty_config_t) {
@@ -160,12 +173,12 @@ public final class GhosttyRuntime {
         replaceConfig(ghostty_config_clone(applied))
     }
 
-    private func replaceConfig(_ fresh: ghostty_config_t?) {
+    func replaceConfig(_ fresh: ghostty_config_t?) {
         if let config { ghostty_config_free(config) }
         config = fresh
         hostKeybindCache.binds = nil
-        // Themed configs were built on the old files; rebuild on demand.
-        themeConfigs.removeAll()
+        // Themed configs were built on the old files: each keeps serving until its rebuild lands.
+        themeConfigs.invalidate(loader: configLoader) { GhosttyConfigInputs.current(theme: $0) }
         onConfigChange?()
         configRevision.bump()
         for handler in configChangeHandlers { handler() }
@@ -211,63 +224,6 @@ public final class GhosttyRuntime {
         return "theme = \(value)"
     }
 
-    /// Loads the user's config. `theme` replaces `themeOverride` (a room,
-    /// workspace or terminal theme; see `themeConfig(named:)`).
-    static func loadConfig(diagnostics: inout [String], opacity: inout Double, theme: String? = nil) -> ghostty_config_t? {
-        guard let config = ghostty_config_new() else { return nil }
-        // cmux's defaults, before the user's files so theirs win.
-        loadPaddingDefault(into: config)
-        loadThemeDefault(into: config)
-        loadKeybindDefaults(into: config)
-        GhosttyUnfocusedSplit.loadDefault(into: config)
-        if let path = ProcessInfo.processInfo.environment[configOverrideKey], !path.isEmpty {
-            ghostty_config_load_file(config, path)
-        } else {
-            loadDefaultFiles(into: config)
-        }
-        ghostty_config_load_recursive_files(config)
-        for line in themeLines(theme ?? themeOverride, isDark: colorSchemeIsDark, edits: themeEdits) {
-            line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
-        }
-        for line in fontOverrideLines(fontOverride) {
-            line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
-        }
-        // cmux.json's window background replaces the files' opacity and
-        // blur, so the surfaces, the window and the theme read one value.
-        var configured: Double = 1
-        _ = configGet(config, &configured, key: "background-opacity")
-        var configuredBlur: Int16 = 0
-        _ = configGet(config, &configuredBlur, key: "background-blur")
-        for line in GhosttyConfigBackground.overrideLines(configuredOpacity: configured, configuredBlur: Int(configuredBlur), theme: theme) {
-            line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
-        }
-        // In a translucent window the root view's material and tint are the
-        // one translucent sheet; the surfaces draw cells over it with a
-        // transparent default background (`GhosttyRuntimeSurfacePolicy`).
-        // The resolved opacity is kept for the window and theme.
-        _ = configGet(config, &configured, key: "background-opacity")
-        var opacityCells = false
-        _ = configGet(config, &opacityCells, key: "background-opacity-cells")
-        opacity = min(max(configured, 0), 1)
-        seeThroughLoaded = seeThroughShown
-        if let line = GhosttyRuntimeSurfacePolicy.override(configuredOpacity: opacity, opacityCells: opacityCells,
-                                                           ownerPaintsBackground: Self.terminalBackgroundOverridden || Self.seeThroughShown) {
-            line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux-next") }
-        }
-        ghostty_config_finalize(config)
-        loadImageStorageDefaultIfUnset(into: config)
-        let count = ghostty_config_diagnostics_count(config)
-        for index in 0..<count {
-            let diagnostic = ghostty_config_get_diagnostic(config, index)
-            if let message = diagnostic.message {
-                let text = String(cString: message)
-                diagnostics.append(text)
-                logger.warning("ghostty config: \(text, privacy: .public)")
-            }
-        }
-        return config
-    }
-
     /// What a view behind a surface paints (padding, placeholder while a
     /// surface swaps): the config background when opaque, nothing in a
     /// translucent window, where the window root paints the one sheet.
@@ -296,7 +252,7 @@ public final class GhosttyRuntime {
     public var backgroundOpacity: Double { configuredBackgroundOpacity }
 
     /// `ghostty_config_get` (ghostty.h:1321) for one key.
-    static func configGet<T: BitwiseCopyable>(_ config: ghostty_config_t, _ value: inout T, key: String) -> Bool {
+    nonisolated static func configGet<T: BitwiseCopyable>(_ config: ghostty_config_t, _ value: inout T, key: String) -> Bool {
         withUnsafeMutablePointer(to: &value) { valuePointer in
             key.withCString { keyPointer in
                 ghostty_config_get(config, valuePointer, keyPointer, UInt(key.utf8.count))

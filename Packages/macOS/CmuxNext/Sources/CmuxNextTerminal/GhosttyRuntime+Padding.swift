@@ -27,7 +27,7 @@ public struct TerminalPadding: Equatable, Sendable {
     }()
 
     /// Config lines for `cmuxDefault`, loaded before the user's files.
-    static var cmuxDefaultConfigLines: [String] {
+    nonisolated static var cmuxDefaultConfigLines: [String] {
         let inset = Int(PaneChromeMetrics.terminalTextInset)
         return ["window-padding-x = \(inset)", "window-padding-y = \(inset)", "window-padding-balance = false"]
     }
@@ -62,7 +62,7 @@ extension GhosttyRuntime {
 
     /// Loads cmux's padding default into `config`; call before the user's
     /// files so their `window-padding-*` lines win.
-    static func loadPaddingDefault(into config: ghostty_config_t) {
+    nonisolated static func loadPaddingDefault(into config: ghostty_config_t) {
         for line in TerminalPadding.cmuxDefaultConfigLines {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux-next") }
         }

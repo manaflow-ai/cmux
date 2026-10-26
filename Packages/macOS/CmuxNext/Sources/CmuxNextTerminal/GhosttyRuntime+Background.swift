@@ -41,7 +41,7 @@ extension GhosttyRuntime {
         }
     }
 
-    /// The ``seeThroughShown`` the loaded config's surface policy read.
+    /// The ``seeThroughShown`` the last config build asked for reads (set when asked: `GhosttyConfigInputs.current`).
     static var seeThroughLoaded = false
     private static var seeThroughReloadPending = false
 
