@@ -9,14 +9,24 @@ import GhosttyNextKit
 /// The answer decides only whether a trackpad scroll waits for the frame (``TerminalPointerFrames``);
 /// both routes give Ghostty the same scroll distance.
 nonisolated final class TerminalMouseCapture: Sendable {
-    private let lane: TerminalOutputLane?
+    /// Calls its argument with whether the program has the mouse, after the output queued so far.
+    typealias Ask = @Sendable (_ answer: @escaping @Sendable (Bool) -> Void) -> Void
+
+    private let ask: Ask?
     private let captured: Atomic<Bool>
     /// An ask is on the lane: a second one would give the same answer.
     private let asking = Atomic<Bool>(false)
 
-    /// `lane` is the surface's output lane; with none (tests) the answer stays `captured`.
-    init(lane: TerminalOutputLane?, captured: Bool = false) {
-        self.lane = lane
+    /// `lane` is the surface's output lane; with none the answer stays `captured`.
+    convenience init(lane: TerminalOutputLane?, captured: Bool = false) {
+        self.init(ask: lane.map { lane -> Ask in
+            { answer in lane.perform { surface in answer(ghostty_surface_mouse_captured(surface)) } }
+        }, captured: captured)
+    }
+
+    /// `ask` gets the answer (the lane's, or a test's); with none the answer stays `captured`.
+    init(ask: Ask?, captured: Bool = false) {
+        self.ask = ask
         self.captured = Atomic(captured)
     }
 
@@ -25,9 +35,9 @@ nonisolated final class TerminalMouseCapture: Sendable {
 
     /// Asks again behind the output queued so far, unless an ask is already on the lane.
     func refresh() {
-        guard let lane, !asking.exchange(true, ordering: .acquiringAndReleasing) else { return }
-        lane.perform { [self] surface in
-            captured.store(ghostty_surface_mouse_captured(surface), ordering: .relaxed)
+        guard let ask, !asking.exchange(true, ordering: .acquiringAndReleasing) else { return }
+        ask { [self] hasMouse in
+            captured.store(hasMouse, ordering: .relaxed)
             asking.store(false, ordering: .releasing)
         }
     }

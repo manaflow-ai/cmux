@@ -1,6 +1,5 @@
 public import AppKit
 public import CmuxNextDesign
-import CmuxNextInput
 import CmuxNextTerminalGeometry
 import CmuxNextTrace
 import CmuxNextWakeups
@@ -122,7 +121,7 @@ public final class TerminalSurfaceView: NSView {
     let modifierWatch: TerminalModifierWatch?
     /// The windows' frame-aligned pointer input (feature `terminalPointerFrames`), from the session; nil:
     /// every pointer event reaches Ghostty at once.
-    private let frameCoalescers: PointerFrameCoalescers?
+    private let frameCoalescers: FrameInputCoalescers?
     /// Moves, drags and mouse-reporting trackpad scrolls on this view's window's coalescer
     /// (``TerminalPointerFrames``); nil while ``frameCoalescers`` is.
     private(set) lazy var pointerFrames: TerminalPointerFrames? = frameCoalescers.map { coalescers in
@@ -137,7 +136,7 @@ public final class TerminalSurfaceView: NSView {
 
     init(io mode: ghostty_surface_io_mode_e, input: TerminalInputSink, session: TerminalSession?,
          echoStages: TerminalEchoStages, hangWatch: (any HangWatchScoping)? = nil, secureInput: TerminalSecureInput,
-         modifiers: TerminalModifierWatch? = nil, pointerFrames: PointerFrameCoalescers? = nil) {
+         modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil) {
         let bridge = SurfaceBridge(input: input)
         self.bridge = Unmanaged.passRetained(bridge)
         self.session = session

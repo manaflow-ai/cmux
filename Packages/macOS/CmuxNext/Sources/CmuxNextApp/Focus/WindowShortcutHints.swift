@@ -22,7 +22,8 @@ final class WindowShortcutHints {
         guard let window = controller.window else { return }
         controller.root.addSubview(overlay, positioned: .above, relativeTo: nil)
         overlay.setAccessibilityElement(false)
-        monitor = WindowScopedShortcutHintModifierMonitor(window: window, tap: controller.services.inputTap, keepsHints: { [weak self] in self?.keepsHints(for: $0) ?? false }) { [weak self] flags in
+        monitor = WindowScopedShortcutHintModifierMonitor(window: window, tap: controller.services.inputTap,
+                                                          deadlines: controller.services.mainDeadlines, keepsHints: { [weak self] in self?.keepsHints(for: $0) ?? false }) { [weak self] flags in
             self?.held = flags
             self?.refresh()
         }

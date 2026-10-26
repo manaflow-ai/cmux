@@ -5,7 +5,7 @@ Two ways to run it.
 
 1. Launched (p05-ipc-005): today's tagged build through bench_launch.py, keys through `debug.key`:
 
-  scripts/cmux-next/bench-typing.py --tag TAG [--app APP] [--flood N] [--stress] [--samples 120] [--out DIR]
+  scripts/cmux-next/bench-typing.py --tag TAG [--app APP] [--flood N] [--stress] [--samples 120] [--out DIR] [--story ID]
 
    The app gets CMUX_NEXT_TYPING_PROBE (the CSV below) and CMUX_NEXT_TRACE_FLOWS (key-press flow marks of
    the daemon, its terminal hosts and the holder, cmux_flow_trace: `flows-<pid>.jsonl` in DIR/flows). The
@@ -43,7 +43,9 @@ Two ways to run it.
    single, and IPC-8 is then measured daemon-side only.
    Every series is p50/p95/p99/max; `ipc8` is the flood p95 minus the single p95 of each series both phases
    report (IPC-8: <= 0.5 ms for the echo). report.json has the host, macOS and display Hz, the flooders'
-   achieved MB/s, and each series is also a cmux-perf-result/v1 file (BenchApp.record).
+   achieved MB/s, and each series is also a cmux-perf-result/v1 file (BenchApp.record): story --story (default
+   `bench-typing-flood-<N>`, `bench-typing-flood-<N>-stress` with --stress), metric `<phase>.<series>`.
+   Percentiles come from scripts/perf-lab/perf_stats.py (typing_report.distribution), in both modes.
 
 2. Attached (the original mode): launch a tagged cmux-next with CMUX_NEXT_TYPING_PROBE=<csv> (see
 TypingLatencyProbe.swift), focus a terminal at a shell prompt, then run:
@@ -79,6 +81,7 @@ from pathlib import Path
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import bench_tagged  # noqa: E402
+import typing_report  # noqa: E402
 
 HOPS = [
     "dispatch_start_ms", "dispatch_end_ms", "io_write_ms", "socket_submit_ms",
@@ -132,12 +135,12 @@ except KeyboardInterrupt:
 
 
 def summarize(values):
-    """p50/p95/p99/max of `values` (nearest rank); the original keys `median` and `min` stay for old readers."""
-    stats = bench_tagged.distribution(values)
+    """n/p50/p95/p99/max of `values` (typing_report.distribution); the original keys `median` and `min` stay for old
+    readers."""
+    stats = typing_report.distribution(values, digits=3, mean=False)
     if not stats:
         return None
-    values = sorted(values)
-    return {**stats, "median": stats["p50"], "min": round(values[0], 2)}
+    return {**stats, "median": stats["p50"], "min": round(min(v for v in values if v is not None), 2)}
 
 
 def press(driver, pid, window, key):
@@ -567,7 +570,7 @@ class Launched:
             if withheld:
                 self.report["ipc8_scope"] = f"daemon-side only: the app series are withheld in {', '.join(withheld)}"
                 self.note(f"ipc8: {self.report['ipc8_scope']}")
-        story = f"bench-typing-flood-{self.args.flood}"
+        story = self.args.story or typing_report.flood_story(self.args.flood, self.args.stress)
         recorded = {}
         for name, entry in phases.items():
             recorded.update(bench_tagged.record_series(
@@ -589,6 +592,7 @@ def parse_args(argv=None):
     parser.add_argument("--flood", type=int, default=0, help="launched mode: N flooding terminals in the measured workspace")
     parser.add_argument("--flood-mbps", type=float, default=10.0, help="each flooder's rate in MB/s")
     parser.add_argument("--stress", action="store_true", help="launched mode: build the STRESS session first")
+    parser.add_argument("--story", help="launched mode: result-v1 story (default bench-typing-flood-N, -stress with --stress)")
     parser.add_argument("--pid", type=int)
     parser.add_argument("--window", type=int, help="CuaDriver window_id of the cmux window")
     parser.add_argument("--csv", type=Path)
@@ -609,8 +613,8 @@ def parse_args(argv=None):
         args.warmup = 10 if args.warmup is None else args.warmup
         args.interval = 0.15 if args.interval is None else args.interval
     else:
-        if args.flood or args.stress:
-            parser.error("--flood and --stress need --tag or --app (launched mode)")
+        if args.flood or args.stress or args.story:
+            parser.error("--flood, --stress and --story need --tag or --app (launched mode)")
         if args.csv is None or (not args.analyze_only and (args.pid is None or args.window is None)):
             parser.error("attached mode needs --csv, and --pid and --window unless --analyze-only")
         args.samples = 60 if args.samples is None else args.samples

@@ -317,8 +317,18 @@ the tables of "Release trace ring v1"; the Swift `TraceRuntime.Role` and `TraceR
   send a flow-out carries the flow `FNV-1a 64(app pid as 4 bytes LE, request id as 8 bytes LE)` in
   arg1 and the async id in arg0; the daemon's flow-in from `LOCAL_PEERPID` is task 103. A request
   sent without waiting (`sendNoReply`) has no slice.
-- `cef.pump` and `cef.create_browser` are reserved but have no emitter (requested from PL-motion-cef).
-  Without them, a Release trace attributes Chromium main-thread time only through the stack samples.
+- `cef.pump` (category `cef`, closed by p09-observability-032) is one thread slice (B/E) per
+  `CefDoMessageLoopWork` pass of the in-process pump (`CEFMessagePump`). A writer records it only
+  while `task` (bit 12) is on as well as `cef`, so a recording has every pass and the black box has
+  none: passes run up to 100 times a second while a page loads and would push the black box's
+  action, key and switch records out. Begin arg0 is why the pass runs: 1 an immediate request,
+  2 CEF's delayed request, 3 a Chromium thread's request the gate kept, 4 the pass that runs a fire
+  a nested run loop deferred, 0 a pass no timer armed (the quit path's drain). End arg0 is 1 when
+  the pass used CEF's whole 10 ms time slice, else 0; end arg1 is the pass's elapsed time in us on
+  the pump's clock. With the Chromium host on, the host writes the same name and layout from its
+  own ring (task 104). The app emits no `cef.pump` then.
+- `cef.create_browser` is reserved but has no emitter (requested from PL-motion-cef, task 033).
+  Without it, a Release trace attributes Chromium browser-creation time only through the stack samples.
 - The holder and the terminal hosts have `task` trace points (recording only, never the black
   box), but a `cmux trace` capture does not show them yet. They record only after the process
   opens its ring (p09-observability-095) and a recording is forwarded to it

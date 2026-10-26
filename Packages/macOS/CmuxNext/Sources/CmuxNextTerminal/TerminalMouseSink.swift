@@ -8,6 +8,8 @@ protocol TerminalMouseSink: AnyObject {
     /// True when Ghostty consumed the button (the program has the mouse, or a link click).
     func button(_ state: ghostty_input_mouse_state_e, _ button: ghostty_input_mouse_button_e, mods: ghostty_input_mods_e) -> Bool
     func scroll(x: Double, y: Double, mods: ghostty_input_scroll_mods_t)
+    /// A force-touch stage and pressure at Ghostty's last pointer position.
+    func pressure(stage: UInt32, pressure: Double)
 }
 
 /// A view's Ghostty surface as its ``TerminalMouseSink``; with no surface (`ghostty_surface_new` failed)
@@ -32,5 +34,10 @@ final class GhosttyMouseSink: TerminalMouseSink {
     func scroll(x: Double, y: Double, mods: ghostty_input_scroll_mods_t) {
         guard let surface else { return }
         ghostty_surface_mouse_scroll(surface, x, y, mods)
+    }
+
+    func pressure(stage: UInt32, pressure: Double) {
+        guard let surface else { return }
+        ghostty_surface_mouse_pressure(surface, stage, pressure)
     }
 }

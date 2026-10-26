@@ -4,11 +4,11 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHibernation
-import CmuxNextInput
 import CmuxNextLaunch
 import CmuxNextMacScreen
 import CmuxNextPages
 import CmuxNextRemote
+import CmuxNextSignposts
 import CmuxNextTerminal
 import CmuxNextWakeups
 import Observation
@@ -26,7 +26,7 @@ final class TabContentCache {
     let terminalModifiers: TerminalModifierWatch?
     /// Given to every terminal session this cache makes: the windows' frame-aligned pointer input (feature
     /// `terminalPointerFrames`); nil: each pointer event reaches Ghostty at once.
-    let terminalPointerFrames: PointerFrameCoalescers?
+    let terminalPointerFrames: FrameInputCoalescers?
     let mainWork: MainWorkScheduler
     var terminals: [String: TerminalEntry] = [:]
     var browsers: [String: BrowserEntry] = [:] { didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged() } } }
@@ -47,6 +47,8 @@ final class TabContentCache {
     let contentOwners = ContentLifecycleOwners<ContentLifecycle<String>.Token>() // page and conversation tabs' lifecycle effects (memoryDiscard*; empty while off)
     let dormantTabs = DormantTabs() // hibernated tabs, observed by the tab strips
     let previews = PreviewImageCache()
+    /// New tabs' `create.tab` intervals waiting for their first frame (p09-observability task 030).
+    let createTabs = CreateTabTimings()
     /// Evicted terminals' last frames: shown at once when the terminal is shown again, pictured
     /// on demand for its hover card; volatile, bounded by the warm set (`warmBudgetDidChange`).
     let lastFrames = TerminalLastFrames(capacity: WarmSetBudget.standard.terminalCapacity)
@@ -169,7 +171,7 @@ final class TabContentCache {
     init(daemon: DaemonService, chromium: ChromiumEngineSlot, fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
          resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil,
-         terminalPointerFrames: PointerFrameCoalescers? = nil, mainWork: MainWorkScheduler) {
+         terminalPointerFrames: FrameInputCoalescers? = nil, mainWork: MainWorkScheduler) {
         (self.daemon, self.terminalModifiers, self.chromium, self.resizes, self.mainWork) = (daemon, terminalModifiers, chromium, resizes, mainWork)
         self.terminalPointerFrames = terminalPointerFrames
         webKit = WebKitEngine(fileInput: fileInput, stores: chromium.stores, waitDeadlines: chromium.waitDeadlines)
@@ -405,7 +407,7 @@ final class TabContentCache {
         (page as? CEFTab)?.devToolsObserver = self
         let incognito = chromium.stores.offTheRecord.isOffTheRecord(page.profileID) ? incognitoMemory : nil
         let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine(forPage: page),
-                                 history: incognito?.history ?? history(for: page.profileID))
+                                 history: incognito?.history ?? history(for: page.profileID), mainWork: mainWork, node: node(for: key))
         pageRequests.routeOmnibarOpens(of: entry.chrome, page: page)
         mount(entry, as: key)
         return entry
@@ -483,6 +485,8 @@ final class TabContentCache {
     /// The tab closed: free everything it held (a conversation tab's view: `onRelease`).
     func release(_ key: String, displacing: Bool = true) { // displacing false: the pane keeps its view (a stand-in's moved to its daemon tab)
         onRelease?(key)
+        // A stand-in's content moving to its daemon tab (`displacing` false) is no close: the wait follows the content.
+        if displacing { createTabs.released(key) }
         if let owner = ledger.remove(key), displacing { presenters[owner]?.value?.surfaceWasDisplaced(key) }
         applyLifecycle(lifecycle.send(.removed(key)))
         pendingMounts[key] = nil; framedStandIns.remove(key); pendingBrowsers.remove(key); awaitingRead.remove(key)

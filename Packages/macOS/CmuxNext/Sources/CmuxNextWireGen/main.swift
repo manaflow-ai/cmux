@@ -9,27 +9,50 @@
 //     --identity-output <plugin work dir>/WireSchemaIdentity+Built.generated.swift \
 //     --method-table-output <plugin work dir>/MethodTable+Schema.swift
 //
-// Its outputs live only in the plugin work directory; nothing it writes is in git
-// (scripts/ci/generated-files.json, `ipc-wire-swift`, status "build"). The Rust side
-// is cmux-tui/crates/cmux-ipc/build.rs; both write the same identity values and the same
-// method tables (the Swift table keeps only `clients: macos` methods). Later
-// tasks (020-024) add their emitters next to IdentityEmitter and TableEmitter, over the same files.
+// For CmuxNextIPCTests it writes only the fixture schema's `DaemonWireEvent` (task 022):
+//
+//   CmuxNextWireGen --sdk-schema cmux-tui/spec/fixtures/ipc-method-tables/sdk-schema.json \
+//     --resource-operations cmux-tui/spec/fixtures/ipc-method-tables/resource-operations-v2.json \
+//     --event-output <plugin work dir>/DaemonWireEvent+Fixture.swift --event-import CmuxNextIPC
+//
+// A run writes only the outputs it is given. Its outputs live only in the plugin work
+// directory; nothing it writes is in git (scripts/ci/generated-files.json, `ipc-wire-swift`,
+// status "build"). The Rust side is cmux-tui/crates/cmux-ipc/build.rs; both write the same
+// identity values and the same method tables (the Swift table keeps only `clients: macos`
+// methods). Later tasks (020-024) add their emitters next to IdentityEmitter, TableEmitter and
+// EventEmitter, over the same files.
 
 import Foundation
 
 func run(_ argv: [String]) throws(WireGenError) {
     let arguments = try WireGenArguments(argv)
-    let sdk = try SchemaFile<SDKSchemaHeader>(arguments.sdkSchema)
-    let resource = try SchemaFile<ResourceOperationsHeader>(arguments.resourceOperations)
-    let emitter = IdentityEmitter(sdk: sdk, resource: resource)
-    try GeneratedFile(url: arguments.identityOutput).write(emitter.emit())
-    let table: TableEmitter
-    do {
-        table = try TableEmitter(sdkSchema: sdk.bytes, resourceOperations: resource.bytes)
-    } catch {
-        throw WireGenError.methodTable(error)
+    let sdk = try SchemaInput(arguments.sdkSchema)
+    let resource = try SchemaInput(arguments.resourceOperations)
+    if let output = arguments.identityOutput {
+        let emitter = try IdentityEmitter(
+            sdk: SchemaFile<SDKSchemaHeader>(sdk),
+            resource: SchemaFile<ResourceOperationsHeader>(resource)
+        )
+        try GeneratedFile(url: output).write(emitter.emit())
     }
-    try GeneratedFile(url: arguments.methodTableOutput).write(table.source())
+    if let output = arguments.methodTableOutput {
+        let table: TableEmitter
+        do {
+            table = try TableEmitter(sdkSchema: sdk.bytes, resourceOperations: resource.bytes)
+        } catch {
+            throw WireGenError.methodTable(error)
+        }
+        try GeneratedFile(url: output).write(table.source())
+    }
+    if let output = arguments.eventOutput {
+        let events: EventEmitter
+        do {
+            events = try EventEmitter(sdkSchema: sdk.bytes, resourceOperations: resource.bytes)
+        } catch {
+            throw WireGenError.methodTable(error)
+        }
+        try GeneratedFile(url: output).write(events.source(importing: arguments.eventImport))
+    }
 }
 
 do {

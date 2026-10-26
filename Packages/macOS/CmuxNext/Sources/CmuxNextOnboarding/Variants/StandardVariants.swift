@@ -7,6 +7,6 @@ struct StandardImport: OnboardingScreenVariant {
     static let surface = OnboardingSurface.fullGlass
     static func makeContent(_ context: OnboardingStepContext) -> NSView {
         OnboardingScaffold.make(title: OnboardingStrings.importTitle, subtitle: nil,
-                                body: ImportStepView(model: context.model.importer), context: context)
+                                body: ImportStepView(model: context.model.importer, mainWork: context.mainWork), context: context)
     }
 }

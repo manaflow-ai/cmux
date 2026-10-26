@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextCompat
 import CmuxNextInput
+import CmuxNextWakeups
 
 /// Strip on the sidebar's edge facing the content that resizes it. Invisible until
 /// the pointer is over it; then a hairline fades in (and stays while
@@ -22,7 +23,7 @@ final class SidebarResizeHandle: NSView {
     /// frame interval's first event and once more at its frame, to the latest point, as Chromium
     /// delivers rAF-aligned moves (`third_party/blink/renderer/platform/widget/input/
     /// main_thread_event_queue.cc`). Nil: every drag event resizes at once.
-    var pointerFrames: PointerFrameCoalescers?
+    var pointerFrames: FrameInputCoalescers?
     /// This drag's consumer of its window's coalescer, from mouse-down to mouse-up.
     private var frameDrag: PointerFrameConsumer?
     private(set) var isDragging = false { didSet { updateLine() } }

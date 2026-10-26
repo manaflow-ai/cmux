@@ -1,5 +1,4 @@
 public import AppKit
-public import CmuxNextInput
 public import CmuxNextTerminalFind
 public import CmuxNextTrace
 public import CmuxNextWakeups
@@ -120,7 +119,7 @@ public final class TerminalSession {
     /// Passed to each surface view this session makes: the terminals' one modifier watch.
     private let modifiers: TerminalModifierWatch?
     /// Passed to each surface view this session makes: the windows' frame-aligned pointer input.
-    private let pointerFrames: PointerFrameCoalescers?
+    private let pointerFrames: FrameInputCoalescers?
     private let input: TerminalInputSink
     private let echoStages: TerminalEchoStages
     private var eventsTask: Task<Void, Never>?
@@ -162,7 +161,7 @@ public final class TerminalSession {
                 echoStages: TerminalEchoStages = GhosttyRuntime.shared.echoStages,
                 hangWatch: (any HangWatchScoping)? = nil,
                 secureInput: TerminalSecureInput = GhosttyRuntime.shared.secureInput,
-                modifiers: TerminalModifierWatch? = nil, pointerFrames: PointerFrameCoalescers? = nil,
+                modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil,
                 mainWork: MainWorkScheduler, node: VisibilityNode? = nil) {
         self.io = io
         self.ownsGeometry = ownsGeometry

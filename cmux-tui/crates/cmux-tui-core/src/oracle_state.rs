@@ -6,13 +6,24 @@
 //! from the `session.snapshot` builder (`resource_session_snapshot_at_cut`,
 //! which also fills the connection's `clients`) and adds only what the public
 //! reads lack: the refactor switch arms, terminal attach counts, live runtime
-//! object counts and the owner's panic log. The counts are read from the
+//! object counts, the owner's panic log and the holder exits this owner
+//! counted (task 188, invariant I17). The counts are read from the
 //! cut's own `State`, except `liveObjects.subscriptions` (event bus state,
 //! read just after the cut). It is Blink's `InstanceCounters` read through `internals` in web tests
 //! (third_party/blink/renderer/platform/instrumentation/instance_counters.h,
 //! third_party/blink/renderer/core/testing/internals.cc): counts of live
 //! objects, compiled only into test builds. Here that is debug builds and
 //! `--features oracle`; a release daemon has no `oracle-state` command.
+//!
+//! The child exits are Chromium's `NoRendererCrashesAssertion`
+//! (content/public/test/browser_test_base.h) for the daemon's children: the
+//! terminal holders of this session that ended (lost, or replaced on their
+//! running shell), counted by this owner where it logs them
+//! (`Mux::note_holder_exit`). The count is this owner's own, so it never
+//! falls with the loss log's rotation and never takes another session's
+//! holders; it restarts at zero with the owner. The owner's own abnormal end
+//! is not here: the app counts it (a connection lost without
+//! `daemon-shutdown`), since a crashed owner cannot.
 //!
 //! Every map is a `BTreeMap`, so the reply's keys are sorted and two daemons
 //! in the same state reply with the same bytes.
@@ -57,7 +68,18 @@ pub(crate) struct OracleState {
     pub(crate) live_objects: BTreeMap<&'static str, u64>,
     #[serde(rename = "panicLog")]
     pub(crate) panic_log: PanicLog,
+    /// Child exit kind (`holder`, one of the crashes facet's kinds) to the
+    /// exits this owner counted since it started.
+    #[serde(rename = "childExits")]
+    pub(crate) child_exits: ChildExits,
 }
+
+/// Child exit kind to count.
+pub(crate) type ChildExits = BTreeMap<&'static str, u64>;
+
+/// A holder (terminal host) ended without its terminal's exit: a host loss,
+/// or a host replaced on its still-running shell (the old host still died).
+const HOLDER: &str = "holder";
 
 /// The terminal catalog by attach state. A terminal whose process ended is
 /// `dead`; a live one shown in at least one pane tab is `attached`; a live one
@@ -94,6 +116,7 @@ pub(crate) fn oracle_state(mux: &Mux, client: u64) -> anyhow::Result<OracleState
         terminal_attach,
         live_objects,
         panic_log: panic_log(&mux.session),
+        child_exits: child_exits(mux.oracle_holder_exits()),
     })
 }
 
@@ -102,7 +125,13 @@ fn runtime_counts(state: &State) -> (TerminalAttach, BTreeMap<&'static str, u64>
     let placed: BTreeSet<_> =
         state.surfaces.values().filter_map(|surface| surface.terminal_runtime_id()).collect();
     let mut attach = TerminalAttach::default();
+    // Live terminals hosted out of process: their holders run. A local test
+    // runtime has no host connection.
+    let mut holders = 0;
     for terminal in state.terminal_catalog.values() {
+        if !terminal.is_dead() && terminal.terminal_host_connection_state().is_some() {
+            holders += 1;
+        }
         let bucket = if terminal.is_dead() {
             &mut attach.dead
         } else if terminal.terminal_runtime_id().is_some_and(|id| placed.contains(&id)) {
@@ -115,6 +144,7 @@ fn runtime_counts(state: &State) -> (TerminalAttach, BTreeMap<&'static str, u64>
     let browsers = state.surfaces.values().filter(|surface| surface.as_browser().is_some());
     let live = BTreeMap::from([
         ("browsers", count(browsers.count())),
+        ("holders", count(holders)),
         ("panes", count(state.panes.len())),
         ("screens", count(state.workspaces.iter().map(|ws| ws.screens.len()).sum())),
         ("terminals", count(state.terminal_catalog.len())),
@@ -129,6 +159,11 @@ fn panic_log(session: &str) -> PanicLog {
     let bytes =
         path.as_deref().and_then(|path| std::fs::metadata(path).ok()).map_or(0, |m| m.len());
     PanicLog { path: path.map(|path| path.to_string_lossy().into_owned()), bytes }
+}
+
+/// The child exits this owner counted, by kind.
+pub(crate) fn child_exits(holders: u64) -> ChildExits {
+    BTreeMap::from([(HOLDER, holders)])
 }
 
 fn count(value: usize) -> u64 {

@@ -31,6 +31,13 @@ extension AddressBarView: OmnibarPopupSurface {
     func highlightRow(_ row: Int?) { panel.highlight(row) }
 
     func dismissRows() { panel.dismiss() }
+
+    /// The press landed on the bar itself inside the text area, not on a
+    /// chip, badge or star that passed it up the responder chain.
+    func isBarHit(_ event: NSEvent) -> Bool {
+        guard let superview, hitTest(superview.convert(event.locationInWindow, from: nil)) === self else { return false }
+        return textArea.contains(convert(event.locationInWindow, from: nil))
+    }
 }
 
 extension AddressBarView: OmnibarFieldEditorSink {

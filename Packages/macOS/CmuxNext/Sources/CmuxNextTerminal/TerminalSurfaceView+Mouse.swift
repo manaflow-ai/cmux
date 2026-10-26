@@ -37,7 +37,7 @@ extension TerminalSurfaceView {
         previousPressureStage = 0
         defer {
             linkPressInCapture = false
-            if let surface { ghostty_surface_mouse_pressure(surface, 0, 0) }
+            mouse.pressure(stage: 0, pressure: 0)
         }
         if linkPointer.mouseUp(event) { return }
         sendButton(event, state: GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_LEFT, phase: .followingPress)
@@ -130,16 +130,24 @@ extension TerminalSurfaceView {
     }
 
     public override func pressureChange(with event: NSEvent) {
-        guard let surface else { return }
-        ghostty_surface_mouse_pressure(surface, UInt32(max(event.stage, 0)), Double(event.pressure))
+        sendPressure(stage: event.stage, pressure: event.pressure)
         // Force click (stage 2) opens Quick Look once per press.
         defer { previousPressureStage = event.stage }
-        guard previousPressureStage < 2, event.stage == 2,
+        guard surface != nil, previousPressureStage < 2, event.stage == 2,
               UserDefaults.standard.bool(forKey: "com.apple.trackpad.forceClick") else { return }
         quickLook(with: event)
     }
 
+    /// A force-touch stage and pressure: Ghostty applies it at its last pointer position, so the
+    /// moves and drags waiting for the frame go first.
+    func sendPressure(stage: Int, pressure: Float) {
+        pointerFrames?.flush()
+        mouse.pressure(stage: UInt32(max(stage, 0)), pressure: Double(pressure))
+    }
+
+    /// Ghostty looks up the word at its last pointer position: the waiting moves and drags go first.
     public override func quickLook(with event: NSEvent) {
+        pointerFrames?.flush()
         guard let surface else { return super.quickLook(with: event) }
         var text = ghostty_text_s()
         guard ghostty_surface_quicklook_word(surface, &text) else { return super.quickLook(with: event) }

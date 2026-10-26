@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextInput
+import CmuxNextCompat
 import CmuxNextInputCore
 @testable import CmuxNextTerminal
 import CmuxNextWakeups
@@ -34,6 +34,10 @@ struct TerminalPointerCoalescingTests {
             calls.append("scroll \(Int(x)),\(Int(y))")
         }
 
+        func pressure(stage: UInt32, pressure: Double) {
+            calls.append("pressure \(stage)")
+        }
+
         func clear() { calls.removeAll() }
     }
 
@@ -45,7 +49,7 @@ struct TerminalPointerCoalescingTests {
         let window: NSWindow
         let mouse: CountingMouse
         let scheduler: FrameScheduler
-        let coalescer: PointerFrameCoalescer
+        let coalescer: FrameInputCoalescer
         private var frames = 0
 
         /// `coalesced`: the feature on. `programHasMouse`: the program turned mouse reporting on.
@@ -53,9 +57,8 @@ struct TerminalPointerCoalescingTests {
             _ = NSApplication.shared
             let ledger = WakeupLedger()
             let scheduler = FrameScheduler.testing(clock: ManualClock(), ledger: ledger, mediaTime: { 1000 }) { _ in TestLink() }
-            let coalescer = PointerFrameCoalescer(
-                scheduler: scheduler, fallback: DemandTimer(owner: "PointerFrameCoalescer.fallback", clock: ManualClock(), ledger: ledger))
-            let coalescers = PointerFrameCoalescers(tap: nil) { _ in coalescer }
+            let coalescer = FrameInputCoalescer(scheduler: scheduler, clock: ManualClock(), ledger: ledger)
+            let coalescers = FrameInputCoalescers { _ in coalescer }
             let io = ScriptedTerminalIO()
             let session = TerminalSession(io: io, pointerFrames: coalesced ? coalescers : nil,
                                           mainWork: MainWorkScheduler(budget: MainFrameBudget()))
@@ -96,9 +99,11 @@ struct TerminalPointerCoalescingTests {
         }
 
         /// A scroll over the terminal: pixel (trackpad) deltas unless `units` says lines.
-        func scrollEvent(dy: Int32, phase: CGScrollPhase? = nil, units: CGScrollEventUnit = .pixel) -> NSEvent {
+        func scrollEvent(dy: Int32, phase: CGScrollPhase? = nil, momentum: CGMomentumScrollPhase? = nil,
+                         units: CGScrollEventUnit = .pixel) -> NSEvent {
             let cg = CGEvent(scrollWheelEvent2Source: nil, units: units, wheelCount: 2, wheel1: dy, wheel2: 0, wheel3: 0)!
             if let phase { cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase.rawValue)) }
+            if let momentum { cg.setIntegerValueField(.scrollWheelEventMomentumPhase, value: Int64(momentum.rawValue)) }
             cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: units == .pixel ? 1 : 0)
             return NSEvent(cgEvent: cg)!
         }
@@ -148,6 +153,36 @@ struct TerminalPointerCoalescingTests {
         #expect(harness.mouse.calls.count == 4, "the flushed moves do not go again at the frame")
     }
 
+    /// A flush ends the view's frame interval: the first move after a button is a leading edge again.
+    @Test func aMoveAfterAFlushGoesAtOnce() {
+        let harness = Harness()
+        defer { harness.close() }
+        for step in 0..<3 { harness.view.mouseMoved(with: harness.mouseEvent(.mouseMoved, harness.point(step))) }
+        harness.view.otherMouseDown(with: harness.mouseEvent(.otherMouseDown, harness.point(3)))
+        harness.mouse.clear()
+        let after = harness.point(10)
+        harness.view.mouseMoved(with: harness.mouseEvent(.mouseMoved, after))
+        #expect(harness.mouse.calls == [harness.expected(after)], "the move after the flush reached Ghostty in its own turn")
+        #expect(harness.view.pointerFrames?.hasPending == false)
+        harness.view.mouseMoved(with: harness.mouseEvent(.mouseMoved, harness.point(11)))
+        #expect(harness.view.pointerFrames?.hasPending == true, "the next one waits for the frame")
+        harness.frame()
+        #expect(harness.view.pointerFrames?.maxDeliveriesPerFrame == 2)
+    }
+
+    /// A force-touch pressure lands the latest drag point first: Ghostty applies it at its last position.
+    @Test func pressureSendsTheLatestDragPointFirst() {
+        let harness = Harness()
+        defer { harness.close() }
+        harness.view.mouseDown(with: harness.mouseEvent(.leftMouseDown, harness.point(0)))
+        harness.mouse.clear()
+        let drags = (1...5).map(harness.point)
+        for point in drags { harness.view.mouseDragged(with: harness.mouseEvent(.leftMouseDragged, point)) }
+        harness.view.sendPressure(stage: 1, pressure: 0.5)
+        #expect(harness.mouse.calls == [harness.expected(drags[0]), harness.expected(drags[4]), "pressure 1"])
+        #expect(harness.view.pointerFrames?.hasPending == false)
+    }
+
     /// Drags coalesce like moves, and the release lands the last drag point before the release.
     @Test func theReleaseLandsTheLastDragPointFirst() {
         let harness = Harness()
@@ -159,7 +194,8 @@ struct TerminalPointerCoalescingTests {
         #expect(harness.mouse.calls == [harness.expected(drags[0])], "only the leading drag before the release")
         let release = harness.point(6)
         harness.view.mouseUp(with: harness.mouseEvent(.leftMouseUp, release))
-        #expect(harness.mouse.calls == [harness.expected(drags[0]), harness.expected(drags[5]), harness.expected(release), "release"])
+        #expect(harness.mouse.calls == [harness.expected(drags[0]), harness.expected(drags[5]), harness.expected(release), "release",
+                                        "pressure 0"])
     }
 
     /// The feature off: every move reaches Ghostty at once, as before.
@@ -236,6 +272,102 @@ struct TerminalPointerCoalescingTests {
         harness.view.scrollWheel(with: scroll)
         #expect(harness.mouse.calls == [harness.expected(points[0]), harness.expected(points[2]),
                                         "scroll 0,\(Int(scroll.scrollingDeltaY * 2))"])
+    }
+}
+
+/// Whether a terminal scroll waits for the frame follows ``TerminalMouseCapture``'s answers: a gesture's
+/// first event (or a phaseless one) asks once behind the output, the answer turns coalescing on or off for
+/// the events after it, and an ask still on the lane is not queued again.
+@MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
+struct TerminalMouseCaptureTests {
+    typealias Harness = TerminalPointerCoalescingTests.Harness
+
+    /// The output lane's side: it holds the asks until the test answers them.
+    final class FakeCaptureLane: Sendable {
+        private let waiting = Mutex<[@Sendable (Bool) -> Void]>([])
+        private let made = Mutex(0)
+
+        var asks: Int { made.withLock { $0 } }
+
+        var ask: TerminalMouseCapture.Ask {
+            { [self] answer in
+                made.withLock { $0 += 1 }
+                waiting.withLock { $0.append(answer) }
+            }
+        }
+
+        /// The lane parsed the output queued before the asks: the program has the mouse or not.
+        func answer(_ hasMouse: Bool) {
+            let answers = waiting.withLock { pending in
+                let taken = pending
+                pending.removeAll()
+                return taken
+            }
+            for answer in answers { answer(hasMouse) }
+        }
+    }
+
+    private func fakeLane(on harness: Harness) -> FakeCaptureLane {
+        let lane = FakeCaptureLane()
+        harness.view.mouseCapture = TerminalMouseCapture(ask: lane.ask)
+        return lane
+    }
+
+    /// A began asks; its changes, its ended and the momentum after it do not; a phaseless scroll asks.
+    @Test func onlyAGesturesFirstEventAsks() {
+        let harness = Harness()
+        defer { harness.close() }
+        let lane = fakeLane(on: harness)
+        harness.view.scrollWheel(with: harness.scrollEvent(dy: 1, phase: .began))
+        #expect(lane.asks == 1)
+        lane.answer(false)
+        for dy: Int32 in [2, 3] { harness.view.scrollWheel(with: harness.scrollEvent(dy: dy, phase: .changed)) }
+        harness.view.scrollWheel(with: harness.scrollEvent(dy: 0, phase: .ended))
+        for dy: Int32 in [4, 2] { harness.view.scrollWheel(with: harness.scrollEvent(dy: dy, momentum: .continuous)) }
+        harness.view.scrollWheel(with: harness.scrollEvent(dy: 0, momentum: .end))
+        #expect(lane.asks == 1, "changes, the end and momentum keep the gesture's answer")
+        harness.view.scrollWheel(with: harness.scrollEvent(dy: 3))
+        #expect(lane.asks == 2, "a phaseless scroll is its own gesture")
+    }
+
+    /// While an ask is on the lane a second gesture does not queue another; after the answer one does.
+    @Test func aPendingAskIsNotQueuedTwice() {
+        let harness = Harness()
+        defer { harness.close() }
+        let lane = fakeLane(on: harness)
+        harness.view.scrollWheel(with: harness.scrollEvent(dy: 1, phase: .began))
+        harness.view.scrollWheel(with: harness.scrollEvent(dy: 0, phase: .ended))
+        harness.view.scrollWheel(with: harness.scrollEvent(dy: 1, phase: .began))
+        #expect(lane.asks == 1, "the first ask still waits behind the output")
+        lane.answer(false)
+        harness.view.scrollWheel(with: harness.scrollEvent(dy: 1, phase: .began))
+        #expect(lane.asks == 2)
+    }
+
+    /// The answer decides the next events: yes coalesces a gesture's changes to the frame, no sends each at once.
+    @Test func theAnswerTurnsCoalescingOnAndOff() {
+        let harness = Harness()
+        defer { harness.close() }
+        let lane = fakeLane(on: harness)
+        let changes: [Int32] = [2, 3, 4]
+
+        harness.view.scrollWheel(with: harness.scrollEvent(dy: 1, phase: .began))
+        #expect(harness.mouse.scrolls.count == 1, "no answer yet: the began went at once, as a scrollback scroll")
+        lane.answer(true)
+        for dy in changes { harness.view.scrollWheel(with: harness.scrollEvent(dy: dy, phase: .changed)) }
+        #expect(harness.mouse.scrolls.count == 2, "the program has the mouse: the leading change went, the rest wait")
+        #expect(harness.view.pointerFrames?.hasPending == true)
+        harness.view.scrollWheel(with: harness.scrollEvent(dy: 0, phase: .ended))
+        harness.frame()
+        #expect(harness.view.pointerFrames?.hasPending == false)
+        harness.mouse.clear()
+
+        harness.view.scrollWheel(with: harness.scrollEvent(dy: 1, phase: .began))
+        #expect(lane.asks == 2)
+        lane.answer(false)
+        for dy in changes { harness.view.scrollWheel(with: harness.scrollEvent(dy: dy, phase: .changed)) }
+        #expect(harness.mouse.scrolls.count == 1 + changes.count, "the program let go of the mouse: every change at once")
+        #expect(harness.view.pointerFrames?.hasPending == false)
     }
 }
 

@@ -793,6 +793,7 @@ impl LaneShared {
                     state.workers[index].waiting -= 1;
                     break;
                 };
+                // wakeup-allow: deadline the idle worker's one exit deadline (set at its first idle wait); work ends the wait first
                 state = self.ready_signal[index]
                     .wait_timeout(state, left)
                     .unwrap_or_else(PoisonError::into_inner)
@@ -852,6 +853,7 @@ impl LaneShared {
                     else {
                         break;
                     };
+                    // wakeup-allow: deadline the caller's one bound on the drain; the last job's end ends the wait first
                     state = self
                         .drained
                         .wait_timeout(state, left)

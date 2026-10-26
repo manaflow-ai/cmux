@@ -1,8 +1,9 @@
 import AppKit
 import CmuxNextInput
 import CmuxNextInputCore
+import CmuxNextWakeups
 
-/// One terminal view's pointer input on its window's ``PointerFrameCoalescer`` (feature
+/// One terminal view's pointer input on its window's ``FrameInputCoalescer`` (feature
 /// `terminalPointerFrames`, p04-input-034), as Chromium aligns mouse moves and wheels to the frame
 /// (`third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`, `IsRafAlignedEvent`):
 ///
@@ -17,13 +18,13 @@ import CmuxNextInputCore
 /// The view makes it only while the feature is on, and drops what is pending when it leaves its window.
 @MainActor
 final class TerminalPointerFrames {
-    private let coalescers: PointerFrameCoalescers
+    private let coalescers: FrameInputCoalescers
     private let deliver: @MainActor (PointerCoalescedInput) -> Void
     /// The window ``consumer`` posts to.
     private weak var window: NSWindow?
     private var consumer: PointerFrameConsumer?
 
-    init(coalescers: PointerFrameCoalescers, deliver: @escaping @MainActor (PointerCoalescedInput) -> Void) {
+    init(coalescers: FrameInputCoalescers, deliver: @escaping @MainActor (PointerCoalescedInput) -> Void) {
         self.coalescers = coalescers
         self.deliver = deliver
     }
