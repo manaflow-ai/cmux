@@ -1,5 +1,6 @@
 public import CmuxNextPages
 public import CmuxNextSettings
+public import CmuxNextWakeups
 
 /// A ``PageChromiumHosting`` that hands out ``FakeChromiumPage``s, or fails.
 @MainActor
@@ -14,12 +15,18 @@ public final class FakeChromiumHosting: PageChromiumHosting {
     public private(set) var made: [FakeChromiumPage] = []
     /// Runs on each page made, before the host gets it (a test sets ``FakeChromiumPage/answer`` here).
     public var onMade: ((FakeChromiumPage) -> Void)?
+    /// The lanes the pages decode their large replies on (a test's own).
+    public let work: BackgroundWork
 
     /// The error ``makePage(_:)`` throws while ``fails`` is set.
     public struct Refused: Error {}
 
     /// Makes a host that serves every page.
-    public init() {}
+    ///
+    /// - Parameter work: The lanes for ``PageChromiumHosting/work``; by default a one-wide set of the test's own.
+    public init(work: BackgroundWork = BackgroundWork(cpuWidth: 1, label: "test.fake-chromium-hosting")) {
+        self.work = work
+    }
 
     /// Serves every page.
     public func serves(_ page: PageDescriptor) -> Bool { true }

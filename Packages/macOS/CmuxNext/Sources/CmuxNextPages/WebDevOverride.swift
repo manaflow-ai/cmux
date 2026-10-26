@@ -89,7 +89,7 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
     /// value, an empty override for invalid JSON or `"enabled": false`. `server` must pass
     /// ``PageDevServer/loopbackURL(_:)``; `overlay` is an absolute path or one under `~`.
     public static func parse(_ data: Data, home: URL) -> WebDevOverride {
-        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+        guard let object = (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any],
               (object["enabled"] as? Bool) ?? true
         else { return WebDevOverride() }
         var value = WebDevOverride()

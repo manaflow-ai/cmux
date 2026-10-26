@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import Darwin
 import Foundation
+import ImageIO
 import LocalAuthentication
 
 /// Reads the Chromium framework's code and resources into the file cache on
@@ -87,7 +88,7 @@ nonisolated struct CEFFrameworkPrefetch: Sendable {
 
     /// Reads every file of `layout` but the binary (``readBinary(_:)`` read
     /// it before the map) once (call off the main thread), then primes
-    /// ImageIO (`CEFRuntime.primeImageIO`).
+    /// ImageIO (``primeImageIO()``).
     static func warm(_ layout: CEFRuntimeLayout) {
         // The service asks run beside the read and the start, never in its
         // way: a slow or hung daemon must not hold Chromium's start.
@@ -113,7 +114,17 @@ nonisolated struct CEFFrameworkPrefetch: Sendable {
             report.duration = report.binary + duration
             stored = report
         }
-        CEFRuntime.primeImageIO()
+        primeImageIO()
+    }
+
+    /// The first Chromium window decodes its first image with
+    /// `-[NSImage initWithData:]` on the main thread, and ImageIO builds its
+    /// process-wide plugin list on first use (about 70 ms measured). Asking
+    /// for an image type here builds that list on this background thread.
+    static func primeImageIO() {
+        // A 1x1 PNG header is enough for the type sniff.
+        let png: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
+        _ = CheckedImageSource(Data(png))?.type
     }
 
     /// Reads each file to its end; returns the bytes and files read.

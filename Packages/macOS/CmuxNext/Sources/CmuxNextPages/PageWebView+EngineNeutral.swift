@@ -1,11 +1,15 @@
 public import AppKit
+import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 import WebKit
 
-// Calls a host makes on a page whichever engine shows it (WebKit, or Chromium through the DevTools
-// protocol), so a host never reaches into ``PageWebView/webKitView`` for them: a script, a picture
-// of the page, the next drawn frame, and extra message handlers. A function's value is
-// ``PageWebView/callPageFunction(_:arguments:)``.
+// Calls a host makes on a page whichever engine shows it (WebKit, or Chromium through
+// ``PageChromiumPage``), so a host never reaches into ``PageWebView/webKitView`` for them: a script,
+// a picture of the page, the next drawn frame, and extra message handlers. A function's value is
+// ``PageWebView/callPageFunction(_:arguments:)``; in Chromium it runs through
+// ``PageChromiumPage/evaluate(_:)``, which a CEF page answers with the fork's `tabEvaluate` on
+// renderer paths (fork API 29), so there the frame wait makes no DevTools call.
 extension PageWebView {
     /// Whether a Chromium page shows the document now (``engineDecision`` may still say Chromium
     /// while the page starts).
@@ -22,13 +26,12 @@ extension PageWebView {
     /// In Chromium it is a fast-mode JPEG: the browser encodes the capture on its UI thread, which
     /// is the app's main thread, and a full retina PNG took 80-140 ms there (see `CEFThumbnail`).
     /// The picture is a cover shown while the page draws again, so JPEG is plenty. The reply (a
-    /// multi-megabyte base64 string) is parsed and decoded off the main actor.
+    /// multi-megabyte base64 string) is parsed and decoded on the `.cpu` lane (``capturedPageImage(_:on:)``).
     public func snapshot() async -> NSImage? {
-        guard let page = chromiumSession?.page else { return try? await webView.takeSnapshot(configuration: nil) }
-        guard let json = try? await page.devTools("Page.captureScreenshot", params: Self.snapshotParams),
-              let data = await Self.screenshotData(json), let image = NSImage(data: data) else { return nil }
-        image.size = bounds.size
-        return image
+        guard let session = chromiumSession else { return try? await webView.takeSnapshot(configuration: nil) }
+        guard let json = try? await session.page.devTools("Page.captureScreenshot", params: Self.snapshotParams),
+              let image = await Self.capturedPageImage(json, on: session.work) else { return nil }
+        return NSImage(cgImage: image, size: bounds.size)
     }
 
     /// Whether ``snapshot()`` keeps the page's clear areas the color the pane shows under them. A
@@ -39,10 +42,24 @@ extension PageWebView {
     /// `Page.captureScreenshot` for ``snapshot()``.
     nonisolated static var snapshotParams: [String: any Sendable] { ["format": "jpeg", "quality": 85, "optimizeForSpeed": true] }
 
-    /// The image bytes of a `Page.captureScreenshot` reply, parsed off the main actor.
-    @concurrent nonisolated static func screenshotData(_ json: String) async -> Data? {
-        guard let object = ChromiumPageHostWire.object(json), let base64 = object["data"] as? String else { return nil }
-        return Data(base64Encoded: base64)
+    /// The image of a `Page.captureScreenshot` reply, parsed and decoded on `work`'s `.cpu` lane at the caller's
+    /// priority (a full window is megabytes, far above the main-thread image gate), so the main actor only wraps the
+    /// pixels. Chrome decodes such images in its data decoder service, off the UI thread
+    /// (services/data_decoder/public/cpp/decode_image.h). Nil when the reply holds no image or the lanes shut down.
+    ///
+    /// - Parameters:
+    ///   - json: The method's JSON result.
+    ///   - work: The app's lanes.
+    /// - Returns: The decoded image.
+    nonisolated static func capturedPageImage(_ json: String, on work: BackgroundWork) async -> CGImage? {
+        try? await work.run(WorkPriority(Task.currentPriority), mayBlock: .cpu) { Self.capturedPageImage(json) }
+    }
+
+    /// The image of a `Page.captureScreenshot` reply, parsed and decoded on the calling thread.
+    nonisolated static func capturedPageImage(_ json: String) -> CGImage? {
+        guard let object = ChromiumPageHostWire.object(json), let base64 = object["data"] as? String,
+              let data = Data(base64Encoded: base64) else { return nil }
+        return blockingImageDecode(data)
     }
 
     /// Runs `body` once the page drew its next frame: an animation frame and a task in the page, then

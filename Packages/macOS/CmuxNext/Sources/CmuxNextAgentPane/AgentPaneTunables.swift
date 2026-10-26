@@ -124,21 +124,14 @@ public nonisolated enum AgentPaneSidebarPreviewVariant: String, Sendable, CaseIt
 /// Debug Settings declarations of the agent pane (DEV and NIGHTLY).
 public nonisolated struct AgentPaneTunables {
     public nonisolated init() {}
-    /// The agent pane move (react-pages.md): host new agent tabs on the shared page host
-    /// (`cmux-page://cmux.agent/`) instead of the pane's own host. Off until the move is done; this
-    /// tunable goes with the old host (P5).
-    public static let pageHost = Tunable<Bool>.toggle(
-        "agent.pageHost", PageTunables.section, "Agent pane on the page host",
-        help: "New agent tabs load cmux-page://cmux.agent/ on the shared page host.",
-        default: false, code: "AgentPaneTunables.pageHost")
     /// The agent chat in Chromium (Leo 2026-10-20 spike; on by default since Lawrence asked for every
-    /// cmux page in Chromium, 2026-10-21): new agent tabs go on the page host and its page leaves the
-    /// ``PageWebKitReason/agentChat`` hold, so it shows in Chromium when `browser.defaultEngine` is
-    /// Chromium. A Chromium page is an opaque child window, so window glass does not show through
-    /// it. Off keeps the agent chat on WebKit.
+    /// cmux page in Chromium, 2026-10-21): the page leaves the ``PageWebKitReason/agentChat`` hold,
+    /// so it shows in Chromium when `browser.defaultEngine` is Chromium. A Chromium page is an opaque
+    /// child window, so window glass does not show through it. Off keeps the agent chat on the page
+    /// host's WebKit.
     public static let chromium = Tunable<Bool>.toggle(
         "agent.chromium", PageTunables.section, "Agent chat in Chromium (spike)",
-        help: "New agent tabs show in Chromium instead of WebKit, on the page host, when the browser engine is Chromium.",
+        help: "New agent tabs show in Chromium instead of WebKit when the browser engine is Chromium.",
         default: true, code: "AgentPaneTunables.chromium")
     /// The Inspector at the right of every agent chat, Chief included (cx-ncc.101; Leo 2026-10-20):
     /// Environment, Context, Connectors, Changes, Servers, Subagents, Background tasks and Outputs,
@@ -337,18 +330,6 @@ public nonisolated struct AgentPaneTunables {
         return attributes
     }
 
-    /// `documentAttributes` as a script run at document start, for the pane's own web view. Names
-    /// and values are the fixed lowercase strings above, so they need no escaping.
-    @MainActor static var documentScript: String? {
-        let attributes = documentAttributes
-        guard !attributes.isEmpty else { return nil }
-        let sets = attributes.keys.sorted().map { name in
-            "document.documentElement.setAttribute('data-\(name)', '\(attributes[name] ?? "")');"
-        }.joined(separator: " ")
-        // At document start the parser may not have made <html> yet; the page's scripts run later.
-        return "(() => { const set = () => { \(sets) }; if (document.documentElement) set(); else document.addEventListener('readystatechange', set, { once: true }); })();"
-    }
-
     /// The composer's reasoning menu draws a stepped slider from Faster to Smarter instead of its
     /// list of levels (an opt-in look, off by default). Unlike the fold above it applies live: it reaches every
     /// agent page as the `composer` event's `reasoningSlider` (AgentPaneComposerSetting, webviews composerSettings.ts).
@@ -418,7 +399,6 @@ public nonisolated struct AgentPaneTunables {
             newTabPrivateChatLists.descriptor,
             newTabWidgets.descriptor,
             openOutsideChatsViewOnly.descriptor,
-            pageHost.descriptor,
             reasoningSlider.descriptor,
             reasoningSliderStyle.descriptor,
             sessionStatus.descriptor,

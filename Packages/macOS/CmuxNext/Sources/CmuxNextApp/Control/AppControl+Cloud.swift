@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextCompat
 import Foundation
 import CmuxNextControl
 import CmuxNextSettings
@@ -48,7 +49,7 @@ extension AppControl {
                 // The daemon wire value, as this socket's JSON value.
                 let report = await cloud.ensureLinkReport()
                 guard let data = try? JSONEncoder().encode(report),
-                      let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return .null }
+                      let object = try? JSONSerialization.blockingJSONObject(with: data, options: [.fragmentsAllowed]) else { return .null }
                 return CmuxNextSettings.JSONValue(foundation: object) ?? .null
             },
             // Ends the Cloud session here without the app's sign-out (as an

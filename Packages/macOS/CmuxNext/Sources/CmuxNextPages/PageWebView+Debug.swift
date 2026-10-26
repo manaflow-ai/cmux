@@ -175,6 +175,75 @@ extension PageWebView {
         return .object(hovered)
     }
 
+    /// This page's fields of a `debug.webui` row (``WebUICensus``): what the host knows of the
+    /// page's state and what reached it while hidden.
+    nonisolated public struct Census: Equatable, Sendable {
+        /// `chromium` while a Chromium page shows the document, else `webkit`.
+        public var engine: String
+        /// The person cannot see the page: the engine was told it is hidden (no window or a hidden
+        /// ancestor), or it waits in a spare's parking view. Chrome counts no spare renderer as
+        /// visible (`WebContents::GetVisibility`, content/public/browser/web_contents.h).
+        public var hidden: Bool
+        /// The visibility the host last gave the engine; a parked spare is visible to its engine.
+        public var engineVisible: Bool
+        /// Seconds since the page was last hidden; nil while it shows.
+        public var hiddenForSeconds: Double?
+        /// The document has not finished loading.
+        public var loading: Bool
+        /// Parked in ``PageHostPool``'s parking view.
+        public var parked: Bool
+        /// Made by ``PageHostPool`` (may be rebound to another page).
+        public var pooled: Bool
+        /// Router events delivered while hidden (``PageRouter/debugDeliveriesWhileHidden``).
+        public var deliveriesWhileHidden: Int
+        /// Native script pushes (theme, glass, document attributes) while hidden.
+        public var pushesWhileHidden: Int
+    }
+
+    /// The page's `debug.webui` fields now.
+    public var census: Census {
+        Census(engine: chromiumSession != nil ? "chromium" : "webkit",
+               hidden: router.debugPageHidden, engineVisible: censusState.engineVisible,
+               hiddenForSeconds: censusState.hiddenSince.map { max(0, now().timeIntervalSince($0)) },
+               loading: !loaded, parked: isParkedSpare, pooled: isPooled,
+               deliveriesWhileHidden: router.debugDeliveriesWhileHidden,
+               pushesWhileHidden: censusState.pushesWhileHidden)
+    }
+
+    /// Zeroes the while-hidden counters (`debug.webui {reset: true}`, a bench's window start).
+    public func resetCensusCounters() {
+        router.debugDeliveriesWhileHidden = 0
+        censusState.pushesWhileHidden = 0
+    }
+
+    /// Records the visibility the host just gave the engine.
+    func noteCensusVisibility(_ visible: Bool) {
+        censusState.engineVisible = visible
+        updateCensusHidden()
+    }
+
+    /// A parking view took `subview` in (`parked`) or lets it go: every page view in it is parked
+    /// or not. A New Tab spare's page sits inside its agent pane view, which is what moves.
+    public static func noteCensusParked(_ parked: Bool, in subview: NSView) {
+        guard let page = subview as? PageWebView else {
+            for child in subview.subviews { noteCensusParked(parked, in: child) }
+            return
+        }
+        page.censusState.parked = parked
+        page.updateCensusHidden()
+    }
+
+    /// The hidden flag the counters read, and when the page was hidden.
+    private func updateCensusHidden() {
+        let hidden = !censusState.engineVisible || censusState.parked
+        router.debugPageHidden = hidden
+        if !hidden {
+            censusState.hiddenSince = nil
+        } else if censusState.hiddenSince == nil {
+            censusState.hiddenSince = now()
+        }
+    }
+
     /// The zoom the page shows at in either engine (UI scale times the page's own zoom): page
     /// CSS pixels are view points divided by it.
     public var debugPageZoom: Double { pageZoom }
@@ -232,19 +301,21 @@ extension PageWebView {
         let image: NSImage? = await withCheckedContinuation { continuation in
             webView.takeSnapshot(with: nil) { image, _ in continuation.resume(returning: image) }
         }
-        guard let image, let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff),
-              let png = bitmap.representation(using: .png, properties: [:]) else { return false }
+        guard let image = image?.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return false }
         return (try? png.write(to: url)) != nil
     }
 
     /// Whether pages keep drawing in an occluded window: automation launches only
-    /// (`CMUX_NEXT_NO_ACTIVATE=1` or `CMUX_NEXT_SOCKET_MODE=automation`).
+    /// (`CMUX_NEXT_NO_ACTIVATE=1` or `CMUX_NEXT_SOCKET_MODE=automation`), never with
+    /// `CMUX_NEXT_BENCH_SHIPPING_DRAW=1` (``WindowDrawPolicy/drawsOccludedWindows(_:)``: an energy
+    /// bench measures the user's draw).
     /// `CMUX_NEXT_PAGES_WEBKIT_OCCLUSION=1` keeps WebKit's own throttling in an automation launch,
     /// so a live check can prove the user path (a covered window that comes back redraws).
     nonisolated public static func rendersWhenCovered(_ environment: [String: String]) -> Bool {
         guard environment["CMUX_NEXT_PAGES_WEBKIT_OCCLUSION"] != "1" else { return false }
         // The one automation rule for every window surface (terminals, pages).
-        return WindowDrawPolicy.isAutomationLaunch(environment)
+        return WindowDrawPolicy.drawsOccludedWindows(environment)
     }
 
     /// `-[WKWebView _setWindowOcclusionDetectionEnabled:]`, when this WebKit has it, so a tagged

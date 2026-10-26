@@ -125,6 +125,7 @@ impl StandbyHostSlot {
     }
 
     /// Starts one refill on `pool` when a spare is wanted and none exists.
+    #[track_caller]
     pub(crate) fn refill(self: &Arc<Self>, pool: &super::TerminalWorkPool) {
         if !self.begin_refill() {
             return;

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import CmuxNextWakeups
 
@@ -28,7 +29,7 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     /// and restoring many chats offline must not fill the pool (cx-mb1e0).
     private static let queue: OperationQueue = {
         let queue = OperationQueue()
-        queue.name = "header-pull-request"
+        queue.name = "com.cmuxterm.app.next.agent-pane.pull-request"
         queue.maxConcurrentOperationCount = 2
         queue.qualityOfService = .utility
         return queue
@@ -144,7 +145,7 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     /// mention (no `data`), or whose null comes with an error other than NOT_FOUND (SSO, a resource
     /// limit), is left out, so it keeps its last answer.
     static func pullRequests(fromGraphQL data: Data, _ targets: [Target]) -> [String: AgentPanePullRequest?] {
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        guard let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
               let answers = object["data"] as? [String: Any] else { return [:] }
         let unanswered = Set(((object["errors"] as? [[String: Any]]) ?? []).compactMap { error -> String? in
             guard (error["type"] as? String) != "NOT_FOUND" else { return nil }

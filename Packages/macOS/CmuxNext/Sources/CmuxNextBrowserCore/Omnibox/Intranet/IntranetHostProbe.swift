@@ -13,7 +13,7 @@ public import Foundation
 /// for `answerLifetime` (a VPN that connects later is seen within it).
 ///
 /// ```swift
-/// let probe = IntranetHostProbe(lookup: SystemHostLookup(), behavior: .withInterceptionCheck)
+/// let probe = IntranetHostProbe(lookup: SystemHostLookup(runner: work), behavior: .withInterceptionCheck)
 /// if await probe.resolves("wiki") { memory.record("wiki", resolves: true) }
 /// ```
 public actor IntranetHostProbe {

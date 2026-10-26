@@ -13,17 +13,18 @@ import os
 /// Stop condition: it runs while a window's indicator subscribes
 /// (`subscribe()`: the Debug toggle `hostPressure.enabled` is on and that window
 /// can be seen), and stops when the last one unsubscribes (toggle off, or every
-/// window hidden, minimized, occluded or closed) and at quit (`stop()`). Cleanup: the monitor cancels its memory
-/// pressure source, its timer and any read in flight, and drops a level change
-/// still queued.
+/// window hidden, minimized, occluded or closed) and at quit (`stop()`). Cleanup: the monitor ends its
+/// subscription to the app's memory pressure feed, cancels its timer and any read in flight, and drops
+/// a level change still queued.
 @MainActor @Observable
 final class HostPressureService {
     /// The app's one service, made by the first window's indicator.
     private static var current: HostPressureService?
 
-    static func shared(acpmux: @autoclosure () -> AcpmuxEnvironment?) -> HostPressureService {
+    static func shared(acpmux: @autoclosure () -> AcpmuxEnvironment?,
+                       memoryPressure: @autoclosure () -> HostPressureMonitor.MemoryPressureSubscription) -> HostPressureService {
         if let current { return current }
-        let service = HostPressureService(acpmux: acpmux())
+        let service = HostPressureService(acpmux: acpmux(), memoryPressure: memoryPressure())
         current = service
         return service
     }
@@ -56,19 +57,21 @@ final class HostPressureService {
     /// The generation the monitor should run for, read by the monitor actor itself right before it
     /// builds its timer, so a stop issued while a start hop is in flight wins.
     @ObservationIgnored private let wanted = OSAllocatedUnfairLock(initialState: 0)
-    private static let log = Logger(subsystem: "com.cmuxterm.next", category: "host-pressure")
+    private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "host-pressure")
 
     /// `acpmux`: the daemon whose verdict counts, nil without one (showcase, mock agent host).
-    init(acpmux: AcpmuxEnvironment?, store: TunableStore = .shared) {
+    /// `memoryPressure`: the app's one memory pressure feed (`MemoryPressureEvents.hostPressureSubscription`).
+    init(acpmux: AcpmuxEnvironment?, memoryPressure: @escaping HostPressureMonitor.MemoryPressureSubscription,
+         store: TunableStore = .shared) {
         self.acpmux = acpmux
         var reader: (@Sendable () async -> HostBudgetVerdict?)?
         if let acpmux {
             reader = { @Sendable () async -> HostBudgetVerdict? in
                 guard let data = await acpmux.hostPressure() else { return nil }
-                return try? JSONDecoder().decode(HostBudgetVerdict.self, from: data)
+                return try? JSONDecoder().blockingDecode(HostBudgetVerdict.self, from: data)
             }
         }
-        monitor = HostPressureMonitor(source: LocalHostPressureSource(acpmux: reader))
+        monitor = HostPressureMonitor(source: LocalHostPressureSource(acpmux: reader), memoryPressure: memoryPressure)
         // task-owner: the service (cancelled in stop()); event-driven (Observation of the tunable store)
         forceObservation = Task { [weak self] in
             for await force in ObservationStream({ HostPressureTunables.force.value(in: store) }) {
@@ -90,7 +93,7 @@ final class HostPressureService {
     var isMonitoring: Bool { running }
     /// Whether Debug Settings forces the level (its sessions are samples, with no Stop).
     var isForced: Bool { forced != nil }
-    /// Whether the monitor itself runs (its timer and source exist), after the hops so far.
+    /// Whether the monitor itself runs (its timer and pressure subscription exist), after the hops so far.
     func monitorIsRunning() async -> Bool {
         await lifecycle?.value
         return await monitor.isRunning
@@ -148,7 +151,7 @@ final class HostPressureService {
         monitoredVerdict = nil
         noteLevel()
         let (monitor, previous) = (monitor, lifecycle)
-        // task-owner: one hop to stop the monitor, after the previous hop; it ends when its source and timer are cancelled
+        // task-owner: one hop to stop the monitor, after the previous hop; it ends when its subscription and timer are cancelled
         lifecycle = Task {
             await previous?.value
             await monitor.stop()
@@ -190,7 +193,7 @@ final class HostPressureService {
         let top = critical
             ? #"[{"session_id":"s1","name":"app-efficiency","turns":9,"processes":410},{"session_id":"s2","name":"chief-fix","turns":7,"processes":302},{"session_id":"s3","name":"gui-push","turns":5,"processes":188}]"#
             : #"[{"session_id":"s1","name":"app-efficiency","turns":4,"processes":80},{"session_id":"s2","name":"chief-fix","turns":3,"processes":61}]"#
-        verdict.top = try? JSONDecoder().decode([HostBudgetSession].self, from: Data(top.utf8))
+        verdict.top = try? JSONDecoder().blockingDecode([HostBudgetSession].self, from: Data(top.utf8))
         return verdict
     }
 }

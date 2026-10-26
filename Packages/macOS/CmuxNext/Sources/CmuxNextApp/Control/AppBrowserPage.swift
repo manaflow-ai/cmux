@@ -89,7 +89,7 @@ enum AppBrowserPage {
         case .screenshot(let capture):
             return try await screenshot(page, tabID: tabID, capture)
         case .cookies(let request):
-            return try await cookies(page, request)
+            return try await cookies(page, request, work: services.work)
         case .input(let input):
             // Trusted input after the page's first load, as a script acts on the loaded document.
             _ = await awaitPendingNavigation(page, within: actionWait)

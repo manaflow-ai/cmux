@@ -134,6 +134,7 @@ extension DaemonStore {
         intentSettlements.removeAll()
         for (transaction, settlement) in settled { onIntentSettled?(transaction, settlement) }
         CancelledCreation.requestCloses(in: self)
+        resumeIdleWaits()
         return result
     }
 

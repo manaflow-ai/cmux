@@ -66,6 +66,8 @@ public final class PageHostPool {
     }
 
     public var isSpareReady: Bool { spare != nil && spareReady }
+    /// The spare host while one waits, ready or still loading (`debug.memory` spares).
+    public var spareHost: PageWebView? { spare }
     public var isBuilding: Bool { building }
     public var claimedHosts: [PageWebView] {
         claimed = claimed.filter { $0.value.view != nil }

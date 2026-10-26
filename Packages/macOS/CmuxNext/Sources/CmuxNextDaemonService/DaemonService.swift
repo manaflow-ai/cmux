@@ -3,6 +3,7 @@ public import CmuxNextActions
 import CmuxNextCompat
 public import CmuxNextControl
 public import CmuxNextDaemon
+public import CmuxNextTrace
 public import CmuxNextWakeups
 import Foundation
 import Network
@@ -29,7 +30,10 @@ public final class DaemonService {
     /// Its connections echo `placement-shift-v1` (this build orders sidebar rows from the
     /// sidebar document; ``DaemonConnectionConfiguration/echoesPlacementShift``).
     let echoesPlacementShift: Bool
-    public let store = DaemonStore()
+    /// Where this machine's daemon connections count their wire traffic (``DaemonWireStats``,
+    /// `debug.daemon.wire`): the app's recorder in Debug and bench builds, else nil.
+    let wireStats: DaemonWireStats?
+    public let store: DaemonStore
     /// Set while an administrator turned this machine's feature off: no endpoint, no re-attach.
     public let policyBlock = PolicyBlock()
     /// Retry Now and Restart cmux-tui while the local daemon cannot be reached (cx-jniyz.1).
@@ -75,6 +79,9 @@ public final class DaemonService {
     /// Callers of `endpoint()` waiting for the first connection (terminals
     /// drawn from the launch snapshot attach as soon as it exists).
     @ObservationIgnored var connectionWaiters: [CheckedContinuation<Void, Never>] = []
+    /// Watches each line the service's connections and its terminal attachments read (their reader threads'
+    /// `daemon.line` scopes); nil watches nothing.
+    @ObservationIgnored public let hangWatch: (any HangWatchScoping)?
 
     /// - Parameters:
     ///   - machineID: `local`, or the remote machine's id.
@@ -82,9 +89,18 @@ public final class DaemonService {
     ///   - mainWork: The app's main-thread scheduler (``MainWorkScheduler``), built at its composition
     ///     root and passed by init; a remote machine's service gets the same one (one main thread, one
     ///     budget). The service keeps only the batcher it builds on it (a test passes one it ticks by hand).
-    public init(machineID: String = "local", echoesPlacementShift: Bool = false, mainWork: MainWorkScheduler) {
+    ///   - wireStats: Where its connections count their wire traffic; the app's composition root passes
+    ///     its recorder (nil in a release build, which counts nothing).
+    ///   - hangWatch: The app's ``HangWatch`` from its composition root, for every connection and terminal
+    ///     attachment this service opens; nil (tests) watches nothing.
+    public init(machineID: String = "local", echoesPlacementShift: Bool = false, mainWork: MainWorkScheduler,
+                wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = nil) {
         self.machineID = machineID
         self.echoesPlacementShift = echoesPlacementShift
+        // Its keyed waits' timeouts share the main thread's one deadline timer.
+        store = DaemonStore(waitDeadlines: mainWork.wakeUps)
+        self.wireStats = wireStats
+        self.hangWatch = hangWatch
         drainScheduler = FrameBatcher(owner: "DaemonStore.drain", scheduler: mainWork.frames)
         retryWake = RetryWake(owner: "DaemonService.retry \(machineID)")
         // The local daemon's kept tabs restart at its first connect (`relaunchKeptLayoutIfNeeded`).
@@ -156,7 +172,8 @@ public final class DaemonService {
             do {
                 launcher = try DaemonLauncher.forApp(build: launch.build,
                                                 terminalEnvironment: terminalEnvironment,
-                                                daemonEnvironment: Self.firstPartyAppsEnvironment, webSocketPageOrigins: Self.pageOrigins)
+                                                daemonEnvironment: Self.firstPartyAppsEnvironment, webSocketPageOrigins: Self.pageOrigins,
+                                                wireStats: wireStats)
             } catch {
                 noteStartupFailure((error as? DaemonError) ?? .launchFailed(String(describing: error)))
                 return
@@ -177,7 +194,8 @@ public final class DaemonService {
         let configuration = Self.localConfiguration(terminalEnvironment: terminalEnvironmentProvider,
                                                     resolvesShellIntegration: resolvesShellIntegration,
                                                     installKey: launcher.configuration.installKey,
-                                                    echoesPlacementShift: echoesPlacementShift, retryWake: retryWake)
+                                                    echoesPlacementShift: echoesPlacementShift, retryWake: retryWake,
+                                                    hangWatch: hangWatch)
         var first: (@Sendable () async -> DaemonPrestart.Outcome)?
         if let prestart {
             // Cancelling the startup (shutdown) cancels the attempt too.
@@ -269,7 +287,8 @@ public final class DaemonService {
     public func start(remote endpoint: @escaping @Sendable () async throws -> String, bridge: DaemonBridge? = nil,
                admit: (@MainActor (DaemonIdentity) throws -> Void)? = nil, onEnd: (@MainActor () -> Void)? = nil) {
         guard runTask == nil, !policyBlock.isBlocked else { return }
-        remoteEndpoint = { DaemonEndpoint(socketPath: try await endpoint()) }
+        let wireStats = wireStats
+        remoteEndpoint = { DaemonEndpoint(socketPath: try await endpoint(), wireStats: wireStats) }
         let store = store
         if let onEnd { store.onDisconnected = onEnd }
         let machineID = machineID
@@ -285,6 +304,7 @@ public final class DaemonService {
         let clock = startupClock
         var configuration = DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil, sessionEvents: true)
         configuration.echoesPlacementShift = echoesPlacementShift
+        configuration.hangWatch = hangWatch
         runTask = Task { [weak self, drainScheduler, logger, configuration] in
             weak let weakSelf = self
             var ends = RetryPacer(.firstConnect)
@@ -292,7 +312,7 @@ public final class DaemonService {
             while !Task.isCancelled {
                 let connected = await DaemonStartup.shared.connect(wake: wake, clock: clock) {
                     DaemonConnection(configuration: configuration) {
-                        DaemonEndpoint(socketPath: try await endpoint(), bridge: bridge)
+                        DaemonEndpoint(socketPath: try await endpoint(), bridge: bridge, wireStats: wireStats)
                     }
                 } onFailure: { error in
                     logger.error("\(machineID, privacy: .public): daemon unavailable: \(error.description, privacy: .public)")

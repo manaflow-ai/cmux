@@ -33,13 +33,20 @@
 //! signals ignored); there is no `pre_exec`, `uid` or `gid` ([`Command::new_session`]
 //! and [`Command::process_group`] cover what the daemon's hooks did); a
 //! descriptor other than 0-2 reaches the child only through
-//! [`Command::inherit_fd`].
+//! [`Command::inherit_fd`]. [`Command::inherit_like_std`] (the CLI's
+//! transparent wrappers) and [`Command::exec`] keep std's inheritance instead.
 
 mod child;
+#[cfg(all(unix, not(target_vendor = "apple")))]
+mod child_setup;
 mod command;
+#[cfg(unix)]
+mod fd;
 #[cfg(target_vendor = "apple")]
 mod spawn_apple;
 mod stdio;
+#[cfg(all(test, unix))]
+mod tests;
 
 pub use child::Child;
 pub use command::Command;

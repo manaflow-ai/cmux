@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextResources
 import CmuxNextSettings
 import ObjectiveC
@@ -150,8 +151,8 @@ enum DebugAgentPane {
             // The page as its engine draws it (`AgentPaneView.pageSnapshot`), PNG at `path`: a window
             // snapshot draws no web content, and a build host may have no screen recording.
             let path = params["path"]?.stringValue ?? NSTemporaryDirectory() + "agent-pane-\(pane).png"
-            guard let image = await view.pageSnapshot(),
-                  let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+            guard let image = await view.pageSnapshot()?.cgImage(forProposedRect: nil, context: nil, hints: nil),
+                  case let rep = NSBitmapImageRep(cgImage: image),
                   let png = rep.representation(using: .png, properties: [:]),
                   (try? png.write(to: URL(fileURLWithPath: path))) != nil else {
                 return .object(["pane": .string(pane), "error": .string("snapshot failed")])
@@ -175,7 +176,7 @@ enum DebugAgentPane {
             do {
                 let result = try await view.callPageScript(script)
                 guard let text = result as? String,
-                      let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
+                      let object = try? JSONSerialization.blockingJSONObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
                       let value = JSONValue(foundation: object) else {
                     return .object(["pane": .string(pane), "error": .string("the page returned no close_menus JSON")])
                 }
@@ -199,7 +200,7 @@ enum DebugAgentPane {
         do {
             let result = try await view.callPageScript(script, arguments: ["fn": function, "args": arguments(action, params)])
             guard let text = result as? String,
-                  let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
+                  let object = try? JSONSerialization.blockingJSONObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
                   let value = JSONValue(foundation: object) else {
                 return .object(["pane": .string(pane), "error": .string("the page returned no JSON")])
             }
@@ -241,7 +242,7 @@ enum DebugAgentPane {
             // The script reads `waitForAnimations` as an argument; without it every readiness call threw.
             let result = try await view.callPageScript(script, arguments: ["waitForAnimations": waitForAnimations])
             guard let text = result as? String,
-                  let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
+                  let object = try? JSONSerialization.blockingJSONObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
                   let value = JSONValue(foundation: object),
                   case .object(var members) = value else {
                 return .object(["pane": .string(pane), "error": .string("the page returned no readiness JSON")])

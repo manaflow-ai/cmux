@@ -65,7 +65,7 @@ final class FilePageService: InternalPageProvider {
     static let flushTimeout: Duration = .seconds(3)
 
     init(services: AppServices, kind: FilePageKind, clock: any Clock<Duration> = ContinuousClock(),
-         images: any RemoteImageFetching = GuardedRemoteImages(), documents: FileQuitDocuments? = nil,
+         images: (any RemoteImageFetching)? = nil, documents: FileQuitDocuments? = nil,
          tableWidths: (any MarkdownTableWidthStoring)? = nil) {
         self.services = services
         self.tableWidths = kind == .markdown
@@ -80,7 +80,7 @@ final class FilePageService: InternalPageProvider {
         self.documents = documents ?? services.fileQuitDocuments
         self.kind = kind
         self.clock = clock
-        self.images = images
+        self.images = images ?? GuardedRemoteImages(lanes: services.work) // nil: the guarded fetch, its lookup on the app's lanes
     }
 
     var page: InternalPageID { kind.page }
@@ -358,8 +358,9 @@ final class FilePageService: InternalPageProvider {
         tab.reveal = nil
         let native = AppPageNativeProvider(services: services, page: kind.descriptor)
         let routes = [PageRoute(prefix: kind.namespace + ".", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
-        guard let page = PageWebView(descriptor: kind.descriptor, routes: routes, options: Self.engineOptions, surface: kind.surface,
-                                     dynamicResources: kind == .markdown ? provider : nil) else {
+        guard let page = services.webUI.open(PageOpenRequest(descriptor: kind.descriptor, routes: routes, options: Self.engineOptions,
+                                                             surface: kind.surface,
+                                                             dynamicResources: kind == .markdown ? provider : nil)) else {
             return NSView()
         }
         native.anchor = { [weak page] in page }

@@ -56,6 +56,7 @@ extension BrowserFileImport {
                                                            targetProfileID: profile),
                                 kinds: [.history])
         batch.history = read.entries
+        batch.skippedHistory = read.skipped
         do {
             try await SavingImportDestination.app(services).commit(batch)
         } catch {

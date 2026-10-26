@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CryptoKit
 public import Foundation
 
@@ -30,7 +31,7 @@ nonisolated public struct WebUpdateTree: Sendable {
     public static func abi(inPages pages: URL) -> Int? {
         nonisolated struct File: Decodable { var abi: Int }
         guard let data = try? Data(contentsOf: pages.appending(path: "web-abi.json")) else { return nil }
-        return (try? JSONDecoder().decode(File.self, from: data))?.abi
+        return (try? JSONDecoder().blockingDecode(File.self, from: data))?.abi
     }
 
     /// The `--outputs` digest of the tree. Throws for a link or any other non-regular file, which

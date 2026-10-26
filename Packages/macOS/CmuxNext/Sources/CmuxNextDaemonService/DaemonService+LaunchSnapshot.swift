@@ -2,6 +2,7 @@ import CmuxNextApps
 import CmuxNextCompat
 public import CmuxNextControl
 public import CmuxNextDaemon
+public import CmuxNextTrace
 import Foundation
 import os
 
@@ -43,14 +44,17 @@ extension DaemonService {
     public nonisolated static func prestart(launch: LaunchIdentity, terminalEnvironment: [String: String],
                                      terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                                      resolvesShellIntegration: Bool = false,
-                                     echoesPlacementShift: Bool = false) -> DaemonPrestart? {
+                                     echoesPlacementShift: Bool = false,
+                                     wireStats: DaemonWireStats? = nil,
+                                     hangWatch: (any HangWatchScoping)? = nil) -> DaemonPrestart? {
         guard let launcher = try? DaemonLauncher.forApp(build: launch.build,
                                                 terminalEnvironment: terminalEnvironment,
                                                 daemonEnvironment: firstPartyAppsEnvironment,
-                                                webSocketPageOrigins: pageOrigins) else { return nil }
+                                                webSocketPageOrigins: pageOrigins, wireStats: wireStats) else { return nil }
         return DaemonPrestart(launcher: launcher, configuration: localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
-            installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift))
+            installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift,
+            hangWatch: hangWatch))
     }
 
     /// What the local daemon's supervisor needs from this app at launch: the
@@ -89,7 +93,8 @@ extension DaemonService {
     /// begun in `main` (`prestart`) and for the connections after it.
     nonisolated static func localConfiguration(terminalEnvironment: (@Sendable () async -> [String: String])?,
                                                resolvesShellIntegration: Bool, installKey: FrontendInstallKey?,
-                                               echoesPlacementShift: Bool, retryWake: RetryWake? = nil) -> DaemonConnection.Configuration {
+                                               echoesPlacementShift: Bool, retryWake: RetryWake? = nil,
+                                               hangWatch: (any HangWatchScoping)? = nil) -> DaemonConnection.Configuration {
         // sessionEvents: the state resources (closed history, workspace status,
         // tab records) come only through session.events (nxdog50).
         var configuration = DaemonConnection.Configuration(retryWake: retryWake, terminalEnvironment: terminalEnvironment,
@@ -99,6 +104,7 @@ extension DaemonService {
         // shows it not connected (cx-jniyz.4).
         configuration.localHeartbeat = true
         configuration.echoesPlacementShift = echoesPlacementShift
+        configuration.hangWatch = hangWatch
         return configuration
     }
 

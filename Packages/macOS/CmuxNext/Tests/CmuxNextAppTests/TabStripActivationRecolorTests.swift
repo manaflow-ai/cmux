@@ -16,7 +16,7 @@ import Testing
     @Test func activationRepaintsOnlyTheSelectedTab() throws {
         let model = TabStripModel(tabs: (0..<Self.tabs).map { TabItem(id: TabID("tab\($0)"), title: "Tab \($0)") },
                                   selectedID: TabID("tab1"))
-        let strip = TabStripView(model: model)
+        let strip = TabStripView.testing(model: model)
         strip.dragsWindowFromEmptySpace = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: TabStripView.preferredHeight),
                               styleMask: [.borderless], backing: .buffered, defer: false)

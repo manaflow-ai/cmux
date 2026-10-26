@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextInput
 import CmuxNextTabs
 import Foundation
 import Testing
@@ -29,7 +30,7 @@ struct RestoredNewTabPageTitleTests {
 
     /// The app's agent tabs after a relaunch: they know this Mac and the store, and have made no view.
     private static func agentTabs(_ store: DaemonStore) -> AgentTabStore {
-        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), environment: [:], showcase: true)
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), webUI: .agentTabsTestHost(), input: InputEventTap(), environment: [:], showcase: true)
         tabs.localHost = host
         tabs.lookup = { key in store.tab(id: key)?.agentSession.map { ($0, store) } }
         return tabs

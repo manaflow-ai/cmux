@@ -2,6 +2,7 @@ import Foundation
 import CmuxNextWakeups
 import GhosttyNextKit
 import CmuxNextCompat
+import CmuxNextTrace
 import os
 
 /// Serial, non-main lane for every call that must be serialized with
@@ -40,11 +41,73 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     }
 
     private let backlog = Mutex(Backlog())
+    /// The surface's key-to-echo stage: each parsed output chunk may be a waiting key's echo. Nil
+    /// while the app tracks no input latency.
+    let echoStage: TerminalEchoStage?
+    /// This lane's surface to the typing probe; nil marks nothing.
+    let keyFlows: TypingLatencyProbe.SurfaceKey?
+    /// Where the lane's output hops go (``TypingLatencyProbe/shared``, or a test's).
+    private let probe: TypingLatencyProbe
+    /// Watches each output chunk's parse on the lane, never the lane's queue wait; nil watches nothing.
+    private let hangWatched: HangWatchedLane?
+    /// How long one chunk's `ghostty_surface_process_output` may take before the hang watcher reports
+    /// it: a 256 KiB chunk parses in about a millisecond, so 100 ms means the lane is stuck.
+    static let feedHangDeadline: Duration = .milliseconds(100)
+    /// Parses one output chunk into the surface: `ghostty_surface_process_output`, or a test's recorder.
+    typealias Parse = @Sendable (ghostty_surface_t, Data) -> Void
+    private let parse: Parse
 
-    init(surface: ghostty_surface_t, label: String, highWater: Int = 2 << 20) {
+    init(surface: ghostty_surface_t, label: String, highWater: Int = 2 << 20, echoStage: TerminalEchoStage? = nil,
+         keyFlows: TypingLatencyProbe.SurfaceKey? = nil, probe: TypingLatencyProbe = .shared,
+         hangs: (any HangWatchScoping)? = nil, parse: @escaping Parse = { TerminalOutputLane.processOutput($0, $1) }) {
         self.surface = surface
         self.highWater = highWater
+        self.echoStage = echoStage
+        self.keyFlows = keyFlows
+        self.probe = probe
+        self.parse = parse
+        hangWatched = hangs.map { HangWatchedLane("terminal.feed", deadline: Self.feedHangDeadline, on: $0) }
         self.queue = DispatchQueue(label: label, qos: .userInteractive)
+    }
+
+    deinit {
+        hangWatched?.unregister()
+    }
+
+    /// Takes a live session event for this lane off the main actor (``TerminalSession``): an output
+    /// chunk is queued here once the backlog has room, an echo marker marks its press. False for every
+    /// other event, which the session handles on the main actor.
+    func takeOffMain(_ event: TerminalIOEvent) async -> Bool {
+        switch event {
+        case .output(let data):
+            outputReceived()
+            ExpectedActivity.shared.note(.terminalOutput)
+            await waitForCapacity()
+            processOutput(data)
+            return true
+        case .inputEcho(let flow):
+            echoReceived(flow)
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// The session took an output chunk for this lane: the `app.output.received` hop of the presses on
+    /// its surface whose echo the daemon did not name (``TypingLatencyProbe/mark(_:surface:)``).
+    func outputReceived() {
+        if let keyFlows { probe.mark(.outputReceived, surface: keyFlows) }
+    }
+
+    /// The chunk the session just queued here carries the echo of key press `flow`
+    /// (``TerminalIOEvent/inputEcho(flow:)``): that press's `app.output.received` hop now, and its
+    /// `app.output.parsed` hop once the lane parsed that chunk, never another chunk's.
+    func echoReceived(_ flow: UInt64) {
+        probe.mark(.outputReceived, flow: flow)
+        queue.async { [self] in
+            guard !closing.load(ordering: .relaxed) else { return }
+            probe.mark(.outputParsed, flow: flow)
+        }
     }
 
     /// Bytes queued but not parsed yet.
@@ -52,18 +115,33 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
 
     func processOutput(_ data: Data) {
         guard !data.isEmpty else { return }
+        // A key armed after these bytes reached the lane cannot be their echo.
+        let armedBefore = echoStage?.armedCount ?? 0
         backlog.withLock { $0.bytes += data.count }
         queue.async { [self] in
             defer { parsed(data.count) }
             guard let surface, !closing.load(ordering: .relaxed) else { return }
-            data.withUnsafeBytes { buffer in
-                guard let base = buffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
-                ghostty_surface_process_output(surface, base, UInt(buffer.count))
-            }
-            TypingLatencyProbe.shared.mark(.outputParsed)
+            feed(surface, data)
+            echoStage?.outputParsed(armedBefore: armedBefore)
+            if let keyFlows { probe.mark(.outputParsed, surface: keyFlows) }
             #if DEBUG || CMUX_BENCH_HOOKS
             if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.parsed(lane: ObjectIdentifier(self), data) }
             #endif
+        }
+    }
+
+    /// Parses one chunk on the lane, inside a ``feedHangDeadline`` hang scope when there is a watcher.
+    // perf-hot: 1ms terminal-feed
+    private func feed(_ surface: ghostty_surface_t, _ data: Data) {
+        guard let hangWatched else { return parse(surface, data) }
+        hangWatched.run { parse(surface, data) }
+    }
+
+    /// The production ``Parse``: Ghostty's VT parser on the surface.
+    static func processOutput(_ surface: ghostty_surface_t, _ data: Data) {
+        data.withUnsafeBytes { buffer in
+            guard let base = buffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
+            ghostty_surface_process_output(surface, base, UInt(buffer.count))
         }
     }
 
@@ -179,6 +257,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     /// immediately before `ghostty_surface_free`.
     func close() {
         closing.store(true, ordering: .relaxed)
+        echoStage?.close()
         let waiters = backlog.withLock { backlog -> [CheckedContinuation<Void, Never>] in
             defer { backlog.waiters = [] }
             return backlog.waiters

@@ -1,5 +1,6 @@
 import CmuxAgentQuestion
 public import CmuxHomeCore
+import CmuxNextCompat
 public import CmuxNextDaemon
 import Foundation
 
@@ -180,7 +181,7 @@ public nonisolated enum HomeCoreMapping {
             return (conversation.rawValue, .removeReaction(messageID: message.rawValue, partIndex: partIndex, kind: Self.reactionKind(reaction)))
         case .answerQuestion(let message, let conversation, let partIndex, let answer):
             guard let data = try? answer.conversationAnswer.data(),
-                  let value = try? JSONDecoder().decode(JSONValue.self, from: data) else { return nil }
+                  let value = try? JSONDecoder().blockingDecode(JSONValue.self, from: data) else { return nil }
             return (conversation.rawValue, .answerQuestion(messageID: message.rawValue, partIndex: partIndex, answer: value))
         case .updateThread(let conversation, let root, let title, let status, let owner):
             return (conversation.rawValue, .updateThread(root: root.rawValue, title: title, status: status?.rawValue, owner: owner))

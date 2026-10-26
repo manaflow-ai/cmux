@@ -172,7 +172,7 @@ final class CloseUndoToasts {
                 let decides = pane.services.closedTabs?.undoToasts.pageDecidesClose ?? CloseUndoToasts.livePageDecidesClose
                 let deciders = user ? part.ids.filter { decides(pane, $0) } : []
                 if let undo = pane.services.closedTabs?.undoToasts {
-                    for id in deciders { if let page = pane.services.cache.browsers[id.rawValue]?.tab { undo.pageClosing.begin(id.rawValue, page: page) } }
+                    for id in deciders { if let page = pane.services.cache.browsers[id.rawValue]?.tab as? any BrowserPageWaiting { undo.pageClosing.begin(id.rawValue, page: page) } }
                 }
                 closing.append((pane, part.ids.filter { !deciders.contains($0) }))
                 if !deciders.isEmpty { deciding.append((pane, deciders)) }

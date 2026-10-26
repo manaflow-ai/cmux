@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2. */
+/* cmux-tui mux protocol 12, IR cb66b76b27d6af323d88e6c50c65226de2a2ef09009dcab5c68a8205bfd94675. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -15,6 +15,59 @@ export type ActivitySnapshot = {
 
 export type ActivitySubscribeResult = {
   "activity": ActivitySnapshot;
+};
+
+export type AgentCLIIntent = {
+  "cli": string;
+  "key": string;
+  "machine": string;
+  "profiles": Array<string>;
+  "root_key": string;
+  "session": string;
+};
+
+export type AgentCLIJobPath = {
+  "kind": "terminal";
+  "pane_id": string;
+  "screen_id": string;
+  "tab_id": string;
+  "terminal_id": string;
+  "workspace_id": string;
+};
+
+export type AgentCLIJobReceipt = {
+  "cli": string;
+  "machine": string;
+  "path": AgentCLIJobPath;
+  "replayed": boolean;
+  "revision": string;
+  "session": string;
+};
+
+export type AgentCLIJobResolution = ({ "state": "created" } & {
+  "receipt": AgentCLIJobReceipt;
+  "state": "created";
+}) | ({ "state": "failed" } & {
+  "code": string;
+  "state": "failed";
+}) | ({ "state": "indeterminate" } & {
+  "state": "indeterminate";
+}) | ({ "state": "not_found" } & {
+  "state": "not_found";
+}) | ({ "state": "pending" } & {
+  "state": "pending";
+}) | ({ "state": "prepared" } & {
+  "state": "prepared";
+});
+
+export type AgentCLIStoredIntent = {
+  "cli": string;
+  "key": string;
+  "machine": string;
+  "profiles": Array<string>;
+  "receipt": (AgentCLIJobReceipt) | null;
+  "root_key": string;
+  "session": string;
 };
 
 export type AgentPresenceActivity = "thinking" | "editing" | "reading" | "running" | "browsing" | "computer_use" | "waiting";
@@ -52,6 +105,65 @@ export type AgentSource = "plugin" | "detected" | "socket" | "hook";
 
 export type AgentState = "working" | "blocked" | "idle" | "done" | "unknown";
 
+export type AppGrant = {
+  "granted": boolean;
+  "scope": string;
+};
+
+export type AppHiddenAccess = {
+  "automations": boolean;
+  "cli": boolean;
+  "mcp": boolean;
+};
+
+export type AppLogLine = {
+  "level": string;
+  "message": string;
+  "ts_ms": bigint;
+};
+
+export type AppOrigin = "user" | "cli" | "mcp" | "script" | "remote";
+
+export type AppPaletteCommand = {
+  "op": string;
+  "title": (JsonValue) | null;
+  "when"?: (JsonValue) | null;
+};
+
+export type AppRecord = {
+  "available": boolean;
+  "bundle_dir": (string) | null;
+  "commands": Array<AppPaletteCommand>;
+  "enabled": boolean;
+  "grants": Array<string>;
+  "hidden": boolean;
+  "hidden_access": AppHiddenAccess;
+  "hide_only": boolean;
+  "id": string;
+  "installed": boolean;
+  "manifest": (JsonValue) | null;
+  "revision"?: bigint;
+  "sandboxed": boolean;
+  "scope_classes": Record<string, AppScopeClass>;
+  "source": AppSource;
+  "tier": AppTier;
+  "version": string;
+};
+
+export type AppScopeClass = "standard" | "sensitive" | "restricted" | "elevated" | "unknown";
+
+export type AppSource = "default" | "user" | "bundled" | "local";
+
+export type AppTerminalLink = {
+  "app": string;
+  "channel": string;
+  "id": string;
+  "socket": (string) | null;
+  "target": string;
+};
+
+export type AppTier = "first-party" | "verified" | "unverified";
+
 export type AppliedPane = {
   "pane": Id;
   "surface": Id;
@@ -60,6 +172,37 @@ export type AppliedPane = {
 export type ApplyLayoutResult = {
   "panes": Array<AppliedPane>;
   "screen": Id;
+};
+
+export type AppsInventoryDemand = {
+  "enabled": boolean;
+  "sequence": bigint;
+};
+
+export type AppsLinkChangedResult = {
+  "servers": bigint;
+};
+
+export type AppsListResult = {
+  "apps": Array<AppRecord>;
+  "revision": bigint;
+};
+
+export type AppsLogsResult = {
+  "lines": Array<AppLogLine>;
+};
+
+export type AppsProviderRegisterResult = {
+  "families": Array<string>;
+  "inventory_demand"?: AppsInventoryDemand;
+};
+
+export type AppsRunResult = {
+  "value": (JsonValue) | null;
+};
+
+export type AppsTerminalLinksResult = {
+  "links": Array<AppTerminalLink>;
 };
 
 export type AttachedViewOutcomeResult = {
@@ -1064,6 +1207,38 @@ export type ServerStatsRegistryLock = {
   "wait_us": ServerStatsHistogram;
 };
 
+export type ServerStatsRequestLatency = {
+  "agent": ServerStatsHistogram;
+  "browser": ServerStatsHistogram;
+  "cloud": ServerStatsHistogram;
+  "create": ServerStatsHistogram;
+  "other": ServerStatsHistogram;
+  "query": ServerStatsHistogram;
+  "terminal_io": ServerStatsHistogram;
+  "topology": ServerStatsHistogram;
+};
+
+export type ServerStatsRequestPathIo = {
+  "child_process": bigint;
+  "fs_write": bigint;
+  "host_wait": bigint;
+  "journal_wait": bigint;
+  "lock_hold_over_1ms"?: bigint;
+  "network": bigint;
+  "proc_scan": bigint;
+  "process_spawn": bigint;
+  "recording": boolean;
+  "scopes": bigint;
+  "sites": Array<ServerStatsRequestPathSite>;
+  "sleep": bigint;
+  "sqlite": bigint;
+};
+
+export type ServerStatsRequestPathSite = {
+  "kind": string;
+  "site": string;
+};
+
 export type ServerStatsResourceProjection = {
   "commit_apply_us": ServerStatsHistogram;
   "commit_journal_us": ServerStatsHistogram;
@@ -1086,12 +1261,44 @@ export type ServerStatsResourceProjection = {
 
 export type ServerStatsResult = {
   "connections": ServerStatsConnections;
+  "dispatch_queue_us"?: ServerStatsHistogram;
   "journal_writer": (ServerStatsJournalWriter) | null;
   "registry_lock": ServerStatsRegistryLock;
+  "request_latency_us"?: ServerStatsRequestLatency;
+  "request_path_io"?: ServerStatsRequestPathIo;
   "resource_projection"?: ServerStatsResourceProjection;
   "schema": number;
+  "slow_requests"?: ServerStatsSlowRequests;
   "uptime_ms": bigint;
   "write_path"?: ServerStatsWritePath;
+};
+
+export type ServerStatsSlowRequest = {
+  "busy_ms": bigint;
+  "client": bigint;
+  "duration_ms": (bigint) | null;
+  "method": string;
+  "stack": Array<ServerStatsSlowRequestFrame>;
+  "stack_error": (string) | null;
+  "stack_truncated": boolean;
+  "started_ms": bigint;
+};
+
+export type ServerStatsSlowRequestFrame = {
+  "image": (string) | null;
+  "image_id": (string) | null;
+  "offset": bigint;
+  "symbol": (string) | null;
+};
+
+export type ServerStatsSlowRequests = {
+  "expected_waits": bigint;
+  "recent": Array<ServerStatsSlowRequest>;
+  "spawn_failures": bigint;
+  "threshold_ms": bigint;
+  "total": bigint;
+  "unwatched": bigint;
+  "watchdog_wakeups": bigint;
 };
 
 export type ServerStatsWritePath = {

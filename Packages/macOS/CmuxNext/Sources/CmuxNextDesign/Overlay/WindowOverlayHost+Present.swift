@@ -46,7 +46,7 @@ public extension WindowOverlayHost {
         if options.kind == .dialog { fadeIn([scrim, content].compactMap(\.self)) }
         if options.isModal { beginModal(handle) }
         updateMouseRouting()
-        updateEscapeMonitor()
+        updateEscapeIntercept()
         onBlockingChange?()
         return handle
     }
@@ -154,7 +154,7 @@ extension WindowOverlayHost {
         }
         if handle.options.isModal { endModal() }
         updateMouseRouting()
-        updateEscapeMonitor()
+        updateEscapeIntercept()
         syncPanel()
         onBlockingChange?()
     }

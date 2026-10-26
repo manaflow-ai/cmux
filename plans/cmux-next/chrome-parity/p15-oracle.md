@@ -301,7 +301,9 @@ reviewed baselines and the 2 % budget. This stops agents from rebaselining wrong
 | I17 | 0 unexpected child exits unless `allow_crashes` covers the kind |
 | I18 | live-object counts return to the fixture baseline after teardown |
 
-I11-I14 failures go to the perf owner queue, not to the case baseline.
+I11-I14 failures go to the perf owner queue, not to the case baseline. A run that arms the turn recorder (task 032)
+reads the armed facets inside each action's turn, so I11-I14 are not checked in that run (task 217 skips them for
+every case that arms `debug.oracle.recorder`); the perf invariants come from runs with the recorder disarmed.
 
 **Mutation strength.** Primary: `cargo mutants` over cmux-tui-core store and router files with the daemon suites
 as the test command (task 191), and incremental coverage of a change (task 190). Smoke: 20 seeded mutants as
@@ -820,7 +822,8 @@ Change: settle on `ControlSnapshot.reflects(ControlSequenceBarrier)`, waitIntent
 Acceptance: names only existing symbols plus 029's waiters. Test: forced pending intent appears in `pending`.
 
 **032 OracleRecorder.** Files: `CmuxNextActions/ActionRunObserver.swift` (new), `CmuxNextApp/Oracle/OracleRecorder.swift`, `AppControl+Oracle.swift`.
-Change: optional observer called at the end of the perform turn; ring of 256 hashes; `debug.oracle.turns`, `debug.oracle.recorder`.
+Change: optional observer called at the end of the perform turn; ring of 256 checkpoints holding the armed facet values (the
+runner normalizes turn and settled alike for I3: a hash of raw values would differ on commit counters); `debug.oracle.turns`, `debug.oracle.recorder`.
 Acceptance (structural): immutable optional set once at the root; no allocation or lock when nil; `// perf-hot: <1us action.perform`.
 Test: same-host A/B on the action.perform perf-hot bench with a confidence interval.
 

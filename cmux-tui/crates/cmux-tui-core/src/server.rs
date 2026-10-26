@@ -117,6 +117,10 @@ use window_title::sanitize_window_title;
 pub use window_title::window_title_osc;
 #[path = "server/loopback_forward.rs"]
 mod loopback_forward;
+/// `oracle-state` (p15-oracle task 021): debug and `--features oracle` builds only.
+#[cfg(any(debug_assertions, feature = "oracle"))]
+#[path = "server/oracle_state_command.rs"]
+mod oracle_state_command;
 pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
@@ -228,6 +232,7 @@ mod split_respawn;
 mod tab_column;
 mod tab_park;
 mod tab_restart;
+pub(crate) mod trace_control;
 mod websocket_listener;
 #[cfg(test)]
 use cmd_subscribe::subscribed_event_json;
@@ -289,8 +294,7 @@ mod participant_avatars;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
 mod url_open;
 #[cfg(test)]
-use capabilities::advertised_capabilities;
-use capabilities::identify_capabilities;
+use capabilities::{advertised_capabilities, identify_capabilities};
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
 const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
@@ -784,6 +788,13 @@ enum Command {
     ServerStats {
         include: Option<Vec<String>>,
     },
+    /// Start a trace recording in the daemon, the holder, every terminal host
+    /// and acpmux (server/trace_control.rs). Owner only; no path parameter.
+    TraceStart(trace_control::StartParams),
+    /// Stop it everywhere.
+    TraceStop,
+    /// Every process's trace state, ring paths and bytes.
+    TraceStatus,
     /// `terminal-command-history-v1`, trusted local only (server/command_history.rs).
     SetTerminalCommandHistory(command_history::SetParams),
     ListTerminalCommands(command_history::ListParams),
@@ -2605,6 +2616,9 @@ use render_service::{OutboundByteBudget, RenderGraphicBase64Cache};
 mod message_writer;
 use message_writer::{MessageSink, MessageWriter, OutboundStream};
 
+mod request_watchdog;
+pub(crate) use request_watchdog::{FrameStage, RequestScope, RequestWatchdog, WatchedMethod};
+
 mod connection_scheduler;
 #[cfg(test)]
 use connection_scheduler::ConnectionSurfaceState;
@@ -2675,6 +2689,8 @@ mod resource_waits;
 use resource_waits::start_resource_wait;
 mod resource_clients;
 pub(crate) use resource_clients::public_client_id;
+#[cfg(any(debug_assertions, feature = "oracle"))]
+pub(crate) use resource_clients::resource_session_snapshot_at_cut;
 use resource_clients::{
     browser_cells_for_pixels, browser_pixels_for_cells, prepare_resource_client_detach,
     resource_browser_surface, resource_browser_viewer_release, resource_browser_viewer_resize,
@@ -2707,11 +2723,17 @@ use resource_connection::{
 };
 
 mod connection_frame;
+mod request_spans;
 #[cfg(test)]
 use connection_frame::write_vt_state_command_json;
 use connection_frame::{
-    auth_token, constant_time_eq, handle_connection_frame, handle_request,
-    handle_request_with_cancellation, pairing_request, zeroize_string,
+    auth_token, constant_time_eq, handle_connection_frame_at, handle_request_with_cancellation,
+    pairing_request, zeroize_string,
+};
+#[cfg(test)]
+use connection_frame::{handle_connection_frame, handle_request};
+use request_spans::{
+    AsyncReply, RequestArrival, RequestHead, RequestMethod, RequestSpan, request_id_hash,
 };
 
 /// One layout node. `split_ids`: the public ids of the splits
@@ -2836,6 +2858,7 @@ fn handle_command(
 
 mod command_dispatch;
 use command_dispatch::handle_command_with_cancellation;
+mod command_names;
 
 /// The `list-workspaces` reply: the tree plus the registry identity it
 /// belongs to. The launch snapshot stores the same value.

@@ -63,6 +63,10 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
 }
 
 extension TerminalSession {
+    /// ``TerminalSurfaceDiagnostics/hasContent`` alone, one stored read: the launch's terminal
+    /// content signal (`VisiblePaneRefs`), read on each change while startup is held.
+    public var hasContent: Bool { surfaceHasContent }
+
     /// The grid Ghostty's last frame drew (``TerminalSurfaceDiagnostics/drawnGrid``) and the owner's
     /// locked grid, without the rest of ``diagnostics``: cheap enough to read every display frame.
     public var drawnAndOwnerGrid: (drawn: TerminalGridSize?, owner: TerminalGridSize?) {

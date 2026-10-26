@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 public import CmuxNextSettings
 public import Foundation
 public import Observation
@@ -102,6 +103,9 @@ public final class AgentPaneModel {
     /// What this chat's last page held when it let go (hibernation); the next handshake
     /// carries it (`wake`) and clears it.
     @ObservationIgnored public var pendingWake: AgentPaneWakeState?
+    /// The last quit's state of this chat while the launch still reads it (``AgentPaneRelaunchWake/hand(_:to:)``):
+    /// the page's first `ready` awaits it into ``pendingWake``.
+    @ObservationIgnored public var wakeSource: (@MainActor () async -> AgentPaneWakeState?)?
     /// The state the page's last `ready` took, kept for a quit the page does not answer in time.
     @ObservationIgnored public internal(set) var handedWake: AgentPaneWakeState?
     /// Whether the page has asked for a handshake, so its bridge is up and
@@ -300,7 +304,7 @@ public final class AgentPaneModel {
             AgentPaneLaunchTimings.shared.mark("agent_pane.newtab_context")
             // Only a page with no chat yet is a New Tab page; the handshake still sends the same context.
             guard sessionId == nil, let newTab, let data = try? JSONEncoder().encode(newTab),
-                  let object = try? JSONSerialization.jsonObject(with: data) else { return AgentPaneReply.success() }
+                  let object = try? JSONSerialization.blockingJSONObject(with: data) else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["newTab": object])
         // Another machine's chats are not this Mac's: only a local page's list warms the next page.
         case .newTabWarm(let warm): if !remoteChat { AgentPaneNewTab.warmed = warm }; return AgentPaneReply.success()

@@ -57,7 +57,8 @@ Sibling interfaces this file calls:
     baselines.Store(root).read(suite, case, pdir, arm), platform_dir(platform, product),
         suite_class(suite), BaselineError; baselines.py rebaseline --run DIR         (016)
     expectations.Expectations.load_root(root), RunConfig, resolve, should_run, lint  (015)
-    linux_run.sh build REF -> last stdout line is the cmux-tui binary path          (024)
+    linux_run.sh run SHA [--suite S] [--arm A] [--side L] [--fresh] [-- RUN_OPTIONS]
+        -> last stdout line is the run dir; every daemon run on the VM goes through it (007, 024)
     fleet.py diff ARGS: the app product's base/head and switch diffs                (050)
 """
 
@@ -71,6 +72,7 @@ import hashlib
 import importlib
 import itertools
 import json
+import os
 import platform as platform_mod
 import random
 import socket
@@ -1397,9 +1399,10 @@ def run_one(options: RunOptions, *, open_session: Optional[SessionOpener] = None
     }
     if open_session is None and not options.dry_run:
         driver = load_sibling(f"driver_{options.product}")
-        if driver is None:
-            raise UsageError(f"driver_{options.product}.py is not on this branch yet ({DRIVER_TASKS[options.product]})")
-        open_session = driver.open_session
+        # driver_daemon.py has the facet capture (021) before its case runner (023).
+        open_session = getattr(driver, "open_session", None)
+        if open_session is None:
+            raise UsageError(f"driver_{options.product}.py runs no cases on this branch yet ({DRIVER_TASKS[options.product]})")
     return perform_run(options, cases, open_session, store.expected if store else None, deps)
 
 
@@ -1422,7 +1425,21 @@ def print_run(receipt: Dict[str, Any], options: RunOptions, as_json: bool) -> No
     print(f"  receipt: {options.out / 'receipt.json'}")
 
 
+# The Linux VM runs every cmux-tui suite run in the runnerd queue (p15-oracle-007, spec 3G): one
+# quota scope, request joining and receipt reuse. This process is a runnerd job when RUNNERD_JOB is set.
+QUEUE_HINT = ("on the Linux VM cmux-tui suite runs go through the runnerd queue: `linux_run.sh run REF "
+              "[--suite S] [--arm A] [-- RUN_OPTIONS]`, or `oracle.py diff` with --base/--head, or with "
+              "--switch or --arm launch-config and --ref")
+
+
+def outside_vm_queue(product: str) -> bool:
+    """True for a cmux-tui suite run on the Linux VM that is not itself a runnerd job."""
+    return sys.platform.startswith("linux") and product in RUST_PRODUCTS and not os.environ.get("RUNNERD_JOB")
+
+
 def cmd_run(args: argparse.Namespace) -> int:
+    if outside_vm_queue(args.product) and not args.dry_run:
+        raise UsageError(f"{QUEUE_HINT}; `oracle.py run` itself runs only inside a runnerd job")
     run_id = args.run_id or new_run_id()
     out = args.out or DEFAULT_OUT_BASE / run_id
     switches = resolve_switches(load_switch_registry(), args.switch, args.arm)
@@ -1431,17 +1448,6 @@ def cmd_run(args: argparse.Namespace) -> int:
     receipt, code = run_one(options)
     print_run(receipt, options, args.json)
     return code
-
-
-def build_daemon(ref: str) -> str:
-    script = HERE / "linux_run.sh"
-    if not script.is_file():
-        raise UsageError("linux_run.sh is not on this branch yet (p15-oracle-024); pass --base-run/--head-run")
-    proc = subprocess.run(["bash", str(script), "build", ref], check=False, stdout=subprocess.PIPE, text=True)
-    lines = [line for line in proc.stdout.splitlines() if line.strip()]
-    if proc.returncode != 0 or not lines:
-        raise UsageError(f"linux_run.sh build {ref} failed (exit {proc.returncode})")
-    return lines[-1].strip()
 
 
 @dataclass(frozen=True)
@@ -1461,9 +1467,9 @@ def diff_sides(args: argparse.Namespace, registry: Dict[str, Dict[str, Any]]) ->
             raise UsageError("--base and --head go together")
         if args.product not in RUST_PRODUCTS:
             raise UsageError(f"--product {args.product}: base/head builds on the VM are the cmux-tui products {sorted(RUST_PRODUCTS)}")
-        base_bin = args.base_binary or build_daemon(args.base)
-        head_bin = args.head_binary or build_daemon(args.head)
-        return (Side("base", None, None, {}, args.base, base_bin), Side("head", None, None, {}, args.head, head_bin)), []
+        # On the VM, queued_diff builds the refs; elsewhere the caller brings the binaries.
+        return (Side("base", None, None, {}, args.base, args.base_binary),
+                Side("head", None, None, {}, args.head, args.head_binary)), []
     if args.switch:
         sides = tuple(Side(arm, args.switch, arm, resolve_switches(registry, args.switch, arm), args.ref, args.binary) for arm in ARMS)
         return sides, switch_expected_files(registry, [args.switch])  # type: ignore[return-value]
@@ -1521,6 +1527,11 @@ def cmd_diff(args: argparse.Namespace) -> int:
             args.suite = [",".join(minimum)]
     if args.shuffle and args.seed is None:
         args.seed = new_seed()  # one seed for both sides: they must run the same order
+    if outside_vm_queue(args.product) and not args.dry_run:
+        return queued_diff(args, sides, expected, out)
+    if args.base and not args.dry_run and not (args.base_binary and args.head_binary):
+        raise UsageError("--base/--head are built on the Linux VM (linux_run.sh, in its queue); "
+                         "elsewhere pass --base-binary and --head-binary")
     run_id = args.run_id or new_run_id()
     views = []
     for side in sides:
@@ -1538,6 +1549,92 @@ def cmd_diff(args: argparse.Namespace) -> int:
             raise UsageError("; ".join(errors))
         views.append(view)
     return compare_views(views[0], views[1], a_dir=out / sides[0].label, b_dir=out / sides[1].label, out=out,
+                         labels=(sides[0].label, sides[1].label), partial=args.partial, expected=expected,
+                         rules=comparison_rules(views[1], args.expectations_root), as_json=args.json)
+
+
+def resolve_commit(ref: str) -> str:
+    proc = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+                          check=False, stdout=subprocess.PIPE, text=True)
+    if proc.returncode != 0:
+        raise UsageError(f"{ref}: not a commit in {REPO}")
+    return proc.stdout.strip()
+
+
+def side_arm(side: Side) -> str:
+    """The side's arm as `linux_run.sh run --arm` takes it."""
+    return f"{side.switch}={side.arm}" if side.switch else side.arm or "-"
+
+
+def queued_run_args(args: argparse.Namespace) -> List[str]:
+    """The diff's selection as `oracle.py run` options, defaults left out so that an identical
+    `linux_run.sh run` request has the same key and joins the same queued job."""
+    run_args: List[str] = []
+    if args.product != "daemon":
+        run_args += ["--product", args.product]
+    for value in parse_list(args.filter):
+        run_args += ["--filter", value]
+    if args.shard != "0/1":
+        run_args += ["--shard", args.shard]
+    for name in ("jobs", "batch_limit", "seed", "build", "tag"):
+        if getattr(args, name) is not None:
+            run_args += ["--" + name.replace("_", "-"), str(getattr(args, name))]
+    if args.repeat != 1:
+        run_args += ["--repeat", str(args.repeat)]
+    # A diff retries DEFAULT_RETRY_LIMIT times by default; a run does so only for an unfiltered selection.
+    retry = DEFAULT_RETRY_LIMIT if args.retry_limit is None else args.retry_limit
+    filtered = bool(parse_list(args.filter)) or "all" not in (parse_list(args.suite) or ["all"])
+    if retry != (0 if filtered else DEFAULT_RETRY_LIMIT):
+        run_args += ["--retry-limit", str(retry)]
+    if args.platform != current_platform():
+        run_args += ["--platform", args.platform]
+    for name, default in (("corpus", DEFAULT_CORPUS), ("expectations_root", DEFAULT_EXPECTATIONS_ROOT),
+                          ("state_base", DEFAULT_STATE_BASE)):
+        if getattr(args, name).resolve() != default.resolve():
+            run_args += ["--" + name.replace("_", "-"), str(getattr(args, name).resolve())]
+    if args.flaky_out:
+        run_args += ["--flaky-out", str(args.flaky_out.resolve())]
+    return run_args
+
+
+def queued_diff(args: argparse.Namespace, sides: Tuple[Side, Side], expected: List[Path], out: Path) -> int:
+    """Both sides as `linux_run.sh run` jobs in parallel (built, run and joined in the runnerd queue),
+    then the comparison here: it is light, and it keeps --partial, --json and the expectation rules."""
+    for side in sides:
+        if side.binary:
+            raise UsageError(f"{QUEUE_HINT}; a prebuilt --base-binary, --head-binary or --binary cannot run in it")
+        if not side.ref:
+            raise UsageError(f"{QUEUE_HINT}; --switch and --arm launch-config need --ref to build")
+    shas = [resolve_commit(side.ref) for side in sides]
+    # One SHA and arm on both sides (a determinism check) must run twice, not join one job.
+    same = shas[0] == shas[1] and side_arm(sides[0]) == side_arm(sides[1])
+    suites = ",".join(parse_list(args.suite)) or "all"
+    run_args = queued_run_args(args)
+    procs = []
+    for side, sha in zip(sides, shas):
+        command = ["bash", str(HERE / "linux_run.sh"), "run", sha, "--suite", suites, "--arm", side_arm(side)]
+        command += ["--side", side.label] if same else []
+        command += ["--fresh"] if args.fresh else []
+        command += ["--", *run_args]
+        command += ["--run-id", f"{args.run_id}-{side.label}"] if args.run_id else []
+        procs.append(subprocess.Popen(command, stdout=subprocess.PIPE, text=True))
+    finished = [(proc.communicate()[0], proc.returncode) for proc in procs]
+    views, dirs = [], []
+    for side, (stdout, code) in zip(sides, finished):
+        lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+        run_dir = Path(lines[-1]) if lines else None
+        if run_dir is None or not (run_dir / "receipt.json").is_file():
+            raise UsageError(f"the {side.label} run of {side.ref} wrote no receipt (linux_run.sh exit {code})")
+        print(f"{side.label}: {side.ref} run {run_dir} (oracle.py run exit {code})")
+        if read_receipt(run_dir)["arm_exercised"] is False:
+            print(f"arm-not-exercised: {side.switch}={side.arm}")
+            return EXIT_REFUSED
+        view, errors = merge_runs([run_dir], require_complete=False)
+        if errors:
+            raise UsageError("; ".join(errors))
+        views.append(view)
+        dirs.append(run_dir)
+    return compare_views(views[0], views[1], a_dir=dirs[0], b_dir=dirs[1], out=out,
                          labels=(sides[0].label, sides[1].label), partial=args.partial, expected=expected,
                          rules=comparison_rules(views[1], args.expectations_root), as_json=args.json)
 
@@ -1763,7 +1860,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     diff = sub.add_parser("diff", help="run two sides and compare them through diff.py; flaky cases are left out")
     add_selection_args(diff)
-    diff.add_argument("--base", help="base ref (daemon: built by linux_run.sh)")
+    diff.add_argument("--base", help="base ref (on the Linux VM: built and run in the runnerd queue)")
     diff.add_argument("--head", help="head ref")
     diff.add_argument("--base-binary", help="prebuilt base binary instead of building --base")
     diff.add_argument("--head-binary", help="prebuilt head binary instead of building --head")
@@ -1775,6 +1872,8 @@ def build_parser() -> argparse.ArgumentParser:
     diff.add_argument("--baselines", action="store_true", help="compare --head-run golden cases with reviewed baselines")
     diff.add_argument("--baselines-root", type=Path, default=DEFAULT_BASELINES_ROOT)
     diff.add_argument("--partial", action="store_true", help="compare a shard subset; the result says partial")
+    diff.add_argument("--fresh", action="store_true",
+                      help="on the VM, rerun both sides even when the queue has a receipt (confirm, flake checks)")
     diff.add_argument("--out", type=Path, help="comparison directory")
     diff.set_defaults(func=cmd_diff)
 

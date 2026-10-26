@@ -369,12 +369,15 @@ pub(super) fn run_ensure(flags: &Flags, handoff: bool) -> anyhow::Result<()> {
     }
 }
 
+/// The descriptor number the link gets its ready pipe's write end at.
+const READY_FD: RawFd = 3;
+
 /// Starts `cmux link serve` for `state` in its own session, its output in
 /// the state directory's `link.log`, and returns its ready line (None when
 /// it exited first).
 fn start(state: &LinkState, flags: &Flags) -> anyhow::Result<Option<Value>> {
+    use std::os::fd::AsFd as _;
     use std::os::unix::fs::OpenOptionsExt as _;
-    use std::os::unix::process::CommandExt as _;
     let log = std::fs::OpenOptions::new()
         .create(true)
         .write(true)
@@ -392,14 +395,14 @@ fn start(state: &LinkState, flags: &Flags) -> anyhow::Result<Option<Value>> {
     // SAFETY: both descriptors were just created and are owned here.
     let (reader, writer) =
         unsafe { (std::fs::File::from_raw_fd(read_fd), std::fs::File::from_raw_fd(write_fd)) };
-    // Neither end leaks into another child; pre_exec opens the write end
-    // for the link only.
+    // Neither end leaks into another child; the link gets its copy of the
+    // write end as READY_FD only.
     // SAFETY: F_SETFD on descriptors this process owns.
     unsafe {
         libc::fcntl(read_fd, libc::F_SETFD, libc::FD_CLOEXEC);
         libc::fcntl(write_fd, libc::F_SETFD, libc::FD_CLOEXEC);
     }
-    let mut command = std::process::Command::new(std::env::current_exe()?);
+    let mut command = cmux_process::Command::new(std::env::current_exe()?);
     command.args(["link", "serve", "--state-dir"]).arg(state.dir());
     for name in ["--session-socket", "--server-config"] {
         if let Some(value) = flags.get(name) {
@@ -408,19 +411,14 @@ fn start(state: &LinkState, flags: &Flags) -> anyhow::Result<Option<Value>> {
     }
     command
         .arg("--ready-fd")
-        .arg(write_fd.to_string())
-        .stdin(std::process::Stdio::null())
+        .arg(READY_FD.to_string())
+        .stdin(cmux_process::Stdio::null())
         .stdout(log)
-        .stderr(log_err);
-    // SAFETY: setsid and fcntl are async-signal-safe.
-    unsafe {
-        command.pre_exec(move || {
-            // Its own session, so the link outlives the caller.
-            libc::setsid();
-            libc::fcntl(write_fd, libc::F_SETFD, 0);
-            Ok(())
-        });
-    }
+        .stderr(log_err)
+        // Its own session, so the link outlives the caller.
+        .new_session()
+        .inherit_fd(writer.as_fd(), READY_FD)?;
+    // The spawn uses up the builder's copy of the write end.
     command.spawn().context("start cmux link serve")?;
     // Close this process's copy so end of file means the link closed it.
     drop(writer);

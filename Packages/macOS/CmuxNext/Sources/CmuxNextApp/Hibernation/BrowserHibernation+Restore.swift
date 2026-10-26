@@ -81,12 +81,13 @@ extension BrowserHibernation {
         }
         cache.swapPage(key, with: page, asleep: asleep.state)
         cache.dormantTabs.set(key, false)
+        savedBytes[key] = nil
         // The live page now; a later sleep takes a new picture.
         snapshots.remove(key)
         cache.previews.remove(key)
         restoredCount += 1
         cache.applyLifecycle(cache.lifecycle.send(.mounted(key, token)))
-        wakeLog.mounted(key, visible: cache.lifecycle.phase(key) == .mountedVisible)
+        if let latency = wakeLog.mounted(key, visible: cache.lifecycle.phase(key) == .mountedVisible) { onWakeMounted(latency) }
         timeLoad(key, page: page)
         // A navigation or history step that woke the page runs once its
         // history is back (a reload just wakes it: restoring loads the page).

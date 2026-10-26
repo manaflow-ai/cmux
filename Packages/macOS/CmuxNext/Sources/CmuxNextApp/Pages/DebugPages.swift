@@ -1,6 +1,9 @@
 import AppKit
+import CmuxNextAgentPane
+import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextPages
+import CmuxNextResources
 import CmuxNextSettings
 import Foundation
 
@@ -37,9 +40,47 @@ extension AppControl {
         #if DEBUG || CMUX_BENCH_HOOKS
         service?.router.register([
             .async("debug.page") { [weak services] call in await DebugPages.handle(call.params, services: services) },
+            // Every page, spare and Chromium helper process: state, keep reasons, pids and what reached
+            // hidden pages (p13-webui-001; keys in WebUICensus). `reset: true` zeroes the counters after
+            // the read. The page walk runs in the automation work class, the helpers' argv off the main actor.
+            .mainActor("debug.webui") { [weak services] call in
+                guard let census = AppControl.webUICensus(services, reset: call.params["reset"]?.boolValue == true) else { return .value(.null) }
+                return .followUp { await census.report { AppControl.webUIHelpers() } }
+            },
         ])
         #endif
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The app's Chromium helpers as `debug.webui` rows (reads each new child's argv: off the main actor).
+    nonisolated static func webUIHelpers() -> [WebUICensus.Helper] {
+        ChromiumHelperProcess.list().map { WebUICensus.Helper(pid: $0.pid, kind: $0.kind.name, rendererClientID: $0.kind.rendererClientID) }
+    }
+
+    /// `debug.webui`'s main-actor half: every page, spare and Chromium browser tab now; `reset`
+    /// zeroes the pages' while-hidden counters after the read.
+    static func webUICensus(_ services: AppServices?, reset: Bool) -> WebUICensus? {
+        guard let services else { return nil }
+        let registry = services.webUI.registry, pages = registry.pages()
+        let cef = services.cache.cef
+        let census = WebUICensus(
+            pages: pages, registry: registry, newTabSpare: services.newTabSpares.spare?.view.webView,
+            spareWindows: [
+                WebUICensus.Host(name: "cef_window", state: cef.spareWindowState, rendererClients: cef.spareWindowRendererClients),
+                WebUICensus.Host(name: "cef_pages_window", state: cef.pagesSpareWindowState, rendererClients: cef.pagesSpareWindowRendererClients),
+            ],
+            browserTabs: services.cache.browsers.sorted { $0.key < $1.key }.compactMap { id, entry in
+                (entry.tab as? CEFTab).map { WebUICensus.Host(name: id, rendererClients: $0.rendererClientIDs) }
+            },
+            rendererProcess: { page in
+                let tab = (page as? CEFPageChromiumPage)?.tab
+                return (tab?.browserID, tab?.rendererClientIDs ?? [])
+            },
+            webKitPID: { WebContentProcess.identifier(of: $0) })
+        if reset { pages.forEach { $0.resetCensusCounters() } }
+        return census
+    }
+    #endif
 }
 
 #if DEBUG || CMUX_BENCH_HOOKS

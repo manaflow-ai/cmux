@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextPages
 import CmuxNextPagesTestSupport
 import Foundation
 import Testing
@@ -27,12 +28,8 @@ struct AgentPanePostedClickTests {
     }
 
     @Test func aClickPostedByAnotherProcessGrantsNothingAndThePersonsDoes() throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "posted-click-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appending(path: "index.html")
-        try Data("<html><body><button>Allow</button></body></html>".utf8).write(to: file)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        let file = try #require(AgentPageTestRoot.page)
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -63,7 +60,7 @@ struct AgentPanePostedClickTests {
         let file = try #require(AgentPageTestRoot.page)
         let hosting = FakeChromiumHosting()
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file),
-                                              pageHost: true, chromium: hosting))
+                                              webUI: .agentPaneTestHost(chromium: hosting), gestures: .testing()))
         view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         let paneWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
                                   backing: .buffered, defer: false)

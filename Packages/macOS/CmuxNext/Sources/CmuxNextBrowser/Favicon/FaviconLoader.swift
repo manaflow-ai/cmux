@@ -1,6 +1,7 @@
 public import AppKit
+import CmuxNextCompat
 public import Foundation
-import CmuxNextRemoteFetch
+public import CmuxNextRemoteFetch
 
 /// Loads favicons for tabs.
 public protocol BrowserFaviconLoading: AnyObject {
@@ -33,14 +34,21 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
         var url: URL
     }
 
-    private let fetcher: GuardedRemoteFetch
+    private var fetcher: GuardedRemoteFetch
     private var caches: [BrowserProfileID: LRUCache<URL, NSImage>] = [:]
     private var inFlight: [Key: Task<NSImage?, Never>] = [:]
 
+    /// A loader that fetches nothing until ``useResolver(_:)``.
     public init() {
         fetcher = GuardedRemoteFetch(
-            maximumBytes: Self.maximumBytes, timeout: .seconds(30), accept: GuardedRemoteFetch.imageAccept
+            maximumBytes: Self.maximumBytes, timeout: .seconds(30), accept: GuardedRemoteFetch.imageAccept,
+            resolver: UnwiredRemoteResolver()
         )
+    }
+
+    /// Gives the fetch the App's resolver (`SystemRemoteResolver` on its lanes); AppServices wires ``shared``.
+    public func useResolver(_ resolver: any RemoteAddressResolving) {
+        fetcher.resolver = resolver
     }
 
     init(resolver: any RemoteAddressResolving, transport: any RemoteFetchTransport) {
@@ -93,9 +101,21 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
     }
 
     /// Decodes an icon file (PNG, ICO, SVG, ...) and redraws its best
-    /// representation at most ``maximumPixels`` square.
+    /// representation at most ``maximumPixels`` square. The parse and the
+    /// redraw, which decodes the pixels, are one checked CPU call
+    /// (``blockingNSImage(_:fileID:line:render:)``), so a large icon decoded
+    /// on the main thread (``store(_:at:profile:)``) is timed where it runs.
     nonisolated static func decode(_ data: Data) -> NSImage? {
-        guard let source = NSImage(data: data), source.size.width > 0, source.size.height > 0 else { return nil }
+        guard let image = blockingNSImage(data, render: redrawn) else { return nil }
+        // 16 pt wide (a favicon's size) with up to 4x pixels behind it.
+        let points = CGFloat(16) / CGFloat(max(image.width, image.height))
+        return NSImage(cgImage: image, size: NSSize(width: CGFloat(image.width) * points, height: CGFloat(image.height) * points))
+    }
+
+    /// `source`'s best representation for ``maximumPixels`` square, drawn into
+    /// a bitmap of at most that size; nil when it is empty or does not draw.
+    private nonisolated static func redrawn(_ source: NSImage) -> CGImage? {
+        guard source.size.width > 0, source.size.height > 0 else { return nil }
         let side = CGFloat(maximumPixels)
         var proposed = CGRect(x: 0, y: 0, width: side, height: side)
         guard let best = source.cgImage(forProposedRect: &proposed, context: nil, hints: nil) else { return nil }
@@ -107,10 +127,7 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         context.interpolationQuality = .high
         context.draw(best, in: CGRect(x: 0, y: 0, width: width, height: height))
-        guard let image = context.makeImage() else { return nil }
-        // 16 pt wide (a favicon's size) with up to 4x pixels behind it.
-        let points = CGFloat(16) / CGFloat(max(width, height))
-        return NSImage(cgImage: image, size: NSSize(width: CGFloat(width) * points, height: CGFloat(height) * points))
+        return context.makeImage()
     }
 
 }

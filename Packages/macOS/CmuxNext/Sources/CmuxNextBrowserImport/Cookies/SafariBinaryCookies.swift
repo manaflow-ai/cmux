@@ -40,7 +40,7 @@ public struct SafariBinaryCookies {
                 domain: try string(record, at: Int(try le32(record, 16))),
                 path: try string(record, at: Int(try le32(record, 24))),
                 secure: flags & 1 != 0, httpOnly: flags & 4 != 0,
-                expires: BrowserTime().cocoa(double(record, 40)), created: BrowserTime().cocoa(double(record, 48))
+                expires: BrowserTime().cocoaExpiry(double(record, 40)), created: BrowserTime().cocoa(double(record, 48))
             )
             if cookie.isExpired(at: now) { result.expired += 1 } else { result.cookies.append(cookie) }
         }

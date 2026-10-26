@@ -27,7 +27,9 @@ public struct FirefoxSessionReader {
         let bytes = [UInt8](data)
         guard bytes.count > 12, Array(bytes[0..<8]) == magic else { return nil }
         let size = Int(PickleReader.uint32(bytes, at: 8))
-        guard size > 0, size <= maximumSize else { return nil }
+        // One LZ4 block byte yields at most 255 bytes (a match-length byte), so a larger size is a lie
+        // that would only allocate.
+        guard size > 0, size <= maximumSize, size / 255 <= bytes.count - 12 else { return nil }
         var output = [UInt8](repeating: 0, count: size)
         let written = bytes.withUnsafeBufferPointer { source in
             output.withUnsafeMutableBufferPointer { destination -> Int in
@@ -39,20 +41,27 @@ public struct FirefoxSessionReader {
         return written == size ? Data(output) : nil
     }
 
-    public func parse(_ data: Data) -> [ImportedTab] {
+    /// The open tabs; a tab with no history entry or an address that is not importable is counted.
+    public func parse(_ data: Data) -> ImportRead<ImportedTab> {
         guard let json = decompress(data),
-              let root = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return [] }
-        var tabs: [ImportedTab] = []
+              let root = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return ImportRead() }
+        var read = ImportRead<ImportedTab>()
         for (windowIndex, window) in (root["windows"] as? [[String: Any]] ?? []).enumerated() {
-            for tab in window["tabs"] as? [[String: Any]] ?? [] {
-                let entries = tab["entries"] as? [[String: Any]] ?? []
-                guard !entries.isEmpty else { continue }
-                let index = min(max((tab["index"] as? Int ?? entries.count) - 1, 0), entries.count - 1)
-                guard let text = entries[index]["url"] as? String, let url = ImportableURL.parse(text) else { continue }
+            for element in window["tabs"] as? [Any] ?? [] {
+                guard let tab = element as? [String: Any], let entries = tab["entries"] as? [[String: Any]], !entries.isEmpty else {
+                    read.skipped.unsupported += 1
+                    continue
+                }
+                // `index` is 1-based; any other number (Int.min included) picks the nearest entry.
+                let index = min(max(tab["index"] as? Int ?? entries.count, 1), entries.count) - 1
+                guard let text = entries[index]["url"] as? String, let url = ImportableURL.parse(text) else {
+                    read.skipped.notImportable += 1
+                    continue
+                }
                 let title = (entries[index]["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                tabs.append(ImportedTab(url: url, title: title, window: windowIndex, pinned: tab["pinned"] as? Bool ?? false))
+                read.items.append(ImportedTab(url: url, title: title, window: windowIndex, pinned: tab["pinned"] as? Bool ?? false))
             }
         }
-        return tabs
+        return read
     }
 }

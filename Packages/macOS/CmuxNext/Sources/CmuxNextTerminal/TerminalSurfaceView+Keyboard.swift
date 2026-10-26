@@ -13,7 +13,7 @@ import GhosttyNextKit
 // (ghostty.h:1571, :1586, :1656).
 extension TerminalSurfaceView {
     public override func keyDown(with event: NSEvent) { // perf-hot: 1ms terminal-key (every key typed into a terminal)
-        if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.hop("app.key.terminal") }
+        if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.keyReachedTerminal(bridge.takeUnretainedValue().typingSurface) }
         if TerminalClipboardRequests.isPasteChord(event), !clipboardRequests.userPasteInProgress {
             return clipboardRequests.asUserPaste { keyDown(with: event) }
         }
@@ -23,7 +23,12 @@ extension TerminalSurfaceView {
         }
         // Copy mode takes every key except Command chords before Ghostty or
         // an input method sees it.
-        if copyMode.handleKeyDown(event) { return }
+        if copyMode.handleKeyDown(event) {
+            noteKeyTaken()
+            return
+        }
+        // The key goes to the terminal: its echo's frame is awaited from here.
+        lane?.echoStage?.keyDown()
 
         // Ghostty decides which modifiers take part in text translation (for
         // example `macos-option-as-alt`). Rebuild the event only when that
@@ -38,20 +43,22 @@ extension TerminalSurfaceView {
 
         let hadMarkedText = markedText.length > 0
         // A key that switches the input source (for example Ctrl-Space) must
-        // not also reach the terminal. Only a key with Control, Option, Command
-        // or Fn can be such a shortcut: a plain key pays no TIS lookup (two
-        // TISCopyCurrentKeyboardInputSource calls per typed character).
-        let mayChangeInputSource = !hadMarkedText && GhosttyInput.mayChangeInputSource(event.modifierFlags)
-        let inputSourceBefore = mayChangeInputSource ? GhosttyInput.currentInputSourceID() : nil
+        // not also reach the terminal. Only a system switch key, or a chord
+        // while an input method is selected, compares the source (two Text
+        // Input Sources reads); Ctrl-C under a keyboard layout reads none.
+        let inputSources = GhosttyRuntime.shared.inputSources
+        let mayChangeInputSource = !hadMarkedText && inputSources.mayChangeSource(keyCode: event.keyCode, flags: event.modifierFlags)
+        let inputSourceBefore = mayChangeInputSource ? inputSources.currentSourceID() : nil
         lastPerformKeyEventTimestamp = nil
 
         interpretKeyEvents([translationEvent])
 
-        if mayChangeInputSource, inputSourceBefore != GhosttyInput.currentInputSourceID() {
+        if mayChangeInputSource, inputSources.sourceChanged(since: inputSourceBefore) {
             return
         }
 
         syncPreedit(clearIfNeeded: hadMarkedText)
+        if hadMarkedText || markedText.length > 0 { noteKeyTaken() }
 
         // Composing covers the key that ended a composition too: Backspace
         // that cancels Japanese preedit must not also delete a character.
@@ -118,6 +125,14 @@ extension TerminalSurfaceView {
 
     // MARK: Sending
 
+    /// The key-down being dispatched changed what this terminal shows: the app's delegate tells the main-thread
+    /// scheduler a frame is expected (``TerminalSessionDelegate/terminalSessionTookKey(_:)``).
+    func noteKeyTaken() {
+        guard let session else { return }
+        session.delegate?.terminalSessionTookKey(session)
+    }
+
+    /// Sends one key transition to Ghostty; a press or repeat Ghostty took is ``noteKeyTaken()``.
     func sendKey(
         _ action: ghostty_input_action_e,
         event: NSEvent,
@@ -130,14 +145,16 @@ extension TerminalSurfaceView {
         keyEvent.composing = composing
         // Ghostty encodes control characters from keycode + mods itself so
         // the Kitty keyboard protocol still sees the physical key.
+        let took: Bool
         if let text, !text.isEmpty, !GhosttyInput.startsWithControlCharacter(text) {
-            text.withCString { pointer in
+            took = text.withCString { pointer in
                 keyEvent.text = pointer
-                _ = clipboardRequests.asUserClipboardWrite { ghostty_surface_key(surface, keyEvent) }
+                return clipboardRequests.asUserClipboardWrite { ghostty_surface_key(surface, keyEvent) }
             }
         } else {
-            _ = clipboardRequests.asUserClipboardWrite { ghostty_surface_key(surface, keyEvent) }
+            took = clipboardRequests.asUserClipboardWrite { ghostty_surface_key(surface, keyEvent) }
         }
+        if took, action != GHOSTTY_ACTION_RELEASE { TypingLatencyProbe.shared.terminalTookKey(); noteKeyTaken() }
     }
 
     /// Text an input method committed while handling a key that belongs to
@@ -149,10 +166,11 @@ extension TerminalSurfaceView {
         keyEvent.action = action
         keyEvent.mods = GHOSTTY_MODS_NONE
         keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-        text.withCString { pointer in
+        let took = text.withCString { pointer in
             keyEvent.text = pointer
-            _ = clipboardRequests.asUserClipboardWrite { ghostty_surface_key(surface, keyEvent) }
+            return clipboardRequests.asUserClipboardWrite { ghostty_surface_key(surface, keyEvent) }
         }
+        if took { TypingLatencyProbe.shared.terminalTookKey(); noteKeyTaken() }
     }
 
     func syncPreedit(clearIfNeeded: Bool = true) {

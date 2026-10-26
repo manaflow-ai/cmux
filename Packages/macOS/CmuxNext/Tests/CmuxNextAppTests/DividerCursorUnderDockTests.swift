@@ -78,8 +78,8 @@ struct DividerCursorUnderDockTests {
         let beside = screen.convert(handle.cursorRectInBounds, from: handle)
         try #require(beside.width > 1 && beside.height > 1, "the divider shows beside the dock: \(beside), dock \(cover)")
         var pointer = CGPoint(x: under.midX, y: under.midY)
-        fixture.root.context.hoverPointer = { _ in screen.convert(pointer, to: nil) }
-        fixture.root.context.hoverReachesWindow = { _ in true }
+        fixture.root.context.hoverPointer = { _, _ in screen.convert(pointer, to: nil) }
+        fixture.root.context.hoverReachesWindow = { _, _ in true }
 
         screen.refreshDividerHover()
         #expect(!handle.isHovered, "the pointer over the docked pane hovers no divider under it")

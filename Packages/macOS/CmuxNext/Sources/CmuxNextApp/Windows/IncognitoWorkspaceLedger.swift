@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import os
 
@@ -43,7 +44,7 @@ final class IncognitoWorkspaceLedger {
         return await Task.detached(priority: .userInitiated) {
             // concurrency-allow: runs in a detached task, off the main actor
             guard let data = try? Data(contentsOf: url),
-                  let document = try? JSONDecoder().decode(Document.self, from: data) else { return [String]() }
+                  let document = try? JSONDecoder().blockingDecode(Document.self, from: data) else { return [String]() }
             return document.workspaces
         }.value
     }

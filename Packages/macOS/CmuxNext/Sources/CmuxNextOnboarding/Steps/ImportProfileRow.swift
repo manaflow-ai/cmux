@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowserImport
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextIcons
 
@@ -130,7 +131,7 @@ final class ImportProfileRow: NSView {
         configured = true
         (accessButton as? OnboardingTextButton)?.setPlainTitle(OnboardingStrings.openSystemSettings)
         icon.image = Self.icon(appURL, browser: profile.browser)
-        avatar.image = profile.avatar.flatMap { NSImage(contentsOf: $0) }
+        avatar.image = profile.avatar.flatMap { try? Data(blockingContentsOf: $0) }.flatMap { blockingNSImage($0) }
         avatar.alphaValue = avatar.image == nil ? 0 : 1
         name.stringValue = profile.browser.displayName
         let showsProfile = !(profile.directoryName.isEmpty || profile.browser.family == .safari || profile.browser.family.isPrivateStore)

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 // The sidebar document as the client reads it (`sidebar-doc-v1`,
@@ -261,7 +262,7 @@ public nonisolated struct SidebarDocRecords: Hashable, Sendable {
 
     /// Records from a `sidebar.get` reply.
     public init(document data: Data) throws {
-        let wire = try JSONDecoder().decode(SidebarDocWire.Document.self, from: data)
+        let wire = try JSONDecoder().blockingDecode(SidebarDocWire.Document.self, from: data)
         revision = wire.revision.value ?? 0
         for section in wire.sections.compactMap(\.value) { sections[section.id] = section.record }
         for item in wire.items.compactMap(\.value) { items[item.id] = item.record }
@@ -272,7 +273,7 @@ public nonisolated struct SidebarDocRecords: Hashable, Sendable {
     /// store redraws no row for it (plans/cmux-next/state-ownership-DESIGN.md). Nil for any other change.
     @discardableResult
     public mutating func apply(batch data: Data) -> [String: Bool]? {
-        guard let batch = try? JSONDecoder().decode(SidebarDocWire.Batch.self, from: data) else { return nil }
+        guard let batch = try? JSONDecoder().blockingDecode(SidebarDocWire.Batch.self, from: data) else { return nil }
         var folds: [String: Bool]? = [:]
         for change in batch.changes.compactMap(\.value) {
             switch (change.kind, change.resource) {

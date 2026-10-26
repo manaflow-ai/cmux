@@ -28,7 +28,7 @@
 //! the peer both ways (`--reverse`) and runs a doctor, as JSON-lines steps;
 //! once it lands this task moves to `enroll` and `reverse` reports it.
 
-use std::process::{Command, Stdio};
+use cmux_process::{Command, Stdio};
 
 use acpmux::peer::{SSH_PEER_PORT, ssh_target};
 use serde_json::{Value, json};

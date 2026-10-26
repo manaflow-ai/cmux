@@ -317,6 +317,7 @@ impl Mux {
     /// It first settles the receipts of earlier indeterminate registry
     /// commits that arrived since (cx-g1fa.3): their state updates and
     /// revisions land before this flow reads state.
+    #[track_caller]
     pub(crate) fn lock_state_pinned(
         &self,
         registry: &WorkspaceRegistry,

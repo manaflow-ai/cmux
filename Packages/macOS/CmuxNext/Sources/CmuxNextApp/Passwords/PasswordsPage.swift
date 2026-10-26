@@ -9,7 +9,7 @@ extension PageDescriptor {
     /// The Passwords page (plans/cmux-next/passwords.md 1.4): cmux-page://cmux.passwords/. It
     /// calls its own namespace, and its Import buttons run the person-only import actions
     /// (PASSWORDS-IMPORT-ANY-BROWSER, cx-d0d.65), which the host runs only on a click or key in the page.
-    static let passwords = PageDescriptor(id: "cmux.passwords", resource: "passwords", namespaces: ["cmux.passwords."],
+    static let passwords = PageDescriptor(id: "cmux.passwords", resource: "passwords", processGroup: .secrets, namespaces: ["cmux.passwords."],
                                           nativeOps: [PageNativeOp.actionRun], actions: ["importFromBrowser", "browser.importFromFiles"],
                                           ownsSearchField: true)
 }
@@ -60,7 +60,7 @@ final class PasswordsPageService: InternalPageProvider {
         let native = services.map { AppPageNativeProvider(services: $0, page: .passwords) }
         var routes = [PageRoute(prefix: "cmux.passwords.", provider: provider)]
         if let native { routes.append(PageRoute(prefix: "cmux.app.", provider: native)) }
-        guard let page = PageWebView(descriptor: .passwords, routes: routes) else { return NSView() }
+        guard let page = services?.webUI.open(PageOpenRequest(descriptor: .passwords, routes: routes)) else { return NSView() }
         provider.anchor = { [weak page] in page }
         provider.allowExport = { [weak services] in
             services?.settings.map { BrowserPasswordsSetting.current($0).allowExport } ?? false

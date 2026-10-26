@@ -22,6 +22,8 @@ final class TabContentCache {
     var browsers: [String: BrowserEntry] = [:] { didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged() } } }
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
     var presenters: [ObjectIdentifier: WeakPresenter] = [:]
+    /// Windows off screen now (`WindowOcclusionChecker`): the pages they show get a hidden clock.
+    var offScreenWindows: Set<ObjectIdentifier> = []
     /// Every tab's content phase and visibility generation (plans/cmux-next/tab-lifecycle.md):
     /// the only source of show and hide for terminal surfaces and pages (`TabContentCache+Lifecycle`).
     var lifecycle = ContentLifecycle<String>()
@@ -32,8 +34,8 @@ final class TabContentCache {
     /// Set while a smaller warm budget evicts: surfaces close at once, with no last picture.
     var evictsAtOnce = false
     var onRelease: ((String) -> Void)?
-    /// Hibernates hidden pages (time, memory pressure) and restores them.
-    var hibernation: BrowserHibernation?
+    var hibernation: BrowserHibernation? // hibernates hidden browser pages (time, memory pressure) and restores them
+    weak var pageDiscards: InternalPageTabStore? // takes page tabs' lifecycle effects (memoryDiscardInternalPages; nil while off)
     /// Hibernated tabs, observed by the tab strips.
     let dormantTabs = DormantTabs()
     let previews = PreviewImageCache()
@@ -85,6 +87,12 @@ final class TabContentCache {
     /// No Chromium page is being created any more (ChromiumWarmup's spare window).
     var onPagesSettled: (@MainActor () -> Void)?
     private var framedStandIns: Set<String> = [] // stand-in tabs whose page waited for their first frame
+    /// Each tab's visibility node, weakly (`node(for:)`).
+    private var tabNodes: [String: WeakTabNode] = [:]
+    /// `tabNodes` drops its released nodes when it reaches this many entries.
+    private var tabNodesPruneAt = 64
+    /// The parent of tab nodes that no pane has selected: hidden, so they are.
+    private let unselectedTabs = VisibilityNode(root: "tabs.unselected", own: .hidden)
     /// Runs work after the current pass's frame committed (`AfterFrameCommit`); tests pass their own.
     private let afterFrame: (@escaping @MainActor () -> Void) -> Void
     /// Restored browser tabs start as `DeferredBrowserTab` (nothing loads)
@@ -148,7 +156,7 @@ final class TabContentCache {
          resizes: ResizeCoordinator = ResizeCoordinator()) {
         self.daemon = daemon
         self.cef = cef
-        webKit = WebKitEngine(fileInput: fileInput, stores: cef.stores)
+        webKit = WebKitEngine(fileInput: fileInput, stores: cef.stores, waitDeadlines: cef.waitDeadlines)
         self.afterFrame = afterFrame
         self.resizes = resizes
         browserTabs = BrowserTabService(daemon: daemon, cef: cef)
@@ -190,7 +198,7 @@ final class TabContentCache {
         let gate = ProvisionalTab.isProvisional(surface: tab.surface) ? TerminalTargetGate() : nil
         let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, gate: gate, creatingInput: gate.flatMap { gate in daemon.creatingInput(tab.terminalID) { gate.isResolved } },
                                   burstTrace: pageRequests.services?.burstTrace, policyBlocked: daemon.policyBlock.check,
-                                  endpoint: { try await daemon.endpoint() })
+                                  hangWatch: daemon.hangWatch, endpoint: { try await daemon.endpoint() })
         let session = makeSession(io: io, tab: tab, daemon: daemon)
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: tab.surface, gate: gate)
@@ -406,6 +414,7 @@ final class TabContentCache {
         if agentDrivenTabs.contains(key) { page.markAgentDriven() } else if page.isAgentDriven { agentDrivenTabs.insert(key) }
         pageRequests.proxiedTabs.adopt(store: (page as? CEFTab)?.machineStore, key: key)
         browsers[key] = entry
+        hibernation?.pageDidMount(key, page)
         pageInstalls.bump()
         // Pages are kept by hibernation, never by the terminal warm set.
         ledger.setRetained(key, false)
@@ -418,6 +427,7 @@ final class TabContentCache {
     /// (yet) or `tab` has one: `tab` then makes its own.
     func moveBrowser(_ key: String, to tab: TabModel) -> Bool {
         guard !pendingBrowsers.contains(key), browsers[tab.id] == nil, let entry = browsers.removeValue(forKey: key) else { return false }
+        if let node = tabNodes.removeValue(forKey: key), tabNodes[tab.id]?.node == nil { tabNodes[tab.id] = node } // the page's node goes with it
         release(key, displacing: false)
         mount(entry, as: tab.id)
         goneTabs.track(tab.id, in: browserTabs.daemon(for: tab).store) { [weak self] in self?.release($0) }
@@ -475,6 +485,31 @@ final class TabContentCache {
         shownPages.remove(key)
         presentationChanges.notify(changed: [key])
     }
+
+    // MARK: Visibility
+
+    /// Tab `key`'s node in the visibility tree (p06-scheduler.md B): visible while the tab is selected
+    /// in a visible pane (`PaneController.selectTabNode`), else hidden. Keyed by tab, as its surface
+    /// is, so a tab moved to another pane keeps its node, and a closed tab's content going
+    /// (`release`) leaves it.
+    ///
+    /// The cache holds nodes weakly: a node lives while the pane that selects its tab holds it, or a
+    /// follower does. Hold the node for as long as you subscribe to it. A tab that nothing holds gets
+    /// a new hidden node, which is its true state: no pane selects it.
+    func node(for key: String) -> VisibilityNode {
+        if let node = tabNodes[key]?.node { return node }
+        let node = VisibilityNode("tab:\(key)", own: .hidden, parent: unselectedTabs)
+        tabNodes[key] = WeakTabNode(node: node)
+        if tabNodes.count >= tabNodesPruneAt {
+            tabNodes = tabNodes.filter { $0.value.node != nil }
+            tabNodesPruneAt = max(64, tabNodes.count * 2)
+        }
+        return node
+    }
+
+    private struct WeakTabNode {
+        weak var node: VisibilityNode?
+    }
 }
 
 /// A pane that shows cached content.
@@ -484,6 +519,16 @@ protocol SurfacePresenter: AnyObject {
     /// destroyed. Drop the view if it is still installed here; do not
     /// withdraw or pause it.
     func surfaceWasDisplaced(_ key: String)
+    /// The window it presents in, if any.
+    var presentingWindow: NSWindow? { get }
+}
+
+extension SurfacePresenter {
+    var presentingWindow: NSWindow? { nil }
+}
+
+extension PaneController {
+    var presentingWindow: NSWindow? { view.window }
 }
 
 struct WeakPresenter {
