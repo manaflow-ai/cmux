@@ -31,10 +31,8 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
       console.warn(`model menu bounded height: ${engine[0]} cannot launch here`);
     }
   }
-  if (engines.length === 0) {
-    describe.skip("model menu bounded height", () => test("browsers", () => {}));
-    return;
-  }
+  if (engines.length !== 2)
+    throw new Error(`model menu bounded height requires Chromium and WebKit; launched ${engines.map(([name]) => name).join(", ") || "none"}`);
 
   const ENTRY = "agent-pane.model-picker";
   const MANY = "quick-menu-many-profiles";
@@ -110,7 +108,15 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
     /** Fixed siblings of the scrolling layout remain inside the capped popup. */
     fixed: { search: boolean; footer: boolean };
     /** Each scrolling box, scrolled to its end: whether its last row is wholly inside it and the window. */
-    scrollers: { rows: number; scrolls: boolean; lastRowShown: boolean; lastRow: string }[];
+    scrollers: {
+      rows: number;
+      scrolls: boolean;
+      lastRowShown: boolean;
+      lastRow: string;
+      profiles: number;
+      lastProfile: string;
+      lastProfileShown: boolean;
+    }[];
     profiles: number;
   };
 
@@ -167,22 +173,32 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
             const rows = [...scroller.querySelectorAll<HTMLElement>('[role^="menuitem"]')].filter(
               (row) => own(menu, row) && !row.closest("[inert]") && box(row).height > 0,
             );
+            const profileRows = rows.filter((row) => row.classList.contains("acpmux-quick-profile"));
             const area = box(scroller);
             const shown = box(rows.at(-1)!);
+            const lastProfile = profileRows.at(-1);
+            const profileBox = lastProfile ? box(lastProfile) : undefined;
+            const shownInside = (candidate: Box | undefined) =>
+              candidate !== undefined &&
+              candidate.top >= area.top - 0.5 &&
+              candidate.bottom <= area.bottom + 0.5 &&
+              candidate.top >= -0.5 &&
+              candidate.bottom <= window.innerHeight + 0.5;
             return {
               rows: rows.length,
               scrolls: scroller.scrollHeight > scroller.clientHeight + 1,
-              lastRowShown:
-                shown.top >= area.top - 0.5 &&
-                shown.bottom <= area.bottom + 0.5 &&
-                shown.top >= -0.5 &&
-                shown.bottom <= window.innerHeight + 0.5,
+              lastRowShown: shownInside(shown),
               lastRow: rows.at(-1)!.textContent ?? "",
+              profiles: profileRows.length,
+              lastProfile: lastProfile?.textContent ?? "",
+              lastProfileShown: shownInside(profileBox),
             };
           }),
         };
       });
     });
+
+  const requireFooter = process.env.CMUX_MODEL_MENU_REQUIRE_FOOTER === "1";
 
   /** Every compact menu sits inside the window, is at most its room and the window's cap and no taller
    *  than its rows, cuts off none of its parts, and shows its last row. */
@@ -212,6 +228,7 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
     for (const [label, override] of [
       ["the room Base UI publishes", undefined],
       ["no published room", "initial"],
+      ["a smaller published room", "120px"],
       ["an oversized room", "4000px"],
     ] as const) {
       test(`${engine}, ${label}: 48 profiles keep to the short window and scroll to the last one`, async () => {
@@ -223,10 +240,17 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
         await shoot(page, `${shot}-end`);
         expect(menus.length, "the model menu and its Account submenu are open").toBe(2);
         const [main, account] = menus as [Menu, Menu];
-        expect(account.profiles, "the profiles are listed, not folded away").toBeGreaterThanOrEqual(24);
+        if (override === undefined)
+          expect(Number.isFinite(account.available), "Base UI publishes a finite available height").toBe(true);
+        expect(account.profiles, "all 48 profiles are listed, not folded away").toBe(48);
         expect(account.scrollers.length, "the Account submenu scrolls on its own").toBeGreaterThan(0);
+        const profileScroller = account.scrollers.find((scroller) => scroller.profiles === 48);
+        expect(profileScroller, "the profile rows share a scrolling box").toBeDefined();
+        expect(profileScroller!.lastProfile).toContain("Claude work profile 24");
+        expect(profileScroller!.lastProfileShown, "the real last profile is visible after scrolling").toBe(true);
         expect(account.scrollers.some((scroller) => scroller.scrolls)).toBe(true);
         expect(main.scrollers.length, "the model list scrolls on its own").toBeGreaterThan(0);
+        if (requireFooter) expect(main.fixed.footer, "the published update footer is a fixed sibling").toBe(true);
         expectBounded(menus, VIEWPORT.height - 16);
         await page.close();
       });
