@@ -57,3 +57,24 @@ bun test test/transcript-older-history-retry.test.tsx
 bun test test/transcript-older-history-once.test.tsx
 CMUX_BROWSER_TESTS=1 bun test test/agent-pane-history-paging.test.ts
 CMUX_BROWSER_TESTS=1 bun test test/agent-pane-jump-latest-motion.test.ts
+# Compare the focused top-page regression on untouched base and the repaired source; preserve both statuses.
+base_test_out="$task_root/history-top-before.log"
+current_test_out="$task_root/history-top-after.log"
+cd "$task_red/webviews"
+set +e
+CMUX_BROWSER_TESTS=1 bun test test/transcript-older-history-at-top.test.tsx > "$base_test_out" 2>&1
+base_test_status=$?
+set -e
+printf 'HISTORY_TOP_BEFORE_STATUS=%s\n' "$base_test_status"
+tail -80 "$base_test_out"
+cd "$task_root/webviews"
+set +e
+CMUX_BROWSER_TESTS=1 bun test test/transcript-older-history-at-top.test.tsx > "$current_test_out" 2>&1
+current_test_status=$?
+set -e
+printf 'HISTORY_TOP_AFTER_STATUS=%s\n' "$current_test_status"
+tail -80 "$current_test_out"
+if [ "$current_test_status" -ne 0 ]; then
+  echo 'focused history top regression remains red on the repaired source' >&2
+  exit "$current_test_status"
+fi
