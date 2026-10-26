@@ -89,7 +89,9 @@ impl JournalMaintenance {
         let worker_control = control.clone();
         let weak_mux = Arc::downgrade(mux);
         let interval = journal_maintenance_interval();
-        let thread = std::thread::Builder::new().name("cmux-journal-maintenance".into()).spawn(
+        let thread = cmux_threads::spawn(
+            "cmux-journal-maintenance",
+            crate::request_qos::UPKEEP_THREAD_QOS,
             move || {
                 let mut ledgers = ledger_maintenance::LedgerMaintenance::default();
                 loop {
@@ -113,6 +115,7 @@ impl JournalMaintenance {
                     }
                     drop(stopped);
                     let Some(mux) = weak_mux.upgrade() else { return };
+                    let _pass = mux.request_qos().enter_upkeep_pass();
                     mux.run_journal_maintenance(&mut ledgers);
                 }
             },
