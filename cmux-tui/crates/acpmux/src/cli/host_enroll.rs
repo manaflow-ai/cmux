@@ -685,7 +685,9 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
         // differs); a missing one does not.
         if found.0.is_some() && found.1.is_some() {
             return StepResult::new(Step::Install, StepState::Warn, why)
-                .with_fix(format!("Run `acpmux host update {name}`."));
+                .with_fix(format!("Run `acpmux host update {name}`."))
+                .with_reason("peer_version_skew")
+                .with_try(format!("acpmux host update {name}"));
         }
         return fail(
             Step::Install,

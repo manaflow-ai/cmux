@@ -500,6 +500,10 @@ fn doctor_without_fix_changes_nothing() {
         [(Step::Install, StepState::Warn), (Step::Daemon, StepState::Warn)]
     );
     assert_eq!(results[2].fix.as_deref(), Some("Run `acpmux host update box`."));
+    assert_eq!(results[1].reason.as_deref(), Some("peer_version_skew"));
+    assert_eq!(results[1].data.as_ref().unwrap()["try"], "acpmux host update box");
+    assert_eq!(results[2].reason.as_deref(), Some("peer_version_skew"));
+    assert_eq!(results[2].data.as_ref().unwrap()["try"], "acpmux host update box");
 }
 
 #[test]
