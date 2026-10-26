@@ -9,21 +9,26 @@ alerts.detect decides) this module reports:
 - CV of the per-run median and of the per-run p99: the root-mean-square CV of duplicate measurements,
   sqrt(sum(((a - b) / mean(a, b))^2) / 2k) over the k pairs. Each pair compares runs of one artifact,
   so the nightly change of artifact does not count as noise.
-- False alerts: the alerts the lab would raise on data with no change.
+- False alerts: the regression alerts the lab would raise on data with no change. The lab alerts only a
+  regression, so B worse than A is one; each count's two-sided figure is reported beside it, never judged.
   - compare: catapult Pinpoint's compare (perf_stats.compare, catapult pinpoint/compare/compare.py) on the
-    raw samples of A and B. DIFFERENT by the strict rule (the culprit-verification rule) is one false alert;
-    the bisect rule's DIFFERENT count is reported beside it.
+    raw samples of A and B. DIFFERENT by the strict rule (the culprit-verification rule) with B's median worse
+    than A's is one false alert, as pinpoint._direction_ok keeps a verify verdict; the bisect rule's count
+    (DIFFERENT unless B's mean is better) is reported beside it.
   - anomaly: alerts.detect's detector (catapult find_change_points, task 003) with the config alerts.detect
     gives the series (its subscription's anomaly_config and the catalog noise floor), on the per-host series
     of B's median at A's level, median(B) / median(A) * the host's median of median(A). That series moves
-    only with run-to-run noise. It runs on every prefix, as ingest does, and a change point whose range
-    overlaps one already counted is not counted again, as alerts._record drops it. A/B order is arbitrary,
-    so a step in either direction counts.
+    only with run-to-run noise. It runs on the max_window_size window ending at each point, as ingest does
+    after each new point; a change point whose range overlaps one already found is the same alert, as
+    alerts._record drops it, and only a step alerts.is_regression calls a regression counts.
   The rate is false alerts per 100 series-days (one series-day = one A/A pair).
+- A/A runs per waterfall host (a host with a waterfall run in the window): one run is one A/A job, or for a run
+  stored without a job id, one artifact on one scheduler lab day (scheduler.lab_day, 09:00 UTC).
 
 `lab.py aa --since-live|--days N [--json]` prints the report; `--cv-over X --json` prints only the
-noisy series (MQ11, one de-noise task each). The thresholds of done check 9 (p12-perf-process.md 5)
-are the module constants below; this module never widens a threshold to clear a series.
+noisy series (MQ11, one de-noise task each) and skips the detector, since the list uses only the CVs.
+The thresholds of done check 9 (p12-perf-process.md 5) are the module constants below; this module never
+widens a threshold to clear a series.
 """
 from __future__ import annotations
 
@@ -120,6 +125,14 @@ class Pair:
 
 
 @dataclass(frozen=True)
+class HostRuns:
+    """The waterfall hosts of the window and each host's A/A run count (0 for a waterfall host without one)."""
+
+    waterfall: tuple[str, ...]
+    aa_runs: dict[str, int]
+
+
+@dataclass(frozen=True)
 class SeriesNoise:
     key: str
     story: str
@@ -135,9 +148,11 @@ class SeriesNoise:
     cv_p99: float | None
     compare_different_strict: int
     compare_different_bisect: int
-    anomaly_alerts: int
-    false_alerts: int
-    false_alerts_per_100: float
+    compare_different_two_sided: int
+    anomaly_alerts: int | None
+    anomaly_steps_two_sided: int | None
+    false_alerts: int | None
+    false_alerts_per_100: float | None
 
 
 class Detector(Protocol):
@@ -156,13 +171,56 @@ def _alerts():
     return _load("perf_lab_alerts", "alerts.py")
 
 
+def _scheduler():
+    return _load("perf_lab_scheduler", "scheduler.py")
+
+
+class ScreenedDetector:
+    """A catapult detector that skips the E-Divisive permutation test on a window with no possible change point.
+
+    find_change_points keeps a candidate only when its split passes the segment-size, absolute-change and
+    relative-change filters of anomaly.passes_thresholds (catapult find_change_points.py _PassesThresholds 1-3).
+    When no split of the window passes them, the answer is [] whatever E-Divisive finds, and A/A noise is almost
+    always such a window.
+    """
+
+    def __init__(self, inner: Detector, anomaly) -> None:
+        self._inner = inner
+        self._anomaly = anomaly
+
+    def _possible(self, values: Sequence[float], config: Mapping[str, float]) -> bool:
+        anomaly = self._anomaly
+        values = list(values)[-int(config.get("max_window_size", anomaly.MAX_WINDOW_SIZE)):]
+        if len(values) < 2:
+            return False
+        segment = config.get("min_segment_size", anomaly.MIN_SEGMENT_SIZE)
+        absolute = config.get("min_absolute_change", anomaly.MIN_ABSOLUTE_CHANGE)
+        relative = config.get("min_relative_change", anomaly.MIN_RELATIVE_CHANGE)
+        median, relative_change = anomaly.edivisive.Median, anomaly.edivisive.RelativeChange
+        for split in range(len(values)):
+            left, right = values[:split], values[split:]
+            if len(left) < segment or len(right) < segment:
+                continue
+            before, after = median(left), median(right)
+            # Written as passes_thresholds' rejections, so a NaN median (an empty side) is a possible step too.
+            if not abs(before - after) < absolute and not relative_change(before, after) < relative:
+                return True
+        return False
+
+    def change_points(self, values: Sequence[float], config: Mapping[str, float]) -> Sequence[object]:
+        if not self._possible(values, config):
+            return []
+        return self._inner.change_points(values, config)
+
+
 def catapult_detector() -> Detector:
-    """alerts.CatapultDetector: anomaly.find_change_points (task 003) behind the alerts Detector seam."""
+    """alerts.CatapultDetector (anomaly.find_change_points, task 003, behind the alerts Detector seam), screened."""
     alerts = _alerts()
     try:
-        return alerts.CatapultDetector()
+        inner = alerts.CatapultDetector()
     except alerts.AlertsError as error:
         raise AAError(str(error)) from None
+    return ScreenedDetector(inner, _load("perf_lab_anomaly", "anomaly.py"))
 
 
 def subscription_configs(subscriptions_path: Path | str | None = None, root: Path | None = None) -> SeriesConfig:
@@ -238,14 +296,41 @@ def read_aa_runs(db_path: Path | str, since: datetime) -> list[AARun]:
             for row in rows]
 
 
-def pair_runs(runs: Sequence[AARun]) -> list[Pair]:
-    """A/A pairs: consecutive runs of one series on one host and one artifact, within one job.
+def _experiment(job_id: int | None, build_id: int, started_at: str) -> tuple:
+    """One A/A job: its job id, or for a run stored without one, its artifact on the scheduler's lab day (09:00 UTC),
+    so the two passes of a job that runs past midnight UTC stay one experiment."""
+    if job_id is not None:
+        return ("job", job_id)
+    return ("day", build_id, _scheduler().lab_day(datetime.fromisoformat(started_at)))
 
-    A run without a job id belongs to its UTC day's experiment. An unpaired last run is dropped.
+
+def read_host_runs(db_path: Path | str, since: datetime) -> HostRuns:
+    """The hosts with a waterfall run started at or after `since`, and each host's A/A run count in the window."""
+    db = _connect(db_path)
+    try:
+        bound = _stamp(since)
+        waterfall = tuple(row["name"] for row in db.execute(
+            """SELECT DISTINCT h.name FROM runs u JOIN hosts h ON h.id = u.host_id
+               WHERE u.kind = 'waterfall' AND u.started_at >= ? ORDER BY h.name""", (bound,)))
+        rows = db.execute(
+            """SELECT h.name AS host, u.job_id, u.build_id, u.started_at FROM runs u JOIN hosts h ON h.id = u.host_id
+               WHERE u.kind = 'aa' AND u.started_at >= ?""", (bound,)).fetchall()
+    finally:
+        db.close()
+    experiments: dict[str, set] = {host: set() for host in waterfall}
+    for row in rows:
+        experiments.setdefault(row["host"], set()).add(_experiment(row["job_id"], row["build_id"], row["started_at"]))
+    return HostRuns(waterfall, {host: len(found) for host, found in sorted(experiments.items())})
+
+
+def pair_runs(runs: Sequence[AARun]) -> list[Pair]:
+    """A/A pairs: consecutive runs of one series on one host and one artifact, within one A/A job (_experiment).
+
+    An unpaired last run is dropped.
     """
     groups: dict[tuple, list[AARun]] = defaultdict(list)
     for run in runs:
-        experiment = run.job_id if run.job_id is not None else run.started_at[:10]
+        experiment = _experiment(run.job_id, run.build_id, run.started_at)
         groups[(run.series.key, run.host, run.build_id, experiment)].append(run)
     pairs = []
     for members in groups.values():
@@ -284,21 +369,36 @@ def level_series(values: Sequence[tuple[float, float]]) -> list[float]:
     return [b / a * level for a, b in usable]
 
 
-def change_points(values: Sequence[float], detector: Detector, config: Mapping[str, float]) -> int:
-    """Alerts the detector raises over every prefix of the values, as ingest runs it after each new point.
+@dataclass(frozen=True)
+class Steps:
+    regressions: int
+    two_sided: int
 
-    A step with equal medians is skipped, and a step whose range overlaps one already counted is that same
-    alert, as alerts.detect and alerts._record decide.
+
+def change_points(values: Sequence[float], detector: Detector, config: Mapping[str, float],
+                  better: str = "lower") -> Steps:
+    """The alerts the detector raises when it runs after each new point, as ingest runs alerts.detect.
+
+    Each run sees the max_window_size points ending at the new one (alerts.detect's series_points limit), so
+    the replay is one detector call per point on at most that many values. A step with equal medians is
+    skipped, a step whose range overlaps one already found is that same alert (alerts._record), and only a
+    regression (alerts.is_regression) is alerted.
     """
-    counted: list[tuple[int, int]] = []
+    alerts = _alerts()
+    window = int(config.get("max_window_size", alerts.DEFAULT_MAX_WINDOW_SIZE))
+    found: list[tuple[int, int]] = []
+    regressions = 0
     for end in range(1, len(values) + 1):
-        for point in detector.change_points(list(values[:end]), config):
+        offset = max(0, end - window)
+        for point in detector.change_points(list(values[offset:end]), config):
             if point.median_before == point.median_after:
                 continue
-            start, stop = int(point.extended_start), int(point.extended_end)
-            if not any(start <= old_stop and stop >= old_start for old_start, old_stop in counted):
-                counted.append((start, stop))
-    return len(counted)
+            start, stop = offset + int(point.extended_start), offset + int(point.extended_end)
+            if any(start <= old_stop and stop >= old_start for old_start, old_stop in found):
+                continue
+            found.append((start, stop))
+            regressions += alerts.is_regression(better, point.median_before, point.median_after)
+    return Steps(regressions, len(found))
 
 
 def _stats(pairs: Sequence[Pair], q: float) -> list[tuple[float, float]]:
@@ -310,28 +410,47 @@ def _stats(pairs: Sequence[Pair], q: float) -> list[tuple[float, float]]:
     return out
 
 
-def series_noise(series: SeriesInfo, pairs: Sequence[Pair], detector: Detector,
+def _mean(values: Sequence[float]) -> float | None:
+    return sum(values) / len(values) if values else None
+
+
+def series_noise(series: SeriesInfo, pairs: Sequence[Pair], detector: Detector | None,
                  config: Mapping[str, float]) -> SeriesNoise:
+    """One series' noise; without a detector (the --cv-over list) the anomaly and false-alert counts are None."""
     by_host: dict[str, list[Pair]] = defaultdict(list)
     for pair in pairs:
         by_host[pair.host].append(pair)
-    strict = bisect = 0
+    regression = _alerts().is_regression
+    strict = bisect = two_sided = 0
     for pair in pairs:
         comparison = perf_stats.compare(pair.a, pair.b)
-        strict += comparison.original.result == perf_stats.DIFFERENT
-        bisect += comparison.floored.result == perf_stats.DIFFERENT
-    # One series per host, since a host's level and noise are its own. alerts.detect judges the p50 only.
-    anomaly = sum(change_points(level_series(_stats(host_pairs, 0.50)), detector, config)
-                  for host_pairs in by_host.values())
-    false_alerts = strict + anomaly
+        different = comparison.original.result == perf_stats.DIFFERENT
+        two_sided += different
+        # pinpoint._direction_ok: a verify verdict stays DIFFERENT only for a regression of the median, a bisect
+        # verdict for anything but an improvement of the mean.
+        median_a, median_b = perf_stats.pct(pair.a, 0.50), perf_stats.pct(pair.b, 0.50)
+        strict += different and median_a is not None and median_b is not None and regression(
+            series.better, median_a, median_b)
+        mean_a, mean_b = _mean(pair.a), _mean(pair.b)
+        bisect += comparison.floored.result == perf_stats.DIFFERENT and not (
+            mean_a is not None and mean_b is not None and regression(series.better, mean_b, mean_a))
+    anomaly = steps = false_alerts = per_100 = None
+    if detector is not None:
+        # One series per host, since a host's level and noise are its own. alerts.detect judges the p50 only.
+        found = [change_points(level_series(_stats(host_pairs, 0.50)), detector, config, series.better)
+                 for host_pairs in by_host.values()]
+        anomaly = sum(item.regressions for item in found)
+        steps = sum(item.two_sided for item in found)
+        false_alerts = strict + anomaly
+        per_100 = 100.0 * false_alerts / len(pairs)
     return SeriesNoise(
         key=series.key, story=series.story, metric=series.metric, engine=series.engine,
         host_class=series.host_class, macos_major=series.macos_major, build_config=series.build_config,
         unit=series.unit, pairs=len(pairs), pairs_by_host={host: len(p) for host, p in sorted(by_host.items())},
         cv_median=duplicate_cv(_stats(pairs, 0.50)), cv_p99=duplicate_cv(_stats(pairs, 0.99)),
-        compare_different_strict=strict, compare_different_bisect=bisect,
-        anomaly_alerts=anomaly,
-        false_alerts=false_alerts, false_alerts_per_100=100.0 * false_alerts / len(pairs))
+        compare_different_strict=strict, compare_different_bisect=bisect, compare_different_two_sided=two_sided,
+        anomaly_alerts=anomaly, anomaly_steps_two_sided=steps,
+        false_alerts=false_alerts, false_alerts_per_100=per_100)
 
 
 def _share(values: Sequence[float | None], limit: float) -> float | None:
@@ -341,9 +460,12 @@ def _share(values: Sequence[float | None], limit: float) -> float | None:
     return sum(value <= limit for value in judged) / len(judged)
 
 
-def report(pairs: Sequence[Pair], *, since: datetime, configs: SeriesConfig, detector: Detector,
-           min_pairs: int = MIN_PAIRS) -> dict:
-    """The A/A report over monitored series: one row per series and the done-check summary."""
+def report(pairs: Sequence[Pair], *, since: datetime, configs: SeriesConfig, detector: Detector | None,
+           host_runs: HostRuns, min_pairs: int = MIN_PAIRS) -> dict:
+    """The A/A report over monitored series: one row per series and the done-check summary.
+
+    Without a detector (the --cv-over list) the false-alert figures are None and their check fails.
+    """
     by_series: dict[str, list[Pair]] = defaultdict(list)
     infos: dict[str, SeriesInfo] = {}
     found: dict[str, Mapping[str, float] | None] = {}
@@ -357,17 +479,13 @@ def report(pairs: Sequence[Pair], *, since: datetime, configs: SeriesConfig, det
     rows = [series_noise(infos[key], by_series[key], detector, found[key]) for key in sorted(by_series)]
     rows.sort(key=lambda row: (row.story, row.metric, row.host_class, row.engine, row.key))
 
-    experiments: dict[str, set] = defaultdict(set)
-    for key in by_series:
-        for pair in by_series[key]:
-            experiments[pair.host].add((pair.sha, pair.started_at[:10]))
     series_days = sum(row.pairs for row in rows)
-    false_alerts = sum(row.false_alerts for row in rows)
+    false_alerts = None if detector is None else sum(row.false_alerts for row in rows)
     judged = [row for row in rows if row.pairs >= min_pairs and row.unit in LATENCY_UNITS]
-    per_100 = 100.0 * false_alerts / series_days if series_days else None
+    per_100 = 100.0 * false_alerts / series_days if series_days and false_alerts is not None else None
     median_share = _share([row.cv_median for row in judged], DONE_MEDIAN_CV)
     p99_share = _share([row.cv_p99 for row in judged], DONE_P99_CV)
-    runs_by_host = {host: len(found) for host, found in sorted(experiments.items())}
+    under_min = [host for host in host_runs.waterfall if host_runs.aa_runs[host] < DONE_MIN_AA_RUNS_PER_HOST]
     summary = {
         "since": _stamp(since),
         "series": len(rows),
@@ -378,9 +496,11 @@ def report(pairs: Sequence[Pair], *, since: datetime, configs: SeriesConfig, det
         "latency_series_judged": len(judged),
         "median_cv_share_within": median_share,
         "p99_cv_share_within": p99_share,
-        "aa_runs_by_host": runs_by_host,
-        "hosts_under_min_aa_runs": [host for host, n in runs_by_host.items() if n < DONE_MIN_AA_RUNS_PER_HOST],
+        "waterfall_hosts": list(host_runs.waterfall),
+        "aa_runs_by_host": dict(host_runs.aa_runs),
+        "hosts_under_min_aa_runs": under_min,
         "checks": {
+            "aa_runs_per_host": bool(host_runs.waterfall) and not under_min,
             "false_alerts": per_100 is not None and per_100 <= DONE_FALSE_ALERTS_PER_100,
             "median_cv": median_share is not None and median_share >= DONE_MEDIAN_SHARE,
             "p99_cv": p99_share is not None and p99_share >= DONE_P99_SHARE,
@@ -413,7 +533,7 @@ def _print_rows(rows: Sequence[dict], out: TextIO) -> None:
     for row in rows:
         print(f"{row['story']}  {row['metric']}  {row['host_class']}  {row['engine']}  pairs={row['pairs']}  "
               f"cv_median={_pct(row['cv_median'])}  cv_p99={_pct(row['cv_p99'])}  "
-              f"false_alerts={row['false_alerts']}", file=out)
+              f"false_alerts={'-' if row['false_alerts'] is None else row['false_alerts']}", file=out)
 
 
 def _print_summary(summary: dict, out: TextIO) -> None:
@@ -421,6 +541,10 @@ def _print_summary(summary: dict, out: TextIO) -> None:
     checks = summary["checks"]
     print(f"A/A since {summary['since']}: {summary['series']} monitored series "
           f"({summary['unmonitored_series']} unmonitored left out), {summary['series_days']} series-days", file=out)
+    hosts = summary["waterfall_hosts"]
+    print(f"A/A runs: {len(hosts)} waterfall hosts, need >= {DONE_MIN_AA_RUNS_PER_HOST} each"
+          f"{'' if hosts else ' (no waterfall host in the window)'} "
+          f"{'ok' if checks['aa_runs_per_host'] else 'FAIL'}", file=out)
     print(f"false alerts: {summary['false_alerts']} "
           f"({'-' if per_100 is None else f'{per_100:.2f}'} per 100 series-days, limit "
           f"{DONE_FALSE_ALERTS_PER_100:g}) {'ok' if checks['false_alerts'] else 'FAIL'}", file=out)
@@ -429,8 +553,9 @@ def _print_summary(summary: dict, out: TextIO) -> None:
           f"{'ok' if checks['median_cv'] else 'FAIL'}", file=out)
     print(f"p99 CV <= {_pct(DONE_P99_CV)}: {_pct(summary['p99_cv_share_within'])} "
           f"(need {_pct(DONE_P99_SHARE)}) {'ok' if checks['p99_cv'] else 'FAIL'}", file=out)
+    under = set(summary["hosts_under_min_aa_runs"])
     for host, runs in summary["aa_runs_by_host"].items():
-        print(f"host {host}: {runs} A/A runs", file=out)
+        print(f"host {host}: {runs} A/A runs{' (under the minimum)' if host in under else ''}", file=out)
 
 
 def aa_report(args: argparse.Namespace, *, clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
@@ -445,9 +570,13 @@ def aa_report(args: argparse.Namespace, *, clock: Callable[[], datetime] = lambd
         raise AAError("--p99-cv-over needs --cv-over")
     since = clock() - timedelta(days=args.days) if args.days is not None else live_since(args.db)
     pairs = pair_runs(read_aa_runs(args.db, since))
+    listing = args.cv_over is not None  # the noisy list uses only the CVs, so it never runs the detector
+    if not listing:
+        detector = detector or catapult_detector()
     result = report(pairs, since=since, configs=configs or subscription_configs(),
-                    detector=detector or catapult_detector(), min_pairs=args.min_pairs)
-    if args.cv_over is not None:
+                    detector=None if listing else detector, host_runs=read_host_runs(args.db, since),
+                    min_pairs=args.min_pairs)
+    if listing:
         p99_limit = args.p99_cv_over if args.p99_cv_over is not None else 2 * args.cv_over
         listed = noisy(result["series"], cv_over=args.cv_over, p99_cv_over=p99_limit, min_pairs=args.min_pairs)
         if args.json:
@@ -474,7 +603,8 @@ def add_arguments(command: str, parser: argparse.ArgumentParser) -> None:
                         help="since the first stored waterfall run (the default)")
     window.add_argument("--days", type=int, metavar="N", help="the last N days")
     parser.add_argument("--cv-over", type=float, metavar="X",
-                        help="list only series whose median CV is over X (MQ11)")
+                        help="list only the series whose median CV is over X or whose p99 CV is over "
+                             "--p99-cv-over (MQ11); the list has no false-alert counts")
     parser.add_argument("--p99-cv-over", type=float, metavar="Y",
                         help="with --cv-over: the p99 CV limit (default 2X, the done check's 5 %% to 10 %% ratio)")
     parser.add_argument("--min-pairs", type=int, default=MIN_PAIRS,
