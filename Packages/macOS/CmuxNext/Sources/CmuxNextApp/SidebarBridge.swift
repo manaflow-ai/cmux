@@ -57,6 +57,7 @@ final class SidebarBridge {
         self.services = services
         self.state = state
         container = SidebarContainerView(model: model)
+        if services.windows.registry.isLaunching { holdOffscreenRowsUntilStartup() }
         model.onIntent = { [weak self] intent in self?.handle(intent) }
         // Loose rows come before every group unless the home session places
         // groups among them (`personal-mixed-order-v1`); refreshed on show.
@@ -264,6 +265,18 @@ final class SidebarBridge {
     func recordSnapshot() {
         guard let state else { return }
         snapshotRecorder.record(model, window: state.id, services: services)
+    }
+
+    /// A launch builds the sidebar rows on screen only; the rows past it wait for the first live
+    /// pane and then an idle turn (p08-startup-064; `StartupScheduler.post(.afterStartup, ...)` once it lands).
+    private func holdOffscreenRowsUntilStartup() {
+        container.sidebarView.holdOffscreenRowsForLaunch()
+        services.launchReveal.whenReady(.pane) { [weak self] in
+            IdleOnce.schedule {
+                self?.container.sidebarView.releaseOffscreenRows()
+                DebugTimings.markLaunch("sidebar_offscreen_rows")
+            }
+        }
     }
 
     private func markReadyForReveal() {

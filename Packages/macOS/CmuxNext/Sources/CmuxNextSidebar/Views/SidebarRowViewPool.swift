@@ -18,6 +18,8 @@ struct SidebarRowViewPool {
     static func limit(forHeight height: CGFloat, rowHeight: CGFloat) -> Int {
         max(32, 2 * Int((height / max(rowHeight, 1)).rounded(.up)))
     }
+    /// Row views made so far (not taken from the pool): what a launch built (`SidebarStartupRows.builtBeforeRelease`).
+    private(set) var made = 0
     private var views: [SidebarRowKey: SidebarRowView] = [:]
     /// Parked keys, oldest first, for eviction.
     private var order: [SidebarRowKey] = []
@@ -38,6 +40,7 @@ struct SidebarRowViewPool {
             parked.prepareForReuse(key: key)
             return parked
         }
+        made += 1
         return rowClass.init(key: key)
     }
 

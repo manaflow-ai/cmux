@@ -19,6 +19,7 @@ extension SidebarViewComponents {
             "status_glyphs": debugStatusGlyphs().map(Self.statusGlyph),
             "new_button": debugNewButtonFrame().map(Self.rect) ?? NSNull(),
             "rows": rows.map(Self.row),
+            "startup_rows": startupRowsReport(),
         ]
     }
 

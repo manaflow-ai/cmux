@@ -71,6 +71,8 @@ final class SidebarListView: NSView {
     let chatHistory = SidebarChatHistoryViews()
     /// Recycled row views by class; only rows near the viewport have views.
     var rowPool = SidebarRowViewPool()
+    /// A launch's hold on the rows past the screen, and what it built (`SidebarListView+StartupRows`).
+    var startupRows = SidebarStartupRows()
     var hoveredKey: SidebarRowKey?
     /// True while a scroll moves the hover to the row under a still pointer: that row's hover
     /// shows at once instead of fading, so a scroll does not start a fade on every row it passes.
