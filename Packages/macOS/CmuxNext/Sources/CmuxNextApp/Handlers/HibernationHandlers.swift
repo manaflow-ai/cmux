@@ -1,4 +1,6 @@
 import CmuxNextActions
+import CmuxNextCompat
+import CmuxNextMemory
 import CmuxNextSettings
 import os
 
@@ -15,6 +17,13 @@ enum HibernationHandlers {
         for radius in BrowserHibernationSetting.neighborRadiusRange {
             registry.bind(ActionID(rawValue: "browser.keepNeighborTabsAwake.\(radius)"), run: { _ in setNeighbors(radius, context) })
         }
+        // `memory.saver.<mode>` (p07-memory-065): the coordinator takes the mode in the action's turn; the
+        // validated settings write follows, and a managed key refuses before anything changes.
+        MemorySaverSetting.bindActions(into: registry, save: { path, value in
+            if let managed = context.services.settings?.managedKey(forPath: path) { return RefusalStrings.settingManaged(managed.key) }
+            context.writeSetting("set memory.saver", path, value, reloadOnFailure: true)
+            return nil
+        }, apply: { context.services.memoryCoordinator.mode = $0 })
         registry.bind("hibernateTab", invoke: { invocation in
             guard let (_, id) = context.tab(invocation), let hibernation = context.services.cache.hibernation else { return }
             switch hibernation.hibernateNow(id.rawValue) {

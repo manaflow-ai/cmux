@@ -540,7 +540,8 @@ nonisolated extension Feature {
         params: [],
         stories: [],
         sticky: false,
-        runtimeMutable: false
+        runtimeMutable: false,
+        replaces: ["memory.discard.conversations"]
     )
 
     /// A page tab whose page declares a discard policy and is hidden past it (sooner at critical memory pressure) lets its view and page renderer go and keeps its tab, route, scroll and picture; showing it builds the page again. Pages that declare no policy are never discarded.
@@ -557,7 +558,8 @@ nonisolated extension Feature {
         params: [],
         stories: [],
         sticky: false,
-        runtimeMutable: false
+        runtimeMutable: false,
+        replaces: ["memory.discard.internalPages"]
     )
 
     /// cmux pages in browser tabs (History, Bookmarks, Vault, Screenshots, Agent Activity) hibernate like web pages: the view and its model go, the tab keeps its title, icon and picture, and showing it builds the page again with its search, selection and scroll.
@@ -574,7 +576,8 @@ nonisolated extension Feature {
         params: [],
         stories: [],
         sticky: false,
-        runtimeMutable: false
+        runtimeMutable: false,
+        replaces: ["memory.discard.pageTabs"]
     )
 
     /// With memoryDiscardParkedWorkspaces on, a hidden workspace also lets its views go after 15 minutes hidden, even within the budget. Separate so the budget can ship alone while a 12-pane remount takes over 50 ms at p95.
@@ -608,7 +611,8 @@ nonisolated extension Feature {
         params: [],
         stories: [],
         sticky: false,
-        runtimeMutable: false
+        runtimeMutable: false,
+        replaces: ["memory.discard.parkedWorkspaces"]
     )
 
     /// A remote desktop or remote browser tab hidden past the Memory Saver timeout (sooner at critical pressure) closes its stream and decoder and keeps its last frame; showing it connects again. A stopped or ended session and a remote page with back or forward history stay.
@@ -625,7 +629,8 @@ nonisolated extension Feature {
         params: [],
         stories: [],
         sticky: false,
-        runtimeMutable: false
+        runtimeMutable: false,
+        replaces: ["memory.discard.remoteTabs"]
     )
 
     /// Files and Screenshots thumbnails and app bundle images join the memory coordinator: Files thumbnails are held to a share of the Mac's image cache budget, and at critical memory pressure these caches are emptied in short background slices; a thumbnail or image is drawn again when next shown.
@@ -1177,7 +1182,8 @@ nonisolated extension Feature {
         params: [],
         stories: [],
         sticky: false,
-        runtimeMutable: false
+        runtimeMutable: false,
+        replaces: ["memory.discard.terminalGPURelease"]
     )
 
     /// Terminal pointer moves, drags and the trackpad scrolls a program with mouse reporting gets reach Ghostty on the first event of a display frame and once more at the frame, at the latest point or each phase's summed scroll; a button delivers what waits first and a scrollback scroll goes at once.
@@ -1211,7 +1217,8 @@ nonisolated extension Feature {
         params: [],
         stories: [],
         sticky: false,
-        runtimeMutable: false
+        runtimeMutable: false,
+        replaces: ["memory.discard.topPages"]
     )
 
     /// Each display's link runs on a vsync thread of its own, and the main frame clock gets one coalesced tick from it per vsync.

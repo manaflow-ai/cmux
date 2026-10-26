@@ -21,6 +21,7 @@ extension AppServices {
     /// one workspace per frame. It runs before the restore mounts a page, so the cache hands it every hide,
     /// show and screen change; its measurements start after startup (``startHibernationMeasurements()``).
     func startHibernation(settings: SettingsController) {
+        followMemorySaver(settings)
         let audible = features.isEnabled(.recentlyAudibleProtection) ? AudibleHistory(mainWork: mainWork) : nil
         let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, deadlines: mainDeadlines, energy: mainWork.energy, audible: audible)
         cache.hibernation = hibernation
@@ -46,6 +47,18 @@ extension AppServices {
         AppMemoryConsumers(services: self).registerHibernationSnapshots(hibernation)  // AppServices+Memory.swift
         cache.warmSetRelease = WarmSetRelease(host: cache, normalCapacity: cache.normalWarmCapacity, registry: memoryCoordinator)
         _ = parkedWorkspaceBudget  // registers with the coordinator before any pressure change reads it
+    }
+
+    /// Follows `memory.saver` into the memory coordinator's mode, the current value now (as Chrome's
+    /// UserPerformanceTuningManager follows the Memory Saver pref, chrome/browser/performance_manager/
+    /// public/user_tuning/user_performance_tuning_manager.h): the managed caches' shares under pressure and, through the
+    /// coordinator, the proactive timeouts of every planner that follows the mode (page tabs,
+    /// conversations, top pages, parked workspaces). Browser tabs keep `browser.hibernation`.
+    /// `background`: nothing on screen changes in the flush's frame.
+    func followMemorySaver(_ settings: SettingsController) {
+        lifetimeFollowers.append(ServiceObservation(.background, owner: "AppServices.memorySaver", on: mainWork) {
+            settings.snapshot.memorySaver
+        } apply: { [weak self] mode in self?.memoryCoordinator.mode = mode })
     }
 
     /// The intent prewarm over `hibernation`, its weak warmer, with a background-class deadline per trigger whose

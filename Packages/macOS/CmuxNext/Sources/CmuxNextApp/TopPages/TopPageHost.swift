@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextCompat
 import CmuxNextFeatures
 import CmuxNextHibernation
 import CmuxNextHomeEngine
@@ -59,6 +60,9 @@ final class TopPageHost {
     var now: () -> ContinuousClock.Instant = { .now }
     /// Pages released so far (tests, diagnostics).
     private(set) var releasedCount = 0
+    /// The `memory.saver` mode that scales each page's timeout (the memory coordinator hands it over).
+    private(set) var saverMode: MemorySaverMode = .medium
+    private var memoryRegistration: MemoryConsumerRegistration?
     /// A page hidden less than this never goes for the budget: the person just left it, and a
     /// switch back to it must find it live, not rebuild it in the switch's turn (as
     /// `AgentPageHibernation.minimumHidden` keeps an agent page the person just left).
@@ -67,7 +71,8 @@ final class TopPageHost {
     init(make: @escaping (TopPageRoute, WindowController?) -> (view: NSView, key: String?)?,
          closed: @escaping (TopPageRoute, String) -> Void,
          discardable: @escaping (TopPageRoute, NSView) -> (any PageDiscardable)?, title: @escaping (TopPageRoute) -> String,
-         discards: Bool, hiddenLimit: Int, hosts: @escaping () -> [TopPageHost], deadline: any PageDiscardDeadline) {
+         discards: Bool, hiddenLimit: Int, hosts: @escaping () -> [TopPageHost], deadline: any PageDiscardDeadline,
+         memory: (any MemoryConsumerRegistry)? = nil) {
         self.make = make
         self.closed = closed
         self.discardable = discardable
@@ -76,6 +81,10 @@ final class TopPageHost {
         self.hiddenLimit = hiddenLimit
         self.hosts = hosts
         self.deadline = deadline
+        guard discards else { return }
+        memoryRegistration = memory.map {
+            MemoryConsumerRegistration(name: "top-page-discards", traits: ContentDiscardScheduler.memoryTraits, consumer: self, registry: $0)
+        }
     }
 
     /// The app's top pages: classic Home, and an internal page's provider view in an
@@ -99,7 +108,8 @@ final class TopPageHost {
                   discards: services.features.isEnabled(.topPageDiscard),
                   hiddenLimit: SubsystemBudget.forThisMac(gpuResidentAvailable: false).liveHiddenInternalPages,
                   hosts: { [weak services] in services?.windows.controllers.map { $0.topPages } ?? [] },
-                  deadline: MainDeadline(owner: "TopPageHost.discard", workClass: .background, scheduler: services.mainDeadlines))
+                  deadline: MainDeadline(owner: "TopPageHost.discard", workClass: .background, scheduler: services.mainDeadlines),
+                  memory: services.memoryCoordinator)
     }
 
     private static func makePage(_ route: TopPageRoute, in window: WindowController?,
@@ -199,7 +209,8 @@ final class TopPageHost {
         let at = now()
         var next = budgetWait
         for (route, since) in hiddenSince {
-            guard let view = views[route], case .afterHidden(let timeout) = policy(route, view) else { continue }
+            guard let view = views[route], case .afterHidden(let pageTimeout) = policy(route, view),
+                  let timeout = saverMode.proactiveTimeout(pageTimeout) else { continue }
             let remaining = timeout - (at - since)
             let wait: Duration
             if remaining > .zero {
@@ -289,4 +300,20 @@ final class TopPageHost {
         // The key goes first, so the provider no longer counts this page as open (`pageIsOpen`).
         if let key = keys.removeValue(forKey: route) { closed(route, key) }
     }
+}
+
+// The Memory Saver mode scales each page's timeout (Chrome's memory_saver_mode_policy.cc): a change
+// plans again after this turn. Lossy and holding no cap of its own, like the content discard schedulers.
+extension TopPageHost: MemorySaverModeConsumer {
+    func memorySaverModeDidChange(_ mode: MemorySaverMode) {
+        guard mode != saverMode else { return }
+        saverMode = mode
+        guard discards else { return }
+        deadline.arm(after: .zero) { [weak self] in self?.plan() }
+    }
+
+    func updateMemoryLimit(_ limit: MemoryLimit) {}
+    func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress { .done }
+    /// Unknown: a page's views are not sampled on their own.
+    var memoryUsage: MemoryUsage? { nil }
 }
