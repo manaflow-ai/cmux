@@ -47,16 +47,16 @@ import Testing
         #expect(f.order.startup.log.records.allSatisfy { $0.durationNanos != nil }, "one record per task, each with its run")
     }
 
-    /// p08-startup-031: the starts `AppServices.init` made before the first frame are posts; the update
-    /// sheet is attached before the updater starts (both afterStartup, in post order).
-    @Test func initServiceStartsArePostsAndTheSheetIsAttachedBeforeTheUpdaterStarts() {
+    /// p08-startup-031: the starts `AppServices.init` made before the first frame are posts: three after the
+    /// first frame, three after startup, in post order with the launch's other afterStartup posts.
+    @Test func initServiceStartsArePostsAtTheirDesignPriority() {
         let f = LaunchOrderFixture()
         let ran = LaunchServiceRan()
         LaunchServicePosts.serviceStarts(
             windowOcclusion: { ran.names.append("SurfaceInvariant.observeWindowOcclusion") },
             inputVerification: { ran.names.append("InputVerification.start") },
             notifications: { ran.names.append("Notifications.start") },
-            updateSheet: { ran.names.append("Updater.attach") },
+            updaterWork: { ran.names.append("Updater.attachedWork") },
             serverUpdates: { ran.names.append("ServerUpdates.start") },
             browserHost: { ran.names.append("BrowserHost.start") }
         ).post(on: f.order.startup)
@@ -75,8 +75,8 @@ import Testing
         #expect(ran.names == firstFrame, "occlusion, input verification and banners run after the first frame, before completion")
         f.complete()
         for _ in 0..<12 { f.fire() }
-        #expect(ran.names == firstFrame + ["Updater.attach", "ServerUpdates.start", "BrowserHost.start", "Updater.start"],
-                "the sheet is attached before the updater starts; the browser host after startup")
+        #expect(ran.names == firstFrame + ["Updater.attachedWork", "ServerUpdates.start", "BrowserHost.start", "Updater.start"],
+                "the updater's reads, server updates and the browser host run after startup, in post order")
     }
 
     /// p08-startup-029: the platform services, one post each at their startup-DESIGN.md priority. The hot keys

@@ -268,7 +268,11 @@ source order through O41; O42 to O46 were found later and follow at the end.
 ## 5. `AppServices.init` starts (031)
 
 Starts inside the initializer, outside Q1 and Q1b. 031: init holds no `start()` calls. Done (031): S6 to S10 are
-`LaunchServicePosts.serviceStarts` posts (`AppServices.postNonPaintServices`), posted before `Updater.start`.
+`LaunchServicePosts.serviceStarts` posts (`AppServices.serviceStartPosts()`). Init keeps their wiring, which a
+control in the first frame or the launch turn reads: the updater's sheet, card and tip closures and the What's New
+record (`UpdaterService.wire`), the `palette.restartServer` binding (`ServerUpdatePresenter.bind`), the no-activate
+keyboard guard (`InputVerificationService.startNoActivateGuard`, an NSApp input hook, S11) and the notifications' app
+(`NotificationCenterService.wire`; the Chief pet the platform services make in the launch turn needs it).
 
 | # | Step | Priority | Destination | Owner | Reason |
 |---|---|---|---|---|---|
@@ -278,10 +282,10 @@ Starts inside the initializer, outside Q1 and Q1b. 031: init holds no `start()` 
 | S4 | `AppCrashReporting(environment:)` (Sentry, crash forwarders) | root (handlers), integrations afterStartup | `.lane(.files, .bestEffort)` | 032, 078 | Crash and signal handlers at launch; forwarders and session I/O after startup. |
 | S5 | `remoteTerminals.start()` | onDemand: the first mount of a remote-terminal tab (a restored window's selected one in its first frame), open, close or move | main | 021 | Restored remote workspace reconnects. Done (021): `AppServices.remoteTerminals` starts it when made. No post: the first frame that shows such a tab needs the service to mount it, and nothing follows a session no tab shows. Its tab chip (`RemoteTerminalService.badge(for:machines:)`) reads only the machines and makes none. |
 | S6 | `surfaceInvariant.observeWindowOcclusion()` | afterFirstFrame | main | 031 | Occlusion observer. |
-| S7 | `updater.attach(sheet:services:simulating:)`, `serverUpdates.start(registry:)` | afterStartup | main | 031 | Update sheet and server updates. |
-| S8 | `input.start(services:)` | afterFirstFrame | main | 031 | Input verification observers. |
+| S7 | `updater.startAttachedWork()` (this build's notes, the tip re-pick on activation), `serverUpdates.start()` | afterStartup | main | 031 | The updater's reads and the server update observers; their wiring stays in init. |
+| S8 | `input.start(services:)` | afterFirstFrame | main | 031 | Input verification observers; the no-activate keyboard guard stays in init. |
 | S9 | `browserHost?.start()` | afterStartup | main | 031 | Browser host engine provider (idle until the daemon offers the endpoint). |
-| S10 | `notifications.start(services:)` | afterFirstFrame | main | 031 | Banners; nothing to show before the first frame. |
+| S10 | `notifications.start()` | afterFirstFrame | main | 031 | Banners; nothing to show before the first frame. A notification the daemon sent before it still arrives. |
 | S11 | `(NSApp as? CmuxApplication)?.inputDispatch`, `keyDownInterceptor`, `crossWindowKeyGuard` and the other NSApp hooks; `cache.*` and `registry.*` closures; `AppMemoryConsumers.registerMemoryConsumers()`; `crashRecovery.observe(cache.cef.crashLog)`; `BrowserLifecycleTrace.shared.configure` | wiring | - | 031 | NSApp input hooks stay in init (031); the rest are closures. |
 
 ## 6. Q1 eager builds (18)
