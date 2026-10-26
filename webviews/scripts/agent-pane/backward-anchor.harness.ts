@@ -26,12 +26,23 @@ const record = (dir: string, kind: string, msg: unknown) => {
 for (let turn = 0; turn < 900; turn++) {
   record("mux", "user_message", { text: `Synthetic question ${turn}` });
   record("mux", "turn_started", {});
-  record("in", "agent_message_chunk", update(`Synthetic answer ${turn}. ${"Measured history stays readable. ".repeat(12)}`));
+  record(
+    "in",
+    "agent_message_chunk",
+    update(`Synthetic answer ${turn}. ${"Measured history stays readable. ".repeat(12)}`),
+  );
   record("mux", "turn_result", { status: "completed" });
 }
 const session = () => ({
-  sessionId, cwd: "/synthetic/project", title: "Synthetic paged chat", harness: "claude", family: "claude",
-  status: "ready", turnCount: 900, updatedAt: 1790845200000, lastSeq: events.length,
+  sessionId,
+  cwd: "/synthetic/project",
+  title: "Synthetic paged chat",
+  harness: "claude",
+  family: "claude",
+  status: "ready",
+  turnCount: 900,
+  updatedAt: 1790845200000,
+  lastSeq: events.length,
 });
 type Params = { beforeSeq?: number; afterSeq?: number; limit?: number; kinds?: string[] };
 const cursors: number[] = [];
@@ -46,25 +57,39 @@ const pageOf = (params: Params) => {
   return { events: eligible.slice(-limit), hasMore: eligible.length > limit, lastSeq: events.length };
 };
 const daemon = Bun.serve({
-  hostname: "127.0.0.1", port: 0,
+  hostname: "127.0.0.1",
+  port: 0,
   fetch(request, server) {
     return server.upgrade(request, { data: undefined }) ? undefined : new Response("synthetic", { status: 426 });
   },
   websocket: {
-    open(ws) { sockets.add(ws); },
-    close(ws) { sockets.delete(ws); },
+    open(ws) {
+      sockets.add(ws);
+    },
+    close(ws) {
+      sockets.delete(ws);
+    },
     message(ws, raw) {
       const { id, method, params = {} } = JSON.parse(String(raw)) as { id?: number; method: string; params?: Params };
       if (id === undefined) return;
-      const result = method === "initialize"
-        ? { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } }
-        : method === "_acpmux/watch" ? { sessions: [session()] }
-        : method === "_acpmux/attach" ? { session: session(), ...pageOf(params) }
-        : method === "_acpmux/events" ? pageOf(params) : null;
+      const result =
+        method === "initialize"
+          ? { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } }
+          : method === "_acpmux/watch"
+            ? { sessions: [session()] }
+            : method === "_acpmux/attach"
+              ? { session: session(), ...pageOf(params) }
+              : method === "_acpmux/events"
+                ? pageOf(params)
+                : null;
       const send = () => ws.send(JSON.stringify({ jsonrpc: "2.0", id, result }));
       if (method === "_acpmux/events" && (params.limit ?? 0) > 16 && params.beforeSeq) {
         cursors.push(params.beforeSeq);
-        if (hold) { held.push(send); heldReady?.(); return; }
+        if (hold) {
+          held.push(send);
+          heldReady?.();
+          return;
+        }
       }
       send();
     },
@@ -72,10 +97,12 @@ const daemon = Bun.serve({
 });
 const vite = await createServer({
   configFile: path.resolve(import.meta.dir, "../../vite.config.acpmux-pane.mjs"),
-  server: { port: 0, host: "127.0.0.1", strictPort: false }, logLevel: "error",
+  server: { port: 0, host: "127.0.0.1", strictPort: false },
+  logLevel: "error",
 });
 const browser = await chromium.launch({ headless: true });
-const context = await browser.newContext({ viewport: { width: 900, height: 760 },
+const context = await browser.newContext({
+  viewport: { width: 900, height: 760 },
   ...(capture ? { recordVideo: { dir: capture, size: { width: 900, height: 760 } } } : {}),
 });
 const page = await context.newPage();
@@ -83,10 +110,18 @@ const errors: string[] = [];
 page.on("pageerror", (error) => errors.push(error.message));
 // All waits are bounded, and all probes/observers stop explicitly before closing the page.
 const waitForHeld = async () => {
-  if (!held.length) await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => { heldReady = undefined; reject(new Error("No beforeSeq request")); }, 10_000);
-    heldReady = () => { clearTimeout(timer); heldReady = undefined; resolve(); };
-  });
+  if (!held.length)
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        heldReady = undefined;
+        reject(new Error("No beforeSeq request"));
+      }, 10_000);
+      heldReady = () => {
+        clearTimeout(timer);
+        heldReady = undefined;
+        resolve();
+      };
+    });
   assert.ok(held.length, "the remote beforeSeq page was requested before reaching the hard edge");
 };
 try {
@@ -94,7 +129,9 @@ try {
   await warmViteServer(vite, "/");
   await installPaintedFrames(page);
   const { port } = vite.httpServer!.address() as { port: number };
-  await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${sessionId}`);
+  await page.goto(
+    `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${sessionId}`,
+  );
   await page.getByText("Synthetic question 899", { exact: true }).waitFor();
   const receipts: { frames: number; moved: number; missing: number; remounts: number }[] = [];
   for (let batch = 0; batch < 4; batch++) {
@@ -105,7 +142,10 @@ try {
       node.dispatchEvent(new Event("scroll", { bubbles: true }));
     });
     await waitForHeld();
-    await page.evaluate(async () => { await window.cmuxPaintFrame(); await window.cmuxPaintFrame(); });
+    await page.evaluate(async () => {
+      await window.cmuxPaintFrame();
+      await window.cmuxPaintFrame();
+    });
     await page.evaluate(() => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       const edge = scroller.getBoundingClientRect().top;
@@ -119,8 +159,9 @@ try {
       const top = anchor.getBoundingClientRect().top;
       const receipt = { id: anchor.dataset.rowId, frames: 0, moved: 0, missing: 0, remounts: 0, maxDelta: 0 };
       const observer = new MutationObserver((records) => {
-        for (const record of records) for (const removed of record.removedNodes)
-          if (existing.some((row) => removed === row || removed.contains(row))) receipt.remounts++;
+        for (const record of records)
+          for (const removed of record.removedNodes)
+            if (existing.some((row) => removed === row || removed.contains(row))) receipt.remounts++;
       });
       observer.observe(scroller, { childList: true, subtree: true });
       const stop = window.cmuxAfterPaint(() => {
@@ -130,7 +171,13 @@ try {
         receipt.maxDelta = Math.max(receipt.maxDelta, delta);
         if (delta > 1) receipt.moved++;
       });
-      (window as unknown as { pagingProbe: unknown }).pagingProbe = { receipt, stop: () => { stop(); observer.disconnect(); } };
+      (window as unknown as { pagingProbe: unknown }).pagingProbe = {
+        receipt,
+        stop: () => {
+          stop();
+          observer.disconnect();
+        },
+      };
     });
     held.shift()!();
     // Finite painted frames include React placement, ResizeObserver reports and deferred warm ranges.
@@ -139,10 +186,16 @@ try {
       if (capture && frame < 6) await page.screenshot({ path: path.join(capture, `page-${batch}-frame-${frame}.png`) });
     }
     const receipt = await page.evaluate(() => {
-      const probe = (window as unknown as { pagingProbe: {
-        receipt: { frames: number; moved: number; missing: number; remounts: number }; stop(): void;
-      } }).pagingProbe;
-      probe.stop(); return probe.receipt;
+      const probe = (
+        window as unknown as {
+          pagingProbe: {
+            receipt: { frames: number; moved: number; missing: number; remounts: number };
+            stop(): void;
+          };
+        }
+      ).pagingProbe;
+      probe.stop();
+      return probe.receipt;
     });
     receipts.push(receipt);
   }
@@ -150,11 +203,17 @@ try {
   // Finish a reply while scrolled up, then jump back. Late measurements at the end still land exactly.
   hold = false;
   for (const kind of ["user_message", "turn_started", "agent_message_chunk", "turn_result"]) {
-    const msg = kind === "user_message" ? { text: "Synthetic final question" }
-      : kind === "agent_message_chunk" ? update(`Synthetic final answer\n\n\`\`\`ts\n${"const synthetic = 1;\n".repeat(80)}\`\`\``)
-      : kind === "turn_result" ? { status: "completed" } : {};
+    const msg =
+      kind === "user_message"
+        ? { text: "Synthetic final question" }
+        : kind === "agent_message_chunk"
+          ? update(`Synthetic final answer\n\n\`\`\`ts\n${"const synthetic = 1;\n".repeat(80)}\`\`\``)
+          : kind === "turn_result"
+            ? { status: "completed" }
+            : {};
     const event = record(kind === "agent_message_chunk" ? "in" : "mux", kind, msg);
-    for (const socket of sockets) socket.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }));
+    for (const socket of sockets)
+      socket.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }));
   }
   await page.locator(".acpmux-jump-latest[data-shown]").click();
   await page.getByText("Synthetic final answer", { exact: true }).waitFor();
@@ -167,13 +226,15 @@ try {
     // A late 3px ResizeObserver correction fits inside the old follow deadband.
     const row = [...node.querySelectorAll<HTMLElement>(".acpmux-row")].at(-1)!;
     row.style.paddingBottom = "3px";
-    await window.cmuxPaintFrame(); await window.cmuxPaintFrame();
+    await window.cmuxPaintFrame();
+    await window.cmuxPaintFrame();
     const gaps: number[] = [];
     await new Promise<void>((resolve) => {
       window.cmuxAfterPaint(() => {
         gaps.push(node.scrollHeight - node.clientHeight - node.scrollTop);
         if (gaps.length < 12) return;
-        resolve(); return false;
+        resolve();
+        return false;
       });
     });
     return { gap: gaps.at(-1)!, badFrames: gaps.filter((gap) => Math.abs(gap) > 1).length, gaps };
@@ -203,9 +264,11 @@ try {
   assert.deepEqual(errors, []);
   assert.equal(new Set(cursors).size, cursors.length);
 } finally {
-  await page.evaluate(() => {
-    (window as unknown as { pagingProbe?: { stop(): void } }).pagingProbe?.stop();
-  }).catch(() => undefined);
+  await page
+    .evaluate(() => {
+      (window as unknown as { pagingProbe?: { stop(): void } }).pagingProbe?.stop();
+    })
+    .catch(() => undefined);
   await context.close();
   await browser.close();
   await vite.close();
