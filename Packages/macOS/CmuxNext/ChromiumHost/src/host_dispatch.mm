@@ -5,13 +5,26 @@
 
 #include <unistd.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <utility>
 
+#include "chromium_host_input_ring.h"
 #include "cmux_cef_shim.h"
 #include "host_dispatch.h"
 
 namespace cmux_host {
+
+std::optional<PageGeometry> PageGeometryOf(const Header& frame) {
+  if (frame.kind != kGeometry) return std::nullopt;
+  PageGeometry geometry;
+  geometry.width = std::max(1, frame.v[0]);
+  geometry.height = std::max(1, frame.v[1]);
+  geometry.screen_x = frame.v[2];
+  geometry.screen_y = frame.v[3];
+  geometry.scale_milli = frame.v[4];
+  return geometry;
+}
 
 void Wipe(std::vector<std::string>& secrets) {
   for (std::string& secret : secrets) {
@@ -191,6 +204,10 @@ void HostContext::Handle(control::Message& message) {
         Reply(message.token, reply);
         return;
       }
+      if (message.op == kOpBrowserSetLayerHosting) {
+        if (!HandleLayerHosting(message)) Bad("a malformed layer hosting op");
+        return;
+      }
       if (IsMirrorOp(message.op)) return Watch(message.op, message.fields);
       if (message.op == kOpBrowserAccessibilityToken && HoldForCreation(message)) return;
       Dispatch(message);
@@ -280,6 +297,53 @@ bool HostContext::HandleTextInputWatch(const control::Message& message) {
   text_input_.Forget(browser);
   ReplyResult(message.token, cmux_shim_browser_text_input_watch(browser, nullptr, nullptr));
   return true;
+}
+
+bool HostContext::HandleLayerHosting(const control::Message& message) {
+  TlvReader r(message.fields);
+  const int32_t client = r.I32();
+  const int32_t enabled = r.I32();
+  if (!r.ok() || !r.AtEnd()) return false;
+  const int browser = Browser(client);
+  if (!enabled) cmux_shim_browser_set_detached_hosting(browser, 0);
+  const unsigned int context = cmux_shim_browser_set_layer_hosting(browser, enabled);
+  if (enabled && context != 0 && !cmux_shim_browser_set_detached_hosting(browser, 1)) {
+    fprintf(stderr, "cmux-chromium-host: the fork did not detach browser %d's page window\n", browser);
+  }
+  TlvWriter reply;
+  reply.U32(context);
+  Reply(message.token, reply);
+  return true;
+}
+
+bool HostContext::PlaceFrame(const Header& frame) {
+  const std::optional<PageGeometry> geometry = PageGeometryOf(frame);
+  if (!geometry) return false;
+  ++geometry_stats_.frames;
+  if (state_ == State::kEnded) return true;
+  const int32_t client = input_ring::BrowserOf(frame);
+  if (AwaitsCreation(client)) {
+    geometry_awaiting_[client] = *geometry;  // the newest one; ForwardEvent places it
+    return true;
+  }
+  PlaceBrowser(Browser(client), *geometry);
+  return true;
+}
+
+void HostContext::PlaceBrowser(int chromium_id, const PageGeometry& geometry) {
+  auto view = view_of_browser_.find(chromium_id);
+  if (view == view_of_browser_.end()) {
+    ++geometry_stats_.unplaced;
+    return;
+  }
+  auto [placed, first] = placed_.try_emplace(view->second, geometry);
+  if (!first && placed->second == geometry) {
+    ++geometry_stats_.unchanged;
+    return;
+  }
+  placed->second = geometry;
+  ++geometry_stats_.applied;
+  views_.Place(view->second, geometry);
 }
 
 int HostContext::ArmTextInputWatch(int chromium_id) {
@@ -436,6 +500,11 @@ void HostContext::ForwardEvent(int kind, int browser_id, int request, int64_t a,
   if (created) {
     Bind(pending->second.minted, browser_id);
     if (pending->second.view) view_of_browser_[browser_id] = pending->second.view;
+    if (auto geometry = geometry_awaiting_.find(pending->second.minted); geometry != geometry_awaiting_.end()) {
+      const PageGeometry newest = geometry->second;
+      geometry_awaiting_.erase(geometry);
+      PlaceBrowser(browser_id, newest);
+    }
     client = pending->second.minted;
     mirror_event.browser = client;
     mirror_event.profile = std::move(pending->second.profile);
@@ -525,7 +594,10 @@ void HostContext::ReleaseView(uint64_t token) {
   for (const auto& [browser, other] : devtools_view_of_browser_) {
     if (other == token) return;  // a DevTools placement still names it
   }
-  if (open_views_.erase(token)) views_.Close(token);
+  if (open_views_.erase(token)) {
+    placed_.erase(token);
+    views_.Close(token);
+  }
 }
 
 void* HostContext::PageView(uint64_t token) {

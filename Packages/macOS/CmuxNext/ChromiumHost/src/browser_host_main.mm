@@ -336,9 +336,10 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "cmux-chromium-host: NSApp does not implement CefAppProtocol\n");
     return cmux_host::kExitInitialize;
   }
-  // The host's page windows never show: each page's cursor goes to the page
-  // view in cmux (CMUX_SHIM_CURSOR), as Chrome's browser process sends it to
-  // the app shim's view (RenderWidgetHostViewMac::DisplayCursor).
+  // The host's page windows never show (each is detached, HostPageViews):
+  // each page's cursor goes to the page view in cmux (CMUX_SHIM_CURSOR), as
+  // Chrome's browser process sends it to the app shim's view
+  // (RenderWidgetHostViewMac::DisplayCursor).
   cmux_shim_set_cursor_events(1);
 
   HostMain host_main;
@@ -356,11 +357,14 @@ int main(int argc, char* argv[]) {
       [&channel](const cmux_host::control::Message& message) { return channel && channel->Send(message); },
       host_main, page_views, &ResolveShimSymbol,
       [clock = frame_clock.clock](std::function<void()> task) { [clock requestFrame:std::move(task)]; });
-  // Main thread only, like `host`. The input ring (task 041) attaches its
-  // dispatch here (AttachInput) and hands each frame to AddInput; until then
-  // no frame comes and cmux stamps no ordered op with an input seq.
+  // Main thread only, like `host`. The input ring (task 041) hands each frame
+  // to AddInput; until its reader runs here no frame comes and cmux stamps no
+  // ordered op with an input seq. A page's geometry is applied in the stream's
+  // order, so a click after a resize hits the resized page (task 053); the
+  // input dispatch (task 042) takes every other kind.
   cmux_host::control::OrderedStream ordered(
       [&host](std::vector<cmux_host::control::Message> messages) { host.OnMessages(std::move(messages)); });
+  ordered.AttachInput([&host](const cmux_host::Header& frame) { host.PlaceFrame(frame); });
   auto check = [&host_main, &ordered](cmux_host::control::OrderedStream::Result result) {
     if (result == cmux_host::control::OrderedStream::Result::kMalformed) host_main.BadMessage(ordered.what());
   };

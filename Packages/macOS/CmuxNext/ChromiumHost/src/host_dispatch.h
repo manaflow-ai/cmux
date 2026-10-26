@@ -31,6 +31,9 @@
 //                                              (host_text_input.h)
 //   kOpTextInputStats                           no fields: answered with the text
 //                                              input push counters (host_text_input.h)
+//   kOpBrowserSetLayerHosting                   the generated case's fields and reply; the
+//                                              host also detaches the page window whose
+//                                              layers it hosts (HandleLayerHosting)
 //   kOpBrowserAccessibilityToken                the generated case; for a browser cmux
 //                                              minted whose creation has not come, held
 //                                              and run once its AFTER_CREATED went out
@@ -67,6 +70,7 @@
 
 #include "chromium_host_control.h"
 #include "chromium_host_tlv.h"
+#include "chromium_host_wire.h"
 #include "host_mirror.h"
 #include "host_text_input.h"
 
@@ -107,6 +111,23 @@ class HostDelegate {
   virtual void BadMessage(const std::string& what) = 0;
 };
 
+// A page view's place: cmux's ChromiumHostPageView in screen points
+// (AppKit's bottom left origin), as a kGeometry frame carries it
+// (chromium_host_wire.h). The scale is cmux's window's; the host's window
+// takes the scale of the screen this places it on.
+struct PageGeometry {
+  int32_t width = 0;
+  int32_t height = 0;
+  int32_t screen_x = 0;
+  int32_t screen_y = 0;
+  int32_t scale_milli = 0;
+  friend bool operator==(const PageGeometry&, const PageGeometry&) = default;
+};
+
+// A kGeometry frame's place (a page is at least 1 x 1 point); nullopt for
+// every other kind.
+std::optional<PageGeometry> PageGeometryOf(const Header& frame);
+
 // The host's views behind cmux's page view tokens (ChromiumHostPageView in
 // cmux): the parent views of create_window, devtools_set_placement and
 // popup_window_attach.
@@ -116,9 +137,14 @@ class PageViews {
   // The view (NSView*) for `token`, made on first use.
   virtual void* Open(uint64_t token) = 0;
   virtual void Close(uint64_t token) = 0;
+  // `token`'s view takes `geometry`. HostContext calls it only for an open
+  // view and only when the geometry differs from the last one it placed.
+  virtual void Place(uint64_t token, const PageGeometry& geometry) = 0;
 };
 
-// Each view in a transparent, click-through window of the host
+// Each view fills a click-through window of the host that is never ordered
+// in: Chromium's page window under it is detached (HandleLayerHosting) and
+// its pixels show only in cmux, through the layer hosting context
 // (host_page_views.mm).
 class HostPageViews final : public PageViews {
  public:
@@ -128,6 +154,7 @@ class HostPageViews final : public PageViews {
   ~HostPageViews() override;
   void* Open(uint64_t token) override;
   void Close(uint64_t token) override;
+  void Place(uint64_t token, const PageGeometry& geometry) override;
 
  private:
   std::unordered_map<uint64_t, void*> windows_;  // NSWindow*, retained
@@ -195,6 +222,27 @@ class HostContext {
   // (InstallPolicy* and Resume).
   void InstallHostPolicies();
 
+  // An input ring frame (the ordered stream's dispatch, tasks 041 and 042):
+  // true when it is a page's geometry, which this applied; false for every
+  // other kind, the input dispatch's. The frame names the browser cmux
+  // created the page view's window with (create_window); a geometry of a
+  // browser not created yet waits for its creation. The page view's window
+  // moves or resizes only when the geometry changed (task 053), as Chrome's
+  // RenderWidgetHostViewMac sends bounds to the renderer only when they
+  // differ (content/browser/renderer_host/render_widget_host_view_mac.mm,
+  // OnBoundsInWindowChanged).
+  bool PlaceFrame(const Header& frame);
+  // Geometry frames in all, and of them those that moved or resized a view,
+  // those equal to the view's last geometry, and those of a browser with no
+  // page view (a tab cmux did not create with create_window).
+  struct GeometryStats {
+    uint64_t frames = 0;
+    uint64_t applied = 0;
+    uint64_t unchanged = 0;
+    uint64_t unplaced = 0;
+  };
+  const GeometryStats& geometry_stats() const { return geometry_stats_; }
+
   const TextInputPushes& text_input() const { return text_input_; }
 
  private:
@@ -216,6 +264,14 @@ class HostContext {
   void Dispatch(const control::Message& message);
   bool HandleInitialize(const control::Message& message);
   bool HandleTextInputWatch(const control::Message& message);
+  // kOpBrowserSetLayerHosting: the shim's call, and then, once the page
+  // window's pixels are in the context cmux shows, the fork's detached
+  // hosting of that window (set_detached_hosting(1), API 30), so no page
+  // window of the host is ever on screen; turning hosting off attaches it
+  // first. Answers the context id.
+  bool HandleLayerHosting(const control::Message& message);
+  // `chromium_id`'s page view takes `geometry` when it changed.
+  void PlaceBrowser(int chromium_id, const PageGeometry& geometry);
   // Watches `chromium_id`'s text input in the fork: its result (0 refused).
   int ArmTextInputWatch(int chromium_id);
   // True while `client_id` is a minted id whose creation event has not come.
@@ -300,6 +356,14 @@ class HostContext {
   // Page accessibility requests of minted ids whose creation has not come, by the minted id.
   // Bounded with pending_binds_ and kMaxHeldPerBrowser (host_dispatch.mm).
   std::unordered_map<int32_t, std::vector<control::Message>> held_for_creation_;
+
+  // The geometry each open page view was last placed at, by token.
+  std::unordered_map<uint64_t, PageGeometry> placed_;
+  // The newest geometry of minted ids whose creation has not come, by the
+  // minted id: placed at the creation. Bounded with pending_binds_
+  // (AwaitsCreation).
+  std::unordered_map<int32_t, PageGeometry> geometry_awaiting_;
+  GeometryStats geometry_stats_;
 };
 
 }  // namespace cmux_host

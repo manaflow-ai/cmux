@@ -49,9 +49,10 @@ Per mode:
   identity helper: the host is a second executable of cmux.app (cmux's bundle id): its LaunchServices type
            (UIElement: no Dock icon, menu bar or Cmd-Tab entry), the frontmost app after the input rows and after
            `open -b <bundle id>` and during 10 clicks with a key each (never the host; the host's own activation and
-           key-window counters stay 0), the keys of cmux's defaults domain that changed while the host ran less
-           those cmux changed alone before it (pass: none), and a Quit AppleEvent to the bundle id (cmux quits, not
-           the host; last row).
+           key-window counters stay 0), the host's on-screen windows (CGWindowList; pass: 0, its page windows are
+           detached and never ordered in, task p01-process-053), the keys of cmux's defaults domain that changed
+           while the host ran less those cmux changed alone before it (pass: none), and a Quit AppleEvent to the
+           bundle id (cmux quits, not the host; last row).
   failure  helper: when the host page never shows, the host's Chromium log tail and its crash reports.
   baseline (--baseline, task p01-process-005; plans/cmux-next/chrome-parity/p01-process.md) adds the numbers the
            process-model program is measured against, and prints them as perf-lead.md section 5 rows
@@ -233,6 +234,52 @@ def main_display_hz():
     cg.CGDisplayModeGetRefreshRate.argtypes = [ctypes.c_void_p]
     mode = cg.CGDisplayCopyDisplayMode(cg.CGMainDisplayID())
     return round(cg.CGDisplayModeGetRefreshRate(mode), 2) if mode else None
+
+
+def on_screen_windows(pid):
+    """The on-screen windows `pid` owns (CGWindowListCopyWindowInfo with kCGWindowListOptionOnScreenOnly), each
+    {"layer", "alpha", "bounds" [x, y, w, h]}, or None when CoreGraphics cannot be read."""
+    import ctypes
+    try:
+        cg = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+        cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+    except OSError:
+        return None
+    ptr, index = ctypes.c_void_p, ctypes.c_long
+    cg.CGWindowListCopyWindowInfo.restype, cg.CGWindowListCopyWindowInfo.argtypes = ptr, [ctypes.c_uint32, ctypes.c_uint32]
+    cg.CGRectMakeWithDictionaryRepresentation.restype = ctypes.c_bool
+    cg.CGRectMakeWithDictionaryRepresentation.argtypes = [ptr, ptr]
+    cf.CFArrayGetCount.restype, cf.CFArrayGetCount.argtypes = index, [ptr]
+    cf.CFArrayGetValueAtIndex.restype, cf.CFArrayGetValueAtIndex.argtypes = ptr, [ptr, index]
+    cf.CFDictionaryGetValue.restype, cf.CFDictionaryGetValue.argtypes = ptr, [ptr, ptr]
+    cf.CFNumberGetValue.restype, cf.CFNumberGetValue.argtypes = ctypes.c_bool, [ptr, index, ptr]
+    cf.CFRelease.argtypes = [ptr]
+    key = {name: ptr.in_dll(cg, name).value for name in ("kCGWindowOwnerPID", "kCGWindowLayer", "kCGWindowAlpha",
+                                                         "kCGWindowBounds")}
+    sint32, double = 3, 13  # kCFNumberSInt32Type, kCFNumberDoubleType
+
+    def number(entry, name, kind, ctype):
+        value, out = cf.CFDictionaryGetValue(entry, key[name]), ctype()
+        return out.value if value and cf.CFNumberGetValue(value, kind, ctypes.byref(out)) else None
+
+    windows = cg.CGWindowListCopyWindowInfo(1, 0)  # kCGWindowListOptionOnScreenOnly, kCGNullWindowID
+    if not windows:
+        return None
+    found = []
+    try:
+        for i in range(cf.CFArrayGetCount(windows)):
+            entry = cf.CFArrayGetValueAtIndex(windows, i)
+            if number(entry, "kCGWindowOwnerPID", sint32, ctypes.c_int32) != pid:
+                continue
+            rect = (ctypes.c_double * 4)()  # CGRect: origin x, y, size width, height
+            bounds = cf.CFDictionaryGetValue(entry, key["kCGWindowBounds"])
+            placed = bool(bounds) and cg.CGRectMakeWithDictionaryRepresentation(bounds, rect)
+            found.append({"layer": number(entry, "kCGWindowLayer", sint32, ctypes.c_int32),
+                          "alpha": number(entry, "kCGWindowAlpha", double, ctypes.c_double),
+                          "bounds": [round(v, 1) for v in rect] if placed else None})
+    finally:
+        cf.CFRelease(windows)
+    return found
 
 
 # ChromiumHostFrame.quitLimit: how long a host may take to end after `quit` or EOF before it is SIGKILLed / ends itself.
@@ -983,6 +1030,11 @@ def run_helper(rpc, url, inproc_tab):
     counters = rpc("debug.chromium_host.measure", {"op": "input"}) or {}
     identity["clicks"] = {"fronts": sorted(set(p for p in fronts if p is not None)), "host_frontmost": fronts.count(host_pid),
                           "activations": counters.get("activations"), "key_windows": counters.get("key_windows")}
+    # The host's page windows are detached and its own windows never ordered in (task p01-process-053): with the
+    # page shown and after the clicks, the window server lists no window of the host on screen.
+    host_windows = on_screen_windows(host_pid) if host_pid else None
+    identity["host_windows_on_screen"] = {"count": None if host_windows is None else len(host_windows),
+                                          "windows": (host_windows or [])[:8]}
     try:
         opened = subprocess.run(["/usr/bin/open", "-b", bundle_id], capture_output=True, text=True, timeout=20)
         open_exit, open_err = opened.returncode, opened.stderr.strip()[:200]
@@ -994,7 +1046,8 @@ def run_helper(rpc, url, inproc_tab):
     identity["pass"] = (identity["host_type"] in ("UIElement", "BackgroundOnly") and identity["front_after_input"] != host_pid
                         and identity["open_b"]["front"] != host_pid and identity["open_b"]["host_type"] in ("UIElement", "BackgroundOnly")
                         and identity["clicks"]["host_frontmost"] == 0 and identity["clicks"]["activations"] == 0
-                        and identity["clicks"]["key_windows"] == 0)
+                        and identity["clicks"]["key_windows"] == 0
+                        and identity["host_windows_on_screen"]["count"] == 0)
     # The same baseline with the page in the host: cmux's pump still runs for in-process Chromium (the
     # in-process tab, idle in the other pane, and the spare page), the host's page idles and scrolls.
     host_point = click_point("t")
