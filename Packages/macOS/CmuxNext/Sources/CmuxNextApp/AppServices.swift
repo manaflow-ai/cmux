@@ -477,7 +477,7 @@ final class AppServices {
             self?.cache.pageRequests.closedHistories.save(self?.cache.existingBrowser(key)?.tab)
         }
         cache.machineBadge = { [weak self] key, url in self?.browserMachineBadge(key: key, url: url) }
-        cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages
+        cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages || crashRecovery.launchCaches.skipped
         crashRecovery.observe(cache.cef.crashLog)
         AppRunMarker.keepSignalHandlers(crashRecovery.marker, across: cache.cef, reporter: crashReporting.reporter)
         cache.cef.openURLWithoutWindow = { [weak self] url, disposition, profile in

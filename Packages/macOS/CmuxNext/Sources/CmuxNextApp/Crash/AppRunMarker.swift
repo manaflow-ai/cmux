@@ -1,4 +1,5 @@
 import CmuxNextCrashReporting
+import CmuxNextWakeups
 import Darwin
 import Foundation
 import os
@@ -31,29 +32,13 @@ private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__si
         fatalSignalDescriptor = -1
         // concurrency-allow: signal handler context (the process is ending), one 3-byte write to a local file.
         _ = withUnsafeBytes(of: &bytes) { Darwin.write(descriptor, $0.baseAddress, 3) }
+        FatalSignalRecord.writeStartupTask(to: descriptor)
     }
     _ = Darwin.signal(signal, SIG_DFL)
     let sentBySoftware = info.map { $0.pointee.si_code == SI_USER || $0.pointee.si_code == SI_QUEUE } ?? true
         || arrivedOnASystemCall(context)
     let fault = signal == SIGSEGV || signal == SIGBUS || signal == SIGILL || signal == SIGFPE || signal == SIGTRAP || signal == SIGSYS
     if sentBySoftware || !fault { _ = raise(signal) }
-}
-
-/// Whether the thread was returning from `svc #0x80`: syndrome class 0x15 and that word before the pc.
-/// Sentry's re-raise arrives on the `sigreturn` to the faulting pc, which may be unmapped, so the
-/// word is read with `vm_read_overwrite` and a failed read is a fault. No context re-raises.
-nonisolated func arrivedOnASystemCall(_ context: UnsafeMutableRawPointer?) -> Bool {
-    #if arch(arm64)
-    guard let state = context?.assumingMemoryBound(to: ucontext_t.self).pointee.uc_mcontext else { return true }
-    guard state.pointee.__es.__esr >> 26 == 0x15 else { return false }
-    let pc = UInt(state.pointee.__ss.__pc)
-    guard pc >= 4 else { return false }
-    var word: UInt32 = 0, read: vm_size_t = 0
-    let result = withUnsafeMutablePointer(to: &word) { vm_read_overwrite(mach_task_self_, vm_address_t(pc - 4), 4, vm_address_t(UInt(bitPattern: $0)), &read) }
-    return result == KERN_SUCCESS && read == 4 && word == 0xD400_1001
-    #else
-    return false
-    #endif
 }
 
 /// Marks this run as live, so the next launch can tell a crash from a
@@ -63,7 +48,8 @@ nonisolated func arrivedOnASystemCall(_ context: UnsafeMutableRawPointer?) -> Bo
 /// - `run.json`: pid, launch time, whether this run is a restart, whether
 ///   it lived past the quick-crash window, and whether a requested quit had
 ///   begun (`markQuitting`).
-/// - `run.signal`: empty until a fatal signal handler writes its number.
+/// - `run.signal`: empty until a fatal signal handler writes its number,
+///   then the startup task that was running, if startup had not completed.
 ///
 /// A normal quit removes both. A quit that had begun, or a requested-quit
 /// signal (`LaunchRecovery.requestedQuitSignals`), counts as a quit that
@@ -72,7 +58,7 @@ nonisolated func arrivedOnASystemCall(_ context: UnsafeMutableRawPointer?) -> Bo
 /// `run.json` is written off the main thread (`RunMarkerFile`); the quit
 /// path awaits its `quitting` write (`markQuitting`).
 @MainActor
-final class AppRunMarker {
+final class AppRunMarker: StartupProgressObserver {
     private let directory: URL
     private let file: RunMarkerFile
     private var marker: PreviousRun
@@ -83,6 +69,11 @@ final class AppRunMarker {
 
     /// How this launch follows the previous run.
     let recovery: LaunchRecovery
+    /// Runs in a row before this one that ended before `startup_complete`.
+    let crashStreak: StartupCrashStreak
+    /// Whether this launch reads its launch caches (pictures, snapshots,
+    /// sidebar and Home caches, frames, agent images, Chromium restore order).
+    var launchCaches: LaunchCaches { crashStreak.launchCaches }
 
     private var signalFile: URL { directory.appending(path: "run.signal") }
     private var exceptionFile: URL { directory.appending(path: "run.exception") }
@@ -102,8 +93,12 @@ final class AppRunMarker {
         let previous = Self.readPrevious(marker: root.appending(path: "run.json"), signal: root.appending(path: "run.signal"),
                                          exception: root.appending(path: "run.exception"))
         recovery = LaunchRecovery.decide(previous: previous)
+        crashStreak = LaunchRecovery.crashStreak(previous: previous)
         marker = PreviousRun(pid: getpid(), launched: now, recovery: LaunchRecovery.watchesForLoop(previous: previous),
-                             survived: false, signal: nil)
+                             survived: false, signal: nil, unfinishedRuns: crashStreak.unfinishedRuns, reachedComplete: false)
+        if crashStreak.launchCaches.skipped {
+            logger.error("crash streak \(self.crashStreak.unfinishedRuns): launch caches skipped, last task \(previous?.lastTask ?? "none", privacy: .public)")
+        }
         start()
     }
 
@@ -122,6 +117,7 @@ final class AppRunMarker {
         // concurrency-allow: once at launch; truncates a file of at most 3 bytes, no fsync.
         let descriptor = open(signalFile.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { return }
+        FatalSignalRecord.prepare()
         fatalSignalDescriptor = descriptor
         CrashReporter.installCrashDeadline()
         CrashReporter.installCrashWatcher(sampleFile: directory.appending(path: "crash-watcher-sample.txt").path)
@@ -155,6 +151,16 @@ final class AppRunMarker {
             sigaction(signal, &action, nil)
         }
         QuitSignal.reclaim()
+    }
+
+    func startupTaskBegan(_ name: StaticString) { FatalSignalRecord.setStartupTask(name) }
+
+    /// Startup completed: the next launch starts a new crash streak.
+    func startupCompleted() {
+        FatalSignalRecord.setStartupTask(nil)
+        guard marker.reachedComplete != true else { return }
+        marker.reachedComplete = true
+        writeMarker()
     }
 
     private func markSurvived() {
@@ -211,12 +217,10 @@ final class AppRunMarker {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .secondsSince1970
         guard var run = try? decoder.decode(PreviousRun.self, from: data) else { return nil }
-        // concurrency-allow: once at launch before the first window, a file of at most 3 bytes.
-        if let text = try? String(contentsOf: signal, encoding: .utf8),
-           let first = text.split(whereSeparator: \.isNewline).first,
-           let number = Int32(first.trimmingCharacters(in: .whitespaces)), number > 0 {
-            run.signal = number
-        }
+        // concurrency-allow: once at launch before the first window, a file of at most 84 bytes.
+        let record = FatalSignalRecord(text: (try? String(contentsOf: signal, encoding: .utf8)) ?? "")
+        run.signal = record.signal
+        run.lastTask = record.startupTask
         if let exception { run.exception = UncaughtExceptionRecorder.read(exception) }
         return run
     }

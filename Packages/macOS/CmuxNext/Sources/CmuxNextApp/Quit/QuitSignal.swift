@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCrashReporting
 import Darwin
 
 /// SIGTERM, SIGINT and SIGHUP are "Quit, keep sessions" (coordinator

@@ -1,6 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextCrashReporting
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// `debug.crashes`: recent Chromium process failures (renderer per tab from
@@ -16,6 +17,8 @@ enum DebugCrashes {
         var launch: [String: JSONValue] = [
             "recovery": .string(recoveryName(crash.recovery)),
             "skips_browser_pages": .bool(crash.recovery.skipsBrowserPages),
+            "crash_streak": .number(Double(crash.marker?.crashStreak.unfinishedRuns ?? 0)),
+            "launch_caches": .string(crash.marker?.launchCaches.skipReason?.rawValue ?? "use"),
         ]
         if let previous = crash.recovery.previous {
             launch["previous"] = .object([
@@ -24,6 +27,8 @@ enum DebugCrashes {
                 "was_restart": .bool(previous.recovery),
                 "survived": .bool(previous.survived),
                 "signal": previous.signal.map { .number(Double($0)) } ?? .null,
+                "reached_complete": .bool(previous.reachedComplete == true),
+                "last_task": previous.lastTask.map { .string($0) } ?? .null,
             ])
         }
         launch["system_report"] = crash.previousCrashLog.map { .string($0.path) } ?? .null

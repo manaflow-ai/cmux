@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextCrashReporting
+import CmuxNextWakeups
 import Foundation
 import os
 import CmuxNextCompat
@@ -25,6 +27,7 @@ final class CrashRecoveryService {
     private var reportTask: Task<Void, Never>?
 
     var recovery: LaunchRecovery { marker?.recovery ?? .clean }
+    var launchCaches: LaunchCaches { marker?.launchCaches ?? .use }
 
     /// `marksRun` false (tests, tools that build AppServices) leaves no
     /// marker and installs no signal handlers.

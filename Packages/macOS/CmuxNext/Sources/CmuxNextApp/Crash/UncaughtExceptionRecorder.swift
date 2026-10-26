@@ -3,24 +3,6 @@ import CmuxNextCrashReporting
 import Foundation
 import os
 
-/// An Objective-C exception that ended the previous run: what the
-/// `run.exception` file holds (crash-elimination class b: NSRangeException,
-/// unrecognized selector). Holds the exception's name, reason and call stack
-/// frames only; the reason is AppKit's text and the frames are "image
-/// function + offset" lines (``StackSymbolicator``).
-nonisolated struct RecordedException: Codable, Equatable, Sendable {
-    var name: String
-    var reason: String
-    var frames: [String]
-
-    /// "NSRangeException: <reason>", trimmed to one line for the notice.
-    var summary: String {
-        let line = reason.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
-        let text = line.isEmpty ? name : "\(name): \(line)"
-        return text.count > 200 ? String(text.prefix(199)) + "…" : text
-    }
-}
-
 /// Records an uncaught Objective-C exception into `run.exception` beside the
 /// run marker before the process ends, so the next launch's report and
 /// notice name the cause (macOS's `.ips` holds only the backtrace). Installed

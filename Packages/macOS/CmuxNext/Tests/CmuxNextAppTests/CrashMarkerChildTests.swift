@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextBrowser
+import CmuxNextCrashReporting
 import Darwin
 import Foundation
 import Testing

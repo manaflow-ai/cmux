@@ -579,6 +579,12 @@
       "row": "stateful_singletons",
       "allow": 1,
       "why": "CmuxNextTrace TraceRuntime.shared: the one process-wide trace runtime (category flags, Release trace rings, name and thread tables, crash-key page, HangWatch slots, metrics store), Chrome's TraceLog / GlobalHistogramAllocator / HangWatcher model (base/trace_event/trace_log.h). Trace points, hang-watch scopes and histogram records run in every module and on every thread, including C hooks, renderer callbacks and deinits with no injection path; code that can inject takes a TraceRuntime(role:) instance (Metrics(runtime:), tests). The single reviewed exception of the p09-observability program (plans/cmux-next/chrome-parity/p09-observability.md section 3A, task 000); no other p09 task may add a global."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "CmuxNextCrashReporting startupTaskKey (FatalSignalRecord): the running startup task's static name as a crash key (Chromium components/crash/core/common/crash_key.h); the async-signal-safe fatal-signal handler reads it, so it cannot live in an injected instance (same as CrashWatcher's pipe write end); one atomic store per startup task until startup_complete, then 0 (p08-startup-089)"
     }
   ],
   "observer_wrappers": [

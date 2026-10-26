@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextCrashReporting
 import Foundation
 
 /// The restart notice's Report button (crash program phase 2): a prefilled
