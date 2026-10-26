@@ -14,12 +14,11 @@ import CoreGraphics
 // Browser hibernation and the memory-budgeted warm sets
 // (plans/cmux-next/tab-lifecycle.md).
 extension AppServices {
-    /// Creates the browser and agent page hibernation and follows `browser.hibernation`. It registers with
-    /// the app's one memory coordinator (`memoryCoordinator`) as a lossy consumer, which hands it each
-    /// level. The terminal warm set (the one budget of hidden GPU surfaces, a lossless consumer) and the
-    /// parked workspaces (a lossy one) register there too; the coordinator releases them one surface or
-    /// one workspace per frame. It runs before the restore mounts a page, so the cache hands it every hide,
-    /// show and screen change; its measurements start after startup (``startHibernationMeasurements()``).
+    /// Creates the browser and agent page hibernation and follows `browser.hibernation`. It registers with the app's
+    /// one memory coordinator (`memoryCoordinator`) as a lossy consumer, which hands it each level. The terminal warm
+    /// set (the one budget of hidden GPU surfaces, a lossless consumer) and the parked workspaces (a lossy one) register
+    /// there too; the coordinator releases them one surface or one workspace per frame. It runs before the restore mounts
+    /// a page, so the cache hands it every hide, show and screen change; its measurements start after startup (``startHibernationMeasurements()``).
     func startHibernation(settings: SettingsController) {
         let audible = features.isEnabled(.recentlyAudibleProtection) ? AudibleHistory(mainWork: mainWork) : nil
         let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, deadlines: mainDeadlines, energy: mainWork.energy, audible: audible)
@@ -37,6 +36,7 @@ extension AppServices {
         hibernation.discardsStreamedPages = features.isEnabled(.memoryDiscardRemoteTabs)
         hibernation.openerGroup = { [weak self] key in self?.openerGroup(of: key) ?? [key] }
         hibernation.ranksUrgentDiscards = features.isEnabled(.memoryUrgentDiscardRanking)
+        hibernation.snapshots.keepsCompressed = features.isEnabled(.compressedSnapshots)
         let agentPages = AgentPageHibernation(services: self)
         memoryHistograms.follow(hibernation, agentPages: agentPages)
         hibernation.agentPages = agentPages
