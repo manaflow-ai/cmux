@@ -51,6 +51,19 @@ struct AcpmuxUnresponsiveWatchTests {
         #expect(watch.missed(home: "/h", pid: 7))
     }
 
+    /// Review of #25379: while one lookup waits on its confirming status call, another lookup's
+    /// call is answered. The streak that made the restart due is gone, so the claim says no and
+    /// the daemon, which answers again, is kept.
+    @Test func aDaemonThatAnsweredMeanwhileIsNotClaimed() {
+        let watch = AcpmuxUnresponsiveWatch(clock: clock, misses: 1, window: .zero)
+        #expect(watch.missed(home: "/h", pid: 7))
+        watch.answered(home: "/h")
+        #expect(!watch.claim(home: "/h", pid: 7), "a daemon that answered again was claimed for a restart")
+        // The next streak can still restart it.
+        #expect(watch.missed(home: "/h", pid: 7))
+        #expect(watch.claim(home: "/h", pid: 7))
+    }
+
     @Test func anotherPidOrAnotherHomeHasItsOwnStreak() {
         let watch = watch()
         #expect(!watch.missed(home: "/h", pid: 7))
@@ -268,8 +281,31 @@ struct AcpmuxUnresponsiveRestartTests {
     }
 
     private func host(_ fixture: Fixture, clock: ManualClock, enabled: Bool = true) -> AcpmuxHost {
+        host(fixture, clock: clock, toggle: { enabled })
+    }
+
+    private func host(_ fixture: Fixture, clock: ManualClock, toggle: @escaping @Sendable () -> Bool) -> AcpmuxHost {
         let watch = AcpmuxUnresponsiveWatch(clock: clock, confirm: .milliseconds(300), termGrace: .seconds(2))
-        return AcpmuxHost(environment: fixture.environment, unresponsive: watch, restartsUnresponsive: { enabled })
+        return AcpmuxHost(environment: fixture.environment, unresponsive: watch, restartsUnresponsive: toggle)
+    }
+
+    /// The toggle's reads, and what it answers.
+    private nonisolated final class Toggle: Sendable {
+        private let state = Mutex((reads: 0, on: true))
+        /// Off from read `offFrom` on (1-based); nil: `on` decides.
+        let offFrom: Int?
+        init(offFrom: Int? = nil) { self.offFrom = offFrom }
+        var on: Bool {
+            get { state.withLock { $0.on } }
+            set { state.withLock { $0.on = newValue } }
+        }
+        func read() -> Bool {
+            state.withLock { state in
+                state.reads += 1
+                if let offFrom { return state.reads < offFrom }
+                return state.on
+            }
+        }
     }
 
     @Test func aHungDaemonGetsSigtermAndANewDaemonStarts() async throws {
@@ -325,6 +361,42 @@ struct AcpmuxUnresponsiveRestartTests {
 
         await missThreeTimes(host(fixture, clock: clock, enabled: false), clock: clock, stillAlive: hung.pid)
         #expect(agentPaneProcessIsRunning(hung.pid))
+        #expect(!fixture.launched)
+    }
+
+    /// Review of #25379: the toggle turned off while the third lookup waits on its status calls.
+    /// It is on for each lookup's start and off by the restart's claim, so the daemon is kept.
+    @Test func theToggleTurnedOffBeforeTheClaimKeepsTheDaemon() async throws {
+        let fixture = try Fixture()
+        let hung = try await fixture.hungDaemon(socketPath: fixture.environment.socketPath)
+        defer { fixture.remove([hung]) }
+        try fixture.writePidFile(hung.pid)
+        let clock = ManualClock()
+        // Reads 1-3: the three lookups; read 4 on: the toggle is off.
+        let toggle = Toggle(offFrom: 4)
+
+        await missThreeTimes(host(fixture, clock: clock, toggle: { toggle.read() }), clock: clock, stillAlive: hung.pid)
+        #expect(agentPaneProcessIsRunning(hung.pid), "the daemon was restarted with the toggle off")
+        #expect(!fixture.launched)
+    }
+
+    /// Review of #25379: a lookup with the toggle off ends the streak, so misses from before it
+    /// never add up to a restart with misses after it.
+    @Test func aLookupWithTheToggleOffEndsTheStreak() async throws {
+        let fixture = try Fixture()
+        let hung = try await fixture.hungDaemon(socketPath: fixture.environment.socketPath)
+        defer { fixture.remove([hung]) }
+        try fixture.writePidFile(hung.pid)
+        let clock = ManualClock()
+        let toggle = Toggle()
+        let host = host(fixture, clock: clock, toggle: { toggle.read() })
+
+        for on in [true, true, false, true] {
+            toggle.on = on
+            await #expect(throws: AgentPaneHostError.timedOut) { try await host.prewarm() }
+            clock.advance(by: .seconds(11))
+        }
+        #expect(agentPaneProcessIsRunning(hung.pid), "misses on both sides of a lookup with the toggle off restarted the daemon")
         #expect(!fixture.launched)
     }
 }
