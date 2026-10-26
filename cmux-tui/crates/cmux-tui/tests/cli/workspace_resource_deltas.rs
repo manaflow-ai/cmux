@@ -180,7 +180,8 @@ mod sidebar_order {
         let _ = fs::remove_dir_all(&dir);
     }
     /// cmux#25586: every `workspace list` row says whether the sidebar shows
-    /// it pinned, in every order, so Chief and agents can read their pins.
+    /// it pinned (`extra.pinned`), in every order, so Chief and agents can
+    /// read their pins.
     #[test]
     fn workspace_list_says_which_workspaces_are_pinned() {
         let server = HeadlessServer::start("ws-list-pinned");
@@ -211,7 +212,7 @@ mod sidebar_order {
                     .unwrap()
                     .iter()
                     .find(|workspace| workspace["id"] == json!(id))
-                    .map(|workspace| workspace["pinned"].clone())
+                    .map(|workspace| workspace["extra"]["pinned"].clone())
             };
             assert_eq!(pinned_of(&pinned), Some(json!(true)), "{order:?}: {listed}");
             assert_eq!(pinned_of(&kept), Some(json!(false)), "{order:?}: {listed}");

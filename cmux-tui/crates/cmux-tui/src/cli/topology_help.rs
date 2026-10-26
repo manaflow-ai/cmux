@@ -75,7 +75,7 @@ svg:sha256-<hex> asset); --clear-icon removes it. --pinned true
 saves a group so it stays when its workspaces close; false unpins it.
 pin and unpin pin a workspace the way the sidebar does (the app's
 Pin/Unpin Workspace action, `workspace pin-unpin --pinned true|false`); they
-need the cmux app. Each list row's pinned says whether the sidebar shows it
+need the cmux app. Each list row's extra.pinned says whether the sidebar shows it
 pinned.
 
 SELECTORS

@@ -60,9 +60,10 @@ pub(super) fn list_workspaces(
     Ok(Value::Array(workspaces))
 }
 
-/// Each listed workspace's `pinned` (cmux#25586): what the sidebar shows, the
-/// document's pin (top level of Pinned, or pinned in its group) when it
-/// places the workspace, else the daemon's `workspace-pin-v1` flag.
+/// Each listed workspace's `extra.pinned` (cmux#25586): what the sidebar
+/// shows, the document's pin (top level of Pinned, or pinned in its group)
+/// when it places the workspace, else the daemon's `workspace-pin-v1` flag.
+/// It rides in `extra` because `WorkspaceSnapshot` forbids unknown fields.
 fn insert_pinned(
     mux: &Mux,
     workspaces: &mut [Value],
@@ -85,6 +86,11 @@ fn insert_pinned(
         let pinned = document
             .and_then(|order| order.pinned(id))
             .unwrap_or_else(|| flags.get(id).copied().unwrap_or(false));
-        workspace["pinned"] = Value::Bool(pinned);
+        if let Some(row) = workspace.as_object_mut() {
+            let extra = row.entry("extra").or_insert_with(|| Value::Object(Default::default()));
+            if let Some(extra) = extra.as_object_mut() {
+                extra.insert("pinned".into(), Value::Bool(pinned));
+            }
+        }
     }
 }

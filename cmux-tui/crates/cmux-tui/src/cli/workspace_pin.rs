@@ -2,7 +2,7 @@
 //! `workspace pin-unpin`, MCP `app_workspace_pin_unpin`) with its `pinned` argument set, so the
 //! pin goes through the one pin path the sidebar row, the palette and drags use (PinCommands):
 //! the sidebar document, and the workspace's own daemon flag. `workspace list` reports the result
-//! in each row's `pinned`. The workspace is the action's `--target`, a `ws_…` id.
+//! in each row's `extra.pinned`. The workspace is the action's `--target`, a `ws_…` id.
 
 const ACTION: &str = "workspace pin-unpin";
 

@@ -1036,7 +1036,7 @@ with the sidebar). `--order session` (and, without the
 document, no `--order`) lists the session's workspace order, the same order as
 `topology.workspaces`: creation order unless a workspace was moved. The app's `snapshot.get` `windows[].workspaces` lists the order
 each window shows.
-Every `workspace list` row has `pinned`: whether the sidebar shows the
+Every `workspace list` row has `extra.pinned`: whether the sidebar shows the
 workspace pinned (at the top level of Pinned, or pinned inside its group, in
 the sidebar document; without the document, or for a workspace it does not
 place, the daemon's `workspace-pin-v1` flag). `workspace <ws_…> pin` and
