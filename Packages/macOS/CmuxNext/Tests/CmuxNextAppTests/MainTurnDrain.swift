@@ -12,8 +12,15 @@ func drainMainTurns(rounds: Int = 3) async {
         let marker = MainTurnMarker()
         MainRunLoopBlock.perform { marker.ran = true }
         // A non-blocking pass each: blocks queued before the marker run before it (FIFO).
-        for _ in 0..<64 where !marker.ran { _ = RunLoop.main.run(mode: .default, before: .distantPast) }
+        runMainRunLoop(until: marker)
     }
+}
+
+/// Non-blocking main run loop passes until `marker` ran or 64 passes ran. Synchronous, because `RunLoop.run` is
+/// unavailable from async contexts.
+@MainActor
+private func runMainRunLoop(until marker: MainTurnMarker) {
+    for _ in 0..<64 where !marker.ran { _ = RunLoop.main.run(mode: .default, before: .distantPast) }
 }
 
 @MainActor

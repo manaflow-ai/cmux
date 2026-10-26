@@ -1194,6 +1194,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-flow-trace",
  "cmux-ipc",
+ "cmux-memory",
  "cmux-process",
  "cmux-trace",
  "libc",
@@ -1282,6 +1283,13 @@ dependencies = [
 [[package]]
 name = "cmux-lock-rank"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-memory"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "cmux-mobile-core"
@@ -1767,11 +1775,13 @@ dependencies = [
  "cmux-git",
  "cmux-history",
  "cmux-holder",
+ "cmux-ipc",
  "cmux-kitty-media",
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
  "cmux-lock-rank",
+ "cmux-memory",
  "cmux-panic-log",
  "cmux-process",
  "cmux-pty",
@@ -2988,6 +2998,8 @@ name = "ghostty-vt"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-memory",
+ "flate2",
  "ghostty-vt-sys",
  "png",
 ]

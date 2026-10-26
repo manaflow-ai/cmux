@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "4bc66f3f6855fb5d0f4b3eba3a649fd5dad0dee81fae768370e8b4510bbaa37f";
+pub const ir_sha256 = "78ae2f1f797111b944b41b9cb30dabe9d2dbcd01a0d47808dd602101a5037c55";
 
 pub const AccessRequestKind = enum {
     file,
@@ -2595,6 +2595,46 @@ pub const ServerStatsHistogram = struct {
     p99: u64,
 };
 
+pub const ServerStatsIpc = struct {
+    bad_message: u64,
+    parses: ServerStatsIpcParses,
+    received: []const ServerStatsIpcKind,
+    sent: []const ServerStatsIpcKind,
+    sequence_depth: ServerStatsHistogram,
+    streams: ServerStatsIpcStreams,
+    writes: ServerStatsIpcWrites,
+};
+
+pub const ServerStatsIpcKind = struct {
+    bytes: u64,
+    kind: []const u8,
+    messages: u64,
+};
+
+pub const ServerStatsIpcParse = struct {
+    json_parses: u64,
+    json_parses_per_request: f64,
+    requests: u64,
+};
+
+pub const ServerStatsIpcParses = struct {
+    frames: ServerStatsIpcParse,
+    lines: ServerStatsIpcParse,
+};
+
+pub const ServerStatsIpcStreams = struct {
+    open: u64,
+    opened: u64,
+    peak: u64,
+};
+
+pub const ServerStatsIpcWrites = struct {
+    messages: u64,
+    stalls: u64,
+    syscalls: u64,
+    syscalls_per_message: f64,
+};
+
 pub const ServerStatsJournalWriter = struct {
     batch_size: ServerStatsHistogram,
     batches: u64,
@@ -2718,6 +2758,7 @@ pub const ServerStatsResourceProjection = struct {
 pub const ServerStatsResult = struct {
     connections: ServerStatsConnections,
     dispatch_queue_us: ?ServerStatsHistogram = null,
+    ipc: ?ServerStatsIpc = null,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
     registry_lock: ServerStatsRegistryLock,
     request_latency_us: ?ServerStatsRequestLatency = null,
@@ -2730,6 +2771,7 @@ pub const ServerStatsResult = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "dispatch_queue_us",
+        "ipc",
         "request_latency_us",
         "request_path_io",
         "resource_projection",

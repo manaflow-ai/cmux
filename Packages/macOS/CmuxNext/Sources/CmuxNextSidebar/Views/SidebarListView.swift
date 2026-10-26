@@ -101,6 +101,9 @@ final class SidebarListView: NSView {
     var pointerIsOverList: @MainActor (SidebarListView) -> Bool = { $0.pointerIsOverVisibleRows }
     /// A model change held while the pointer was over the list; it shows when the pointer leaves (`releaseHeldModelChange`).
     var holdsModelChange = false
+    /// Told which rows each reload lists (`reportListedRows`): a new workspace's `create.workspace` interval ends
+    /// at the commit of the reload that first lists its row. Nil for a list nobody sees (a space page).
+    var newRows: SidebarNewRowTimer?
     /// Row patches held while a drag, its settle or its card's landing runs (`SidebarRowHold`).
     var rowHold = SidebarRowHold()
     /// Workspaces a pin drop took to the band: out of the list until its card lands (cx-odqn).
@@ -241,6 +244,7 @@ final class SidebarListView: NSView {
         // A move to another window (or none) ends this list's card only.
         hoverCards.unregister(hoverCard)
         if window != nil { hoverCards.register(hoverCard) }
+        reportListedRows() // the rows its last reload listed off screen show from this window's next commit
         guard observedWindow !== window else { return }
         let center = NotificationCenter.default
         observedWindow = window

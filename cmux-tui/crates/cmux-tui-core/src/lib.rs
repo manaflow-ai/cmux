@@ -83,6 +83,7 @@ mod terminal_title;
 use cmux_tui_remote_access::remote_relay_state;
 mod line_parses;
 mod login_shell;
+mod memory;
 pub mod release;
 mod request_origin;
 /// Blocking notes on request threads (`server-stats` `request_path_io`).

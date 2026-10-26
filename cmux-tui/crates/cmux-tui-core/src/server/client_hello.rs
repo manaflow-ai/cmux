@@ -163,6 +163,7 @@ impl HelloGate {
             return None;
         }
         let window = std::mem::replace(&mut self.window, Window::Closed);
+        crate::diagnostics::note_json_parse();
         let value = match serde_json::from_str::<Value>(line) {
             Ok(value) => value,
             Err(_) if self.page_relay => return Some(page_relay_refusal(None)),
@@ -294,6 +295,7 @@ impl HelloGate {
 /// `cmux.protocol/2` request, which the page's allow list then decides, or
 /// an allowed raw command); anything else is refused here.
 fn scoped_refusal(line: &str, allowed: &[&str]) -> Option<Value> {
+    crate::diagnostics::note_json_parse();
     let Ok(value) = serde_json::from_str::<Value>(line) else {
         return Some(scoped_page_refusal(None));
     };

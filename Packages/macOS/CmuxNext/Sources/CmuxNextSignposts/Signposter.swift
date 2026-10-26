@@ -281,8 +281,9 @@ public nonisolated struct Signposter: Sendable {
 
     /// Begins the log system's interval with `beginInterval`, the MetricKit mirror's and, while the name's
     /// category is on, the ring's slice with `arg0` (and `arg1`, which only a thread slice has free: an async
-    /// slice's `arg1` is its id).
-    func openInterval(_ name: SignpostName, arg0: UInt64, arg1: UInt64 = 0,
+    /// slice's `arg1` is its id). With `traced` false the ring takes no slice whatever the flags are (a name that
+    /// also needs a recording-only category on: ``beginCEFPump(reasonCode:)``).
+    func openInterval(_ name: SignpostName, arg0: UInt64, arg1: UInt64 = 0, traced: Bool = true,
                       _ beginInterval: (OSSignpostID) -> OSSignpostIntervalState) -> SignpostInterval {
         assert(name.category == category, "\(name) is not in category \(category)")
         assert(arg1 == 0 || name.opensThreadSlice, "\(name) is an async slice: its arg1 is the async id")
@@ -290,6 +291,6 @@ public nonisolated struct Signposter: Sendable {
         let beginNanos = clock.nowNanos()
         let state = beginInterval(id)
         return SignpostInterval(state: state, metricKitID: mirror.begin(name), beginUptimeNanos: beginNanos,
-                                ring: traceBegin(name, id: id, beginNanos: beginNanos, arg0: arg0, arg1: arg1))
+                                ring: traced ? traceBegin(name, id: id, beginNanos: beginNanos, arg0: arg0, arg1: arg1) : nil)
     }
 }

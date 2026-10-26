@@ -123,10 +123,15 @@ public final class SidebarView: NSView {
         get { list.docStore }
         set { list.docStore = newValue }
     }
-    public init(model: SidebarModel, design: DesignSettings = .shared) {
+    /// - Parameters:
+    ///   - model: What the sidebar shows.
+    ///   - design: The `sidebar.*` settings it draws from.
+    ///   - newRows: Told which rows each list reload lists (`create.workspace`); nil times nothing.
+    public init(model: SidebarModel, design: DesignSettings = .shared, newRows: SidebarNewRowTimer? = nil) {
         self.model = model
         self.design = design
         list = SidebarListView(model: model)
+        list.newRows = newRows
         profileBar = ProfileBarView(model: model)
         super.init(frame: .zero)
         buildHierarchy()

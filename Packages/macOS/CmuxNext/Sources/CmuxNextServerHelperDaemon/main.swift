@@ -17,7 +17,7 @@ guard let appBundleID = argument("--app"),
     exit(64)
 }
 
-let service = ServerHelperService(priors: FileFixPriorStore.standard(label: machServiceName))
+let service = ServerHelperService(priors: FileFixPriorStore.standard(label: machServiceName, files: ServerHelperFileLane()))
 let listener = ServerHelperListener(machServiceName: machServiceName, appBundleID: appBundleID, service: service)
 guard listener.acceptsClients else {
     FileHandle.standardError.write(Data("cmux-server-helper: unsigned or ad hoc helper; it serves nobody\n".utf8))

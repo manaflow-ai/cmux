@@ -33,7 +33,7 @@ nonisolated struct RecordedException: Codable, Equatable, Sendable {
 nonisolated enum UncaughtExceptionRecorder {
     /// Frames kept from the exception's call stack.
     static let frameLimit = 64
-    private static let file = OSAllocatedUnfairLock<URL?>(initialState: nil)
+    private static let file = Mutex<URL?>(nil)
 
     /// Sets the handler that writes into `url`. No other code in the app
     /// installs an uncaught-exception handler (CEF and Ghostty do not).

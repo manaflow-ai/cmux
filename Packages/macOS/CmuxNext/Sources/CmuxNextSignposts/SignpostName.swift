@@ -149,13 +149,19 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// `kind=<terminal|chromium|webkit|chat|page>`. Ring: AB/AE keyed by the intent id; begin arg0 the kind,
     /// end arg0 the outcome (0 shown, 1 closed before its first frame); an instant marks the stand-in commit.
     case createTab = 12
-    /// Reserved (task 031, PL-cef-tab). A new workspace: the intent to its sidebar row drawn. Ring: AB/AE.
+    /// A new workspace (`SidebarNewRowTimer`, every build): its create to the ``CommitBoundary`` after the list reload
+    /// that first lists its row; `input_age_ms=<age>` (the press's own input, -1 for a script). A row gone before it
+    /// was drawn, or not drawn within 10 s, ends `commit=missed`. Ring: AB/AE; begin arg0 the input age in us in
+    /// the top 24 bits (all ones without one); end arg0 the end code (0 ended, 1 missed).
     case createWorkspace = 13
 
     // MARK: cef (reserved: PL-motion-cef, PL-cef-tab)
 
-    /// Reserved (task 032, PL-cef-tab). One Chromium message pump pass on the main thread (or in the
-    /// Chromium host). Ring: B/E; begin arg0 the armed reason, end arg0 1 for a long run, arg1 elapsed us.
+    /// One Chromium message pump pass (task 032, ``Signposter/beginCEFPump(reasonCode:)``): `CefDoMessageLoopWork`
+    /// on the app's main thread while the pump is in the app; with the Chromium host on, the host emits it (task 104).
+    /// Ring: B/E, only while `task` is on too (a recording; never the black box); begin arg0 the reason (1 now,
+    /// 2 delayed, 3 kept, 4 the pass a nested run loop's fire deferred; 0 a pass no timer armed), end arg0 1 for a
+    /// long run (CEF's whole time slice), arg1 the elapsed us.
     case cefPump = 14
     /// Reserved (task 033, PL-cef-tab). `CefBrowserHost::CreateBrowser` on the main thread, or the Chromium
     /// host's create to its reply. Ring: AB/AE; begin arg0 1 for a spare, arg1 the profile index.
