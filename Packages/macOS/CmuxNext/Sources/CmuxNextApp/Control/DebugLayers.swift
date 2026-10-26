@@ -119,6 +119,7 @@ enum DebugLayers {
                 "presentation": .string(entry.tab.presentation == .childWindow ? "child_window" : "in_view"),
                 "content_in_window": .bool(content.window === window),
             ]
+            // visibility-walk-allow: the report checks AppKit's own view state against the page windows; a node would hide the mismatch it looks for
             if entry.tab.presentation == .childWindow, content.window === window, !content.isHiddenOrHasHiddenAncestor {
                 // The page window must cover the host view exactly, in
                 // screen coordinates, whatever moved the window.
