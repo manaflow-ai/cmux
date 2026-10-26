@@ -50,7 +50,7 @@ import Testing
         defer { web.close() }
         let clock = ManualClock()
         let tab = WebPageTab(.coderouter, symbol: "arrow.triangle.branch", title: "CodeRouter",
-                             discardPolicy: CodeRouterPageTab.hiddenPolicy) { Self.page(web, route: nil, clock: clock) }
+                             discardPolicy: CodeRouterPageTab.hiddenPolicy) { Self.testPage(web, route: nil, clock: clock) }
         let rig = Rig(tab)
         let discarded = try await Self.discard(rig)
         #expect(!tab.hasPage(rig.key))
@@ -75,7 +75,7 @@ import Testing
         var routes: [String] = []
         let apps = AppsService(services: services) { route in
             routes.append(route)
-            return Self.page(web, route: route, clock: clock)
+            return Self.testPage(web, route: route, clock: clock)
         }
         let rig = Rig(apps)
         let discarded = try await Self.discard(rig)
@@ -95,12 +95,13 @@ import Testing
         let web = try WebRig()
         defer { web.close() }
         Self.answerFragment(web, "#/get")
+        web.scrollY = 700 // the person scrolled the machine list
         let clock = ManualClock()
         let services = MachineIconTests.services()
         var routes: [String?] = []
         let cloud = CloudPageService(services: services) { route in
             routes.append(route)
-            return Self.page(web, route: route, clock: clock).map { (page: $0, provider: CloudPageProvider(op: { _, _, _, _ in .object([:]) })) }
+            return Self.testPage(web, route: route, clock: clock).map { (page: $0, provider: CloudPageProvider(op: { _, _, _, _ in .object([:]) })) }
         }
         let rig = Rig(cloud)
         let discarded = try await Self.discard(rig)
@@ -239,7 +240,7 @@ import Testing
     @Test func aDiscardedPhoneTabShowsTheSamePhoneAndLeavesTheNextTabsPhone() throws {
         let tab = PhonePageTab(phones: Self.phones())
         let key = "phone-batch5"
-        #expect(PhonePageTab.hiddenPolicy == .afterHidden(MacScreenPane.defaultHiddenGrace),
+        #expect(PhonePageTab.hiddenPolicy == .afterHidden(.seconds(20)),
                 "a phone tab switched away from and back was rebuilt, running xcrun on the show")
         tab.restore("sim:AAAA", for: key)
         let first = tab.makeView(for: key, in: nil)
@@ -295,7 +296,7 @@ import Testing
     static let pairingDescriptor = PageDescriptor(id: "test.mobile-pairing", resource: "discard", namespaces: ["cmux.mobilePairing."])
 
     /// A page in `web`'s fake Chromium host, opened on `route`.
-    static func page(_ web: WebRig, route: String?, clock: ManualClock) -> PageWebView? {
+    static func testPage(_ web: WebRig, route: String?, clock: ManualClock) -> PageWebView? {
         let page = PageWebView(descriptor: PageDescriptor(id: "test.discard", resource: "discard", namespaces: []),
                                root: web.folder, routes: [], route: route, chromium: web.hosting)
         // The engine's no-message deadline never runs out here.
@@ -318,8 +319,8 @@ import Testing
         }
     }
 
-    /// Shows `rig`'s tab with a painted page, scrolls it to 700, hides it past its policy and lets
-    /// the discard run; returns the page that went.
+    /// Shows `rig`'s tab with a painted page, hides it past its policy and lets the discard run;
+    /// returns the page that went.
     static func discard(_ rig: Rig) async throws -> PageWebView {
         let view = try #require(rig.pages.view(for: rig.key))
         let shown = try #require(view.content as? PageWebView)

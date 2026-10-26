@@ -33,8 +33,10 @@ final class AppsService {
     private var appPages: [String: AppPanePage] = [:]
     /// The App Store page (React, apps-web-DESIGN.md) per tab key.
     private var webStorePages: [String: PageWebView] = [:]
+    /// The place each hidden App Store tab's page showed when its discard read it.
+    private var shownPlaces: [String: (version: Int, fragment: String)] = [:]
     /// The place each discarded App Store tab showed, for the page its next show makes.
-    private let discardedRoutes = DiscardedPageRoutes()
+    private var discardedRoutes: [String: String] = [:]
     /// The route of the show running now, for the page it makes (``makeView(for:in:)``).
     private var pendingRoute: String?
     private var machineCatalog: MachineCatalogPublisher?
@@ -184,7 +186,7 @@ extension AppsService: InternalPageProvider {
     /// The React App Store page; it opens on the route of the show that made it. Missing page
     /// resources (a build without the web bundles) show an empty view, never a second store.
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let discarded = discardedRoutes.take(key)
+        let discarded = discardedRoutes.removeValue(forKey: key)
         let route = pendingRoute ?? discarded ?? Self.storeRoute(appID: nil, tab: nil)
         guard let page = makeStorePage?(route) ?? PageFactory(services: services).appsWebPage(route: route) else { return NSView() }
         webStorePages[key] = page
@@ -192,7 +194,8 @@ extension AppsService: InternalPageProvider {
     }
 
     func tabClosed(_ key: String) {
-        discardedRoutes.forget(key)
+        shownPlaces[key] = nil
+        discardedRoutes[key] = nil
         webStorePages.removeValue(forKey: key)?.close()
     }
 
@@ -206,14 +209,16 @@ extension AppsService: InternalPageProvider {
     /// Its document scroll, and the listing or section the page shows now (its own links move it).
     func saveViewState(for key: String, content: NSView) async -> ContentViewState {
         guard let page = content as? PageWebView else { return ContentViewState() }
-        return await discardedRoutes.save(key, page: page)
+        shownPlaces[key] = await page.readShownPlace()
+        return ContentViewState(scroll: await page.documentScroll())
     }
 
     /// The tab stays and its page goes, closed as at ``tabClosed(_:)``; the next page of the tab
     /// opens on the listing or section it showed.
     func viewDiscarded(_ key: String) {
+        let read = shownPlaces.removeValue(forKey: key)
         guard let page = webStorePages.removeValue(forKey: key) else { return }
-        discardedRoutes.discarded(key, page: page)
+        discardedRoutes[key] = page.discardedPlace(read: read)
         page.close()
     }
 

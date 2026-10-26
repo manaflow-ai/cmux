@@ -20,8 +20,10 @@ final class CloudPageService: InternalPageProvider {
     private weak var services: AppServices?
     /// Each tab's page while it lives (the provider for its keep reasons).
     private var pages: [String: MadePage] = [:]
+    /// The place each hidden Cloud tab's page showed when its discard read it.
+    private var shownPlaces: [String: (version: Int, fragment: String)] = [:]
     /// The place each discarded Cloud tab showed, for the page its next show makes.
-    private let discardedRoutes = DiscardedPageRoutes()
+    private var discardedRoutes: [String: String] = [:]
     /// Makes a tab's page on a route (default: ``PageFactory/cloudWebPage(_:route:)``; tests pass
     /// their own engine).
     private let makePage: (String?) -> MadePage?
@@ -53,13 +55,14 @@ final class CloudPageService: InternalPageProvider {
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         // A rebuilt page opens on the place its discarded one showed.
-        guard let made = makePage(discardedRoutes.take(key)) else { return NSView() }
+        guard let made = makePage(discardedRoutes.removeValue(forKey: key)) else { return NSView() }
         pages[key] = made
         return made.page
     }
 
     func tabClosed(_ key: String) {
-        discardedRoutes.forget(key)
+        shownPlaces[key] = nil
+        discardedRoutes[key] = nil
         close(key)
     }
 
@@ -79,12 +82,14 @@ final class CloudPageService: InternalPageProvider {
     /// `/get`, or wherever its own links moved it).
     func saveViewState(for key: String, content: NSView) async -> ContentViewState {
         guard let page = content as? PageWebView else { return ContentViewState() }
-        return await discardedRoutes.save(key, page: page)
+        shownPlaces[key] = await page.readShownPlace()
+        return ContentViewState(scroll: await page.documentScroll())
     }
 
     /// The tab stays and its page goes, closed as at ``tabClosed(_:)``.
     func viewDiscarded(_ key: String) {
-        if let page = pages[key]?.page { discardedRoutes.discarded(key, page: page) }
+        let read = shownPlaces.removeValue(forKey: key)
+        if let page = pages[key]?.page { discardedRoutes[key] = page.discardedPlace(read: read) }
         close(key)
     }
 

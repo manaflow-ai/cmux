@@ -48,53 +48,28 @@ final class WebPageTab: InternalPageProvider {
     func hasPage(_ key: String) -> Bool { pages[key] != nil }
 }
 
-/// The place (URL fragment) each discarded page tab showed, for the page its next show makes
-/// (`memoryDiscardInternalPages`). Chrome keeps a discarded tab's navigation entry and reloads its
-/// URL (content/public/browser/navigation_entry.h). A cmux page's place is its fragment, which
-/// follows the page's own links, so ``PageWebView/route`` (the last fragment the host asked for)
-/// is not it: the discard's preparation reads it from the document.
-@MainActor
-final class DiscardedPageRoutes {
-    /// Tab key -> the fragment its document showed when the discard read it, with the page's
-    /// ``InternalPageTabStore/pictureVersion(_:)`` then.
-    private var reads: [String: (version: Int, fragment: String)] = [:]
-    /// Tab key -> the fragment its next page opens on.
-    private var routes: [String: String] = [:]
-
-    /// The view state of tab `key`'s `page` for its discard: its document scroll (the provider
-    /// default), and the fragment it shows, kept here for ``discarded(_:page:)``.
-    func save(_ key: String, page: PageWebView) async -> ContentViewState {
-        let version = InternalPageTabStore.pictureVersion(page)
-        let scroll = await page.documentScroll()
-        let fragment = await page.shownFragment()
-        reads[key] = fragment.map { (version: version, fragment: $0) }
-        return ContentViewState(scroll: scroll)
-    }
-
-    /// Tab `key`'s `page` goes: its next page opens on the fragment the discard read, unless the
-    /// page changed since (the person's input, a new paint, a host route), then on ``PageWebView/route``.
-    func discarded(_ key: String, page: PageWebView) {
-        let read = reads.removeValue(forKey: key).flatMap { $0.version == InternalPageTabStore.pictureVersion(page) ? $0.fragment : nil }
-        let fragment = read ?? page.route ?? ""
-        routes[key] = fragment.isEmpty || fragment == "#" ? nil : fragment
-    }
-
-    /// The fragment tab `key`'s next page opens on, once; nil for the page's default place.
-    func take(_ key: String) -> String? { routes.removeValue(forKey: key) }
-
-    /// Tab `key` closed.
-    func forget(_ key: String) {
-        reads[key] = nil
-        routes[key] = nil
-    }
-}
-
+// The place (URL fragment) a discarded page tab showed, for the page its next show makes
+// (`memoryDiscardInternalPages`): Chrome keeps a discarded tab's navigation entry and reloads its URL
+// (content/public/browser/navigation_entry.h). A cmux page's place is its fragment, which follows the
+// page's own links, so ``PageWebView/route`` (the last one the host asked for) is not it: the discard's
+// preparation reads it from the document.
 extension PageWebView {
-    /// The fragment the document shows now (`window.location.hash`, empty on its default place),
-    /// read within 2 s in either engine; nil when the document does not answer.
-    func shownFragment() async -> String? {
-        try? await ControlDeadline.shared.run(method: "pages.discard.fragment", deadline: .now + .seconds(2)) { @MainActor in
+    /// The fragment the document shows now, read within 2 s in either engine, with the page's
+    /// ``InternalPageTabStore/pictureVersion(_:)`` before the read; nil when the document does not answer.
+    func readShownPlace() async -> (version: Int, fragment: String)? {
+        let version = InternalPageTabStore.pictureVersion(self)
+        let hash = try? await ControlDeadline.shared.run(method: "pages.discard.fragment", deadline: .now + .seconds(2)) { @MainActor in
             await self.callPageFunction("return window.location.hash;") as? String
         }
+        return hash.map { (version: version, fragment: $0) }
+    }
+
+    /// The fragment this page's next page opens on once it goes: the `read` its discard took while
+    /// the page has not changed since (the person's input, a paint, a host route), else ``route``;
+    /// nil for the page's default place.
+    func discardedPlace(read: (version: Int, fragment: String)?) -> String? {
+        let shown = read.flatMap { $0.version == InternalPageTabStore.pictureVersion(self) ? $0.fragment : nil }
+        let fragment = shown ?? route ?? ""
+        return fragment.isEmpty || fragment == "#" ? nil : fragment
     }
 }
