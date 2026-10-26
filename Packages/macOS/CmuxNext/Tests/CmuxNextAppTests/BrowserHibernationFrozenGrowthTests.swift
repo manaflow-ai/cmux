@@ -22,7 +22,7 @@ struct BrowserHibernationFrozenGrowthTests {
     }
 
     private func makeHibernation(_ services: AppServices, sample: [String: PageMemoryReading] = [:]) -> BrowserHibernation {
-        let hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(),
+        let hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), deadlines: services.mainDeadlines,
                                              lowPower: LowPowerMode(enabled: false))
         hibernation.measureMemory = { sample }
         return hibernation
@@ -211,7 +211,7 @@ struct BrowserHibernationFrozenGrowthTests {
         init() throws {
             _ = NSApplication.shared
             services = AppServices(environment: AppEnvironment.current([:]))
-            hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(),
+            hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), deadlines: services.mainDeadlines,
                                              lowPower: LowPowerMode(enabled: false))
             folder = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cn-frozen-growth-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)

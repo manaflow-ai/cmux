@@ -462,6 +462,8 @@ final class AppServices {
     /// Which machines run browser tabs there, and their runtimes (cx-2cob slice 2).
     private(set) lazy var machineBrowserHosts = MachineBrowserHosts(machines: machines) { [weak self] in self?.remoteLocalhost }
     var chromiumLikelyObservations: [Task<Void, Never>] = []
+    /// Follows the default engine for the pages spare window (`startChromiumWarmup`, feature `pagesSpareWindow`).
+    var pagesSpareWatch: ServiceObservation<Bool>?
     /// Repaints on `appearance.borders` changes (`observeBorders`).
     var borderObservation: Task<Void, Never>?
     /// Repaints when the glass mode pages draw changes (`observeGlass`).
@@ -476,7 +478,7 @@ final class AppServices {
     /// The writer of `mainWork.energy`, the policy every scheduler reads, and the idle wakeup histogram.
     private(set) lazy var energy = EnergyServices(source: mainWork.energy, isEnabled: features.isEnabled(.energySaver))
     /// Follows `energy.saver` into ``energy``'s policy driver (`followEnergySaver`).
-    private var energySaverObservation: Task<Void, Never>?
+    private var energySaverObservation: ServiceObservation<EnergySaverMode?>?
     /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
     var updateFeedObservation: Task<Void, Never>?
     /// Page menus and the open-menu diagnostic shared by browser hosts.
@@ -776,11 +778,11 @@ final class AppServices {
     /// publishes already follows the setting. `AppDelegate` calls it at launch; a second call does nothing.
     func followEnergySaver(_ settings: SettingsController) {
         guard energySaverObservation == nil else { return }
-        // task-owner: app lifetime; event-driven (Observation)
-        energySaverObservation = Task { [weak self] in
-            await settings.waitForLoad(atLeast: 1)
-            for await mode in ObservationStream({ settings.snapshot.energySaver }) { self?.energy.driver.update(setting: mode) }
-        }
+        // Nil until the settings first load; then each new mode, once (an equal one is not applied again).
+        // `visible`: the policy changes frame rates and animation on screen.
+        energySaverObservation = ServiceObservation(.visible, owner: "AppServices.energySaver", on: mainWork) {
+            settings.loadCount >= 1 ? settings.snapshot.energySaver : nil
+        } apply: { [weak self] mode in if let mode { self?.energy.driver.update(setting: mode) } }
     }
     // MARK: Lookup
     /// The tab with durable id (or tab resource id: links and TabMirror's wait use it) `id`

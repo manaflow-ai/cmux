@@ -190,7 +190,7 @@ extension BrowserHibernation {
             return
         }
         let delay = max(next - ContinuousClock.now, .zero) + .milliseconds(50)
-        growthDeadline.schedule(after: delay) { @MainActor [weak self] in self?.readFrozenGrowth() }
+        growthDeadline.schedule(after: delay) { [weak self] in self?.readFrozenGrowth() }
     }
 
     /// The one-shot reading due at `now` (its deadline's): one sample of every page's memory serves
