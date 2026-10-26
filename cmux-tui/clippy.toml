@@ -1,0 +1,17 @@
+# Clippy reads the nearest clippy.toml above a package's manifest, so this file
+# applies to every package under cmux-tui/, nested workspaces included.
+#
+# A thread started outside cmux_threads has no name rule, no QoS, no registry row
+# and no blocking detector (plans/cmux-next/chrome-parity/p02-threads.md, 3C;
+# Chromium base/threading/platform_thread.h). Every package sets
+# clippy::disallowed_methods to allow; a crate opts in with
+# `#![cfg_attr(not(test), deny(clippy::disallowed_methods))]` on each root
+# (lib.rs and main.rs) in the commit that migrates its last site.
+disallowed-methods = [
+    { path = "std::thread::spawn", reason = "use cmux_threads::spawn(name, qos, f)" },
+    { path = "std::thread::Builder::spawn", reason = "use cmux_threads::spawn(name, qos, f)" },
+    { path = "std::thread::Builder::spawn_scoped", reason = "use cmux_threads::spawn or a cmux_threads::work lane" },
+    { path = "std::thread::Builder::spawn_unchecked", reason = "use cmux_threads::spawn(name, qos, f)" },
+    { path = "std::thread::scope", reason = "use cmux_threads::spawn or a cmux_threads::work lane" },
+    { path = "std::thread::sleep", reason = "wait on an event, channel or injected clock; else cmux_threads::checked::sync::sleep" },
+]
