@@ -851,7 +851,7 @@ impl Drop for ClaimGuard {
 
 /// End one pooled session: continue a parked harness, end it through its
 /// host, then by nonce proof if the host still runs.
-async fn end_pooled(p: Pooled) {
+pub(super) async fn end_pooled(p: Pooled) {
     #[cfg(unix)]
     if p.parked {
         signal_harness(&p.record, libc::SIGCONT);

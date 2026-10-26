@@ -421,6 +421,8 @@ public nonisolated struct AgentPaneTunables {
             pageHost.descriptor,
             reasoningSlider.descriptor,
             reasoningSliderStyle.descriptor,
+            updatePeersAutomatically.descriptor,
+            restartUnresponsiveAcpmux.descriptor,
             sessionStatus.descriptor,
             sidebarPreviewVariant.descriptor,
             scrollerFade.descriptor,

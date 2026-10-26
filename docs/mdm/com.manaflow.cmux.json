@@ -78,6 +78,12 @@
       "title" : "Session Info",
       "type" : "string"
     },
+    "agentPane.display.vscodeMinimap" : {
+      "default" : false,
+      "description" : "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll.",
+      "title" : "VS Code Minimap",
+      "type" : "boolean"
+    },
     "agentPane.display.width" : {
       "default" : 800,
       "description" : "The widest the chat's column gets. On a wider pane the chat stays centered.",
@@ -194,7 +200,7 @@
     },
     "agents.defaultPermissionMode" : {
       "default" : "fullAccess",
-      "description" : "What a new chat may do without asking. Picking a mode in a chat sets it too, until you change this setting again.",
+      "description" : "What a new chat may do without asking. A mode you pick in a chat applies to that chat only.",
       "enum" : [
         "fullAccess",
         "standard",
@@ -1251,6 +1257,12 @@
       "title" : "Theme Edits",
       "type" : "object"
     },
+    "appearance.wallpaperTint" : {
+      "default" : true,
+      "description" : "The glass takes the colors of your desktop picture and follows it when the picture or Space changes.",
+      "title" : "Tint with Desktop Wallpaper",
+      "type" : "boolean"
+    },
     "browser.agentMouse.maxMoveMs" : {
       "default" : 350,
       "description" : "The longest time one agent pointer move takes with human motion. Short moves take less.",
@@ -1350,6 +1362,12 @@
       },
       "title" : "Hosts to Open in Embedded Browser",
       "type" : "array"
+    },
+    "browser.import.enabled" : {
+      "default" : true,
+      "description" : "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays.",
+      "title" : "Import from Other Browsers",
+      "type" : "boolean"
     },
     "browser.keepNeighborTabsAwake" : {
       "default" : 1,
@@ -2345,6 +2363,17 @@
         "theme"
       ],
       "title" : "Bubble Style",
+      "type" : "string"
+    },
+    "home.chiefEngine" : {
+      "default" : "auto",
+      "description" : "Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud.",
+      "enum" : [
+        "auto",
+        "local",
+        "hosted"
+      ],
+      "title" : "Engine",
       "type" : "string"
     },
     "home.chiefPetEnabled" : {
@@ -4139,6 +4168,17 @@
       "title" : "Agent Working",
       "type" : "boolean"
     },
+    "ssh.linkAllowedHosts" : {
+      "default" : [
+
+      ],
+      "description" : "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Always Allowed SSH Link Hosts",
+      "type" : "array"
+    },
     "status.inferCommandBusy" : {
       "default" : false,
       "description" : "A shell command that runs a while shows as busy.",
@@ -4575,13 +4615,13 @@
       "type" : "number"
     },
     "updates.downloadAutomatically" : {
-      "default" : true,
-      "description" : "Off: a found update waits, and one click downloads and installs it.",
-      "title" : "Download Updates Automatically",
+      "default" : false,
+      "description" : "Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds.",
+      "title" : "Download and Install Updates Automatically",
       "type" : "boolean"
     },
     "updates.idleInstallMaxWaitSeconds" : {
-      "default" : 900,
+      "default" : 600,
       "description" : "A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart.",
       "maximum" : 7200,
       "minimum" : 60,
@@ -4666,6 +4706,27 @@
         "always"
       ],
       "title" : "Titlebar Buttons",
+      "type" : "string"
+    },
+    "workspaces.autoArchive.idleDays" : {
+      "default" : 3,
+      "description" : "A workspace counts as idle when you have not opened it and nothing in it changed for this many days. Pinned workspaces, running commands and workspaces that need you never archive.",
+      "maximum" : 365,
+      "minimum" : 1,
+      "title" : "Idle For",
+      "type" : "number"
+    },
+    "workspaces.autoArchive.style" : {
+      "default" : "suggest",
+      "description" : "What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them.",
+      "enum" : [
+        "suggest",
+        "quiet",
+        "groups",
+        "manual",
+        "off"
+      ],
+      "title" : "Idle Workspaces",
       "type" : "string"
     },
     "workspaces.autoName" : {
