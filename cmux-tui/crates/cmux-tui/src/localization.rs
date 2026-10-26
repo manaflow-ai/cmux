@@ -11,6 +11,7 @@ mod browser;
 mod cli_connection;
 mod coderouter;
 mod config;
+mod energy;
 mod foreign_viewport;
 mod graphics;
 mod layout;
@@ -43,6 +44,7 @@ pub(crate) use browser::BrowserMessages;
 pub(crate) use cli_connection::CliConnectionMessages;
 pub(crate) use coderouter::CodeRouterMessages;
 pub(crate) use config::ConfigMessages;
+pub(crate) use energy::EnergyMessages;
 pub(crate) use foreign_viewport::ForeignViewportMessages;
 pub(crate) use graphics::GraphicsMessages;
 pub(crate) use layout::LayoutMessages;
@@ -154,6 +156,7 @@ pub(crate) struct Catalog {
     pub app_control: AppControlMessages,
     pub coderouter: CodeRouterMessages,
     pub billing: BillingMessages,
+    pub energy: EnergyMessages,
     pub trace: TraceMessages,
     pub update_notice: UpdateNoticeMessages,
 }
@@ -169,6 +172,7 @@ static ENGLISH: Catalog = Catalog {
     japanese: false,
     coderouter: coderouter::ENGLISH,
     billing: billing::ENGLISH,
+    energy: energy::ENGLISH,
     trace: trace::ENGLISH,
     update_notice: update_notice::ENGLISH,
     app_control: app_control::ENGLISH,
@@ -202,6 +206,7 @@ static JAPANESE: Catalog = Catalog {
     japanese: true,
     coderouter: coderouter::JAPANESE,
     billing: billing::JAPANESE,
+    energy: energy::JAPANESE,
     trace: trace::JAPANESE,
     update_notice: update_notice::JAPANESE,
     app_control: app_control::JAPANESE,
