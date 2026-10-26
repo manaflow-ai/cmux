@@ -36,6 +36,7 @@ final class HostPressureIndicatorView: NSView {
     private let makeService: @MainActor () -> HostPressureService
     private let notifications: NotificationCenter
     private let toasts: CmuxToastCenter
+    /// Called when the indicator shows, hides or changes width: the owner places it again.
     private let onVisibilityChange: () -> Void
     private var subscription: HostPressureSubscription?
     private var service: HostPressureService? { subscription?.service }
@@ -203,12 +204,8 @@ final class HostPressureIndicatorView: NSView {
         } else {
             popover.content.update(level: level, verdict: verdict, canStop: service?.isForced == false)
         }
-        if wasHidden != isHidden || oldWidth != width {
-            // The root lays the top row out: without this its layoutSubtreeIfNeeded keeps the old frame
-            // (zero the first time) until something else relayouts the window.
-            superview?.needsLayout = true
-            onVisibilityChange()
-        }
+        // The owner (the window's root) lays the top row out again; the indicator never invalidates it.
+        if wasHidden != isHidden || oldWidth != width { onVisibilityChange() }
     }
 
     /// "9.6 / 12": the 1-minute load against the budget's limit.

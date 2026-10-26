@@ -69,6 +69,8 @@ final class RightSidebarResizeHandle: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyLineTheme()
+        guard window != nil else { return }
+        needsLayout = true // invalidate: another window's scale sets the line's width.
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -83,8 +85,8 @@ final class RightSidebarResizeHandle: NSView {
     }
 
     private func applyLineTheme() {
+        // No layout: `layout()` places the line from the edge and scale, never from a color.
         performWithTheme { line.backgroundColor = Palette.separator.cgColor }
-        needsLayout = true
     }
 
     private func updateLine() {

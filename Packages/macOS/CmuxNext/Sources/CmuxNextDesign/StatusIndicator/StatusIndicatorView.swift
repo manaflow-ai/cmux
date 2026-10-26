@@ -75,11 +75,10 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
     /// reserve layout space only then).
     public var showsGlyph: Bool { indicator.plan.glyph != .none }
 
+    /// The broadcast comes on a changed config only; ``refresh()`` repaints when this indicator's own
+    /// config changed (a scale it ignores did not) and tells the host when the mark shows or hides.
     public func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig) {
         refresh()
-        needsDisplay = true
-        // The static look can show or hide the mark; the host lays out again.
-        superview?.needsLayout = true
     }
 
     /// Checks the indicator again (the app came back, a window became main, the Mac woke). Only
@@ -117,18 +116,22 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
                                  working: config.workingLook)
     }
 
+    /// Applies the state and the config. A resync, or a config that leaves the plan as it was, asks
+    /// for no layout and no paint (the layer starts or stops its loop itself).
     private func refresh() {
         let config = currentConfig
         let showed = showsGlyph
+        let drawnPlan = indicator.plan, drawnConfig = indicator.config
         nameState()
         // Shown or hidden before the plan applies, so AppKit's unhide reaches ``visibilityNode`` and the
         // loop starts in this pass (whether a glyph shows does not depend on the loop).
         isHidden = plan(config, animates: false).glyph == .none
         applyPlan(config)
-        // The host reserves trailing space only for a visible glyph.
+        // The host reserves trailing space only for a visible glyph: it lays out when that flips.
         if showed != showsGlyph { superview?.needsLayout = true }
-        needsLayout = true
-        needsDisplay = true
+        guard indicator.plan != drawnPlan || indicator.config != drawnConfig else { return }
+        // invalidate: another plan or config (the guard above): the mark's geometry and colors.
+        needsLayout = true; needsDisplay = true
     }
 
     /// Applies the plan with its loop only while ``visibilityNode`` is visible: a hidden indicator
@@ -146,7 +149,7 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
 
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        needsLayout = true
+        needsLayout = true // invalidate: the scale changed; `layout()` sets the layer's contentsScale.
     }
 
     public override func updateLayer() {
@@ -162,6 +165,9 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         visibilityNode.cancelDeferred(key: Self.resyncKey)
         placeInTree()
         refresh()
+        guard window != nil else { return }
+        // invalidate: another window can bring another scale (`layout()`) and theme scope (`updateLayer()`).
+        needsLayout = true; needsDisplay = true
     }
 
     /// Puts ``visibilityNode`` under the window's node, or under the hidden root while the view is in

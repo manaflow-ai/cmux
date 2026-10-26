@@ -15,7 +15,8 @@ extension WindowController {
         }
         // The host pressure indicator joins the top row after the band and badge (cmuxterm-hq#2995).
         root.hostPressureIndicator = HostPressureIndicatorView(services: services) { [weak self] in
-            // Shown or hidden: the top row places it (layoutTitlebarAccessories), then strips avoid it.
+            // The top row places it (layoutTitlebarAccessories), then strips avoid it.
+            // invalidate: the indicator showed, hid or changed width (it calls this on a change only).
             self?.root.needsLayout = true
             self?.root.layoutSubtreeIfNeeded()
             self?.relayoutTopRowStrips()
@@ -73,8 +74,8 @@ extension WindowController {
     func showIncognitoBadge() {
         sidebar.container.sidebarView.titlebarAccessory = IncognitoBadgeView()
         root.titlebarBadge = IncognitoBadgeView()
+        // The root lays out for the new badge and for a change of its shown state (both setters).
         root.showsTitlebarBadge = sidebar.model.isHidden
-        root.needsLayout = true
     }
 
     /// Pages in this window read the sidebar state (`data-app-sidebar`).

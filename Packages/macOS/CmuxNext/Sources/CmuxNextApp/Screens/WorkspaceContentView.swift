@@ -19,7 +19,7 @@ final class WorkspaceContentView: NSView {
         didSet {
             guard oldValue != showsBar else { return }
             bar.isHidden = !showsBar
-            needsLayout = true
+            needsLayout = true // invalidate: the bar shows or hides (the guard above).
         }
     }
     private var tokenObservation: Task<Void, Never>?
@@ -51,6 +51,7 @@ final class WorkspaceContentView: NSView {
         bar.isHidden = true
         addSubview(bar)
         tokenObservation = Task { [weak self] in
+            // invalidate: a new strip height (the stream emits a changed value only) moves the bar and the layout.
             for await _ in ObservationStream({ Metrics.tabStripHeight }) { self?.needsLayout = true }
         }
     }
