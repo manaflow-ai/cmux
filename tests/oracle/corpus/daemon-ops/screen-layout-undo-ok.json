@@ -49,6 +49,26 @@
       }
     },
     {
+      "id": "zoom",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "pane": "$step:fx-workspace#/value/pane_id"
+      },
+      "args": {
+        "method": "pane.zoom",
+        "params": {
+          "enabled": true
+        },
+        "idempotencyKey": "screen-layout-undo-ok.zoom"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -69,7 +89,17 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "undo takes back the screen's last layout change, a zoom"
+    },
+    {
+      "id": "unzoomed",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/panes/0/zoomed",
+        "equals": false,
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
     }
   ],
   "invariants": [

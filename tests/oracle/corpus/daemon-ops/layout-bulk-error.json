@@ -49,6 +49,38 @@
       }
     },
     {
+      "id": "fx-split",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id",
+        "screen": "$step:fx-workspace#/value/screen_id",
+        "pane": "$step:fx-workspace#/value/pane_id"
+      },
+      "args": {
+        "method": "pane.split",
+        "params": {
+          "direction": "right"
+        },
+        "idempotencyKey": "layout-bulk-error.fx-split"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "split-in-place",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/second/pane_id",
+        "equals": "$step:fx-split#/value/pane_id",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -56,27 +88,52 @@
         "session": "current",
         "workspace": "$step:fx-workspace#/value/workspace_id",
         "screen": "$step:fx-workspace#/value/screen_id",
-        "pane": "$step:fx-workspace#/value/pane_id",
-        "tab": "$step:fx-workspace#/value/tab_id"
+        "pane": "$step:fx-workspace#/value/pane_id"
       },
       "args": {
         "method": "layout.bulk",
         "params": {
-          "verb": "oracle-not-in-enum",
-          "level": "tab",
-          "selector": "this"
+          "verb": "close",
+          "level": "pane",
+          "selector": "selection"
         },
         "idempotencyKey": "layout-bulk-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "validation.invalid",
+        "errorDetails": {
+          "reason": "selection needs ids"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "verb breaks its catalog type (value is outside the allowed enum); the daemon's catalog check refuses it"
+      "note": "selector selection with no ids: layout.bulk refuses it (validation.invalid), nothing closed"
+    },
+    {
+      "id": "split-kept",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/second/pane_id",
+        "equals": "$step:fx-split#/value/pane_id",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "two-panes",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/panes",
+        "predicate": {
+          "op": "lengthEquals",
+          "value": 2
+        },
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
     }
   ],
   "invariants": [
