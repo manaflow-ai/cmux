@@ -2013,3 +2013,43 @@ async fn a_retained_full_access_host_ends_once_mdm_turns_full_access_off() {
     let r = rpc.reply("session/prompt", prompt).await;
     assert_eq!(r["error"]["data"]["reason"], "full_access_off", "{r}");
 }
+
+/// #23322 review: the same, for a host whose record this build cannot read (another record
+/// version): it is not adopted, and under the managed off it ends too (its nonce proves it).
+#[tokio::test]
+async fn an_unadoptable_full_access_host_ends_once_mdm_turns_full_access_off() {
+    let mut daemon = Daemon::new("mdmoffbad", "ask");
+    daemon.sigterm();
+    std::fs::write(
+        daemon.home.join("config.json"),
+        json!({"harnesses": {"fake": {"argv": ["python3", FAKE, "--yolo"]}}, "defaultHarness": "fake", "permissionPolicy": "ask"}).to_string(),
+    )
+    .unwrap();
+    daemon.start();
+    let session = new_session(&daemon).await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    let mut rpc = daemon.rpc().await;
+    rpc.call("session/prompt", prompt.clone()).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+
+    daemon.sigterm();
+    drop(rpc);
+    assert!(alive(harness_pid), "SIGTERM ended the agent");
+    let record = daemon.home.join("hosts").join(format!("{session}.json"));
+    let mut host: Value = serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
+    host["record_version"] = json!(99);
+    std::fs::write(&record, host.to_string()).unwrap();
+    let state = daemon.home.join("start-mode.json");
+    let mut recorded: Value = std::fs::read(&state)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_else(|| json!({}));
+    recorded["fullAccessManaged"] = json!(false);
+    std::fs::write(&state, recorded.to_string()).unwrap();
+    daemon.start();
+
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the unadoptable full-access agent ran on under the managed off"
+    );
+}

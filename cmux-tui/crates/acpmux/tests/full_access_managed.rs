@@ -57,6 +57,10 @@ fn home(name: &str) -> PathBuf {
             "pinned-config": {"argv": ["python3", FAKE_AGENT, "-csandbox_mode=danger-full-access"]},
             "pinned-y": {"argv": ["python3", FAKE_AGENT, "-y"]},
             "pinned-asks": {"argv": ["python3", FAKE_AGENT, "--permission-mode", "default"]},
+            // Harnesses that move themselves into full access: one that declares no modes (and
+            // reports one anyway), one through a config option other than its mode.
+            "self-moder": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1"}},
+            "self-optioner": {"argv": ["python3", FAKE_AGENT]},
         },
         "defaultHarness": "codex",
         "permissionPolicy": "ask",
@@ -269,6 +273,7 @@ async fn a_full_access_off_mdm_forces_is_an_upper_bound_and_unset_changes_nothin
     app.push(json!({"allowFullAccess": false, "allowFullAccessManaged": true})).await;
     app.full_access_managed_off(&dir, "MDM off").await;
     app.pinned_profiles(&dir, true, "MDM off").await;
+    agents_that_move_into_full_access_by_themselves_end(&mut app, &dir).await;
     // A forced value that is not `true` is off too.
     app.push(json!({"allowFullAccess": "true", "allowFullAccessManaged": true})).await;
     app.full_access_managed_off(&dir, "MDM \"true\"").await;
@@ -296,6 +301,32 @@ async fn a_full_access_off_mdm_forces_is_an_upper_bound_and_unset_changes_nothin
     let r = app.switch(&chat, "agent-full-access").await;
     assert_eq!(r["error"]["data"]["reason"], "full_access_off", "{r}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review of #23322: under MDM off, an agent that moves itself into full access in a form acpmux
+/// sets no mode for (a mode its harness reports without declaring modes, a config option other
+/// than `mode`) ends; its chat's next turn runs on a new agent.
+async fn agents_that_move_into_full_access_by_themselves_end(app: &mut Client, dir: &Path) {
+    for (harness, turn) in [
+        ("self-moder", "set-mode: bypassPermissions"),
+        ("self-optioner", "set-option: sandbox danger-full-access"),
+    ] {
+        let chat = app.ran_on(dir, harness).await;
+        let r = app.prompt(&chat, turn).await;
+        assert!(r.get("error").is_none(), "{harness}: {r}");
+        let mut ended = false;
+        for _ in 0..500 {
+            let r = app.call("_acpmux/events", json!({"sessionId": chat, "limit": 500})).await;
+            if r.to_string().contains("full_access_ended") {
+                ended = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(ended, "{harness}: the agent ran on after it moved into full access by itself");
+        let r = app.prompt(&chat, "argv").await;
+        assert!(r.get("error").is_none(), "{harness}: the next turn: {r}");
+    }
 }
 
 /// Review of #23322: an agent already running in full access when MDM forces it off takes no more
