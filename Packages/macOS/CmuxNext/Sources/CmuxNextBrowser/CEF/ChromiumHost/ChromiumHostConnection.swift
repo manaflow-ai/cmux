@@ -62,6 +62,8 @@ nonisolated final class ChromiumHostConnection: Sendable {
         // The thread holds the state, never the connection: see the type's doc.
         let thread = Thread { state.readFrames(fd: readFD, into: continuation) }
         thread.name = "com.cmuxterm.chromium-host.read"
+        // The page's surface, address and title arrive here: what the person sees next.
+        thread.qualityOfService = .userInitiated
         thread.start()
     }
 
