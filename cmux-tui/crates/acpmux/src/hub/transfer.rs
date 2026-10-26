@@ -92,7 +92,9 @@ impl Hub {
         bundle: &Path,
         name: Option<String>,
     ) -> Result<Arc<Session>, RpcError> {
-        self.import_into(bundle, name, false, None, false).await
+        let session = self.import_into(bundle, name, false, None, false, false).await?;
+        self.finalize_harness_state(&session.meta());
+        Ok(session)
     }
 
     /// `import`; a `live` one (a chat moved here, `transfer_in.rs`) has its queue back before
@@ -105,6 +107,7 @@ impl Hub {
         live: bool,
         guarded: Option<super::transfer_guard::GuardedImport<'_>>,
         replace_durable: bool,
+        defer_finalize: bool,
     ) -> Result<Arc<Session>, RpcError> {
         let meta_text = std::fs::read_to_string(bundle.join("session.json"))
             .map_err(|e| RpcError::invalid_params(format!("read session.json: {e}")))?;
@@ -216,6 +219,9 @@ impl Hub {
             json!({"from": bundle, "nativeRestored": restored}),
         );
         self.save_meta(&session);
+        if !defer_finalize {
+            self.finalize_harness_state(&session.meta());
+        }
         Ok(session)
     }
 
@@ -471,8 +477,12 @@ impl Hub {
         let journal = journal_dir.join("journal.ndjson");
         let journal_tmp = journal_dir.join("journal.ndjson.importing");
         let journal_backup = journal_dir.join("journal.ndjson.transfer-backup");
-        let session_tmp = root.join(format!("{pi_filename}.importing"));
-        let session_backup = root.join(format!("{pi_filename}.transfer-backup"));
+        let target_filename = pi_target
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| anyhow::anyhow!("Pi session target filename is invalid"))?;
+        let session_tmp = root.join(format!("{target_filename}.importing"));
+        let session_backup = root.join(format!("{target_filename}.transfer-backup"));
         for path in [&journal_tmp, &session_tmp, &journal_backup, &session_backup] {
             if std::fs::symlink_metadata(path).is_ok() {
                 return Err(anyhow::anyhow!("durable transfer temporary path is occupied"));
@@ -486,7 +496,9 @@ impl Hub {
             &durable_state,
             serde_json::to_vec(&json!({
                 "agentId": agent_id,
-                "piFilename": pi_target.file_name().and_then(|n| n.to_str()).unwrap_or(""),
+                "outerId": meta.id,
+                "replaceDurable": replace_durable,
+                "piFilename": target_filename,
                 "journalDirWasPresent": journal_dir_was_present,
                 "hadJournal": std::fs::symlink_metadata(&journal).is_ok(),
                 "hadPi": std::fs::symlink_metadata(&pi_target).is_ok(),

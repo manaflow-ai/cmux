@@ -113,7 +113,6 @@ impl Hub {
                 }
                 let _ = std::fs::rename(entry.path(), target);
             }
-            let _ = std::fs::remove_file(state);
         }
         let Ok(entries) = std::fs::read_dir(root) else { return };
         for entry in entries.flatten() {
@@ -130,12 +129,15 @@ impl Hub {
             let Ok(marker) = std::fs::read(entry.path()) else { continue };
             let Ok(value) = serde_json::from_slice::<Value>(&marker) else { continue };
             let filename = value.get("piFilename").and_then(Value::as_str).unwrap_or("");
+            let outer_id = value.get("outerId").and_then(Value::as_str).unwrap_or("");
+            let replace_durable =
+                value.get("replaceDurable").and_then(Value::as_bool).unwrap_or(false);
             let had_journal = value.get("hadJournal").and_then(Value::as_bool).unwrap_or(false);
             let had_pi = value.get("hadPi").and_then(Value::as_bool).unwrap_or(false);
             let dir_was_present =
                 value.get("journalDirWasPresent").and_then(Value::as_bool).unwrap_or(false);
             let outer_committed =
-                std::fs::read(root.join(format!(".{agent_id}.replacement-state.json")))
+                std::fs::read(root.join(format!(".{outer_id}.replacement-state.json")))
                     .ok()
                     .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
                     .and_then(|v| {
@@ -168,7 +170,26 @@ impl Hub {
             if !dir_was_present {
                 let _ = std::fs::remove_dir(root.join(agent_id));
             }
+            if !replace_durable && !outer_committed && super::transfer::is_plain_id(outer_id) {
+                let _ = std::fs::remove_dir_all(root.join(outer_id));
+            }
             let _ = std::fs::remove_file(entry.path());
+        }
+        if let Ok(entries) = std::fs::read_dir(root) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if !name.starts_with(".") || !name.ends_with(".replacement-state.json") {
+                    continue;
+                }
+                if std::fs::read(entry.path())
+                    .ok()
+                    .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
+                    .and_then(|v| v.get("phase").and_then(Value::as_str).map(|_| true))
+                    == Some(true)
+                {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
         }
     }
 
@@ -405,17 +426,22 @@ impl Hub {
         let guarded = guard
             .as_ref()
             .map(|guard| super::transfer_guard::GuardedImport { guard, replace_native });
-        let session = match self.import_into(&bundle, name, true, guarded, replacing_durable).await
+        let session = match self
+            .import_into(&bundle, name, true, guarded, replacing_durable, true)
+            .await
         {
             Ok(session) => {
                 if let Some((_, backup)) = source_store_backup.as_ref() {
                     let state = backup.with_extension("replacement-state.json");
-                    let _ = std::fs::write(
-                        &state,
-                        serde_json::to_vec(&json!({"id": id, "phase": "committed"}))
-                            .unwrap_or_default(),
-                    );
-                    let _ = std::fs::File::open(&state).and_then(|f| f.sync_all());
+                    let bytes = serde_json::to_vec(&json!({"id": id, "phase": "committed"}))
+                        .map_err(|e| {
+                            transfer_error("store", format!("encode commit state: {e}"))
+                        })?;
+                    std::fs::write(&state, bytes)
+                        .map_err(|e| transfer_error("store", format!("write commit state: {e}")))?;
+                    std::fs::File::open(&state)
+                        .and_then(|f| f.sync_all())
+                        .map_err(|e| transfer_error("store", format!("sync commit state: {e}")))?;
                 }
                 self.finalize_harness_state(&session.meta());
                 if let Some((_, backup)) = source_store_backup.as_ref() {
