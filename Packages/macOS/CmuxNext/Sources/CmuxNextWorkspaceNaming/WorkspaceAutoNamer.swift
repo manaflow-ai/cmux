@@ -193,24 +193,28 @@ public final class WorkspaceAutoNamer {
             nextAttemptID &+= 1
             submitted[submission] = attempt
             let maySend: @MainActor @Sendable () -> Bool = { [weak self] in
-                guard let self else { return false }
+                guard let self, submitted[submission] == attempt else { return false }
                 guard currentTarget(for: candidate) != nil else {
-                    if submitted.removeValue(forKey: submission) != nil { retryRevision &+= 1 }
+                    if submitted[submission] == attempt {
+                        submitted.removeValue(forKey: submission)
+                        retryRevision &+= 1
+                    }
                     return false
                 }
                 return true
             }
             let queued = rename(target, candidate.name, maySend) { [weak self] in
-                self?.acceptedSendFailed(submission)
+                self?.acceptedSendFailed(submission, attempt: attempt)
             }
-            if !queued { submitted.removeValue(forKey: submission) }
+            if !queued, submitted[submission] == attempt { submitted.removeValue(forKey: submission) }
         }
     }
 
     /// An accepted daemon task can fail after `maySend` succeeds. Release only
-    /// that exact candidate; no observation wakeup means failures stay idle until
-    /// a real title/focus/ownership change produces a new candidate.
-    private func acceptedSendFailed(_ submission: Submission) {
+    /// that exact live attempt; no observation wakeup means failures stay idle
+    /// until a real title/focus/ownership change produces a new candidate.
+    private func acceptedSendFailed(_ submission: Submission, attempt: AttemptToken) {
+        guard submitted[submission] == attempt else { return }
         submitted.removeValue(forKey: submission)
     }
 }
