@@ -149,6 +149,7 @@ def test_each_app_reads_the_feed_its_publisher_writes():
     upload = upload[:upload.index("\n      - name:", 10)]
     assert 'for appcast in $NIGHTLY_FEEDS; do' in upload and 'key="${NIGHTLY_NEXT_R2_PREFIX}${appcast}"' in upload
     assert upload.count("--key ") == 1 and '--key "$key"' in upload and len(re.findall(r"\bkey=", upload)) == 1
+    assert upload.count("--bucket ") == 1 and '--bucket "$NIGHTLY_NEXT_R2_BUCKET"' in upload
     # ...and NIGHTLY_FEEDS in that job is decide's feed list, the one checked above.
     publisher = job_containing("- name: Upload nightly-next appcasts to R2")
     assert job_env(publisher, "NIGHTLY_FEEDS") == "${{ needs.decide.outputs.feeds }}"
@@ -172,7 +173,8 @@ def test_each_app_reads_the_feed_its_publisher_writes():
     assert f'prefix="${{NIGHTLY_NEXT_LEGACY_FEED_BASE#{host}}}"' in publish
     assert 'upload "legacy-out/$LEGACY_APPCAST" "$prefix/$LEGACY_APPCAST"' in publish
     # upload() puts its file at its second argument, the key checked above.
-    assert publish.count("--key ") == 1 and '--bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$2"' in publish
+    assert publish.count("--key ") == 1 and publish.count("--bucket ") == 1
+    assert '--bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$2"' in publish
     assert len(re.findall(r"\bprefix=", publish)) == 1
     for block in (sign, publish):
         assert not re.search(r"\bLEGACY_APPCAST=|\bLEGACY_FEED_URL\s*=\s*[^\"$]", block)
