@@ -61,7 +61,7 @@ case "$file" in
   *flood*)
     # One very long line models a browser diagnostic burst; the assertion at the end must still
     # survive the runner's bounded public display and the retry's raw artifact copy.
-    printf '%*s' 350000 '' | tr ' ' F
+    printf '%*s' 2000000 '' | tr ' ' F
     printf '\n(fail) inspector-dead-clicks sentinel\n'
     exit 1 ;;
   *fail-slow*) sleep 1; echo "(fail) a slow broken test"; exit 1 ;;
@@ -234,7 +234,7 @@ class PerFileRunner(unittest.TestCase):
         logs = list((raw_logs / "raw").glob("*.log"))
         self.assertEqual(len(logs), 1, logs)
         raw = logs[0].read_bytes()
-        self.assertGreater(len(raw), 700_000, len(raw))
+        self.assertGreater(len(raw), 4_000_000, len(raw))
         self.assertIn(b"(fail) inspector-dead-clicks sentinel", raw)
 
     def test_a_passing_annotation_flood_is_bounded(self):

@@ -18,8 +18,51 @@ from pathlib import Path
 import re
 import sys
 
-FAIL = re.compile(r"^\(fail\) (.+?)(?: \[[0-9.]+m?s\])?$")
+FAIL_BYTES = re.compile(rb"^\(fail\) (.+?)(?: \[[0-9.]+m?s\])?$")
 RETRY = "--- retry, alone ---"  # run-webviews-tests.sh's line between a twice-red file's two logs
+RETRY_BYTES = RETRY.encode()
+LOG_CHUNK_BYTES = 64 * 1024
+MAX_LINE_BYTES = 1 * 1024 * 1024
+
+
+def _named_failures(log: Path) -> set[str]:
+    """Read a failure log in bounded chunks, including logs with no newline for hundreds of MB."""
+    named: set[str] = set()
+    line = bytearray()
+    oversized = False
+
+    def append(fragment: bytes) -> None:
+        nonlocal oversized
+        if oversized:
+            return
+        if len(line) + len(fragment) > MAX_LINE_BYTES:
+            line.clear()
+            oversized = True
+            return
+        line.extend(fragment)
+
+    def finish() -> None:
+        nonlocal oversized
+        if not oversized:
+            raw = bytes(line).rstrip(b"\r")
+            if raw == RETRY_BYTES:
+                named.clear()
+            else:
+                match = FAIL_BYTES.fullmatch(raw)
+                if match:
+                    named.add(match.group(1).decode("utf-8", errors="replace"))
+        line.clear()
+        oversized = False
+
+    with log.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(LOG_CHUNK_BYTES), b""):
+            parts = chunk.split(b"\n")
+            append(parts[0])
+            for part in parts[1:]:
+                finish()
+                append(part)
+    finish()
+    return named
 
 
 def collect(summary: Path) -> dict[str, bool]:
@@ -33,18 +76,7 @@ def collect(summary: Path) -> dict[str, bool]:
             results[file] = True
             continue
         try:
-            named: set[str] = set()
-            with Path(log).open(encoding="utf-8", errors="replace") as stream:
-                for raw in stream:
-                    line = raw.rstrip("\r\n")
-                    if line == RETRY:
-                        # The retry is the verdict used for a file that failed twice. Discard the
-                        # first run as before, without materializing a hundreds-of-megabytes log.
-                        named.clear()
-                        continue
-                    match = FAIL.fullmatch(line)
-                    if match:
-                        named.add(match.group(1))
+            named = _named_failures(Path(log))
         except OSError:
             named = set()
         if result != "FAIL" or not named:
