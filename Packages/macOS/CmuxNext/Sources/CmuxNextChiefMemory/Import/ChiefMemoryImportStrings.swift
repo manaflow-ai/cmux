@@ -2,6 +2,9 @@ public import Foundation
 
 /// The "Import Memories" texts (Resources/Localizable.xcstrings). Product names are brand names and stay as
 /// they are in every language.
+// lint:allow namespace-type -- a string table: constants read from the xcstrings catalog, with
+// nothing to inject and no receiver to extend. Its peers are in the shrink-only
+// scripts/lint-namespace-types-ratchet.txt, which never gains an entry, so a new one needs this.
 public nonisolated enum ChiefMemoryImportStrings {
     public static var productClaudeCode: String { "Claude Code" }
     public static var productCodex: String { "Codex" }
