@@ -44,6 +44,10 @@ public final class UpdaterService {
     }
     /// The R114 install gate over ``indicatorPhase``.
     public internal(set) var flow = UpdateFlow()
+    /// How many times the gate's phase moved (``syncFlowPhase()``): a caller that follows one
+    /// request (the CLI's install) tells a phase its request reached from one already shown,
+    /// even when observation coalesces the moves in between.
+    public internal(set) var flowMoves = 0
     /// UPDATE-CARD-CLOSE: the update version whose card the person closed and the end of a
     /// "Remind Me Later" (``UpdateSnooze``, kept in `defaults`).
     public internal(set) var updateSnooze = UpdateSnooze()

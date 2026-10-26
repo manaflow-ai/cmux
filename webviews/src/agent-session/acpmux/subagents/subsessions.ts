@@ -140,6 +140,7 @@ export class SubsessionStore {
   /// Where each listed chat works, by id: its folder and the other machine it runs on, for the
   /// files its messages name (IncomingMessageCard.tsx), read with the same listeners.
   private places = new Map<string, SenderPlace>();
+  private ids = new Set<string>();
   private namedKey = "";
   private readonly nameListeners = new Set<() => void>();
 
@@ -177,9 +178,15 @@ export class SubsessionStore {
       const cwd = entry.cwd?.trim();
       if (cwd || host) places.set(entry.sessionId, { ...(cwd && { cwd }), ...(host && { host }) });
     }
-    const namedKey = JSON.stringify([[...named], [...harnesses], [...places]]);
+    const namedKey = JSON.stringify([
+      [...named],
+      [...harnesses],
+      [...places],
+      sessions.map((entry) => entry.sessionId),
+    ]);
     const renamed = namedKey !== this.namedKey;
     this.named = named;
+    this.ids = new Set(sessions.map((entry) => entry.sessionId));
     this.harnesses = harnesses;
     this.hosts = hosts;
     if (renamed) this.places = places;
@@ -218,6 +225,11 @@ export class SubsessionStore {
   /// The listed chat named `name`, if one is.
   find(name: string): string | undefined {
     return this.named.get(name.trim());
+  }
+
+  /// Whether the list has chat `sessionId` (any listed chat, not only a sub-session).
+  has(sessionId: string): boolean {
+    return this.ids.has(sessionId);
   }
 
   harness(sessionId: string): string | undefined {

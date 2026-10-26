@@ -566,9 +566,9 @@ async fn dispatch_request(
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT,
                     method::MUX_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE,
                     method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
-                    method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_SHUTDOWN,
+                    method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::attach::FEATURE], "trustGate": true}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
@@ -721,6 +721,10 @@ async fn dispatch_request(
                     // The peer would tie it to this daemon's long-lived connection, never to the
                     // client's: the client's own kill purges it (`ephemeral.rs`).
                     m.remove("ephemeral");
+                    // Retry hints use the original params here; the peer does not need the
+                    // CLI argv or a second copy of the prompt file to create the session.
+                    m.remove("argv");
+                    m.remove("promptFileText");
                 }
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
                 let mut result = super::remote_guard::hint::new_on(&peer, &params, p).await?;
@@ -790,6 +794,11 @@ async fn dispatch_request(
                 disallowed_tools,
             };
             let s = hub.new_session(req).await?;
+            if let Some(tags) = meta.and_then(|m| m.get("tags")).and_then(Value::as_object)
+                && !tags.is_empty()
+            {
+                hub.set_tags(&s, Some(tags), &[], None);
+            }
             if conn.origin.web_class() {
                 super::remote_guard::settle_web_session_mode(hub, &s).await?;
                 // A dedicated agent VM (vmHost): a session its owner's peer
@@ -931,18 +940,37 @@ async fn dispatch_request(
                 .and_then(Value::as_str)
                 .filter(|p| !p.is_empty())
                 .map(str::to_owned);
+            let on_accepted = Some(composer::on_accepted(hub, conn, &s, &params)?);
+            let supersede = crate::hub::supersede_key(&params)?;
+            // Files sent with the message (`acpmux send --attach`), after every check that can
+            // refuse it: saved in the session's uploads, and what the agent gets put in their
+            // place (`attach.rs`).
+            let mut saved = None;
+            if crate::attach::any(&blocks) {
+                crate::attach::check_wire(&params)?;
+                let id = s.id.clone();
+                let received = tokio::task::spawn_blocking(move || {
+                    crate::attach::receive(&id, web, &mut blocks).map(|saved| (blocks, saved))
+                });
+                (blocks, saved) =
+                    received.await.map_err(|e| RpcError::internal(e.to_string()))??;
+            }
             let opts = crate::hub::PromptOptions {
                 prompt_id,
-                on_accepted: Some(composer::on_accepted(hub, conn, &s, &params)?),
+                on_accepted: match &saved {
+                    Some(saved) => saved.watch(on_accepted),
+                    None => on_accepted,
+                },
                 resend: flag("resend") == Some(true),
                 control: super::remote_guard::control_of(conn.origin, conn.auth, &params),
                 trust_gate: super::trust_gate::gated(conn.origin, &params),
                 steer_only: flag("steerOnly") == Some(true),
                 interrupt: steer && flag("interrupt") == Some(true),
+                interrupt_turn: None,
                 provenance,
                 agent,
                 after_turn: None,
-                supersede: crate::hub::supersede_key(&params)?,
+                supersede,
                 display_parts: {
                     let parts = crate::hub::prompt_images::validated_display_parts(
                         mux_meta(&params).and_then(|meta| meta.get("inlineParts")),
@@ -975,7 +1003,11 @@ async fn dispatch_request(
                 Some(host) => format!("{}@{host}", conn.label()),
                 None => conn.label(),
             };
-            hub.prompt_with(&s, blocks, &client, steer, opts).await
+            let answer = hub.prompt_with(&s, blocks, &client, steer, opts).await;
+            if let Some(saved) = saved {
+                saved.settle(hub, &answer).await;
+            }
+            answer
         }
         // ACP defines cancel as a notification; a client that sends it as a
         // request gets an empty result instead of a request forwarded to
@@ -1014,8 +1046,8 @@ async fn dispatch_request(
                 let set = crate::hub::SetRequest::Mode(mode.to_owned());
                 return hub.set_for_full_access_device(&s, &device, set).await;
             }
-            // The app pane's mode pick is saved for the next new chat (start_mode.rs).
-            hub.client_set_mode(&s, mode, conn.origin == Origin::LocalApp).await
+            // A mode pick holds for this chat only; new chats start in the default (start_mode.rs).
+            hub.set_mode(&s, mode).await
         }
         method::SESSION_SET_CONFIG_OPTION => {
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
@@ -1040,6 +1072,9 @@ async fn dispatch_request(
             hub.client_set_model(&s, model, conn.origin == Origin::LocalApp).await
         }
         method::MUX_SET_TOOLS => hub.set_tools(&hub.resolve(session_key(&params)?)?, &params).await,
+        method::MUX_MCP_RECONNECT => {
+            hub.reconnect_mcp(&hub.resolve(session_key(&params)?)?, &params).await
+        }
         method::SESSION_CLOSE => {
             let s = hub.resolve(session_key(&params)?)?;
             hub.kill(&s, false).await?;
