@@ -161,7 +161,14 @@ MARKS = [
     ("terminal.launch_frames_read", "saved terminal frames read and decoded"),
     ("terminal.launch_frame_missed", "a terminal asked before its read ended"),
     ("terminal.launch_frame_shown", "a terminal's saved frame shown"),
+    # p08-startup-012: StartupScheduler's refs are all released (or its 10 s failsafe fired); --startup-complete
+    # waits for it after the first content.
+    ("startup_complete", "startup complete (StartupScheduler)"),
 ]
+STARTUP_COMPLETE = "startup_complete"
+# The completion's reason, an instant time mark `startup_complete.<reason>` sent with it (LaunchOrder).
+COMPLETION_INSTANT = STARTUP_COMPLETE + "."
+FAILSAFE = "failsafe"
 REALISTIC_WORKSPACES = 24
 # Launch work that must start only after the first window frame (perf-launch-memory): checked
 # with --order, and always in budget mode (any --budget, as the CI launch gate runs).
@@ -237,6 +244,25 @@ def run_temperature(marks):
         return temperature_name(marks[TEMPERATURE])
     names = sorted(name[len(TEMPERATURE_INSTANT):] for name in marks if name.startswith(TEMPERATURE_INSTANT))
     return names[0].lower() if names else None
+
+
+def completion_reason(marks):
+    """The run's startup completion reason (`startup_complete.<reason>`), or None when it never completed."""
+    names = sorted(name[len(COMPLETION_INSTANT):] for name in marks if name.startswith(COMPLETION_INSTANT))
+    return names[0] if names else None
+
+
+def completion_summary(runs):
+    """The completion reasons over the runs, the failsafe ones counted (p08-startup-012: never failsafe)."""
+    total = len(runs)
+    read = [reason for reason in map(completion_reason, runs) if reason is not None]
+    if not read:
+        return f"  {STARTUP_COMPLETE}: missing in all {total} runs (no --startup-complete, or the build has no scheduler)"
+    counts = sorted(((read.count(reason), reason) for reason in set(read)), key=lambda item: (-item[0], item[1]))
+    line = f"  {STARTUP_COMPLETE}: " + ", ".join(f"{reason} {count}" for count, reason in counts) + f" of {total} runs"
+    if len(read) < total:
+        line += f" ({total - len(read)} without it)"
+    return line + f"; {read.count(FAILSAFE)} of {total} by the {FAILSAFE}"
 
 
 def interrupted(run):
@@ -420,6 +446,8 @@ SEED_FOCUS = "agent"
 SEED_CHAT_PANE = "last"
 # --hangs: main-thread stalls over this many ms are recorded with stacks (debug.hangs).
 HANG_THRESHOLD_MS = None
+# --startup-complete: each launch also waits (within --timeout) for `startup_complete` and its reason.
+WAIT_STARTUP_COMPLETE = False
 
 
 def state_directories(tag):
@@ -635,7 +663,11 @@ def one_run(tag, mode, timeout, profile=None, temperature=None, purge_cache=purg
         purge_cache()
     launch = Launch(tag, scratch)
     try:
+        started = time.monotonic()
         reached = launch.wait_for(final, timeout, any_of=any_of)
+        if reached and WAIT_STARTUP_COMPLETE:
+            # Startup completes after the first content; the reason mark comes before it on the pipe.
+            launch.wait_for(STARTUP_COMPLETE, max(0.0, timeout - (time.monotonic() - started)))
         if HANG_THRESHOLD_MS:
             launch.stalls = launch_stalls(tag)
     finally:
@@ -771,6 +803,9 @@ def run_values(marks):
         shown.append(f"page-ins {marks[PAGEINS]:.0f}")
     if is_number(marks.get(MAIN_CPU)):
         shown.append(f"main cpu {marks[MAIN_CPU]:.0f} ms")
+    reason = completion_reason(marks)
+    if reason is not None:
+        shown.append(f"startup complete {reason}")
     if interrupted(marks):
         shown.append("interrupted")
     return shown
@@ -780,7 +815,7 @@ def value_summary(runs, temperature=None):
     """Summary lines for the value marks: the temperature of each run (against --temperature), page-in and main
     CPU spreads, and the interrupted runs by number. None when no run sent one and no temperature was asked."""
     if not runs or (temperature is None and not any(
-            mark in VALUE_MARKS or mark.startswith(TEMPERATURE_INSTANT) for run in runs for mark in run)):
+            mark in VALUE_MARKS or mark.startswith((TEMPERATURE_INSTANT, COMPLETION_INSTANT)) for run in runs for mark in run)):
         return []
     total = len(runs)
     read = [name for name in map(run_temperature, runs) if name is not None]
@@ -801,6 +836,7 @@ def value_summary(runs, temperature=None):
             lines.append(f"  {mark}: {cells}  n {len(values)}")
         else:
             lines.append(f"  {mark}: missing in all {total} runs")
+    lines.append(completion_summary(runs))
     stopped = [str(index + 1) for index, run in enumerate(runs) if interrupted(run)]
     lines.append(f"  {INTERRUPTED}: " + (f"runs {', '.join(stopped)} ({len(stopped)} of {total})" if stopped
                                          else f"none of {total} runs"))
@@ -880,6 +916,9 @@ def parse_args(argv):
                         help="exit 1 when, in any run, mark SECOND is missing or comes before mark FIRST "
                              "(for example first_window_frame_committed<launch.non_paint_services); "
                              "a chain A<B<C checks A<B and B<C")
+    parser.add_argument("--startup-complete", action="store_true",
+                        help="after the first content, keep each launch until startup_complete (within --timeout) "
+                             "and print its reason per run and as counts, the failsafe ones counted")
     parser.add_argument("--hangs", type=int, metavar="MS",
                         help="record main-thread stalls over MS during each launch (debug.hangs) and print the worst")
     parser.add_argument("--temperature", choices=["cold", "warm"],
@@ -907,8 +946,9 @@ def parse_args(argv):
 def main():
     args = parse_args(sys.argv[1:])
     require_gui_session("bench-startup")
-    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE
+    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE, WAIT_STARTUP_COMPLETE
     HANG_THRESHOLD_MS = args.hangs
+    WAIT_STARTUP_COMPLETE = args.startup_complete
     SEED_FOCUS = args.focus
     SEED_CHAT_PANE = args.chat_pane
     for path in args.app:
