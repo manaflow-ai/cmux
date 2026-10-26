@@ -56,7 +56,7 @@ final class AppResourceSource: ResourceSampleSource {
         // Chromium: map renderer client ids to helper processes.
         let chromiumTabs = tabs.indices.filter { resolved.rendererClients[tabs[$0].tabID] != nil }
         if !chromiumTabs.isEmpty {
-            let helpers = await Self.chromiumHelpers()
+            let helpers = await Self.chromiumHelpers() + services.cache.cef.hostHelperProcesses  // host mode: the host's children
             var byClient: [Int32: Int32] = [:]
             for helper in helpers {
                 switch helper.kind {

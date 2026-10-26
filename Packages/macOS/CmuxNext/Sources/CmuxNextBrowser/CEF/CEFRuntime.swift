@@ -105,8 +105,8 @@ final class CEFRuntime {
     var shutdownTimeout: Task<Void, Never>?
     /// Recent renderer and helper process failures (`debug.crashes`).
     let crashLog = BrowserCrashLog()
-    /// Watches helper exits (GPU, utility, extension renderers) from start.
-    var childMonitor: CEFChildProcessMonitor?
+    /// Reports helper processes (GPU, utility, renderers): the app's own monitor in process, the host's mirror in host mode.
+    var helperWatch: CEFHelperWatch?
     /// Runs once CEF is initialized (the App re-installs its crash signal
     /// handlers, which Chromium resets to the default action).
     var onReady: (() -> Void)?

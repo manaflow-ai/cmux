@@ -255,6 +255,10 @@ public final class CEFEngine: BrowserEngine {
     /// Recent renderer and helper process failures (`debug.crashes`).
     public var crashLog: BrowserCrashLog { CEFRuntime.shared.crashLog }
 
+    /// The Chromium host's helper processes in host mode (they are the host's
+    /// children, so ``ChromiumHelperProcess/list(parent:)`` misses them); empty in process.
+    public var hostHelperProcesses: [ChromiumHelperProcess] { CEFRuntime.shared.helperWatch?.hostMirror?.processes ?? [] }
+
     /// Runs once CEF is initialized in this process (process-wide), after the
     /// person's password settings (`setPasswordPolicy`) and search engine
     /// (`setDefaultSearch`) reach Chromium.

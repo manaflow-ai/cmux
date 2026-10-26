@@ -209,6 +209,47 @@ import Testing
         #expect(launcher.count == 1)
     }
 
+    /// The host's helpers in host mode: a SIGKILLed GPU helper and renderer
+    /// each make one `debug.crashes` record with their type and signal; a
+    /// helper Chromium ends with SIGTERM makes none; a host that ends takes
+    /// its helpers with it.
+    @Test func hostHelperExitsMakeOneCrashRecordEach() async throws {
+        let launcher = FakeLauncher()
+        let log = BrowserCrashLog()
+        let (records, sink) = AsyncStream<BrowserCrashRecord>.makeStream()
+        log.addObserver { sink.yield($0) }
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, crashLog: log,
+                                          now: { ContinuousClock.now })
+        session.open("https://a.example/")
+        let host = try await nextLaunch(launcher)
+        answer(host, context: 9, address: "https://a.example/")
+        func helper(_ kind: ChromiumHostFrame.Kind, _ v: [Int32], _ payload: String) {
+            host.wire.send(ChromiumHostFrame(kind, v: v, payload: Array(payload.utf8)))
+        }
+        helper(.helperStart, [2001], "gpu-process")
+        helper(.helperStart, [2002, 7], "renderer")
+        helper(.helperStart, [2003], "utility\nnetwork.mojom.NetworkService")
+        helper(.helperStart, [2004], "utility\naudio.mojom.AudioService")
+        host.wire.send(ChromiumHostFrame(.rendererClients, v: [1, 1], payload: [7, 0, 0, 0]))
+        helper(.helperExit, [2004, SIGTERM, SIGTERM], "utility\naudio.mojom.AudioService")
+        helper(.helperExit, [2001, SIGKILL, SIGKILL], "gpu-process")
+        helper(.helperExit, [2002, SIGKILL, SIGKILL], "renderer")
+
+        var iterator = records.makeAsyncIterator()
+        let gpu = try #require(await iterator.next())
+        let renderer = try #require(await iterator.next())
+        #expect(gpu.processType == "gpu-process" && gpu.pid == 2001 && gpu.reason == .killed && gpu.codeDescription == "SIGKILL")
+        #expect(renderer.processType == "renderer" && renderer.pid == 2002 && renderer.codeDescription == "SIGKILL")
+        #expect(log.total == 2)
+        #expect(session.processes.processes == [ChromiumHelperProcess(pid: 2003, kind: .network)])
+        #expect(session.processes.rendererClients(browser: 1) == [7])
+
+        launcher.end(host, ChromiumHostExit(signal: SIGKILL, status: nil))
+        try await until("restarted") { session.restarts == 1 }
+        #expect(session.processes.processes.isEmpty)
+        #expect(session.processes.rendererClients(browser: 1).isEmpty)
+    }
+
     @Test func restartPolicy() {
         let policy = ChromiumHostRestartPolicy()
         #expect(policy.restarts(ranFor: .seconds(1), isFirstStart: true))

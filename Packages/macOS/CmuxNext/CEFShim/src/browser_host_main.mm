@@ -13,6 +13,11 @@
 // parent view's occlusion rect (the fork's -cmuxOcclusionRects) covers it, so
 // the fork's tracker never lets it take the mouse.
 //
+// Chromium's helpers are this process's children, not cmux's: HelperWatch
+// reports each start and exit (kHelperStart, kHelperExit) and the page's
+// renderer clients go out when they change (kRendererClients), so cmux's
+// debug.crashes and tab process list see them with no call across the wire.
+//
 // Launched by cmux (ChromiumHostLauncher) with the wire on fd 3 (frames from cmux) and fd 4 (frames to cmux):
 //   <host> --framework=<CEF framework dir> --subprocess=<base helper exe>
 //          --root-cache=<dir> [--log-file=<path>] [--cef-switch=<name[=value]>]...
@@ -21,12 +26,16 @@
 #import <AppKit/AppKit.h>
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <libproc.h>
 #include <signal.h>
+#include <sys/event.h>
 #include <sys/socket.h>
+#include <sys/sysctl.h>
 #include <time.h>
 #include <unistd.h>
 
 #include <algorithm>
+#include <map>
 #include <string>
 #include <thread>
 #include <vector>
@@ -40,6 +49,7 @@
 #include "include/wrapper/cef_closure_task.h"
 #include "include/wrapper/cef_library_loader.h"
 
+#include "chromium_host_helpers.h"
 #include "chromium_host_wire.h"
 #include "command_line_switches.h"
 #include "page_scheme_registration.h"
@@ -128,6 +138,145 @@ void ScheduleHosting() {
   CefPostTask(TID_UI, base::BindOnce(&TryHosting));
 }
 
+// The page's renderer clients, pushed when they change (kRendererClients):
+// cmux reads them from its mirror instead of asking across the wire.
+std::vector<int32_t> g_sent_clients;
+bool g_clients_scheduled = false;
+constexpr size_t kMaxClients = 64;
+
+void PushRendererClients() {
+  g_clients_scheduled = false;
+  if (!g_browser) return;
+  std::vector<CefString> frames;
+  g_browser->GetFrameIdentifiers(frames);
+  std::vector<std::string> identifiers;
+  identifiers.reserve(frames.size());
+  for (const CefString& frame : frames) identifiers.push_back(frame.ToString());
+  std::vector<int32_t> ids = cmux_host::RendererClients(identifiers);
+  if (ids.size() > kMaxClients) ids.resize(kMaxClients);
+  if (ids == g_sent_clients) return;
+  g_sent_clients = ids;
+  cmux_host::Header h;
+  h.kind = cmux_host::kRendererClients;
+  h.v[0] = g_browser->GetIdentifier();
+  h.v[1] = static_cast<int32_t>(ids.size());
+  Send(h, cmux_host::EncodeClientIDs(ids));
+}
+
+// Frame callbacks come in bursts (a cross-site navigation attaches and
+// detaches several): one push at the end of the turn.
+void ScheduleRendererClients() {
+  if (g_clients_scheduled) return;
+  g_clients_scheduled = true;
+  CefPostTask(TID_UI, base::BindOnce(&PushRendererClients));
+}
+
+void SendHelper(uint32_t kind, int32_t pid, cmux_host::HelperIdentity identity, int32_t status) {
+  cmux_host::Header h;
+  h.kind = kind;
+  h.v[0] = pid;
+  if (kind == cmux_host::kHelperStart) {
+    h.v[1] = identity.renderer_client_id;
+    h.v[2] = identity.extension ? 1 : 0;
+  } else {
+    h.v[1] = status;
+    h.v[2] = cmux_host::TerminatingSignal(status);
+    h.v[3] = cmux_host::ExitCode(status);
+    h.v[4] = identity.extension ? 1 : 0;
+  }
+  Send(h, cmux_host::HelperPayload(identity));
+}
+
+// This process's helpers (renderer, GPU, utility), as cmux's
+// CEFChildProcessMonitor watches its own in process: NOTE_FORK on this
+// process says a helper was spawned, a rescan of the children registers
+// NOTE_EXEC | NOTE_EXIT | NOTE_EXITSTATUS on each new one, and the exit
+// event carries the wait status even when Chromium reaps the child first
+// (content/browser/child_process_launcher_helper_mac.cc spawns them;
+// Chrome's browser process sees their ends the same way,
+// BrowserChildProcessObserver::BrowserChildProcessKilled). A thread of its
+// own, blocked in kevent; every frame is sent on the UI thread.
+class HelperWatch {
+ public:
+  void Run() {
+    kq_ = kqueue();
+    if (kq_ < 0) return;
+    struct kevent fork_watch;
+    EV_SET(&fork_watch, getpid(), EVFILT_PROC, EV_ADD | EV_CLEAR, NOTE_FORK, 0, nullptr);
+    if (kevent(kq_, &fork_watch, 1, nullptr, 0, nullptr) != 0) return;
+    Rescan();
+    struct kevent events[16];
+    for (;;) {
+      const int count = kevent(kq_, nullptr, 0, events, 16, nullptr);
+      if (count < 0 && errno == EINTR) continue;
+      if (count < 0) return;
+      bool rescan = false;
+      for (int i = 0; i < count; ++i) {
+        const pid_t pid = static_cast<pid_t>(events[i].ident);
+        if (pid == getpid()) {
+          rescan = rescan || (events[i].fflags & NOTE_FORK);
+          continue;
+        }
+        if (events[i].fflags & NOTE_EXEC) Identify(pid);
+        if (events[i].fflags & NOTE_EXIT) {
+          auto found = children_.find(pid);
+          if (found == children_.end()) continue;
+          const bool known = found->second.known;
+          const cmux_host::HelperIdentity identity = found->second.identity;
+          children_.erase(found);
+          if (known) {
+            CefPostTask(TID_UI, base::BindOnce(&SendHelper, uint32_t{cmux_host::kHelperExit}, int32_t{pid}, identity,
+                                               static_cast<int32_t>(events[i].data)));
+          }
+        }
+      }
+      if (rescan) Rescan();
+    }
+  }
+
+ private:
+  struct Child {
+    bool known = false;
+    cmux_host::HelperIdentity identity;
+  };
+
+  void Rescan() {
+    pid_t pids[512];
+    const int filled = proc_listchildpids(getpid(), pids, sizeof pids);
+    if (filled <= 0) return;
+    // A count on current macOS, bytes on older ones: take what fits.
+    const int count = std::min(filled, static_cast<int>(sizeof pids / sizeof pids[0]));
+    for (int i = 0; i < count; ++i) {
+      const pid_t pid = pids[i];
+      if (pid <= 0 || children_.count(pid)) continue;
+      struct kevent watch;
+      EV_SET(&watch, pid, EVFILT_PROC, EV_ADD | EV_CLEAR, NOTE_EXEC | NOTE_EXIT | NOTE_EXITSTATUS, 0, nullptr);
+      if (kevent(kq_, &watch, 1, nullptr, 0, nullptr) != 0) continue;  // already ended and reaped
+      children_[pid] = Child();
+      Identify(pid);
+    }
+  }
+
+  // Reads the child's argv; a child forked a moment ago may not have exec'd
+  // yet (it still has this process's argv), and NOTE_EXEC asks again.
+  void Identify(pid_t pid) {
+    auto found = children_.find(pid);
+    if (found == children_.end() || found->second.known) return;
+    int mib[3] = {CTL_KERN, KERN_PROCARGS2, pid};
+    size_t size = 0;
+    if (sysctl(mib, 3, nullptr, &size, nullptr, 0) != 0 || size <= sizeof(int32_t)) return;
+    std::vector<uint8_t> buffer(size);
+    if (sysctl(mib, 3, buffer.data(), &size, nullptr, 0) != 0) return;
+    cmux_host::HelperIdentity identity;
+    if (!cmux_host::ParseHelperArgs(cmux_host::ParseProcArgs(buffer.data(), size), &identity)) return;
+    found->second = Child{true, identity};
+    CefPostTask(TID_UI, base::BindOnce(&SendHelper, uint32_t{cmux_host::kHelperStart}, int32_t{pid}, identity, 0));
+  }
+
+  int kq_ = -1;
+  std::map<pid_t, Child> children_;
+};
+
 void TryHosting() {
   g_hosting_scheduled = false;
   if (g_context || !g_browser || !g_set_layer_hosting) return;
@@ -193,8 +342,9 @@ void PlaceWindow() {
 }
 
 class Client : public CefClient, public CefLifeSpanHandler, public CefDisplayHandler, public CefLoadHandler,
-               public CefRequestHandler {
+               public CefRequestHandler, public CefFrameHandler {
  public:
+  CefRefPtr<CefFrameHandler> GetFrameHandler() override { return this; }
   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
   CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
   CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
@@ -204,6 +354,13 @@ class Client : public CefClient, public CefLifeSpanHandler, public CefDisplayHan
     g_browser = browser;
     g_creating = false;
     ScheduleHosting();
+    ScheduleRendererClients();
+  }
+  // A frame joins or leaves a renderer: the page's renderer clients may change.
+  void OnFrameAttached(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, bool) override { ScheduleRendererClients(); }
+  void OnFrameDetached(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>) override { ScheduleRendererClients(); }
+  void OnMainFrameChanged(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefFrame>) override {
+    ScheduleRendererClients();
   }
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
     g_browser = nullptr;
@@ -231,6 +388,7 @@ class Client : public CefClient, public CefLifeSpanHandler, public CefDisplayHan
     h.kind = cmux_host::kRendererGone;
     h.v[0] = static_cast<int32_t>(status);
     Send(h);
+    ScheduleRendererClients();
   }
 
  private:
@@ -475,6 +633,8 @@ class App : public CefApp, public CefBrowserProcessHandler {
     ready.v[1] = static_cast<int32_t>(getpid());
     Send(ready);
     std::thread(ReadWire, kFromCmux).detach();
+    // Helpers Chromium started before this point are found by the first rescan.
+    std::thread([] { HelperWatch().Run(); }).detach();
   }
 
  private:

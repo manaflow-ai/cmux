@@ -43,6 +43,12 @@ enum Kind : uint32_t {
                         // the host's Send*Event on its UI thread), v5 frames refused (unknown kind)
   kError = 107,         // payload message
   kRendererGone = 108,  // v0 cef_termination_status_t
+  // The host's own helper processes (chromium_host_helpers.h has the payloads):
+  kHelperStart = 109,      // v0 pid, v1 renderer client id (0: none), v2 1 for an extension process;
+                           // payload type, then "\n" + utility sub type when there is one
+  kHelperExit = 110,       // v0 pid, v1 raw wait status, v2 signal (0: it exited), v3 exit code,
+                           // v4 1 for an extension process; payload as kHelperStart
+  kRendererClients = 111,  // v0 browser id, v1 count; payload count little-endian int32 renderer client ids
 };
 
 struct Header {

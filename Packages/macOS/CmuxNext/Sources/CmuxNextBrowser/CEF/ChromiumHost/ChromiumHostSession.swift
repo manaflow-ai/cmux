@@ -1,6 +1,7 @@
 public import AppKit
 import Darwin
 import Observation
+import os
 
 /// One Chromium page whose browser process runs in a host app of its own
 /// (prototype behind `browserHost.helperPrototype`;
@@ -40,11 +41,18 @@ public final class ChromiumHostSession {
     public private(set) var lastError: String?
     /// The page's pixels and input target; one view for every host the session starts.
     public let view = ChromiumHostPageView(frame: .zero)
+    /// The running host's helper processes and its pages' renderer clients
+    /// (HELPER_START, HELPER_EXIT, RENDERER_CLIENTS); empty while no host runs.
+    /// In host mode the runtime reads it as `CEFHelperWatch.host`.
+    let processes = ChromiumHostProcessMirror()
 
     private let configuration: ChromiumHostConfiguration
     private let launcher: any ChromiumHostLaunching
     private let policy: ChromiumHostRestartPolicy
     private let now: () -> ContinuousClock.Instant
+    /// Where a helper that ends abnormally is recorded (`debug.crashes`).
+    private let crashLog: BrowserCrashLog?
+    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "chromium-host")
     private var connection: ChromiumHostConnection?
     private var startedAt: ContinuousClock.Instant?
     private var isFirstStart = true
@@ -55,20 +63,24 @@ public final class ChromiumHostSession {
     private var statsWaiters: [CheckedContinuation<ChromiumHostFrame?, Never>] = []
     private var tasks: [Task<Void, Never>] = []
 
-    public init(configuration: ChromiumHostConfiguration) {
+    /// - Parameter crashLog: records each helper of the host that ends abnormally; nil records none.
+    public init(configuration: ChromiumHostConfiguration, crashLog: BrowserCrashLog? = nil) {
         self.configuration = configuration
         launcher = ChromiumHostLauncher()
         policy = ChromiumHostRestartPolicy()
         now = { ContinuousClock.now }
+        self.crashLog = crashLog
         wireView()
     }
 
     init(configuration: ChromiumHostConfiguration, launcher: any ChromiumHostLaunching,
-         policy: ChromiumHostRestartPolicy = ChromiumHostRestartPolicy(), now: @escaping () -> ContinuousClock.Instant) {
+         policy: ChromiumHostRestartPolicy = ChromiumHostRestartPolicy(), crashLog: BrowserCrashLog? = nil,
+         now: @escaping () -> ContinuousClock.Instant) {
         self.configuration = configuration
         self.launcher = launcher
         self.policy = policy
         self.now = now
+        self.crashLog = crashLog
         wireView()
     }
 
@@ -149,7 +161,7 @@ public final class ChromiumHostSession {
         }
         return ["phase": phaseText, "pid": Int(pid), "fork_api": Int(forkAPI), "context_id": Int(contextID),
                 "shown_context_id": Int(view.contextID), "url": url, "title": title, "restarts": restarts,
-                "exits": exits, "error": lastError ?? ""]
+                "exits": exits, "error": lastError ?? "", "helpers": processes.report]
     }
 
     // MARK: Lifecycle
@@ -211,6 +223,9 @@ public final class ChromiumHostSession {
             lastError = frame.text
         case .rendererGone:
             lastError = "renderer ended (status \(frame.v[0]))"
+        case .helperStart, .helperExit, .rendererClients:
+            // A quit ends every helper on purpose: those ends are not crashes.
+            if let exit = processes.apply(frame), !closing, let crashLog { exit.record(in: crashLog, logger: logger) }
         default:
             break
         }
@@ -225,6 +240,7 @@ public final class ChromiumHostSession {
         tasks = []
         contextID = 0
         view.show(contextID: 0)
+        processes.reset()
         exits.append(exit.description)
         for waiter in pongs.values { waiter.resume(returning: nil) }
         pongs = [:]

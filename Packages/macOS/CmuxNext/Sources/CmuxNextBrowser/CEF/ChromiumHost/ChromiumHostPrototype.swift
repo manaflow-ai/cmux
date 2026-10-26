@@ -8,9 +8,13 @@ public import AppKit
 public final class ChromiumHostPrototype {
     private var session: ChromiumHostSession?
     private let makeConfiguration: () -> ChromiumHostConfiguration?
+    private let crashLog: BrowserCrashLog?
 
-    /// - Parameter makeConfiguration: the host app of this build, or nil when it has none.
-    public init(makeConfiguration: @escaping () -> ChromiumHostConfiguration?) {
+    /// - Parameters:
+    ///   - crashLog: where the host's helpers that end abnormally are recorded (`debug.crashes`).
+    ///   - makeConfiguration: the host app of this build, or nil when it has none.
+    public init(crashLog: BrowserCrashLog? = nil, makeConfiguration: @escaping () -> ChromiumHostConfiguration?) {
+        self.crashLog = crashLog
         self.makeConfiguration = makeConfiguration
     }
 
@@ -55,7 +59,7 @@ public final class ChromiumHostPrototype {
             guard let configuration = makeConfiguration() else {
                 return ["error": "this build has no Chromium host app (Debug builds with CEF only)"]
             }
-            session = ChromiumHostSession(configuration: configuration)
+            session = ChromiumHostSession(configuration: configuration, crashLog: crashLog)
             self.session = session
         }
         if session.view.superview !== container {

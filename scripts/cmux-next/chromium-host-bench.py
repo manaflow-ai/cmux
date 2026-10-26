@@ -20,6 +20,9 @@ Per mode:
   pacing   the page's requestAnimationFrame intervals during a 3 s CSS animation (`raf_ms`: p50/p95/max,
            `long_frames`: intervals over 1.5 refresh periods), with the display refresh rate.
   ping     helper only: N round trips cmux -> host UI thread -> cmux over the wire (`ping_us`).
+  helper_kill  helper only: the page's renderer pids (`debug.chromium_host` helpers) are the host's children, and a
+           SIGKILL to one utility, the GPU and the page's renderer helper of the host each makes exactly one
+           `debug.crashes` record with its process type and SIGKILL (the host forwards HELPER_EXIT).
   kill     helper only, last: SIGKILL to the host. Pass when the cmux app's pid is unchanged and answers, a new host
            starts by itself (restart policy) and loads the saved page, and the in-process tab still answers.
   pump     the baseline the move removes: the share of cmux's main thread spent inside Chromium's pump passes
@@ -34,7 +37,7 @@ Not a gate: exit 1 only when a mode could not run (no host app, refused fork API
 On a fleet GUI host:
   python3 scripts/cmux-next/chromium-host-bench.py --app "<cmux DEV tag.app>" --out DIR [--count 60]
 """
-import argparse, json, os, pathlib, sys, time
+import argparse, json, os, pathlib, signal, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -286,6 +289,8 @@ def run_helper(rpc, url, inproc_tab):
     row["host_pid"] = state.get("pid")
     row["fork_api"] = state.get("fork_api")
 
+    row["helper_kill"] = run_helper_kill(rpc, state.get("pid"))
+
     # Kill: cmux keeps running, a new host loads the saved page.
     before = rpc("debug.chromium_host") or {}
     app_pid = before.get("app_pid")
@@ -304,6 +309,52 @@ def run_helper(rpc, url, inproc_tab):
     }
     row["kill"]["pass"] = bool(after) and row["kill"]["app_answers"] and app_pid == (after or {}).get("app_pid")
     return True
+
+
+def parent_pid(pid):
+    out = subprocess.run(["ps", "-o", "ppid=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    return int(out) if out.isdigit() else None
+
+
+# The kinds killed, in order (the page's renderer last: it leaves the page on its crash page until the host kill
+# row restarts the host), and the debug.crashes process_type each must record.
+HELPER_KILLS = [("utility", "utility"), ("gpu", "gpu-process"), ("renderer", "renderer")]
+
+
+def run_helper_kill(rpc, host_pid):
+    """SIGKILL one host helper of each kind; each must make exactly one debug.crashes record with its type and
+    signal, and the page's renderer pids (the tab process list in host mode) must be the host's children."""
+    helpers = (rpc("debug.chromium_host") or {}).get("helpers") or {}
+    page_pids = helpers.get("page_renderer_pids") or []
+    result = {"page_renderer_pids": page_pids,
+              "page_pids_are_host_children": bool(page_pids) and all(parent_pid(p) == host_pid for p in page_pids)}
+    for kind, process_type in HELPER_KILLS:
+        processes = [p for p in helpers.get("processes") or [] if p.get("kind") == kind]
+        if kind == "renderer":
+            processes = [p for p in processes if p.get("pid") in page_pids] or processes
+        if not processes:
+            result[kind] = {"pass": False, "error": "no %s helper in debug.chromium_host" % kind}
+            continue
+        pid = processes[0]["pid"]
+        ppid = parent_pid(pid)
+        os.kill(pid, signal.SIGKILL)
+
+        def records():
+            crashes = rpc("debug.crashes") or {}
+            return [r for r in crashes.get("chromium") or [] if r.get("pid") == pid]
+        wait(records, 15, 0.25)
+        time.sleep(1)  # test harness: a duplicate record would arrive within this second
+        found = records()
+        result[kind] = {
+            "pid": pid, "host_child": ppid == host_pid, "records": len(found),
+            "process_type": found[0].get("process_type") if found else None,
+            "code_text": found[0].get("code_text") if found else None,
+        }
+        result[kind]["pass"] = (len(found) == 1 and result[kind]["host_child"] and
+                                result[kind]["process_type"] == process_type and result[kind]["code_text"] == "SIGKILL")
+        helpers = (rpc("debug.chromium_host") or {}).get("helpers") or {}
+    result["pass"] = result["page_pids_are_host_children"] and all(result[k]["pass"] for k, _ in HELPER_KILLS)
+    return result
 
 
 if __name__ == "__main__":

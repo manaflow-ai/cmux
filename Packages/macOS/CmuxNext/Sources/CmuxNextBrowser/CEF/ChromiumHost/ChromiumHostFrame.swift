@@ -12,6 +12,8 @@ nonisolated struct ChromiumHostFrame: Equatable, Sendable {
         // host -> cmux
         case ready = 101, context = 102, address = 103, title = 104, pong = 105, statsReply = 106, error = 107
         case rendererGone = 108
+        // host -> cmux: the host's helper processes (ChromiumHostProcessMirror)
+        case helperStart = 109, helperExit = 110, rendererClients = 111
     }
 
     static let headerSize = 64

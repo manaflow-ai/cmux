@@ -13,6 +13,10 @@ import os
 /// the app's children registers `NOTE_EXEC | NOTE_EXIT | NOTE_EXITSTATUS`
 /// on each new one, and the exit event carries the wait status before
 /// Chromium reaps the child.
+///
+/// In host mode Chromium's browser process is the Chromium host, so its
+/// helpers are the host's children: the host runs the same watch and sends
+/// each exit as HELPER_EXIT (`ChromiumHostProcessMirror`).
 nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
     struct Exit: Sendable, Equatable {
         var pid: Int32
@@ -21,6 +25,38 @@ nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
         var isExtension: Bool
         /// Raw `waitpid` status.
         var status: Int32
+
+        /// The signal that ended the helper (`WTERMSIG`), nil when it exited or only stopped.
+        var signal: Int32? {
+            let low = status & 0x7f
+            return low == 0 || low == 0x7f ? nil : low
+        }
+
+        /// Nil for a normal end (exit 0, or SIGTERM, which Chromium sends to
+        /// helpers it no longer needs); otherwise why the helper ended.
+        var abnormalReason: BrowserProcessExit.Reason? {
+            guard let signal else {
+                // An exit (or a stop, which is not an end).
+                return status & 0x7f == 0 && (status >> 8) & 0xff != 0 ? .abnormal : nil
+            }
+            switch signal {
+            case SIGTERM: return nil
+            case SIGKILL: return .killed
+            default: return .crashed
+            }
+        }
+
+        /// One `.process` record in `crashLog` when the helper ended
+        /// abnormally (`debug.crashes`); false for a normal end.
+        @MainActor @discardableResult
+        func record(in crashLog: BrowserCrashLog, logger: Logger) -> Bool {
+            guard let reason = abnormalReason else { return false }
+            let type = isExtension ? "extension" : processType
+            logger.error("helper ended type=\(type, privacy: .public) sub=\(subType ?? "-", privacy: .public) pid=\(pid) reason=\(reason.rawValue, privacy: .public) status=\(status) signal=\(signal ?? 0)")
+            crashLog.append(BrowserCrashRecord(processType: type, subType: subType, pid: pid, reason: reason,
+                                               code: Int(status), source: .process))
+            return true
+        }
     }
 
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.cef-children")
@@ -99,6 +135,19 @@ nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
             guard kevent(kq, &event, 1, nil, 0, nil) == 0 else { continue }
             children[pid] = CEFHelperIdentity.read(pid: pid)
         }
+    }
+}
+
+/// Who reports a runtime's Chromium helpers: exactly one per backend.
+enum CEFHelperWatch {
+    /// In process: the helpers are the app's children, watched by kqueue.
+    case monitor(CEFChildProcessMonitor)
+    /// Host mode: the helpers are the host's children; it reports them in frames.
+    case host(ChromiumHostProcessMirror)
+
+    var hostMirror: ChromiumHostProcessMirror? {
+        if case .host(let mirror) = self { return mirror }
+        return nil
     }
 }
 

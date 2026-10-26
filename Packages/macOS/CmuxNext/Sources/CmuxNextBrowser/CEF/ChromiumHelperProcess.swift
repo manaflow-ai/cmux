@@ -28,7 +28,8 @@ public nonisolated struct ChromiumHelperProcess: Sendable, Equatable {
         self.kind = kind
     }
 
-    /// The app's live Chromium helpers.
+    /// The app's live Chromium helpers. In host mode they are the host's
+    /// children instead: ``CEFEngine/hostHelperProcesses`` has those.
     public static func list(parent: pid_t = getpid()) -> [ChromiumHelperProcess] {
         let children = childPIDs(of: parent)
         let live = Set(children)
@@ -55,15 +56,19 @@ public nonisolated struct ChromiumHelperProcess: Sendable, Equatable {
     /// Chromium helper (or whose argv is not readable yet).
     public static func classify(_ arguments: [String]) -> Kind? {
         guard let identity = CEFHelperIdentity.parse(arguments) else { return nil }
+        let prefix = "--renderer-client-id="
+        let clientID = arguments.first(where: { $0.hasPrefix(prefix) }).flatMap { Int32($0.dropFirst(prefix.count)) } ?? 0
+        return kind(of: identity, rendererClientID: clientID)
+    }
+
+    /// The kind of a helper from its identity and its `--renderer-client-id`
+    /// (0: none). The Chromium host's helpers come this way, from the host's
+    /// HELPER_START frames (``ChromiumHostProcessMirror``).
+    static func kind(of identity: CEFHelperIdentity, rendererClientID: Int32) -> Kind {
         switch identity.processType {
         case "renderer":
             if identity.isExtension { return .extensionRenderer }
-            let prefix = "--renderer-client-id="
-            if let argument = arguments.first(where: { $0.hasPrefix(prefix) }),
-               let id = Int32(argument.dropFirst(prefix.count)) {
-                return .renderer(clientID: id)
-            }
-            return .other
+            return rendererClientID > 0 ? .renderer(clientID: rendererClientID) : .other
         case "gpu-process":
             return .gpu
         case "utility":

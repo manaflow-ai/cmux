@@ -365,7 +365,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DebugCEFDevToolsLayout.register(on: control.service?.router, services: services)
                 #if DEBUG
                 // The Chromium host app prototype (browserHost.helperPrototype; cef-helper-app-DESIGN.md).
-                let chromiumHost = ChromiumHostPrototype { ChromiumHostPrototype.bundledConfiguration() }
+                let chromiumHost = ChromiumHostPrototype(crashLog: services.cache.cef.crashLog) { ChromiumHostPrototype.bundledConfiguration() }
                 control.service?.router.register([
                     .mainActor("debug.chromium_host") { [weak services] call in
                         let controller = services?.windows.controllers.first
