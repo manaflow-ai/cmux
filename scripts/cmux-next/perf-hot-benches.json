@@ -223,6 +223,11 @@
         "input.frame",
         "key.scroll_frame"
       ]
+    },
+    "intent-prewarm-hover": {
+      "what": "one hover target change in the sidebar or a tab strip with intentPrewarmHover on: a compare, the dwell timer's cancel and re-arm, and the warmer's isCold lookup",
+      "bench": "scripts/cmux-next/bench_hibernation.py (wake after hover vs click), then swift test --filter IntentPrewarmServiceTests",
+      "owner": "PL-switch"
     }
   }
 }
