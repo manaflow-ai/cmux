@@ -12,7 +12,11 @@ final class SidebarItemListRowView: SidebarRowView {
     private let icon = SidebarIconView()
     private let title = SidebarRowView.label(font: SidebarStyle.titleFont)
     private let badge = UnreadBadgeView()
-    private let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
+    private let activity: StatusIndicatorView = {
+        let view = StatusIndicatorView()
+        (view.tracksWindowOcclusion, view.usesStatusColors) = (true, true) // the band's status colors (`SidebarItemRowView`)
+        return view
+    }()
     private var hasIcon = false
     /// Archived in the sidebar document: the row draws dimmed (`SidebarStyle.archivedAlpha`).
     private var archived = false
@@ -53,6 +57,7 @@ final class SidebarItemListRowView: SidebarRowView {
         iconAddress = item.iconAddress
         icon.configure(icon: picture.map(WorkspaceIcon.favicon))
         icon.isHidden = !hasIcon
+        badge.notificationDot = info?.unreadDot == true // Home's blue unread dot, as the band draws it
         badge.configure(Self.unread(info))
         activity.configure(info?.activity ?? .idle, style: info?.activityStyle)
         setAccessibilityValue(info.flatMap { $0.unreadDot ? Strings.unreadDot : $0.badge.map { String($0) } })
