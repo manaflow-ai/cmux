@@ -32,7 +32,7 @@ APP, FALLBACK = "ghs_app", "ghs_actions"
 # with that token's error ($FAKE_STATE/<token>.err); otherwise it prints its arguments and stdin.
 FAKE_GH = r"""#!/bin/bash
 state="$FAKE_STATE"
-if [ "$1 $2" = "api rate_limit" ]; then echo 0; exit 0; fi
+case "$*" in *rate_limit*) echo "${GH_TOKEN:-none} $*" >> "$state/rate_reads"; echo 0; exit 0 ;; esac
 echo "${GH_TOKEN:-none} $*" >> "$state/log"
 left="$(cat "$state/${GH_TOKEN:-none}" 2>/dev/null || echo 0)"
 if [ "$left" -gt 0 ]; then
@@ -113,6 +113,13 @@ class WrapperTests(unittest.TestCase):
         token = h.runner_temp / "gh-app-token" / "token"
         self.assertEqual(stat.S_IMODE(token.stat().st_mode), 0o600)
         self.assertNotIn(FALLBACK, "".join(p.read_text() for p in (h.runner_temp / "gh-app-token").rglob("*") if p.is_file()))
+
+    def test_rate_limit_reads_report_github_token_s_budget(self) -> None:
+        h = self.harness()
+        h.gh("api", "rate_limit", "--jq", ".resources.core.remaining")
+        h.gh("api", "--include", "rate_limit")
+        self.assertEqual((h.state / "rate_reads").read_text().splitlines(),
+                         [f"{FALLBACK} api rate_limit --jq .resources.core.remaining", f"{FALLBACK} api --include rate_limit"])
 
     def test_another_token_is_left_alone(self) -> None:
         h = self.harness()

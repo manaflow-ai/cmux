@@ -85,6 +85,8 @@ area="${1:-}"
 if [ "$area" = api ]; then
   for arg in "${@:2}"; do
     case "$arg" in graphql) area=graphql; break ;; esac
+    # /rate_limit reads (gh_budget_wait.sh's) report github.token's budget, the one it waits on.
+    case "$arg" in rate_limit | /rate_limit) exec "$REAL_GH" "$@" ;; esac
     case "$arg" in repos/* | /repos/*)
       area="$(printf '%s' "${arg#/}" | sed -n 's#^repos/[^/]*/[^/]*/\([^/?]*\).*#\1#p')"
       break ;;
