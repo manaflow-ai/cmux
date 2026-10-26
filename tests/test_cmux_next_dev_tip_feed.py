@@ -186,6 +186,7 @@ case "$1 $2" in
   "api repos/o/r/releases/tags/cmux-next-dev")
     [[ -n "$NOTES_SHA" ]] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
     [[ "$NOTES_SHA" == none ]] && { echo "Hand-edited notes."; exit 0; }
+    [[ "$NOTES_SHA" == empty ]] && { echo ""; exit 0; }
     echo "Rolling build from feat-cmux-next commit $NOTES_SHA."; exit 0 ;;
   api\ repos/o/r/compare/*)
     pair="${2#repos/o/r/compare/}"; key="${pair//./_}"; var="CMP_${key}"
@@ -249,6 +250,8 @@ rc, log = run_publish(A, record=B, cmp={f"{A}...{B}": "diverged", f"{B}...feat-c
 check(rc == 0 and not wrote(log), "a commit that left feat-cmux-next never replaces one still on it")
 rc, log = run_publish(B, notes="none")
 check(rc != 0 and not wrote(log), "a release whose notes name no commit is never overwritten")
+rc, log = run_publish(B, notes="empty")
+check(rc != 0 and not wrote(log), "a release with empty notes is never overwritten")
 rc, log = run_publish(B)
 check(rc == 0 and wrote(log), "with no release and no record, the first run publishes")
 rc, log = run_publish(B, record=A, holds="no", cmp={f"{B}...{A}": "behind"})

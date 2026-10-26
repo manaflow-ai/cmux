@@ -463,14 +463,15 @@ jobs:
               [[ "$published" =~ ^[0-9a-f]{40}$ ]] || { echo "the publish record names no commit" >&2; exit 1; }
               return
             fi
-            if ! body="$(gh api "repos/$GH_REPO/releases/tags/$RELEASE_TAG" --jq '.body' 2>"$RUNNER_TEMP/release.err")"; then
+            published=""
+            if ! body="$(gh api "repos/$GH_REPO/releases/tags/$RELEASE_TAG" --jq '.body // ""' 2>"$RUNNER_TEMP/release.err")"; then
               grep -q 'HTTP 404' "$RUNNER_TEMP/release.err" || { cat "$RUNNER_TEMP/release.err" >&2; exit 1; }
-              body=""
+              return 0  # no release yet
             fi
             published="$(grep -oE 'commit [0-9a-f]{40}' <<<"$body" | head -n 1 | cut -d' ' -f2)" || published=""
-            # A release whose notes name no commit could be newer than this run.
-            [[ -n "$body" && -z "$published" ]] && { echo "the $RELEASE_TAG release names no source commit; not overwriting it" >&2; exit 1; }
-            return 0
+            # A release that exists but names no commit (empty or edited notes)
+            # could be newer than this run.
+            [[ -n "$published" ]] || { echo "the $RELEASE_TAG release names no source commit; not overwriting it" >&2; exit 1; }
           }
           not_newer() {
             published_commit
