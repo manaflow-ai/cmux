@@ -17,16 +17,19 @@ public final class DaemonUpdateBoard {
 
     /// Shows a notice's text; the front window's toast unless replaced (tests).
     @ObservationIgnored var showNotice: @MainActor (String) -> Void = { message in
-        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        guard let window = DaemonUpdateBoard.noticeWindow(key: NSApp.keyWindow, main: NSApp.mainWindow, ordered: NSApp.orderedWindows,
+                                                          visible: { $0.isVisible || $0.isMiniaturized }) else { return }
         _ = CmuxToastCenter.shared.show(CmuxToast(id: "daemon-update.\(message.hashValue)", message: message,
                                                   duration: CmuxToast.untilClosed), in: window)
     }
 
     public init() {}
 
-    /// The window a notice goes to. Not written yet.
+    /// The window a notice goes to: the key window, else the main one, else the frontmost shown
+    /// window that can be main. An update fails in the background, often while the app is not
+    /// active, and AppKit then has no key or main window.
     static func noticeWindow(key: NSWindow?, main: NSWindow?, ordered: [NSWindow], visible: (NSWindow) -> Bool) -> NSWindow? {
-        key ?? main
+        key ?? main ?? ordered.first { $0.canBecomeMain && visible($0) }
     }
 
     public func apply(_ event: DaemonUpdateEvent) {
