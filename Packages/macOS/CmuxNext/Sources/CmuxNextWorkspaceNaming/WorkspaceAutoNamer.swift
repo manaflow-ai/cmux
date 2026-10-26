@@ -1,7 +1,7 @@
 import CmuxNextBridge
 import CmuxNextCompat
 public import CmuxNextDaemon
-import Observation
+public import Observation
 
 /// Variant B of workspace auto-naming (`workspaces.autoName.variant` =
 /// `persist`, hq#1957): a capable local or remote daemon workspace whose name
