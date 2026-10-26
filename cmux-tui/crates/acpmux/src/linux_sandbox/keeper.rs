@@ -296,7 +296,7 @@ fn open_bwrap() -> Result<OwnedFd> {
     let metadata = file_metadata(fd.as_raw_fd())?;
     if metadata.uid() != 0
         || metadata.mode() & 0o022 != 0
-        || metadata.mode() & libc::S_IFMT as u32 != libc::S_IFREG as u32
+        || metadata.mode() & libc::S_IFMT != libc::S_IFREG
         || dev == 0
         || ino == 0
     {
