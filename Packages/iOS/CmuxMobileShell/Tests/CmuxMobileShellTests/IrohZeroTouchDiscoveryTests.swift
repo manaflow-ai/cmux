@@ -34,6 +34,39 @@ struct IrohZeroTouchDiscoveryTests {
     }
 
     @Test
+    func privatePathPairingSupersedesAnAutomaticDiscoveryInFlight() async throws {
+        let mac = try candidate(deviceID: "mac-a", endpointByte: "a")
+        let pending = SuspendedIrohDiscovery(candidates: [mac])
+        let discovery = FirstReadSuspendedIrohDiscovery(pending: pending)
+        let fixture = try await makeFixture(discovery: discovery, reportedDeviceID: "mac-a")
+        defer {
+            pending.resume()
+            fixture.cleanup()
+        }
+        // Computers already has an authorized row from an earlier directory
+        // response; automatic recovery is now refreshing that directory.
+        fixture.shell.discoveredIrohMacs = [mac]
+        let automatic = Task {
+            await fixture.shell.reconnectActiveMacOutcome(stackUserID: "user-1")
+        }
+        await pending.waitUntilRequested()
+
+        #expect(await fixture.shell.connectDiscoveredIrohMac(
+            macDeviceID: mac.deviceID,
+            instanceTag: mac.instanceTag,
+            directOnlyDialCandidates: [CmxIrohDirectDialCandidate(address: "100.64.0.2", port: 52074)]
+        ))
+        pending.resume()
+        let outcome = await automatic.value
+        guard case .superseded = outcome else {
+            Issue.record("Explicit private-path pairing must supersede automatic recovery")
+            return
+        }
+        #expect(fixture.shell.connectionState == .connected)
+        #expect(fixture.shell.connectedMacDeviceID == "mac-a")
+    }
+
+    @Test
     func canonicalUUIDDeviceIDComparisonIgnoresLetterCase() async throws {
         let canonicalID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
         let fixture = try await makeFixture(
@@ -1206,4 +1239,20 @@ private struct ZeroTouchFixture {
         Task { await shell.remoteClient?.disconnect() }
         try? FileManager.default.removeItem(at: directory)
     }
+}
+
+@MainActor
+private final class FirstReadSuspendedIrohDiscovery: MobileIrohMacDiscovering {
+    let pending: SuspendedIrohDiscovery
+    private var didRead = false
+
+    init(pending: SuspendedIrohDiscovery) { self.pending = pending }
+
+    func discoverLiveMacs() async -> [MobileDiscoveredIrohMac] {
+        guard !didRead else { return [] }
+        didRead = true
+        return await pending.discoverLiveMacs()
+    }
+
+    func invalidateDiscovery(forMacDeviceID _: String) async {}
 }
