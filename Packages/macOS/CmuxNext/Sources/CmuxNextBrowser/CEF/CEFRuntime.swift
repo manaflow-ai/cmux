@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextInput
 import CmuxNextWakeups
 import Foundation
 import os
@@ -60,6 +61,11 @@ final class CEFRuntime {
         browsers: { [weak self] in self.map { Array($0.tabsByBrowser.keys) } ?? [] })
     /// Two-finger Back and Forward swipes over pages (`CEFSwipeNavigation`).
     private(set) lazy var swipeNavigation = CEFSwipeNavigation(runtime: self)
+    /// The input tap of the last `CEFEngine` made (`attachInput`): link clicks and swipes hear it.
+    var input: InputEventTap?
+    /// A tab registered with no input tap: logged once.
+    var reportedMissingInput = false
+
     /// Opens `url` in a new cmux tab when no Chromium window of its profile
     /// exists (the App sets it; the runtime has no panes of its own).
     var openURLWithoutWindow: ((URL, BrowserNewTabDisposition, BrowserProfileID?) -> Void)?

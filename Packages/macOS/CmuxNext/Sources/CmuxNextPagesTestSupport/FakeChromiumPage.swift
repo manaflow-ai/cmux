@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 public import CmuxNextPages
 public import Foundation
 
@@ -25,6 +26,8 @@ public final class FakeChromiumPage: PageChromiumPage {
     public var resources: (@MainActor (URL) async -> PageChromiumResponse)?
     /// The holes the host last asked for, in ``contentView``'s coordinates.
     public var occlusionRects: [CGRect] = []
+    /// The window ``isPageWindow(_:)`` answers for (a test's child window over the page); nil: none.
+    public weak var pageWindow: NSWindow?
     /// Every DevTools call, in order.
     public private(set) var calls: [(method: String, params: [String: any Sendable])] = []
     /// Every URL the host loaded, in order.
@@ -68,7 +71,7 @@ public final class FakeChromiumPage: PageChromiumPage {
         guard let rendererEvaluate else { return try await devToolsEvaluate(script) }
         let text = try rendererEvaluate(script)
         guard !text.isEmpty else { return nil }
-        guard let value = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]) else {
+        guard let value = try? JSONSerialization.blockingJSONObject(with: Data(text.utf8), options: [.fragmentsAllowed]) else {
             throw PageScriptError.noResult
         }
         return value
@@ -84,6 +87,9 @@ public final class FakeChromiumPage: PageChromiumPage {
         }
         return #"{"result":{}}"#
     }
+
+    /// Whether `window` is ``pageWindow``.
+    public func isPageWindow(_ window: NSWindow) -> Bool { window === pageWindow }
 
     /// Records `url` in ``loaded``.
     public func load(_ url: URL) {

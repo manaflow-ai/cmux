@@ -12,6 +12,8 @@ import java.util.Objects;
 
 /** Immutable surface-resize-failed event. Protocol v7; streams: subscribe. */
 public final class SurfaceResizeFailedEvent implements WireValue, DeltaStreamEvent, ProtocolEvent, SubscribeEvent {
+    /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+    private final Field<EventCause> cause;
     private final int cols;
     private final String error;
     private final UInt64 reservationId;
@@ -20,6 +22,7 @@ public final class SurfaceResizeFailedEvent implements WireValue, DeltaStreamEve
     private final UInt64 surface;
 
     private SurfaceResizeFailedEvent(Builder builder) {
+        this.cause = builder.cause;
         if (!builder.colsSet) throw new IllegalArgumentException("cols is required");
         this.cols = builder.cols;
         if (!builder.errorSet) throw new IllegalArgumentException("error is required");
@@ -36,6 +39,7 @@ public final class SurfaceResizeFailedEvent implements WireValue, DeltaStreamEve
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<EventCause> cause() { return cause; }
     public int cols() { return cols; }
     public String error() { return error; }
     public UInt64 reservationId() { return reservationId; }
@@ -48,6 +52,10 @@ public final class SurfaceResizeFailedEvent implements WireValue, DeltaStreamEve
         Map<String, Object> object = Wire.object(value, "SurfaceResizeFailedEvent");
         Builder builder = builder();
         ProtocolSupport.literal(Wire.required(object, "event"), "surface-resize-failed", "SurfaceResizeFailedEvent.event");
+        Object rawCause = Wire.optional(object, "cause");
+        if (!Wire.isMissing(rawCause)) {
+            builder.cause(EventCause.fromWire(rawCause));
+        }
         Object rawCols = Wire.required(object, "cols");
         builder.cols(Wire.uint16(rawCols, "SurfaceResizeFailedEvent.cols"));
         Object rawError = Wire.required(object, "error");
@@ -67,6 +75,7 @@ public final class SurfaceResizeFailedEvent implements WireValue, DeltaStreamEve
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         object.put("event", "surface-resize-failed");
+        Wire.put(object, "cause", cause);
         Wire.put(object, "cols", cols);
         Wire.put(object, "error", error);
         Wire.put(object, "reservation_id", reservationId);
@@ -79,16 +88,17 @@ public final class SurfaceResizeFailedEvent implements WireValue, DeltaStreamEve
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof SurfaceResizeFailedEvent that)) return false;
-        return Objects.equals(cols, that.cols) && Objects.equals(error, that.error) && Objects.equals(reservationId, that.reservationId) && Objects.equals(retryAfterMs, that.retryAfterMs) && Objects.equals(rows, that.rows) && Objects.equals(surface, that.surface);
+        return Objects.equals(cause, that.cause) && Objects.equals(cols, that.cols) && Objects.equals(error, that.error) && Objects.equals(reservationId, that.reservationId) && Objects.equals(retryAfterMs, that.retryAfterMs) && Objects.equals(rows, that.rows) && Objects.equals(surface, that.surface);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cols, error, reservationId, retryAfterMs, rows, surface); }
+    public int hashCode() { return Objects.hash(cause, cols, error, reservationId, retryAfterMs, rows, surface); }
 
     @Override
     public String toString() { return "SurfaceResizeFailedEvent" + toWire(); }
 
     public static final class Builder {
+        private Field<EventCause> cause = Field.omitted();
         private Integer cols;
         private boolean colsSet;
         private String error;
@@ -102,6 +112,10 @@ public final class SurfaceResizeFailedEvent implements WireValue, DeltaStreamEve
         private UInt64 surface;
         private boolean surfaceSet;
 
+        public Builder cause(EventCause value) {
+            this.cause = Field.of(value);
+            return this;
+        }
         public Builder cols(int value) {
             this.cols = value;
             this.colsSet = true;

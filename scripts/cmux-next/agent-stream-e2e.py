@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Streaming reply frames in the agent pane, page against page (R104).
 
-Launches one tagged build per page variant, each loading its agent page from a loopback page
-server (CMUX_NEXT_AGENT_PANE_DEV_URL), so every variant runs in the same app and the same load
-path. Opens an agent tab (Cmd-Shift-I), turns on the full render rate, and runs
+Launches one tagged build per page variant, each loading its agent page from the variant's
+directory on the page host (CMUX_NEXT_PAGE_ROOT_cmux_agent, Debug builds), so every variant runs in
+the same app and the same load path. Opens an agent tab (Cmd-Shift-I), turns on the full render rate, and runs
 `debug.agent_pane action=stream`: a scripted Markdown reply streamed into a long synthetic
 transcript, deltas on a timer as a socket sends them. Prints frames, dropped frames, frames
 detached from the bottom, per-frame content growth and per-frame layout/React time, per run and
@@ -67,25 +67,14 @@ def wait(predicate, seconds, step=0.25):
     return None
 
 
-def free_port():
-    probe = socket.socket()
-    probe.bind(("127.0.0.1", 0))
-    port = probe.getsockname()[1]
-    probe.close()
-    return port
-
-
 def run_variant(name, directory):
-    port = free_port()
-    server = subprocess.Popen([sys.executable, "-m", "http.server", str(port), "--bind", "127.0.0.1", "--directory", directory],
-                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if os.path.exists(SOCKET):
         os.unlink(SOCKET)
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY,
            "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1400,900",
-           "CMUX_NEXT_AGENT_PANE_DEV_URL": f"http://127.0.0.1:{port}/"}
+           "CMUX_NEXT_PAGE_ROOT_cmux_agent": os.path.abspath(directory)}
     log = open(os.path.join(SCRATCH, f"app-{name}.log"), "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     results = []
@@ -110,7 +99,6 @@ def run_variant(name, directory):
             app.wait(10)
         except subprocess.TimeoutExpired:
             app.kill()
-        server.terminate()
     return results
 
 

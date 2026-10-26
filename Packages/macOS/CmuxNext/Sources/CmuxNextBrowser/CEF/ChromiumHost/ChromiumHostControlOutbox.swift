@@ -25,6 +25,9 @@ nonisolated struct ChromiumHostControlOutbox: Sendable {
         var key: UInt64?
         /// False: replaced by a newer state op.
         var live = true
+        /// Payload bytes in shared regions among ``fds`` (task 020): they
+        /// count toward the quota, as inline bytes do.
+        var sharedBytes = 0
     }
 
     /// What one `sendmsg` did.
@@ -78,15 +81,15 @@ nonisolated struct ChromiumHostControlOutbox: Sendable {
 
     /// Queues a frame; true when it replaced a waiting entry with the same key.
     @discardableResult
-    mutating func push(_ frame: [UInt8], fds: [Int32], key: UInt64?) -> Bool {
+    mutating func push(_ frame: [UInt8], fds: [Int32], key: UInt64?, sharedBytes: Int = 0) -> Bool {
         var replaced = false
         if let key, let index = keyed.removeValue(forKey: key), entries[index].offset == 0 {
             drop(at: index)
             replaced = true
         }
-        bytes += frame.count
+        bytes += frame.count + sharedBytes
         messages += 1
-        entries.append(Entry(bytes: frame, fds: fds, key: key))
+        entries.append(Entry(bytes: frame, fds: fds, key: key, sharedBytes: sharedBytes))
         if let key { keyed[key] = entries.count - 1 }
         if dead > 64, dead > messages { compact() }
         return replaced
@@ -184,7 +187,7 @@ nonisolated struct ChromiumHostControlOutbox: Sendable {
 
     private mutating func popFront(_ index: Int) {
         if let key = entries[index].key, keyed[key] == index { keyed[key] = nil }
-        bytes -= entries[index].bytes.count
+        bytes -= entries[index].bytes.count + entries[index].sharedBytes
         messages -= 1
         entries[index] = Entry(bytes: [], fds: [])
         head += 1
@@ -193,7 +196,7 @@ nonisolated struct ChromiumHostControlOutbox: Sendable {
 
     private mutating func drop(at index: Int) {
         Self.closeFds(&entries[index])
-        bytes -= entries[index].bytes.count
+        bytes -= entries[index].bytes.count + entries[index].sharedBytes
         entries[index].bytes = []
         entries[index].live = false
         messages -= 1

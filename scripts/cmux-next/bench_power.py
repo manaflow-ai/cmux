@@ -146,7 +146,7 @@ def power_window(app_pid: int, bundle: str):
         kinds.update({cmd: kind for kind, cmd in found.values()})
         return {pid: cmd for pid, (_kind, cmd) in found.items()}
 
-    return power_attribution.PowerWindow(app_pid, pids, lambda cmd: kinds.get(cmd, "other"))
+    return power_attribution.PowerWindow(app_pid, pids, lambda cmd, _pid=None: kinds.get(cmd, "other"))
 
 
 def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None, sample_idle: bool = False,

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 5819519176d5752a978a367bdd398e2ab4431f89841efa45c8da605ce35ec617.
+// cmux-tui mux protocol 12, IR 88da3e89c750d2b4a0853254ffe2bcac9f4b5816960471f0c9951c6466bdd28b.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -34,6 +34,73 @@ pub struct ActivitySnapshot {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ActivitySubscribeResult {
     pub activity: ActivitySnapshot,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCLIIntent {
+    pub cli: String,
+    pub key: String,
+    pub machine: String,
+    pub profiles: Vec<String>,
+    pub root_key: String,
+    pub session: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCLIJobPath {
+    pub kind: String,
+    pub pane_id: String,
+    pub screen_id: String,
+    pub tab_id: String,
+    pub terminal_id: String,
+    pub workspace_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCLIJobReceipt {
+    pub cli: String,
+    pub machine: String,
+    pub path: AgentCLIJobPath,
+    pub replayed: bool,
+    pub revision: String,
+    pub session: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "state")]
+pub enum AgentCLIJobResolution {
+    #[serde(rename = "created")]
+    Created {
+        receipt: AgentCLIJobReceipt,
+    },
+    #[serde(rename = "failed")]
+    Failed {
+        code: String,
+    },
+    #[serde(rename = "indeterminate")]
+    Indeterminate,
+    #[serde(rename = "not_found")]
+    NotFound,
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "prepared")]
+    Prepared,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCLIStoredIntent {
+    pub cli: String,
+    pub key: String,
+    pub machine: String,
+    pub profiles: Vec<String>,
+    pub receipt: Nullable<AgentCLIJobReceipt>,
+    pub root_key: String,
+    pub session: String,
 }
 
 #[rustfmt::skip]
@@ -132,6 +199,125 @@ pub enum AgentState {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppGrant {
+    pub granted: bool,
+    pub scope: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppHiddenAccess {
+    pub automations: bool,
+    pub cli: bool,
+    pub mcp: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppLogLine {
+    pub level: String,
+    pub message: String,
+    pub ts_ms: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AppOrigin {
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "cli")]
+    Cli,
+    #[serde(rename = "mcp")]
+    Mcp,
+    #[serde(rename = "script")]
+    Script,
+    #[serde(rename = "remote")]
+    Remote,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppPaletteCommand {
+    pub op: String,
+    pub title: Nullable<JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub when: Optional<JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppRecord {
+    pub available: bool,
+    pub bundle_dir: Nullable<String>,
+    pub commands: Vec<AppPaletteCommand>,
+    pub enabled: bool,
+    pub grants: Vec<String>,
+    pub hidden: bool,
+    pub hidden_access: AppHiddenAccess,
+    pub hide_only: bool,
+    pub id: String,
+    pub installed: bool,
+    pub manifest: Nullable<JsonValue>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub revision: Option<u64>,
+    pub sandboxed: bool,
+    pub scope_classes: BTreeMap<String, AppScopeClass>,
+    pub source: AppSource,
+    pub tier: AppTier,
+    pub version: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AppScopeClass {
+    #[serde(rename = "standard")]
+    Standard,
+    #[serde(rename = "sensitive")]
+    Sensitive,
+    #[serde(rename = "restricted")]
+    Restricted,
+    #[serde(rename = "elevated")]
+    Elevated,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AppSource {
+    #[serde(rename = "default")]
+    Default,
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "bundled")]
+    Bundled,
+    #[serde(rename = "local")]
+    Local,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppTerminalLink {
+    pub app: String,
+    pub channel: String,
+    pub id: String,
+    pub socket: Nullable<String>,
+    pub target: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AppTier {
+    #[serde(rename = "first-party")]
+    FirstParty,
+    #[serde(rename = "verified")]
+    Verified,
+    #[serde(rename = "unverified")]
+    Unverified,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppliedPane {
     pub pane: Id,
     pub surface: Id,
@@ -142,6 +328,52 @@ pub struct AppliedPane {
 pub struct ApplyLayoutResult {
     pub panes: Vec<AppliedPane>,
     pub screen: Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsInventoryDemand {
+    pub enabled: bool,
+    pub sequence: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsLinkChangedResult {
+    pub servers: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsListResult {
+    pub apps: Vec<AppRecord>,
+    pub revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsLogsResult {
+    pub lines: Vec<AppLogLine>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsProviderRegisterResult {
+    pub families: Vec<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub inventory_demand: Option<AppsInventoryDemand>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsRunResult {
+    pub value: Nullable<JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsTerminalLinksResult {
+    pub links: Vec<AppTerminalLink>,
 }
 
 #[rustfmt::skip]
@@ -713,6 +945,15 @@ pub enum DetachReason {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct EmptyResult {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EventCause {
+    #[serde(rename = "frontend")]
+    Frontend,
+    #[serde(rename = "automation")]
+    Automation,
 }
 
 #[rustfmt::skip]

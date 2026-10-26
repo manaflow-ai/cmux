@@ -34,8 +34,10 @@ nonisolated final class ChromiumHostControlCore: Sendable {
         var coalesced: UInt64 = 0
         /// Read and not run on main yet; the drain takes it whole.
         var inbox: [ChromiumHostControlMessage] = []
+        /// The inbox's payload bytes.
+        var inboxBytes = 0
         var drainPosted = false
-        /// The inbox is at its limit: the reader does not read.
+        /// The inbox is at a limit: the reader does not read or decode.
         var paused = false
         /// The reader closed its descriptors: the end may be delivered.
         var readerDone = false
@@ -90,23 +92,36 @@ nonisolated final class ChromiumHostControlCore: Sendable {
 
     // MARK: Any thread
 
-    func send(_ frame: [UInt8], fds: [Int32], stateKey: UInt64?) -> Bool {
-        state.withLock { Self.sendLocked(&$0, frame, fds: fds, stateKey: stateKey) }
+    /// Queues `frame`; takes `payloads` (closed when nothing is sent).
+    func send(_ frame: [UInt8], fds: [Int32], payloads: ChromiumHostSharedPayloads, stateKey: UInt64?) -> Bool {
+        state.withLock { Self.sendLocked(&$0, frame, fds: fds, payloads: payloads, stateKey: stateKey) }
     }
 
     /// Sends `message` under a fresh token; `continuation` resumes with the
     /// reply (on the reader thread) or the end.
     func request(_ message: ChromiumHostControlMessage, _ continuation: CheckedContinuation<Reply, Never>) {
+        let shared = message.sharedFieldIndices()
+        // Made before the lock, as in ChromiumHostControlChannel.send.
+        guard let payloads = ChromiumHostSharedPayloads(message, sharing: shared) else {
+            continuation.resume(returning: .failure(.unsendable))
+            return
+        }
         let failure = state.withLock { state -> ChromiumHostControlError? in
-            if let reason = state.unwritable { return .hostGone(reason) }
+            if let reason = state.unwritable {
+                payloads.closeAll()
+                return .hostGone(reason)
+            }
             state.lastToken = state.lastToken == UInt32.max ? 1 : state.lastToken + 1
             let token = state.lastToken
             var tokened = message
             tokened.token = token
             tokened.isReply = false
-            guard let frame = tokened.encoded() else { return .unsendable }
+            guard let frame = tokened.encoded(sharing: shared) else {
+                payloads.closeAll()
+                return .unsendable
+            }
             state.replies[token] = continuation
-            guard Self.sendLocked(&state, frame, fds: message.fds, stateKey: nil) else {
+            guard Self.sendLocked(&state, frame, fds: message.fds, payloads: payloads, stateKey: nil) else {
                 state.replies[token] = nil
                 return state.unwritable.map { .hostGone($0) } ?? .unsendable
             }
@@ -141,13 +156,17 @@ nonisolated final class ChromiumHostControlCore: Sendable {
         var chunk = [UInt8](repeating: 0, count: 64 * 1024)
         var control = [UInt8](repeating: 0, count: ChromiumHostControlSocket.receiveControlSize)
         var fds: [Int32] = []
+        // Whole frames may wait in `buffer`: deliver stopped at an inbox limit.
+        var framesWait = false
         let (fd, wakeRead) = state.withLock { ($0.fd, $0.wakeRead) }
         let socket = ChromiumHostControlSocket(fd: fd)
         while let plan = state.withLock({ pollPlan($0) }) {
             // Paused with nothing to write: a hang-up must not spin the loop.
             var polls = [pollfd(fd: plan.events == 0 ? -1 : fd, events: plan.events, revents: 0),
                          pollfd(fd: wakeRead, events: Int16(POLLIN), revents: 0)]
-            let ready = Darwin.poll(&polls, 2, plan.timeoutMilliseconds)
+            // Whole frames wait in `buffer` and the inbox has room: take them
+            // now, whether or not the socket brings more.
+            let ready = Darwin.poll(&polls, 2, plan.wantsRead && framesWait ? 0 : plan.timeoutMilliseconds)
             if ready < 0, errno != EINTR {
                 end(.ioError)
                 break
@@ -160,10 +179,22 @@ nonisolated final class ChromiumHostControlCore: Sendable {
                     if state.unwritable == nil { _ = Self.flushLocked(&state) }
                 }
             }
-            if plan.wantsRead, got & Int32(POLLIN | POLLERR | POLLHUP) != 0,
-               let reason = readAvailable(socket, &buffer, &chunk, &control, &fds) {
-                end(reason)
-                break
+            if plan.wantsRead, framesWait {
+                // A drain made room: the frames read before the inbox filled go first.
+                let (failure, paused) = deliver(&buffer, &fds)
+                if let failure {
+                    end(failure)
+                    break
+                }
+                framesWait = paused
+            }
+            if plan.wantsRead, !framesWait, got & Int32(POLLIN | POLLERR | POLLHUP) != 0 {
+                let (failure, paused) = readAvailable(socket, &buffer, &chunk, &control, &fds)
+                if let failure {
+                    end(failure)
+                    break
+                }
+                framesWait = paused
             }
             state.withLock { state -> Void in
                 guard let since = state.overSince, ContinuousClock.now - since >= options.quotaCeiling else { return }
@@ -203,37 +234,40 @@ nonisolated final class ChromiumHostControlCore: Sendable {
                         timeoutMilliseconds: timeout)
     }
 
-    /// Reads what the socket holds; the reason when the connection must end.
-    /// Each pass reads once; the loop ends when the socket has nothing more (EAGAIN).
+    /// Reads what the socket holds: the reason when the connection must end,
+    /// and whether it stopped at an inbox limit with whole frames left in
+    /// `buffer`. Each pass reads once; the loop ends when the socket has
+    /// nothing more (EAGAIN).
     private func readAvailable(_ socket: ChromiumHostControlSocket, _ buffer: inout [UInt8], _ chunk: inout [UInt8],
-                               _ control: inout [UInt8], _ fds: inout [Int32]) -> ChromiumHostControlEnd? {
+                               _ control: inout [UInt8], _ fds: inout [Int32]) -> (ChromiumHostControlEnd?, paused: Bool) {
         var outcome = socket.receive(into: &chunk, control: &control, fds: &fds)
         while outcome != .wouldBlock {
             switch outcome {
             case .interrupted, .wouldBlock: break
-            case .endOfStream: return .peerClosed
-            case .truncated: return .malformed  // more descriptors than any frame may carry
-            case .failed: return .ioError
+            case .endOfStream: return (.peerClosed, false)
+            case .truncated: return (.malformed, false)  // more descriptors than any frame may carry
+            case .failed: return (.ioError, false)
             case .read(let count):
                 buffer.append(contentsOf: chunk[0..<count])
                 let (failure, paused) = deliver(&buffer, &fds)
-                if let failure { return failure }
-                if paused { return nil }
+                if failure != nil || paused { return (failure, paused) }
             }
             outcome = socket.receive(into: &chunk, control: &control, fds: &fds)
         }
-        return nil
+        return (nil, false)
     }
 
     /// Decodes the whole frames of `buffer`: a reply resumes its request
     /// here, every other message joins the inbox (one drain posted per batch).
+    /// Stops once the inbox is at a limit, before decoding (and copying the
+    /// regions of) the next frame; the rest waits in `buffer` and `fds`.
     private func deliver(_ buffer: inout [UInt8], _ fds: inout [Int32]) -> (ChromiumHostControlEnd?, paused: Bool) {
         var start = 0
         var postsDrain = false
         var paused = false
         var failure: ChromiumHostControlEnd?
         var decoded = ChromiumHostControlMessage.decode(buffer[start...], fds: &fds)
-        while failure == nil, case .frame(let message, let consumed) = decoded {
+        while case .frame(let message, let consumed) = decoded {
             start += consumed
             if message.isReply {
                 if let waiter = state.withLock({ $0.replies.removeValue(forKey: message.token) }) {
@@ -243,19 +277,25 @@ nonisolated final class ChromiumHostControlCore: Sendable {
                     failure = .malformed  // a reply to no request
                 }
             } else {
+                let bytes = message.payloadByteCount
                 let (claimed, full) = state.withLock { state -> (Bool, Bool) in
                     state.inbox.append(message)
-                    if state.inbox.count >= options.inboxLimit { state.paused = true }
+                    state.inboxBytes += bytes
+                    if state.inbox.count >= options.inboxLimit || state.inboxBytes >= options.inboxBytesLimit {
+                        state.paused = true
+                    }
                     return (Self.claimDrain(&state), state.paused)
                 }
                 postsDrain = postsDrain || claimed
-                paused = paused || full
+                paused = full
             }
+            guard failure == nil, !paused else { break }
             decoded = ChromiumHostControlMessage.decode(buffer[start...], fds: &fds)
         }
         if decoded == .malformed { failure = .malformed }
-        // Descriptors that came with a frame declaring fewer, which no later frame may take.
-        if failure == nil, !ChromiumHostControlMessage.pendingFdsFit(buffer[start...], pending: fds.count) {
+        // Descriptors that came with a frame declaring fewer, which no later frame may take
+        // (checked once every whole frame is taken).
+        if failure == nil, !paused, !ChromiumHostControlMessage.pendingFdsFit(buffer[start...], pending: fds.count) {
             failure = .malformed
         }
         buffer.removeFirst(start)
@@ -275,6 +315,7 @@ nonisolated final class ChromiumHostControlCore: Sendable {
         let (batch, end) = state.withLock { state -> ([ChromiumHostControlMessage], ChromiumHostControlEnd?) in
             let batch = state.inbox
             state.inbox = []
+            state.inboxBytes = 0
             state.drainPosted = false
             if state.paused {
                 state.paused = false
@@ -290,19 +331,27 @@ nonisolated final class ChromiumHostControlCore: Sendable {
 
     // MARK: Under the lock
 
-    private static func sendLocked(_ state: inout State, _ frame: [UInt8], fds: [Int32], stateKey: UInt64?) -> Bool {
-        guard state.unwritable == nil else { return false }
+    /// Takes `payloads`: the outbox owns them once queued, else they are closed here.
+    private static func sendLocked(_ state: inout State, _ frame: [UInt8], fds: [Int32],
+                                   payloads: ChromiumHostSharedPayloads, stateKey: UInt64?) -> Bool {
+        guard state.unwritable == nil else {
+            payloads.closeAll()
+            return false
+        }
         var copies: [Int32] = []
         for fd in fds {
             let copy = fcntl(fd, F_DUPFD_CLOEXEC, 0)
             guard copy >= 0 else {
                 for made in copies { Darwin.close(made) }
+                payloads.closeAll()
                 return false
             }
             copies.append(copy)
         }
         let wasEmpty = state.outbox.isEmpty
-        if state.outbox.push(frame, fds: copies, key: stateKey) { state.coalesced += 1 }
+        if state.outbox.push(frame, fds: copies + payloads.fds, key: stateKey, sharedBytes: payloads.byteCount) {
+            state.coalesced += 1
+        }
         if wasEmpty {
             guard flushLocked(&state) else { return false }
             if !state.outbox.isEmpty { wake(state.wakeWrite) }  // the reader now waits for the socket to take more

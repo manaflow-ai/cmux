@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 public import CmuxNextSettings
 public import Foundation
 public import Observation
@@ -303,7 +304,7 @@ public final class AgentPaneModel {
             AgentPaneLaunchTimings.shared.mark("agent_pane.newtab_context")
             // Only a page with no chat yet is a New Tab page; the handshake still sends the same context.
             guard sessionId == nil, let newTab, let data = try? JSONEncoder().encode(newTab),
-                  let object = try? JSONSerialization.jsonObject(with: data) else { return AgentPaneReply.success() }
+                  let object = try? JSONSerialization.blockingJSONObject(with: data) else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["newTab": object])
         // Another machine's chats are not this Mac's: only a local page's list warms the next page.
         case .newTabWarm(let warm): if !remoteChat { AgentPaneNewTab.warmed = warm }; return AgentPaneReply.success()

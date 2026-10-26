@@ -206,4 +206,34 @@ struct StoreWaitsTests {
         }
         #expect(store.pendingWaitCount == 0)
     }
+
+    /// The oracle's settle waits on the connection change while the daemon cannot answer its sync (p15-oracle-031).
+    @Test func aConnectionChangeResumesTheConnectionWait() async {
+        let store = Self.store()
+        let epoch = store.connectionEpoch
+        let waiting = Task { await store.waitConnectionChange(since: epoch) }
+        await Self.park(store, waits: 1)
+        #expect(store.pendingWaitCount == 1)
+        store.apply(.disconnected(reason: "daemon restart"))
+        #expect(await waiting.value)
+        #expect(store.pendingWaitCount == 0)
+        #expect(await store.waitConnectionChange(since: epoch), "an epoch that already moved waited")
+    }
+
+    @Test func cancellingTheConnectionWaitReturnsFalse() async {
+        let store = Self.store()
+        let waiting = Task { await store.waitConnectionChange(since: store.connectionEpoch) }
+        await Self.park(store, waits: 1)
+        #expect(store.pendingWaitCount == 1, "the connection wait was not parked before the cancel")
+        waiting.cancel()
+        #expect(await waiting.value == false)
+        for _ in 0..<100 where store.pendingWaitCount > 0 { await Task.yield() }
+        #expect(store.pendingWaitCount == 0)
+    }
+
+    /// The settle's pending list names an intent by its case, never by its payload (a tab or workspace name).
+    @Test func anIntentsCaseNameCarriesNoPayload() {
+        #expect(Intent.renameWorkspace(key: Self.key, name: "private").caseName == "renameWorkspace")
+        #expect(Intent.closeTabs(surfaces: []).caseName == "closeTabs")
+    }
 }

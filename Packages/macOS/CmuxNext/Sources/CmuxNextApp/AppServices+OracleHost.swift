@@ -1,4 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
+import CmuxNextBridge
 import CmuxNextControl
 import CmuxNextOracle
 
@@ -15,6 +16,14 @@ extension AppServices: OracleHost {
                 return OracleInvariantsFacet.Reading(violations: result.violations.map(\.invariant.rawValue),
                                                      windowInvariants: WindowInvariants.problems(windows), checks: monitor.checks)
             },
+            // Every workspace each window shows, the focused one and the ones `sidebar.multiView` puts beside it.
+            OracleLayoutFacet { [weak self] () throws(OracleFacetError) -> [OracleLayoutFacet.Shown] in
+                guard let self else { throw OracleFacetError("the app services are gone") }
+                return windows.controllers.flatMap(\.onScreenContents).map { content in
+                    OracleLayoutFacet.Shown(workspace: content.workspace.resourceID?.rawValue ?? content.workspace.id, model: content.layoutModel)
+                }
+            },
+            OracleTabsFacet { [weak self] in self?.oracleTabPanes() ?? [] },
         ])
     }
 

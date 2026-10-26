@@ -1,3 +1,5 @@
+import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 
 /// Automation cookies (`browser.page.cookies.*`) in a CEF tab's profile,
@@ -9,12 +11,27 @@ import Foundation
 struct CEFCookieStore {
     let tab: CEFTab
 
-    func cookies() async throws -> [BrowserCookie] {
+    /// Every cookie of the tab's profile. The `Network.getAllCookies` reply, a profile's whole jar (often above the
+    /// main thread's JSON gate), is parsed on `work`'s `.cpu` lane at the caller's priority; the main actor gets the
+    /// values. Chrome parses large JSON off its UI thread too (services/data_decoder/public/cpp/data_decoder.h).
+    ///
+    /// - Parameter work: The app's lanes.
+    /// - Returns: The cookies.
+    /// - Throws: ``BrowserTabError/closed`` without a browser, `unsupported` when the reply has no cookie list, the
+    ///   DevTools error, or `CancellationError` when the lanes shut down.
+    func cookies(on work: BackgroundWork) async throws -> [BrowserCookie] {
         guard let browserID = tab.browserID, !tab.isClosed else { throw BrowserTabError.closed }
         let json = try await tab.runtime.devTools(browserID, method: "Network.getAllCookies")
-        guard let data = json.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let list = object["cookies"] as? [[String: Any]] else { throw BrowserTabError.unsupported("Network.getAllCookies") }
+        let parsed = try await work.run(WorkPriority(Task.currentPriority), mayBlock: .cpu) { Self.parseCookies(json) }
+        guard let cookies = parsed else { throw BrowserTabError.unsupported("Network.getAllCookies") }
+        return cookies
+    }
+
+    /// The cookies of a `Network.getAllCookies` reply, parsed on the calling thread. Nil when the reply has no
+    /// cookie list.
+    nonisolated static func parseCookies(_ json: String) -> [BrowserCookie]? {
+        guard let object = try? JSONSerialization.blockingJSONObject(with: Data(json.utf8)) as? [String: Any],
+              let list = object["cookies"] as? [[String: Any]] else { return nil }
         return list.compactMap { entry in
             guard let name = entry["name"] as? String, let domain = entry["domain"] as? String else { return nil }
             let session = entry["session"] as? Bool ?? true

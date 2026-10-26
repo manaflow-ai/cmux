@@ -22,17 +22,23 @@
 //!   `TRACE_EVENT*` over [`write`](fn@write), one `static` [`TraceSite`] per call site, names from the shared
 //!   catalog ([`names::CATALOG`]); [`scope_stack`] is the calling thread's open scopes.
 //!
+//! - [`export`](fn@export): decoded rings and Chromium's JSON trace to one native Perfetto
+//!   protobuf trace (task 022), for `cmux trace record`.
+//!
 //! std and libc only: the holder links it.
 
 pub mod clock;
 mod control;
 mod copy;
 mod decode;
+mod export;
 mod identity;
+mod json;
 mod layout;
 mod macros;
 mod map;
 pub mod names;
+mod proto;
 mod ring;
 mod terminal;
 mod tracer;
@@ -45,7 +51,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 pub use control::{ControlOp, apply as apply_control};
 pub use decode::{DecodeError, Decoded, DecodedRecord, Header, NameEntry, ThreadEntry, decode};
+pub use export::{
+    ChromiumInput, ExportError, ExportInput, ExportStats, Machine, RemoteMachine, RingInput, export,
+};
 pub use identity::{ProcessIdentity, ThreadIdentity, build_uuid, build_version};
+pub use json::JsonError;
 pub use layout::{
     CHUNK_BYTES, CatalogName, FLAG_ESTIMATE, FLAG_ID, HEADER_BYTES, NAME_TEXT_BYTES, NameKind,
     PAGE_BYTES, Phase, RECORDS_PER_CHUNK, RingKind, RingLayout, RingSizes, THREAD_NONE,

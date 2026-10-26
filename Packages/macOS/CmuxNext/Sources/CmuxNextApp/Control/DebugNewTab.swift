@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextResources
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -143,7 +144,7 @@ enum DebugNewTab {
                                     open_tabs: openTabs });
             """
         guard let text = try? await view.callPageScript(script) as? String,
-              let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)), let value = JSONValue(foundation: object) else {
+              let object = try? JSONSerialization.blockingJSONObject(with: Data(text.utf8)), let value = JSONValue(foundation: object) else {
             return .object(["error": .string("the page returned no JSON")])
         }
         return value

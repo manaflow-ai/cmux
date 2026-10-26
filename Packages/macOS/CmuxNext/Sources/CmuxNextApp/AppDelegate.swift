@@ -63,8 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The one input tap (p04-input.md 3 (A)), made in `main`: pending input, control and services
     /// observe it; `main` installs it on the application before `run()`.
     let inputTap: InputEventTap
-    private let mouseSideButtons = MouseSideButtons()
-    private var cloudContext: Task<Void, Never>?
+    private let mouseSideButtons: MouseSideButtons
     /// OSC 52 clipboard reads on the local daemon (`TerminalClipboardReadService`).
     var daemonPrompts: DaemonPrompts?
     /// The binding table's Ghostty keybinds, kept current (GHOSTTY-CONFIG).
@@ -93,6 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startupReferences = StartupReferences(startup: startup, reveal: reveal, paneRefs: paneRefs)
         (self.mainWork, self.inputTap) = (order.mainWork, inputTap)
         control = AppControl(mainWork: order.mainWork, input: inputTap)
+        mouseSideButtons = MouseSideButtons(input: inputTap)
         super.init()
     }
 
@@ -192,14 +192,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.menu")
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         WindowActivation.activateApp()
-        launchSettle.install(daemon: services.daemon)
+        launchSettle.install(daemon: services.daemon, warmup: services.agentPageWarmup)
         daemonPrompts = DaemonPrompts.start(services)
         services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)
         FeaturePolicyEnforcer(services: services).start()
-        cloudContext = services.startCloud()
-        order.startup.post(.afterFirstFrame, "AppServices.startNonPaintServices", on: .main) { [weak services] in services?.startNonPaintServices() }
+        services.postCloudStart(on: order.startup)  // no Cloud restore or connect before the first frame (p08-startup 020)
+        services.postNonPaintServices(on: order.startup)
         // Before the first window opens (restoreWhenLoaded opens one at once).
         services.windows.onPresent = { [weak services] controller in
             services?.crashRecovery.showRestartNotice(on: controller.window)
@@ -266,7 +266,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.updateFeedObservation = UpdateFeedPosting.follow(services)
         // The runtime pack check wires the engine reason at once; its download waits until asked.
         services.startChromiumRuntime()
-        order.startup.post(.afterFirstFrame, "AppServices.startLaterTabWarmups", on: .main) { [weak services] in services?.startLaterTabWarmups() }
+        services.postLaterTabWarmups(on: order.startup)
         // Other apps' sign-ins, before any request a launch by one delivers.
         // The engines' incognito profiles and the Chromium engine's sign-in tabs (AppServices).
         let webAuthWindows = WebAuthSessionWindows(host: services, logger: services.daemon.logger,
@@ -304,7 +304,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
         settings.applyManagedFeaturesNow()
-        ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloud.auth).start()
+        ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloudAuth).start()
         self.settings = settings
         services.settings = settings
         UserOnlySettingConfirmation.install(settings, services: services)
@@ -348,7 +348,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
             for await github in ObservationStream({ settings.snapshot.feedGitHub }) {
-                services?.feed.configureGitHub(enabled: github.enabled, pollIntervalSeconds: github.pollIntervalSeconds)
+                services?.configureFeedGitHub(enabled: github.enabled, pollIntervalSeconds: github.pollIntervalSeconds)  // builds no feed
             }
         }
         // macOS posts no notification when an MDM profile changes; activation
@@ -500,10 +500,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// then `ExternalOpenRouter`.
     private func routeOpenedURL(_ url: URL) {
         guard let services else { return }
-        let auth = services.cloud.auth
+        let auth = services.cloudAuth
         let destination = OpenedURLRouting.route(url, isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) })
         guard destination == .auth else { return }
-        Task { _ = await auth.handleCallback(url) }
+        Task { _ = await auth.handleCallback(url) }  // it starts Cloud first (`CloudAuth.onSignIn`)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -517,9 +517,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         BrowserDesignModeController.tempFiles.removeAll()
         services?.home.applicationWillTerminate()
         services?.vscodeServeWeb.terminateForAppExit()
-        cloudContext?.cancel()
-        services?.cloud.stop()
-        for session in services?.machines.cloud ?? [] { session.disconnect() }
+        services?.stopCloud()
         services?.ssh.stop()
         services?.serverReach.stop()
         control.stop()

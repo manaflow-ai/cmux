@@ -1,4 +1,6 @@
+import CmuxNextAgentPane
 import CmuxNextCompat
+import CmuxNextInput
 import CmuxNextPages
 
 /// A memory pressure source that never reports pressure: the agent pane tests do not drive the
@@ -16,4 +18,9 @@ extension WebUIHost {
         WebUIHost(chromium: chromium, openPanel: nil,
                   memoryPressure: MemoryPressureEvents(source: QuietMemoryPressureSource()))
     }
+}
+
+extension AgentPaneGestureRouter {
+    /// A gesture router over a fresh input tap, for a test that never dispatches through one.
+    static func testing() -> AgentPaneGestureRouter { AgentPaneGestureRouter(input: InputEventTap()) }
 }

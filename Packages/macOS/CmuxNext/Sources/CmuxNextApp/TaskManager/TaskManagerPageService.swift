@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextFeatures
+import CmuxNextHibernation
 import CmuxNextResources
 import Darwin
 import SwiftUI
@@ -102,17 +103,80 @@ final class TaskManagerPageService: InternalPageProvider {
                                            invocation: ActionInvocation(arguments: ["process": .string(key.description)]))
         })
         self.model = model
+        let table = tables[key] ?? TaskManagerTableState()
+        tables[key] = table
+        liveViews.insert(key)
         model.start()
-        return NSHostingView(rootView: TaskManagerView(model: model))
+        return NSHostingView(rootView: TaskManagerView(model: model, table: table))
     }
 
     func tabClosed(_ key: String) {
-        guard services?.pageIsOpen(.taskManager) != true, let model else { return }
+        tables.removeValue(forKey: key)
+        liveViews.remove(key)
+        dropModelWhenUnused()
+    }
+
+    /// No view shows the model: sampling stops (the next view samples again). A discarded tab has
+    /// no view, so it keeps no sampling running.
+    private func dropModelWhenUnused() {
+        guard liveViews.isEmpty, let model else { return }
         model.stop()
         self.model = nil
         #if DEBUG || CMUX_BENCH_HOOKS
         captureFixture = nil
         #endif
+    }
+
+    /// The tabs whose view is made and not discarded or closed.
+    private(set) var liveViews: Set<String> = []
+    /// Each tab's table (its sort and the row it scrolls back to), kept while the tab is open.
+    private(set) var tables: [String: TaskManagerTableState] = [:]
+
+    // MARK: Discard (`memoryDiscardInternalPages`)
+
+    /// One minute hidden: a view samples every cmux process once a second while it exists.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .afterHidden(.seconds(60)) }
+
+    /// The tab's sort, and the row at the top of its table.
+    func saveViewState(for key: String, content: NSView) async -> ContentViewState {
+        guard let table = tables[key] else { return ContentViewState() }
+        var state = ContentViewState(values: ["sort": table.sort])
+        let rows = model.map { table.rows(of: $0.snapshot) } ?? []
+        state.values["topRow"] = Self.topRow(in: content, rows: rows)?.description
+        return state
+    }
+
+    /// Sorts as before and scrolls the saved top row back to the top once a sample lists it.
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {
+        guard let table = tables[key] else { return }
+        table.sortOrder = TaskManagerSort.order(state.values["sort"] ?? table.sort)
+        table.scrollTarget = state.values["topRow"].flatMap(ProcessKey.init(parsing:))
+    }
+
+    /// The tab's view went; its table stays for the next view. The last view gone stops sampling.
+    func viewDiscarded(_ key: String) {
+        liveViews.remove(key)
+        dropModelWhenUnused()
+    }
+
+    /// The row of `rows` (in the table's order) drawn at the top of the table in `content`; nil
+    /// with no table or no row there.
+    static func topRow(in content: NSView, rows: [TaskManagerRow]) -> ProcessKey? {
+        var queue: [NSView] = [content]
+        var index = 0
+        while index < queue.count {
+            let next = queue[index]
+            index += 1
+            if let scroll = next as? NSScrollView, let tableView = scroll.documentView as? NSTableView {
+                // The clip's bounds start above the document by its top inset (the header) at the top.
+                let clip = scroll.contentView
+                let top = NSPoint(x: clip.bounds.minX, y: max(0, clip.bounds.minY + clip.contentInsets.top))
+                let row = tableView.row(at: top)
+                return rows.indices.contains(row) ? rows[row].id : nil
+            }
+            queue.append(contentsOf: next.subviews)
+        }
+        return nil
     }
 
     /// What the next page samples, and whether it lists the discarded items: the app's source and

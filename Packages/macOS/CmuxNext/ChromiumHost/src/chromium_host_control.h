@@ -9,10 +9,30 @@
 // A frame, little-endian:
 //   u32 len | u16 op | u16 flags | u32 token | len bytes of TLV fields
 //   field:  u8 type | u8 tag | u16 length | length bytes
-//   types:  1 i32 (4 bytes), 2 i64 (8), 3 f64 (8), 4 bytes, 5 str (UTF-8)
+//   types:  1 i32 (4 bytes), 2 i64 (8), 3 f64 (8), 4 bytes, 5 str (UTF-8),
+//           6 shared bytes, 7 shared str (8: the u64 byte count of a payload
+//           in a shared memory descriptor; wire only, see below)
 //   flags:  bits 0-2 the number of descriptors (SCM_RIGHTS) that came with
 //           the frame's first byte, at most kMaxFds; bit 3 the frame answers
 //           `token`; other bits are 0.
+//
+// Large payloads (task 020), as mojo_base::BigBuffer
+// (mojo/public/cpp/base/big_buffer.h) moves bytes over its 64 KiB inline
+// limit into a shared memory region: Channel::Send moves every bytes or str
+// field over 65,535 bytes, then the largest ones until the body fits
+// kMaxBody, into one sealed region each (CreateSharedRegion) and writes a
+// shared field in its place. A frame's last descriptors are its shared
+// fields' regions, in field order. The receiver maps each, copies it into
+// the field, closes it and delivers an ordinary bytes or str field, so a
+// socket frame is never over kHeaderSize + kMaxBody and callers never see
+// a shared field. A region that is not sealed (Linux: no write, grow and
+// shrink seals; macOS: not a read-only shm descriptor), is smaller than its
+// count, or counts of 0 or over kMaxSharedBytes together, is malformed. The
+// seal (on macOS: the descriptor is a POSIX shm object, which xnu sizes once;
+// a regular file is refused) keeps a region from shrinking under the
+// receiver's mapping (a macOS shm descriptor has no read). Chrome on macOS
+// passes a Mach memory entry (base/memory/platform_shared_memory_region_apple.cc);
+// this channel is a Unix socket, so it passes the shm descriptor.
 //
 // Bounds, after Chrome's: a malformed frame (a length over kMaxBody, an
 // unknown flag or type, a field past the body, bad UTF-8, a descriptor count
@@ -49,12 +69,20 @@ inline constexpr size_t kFieldHeaderSize = 4;
 // Larger payloads go as a sealed shm descriptor (task 020).
 inline constexpr uint32_t kMaxBody = 64 * 1024;
 inline constexpr size_t kMaxFds = 4;
+// The most bytes of one message's shared fields together:
+// IPC::Channel::kMaximumMessageSize (ipc/ipc_channel.h), which caps a whole
+// Chrome IPC message.
+inline constexpr uint64_t kMaxSharedBytes = 128 * 1024 * 1024;
 inline constexpr size_t kQuotaBytes = 256 * 1024;
 inline constexpr size_t kQuotaMessages = 4096;
 inline constexpr int kQuotaCeilingSeconds = 60;
 // Messages read and not yet run on the UI thread: past it the reader stops
 // reading until the UI thread drains (the peer's outbox then holds them).
 inline constexpr size_t kInboxLimit = 4096;
+// Payload bytes (bytes and str fields) read and not yet run on the UI thread:
+// past it the reader stops too, so large shared payloads cannot pile up on the
+// heap; the inbox holds at most this plus one message.
+inline constexpr size_t kInboxBytesLimit = 2 * kMaxSharedBytes;
 // Waiting frames one sendmsg writes (Outbox::Gather).
 inline constexpr size_t kMaxBatch = 64;
 
@@ -96,11 +124,28 @@ struct Message {
 // than kMaxFds descriptors, invalid UTF-8 in a str field.
 bool Encode(const Message& message, std::vector<uint8_t>* out);
 
+// The bytes and str fields of `message` that go in shared memory so its frame
+// fits (indices, ascending): every one over 65,535 bytes, then the largest
+// until the body is at most kMaxBody. Empty when it fits as it is.
+std::vector<size_t> SharedFields(const Message& message);
+
+// Encode with the fields at `shared` (from SharedFields) written as shared
+// fields; the frame declares message.fds plus one descriptor per shared field.
+bool EncodeShared(const Message& message, const std::vector<size_t>& shared, std::vector<uint8_t>* out);
+
+// A sealed region holding `data` (Linux: a memfd with its write, grow, shrink
+// and seal seals; elsewhere: a read-only descriptor of a shm_open object
+// unlinked at once, its writable one closed; macOS sizes a POSIX shm object
+// once, so it never shrinks under a reader), close-on-exec, or -1.
+int CreateSharedRegion(const std::string& data);
+
 enum class Parse { kFrame, kNeedMore, kMalformed };
 
 // Decodes the first frame of `data`. `fds` holds the descriptors received and
 // not given to a frame yet, oldest first; a frame takes its count from the
 // front. kMalformed as soon as the header is bad, before its body arrives.
+// Shared fields are read here: their regions are copied into the fields and
+// closed, and `out->fds` holds only the frame's other descriptors.
 Parse Decode(const uint8_t* data, size_t size, std::deque<int>* fds, Message* out, size_t* consumed);
 
 bool IsValidUtf8(const std::string& text);
@@ -131,6 +176,10 @@ class Outbox {
     size_t offset = 0;  // bytes already written; fds go with byte 0
     std::optional<uint64_t> key;
     bool live = true;  // false: replaced by a newer state op
+    // Payload bytes in shared regions among `fds`: they count toward the
+    // quota, so a peer that stops reading reaches the ceiling as with
+    // inline bytes.
+    size_t shared_bytes = 0;
   };
 
   Outbox(size_t quota_bytes, size_t quota_messages);
@@ -140,7 +189,7 @@ class Outbox {
 
   // True when it replaced a waiting entry with the same key (a partly
   // written one is never replaced).
-  bool Push(std::vector<uint8_t> bytes, std::vector<int> fds, std::optional<uint64_t> key);
+  bool Push(std::vector<uint8_t> bytes, std::vector<int> fds, std::optional<uint64_t> key, size_t shared_bytes = 0);
   // The oldest live entry, nullptr when empty.
   Entry* Front();
   // The next batch, at most `max` buffers: the front entry's unwritten bytes,
@@ -207,6 +256,7 @@ class Channel {
     size_t quota_messages = kQuotaMessages;
     std::chrono::milliseconds quota_ceiling = std::chrono::seconds(kQuotaCeilingSeconds);
     size_t inbox_limit = kInboxLimit;
+    size_t inbox_bytes_limit = kInboxBytesLimit;
   };
 
   // Takes `fd` (a connected stream socket). `post` runs a task on the UI
@@ -222,9 +272,10 @@ class Channel {
   Channel& operator=(const Channel&) = delete;
 
   // Queues `message` (its descriptors duplicated) and writes it when the
-  // socket takes it. `state_key`: a waiting message with the same key is
-  // replaced. False when the channel has ended or the message breaks a bound
-  // (then nothing is sent).
+  // socket takes it; fields too large for a frame go in shared memory
+  // (SharedFields), created on the calling thread. `state_key`: a waiting
+  // message with the same key is replaced. False when the channel has ended
+  // or the message breaks a bound (then nothing is sent).
   bool Send(const Message& message, std::optional<uint64_t> state_key = std::nullopt);
   void Close();
   Stats stats() const;

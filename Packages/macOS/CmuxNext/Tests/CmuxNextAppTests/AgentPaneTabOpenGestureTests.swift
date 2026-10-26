@@ -132,14 +132,10 @@ struct AgentPaneTabOpenGestureTests {
     /// replays them past the pane's gesture monitor. The replay judges the person's held Return in
     /// the pane, so the line it submits still runs; a key another process posted grants nothing.
     @Test func aHeldReturnReplayedIntoThePageIsThePersonsGesture() throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "held-return-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appending(path: "index.html")
-        try Data("<html><body><input></body></html>".utf8).write(to: file)
+        let file = try #require(AgentPageAppTestRoot.page)
         let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
         model.becomeNewTab(AgentPaneNewTab(kind: .terminal))
-        let view = try #require(AgentPaneView(model: model, source: .bundled(file)))
+        let view = try #require(AgentPaneView(model: model, source: .bundled(file), webUI: .agentTabsTestHost(), gestures: .testing()))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

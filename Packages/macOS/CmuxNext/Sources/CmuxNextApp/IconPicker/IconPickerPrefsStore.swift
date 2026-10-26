@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSettings
 import Foundation
@@ -70,12 +71,12 @@ extension IconPickerPrefsStore {
     fileprivate nonisolated static func wire(_ value: PageJSON) -> WireJSON? {
         guard JSONSerialization.isValidJSONObject(value.foundationObject),
               let data = try? JSONSerialization.data(withJSONObject: value.foundationObject) else { return nil }
-        return try? JSONDecoder().decode(WireJSON.self, from: data)
+        return try? JSONDecoder().blockingDecode(WireJSON.self, from: data)
     }
 
     fileprivate nonisolated static func page(_ value: WireJSON) -> PageJSON? {
         guard let data = try? JSONEncoder().encode(value),
-              let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return nil }
+              let object = try? JSONSerialization.blockingJSONObject(with: data, options: [.fragmentsAllowed]) else { return nil }
         return PageJSON(foundation: object)
     }
 }

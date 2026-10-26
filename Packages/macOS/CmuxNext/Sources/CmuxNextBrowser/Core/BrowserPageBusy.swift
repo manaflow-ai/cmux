@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// What a page does that no element shows (cx-d0d.9): Web Audio and media capture, and form
@@ -394,7 +395,7 @@ extension BrowserTab {
     public func pageBusy() async throws -> BrowserPageBusy {
         let value = try await evaluate(BrowserPageBusy.probeScript, world: .page, gesture: .cmux)
         guard case .string(let json) = value, let data = json.data(using: .utf8),
-              let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+              let object = try JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else {
             throw CocoaError(.coderReadCorrupt)
         }
         return BrowserPageBusy(audio: object["audio"] as? Bool ?? false, capturing: object["capturing"] as? Bool ?? false,
