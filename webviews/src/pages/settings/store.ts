@@ -811,6 +811,15 @@ export class SettingsStore {
     void this.request("cmux.settings.preview.end", { key });
   }
 
+  /**
+   * Tells the host whether the form `form` holds typed values it has not saved. The host keeps a
+   * Settings tab with such a form when it would otherwise let a hidden tab's page go (Chrome's
+   * kUserEdits), since a page built again would lose them.
+   */
+  setUnsavedForm(form: string, unsaved: boolean): void {
+    void this.request("cmux.settings.editing", { form, editing: unsaved });
+  }
+
   /** Opens cmux.json in the editor (the palette's action). The Swift Settings window is gone (R82). */
   openNative(_target: NativeTarget): void {
     void this.request("cmux.app.action.run", { action: "palette.openCmuxSettingsFile" });

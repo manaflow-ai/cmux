@@ -110,12 +110,13 @@ struct PageFactory {
 
     /// The React Settings page (R82) on `route` (`#/settings/<section>?focus=<key>`). Its namespace
     /// goes to `SettingsPageProvider` (interim owner; the daemon relay once the config actor
-    /// serves `settings.*`), `cmux.app.` to the native ops.
-    func settingsPage(route: String?) -> PageWebView? {
+    /// serves `settings.*`), `cmux.app.` to the native ops. `edits` follows the page's unsaved forms.
+    func settingsPage(route: String?, edits: SettingsPageProvider.Edits = SettingsPageProvider.Edits()) -> PageWebView? {
         guard let settings = services.settings else { return nil }
         let provider = SettingsPageProvider(settings: settings, domains: { [weak services] in
             ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": SettingsPageDomains.sounds, "recent_fonts": services?.settings?.recentFonts.families ?? []]
         }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null })
+        provider.edits = edits
         provider.removeDevice = { [weak services] id in await services?.devices.remove(id: id) }
         provider.setDeviceFullAccess = { [weak services] id, on in await services?.devices.setFullAccess(id: id, on: on) }
         let accounts = services.accounts.model
