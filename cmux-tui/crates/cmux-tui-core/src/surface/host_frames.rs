@@ -93,7 +93,10 @@ impl EarlyResponses {
     /// Whether the reader thread resolves responses of `kind`.
     pub(super) fn resolves(self, kind: MessageKind) -> bool {
         match kind {
-            MessageKind::InputAck | MessageKind::TerminateAck | MessageKind::Capability => true,
+            MessageKind::InputAck
+            | MessageKind::TerminateAck
+            | MessageKind::Capability
+            | MessageKind::TraceControlAck => true,
             MessageKind::KittyGraphicsLimitsAck => self.smart_renderer,
             _ => false,
         }
@@ -240,6 +243,7 @@ pub(super) fn is_targeted_host_response(kind: MessageKind) -> bool {
             | MessageKind::TerminateAck
             | MessageKind::DetachAck
             | MessageKind::InputAck
+            | MessageKind::TraceControlAck
     )
 }
 
@@ -282,11 +286,14 @@ fn read_stream(
             break;
         }
         if resolves_early(&frame, protocol_version, early) {
-            // A Kitty limits acknowledgement that arrives after its
+            // A Kitty limits or trace acknowledgement that arrives after its
             // requester's deadline is advisory: the requester already
-            // degraded graphics and must not tear down a healthy connection.
-            if frame.kind == MessageKind::KittyGraphicsLimitsAck
-                && !control_responses.has_waiter(frame.request_id)
+            // degraded graphics or reported the host unanswered, and must not
+            // tear down a healthy connection.
+            if matches!(
+                frame.kind,
+                MessageKind::KittyGraphicsLimitsAck | MessageKind::TraceControlAck
+            ) && !control_responses.has_waiter(frame.request_id)
             {
                 continue;
             }

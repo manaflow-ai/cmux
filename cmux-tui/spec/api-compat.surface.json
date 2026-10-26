@@ -19915,6 +19915,41 @@
         "ty": "string",
         "required": true
       },
+      "/data/slow_requests/recent/*/stack": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/slow_requests/recent/*/stack/*": {
+        "ty": "object"
+      },
+      "/data/slow_requests/recent/*/stack/*/image": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/slow_requests/recent/*/stack/*/image_id": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/slow_requests/recent/*/stack/*/offset": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/slow_requests/recent/*/stack/*/symbol": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/slow_requests/recent/*/stack_error": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/slow_requests/recent/*/stack_truncated": {
+        "ty": "boolean",
+        "required": true
+      },
       "/data/slow_requests/recent/*/started_ms": {
         "ty": "uint64",
         "required": true

@@ -1618,7 +1618,19 @@ class ServerStatsSlowRequest:
     busy_ms: int
     duration_ms: Union[int, None]
     method: str
+    stack: List[ServerStatsSlowRequestFrame]
+    stack_error: Union[str, None]
+    stack_truncated: bool
     started_ms: int
+
+
+@dataclass(frozen=True)
+class ServerStatsSlowRequestFrame:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsSlowRequestFrame'
+    image: Union[str, None]
+    image_id: Union[str, None]
+    offset: int
+    symbol: Union[str, None]
 
 
 @dataclass(frozen=True)
@@ -4831,6 +4843,26 @@ class TerminalResumeCommandRequest:
 
 
 @dataclass(frozen=True)
+class TraceStartRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/trace-start/request'
+    categories: Union[List[str], None, MissingType] = field(default=MISSING)
+    keys: Union[bool, MissingType] = field(default=MISSING)
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
+class TraceStatusRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/trace-status/request'
+    pass
+
+
+@dataclass(frozen=True)
+class TraceStopRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/trace-stop/request'
+    pass
+
+
+@dataclass(frozen=True)
 class UndoLayoutRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/undo-layout/request'
     pane: Id
@@ -6179,6 +6211,7 @@ __all__ = [
     'ServerStatsResourceProjection',
     'ServerStatsResult',
     'ServerStatsSlowRequest',
+    'ServerStatsSlowRequestFrame',
     'ServerStatsSlowRequests',
     'ServerStatsWritePath',
     'SetCellPixelsResult',
@@ -6550,6 +6583,9 @@ __all__ = [
     'TerminalReadRangeRequest',
     'TerminalResourcesRequest',
     'TerminalResumeCommandRequest',
+    'TraceStartRequest',
+    'TraceStatusRequest',
+    'TraceStopRequest',
     'UndoLayoutRequest',
     'UngroupScreenGroupRequest',
     'UngroupTabGroupRequest',

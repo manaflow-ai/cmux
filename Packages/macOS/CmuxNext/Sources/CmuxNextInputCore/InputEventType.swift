@@ -7,6 +7,8 @@ public enum InputEventType: UInt8, Hashable, Sendable {
     case leftMouseDragged, rightMouseDragged, otherMouseDragged
     case scrollWheel
     case magnify, rotate, swipe, smartMagnify, pressure
+    /// The pointer crossed a tracking area's edge (class ``InputEventClass/tracking``).
+    case mouseEntered, mouseExited
 
     /// The class whose subscribers get this event.
     public var eventClass: InputEventClass {
@@ -18,6 +20,7 @@ public enum InputEventType: UInt8, Hashable, Sendable {
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged: .drag
         case .scrollWheel: .scroll
         case .magnify, .rotate, .swipe, .smartMagnify, .pressure: .gesture
+        case .mouseEntered, .mouseExited: .tracking
         }
     }
 

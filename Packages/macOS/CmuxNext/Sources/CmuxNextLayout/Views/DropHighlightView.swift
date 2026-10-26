@@ -133,6 +133,10 @@ final class DropHighlightView: NSView {
     }
 
     var isRefused: Bool { refused }
+    /// A spring of the highlight has not reached its target (``step(_:)`` still moves it).
+    var isMoving: Bool {
+        [targetSpring, regionSpring].contains { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }
+    }
     var labelText: String { label }
 
     func hide(animated: Bool) -> Bool {

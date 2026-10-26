@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "e02313f2112ebdb438482aac92ad4c5097bcf1fdc45c4e910c3821f2bdc69333";
+inline constexpr std::string_view kProtocolIrSha256 = "5819519176d5752a978a367bdd398e2ab4431f89841efa45c8da605ce35ec617";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -168,6 +168,7 @@ struct ServerStatsRequestPathSite;
 struct ServerStatsResourceProjection;
 struct ServerStatsResult;
 struct ServerStatsSlowRequest;
+struct ServerStatsSlowRequestFrame;
 struct ServerStatsSlowRequests;
 struct ServerStatsWritePath;
 enum class ServerStatsWriterPhase;
@@ -544,6 +545,12 @@ struct TerminalPortsRequest;
 struct TerminalReadRangeRequest;
 struct TerminalResourcesRequest;
 struct TerminalResumeCommandRequest;
+struct TraceStartRequest;
+struct TraceStartResult;
+struct TraceStatusRequest;
+struct TraceStatusResult;
+struct TraceStopRequest;
+struct TraceStopResult;
 struct UndoLayoutRequest;
 struct UngroupScreenGroupRequest;
 struct UngroupTabGroupRequest;
@@ -4940,11 +4947,22 @@ struct ServerStatsResourceProjection {
     friend bool operator==(const ServerStatsResourceProjection&, const ServerStatsResourceProjection&) = default;
 };
 
+struct ServerStatsSlowRequestFrame {
+    std::optional<std::string> image{};
+    std::optional<std::string> image_id{};
+    std::uint64_t offset{};
+    std::optional<std::string> symbol{};
+    friend bool operator==(const ServerStatsSlowRequestFrame&, const ServerStatsSlowRequestFrame&) = default;
+};
+
 struct ServerStatsSlowRequest {
     std::uint64_t busy_ms{};
     std::uint64_t client{};
     std::optional<std::uint64_t> duration_ms{};
     std::string method{};
+    std::vector<ServerStatsSlowRequestFrame> stack{};
+    std::optional<std::string> stack_error{};
+    bool stack_truncated{};
     std::uint64_t started_ms{};
     friend bool operator==(const ServerStatsSlowRequest&, const ServerStatsSlowRequest&) = default;
 };
@@ -5709,6 +5727,36 @@ struct TitleChangedEvent {
     Id surface{};
     std::optional<std::string> title{};
     friend bool operator==(const TitleChangedEvent&, const TitleChangedEvent&) = default;
+};
+
+struct TraceStartRequest {
+    Field<std::vector<std::string>> categories{};
+    std::optional<bool> keys{};
+    Json::Object additional_properties{};
+    friend bool operator==(const TraceStartRequest&, const TraceStartRequest&) = default;
+};
+
+struct TraceStartResult {
+    Json value{};
+    friend bool operator==(const TraceStartResult&, const TraceStartResult&) = default;
+};
+
+struct TraceStatusRequest {
+    friend bool operator==(const TraceStatusRequest&, const TraceStatusRequest&) = default;
+};
+
+struct TraceStatusResult {
+    Json value{};
+    friend bool operator==(const TraceStatusResult&, const TraceStatusResult&) = default;
+};
+
+struct TraceStopRequest {
+    friend bool operator==(const TraceStopRequest&, const TraceStopRequest&) = default;
+};
+
+struct TraceStopResult {
+    Json value{};
+    friend bool operator==(const TraceStopResult&, const TraceStopResult&) = default;
 };
 
 struct Workspace {
@@ -6958,6 +7006,12 @@ template <>
 struct Codec<ServerStatsSlowRequest> {
     static Result<Json> encode(const ServerStatsSlowRequest& value);
     static Result<ServerStatsSlowRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsSlowRequestFrame> {
+    static Result<Json> encode(const ServerStatsSlowRequestFrame& value);
+    static Result<ServerStatsSlowRequestFrame> decode(const Json& value);
 };
 
 template <>
@@ -9214,6 +9268,42 @@ template <>
 struct Codec<TerminalResumeCommandRequest> {
     static Result<Json> encode(const TerminalResumeCommandRequest& value);
     static Result<TerminalResumeCommandRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<TraceStartRequest> {
+    static Result<Json> encode(const TraceStartRequest& value);
+    static Result<TraceStartRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<TraceStartResult> {
+    static Result<Json> encode(const TraceStartResult& value);
+    static Result<TraceStartResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<TraceStatusRequest> {
+    static Result<Json> encode(const TraceStatusRequest& value);
+    static Result<TraceStatusRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<TraceStatusResult> {
+    static Result<Json> encode(const TraceStatusResult& value);
+    static Result<TraceStatusResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<TraceStopRequest> {
+    static Result<Json> encode(const TraceStopRequest& value);
+    static Result<TraceStopRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<TraceStopResult> {
+    static Result<Json> encode(const TraceStopResult& value);
+    static Result<TraceStopResult> decode(const Json& value);
 };
 
 template <>

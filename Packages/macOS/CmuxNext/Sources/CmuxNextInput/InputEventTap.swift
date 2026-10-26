@@ -152,8 +152,8 @@ public final class InputEventTap: InputObserving {
         })
     }
 
-    /// The other-app monitors installed now (tests).
-    var globalMonitorCount: Int { globalMonitors.count }
+    /// The other-app monitors installed now (`debug.input` and tests).
+    public var globalMonitorCount: Int { globalMonitors.count }
 
     // MARK: Flags
 
@@ -186,14 +186,15 @@ public final class InputEventTap: InputObserving {
     }
 
     /// Records `event` as the last dispatched (and last pointer) event and calls its class's observers.
-    /// The application object calls it for every event, before the key router.
+    /// The application object calls it for every event, before the key router. A tracking-area event
+    /// is no input of its own (a move made it), so it replaces neither.
     public func deliverObserve(_ event: NSEvent) {
         guard let type = InputEventType(event.type) else { return }
         let record = InputEventRecord(event, type: type)
-        lastDispatched = record
         switch type.eventClass {
-        case .button, .pointerMove, .drag, .scroll: lastPointer = record
-        case .key, .flags, .gesture: break
+        case .button, .pointerMove, .drag, .scroll: (lastDispatched, lastPointer) = (record, record)
+        case .key, .flags, .gesture: lastDispatched = record
+        case .tracking: break
         }
         if !globalMonitors.isEmpty { removeCancelledGlobalMonitors() }
         let index = Int(type.eventClass.rawValue)

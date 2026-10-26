@@ -101,7 +101,7 @@ P1 target: `main_start` to `main.run` <= 10 ms on main, no file calls (033).
 | M21 | `CmuxApplication.shared`, `refusesActivation` | main() | main | - | The CEF-ready NSApp subclass before anything touches NSApp. |
 | M22 | `InputEventTap()` | main() | main | 012 | The one input tap (p04-input.md 3 (A)); made before the order so the budget's pending-input check observes it, then passed to the delegate by init. |
 | M23 | `LaunchOrder(fence:input:)`: `DisplayClock`, `FrameScheduler.install`, `StartupPhase` and its marks, `RenderStarvationGuard`, `MainWorkScheduler`, `StartupScheduler` | main() | main | 012 | The launch's order owners, made before the delegate (Chrome's `BrowserTaskExecutor` and after-startup state, `content/browser/scheduler/browser_task_executor.cc`). At completion it marks `startup_complete` and lowers M14's fence. |
-| M24 | `AppDelegate(...)` init: `FirstFrameGate(startup:)`, `LaunchReveal`, `LaunchSettle`, `StartupReferences`, `AppControl` | main() | main | 012, 016 | Takes the order (M23) and the input tap (M22) by init; the gate posts to `order.startup`. LaunchSettle and FirstFrameGate go (016). |
+| M24 | `AppDelegate(...)` init: `LaunchImageHold(startup:)`, `LaunchReveal`, `LaunchSettle`, `StartupReferences`, `AppControl` | main() | main | 012, 016 | Takes the order (M23) and the input tap (M22) by init; every deferred call is a post to `order.startup`. FirstFrameGate is deleted, LaunchSettle only reveals the pane region and the launch images are one startup ref (016). |
 | M25 | `meterTurns`, `inputTap = delegate.inputTap`, `app.delegate`, `setActivationPolicy(.regular)` | main() | main | - | AppKit setup; the input tap hears every event from the first. |
 | M26 | `markLaunch("main.nsapp")`, `markLaunch("main.run")`, `app.run()` | main() | main | - | End of P1. |
 
@@ -168,7 +168,7 @@ awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/
 | 39 | `control.registerSettingsDebugMethods(` | afterFirstFrame | main | 019 | Control method group (debug methods). |
 | 40 | `control.registerUpdateMethods(` | afterFirstFrame | main | 019 | Control method group. |
 | 41 | `control.service?.router.register(` | debug, afterFirstFrame | main | 019 | `debug.chromium_host` methods (`#if DEBUG`). |
-| 42 | `control.start(` | main() | `.lane(.system, .userBlocking)` | 019 | Bind and listen off main after the owner check; serve at `MainWorkClass.automation`. Replaces `launchSettle.settled(within: 4 s)`. |
+| 42 | `control.start(` | main() | `.lane(.system, .userBlocking)` | 019 | Bind and listen off main after the owner check; serve at `MainWorkClass.automation`. Replaces `launchSettle.settled(within: 4 s, images:)` (016 kept its bound: the first terminal frame and the launch images). |
 | 43 | `ghosttyConfigLiveReload.start(` | afterFirstFrame | main | 026 | File watchers for live reload; the loaded config is already applied. |
 | 44 | `ghosttyKeybinds.start(` | afterFirstFrame | main | 026 | Keeps the binding table's Ghostty keybinds current. |
 | 45 | `launchSettle.install(` | deleted | - | 016 | LaunchSettle becomes scheduler refs (012, 013). |
@@ -195,7 +195,7 @@ awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/
 | 66 | `services.notifications.follow(` | afterStartup | main | 029 | Notification settings follow. |
 | 67 | `services.observeBorders(` | afterFirstFrame | main | 029 | Window border style follow. |
 | 68 | `services.observeGlass(` | afterFirstFrame | main | 029 | Glass style follow. |
-| 69 | `services.openPanel.warmWhenIdle(` | afterStartup | main | 016 | The file picker made ahead at idle. |
+| 69 | `services.openPanel.warmWhenIdle(` | afterStartup `OpenPanel.warmWhenIdle` | main | 016 | The file picker made ahead at idle (`LaunchFirstOpenWarmups`, after the icon picker). |
 | 70 | `services.palette.bindRegistryActions(` | afterFirstFrame | main | 023 | Palette bindings; a palette key before it builds the palette in the key's turn (023). |
 | 71 | `services.projectsImport.start(` | afterFirstFrame if Home shows, else afterStartup | main | 027 | Projects import. |
 | 72 | `services.registerDeviceHubDebug(` | afterFirstFrame | main | 019 | Control method group (debug methods). |
@@ -233,20 +233,20 @@ source order through O41; O42 to O46 were found later and follow at the end.
 | O13 | `NSApp.mainMenu = MainMenu.make(...)` | critical: `MainMenu.make` | main | 030 | See the allowlist. |
 | O14 | `WindowActivation.activateApp()` | critical: `WindowActivation.activateApp` | main | 079 | See the allowlist. |
 | O15 | `FeaturePolicyEnforcer(services:).start()` | critical: `FeaturePolicyEnforcer.start` | main | 101 | See the allowlist. |
-| O16 | `firstFrame.whenOpen { startNonPaintServices() }` | afterStartup, one post per service | main | 017 | FreeTierAttest, ssh, serverReach, updater; AgentTabImport and the page host pool. |
+| O16 | `order.startup.post(.afterFirstFrame, "AppServices.startNonPaintServices")` (was `firstFrame.whenOpen`, 016) | afterStartup, one post per service | main | 017 | FreeTierAttest, ssh, serverReach, updater; AgentTabImport and the page host pool. |
 | O17 | `windows.onPresent`, `windows.onFirstWindow`, `palette.onPresented`, `palette.openingEventTimestamp`, `iconPicker.onOpened`, `windows.onContentDidAppear`, `NSApp.servicesProvider` | wiring | - | 012, 096 | Closures; the first-window completion calls `firstFrameCommitted()` (012). |
-| O18 | `launchSettle.whenSettled { preparePalette }`, `IdleOnce.schedule { iconPicker.prepare() }` | afterStartup, one post per palette step, then the icon picker | main | 016 | Palette and icon picker warm-up at idle. |
+| O18 | `LaunchFirstOpenWarmups(...).post(on:)` | afterStartup `Palette.prepare.0`, `Palette.prepare.1`, then `IconPicker.prepare` | main | 016 | Palette and icon picker warm-up, one idle frame each (`PaletteController.prepareStepNames`). Replaces `launchSettle.whenSettled` and IdleOnce (deleted). |
 | O19 | `SettingsController(registry:fileURL:launch:)` | critical: `Settings.applyManagedFeaturesNow` | main | 101 | Needs the registry, so it runs after `AppServices` (O8); made inside the post that applies the managed features (allowlist row 4). |
 | O20 | `ManagedPolicyBridge(...).start()` | critical: `ManagedPolicyBridge.start` | main | 101 | See the allowlist. |
-| O21 | `launchCleanup.schedule(on: launchSettle)` | afterStartup | `.lane(.files, .idle)` | 016 | Temporary download files of an earlier run. |
+| O21 | `launchCleanup.schedule(on: order.startup)` | afterStartup `LaunchCleanup.downloadTempFiles` | main | 016 | Temporary download files of an earlier run. The post only queues the cleanup: `BrowserDownloadTempFiles`' record actor reads the record and deletes the files off main, in order with this run's downloads, so a lane post would add a second queue in front of it. |
 | O22 | `mouseSideButtons.start { ... }` | afterFirstFrame | main | 079 | Back and forward mouse buttons. |
 | O23 | `TerminalHooks(services:).install()` | afterFirstFrame | main | 079 | App-scoped Ghostty actions; they need a live terminal. |
 | O24 | `GhosttyKeybindSync(...)`, `GhosttyConfigLiveReload()` | afterFirstFrame | main | 026 | Built with their starts (Q2 43, 44). |
 | O25 | `services.windows.restoreWhenLoaded()` | critical: `WindowManager.restoreWhenLoaded` | main | 059, 060 | See the allowlist. |
-| O26 | `firstFrame.whenOpen { startLaterTabWarmups() }` | afterStartup | main | 017 | Later tab warm-ups; WKProcessPool warm-up first afterFirstFrame only when a WebKit agent pane shows (017). |
+| O26 | `order.startup.post(.afterFirstFrame, "AppServices.startLaterTabWarmups")` (was `firstFrame.whenOpen`, 016) | afterStartup | main | 017 | Later tab warm-ups; WKProcessPool warm-up first afterFirstFrame only when a WebKit agent pane shows (017). |
 | O27 | `WebAuthSessionWindows(...)`, `WebAuthSessionHandler(broker:)` | critical: `WebAuthSessionHandler.install` | main | 029 | Built inside the install post. |
 | O28 | `NSAppleEventManager.shared().setEventHandler(... kAEGetURL)` | critical: `AppleEvents.getURL` | main | 029 | See the allowlist. |
-| O29 | `firstFrame.armBackstop(after: .seconds(3))` | deleted | - | 016 | The scheduler's failsafe and the `noWindow` reason replace it (095). |
+| O29 | `firstFrame.armBackstop(after: .seconds(3))` | deleted | - | 016 | Deleted with FirstFrameGate: the first window is made in the launch turn, so its commit ends the first-frame ref; the scheduler's failsafe and the `noWindow` reason replace the backstop (095). |
 | O30 | `WebUpdates.shared.prepare(...)` | main() read, then afterStartup | `.lane(.system, .bestEffort)` | 077 | Pointer read and verify as a LaunchRead before any page requests its entry; channel follow and network check after startup. |
 | O31 | `services.palette.sources.settings = SettingsPaletteSource(...)`, `PaletteShortcutEditor(...)` | afterFirstFrame | main | 079 | Palette settings source and shortcut editor. |
 | O32 | `services.themes.followChromeTheme(settings)` | critical: `Themes.start` | main | 079 | The app accent and page theme; posted with `themes.start`. |

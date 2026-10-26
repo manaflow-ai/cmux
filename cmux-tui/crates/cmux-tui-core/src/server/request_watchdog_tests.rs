@@ -104,6 +104,10 @@ fn request_watchdog_records_a_slow_run_that_ends_before_the_watchdog_wakes() {
     let duration = entry.duration_ms.expect("a final duration");
     assert!(duration >= 260, "{entry:?}");
     assert_eq!(entry.busy_ms, duration, "{entry:?}");
+    // Its thread had moved on: no stack, and none captured.
+    assert_eq!(entry.stack_error, Some("run-ended"), "{entry:?}");
+    assert!(entry.stack.is_empty(), "{entry:?}");
+    assert_eq!(watchdog.shared.stack_captures.load(Ordering::Relaxed), 0);
     wait_disarmed(&watchdog);
 }
 
@@ -169,6 +173,8 @@ fn request_watchdog_wakes_at_most_four_times_a_second_under_1000_short_requests(
     assert!(woke <= allowed, "{woke} wakeups in {elapsed:?} (allowed {allowed})");
     assert_eq!(watchdog.snapshot().total, 0);
     wait_disarmed(&watchdog);
+    let captures = watchdog.shared.stack_captures.load(Ordering::Relaxed);
+    assert_eq!(captures, 0, "a short request is never captured");
 }
 
 /// Requests just over a threshold apart: each would arm a disarmed watchdog
@@ -209,7 +215,11 @@ fn request_watchdog_counts_a_failed_thread_start_and_retries_it() {
     fn refuse(_: Box<dyn FnOnce() + Send>) -> std::io::Result<Thread> {
         Err(std::io::Error::other("no threads"))
     }
-    let watchdog = RequestWatchdog::with_spawner(REQUEST_WATCHDOG_THRESHOLD, refuse);
+    let watchdog = RequestWatchdog::with_seams(
+        REQUEST_WATCHDOG_THRESHOLD,
+        refuse,
+        Box::new(thread_backtrace::capture),
+    );
     drop(watchdog.begin(1, CREATE));
     assert_eq!(watchdog.snapshot().spawn_failures, 1);
     assert!(!watchdog.shared.armed.load(Ordering::SeqCst), "a failed start disarms");
@@ -261,6 +271,9 @@ fn request_watchdog_ring_keeps_the_newest_128() {
                 started_ms: 0,
                 busy_ms: 300,
                 duration_ms: None,
+                stack: Vec::new(),
+                stack_truncated: false,
+                stack_error: None,
             },
         );
     }
@@ -357,6 +370,31 @@ fn request_watchdog_records_a_slow_command_on_the_connection_sequence() {
     assert_eq!(snapshot.total, 1, "{snapshot:?}");
     assert_eq!(snapshot.recent[0].method, "list-workspaces");
     assert_eq!(snapshot.recent[0].client, conn.client);
+}
+
+/// A dispatched `Command` still blocked when the watchdog records it (the
+/// registry is held 600 ms, past the first scan at 250-500 ms) carries the
+/// stack of the scheduler thread it runs on.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn request_watchdog_stack_of_a_slow_command_on_the_connection_sequence() {
+    let mux = crate::Mux::new_for_test("request-watchdog-stack", crate::SurfaceOptions::default());
+    let conn = connect(&mux);
+    let holder = hold_registry(&mux, Duration::from_millis(600));
+    let mut list = Some(Request { id: Some(json!(1)), cmd: Command::ListWorkspaces });
+    assert_eq!(
+        conn.scheduler.dispatch(mux.clone(), conn.client, &mut list, 0, conn.writer.clone()),
+        Some(true)
+    );
+    conn.scheduler.finish_and_wait();
+    holder.join().unwrap();
+
+    let snapshot = wait_settled(&mux.request_watchdog, 1);
+    let [entry] = snapshot.recent.as_slice() else { panic!("one entry: {snapshot:?}") };
+    assert_eq!(entry.method, "list-workspaces");
+    assert!(entry.busy_ms < 600, "recorded while blocked: {entry:?}");
+    assert_eq!(entry.stack_error, None, "{entry:?}");
+    assert!(!entry.stack.is_empty(), "{entry:?}");
 }
 
 /// A `wait-for` that waits its full 300 ms timeout is expected, not slow.

@@ -707,8 +707,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "2472922908d2ea0616f93c094a0421cb8bff39775c1c008cbfed48c0a5021a1e",
-      "size": 78355
+      "sha256": "fe02be972502bb0d0b2119cf3a974d2a6fdd740b114baca62bacbd91e8734104",
+      "size": 78979
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1357,8 +1357,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "056a742a2329974123b008a6a79431edec0af1a2ef4c740ff56b064e1808f0ea",
-      "size": 67823
+      "sha256": "231b6e02b38d3b59206dad18b9cc121109263ac755187879d78ab9efa4d336cd",
+      "size": 68381
     },
     {
       "path": "GetBlobRequest.java",
@@ -2112,7 +2112,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "83332fde6a8f10f5714033f94aa6e2ee56e5229db250fddbeee0ae2e3b7a88ea",
+      "sha256": "0e1af3c97b65796490b77306ad26ca08d20f9e4c4cc77b8b598c71678121576a",
       "size": 7486
     },
     {
@@ -2552,8 +2552,13 @@
     },
     {
       "path": "ServerStatsSlowRequest.java",
-      "sha256": "95af796550fa80c49d25a8adca9d1833c3afff36a1d0e21115329d562955b40e",
-      "size": 4867
+      "sha256": "2306afa55f0bb1f6582581f993078627a6306de23179294b7ce922a851fffe41",
+      "size": 7307
+    },
+    {
+      "path": "ServerStatsSlowRequestFrame.java",
+      "sha256": "539012bd3337118f73640c35f0b900a75d17de9de64cc3675ebe12afc2927026",
+      "size": 4084
     },
     {
       "path": "ServerStatsSlowRequests.java",
@@ -3211,6 +3216,21 @@
       "size": 2869
     },
     {
+      "path": "TraceStartRequest.java",
+      "sha256": "150a07926f99eca8e26bd2df3948c6831f0f0da63e109847a2cba367e3fb242a",
+      "size": 3646
+    },
+    {
+      "path": "TraceStatusRequest.java",
+      "sha256": "4aae9ba2779926a5fb82a4ebaeaebd4a01c09ae33226d2fd24d0e2f773b6b455",
+      "size": 1354
+    },
+    {
+      "path": "TraceStopRequest.java",
+      "sha256": "be5c3358c8f51a9ab40c45db2709e8c63c80882bf9484f9bd73c37028d527540",
+      "size": 1336
+    },
+    {
       "path": "Tree.java",
       "sha256": "0df79544b10131b2d317ecd9d565271c00cc357346de24d21844c387cba7774d",
       "size": 5571
@@ -3437,7 +3457,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "e02313f2112ebdb438482aac92ad4c5097bcf1fdc45c4e910c3821f2bdc69333",
+  "ir_sha256": "5819519176d5752a978a367bdd398e2ab4431f89841efa45c8da605ce35ec617",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

@@ -32,6 +32,15 @@
 //!
 //! The thread starts with the first arm, at QoS utility, as
 //! `mux-request-watchdog`.
+//!
+//! A run recorded while it is still busy carries the stack of the thread
+//! running it, as Chrome's HangWatcher hands a hung thread to base/profiler's
+//! stack sampler: each run stores its thread's handle in its slot, and the
+//! watchdog stops that thread for a frame-pointer walk (cmux-tui-platform
+//! `thread_backtrace`, well under a millisecond). The stack is kept only if
+//! the run was still busy once the thread ran again; a run first seen after
+//! it ended has no stack (`run-ended`): its thread has moved on to other
+//! work. Nothing is captured for a run that ends under the threshold.
 
 use std::borrow::Cow;
 use std::cell::Cell;
@@ -41,9 +50,11 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::Thread;
 use std::time::{Duration, Instant};
 
+use cmux_tui_platform::thread_backtrace::{self, Backtrace, BacktraceError, ThreadHandle};
+
 use super::Command;
 use super::command_names::COMMANDS;
-use crate::diagnostics::{SlowRequest, SlowRequestsSnapshot};
+use crate::diagnostics::{SlowRequest, SlowRequestFrame, SlowRequestsSnapshot};
 use crate::panic_free::RecoverPoison;
 use crate::resource::ResourceOperation;
 
@@ -195,6 +206,9 @@ struct Slot {
     method: AtomicU32,
     /// The client of the run in `busy`; written before `busy` is published.
     client: AtomicU64,
+    /// The [`ThreadHandle`] of the thread running it (0: none), written
+    /// with `client`.
+    thread: AtomicU64,
     /// Start (µs since the epoch) of the newest run in this slot.
     last_start_us: AtomicU64,
     /// End (µs since the epoch) of a run that finished slow; published by
@@ -209,6 +223,14 @@ fn spawn_watchdog_thread(body: Box<dyn FnOnce() + Send>) -> std::io::Result<Thre
     cmux_threads::spawn(THREAD_NAME, cmux_threads::ThreadQos::Utility, body)
         .map(|handle| handle.thread().clone())
 }
+
+/// Stops a thread and walks its stack; a seam so tests can end the run
+/// mid-capture.
+type CaptureStack = Box<dyn Fn(ThreadHandle) -> Result<Backtrace, BacktraceError> + Send + Sync>;
+
+/// `stack_error` of a run that ended before its thread was stopped: any
+/// frames would be the thread's next work.
+const RUN_ENDED: &str = "run-ended";
 
 /// A recorded request in the ring, with the run it came from so its final
 /// duration can be filled in.
@@ -227,6 +249,9 @@ struct Shared {
     armed: AtomicBool,
     stopping: AtomicBool,
     spawn: SpawnWatchdog,
+    capture: CaptureStack,
+    /// Stack captures attempted; only a run recorded while busy is captured.
+    stack_captures: AtomicU64,
     /// The watchdog thread, set by the first arm whose start succeeds. Only
     /// the run that flipped `armed` starts it, so no two starts race.
     thread: OnceLock<Thread>,
@@ -367,10 +392,11 @@ impl Shared {
                 scan.pending = true;
                 continue;
             }
-            // Seqlock read of the client and method: keep them only if the
-            // slot still holds the same run, which the flag CAS proves.
+            // Seqlock read of the client, method and thread: keep them only
+            // if the slot still holds the same run, which the flag CAS proves.
             let client = slot.client.load(Ordering::Relaxed);
             let method = WatchedMethod(slot.method.load(Ordering::Relaxed));
+            let thread = slot.thread.load(Ordering::Relaxed);
             fence(Ordering::Acquire);
             if slot
                 .busy
@@ -381,6 +407,7 @@ impl Shared {
                 scan.pending = true;
                 continue;
             }
+            let stack = self.capture_stack(slot, word | RECORDED, thread);
             self.record(
                 index,
                 word,
@@ -390,10 +417,46 @@ impl Shared {
                     started_ms: start / 1000,
                     busy_ms: now.saturating_sub(start) / 1000,
                     duration_ms: None,
+                    stack: stack.frames,
+                    stack_truncated: stack.truncated,
+                    stack_error: stack.error,
                 },
             );
         }
         scan
+    }
+
+    /// The stack of the thread running the recorded run `word` in `slot`.
+    /// The slot holds the run until this thread frees it, so if `busy` is
+    /// still `word` after the capture, the run was busy the whole time its
+    /// thread was stopped and the frames are its own; once the run ends,
+    /// `FINISHED` is set and the frames are dropped.
+    fn capture_stack(&self, slot: &Slot, word: u64, thread: u64) -> CapturedStack {
+        let Some(thread) = ThreadHandle::from_raw(thread) else {
+            return CapturedStack::failed(BacktraceError::Unsupported.as_str());
+        };
+        self.stack_captures.fetch_add(1, Ordering::Relaxed);
+        let captured = (self.capture)(thread);
+        if slot.busy.load(Ordering::SeqCst) != word {
+            return CapturedStack::failed(RUN_ENDED);
+        }
+        match captured {
+            Ok(backtrace) => CapturedStack {
+                frames: backtrace
+                    .symbolicate()
+                    .into_iter()
+                    .map(|frame| SlowRequestFrame {
+                        image: frame.image,
+                        image_id: frame.image_id,
+                        offset: frame.offset as u64,
+                        symbol: frame.symbol,
+                    })
+                    .collect(),
+                truncated: backtrace.truncated(),
+                error: None,
+            },
+            Err(error) => CapturedStack::failed(error.as_str()),
+        }
     }
 
     /// A run that finished slow: fill in its entry's duration, or record it
@@ -418,6 +481,10 @@ impl Shared {
                     started_ms: start / 1000,
                     busy_ms: duration_ms,
                     duration_ms: Some(duration_ms),
+                    stack: Vec::new(),
+                    stack_truncated: false,
+                    // First seen after it ended: its thread runs other work.
+                    stack_error: Some(RUN_ENDED),
                 },
             );
         }
@@ -446,6 +513,19 @@ struct Scan {
     started_since: bool,
 }
 
+/// The stack fields of one recorded run.
+struct CapturedStack {
+    frames: Vec<SlowRequestFrame>,
+    truncated: bool,
+    error: Option<&'static str>,
+}
+
+impl CapturedStack {
+    fn failed(error: &'static str) -> Self {
+        Self { frames: Vec::new(), truncated: false, error: Some(error) }
+    }
+}
+
 /// The daemon's request watchdog. One per [`crate::Mux`]; its thread stops
 /// when the watchdog is dropped.
 pub(crate) struct RequestWatchdog {
@@ -460,10 +540,10 @@ impl Default for RequestWatchdog {
 
 impl RequestWatchdog {
     pub(crate) fn new(threshold: Duration) -> Self {
-        Self::with_spawner(threshold, spawn_watchdog_thread)
+        Self::with_seams(threshold, spawn_watchdog_thread, Box::new(thread_backtrace::capture))
     }
 
-    fn with_spawner(threshold: Duration, spawn: SpawnWatchdog) -> Self {
+    fn with_seams(threshold: Duration, spawn: SpawnWatchdog, capture: CaptureStack) -> Self {
         Self {
             shared: Arc::new(Shared {
                 epoch: Instant::now(),
@@ -472,6 +552,8 @@ impl RequestWatchdog {
                 armed: AtomicBool::new(false),
                 stopping: AtomicBool::new(false),
                 spawn,
+                capture,
+                stack_captures: AtomicU64::new(0),
                 thread: OnceLock::new(),
                 wakeups: AtomicU64::new(0),
                 unwatched: AtomicU64::new(0),
@@ -507,6 +589,7 @@ impl RequestWatchdog {
         fence(Ordering::Release);
         slot.client.store(client, Ordering::Relaxed);
         slot.method.store(method.0, Ordering::Relaxed);
+        slot.thread.store(ThreadHandle::current().map_or(0, ThreadHandle::raw), Ordering::Relaxed);
         let start = shared.now_us();
         slot.last_start_us.store(start.max(1), Ordering::Relaxed);
         let word = busy_word(start);
@@ -625,3 +708,7 @@ impl Drop for RequestScope<'_> {
 #[cfg(test)]
 #[path = "request_watchdog_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "request_watchdog_stack_tests.rs"]
+mod stack_tests;

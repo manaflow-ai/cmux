@@ -7,6 +7,8 @@ import CmuxNextSettings
 package struct NeighborTabs {
     /// Each pane's tabs in strip order and its shown tab; keyed by the pane's presenter.
     private var panes: [ObjectIdentifier: (order: [String], selected: String?)] = [:]
+    /// Panes whose window is off screen (minimized, another Space, covered): no switch is near.
+    private var offScreen: Set<ObjectIdentifier> = []
 
     package init() {}
 
@@ -17,17 +19,26 @@ package struct NeighborTabs {
 
     package mutating func remove(_ pane: ObjectIdentifier) {
         panes[pane] = nil
+        offScreen.remove(pane)
+    }
+
+    /// The pane's window went off screen (true) or came back (false). An off-screen pane keeps
+    /// no neighbors awake; its order and shown tab stay recorded for when it comes back.
+    package mutating func setOffScreen(_ isOffScreen: Bool, pane: ObjectIdentifier) {
+        if isOffScreen { offScreen.insert(pane) } else { offScreen.remove(pane) }
     }
 
     /// The tabs `radius` steps before and after each pane's shown tab,
     /// wrapping as Ctrl-Tab and Cmd-Shift-[ ] do (so the last tab's next
-    /// neighbor is the first), without the shown tabs themselves.
+    /// neighbor is the first), without the shown tabs themselves. Panes whose window is off
+    /// screen count as showing nothing.
     package func awake(radius: Int) -> Set<String> {
         guard radius > 0 else { return [] }
         var keys: Set<String> = []
         var shown: Set<String> = []
-        for (order, selected) in panes.values {
-            guard let selected, let index = order.firstIndex(of: selected) else { continue }
+        for (pane, tabs) in panes where !offScreen.contains(pane) {
+            let order = tabs.order
+            guard let selected = tabs.selected, let index = order.firstIndex(of: selected) else { continue }
             shown.insert(selected)
             keys.formUnion(Self.around(index, in: order, radius: radius))
         }

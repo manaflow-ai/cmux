@@ -435,7 +435,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if key != currentTabKey {
             InputJournal.shared.append(window: state?.id, .content(tab: key ?? "-", event: "show pane=\(paneKey) from=\(currentTabKey ?? "-")"))
             // Another tab's last page from the launch must not stay under this one.
-            view.clearLaunchImage()
+            view.clearLaunchImage(.noVisiblePane)
         }
         if let currentTabKey, currentTabKey != key { BenchSpans.measure("switch.withdraw") { services.cache.withdraw(currentTabKey, by: self) } }
         DebugTabSwitch.mark(self, "withdraw")

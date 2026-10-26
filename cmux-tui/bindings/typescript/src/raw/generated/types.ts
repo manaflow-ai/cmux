@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e02313f2112ebdb438482aac92ad4c5097bcf1fdc45c4e910c3821f2bdc69333. */
+/* cmux-tui mux protocol 12, IR 5819519176d5752a978a367bdd398e2ab4431f89841efa45c8da605ce35ec617. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1135,7 +1135,17 @@ export type ServerStatsSlowRequest = {
   "client": bigint;
   "duration_ms": (bigint) | null;
   "method": string;
+  "stack": Array<ServerStatsSlowRequestFrame>;
+  "stack_error": (string) | null;
+  "stack_truncated": boolean;
   "started_ms": bigint;
+};
+
+export type ServerStatsSlowRequestFrame = {
+  "image": (string) | null;
+  "image_id": (string) | null;
+  "offset": bigint;
+  "symbol": (string) | null;
 };
 
 export type ServerStatsSlowRequests = {

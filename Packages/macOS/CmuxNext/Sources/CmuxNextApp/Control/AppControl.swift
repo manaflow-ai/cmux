@@ -8,6 +8,8 @@ import CmuxNextDesign
 import CmuxNextEnergy
 import CmuxNextErrorJournal
 import CmuxNextInput
+import CmuxNextInputDiagnostics
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
@@ -353,6 +355,15 @@ final class AppControl {
             .mainActor("debug.app_activation") { call in
                 .value(DebugAppActivation.send(call.params))
             },
+            // What this launch runs of the shipping configuration idle-budget measures (p14-energy-100).
+            ShippingModeReport { @MainActor [weak services] in
+                guard let services else { return nil }
+                let hangReports = await AppProcessRoot.shared.hangReports?.shippingModeState(setting: services.settings?.snapshot.hangReports)
+                return ShippingModeReport.State(drawsWhenOccluded: WindowDrawPolicy.drawsWhenOccluded,
+                                                pagesRenderWhenCovered: PageWebView.rendersWhenCovered(ProcessInfo.processInfo.environment),
+                                                sentryShouldStart: services.crashReporting.reporter.policy.shouldStart,
+                                                hangReports: hangReports ?? .init(available: false, setting: nil, decision: nil, enabled: false))
+            }.method,
             .async("debug.palette.capture") { [weak services] call in
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugPaletteCapture.capture(call.params, services: services)
