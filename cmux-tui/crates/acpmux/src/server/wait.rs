@@ -219,3 +219,7 @@ fn changes_a_wait(ev: &crate::hub::HubEvent, ids: &[String], remote: bool) -> bo
     }
     ids.contains(&ev.session_id) && !matches!(ev.record.dir.as_str(), "in" | "out")
 }
+
+#[cfg(test)]
+#[path = "wait_tests.rs"]
+mod tests;

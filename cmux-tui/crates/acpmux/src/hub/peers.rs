@@ -361,7 +361,7 @@ impl Hub {
         }
     }
 
-    pub(super) fn apply_peer_notice(
+    pub(crate) fn apply_peer_notice(
         &self,
         peer: &str,
         generation: u64,
