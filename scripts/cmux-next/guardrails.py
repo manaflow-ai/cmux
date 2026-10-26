@@ -2070,6 +2070,116 @@ def raw_blocking(changes: list[FileChange], moved: collections.Counter) -> list[
     return changed_debt(outside_seams(changes), judge)
 
 
+# raw-blocking-ext: the blocking primitives RAW_BLOCKING does not name (Chromium marks the same classes with a
+# ScopedBlockingCall: base/files/file_util_posix.cc, base/process/kill_posix.cc, sql/database.cc,
+# base/system/sys_info_mac.mm). Free functions need a `(?<![\w.])` lookbehind (or `Darwin.`), an argument and no
+# argument label, so a method (`menu.removeItem(at:)`, `rename(id, to:)`) or the `stat()` initializer is not one.
+POSIX_CALLS = (r"fsync|flock|ftruncate|rename|unlink|mkdir|rmdir|lstat|stat|realpath|access|chmod|symlink|readlink|"
+               r"opendir|readdir|pread|pwrite|waitpid|wait4|waitid|sysctl|sysctlbyname|getpw\w*")
+RAW_BLOCKING_EXT = re.compile(
+    r"(?:\bDarwin\.|(?<![\w.]))(?P<free>" + POSIX_CALLS + r")\((?!\s*\))"
+    r"|(?<![\w.])(?P<open>open)\([^\n]*\bO_[A-Z]|\bDarwin\.(read|write|open)\("
+    r"|\bFileHandle(\.init)?\(\s*for(Reading|Writing|Updating)"
+    r"|\.write\(contentsOf:|\.read\(upToCount:|\.seekToEnd(OfFile)?\(\)|\.synchronize(File)?\(\)"
+    r"|\bCGImage(SourceCreateWithURL|DestinationCreateWithURL|DestinationFinalize)\("
+    r"|\bsqlite3_(open|open_v2|prepare_v2|prepare_v3|step|exec|close|close_v2)\("
+    r"|\bproc_(pidinfo|pidpath|listpids)\(|\.(?P<policy>canEvaluatePolicy|evaluatePolicy)\("
+    r"|\bHost\.current\(\)|\bprocessInfo\.hostName\b|\bFileManager\(\)\.(" + FILE_OPS + r")\(")
+RAW_EXT_SCAN = Prefiltered(RAW_BLOCKING_EXT, tuple(name + "(" for name in POSIX_CALLS.split("|") if "\\" not in name) + (
+    "getpw", "open(", "Darwin.", "FileHandle", "write(contentsOf:", "upToCount:", "seekToEnd", "synchronize", "CGImage",
+    "sqlite3_", "proc_", "valuatePolicy(", "Host.current", "hostName", "FileManager()"))
+# Where a match names a declaration, not a call: `func rename(`, `case stat(`.
+DECLARED_AT = re.compile(r"\b(func|case)\s+$")
+# An argument label: C functions take none, so `rename(id, to: name)` is a Swift method.
+ARGUMENT_LABEL = re.compile(r"[(,]\s*\w+\s*:(?!:)")
+
+
+def labeled_arguments(code: str, open_paren: int) -> bool:
+    """Whether the argument list opening at CODE[OPEN_PAREN] (read to its `)` or the line's end) has a label at its
+    own depth."""
+    depth = 0
+    for position in range(open_paren, len(code)):
+        char = code[position]
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+            if depth == 0:
+                return False
+        if depth == 1 and char in "(," and ARGUMENT_LABEL.match(code, position):
+            return True
+    return False
+
+
+# A name a file binds to a FileManager (`let fm = FileManager.default`, `fileManager: FileManager = .default`,
+# `let files = FileManager()`); `FileManager.default.urls(` and `FileManager.SearchPathDirectory` bind nothing.
+FILE_MANAGER_BINDING = re.compile(
+    r"\b(?:let|var)\s+(?P<value>\w+)\s*(?::\s*FileManager\s*)?=\s*FileManager(?:\.default|\(\))(?![\w.(])"
+    r"|(?<![\w.])(?P<typed>\w+)\s*:\s*FileManager(?![\w.(])")
+# A POSIX name the file declares itself: a function, a closure property or local (`let rename = { ... }`,
+# `var stat: (String) -> File?`) or a parameter (`rename: @escaping (Target) -> Void`).
+POSIX_DECLARATION = re.compile(r"\b(?:func|let|var)\s+(?P<declared>" + POSIX_CALLS + r"|open)\b\s*[:=(<]"
+                               r"|[(,]\s*(?P<parameter>" + POSIX_CALLS + r"|open)\s*:\s*[@(A-Z]")
+
+
+def posix_shadows(version: Version) -> set[str]:
+    """The POSIX names VERSION declares as its own: Swift resolves a bare call of one to that declaration (an
+    injected seam, a method), so only `Darwin.<name>(` is the POSIX call there."""
+    if "posix_shadows" not in version.memo:
+        text = "\n".join(code_of(line) for line in version.lines)
+        version.memo["posix_shadows"] = {m.group("declared") or m.group("parameter")
+                                         for m in POSIX_DECLARATION.finditer(text)}
+    return version.memo["posix_shadows"]
+
+
+def file_manager_calls(version: Version) -> re.Pattern | None:
+    """`<name>.<FILE_OPS>(` for each name VERSION binds to a FileManager, or None when it binds none. A
+    `let x = FileManager.default` whose next line starts with `.` is a chained call, not a binding."""
+    if "file_manager_calls" not in version.memo:
+        names = set()
+        lines = version.lines
+        for index, line in enumerate(lines):
+            if "FileManager" not in line:
+                continue
+            for match in FILE_MANAGER_BINDING.finditer(code_of(line)):
+                if match.group("value") and index + 1 < len(lines) and code_of(lines[index + 1]).lstrip().startswith("."):
+                    continue
+                names.add(match.group("value") or match.group("typed"))
+        version.memo["file_manager_calls"] = (re.compile(r"(?<![\w$])(" + "|".join(sorted(names)) + r")\.(" + FILE_OPS
+                                                         + r")\(") if names else None)
+    return version.memo["file_manager_calls"]
+
+
+def blocking_ext_match(version: Version, code: str) -> bool:
+    """Whether CODE, a line of VERSION, holds a raw-blocking-ext primitive: a FileManager disk op through a name the
+    file binds to one, or a RAW_BLOCKING_EXT call (not a declaration, not a POSIX name the file shadows, not a
+    `waitpid(..., WNOHANG)` poll, not an awaited `evaluatePolicy`)."""
+    if RAW_EXT_SCAN.search(code):
+        for match in RAW_BLOCKING_EXT.finditer(code):
+            prefix = code[:match.start()]
+            free = match.group("free") or match.group("open")
+            if DECLARED_AT.search(prefix):
+                continue
+            if match.group("free") and labeled_arguments(code, match.end() - 1):
+                continue
+            if free and not match.group(0).startswith("Darwin.") and free in posix_shadows(version):
+                continue
+            if free in ("waitpid", "wait4", "waitid") and "WNOHANG" in code:
+                continue
+            if match.group("policy"):
+                statement = prefix[max((m.end() for m in STATEMENT_START.finditer(prefix)), default=0):]
+                if AWAIT.search(statement):
+                    continue
+            return True
+    calls = file_manager_calls(version) if "." in code else None
+    return calls is not None and calls.search(code) is not None
+
+
+def raw_blocking_ext(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Added raw-blocking-ext primitives, on any thread: main-blocking and raw-blocking do not see them."""
+    return changed_debt(outside_seams(changes), lambda version, index, code: blocking_ext_match(version, code))
+
+
 def doc_labels(doc: str) -> list[re.Pattern]:
     """The thread and queue labels the threading doc's "Registered threads and queues" section lists in
     backticks, each `<x>` inside a label a wildcard (a token that is only a placeholder lists nothing)."""
@@ -2156,6 +2266,16 @@ BLOCKING_RULES = (
          "`queue.blockingSync`, `process.blockingWaitUntilExit()`, `blockingRead/Recv/Write/Send`",
          "// blocking-allow: <why the seam does not fit>",
          raw_blocking),
+    Rule("raw-blocking-ext", "A blocking primitive raw-blocking does not name: a FileManager disk op through a "
+         "variable or `FileManager()`, POSIX file calls (`open(..., O_*)`, `stat(path, &st)`, `rename`, `unlink`, "
+         "`fsync`, `flock`, `realpath`, ...), `waitpid` without WNOHANG, FileHandle open/write/read/seek/synchronize, "
+         "ImageIO URL I/O, `sqlite3_*`, `sysctl`, `proc_pid*`, LAContext policy checks, `getpw*`, `Host.current()`",
+         "each is disk, kernel or daemon I/O the runtime detector cannot see: on the main thread it drops frames "
+         "unseen, and off it nobody knows the thread blocks",
+         "use `FileManager.checked.<op>` instead of a FileManager variable, the FileHandle `blocking*` methods, or "
+         "the call's CmuxNextCompat/Threading seam, from code that runs off the main thread",
+         "// blocking-allow: <why the seam does not fit>",
+         raw_blocking_ext),
     Rule("maybe-main-blocking", "A blocking call in a caller-isolated async function (warning only)",
          "under NonisolatedNonsendingByDefault a non-@concurrent async function outside an actor runs on its caller's "
          "executor, so a main-actor caller runs the blocking call on main (AsyncProcess.run: 807 ms, 2026-10-24)",

@@ -7,9 +7,11 @@ p02-threads machine queues (plans/cmux-next/chrome-parity/p02-threads.md section
 the hook refuses. The rules model Chromium's blocking discipline: base/threading/scoped_blocking_call.h (a blocking
 call is marked and may not run on the UI thread) and base/threading/thread_restrictions.h (the reviewed allow list).
 
-Rules: main-blocking, raw-blocking, maybe-main-blocking, task-priority, thread-doc. The hook gives a raw primitive
-that surely runs on main to main-blocking only (one refusal per line); the inventory lists each line under every
-rule it breaks, so raw-blocking here also holds the raw primitives main-blocking took (each still needs its seam).
+Rules: main-blocking, raw-blocking, raw-blocking-ext, maybe-main-blocking, task-priority, thread-doc. The hook gives
+a raw primitive that surely runs on main to main-blocking only (one refusal per line); the inventory lists each line
+under every rule it breaks, so raw-blocking here also holds the raw primitives main-blocking took (each still needs
+its seam). raw-blocking-ext (POSIX, FileHandle, ImageIO, sqlite3, sysctl and FileManager variables) is reported on
+any thread, by the hook too.
 
 Each hit carries its call-graph context, read lexically from the source:
   enclosing_func  `Type.name` of the function, initializer, subscript or computed property around the line
@@ -36,6 +38,7 @@ Each hit carries its call-graph context, read lexically from the source:
   threading-inventory.py --rule raw-blocking --group root --max-hits 25
   threading-inventory.py --rule main-blocking --jsonl
   threading-inventory.py --rule raw-blocking --paths Packages/macOS/CmuxNext/Sources/CmuxNextFiles/
+  threading-inventory.py --rule raw-blocking-ext --group module --max-hits 25   # MQ-16
 
 Reads git objects only (ls-tree, cat-file): no network, no file in the repo or beside the scripts, not even bytecode
 caches. git_batch hands git its request through an unnamed temporary file in TMPDIR (a pipe hangs on some hosts),
@@ -92,6 +95,7 @@ def guardrails_rule(rule_id: str) -> Callable[[list, collections.Counter], list]
 RULES: dict[str, Callable[[list, collections.Counter], list]] = {
     "main-blocking": guardrails_rule("main-blocking"),
     "raw-blocking": raw_blocking,
+    "raw-blocking-ext": guardrails_rule("raw-blocking-ext"),
     "maybe-main-blocking": guardrails_rule("maybe-main-blocking"),
     "task-priority": guardrails_rule("task-priority"),
     "thread-doc": guardrails_rule("thread-doc"),
@@ -101,6 +105,7 @@ RULES: dict[str, Callable[[list, collections.Counter], list]] = {
 LOCATORS = {
     "task-priority": g.TASK_CALL,
     "thread-doc": g.THREAD_SCAN.pattern,
+    "raw-blocking-ext": re.compile(g.RAW_BLOCKING_EXT.pattern + r"|(?<![\w$])\w+\.(" + g.FILE_OPS + r")\("),
 }
 DEFAULT_LOCATOR = g.MAIN_SCAN.pattern
 ALWAYS = g.ALWAYS_BLOCKING

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """threading-inventory.py (p02-threads-001) on fixture trees, and its acceptance counts on 772cdfc45ac.
 
-The fixture has one hit per rule (main-blocking, raw-blocking, maybe-main-blocking, task-priority, thread-doc), an
-`await backoff.wait(` that no rule reports, a sync main-actor function with 4 call sites (a comment, a string, a
-declaration and a call from another module do not count), and the isolation forms the JSONL names (main, pool,
-nonisolated, actor). The CLI runs on a throwaway git repo with sockets switched off and must leave every file as it
+The fixture has one hit per rule (main-blocking, raw-blocking, raw-blocking-ext, maybe-main-blocking, task-priority,
+thread-doc), an `await backoff.wait(` that no rule reports, a sync main-actor function with 4 call sites (a comment,
+a string, a declaration and a call from another module do not count), and the isolation forms the JSONL names (main,
+pool, nonisolated, actor). The CLI runs on a throwaway git repo with sockets switched off and must leave every file as it
 was (no __pycache__ either, nothing left in TMPDIR).
 
 Smaller trees pin the context reader: escaping closures (`readabilityHandler = {`, a completion, `@Sendable`) are
@@ -165,6 +165,19 @@ struct Lone {
     }
 }
 """,
+    # raw-blocking-ext: a FileManager through a variable and a POSIX call; the `stat()` initializer is not one.
+    SRC + "CmuxNextCore/Posix.swift": """import Foundation
+
+struct Posix {
+    let files: FileManager = .default
+
+    func tidy(_ path: String) -> Bool {
+        var info = stat()
+        try? files.removeItem(atPath: path)
+        return info.st_size == 0
+    }
+}
+""",
 }
 
 
@@ -189,6 +202,7 @@ class RuleTests(unittest.TestCase):
         hit(self.hits, "maybe-main-blocking", "String(contentsOf: url")
         hit(self.hits, "task-priority", "Task.detached {")
         hit(self.hits, "thread-doc", "com.cmuxterm.next.unlisted")
+        hit(self.hits, "raw-blocking-ext", "files.removeItem(atPath: path)")
 
     def test_raw_blocking_lists_the_raw_primitives_main_blocking_took(self):
         raw = {(h.path.rsplit("/", 1)[1], h.text) for h in self.hits if h.rule == "raw-blocking"}
@@ -581,8 +595,8 @@ class CLITests(unittest.TestCase):
     def test_count_and_jsonl(self):
         counts = dict(line.split() for line in self.run_main("--count").splitlines())
         self.assertEqual({k: int(v) for k, v in counts.items()},
-                         {"main-blocking": 1, "raw-blocking": 8, "maybe-main-blocking": 1, "task-priority": 1,
-                          "thread-doc": 1})
+                         {"main-blocking": 1, "raw-blocking": 8, "raw-blocking-ext": 1, "maybe-main-blocking": 1,
+                          "task-priority": 1, "thread-doc": 1})
         records = [json.loads(line) for line in self.run_main("--rule", "main-blocking", "--jsonl").splitlines()]
         self.assertEqual(len(records), 1)
         self.assertEqual(set(records[0]), {"rule", "path", "line", "module", "ui_target", "text", "enclosing_func",
