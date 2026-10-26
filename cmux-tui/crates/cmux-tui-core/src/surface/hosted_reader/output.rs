@@ -85,7 +85,7 @@ impl HostedReader {
             let journal_output = if colors.is_some() {
                 let journal_output = journal_enabled.then(|| output.clone());
                 pty.broadcast_attach_frame(AttachFrame::OutputWithColors {
-                    output,
+                    output: output.into(),
                     colors: Box::new(pty.terminal_colors_locked(&term, defaults)),
                     flow,
                 });

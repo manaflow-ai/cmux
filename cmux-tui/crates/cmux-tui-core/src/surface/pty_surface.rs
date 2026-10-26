@@ -128,7 +128,7 @@ impl PtySurface {
         if taps.is_empty() {
             return false;
         }
-        let frame = AttachFrame::with_flow(bytes.to_vec(), flow);
+        let frame = AttachFrame::with_flow(bytes::Bytes::copy_from_slice(bytes), flow);
         taps.retain(|tap| tap.try_send(frame.clone()));
         let sent = !taps.is_empty();
         drop(taps);

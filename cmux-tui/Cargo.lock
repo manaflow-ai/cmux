@@ -1789,6 +1789,7 @@ dependencies = [
  "anyhow",
  "backtrace",
  "base64",
+ "bytes",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
  "cmux-app-host",
