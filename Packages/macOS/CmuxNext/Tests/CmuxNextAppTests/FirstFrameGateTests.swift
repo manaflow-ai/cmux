@@ -1,4 +1,3 @@
-@testable import CmuxNextApp
 import CmuxNextLaunch
 import CmuxNextWakeups
 import Testing
