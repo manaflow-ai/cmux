@@ -264,7 +264,48 @@ async fn a_reference_outside_the_chats_finished_uploads_is_refused() {
         assert!(reply.get("error").is_none(), "{reply}");
     }
     assert!(c.text.contains(&format!("image:{}", sha(&png(64, 2)))), "{}", c.text);
+    // Its upload gone (the age sweep), the same prompt id still answers with its first run.
+    let folder = home().join("uploads").join(&session).join(&mine);
+    std::fs::remove_dir_all(folder).unwrap();
+    let mut again = p.clone();
+    again["_meta"]["acpmux"]["resend"] = json!(true);
+    for p in [p, again] {
+        let reply = c.call(method::SESSION_PROMPT, p).await;
+        assert!(reply.get("error").is_none(), "{reply}");
+    }
     assert_eq!(c.user_messages(&session).await.len(), 1);
+}
+
+/// One file over 8 MiB, or more than 32 MiB together, is refused; 8 MiB goes.
+#[tokio::test]
+async fn a_reference_over_a_cap_is_refused() {
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+    let hub = hub();
+    let mut c = client(&hub, Origin::Local);
+    let session = c.new_session("uploads-cap").await;
+    // A finished upload as `file_put_finish` leaves it, written here to keep the test fast.
+    let put = |name: &str, bytes: &[u8]| {
+        let id = v7();
+        let dir = home().join("uploads").join(&session).join(&id);
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).unwrap();
+        let mut file = std::fs::OpenOptions::new();
+        file.write(true).create_new(true).mode(0o600);
+        std::io::Write::write_all(&mut file.open(dir.join(name)).unwrap(), bytes).unwrap();
+        image_ref(&id, name)
+    };
+    let big = put("big.png", &png((8 << 20) + 1, 1));
+    let reply = c.call(method::SESSION_PROMPT, prompt(&session, &v7(), "x", vec![big])).await;
+    assert_eq!(reply["error"]["data"]["reason"], "upload.tooLarge", "{reply}");
+    assert!(reply["error"]["message"].as_str().unwrap().contains("8 MiB"), "{reply}");
+    let five = (0..5).map(|n| put(&format!("p{n}.png"), &png(7 << 20, n))).collect();
+    let reply = c.call(method::SESSION_PROMPT, prompt(&session, &v7(), "x", five)).await;
+    assert_eq!(reply["error"]["data"]["reason"], "upload.tooLarge", "{reply}");
+    assert!(reply["error"]["message"].as_str().unwrap().contains("32 MiB"), "{reply}");
+    assert!(c.user_messages(&session).await.is_empty());
+    let max = put("max.png", &png(8 << 20, 7));
+    let reply = c.call(method::SESSION_PROMPT, prompt(&session, &v7(), "x", vec![max])).await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    assert!(c.text.contains(&format!("image:{}", sha(&png(8 << 20, 7)))));
 }
 
 /// A chat on a peer: the chunks go over the link to the peer, and the peer resolves the prompt

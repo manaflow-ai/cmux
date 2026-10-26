@@ -1032,11 +1032,21 @@ async fn dispatch_request(
             // the owner only: a person's prompt neither replaces nor is replaced.
             let supersede = crate::hub::supersede_key(&params)?.filter(|_| !person_message);
             // Files uploaded first and named in the prompt get their bytes back here, before
-            // anything reads them (`prompt_uploads.rs`).
+            // anything reads them (`prompt_uploads.rs`). A prompt id the chat took already goes on
+            // to `prompt_with`, which answers with its first run even once its uploads are gone
+            // (`turns.rs` reads any left at dispatch, so none reaches an agent without its bytes).
             if crate::prompt_uploads::any(&blocks) {
-                let id = s.id.clone();
+                let (hub, s, id) = (hub.clone(), s.clone(), prompt_id.clone());
+                let resend = flag("resend") == Some(true);
                 let resolved = tokio::task::spawn_blocking(move || {
-                    crate::prompt_uploads::resolve(&id, web, &mut blocks).map(|()| blocks)
+                    match crate::prompt_uploads::resolve(&s.id, web, &mut blocks) {
+                        Err(_)
+                            if id.as_deref().is_some_and(|id| hub.knows_prompt(&s, id, resend)) =>
+                        {
+                            Ok(blocks)
+                        }
+                        result => result.map(|()| blocks),
+                    }
                 });
                 blocks = resolved.await.map_err(|e| RpcError::internal(e.to_string()))??;
             }

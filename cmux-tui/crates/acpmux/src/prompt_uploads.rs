@@ -112,6 +112,24 @@ pub fn resolve(session: &str, web: bool, blocks: &mut [Value]) -> Result<(), Rpc
     Ok(())
 }
 
+/// [`resolve`] off the runtime, for a prompt that reaches a turn without passing `session/prompt`
+/// (`turns.rs`: a queued prompt restored from the log, a held agent message released): no block
+/// goes to an agent without its bytes. Immediate when no block names an upload.
+pub async fn resolve_off_runtime(
+    session: &str,
+    web: bool,
+    blocks: &mut Vec<Value>,
+) -> Result<(), RpcError> {
+    if !any(blocks) {
+        return Ok(());
+    }
+    let (id, mut owned) = (session.to_owned(), std::mem::take(blocks));
+    let read = tokio::task::spawn_blocking(move || (resolve(&id, web, &mut owned), owned));
+    let (result, back) = read.await.map_err(|e| RpcError::internal(e.to_string()))?;
+    *blocks = back;
+    result
+}
+
 /// The bytes of session `session`'s finished upload `id` named `name`, at most `left` of them
 /// (and [`MAX_FILE_BYTES`]).
 fn read(session: &str, id: &str, name: &str, left: usize) -> Result<Vec<u8>, RpcError> {
@@ -141,4 +159,18 @@ pub fn peer_unsupported(peer: &crate::peer::Peer) -> RpcError {
         peer.name, peer.name
     );
     refused("upload.unsupported", message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_remote_web_prompt_is_refused_before_any_file_is_read() {
+        let mut blocks = vec![json!({"type": "image", "_meta": {"acpmux": {"upload": {
+            "uploadId": "01a17a00-0000-7000-8000-000000000000", "fileName": "a.png"}}}})];
+        let refused = resolve("s", true, &mut blocks).unwrap_err();
+        assert_eq!(refused.data.unwrap()["reason"], "upload.remote");
+        assert!(resolve("s", true, &mut [json!({"type": "text", "text": "x"})]).is_ok());
+    }
 }
