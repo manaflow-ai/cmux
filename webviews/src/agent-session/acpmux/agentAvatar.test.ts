@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { agentAvatarChanged, hasAgentAvatar, loadAgentAvatar, removeAgentAvatar, setAgentAvatar, setAgentAvatarHost } from "./agentAvatar";
+import { agentAvatarChanged, drawAgentAvatar, hasAgentAvatar, loadAgentAvatar, removeAgentAvatar, setAgentAvatar, setAgentAvatarHost } from "./agentAvatar";
 import { avatarRows } from "./header/avatarRow";
 
 const PNG = "data:image/png;base64,AAAA";
@@ -119,6 +119,20 @@ describe("agent avatars", () => {
     expect(hasAgentAvatar("s3")).toBe(false);
     agentAvatarChanged("never-drawn");
     expect(hasAgentAvatar("never-drawn")).toBe(false);
+  });
+
+  test("a card still drawing a session after a failed read gets a later Set from another pane", async () => {
+    const { kept, state } = host();
+    const stop = drawAgentAvatar("s6");
+    state.connected = false;
+    expect(await loadAgentAvatar("s6")).toBe(null);
+    expect(hasAgentAvatar("s6")).toBe(false);
+    state.connected = true;
+    kept.set("s6", PNG);
+    agentAvatarChanged("s6");
+    await tick();
+    expect(hasAgentAvatar("s6")).toBe(true);
+    stop();
   });
 
   test("the menu offers Set Avatar…, Remove Avatar only with one, and nothing without a session", () => {

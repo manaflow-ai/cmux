@@ -17,6 +17,8 @@ const pending = new Map<string, Promise<string | null>>();
 /// Each session's change count: a read that started before a Set or Remove keeps nothing.
 const changes = new Map<string, number>();
 const listeners = new Set<() => void>();
+/// How many cards draw each session now: a change re-asks for a drawn session even after a failed read.
+const drawn = new Map<string, number>();
 
 /// Tests replace the host; replacing it forgets every answer.
 export function setAgentAvatarHost(next: Call | undefined): void {
@@ -24,6 +26,17 @@ export function setAgentAvatarHost(next: Call | undefined): void {
   avatars.clear();
   pending.clear();
   changes.clear();
+  drawn.clear();
+}
+
+/// A card draws session `sessionId` until the returned function is called (exported for tests).
+export function drawAgentAvatar(sessionId: string): () => void {
+  drawn.set(sessionId, (drawn.get(sessionId) ?? 0) + 1);
+  return () => {
+    const left = (drawn.get(sessionId) ?? 1) - 1;
+    if (left > 0) drawn.set(sessionId, left);
+    else drawn.delete(sessionId);
+  };
 }
 
 function src(reply: unknown): string | null {
@@ -63,7 +76,7 @@ export function loadAgentAvatar(sessionId: string): Promise<string | null> {
 /// when `always` or a card draws the session or waits on it, asks the host for it afresh. The old
 /// picture stays until the answer comes, so nothing flashes.
 function refresh(sessionId: string, always: boolean): Promise<unknown> {
-  const asked = always || avatars.has(sessionId) || pending.has(sessionId);
+  const asked = always || drawn.has(sessionId) || avatars.has(sessionId) || pending.has(sessionId);
   changes.set(sessionId, (changes.get(sessionId) ?? 0) + 1);
   pending.delete(sessionId);
   if (!asked) return Promise.resolve();
@@ -105,6 +118,7 @@ export function useAgentAvatar(sessionId: string | undefined): string | undefine
       listeners.delete(listener);
     };
   }, []);
+  useEffect(() => (sessionId ? drawAgentAvatar(sessionId) : undefined), [sessionId]);
   useEffect(() => {
     if (!sessionId || avatars.has(sessionId)) return;
     let live = true;
