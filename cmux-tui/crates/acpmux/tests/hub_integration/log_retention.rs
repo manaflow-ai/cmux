@@ -159,13 +159,15 @@ async fn retention_never_touches_an_open_or_recent_chat() {
         .as_str()
         .unwrap()
         .to_owned();
-    c.request(method::SESSION_PROMPT, prompt(&live, "hello", None)).await.unwrap();
+    // Long prompts: the raw lines that repeat them are what a pass cuts.
+    let long = format!("hello {}", "padding ".repeat(400));
+    c.request(method::SESSION_PROMPT, prompt(&live, &long, None)).await.unwrap();
     let new = json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "closed"}}});
     let closed = c.request(method::SESSION_NEW, new).await.unwrap()["sessionId"]
         .as_str()
         .unwrap()
         .to_owned();
-    c.request(method::SESSION_PROMPT, prompt(&closed, "hello", None)).await.unwrap();
+    c.request(method::SESSION_PROMPT, prompt(&closed, &long, None)).await.unwrap();
     c.request("_acpmux/kill", json!({"sessionId": closed})).await.unwrap();
     // The client that made it goes; one still attached keeps a chat whole.
     c.request("_acpmux/detach", json!({"sessionId": closed})).await.unwrap();
@@ -185,7 +187,7 @@ async fn retention_never_touches_an_open_or_recent_chat() {
         "{pass}"
     );
     assert_eq!(log(&live), live_log);
-    assert_ne!(log(&closed), closed_log, "the closed chat's raw lines went");
+    assert_ne!(log(&closed), closed_log, "the closed chat's raw lines were cut");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
