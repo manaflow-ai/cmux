@@ -23,10 +23,23 @@
 //! Chrome's `DCHECK` does (base/threading/scoped_blocking_call.cc), unless
 //! `CMUX_DAEMON_BLOCKING=record` (or [`set_mode`]) turns that off. Release
 //! never panics.
+//!
+//! `CMUX_DAEMON_BLOCKING_REPORT=<dir>` (or [`set_report_dir`]) also appends one
+//! JSON line per (site, kind, thread) to `<dir>/blocking-<pid>.jsonl`, before a
+//! Panic-mode panic, sites past a full table included. A test suite or bench
+//! run with it set leaves the MQ-13 list of every process it started, the ones
+//! that panicked or were killed included;
+//! `cmux-tui/scripts/daemon-blocking-sweep.py` runs the suites and groups it.
 
 use std::cell::Cell;
 use std::panic::Location;
-use std::sync::atomic::{AtomicPtr, AtomicU16, AtomicU64, Ordering};
+
+mod report;
+mod sites;
+
+pub use report::{REPORT_ENV, ReportError, report_path, set_report_dir};
+
+use sites::{SiteTable, note_violation};
 
 /// What a blocking call waits on. The names are stable: `server.blocking`
 /// reports them and the app's reports group by them.
@@ -301,7 +314,7 @@ pub fn scoped_blocking_call<R>(kind: BlockingKind, f: impl FnOnce() -> R) -> R {
 #[cold]
 #[inline(never)]
 fn violation(kind: BlockingKind, location: &'static Location<'static>) -> bool {
-    let first_at_site = SITES.record(location, kind);
+    let first_at_site = note_violation(&SITES, report::site_report(), kind, location);
     // Chrome's DCHECK: fails only in Panic mode, and Release compiles it out.
     debug_assert!(
         mode() == BlockingMode::Record || std::thread::panicking(),
@@ -482,107 +495,6 @@ pub fn snapshot() -> BlockingSnapshot {
 }
 
 static SITES: SiteTable<SITE_CAPACITY> = SiteTable::new();
-
-struct SiteSlot {
-    location: AtomicPtr<Location<'static>>,
-    kinds: AtomicU16,
-    count: AtomicU64,
-}
-
-impl SiteSlot {
-    const fn new() -> Self {
-        Self {
-            location: AtomicPtr::new(std::ptr::null_mut()),
-            kinds: AtomicU16::new(0),
-            count: AtomicU64::new(0),
-        }
-    }
-}
-
-/// A fixed open-addressed table of call sites. A slot is claimed once by a
-/// compare-exchange of its location and never freed, so recording takes no
-/// lock and allocates nothing.
-struct SiteTable<const N: usize> {
-    slots: [SiteSlot; N],
-    overflow: AtomicU64,
-}
-
-impl<const N: usize> SiteTable<N> {
-    const fn new() -> Self {
-        Self { slots: [const { SiteSlot::new() }; N], overflow: AtomicU64::new(0) }
-    }
-
-    /// Counts one violation at `location`; true when it is the site's first.
-    fn record(&self, location: &'static Location<'static>, kind: BlockingKind) -> bool {
-        let wanted = std::ptr::from_ref(location).cast_mut();
-        let start = site_hash(location) % N;
-        for probe in 0..N {
-            let slot = &self.slots[(start + probe) % N];
-            let mut current = slot.location.load(Ordering::Acquire);
-            if current.is_null() {
-                current = match slot.location.compare_exchange(
-                    std::ptr::null_mut(),
-                    wanted,
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                ) {
-                    Ok(_) => wanted,
-                    Err(winner) => winner,
-                };
-            }
-            // SAFETY: a non-null slot location is a `&'static Location` stored above.
-            if same_site(unsafe { &*current }, location) {
-                slot.kinds.fetch_or(kind.bit(), Ordering::Relaxed);
-                return slot.count.fetch_add(1, Ordering::Relaxed) == 0;
-            }
-        }
-        self.overflow.fetch_add(1, Ordering::Relaxed);
-        false
-    }
-
-    fn snapshot(&self) -> BlockingSnapshot {
-        let mut sites: Vec<BlockingSite> = self
-            .slots
-            .iter()
-            .filter_map(|slot| {
-                let location = slot.location.load(Ordering::Acquire);
-                if location.is_null() {
-                    return None;
-                }
-                // SAFETY: a non-null slot location is a `&'static Location`.
-                let location = unsafe { &*location };
-                Some(BlockingSite {
-                    file: location.file(),
-                    line: location.line(),
-                    column: location.column(),
-                    kinds: BlockingKinds(slot.kinds.load(Ordering::Relaxed)),
-                    count: slot.count.load(Ordering::Relaxed),
-                })
-            })
-            .collect();
-        sites.sort_by(|a, b| {
-            b.count.cmp(&a.count).then_with(|| (a.file, a.line).cmp(&(b.file, b.line)))
-        });
-        BlockingSnapshot { sites, overflow: self.overflow.load(Ordering::Relaxed) }
-    }
-}
-
-/// Locations of one call site can be distinct statics (inlined generics), so
-/// sites compare and hash by content.
-fn same_site(a: &Location<'_>, b: &Location<'_>) -> bool {
-    a.line() == b.line() && a.column() == b.column() && a.file() == b.file()
-}
-
-fn site_hash(location: &Location<'_>) -> usize {
-    // FNV-1a over file, line and column.
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    let line_column = (u64::from(location.line()) << 32) | u64::from(location.column());
-    for byte in location.file().bytes().chain(line_column.to_le_bytes()) {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x0100_0000_01b3);
-    }
-    hash as usize
-}
 
 #[cfg(test)]
 mod tests {
@@ -856,34 +768,6 @@ mod tests {
         assert!(
             !ThreadState::new(true, Some(AllowReason::Shutdown)).permits(BlockingKind::IpcReply)
         );
-    }
-
-    #[track_caller]
-    fn here() -> &'static Location<'static> {
-        Location::caller()
-    }
-
-    #[test]
-    fn site_table_merges_kinds_and_counts_overflow() {
-        let table = SiteTable::<2>::new();
-        let first = here();
-        let second = here();
-        let third = here();
-        assert!(table.record(first, BlockingKind::Fs), "the site's first violation");
-        assert!(!table.record(first, BlockingKind::Sleep));
-        assert!(table.record(second, BlockingKind::Recv));
-        assert!(!table.record(third, BlockingKind::Join), "a full table has no first");
-        assert!(!table.record(third, BlockingKind::Join));
-        let snapshot = table.snapshot();
-        assert_eq!(snapshot.sites.len(), 2);
-        assert_eq!(snapshot.overflow, 2);
-        let first_site = snapshot.site(first.file(), first.line()).expect("first");
-        assert_eq!(first_site.count, 2);
-        assert_eq!(
-            first_site.kinds.iter().collect::<Vec<_>>(),
-            vec![BlockingKind::Fs, BlockingKind::Sleep]
-        );
-        assert_eq!(snapshot.sites[0], *first_site);
     }
 
     #[test]
