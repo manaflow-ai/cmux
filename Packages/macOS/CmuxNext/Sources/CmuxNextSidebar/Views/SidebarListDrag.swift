@@ -58,6 +58,8 @@ final class SidebarListDrag {
     }
     /// Whether the drag was moving up when `docTarget` last changed: a move the other way turns back (`SidebarDragGeometry.edgeY`).
     private(set) var docTargetChangedUp: Bool?
+    /// The pointer is beside the sidebar with an item the App removes there (`holdsDragOut`): a release removes it.
+    var removesOnDrop = false
     /// A drag of an item a list block draws (a Pinned or custom tile or row): its section and item.
     var tileSource: (section: String, item: LayoutItemID)?
     /// The region whose tile holds the press (it keeps the view until the release).

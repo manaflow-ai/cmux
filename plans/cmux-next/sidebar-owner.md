@@ -194,6 +194,7 @@ the gap, no row left out of place after drop or cancel).
 | [62c427ab5bd..a1af264c7a7](https://github.com/manaflow-ai/cmux/compare/62c427ab5bd...a1af264c7a7) | The Sidebar-Look gate and SidebarLookContractTests |
 | [89dbae323b5..30d164e1ec6](https://github.com/manaflow-ai/cmux/compare/89dbae323b5...30d164e1ec6) | Row close back to the trailing x (takes back #23783's dog-ear); a row without an icon starts its title at the inset (takes back c779988d57d's empty slot); look gallery test |
 | #24945 Update Ready card switch | The Automatic Updates switch starts its row at the card's text edge and the label follows (Leo 2026-10-22: "he preferred the checkbox on the left"; 2026-10-24: "I thought we said we were gonna put the toggle on the left"). The switch's size, colours, slide and cap-midline alignment, and every other part of the card, are unchanged. No row, rail or indent change. |
+| Chief drag out (from #23933) | The Chief dragged past the sidebar's side dims its card (the refused look) and its release out there takes it off (`removesOnDragOut`), from the list, a tile or the older band; a just-added Chief draws, moves and comes off before the daemon's echo. No row, rail or indent change. |
 
 ## Every sidebar package commit, Oct 19-23
 
