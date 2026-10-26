@@ -1863,7 +1863,8 @@ RULES += INPUT_RULES
 
 # ---------------------------------------------------------------- main-blocking / thread-doc (PL-blocking)
 # plans/cmux-next/threading-model.md: the main thread never blocks (Chrome's ScopedBlockingCall). The runtime
-# detector (CmuxNextCompat/Threading) is the real guard; these rules are the early warning on what a push adds.
+# detector (CmuxNextCompat/Threading, CmuxNextCompatAppKit/Threading) is the real guard; these rules are the early
+# warning on what a push adds.
 # They judge only the lines the push changed (no whole-file context scan), so the gate stays fast.
 # The block owns its lines from here to `RULES += BLOCKING_RULES`; other rules go above it.
 THREADING_DOC = "plans/cmux-next/threading-model.md"
@@ -1877,8 +1878,9 @@ FILE_OPS = (r"fileExists|isReadableFile|isWritableFile|isExecutableFile|createDi
             r"subpathsOfDirectory|enumerator|createFile|contents|contentsEqual|attributesOfItem|attributesOfFileSystem|"
             r"setAttributes|moveItem|copyItem|linkItem|replaceItemAt|destinationOfSymbolicLink|createSymbolicLink|"
             r"trashItem|url")
-# Raw blocking primitives: most have a checked seam in CmuxNextCompat/Threading; the rest (sync XPC proxies,
-# AppleScript, condition locks, asyncAndWait, LSCopy*) move to an async API. A `.wait(` or an SMAppService
+# Raw blocking primitives: most have a checked seam in CmuxNextCompat/Threading (the NSWorkspace queries in
+# CmuxNextCompatAppKit/Threading); the rest (sync XPC proxies, AppleScript, condition locks, asyncAndWait,
+# LSCopy*) move to an async API. A `.wait(` or an SMAppService
 # `.unregister()` preceded by `await` in its statement is the async overload (Backoff.wait, a continuation,
 # `try await service.unregister()`), never a blocking one: see blocking_match.
 # Process launch matches any receiver chain (`try box.process.run()`, ProcessRunner.swift:74).
@@ -2250,13 +2252,14 @@ BLOCKING_RULES = (
          "`posix_spawn`, `fork()`, pthread and condition-lock waits, Security, AX, `getaddrinfo`, CGWindowList, "
          "LSCopy, NSWorkspace app and icon queries, SMAppService, AuthorizationCopyRights, AppleScript) instead of its "
          "checked seam",
-         "the runtime detector sees only the seams in CmuxNextCompat/Threading: a raw call that later runs on the "
-         "main thread blocks it unseen",
+         "the runtime detector sees only the seams in CmuxNextCompat/Threading and CmuxNextCompatAppKit/Threading: a "
+         "raw call that later runs on the main thread blocks it unseen",
          "use the seam: `FileManager.checked.<op>`, `Data(blockingContentsOf:)`, `String(blockingContentsOf:)`, "
          "`url.blockingResourceValues`, `handle.blockingReadToEnd()`, `semaphore.blockingWait()`, "
          "`queue.blockingSync`, `process.blockingWaitUntilExit()`, `process.blockingRun()`, "
          "`blockingRead/Recv/Write/Send`, `blockingSecItem*`, `blockingAX*`, `blockingGetaddrinfo`, "
-         "`blockingWindowList*`, `workspace.blockingURLForApplication/blockingIcon`, `blockingSMAppService*`, "
+         "`blockingWindowList*`, `workspace.blockingURLForApplication/blockingIcon` (import CmuxNextCompatAppKit), "
+         "`blockingSMAppService*`, "
          "`blockingAuthorizationCopyRights`; with no seam (sync XPC proxy, AppleScript, condition locks, "
          "`asyncAndWait`, LSCopy) use the async API",
          "// blocking-allow: <why the seam does not fit>",

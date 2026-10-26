@@ -790,12 +790,21 @@
       ],
       "packages": []
     },
+    "CmuxNextCompatAppKitTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCompatAppKitTests",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextCompatAppKit"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextCompatTests": {
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCompatTests",
       "targets": [
-        "CmuxNextCompat",
-        "CmuxNextCompatAppKit"
+        "CmuxNextCompat"
       ],
       "packages": [],
       "reads": []

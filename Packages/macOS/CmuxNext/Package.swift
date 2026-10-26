@@ -1277,6 +1277,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextCompatTests",
+            dependencies: ["CmuxNextCompat"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The CmuxNextCompatAppKit seams' tests (the checked NSWorkspace queries, CATransaction main
+        // completion), apart so CmuxNextCompatTests imports no UI framework (p15-oracle task 143).
+        .testTarget(
+            name: "CmuxNextCompatAppKitTests",
             dependencies: ["CmuxNextCompat", "CmuxNextCompatAppKit"],
             swiftSettings: uiSwiftSettings
         ),
