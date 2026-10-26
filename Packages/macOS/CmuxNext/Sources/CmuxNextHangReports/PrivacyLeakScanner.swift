@@ -52,23 +52,39 @@ public nonisolated struct PrivacyLeakScanner: Sendable {
             return [Finding(path: "$", kind: .notJSON)]
         }
         var found: [Finding] = []
-        walk(root, path: "$", into: &found)
+        walk(root, path: "$", schemaPath: "$", into: &found)
         return found
     }
 
-    private func walk(_ value: Any, path: String, into found: inout [Finding]) {
+    /// The fields whose values come only from a closed set, by schema path (array indices as
+    /// `[]`): the input enums' case names and Chrome's scroll jank histogram names. A string that
+    /// is exactly a member, at its own path, is not checked for personal terms (a person named
+    /// Mina and the target `terminal`); any other value there, and every other string, is.
+    static let closedSetValues: [String: Set<String>] = [
+        "$.input_latency[].kind": HangReportBuilder.inputKinds,
+        "$.input_latency[].target": HangReportBuilder.inputTargets,
+        "$.input_latency[].entrypoint": HangReportBuilder.inputEntrypoints,
+        "$.input_latency[].presentation_source": HangReportBuilder.presentationSources,
+        "$.scroll_jank.histograms[].name": HangReportBuilder.scrollJankNames,
+    ]
+
+    private func walk(_ value: Any, path: String, schemaPath: String, into found: inout [Finding]) {
         switch value {
         case let object as [String: Any]:
             for (key, child) in object {
                 // Keys are the schema's names: checked for shape, not for personal terms.
                 let keyKind = kind(of: key, personal: false)
                 if let keyKind { found.append(Finding(path: path + ".<key>", kind: keyKind)) }
-                walk(child, path: path + "." + (keyKind == nil ? key : "<key>"), into: &found)
+                let name = keyKind == nil ? key : "<key>"
+                walk(child, path: path + "." + name, schemaPath: schemaPath + "." + name, into: &found)
             }
         case let array as [Any]:
-            for (index, child) in array.enumerated() { walk(child, path: "\(path)[\(index)]", into: &found) }
+            for (index, child) in array.enumerated() {
+                walk(child, path: "\(path)[\(index)]", schemaPath: schemaPath + "[]", into: &found)
+            }
         case let string as String:
-            if let kind = kind(of: string) { found.append(Finding(path: path, kind: kind)) }
+            let closedSetMember = Self.closedSetValues[schemaPath]?.contains(string) ?? false
+            if let kind = kind(of: string, personal: !closedSetMember) { found.append(Finding(path: path, kind: kind)) }
         default:
             break
         }

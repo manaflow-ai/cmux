@@ -43,6 +43,37 @@ struct PrivacyLeakScannerTests {
         #expect(findings(planting: HangReportFixtures.appUUID, at: "uuid").isEmpty)
     }
 
+    @Test func acceptsInputLatencyLabelsEvenWhenTheUserIsCalledTerminalOrPerson() throws {
+        // A short name inside an input label must not refuse every report (p04-input-010).
+        let scanner = PrivacyLeakScanner(forbiddenTerms: HangReportFixtures.forbiddenTerms + ["Terminal", "Person", "Frames", "mina"])
+        let report = InputLatencyReportTests.report(InputLatencyReportTests.fieldSnapshot())
+        #expect(report.inputLatency?.isEmpty == false)
+        let body = try HangReport.encoder.encode(report)
+        #expect(scanner.findings(in: body).isEmpty)
+    }
+
+    @Test func aNameInsideAnInputLabelStillRefusesItElsewhere() throws {
+        // Only an exact closed-set value at its own key skips the term check: "mina" (in `terminal`)
+        // still makes an image named MinaTools `other`, and still refuses it planted anywhere else.
+        let terms = HangReportFixtures.forbiddenTerms + ["mina"]
+        let classifier = ImageClassifier(appBundlePath: HangReportFixtures.appBundle, forbiddenTerms: terms,
+                                         systemImageExists: { _ in true })
+        #expect(classifier.frame(metricKitName: "MinaTools.dylib", uuid: HangReportFixtures.appKitUUID, offset: 16,
+                                 loaded: nil) == .other)
+        let scanner = PrivacyLeakScanner(forbiddenTerms: terms)
+        var report = InputLatencyReportTests.report(InputLatencyReportTests.fieldSnapshot())
+        report.hangs = [HangSample(source: .watchdog, kind: .stall, durationMs: 300,
+                                   frames: [HangReportFrame(image: "MinaTools.dylib", uuid: HangReportFixtures.appKitUUID, offset: 16)])]
+        let found = scanner.findings(in: try HangReport.encoder.encode(report))
+        #expect(found.map(\.kind) == [.personalTerm])
+        #expect(found.first?.path == "$.hangs[0].frames[0].image")
+        // A closed-set field holding anything but one of its members is checked too.
+        report.hangs = []
+        report.inputLatency?[0].target = "Mina laptop"
+        let planted = scanner.findings(in: try HangReport.encoder.encode(report))
+        #expect(planted.map(\.path) == ["$.input_latency[0].target"])
+    }
+
     @Test func refusesTextThatIsNotJSON() {
         #expect(scanner.findings(in: Data("not json".utf8)).map(\.kind) == [.notJSON])
     }

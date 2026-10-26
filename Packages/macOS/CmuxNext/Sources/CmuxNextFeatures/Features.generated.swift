@@ -53,9 +53,43 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Chromium puts each cmux page in its capability group, so pages of one group share a renderer and pages of different groups never do.
+    public static let pageProcessGroups = Feature(
+        index: 3,
+        name: "pageProcessGroups",
+        owner: "PL-webui",
+        description: "Chromium puts each cmux page in its capability group, so pages of one group share a renderer and pages of different groups never do.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["home-idle"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
+    /// Memory Saver keeps a hidden page awake for one minute after its sound ends, and keeps a page whose tab reports sound with no probe, as Chrome does (kTabAudioProtectionTime).
+    public static let recentlyAudibleProtection = Feature(
+        index: 4,
+        name: "recentlyAudibleProtection",
+        owner: "PL-memory",
+        description: "Memory Saver keeps a hidden page awake for one minute after its sound ends, and keeps a page whose tab reports sound with no probe, as Chrome does (kTabAudioProtectionTime).",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.
     public static let renderStarvationGuard = Feature(
-        index: 3,
+        index: 5,
         name: "renderStarvationGuard",
         owner: "Performance Lead",
         description: "Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.",
@@ -72,7 +106,7 @@ nonisolated extension Feature {
 
     /// The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.
     public static let taskManagerMemorySaved = Feature(
-        index: 4,
+        index: 6,
         name: "taskManagerMemorySaved",
         owner: "PL-memory",
         description: "The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.",
@@ -89,7 +123,7 @@ nonisolated extension Feature {
 
     /// A top page (Home, History, Bookmarks, an app page) hidden past its page's timeout lets its view go and keeps a small record of its scroll and selection, and at most the Mac's budget of hidden top pages stay live across all windows; showing it builds the page again as the person left it.
     public static let topPageDiscard = Feature(
-        index: 5,
+        index: 7,
         name: "topPageDiscard",
         owner: "PL-memory",
         description: "A top page (Home, History, Bookmarks, an app page) hidden past its page's timeout lets its view go and keeps a small record of its scroll and selection, and at most the Mac's budget of hidden top pages stay live across all windows; showing it builds the page again as the person left it.",
@@ -104,13 +138,33 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Each display's link runs on a vsync thread of its own, and the main frame clock gets one coalesced tick from it per vsync.
+    public static let vsyncHub = Feature(
+        index: 8,
+        name: "vsyncHub",
+        owner: "Performance Lead",
+        description: "Each display's link runs on a vsync thread of its own, and the main frame clock gets one coalesced tick from it per vsync.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["motion", "home-idle"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Every feature, by index: `registered[feature.index] == feature`.
     public static let registered: [Feature] = [
         .energySaver,
         .frameRateClasses,
         .memorySaverBackgroundActivity,
+        .pageProcessGroups,
+        .recentlyAudibleProtection,
         .renderStarvationGuard,
         .taskManagerMemorySaved,
         .topPageDiscard,
+        .vsyncHub,
     ]
 }

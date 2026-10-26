@@ -594,9 +594,9 @@
     },
     {
       "date": "2026-10-26",
-      "row": "observer_sites",
-      "allow": 1,
-      "why": "p14-energy-021 (plans/cmux-next/chrome-parity/p14-energy.md D): ThermalStateWatch in CmuxNextEnergy is the app's one thermal-state observer, owned by the composition root's EnergyMonitor and handed out by init (Chrome base/power_monitor/thermal_state_observer_mac.mm). BackdropVideoView (CmuxNextDesign) still observes thermalStateDidChange itself; its thermal entry should go when it follows the injected energy inputs (p14-energy-024 wiring), which returns the row to its old total. Moving LowPowerMode's observer into CmuxNextEnergy is count-neutral."
+      "row": "blocking_allow_escapes",
+      "allow": 2,
+      "why": "p05-ipc-027 CmuxNextWireGen: the SwiftPM build-tool executable that reads cmux-tui/spec and writes one file into the plugin work directory. It runs on the build host as its own short process, never inside the app, so the app's main-thread detector does not apply; routing it through the CmuxNextCompat seams would compile Compat and swift-atomics for the host and rerun the generator on every Compat edit. One read and one write."
     }
   ],
   "observer_wrappers": [

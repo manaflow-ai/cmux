@@ -22,6 +22,8 @@ mod resource_projection;
 pub use resource_projection::{
     CommitSpans, ProjectionSpans, ResourceProjectionSnapshot, ResourceProjectionStats,
 };
+mod owner_panic_log;
+pub use owner_panic_log::owner_panic_log_path;
 mod slow_requests;
 pub use slow_requests::{SlowRequest, SlowRequestsSnapshot};
 mod write_path;
