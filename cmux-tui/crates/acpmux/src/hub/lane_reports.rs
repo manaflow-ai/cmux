@@ -138,13 +138,12 @@ impl TurnKinds {
     }
 
     /// A steer [`TurnKinds::steer_in`] counted was answered with `last` the last turn started:
-    /// `entered`, it went into a turn up to that one.
+    /// `entered`, it went into a turn up to that one. A session forgotten meanwhile keeps nothing.
     fn steer_done(&mut self, id: &str, entered: bool, last: u64) {
-        if let Some(n) = self.in_flight.get_mut(id) {
-            *n -= 1;
-            if *n == 0 {
-                self.in_flight.remove(id);
-            }
+        let Some(n) = self.in_flight.get_mut(id) else { return };
+        *n -= 1;
+        if *n == 0 {
+            self.in_flight.remove(id);
         }
         if entered {
             let t = self.carried.entry(id.to_owned()).or_default();
@@ -170,8 +169,9 @@ impl TurnKinds {
 }
 
 /// One steer [`TurnKinds::steer_in`] counted, until its answer: [`SteerCount::done`] takes it
-/// back. Dropped first (its request was dropped), it may have gone in, so it counts as in.
-/// `last` reads the last turn started.
+/// back. Dropped first (its request was dropped), it may be with the agent still, to be read in
+/// the turn running or the next, so it counts as gone into both. `last` reads the last turn
+/// started.
 pub(super) struct SteerCount<'a, F: Fn() -> u64> {
     turns: &'a StdMutex<TurnKinds>,
     id: String,
@@ -193,8 +193,11 @@ impl<'a, F: Fn() -> u64> SteerCount<'a, F> {
 
 impl<F: Fn() -> u64> Drop for SteerCount<'_, F> {
     fn drop(&mut self) {
-        let entered = self.entered.unwrap_or(true);
         let last = (self.last)();
+        let (entered, last) = match self.entered {
+            Some(entered) => (entered, last),
+            None => (true, last + 1),
+        };
         self.turns.lock().unwrap_or_else(|e| e.into_inner()).steer_done(&self.id, entered, last);
     }
 }
