@@ -23,8 +23,9 @@ public final class WebKitSetupGate {
         guard state == .unknown else { return }
         state = .probing
         let request = request
-        // A wedged sandboxd never returns: not on a cooperative thread.
-        Thread.detachNewThread {
+        // A wedged sandboxd never returns: not on a cooperative thread. Nobody waits for the answer
+        // (the gate only decides whether to make the spare), so it runs at utility.
+        let thread = Thread {
             request()
             Task { @MainActor [weak self] in
                 guard let self, state == .probing else { return }
@@ -32,6 +33,9 @@ public final class WebKitSetupGate {
                 answered()
             }
         }
+        thread.name = "cmux-next webkit setup probe"
+        thread.qualityOfService = .utility
+        thread.start()
         timer.schedule(after: Self.timeout) { @MainActor [weak self] in
             if self?.state == .probing { self?.state = .slow }
         }
