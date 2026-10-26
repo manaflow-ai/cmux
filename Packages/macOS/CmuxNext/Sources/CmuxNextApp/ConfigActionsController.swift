@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextSettings
+import CmuxNextWakeups
 import Observation
 
 /// Registers the command `actions` from cmux.json (and inline command
@@ -11,7 +12,7 @@ import Observation
 final class ConfigActionsController {
     private let context: AppActionContext
     private var registeredCommands: [ConfigCommandAction] = []
-    private var task: Task<Void, Never>?
+    private var commandsWatch: ServiceObservation<[ConfigCommandAction]>?
 
     init(context: AppActionContext) {
         self.context = context
@@ -19,21 +20,18 @@ final class ConfigActionsController {
 
     private var registry: ActionRegistry { context.registry }
 
-    /// Applies the current snapshot now, then follows cmux.json changes.
+    /// Applies the current snapshot now, then follows cmux.json changes. `visible`: the palette and the
+    /// shortcuts show the commands; a person's change flushes before its frame.
     func start(settings: SettingsController) {
-        guard task == nil else { return }
-        apply(settings.snapshot.commandActions)
-        // task-owner: this controller (cancelled in stop); event-driven (Observation).
-        task = Task { [weak self] in
-            for await commands in ObservationStream({ settings.snapshot.commandActions }) {
-                self?.apply(commands)
-            }
-        }
+        guard commandsWatch == nil else { return }
+        commandsWatch = ServiceObservation(.visible, owner: "ConfigActionsController", on: context.services.mainWork) {
+            settings.snapshot.commandActions
+        } apply: { [weak self] in self?.apply($0) }
     }
 
     func stop() {
-        task?.cancel()
-        task = nil
+        commandsWatch?.cancel()
+        commandsWatch = nil
     }
 
     /// Replaces the registry's `cmuxConfig.*` actions with `commands`.

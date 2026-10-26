@@ -15,6 +15,10 @@ public struct CloudInboxListRequest: DaemonRequest {
         self.limit = limit.map { min(max($0, 1), Self.maxLimit) }
         self.includeArchived = includeArchived
     }
+
+    enum CodingKeys: String, CodingKey {
+        case limit, includeArchived = "include_archived"
+    }
 }
 
 /// `cloud-conversation-snapshot`: the head and the newest `tail` (1...50) messages.
@@ -43,5 +47,9 @@ public struct CloudConversationHistoryRequest: DaemonRequest {
         self.conversation = conversation
         self.beforeSeq = beforeSeq
         self.limit = min(max(limit, 1), Self.maxLimit)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case conversation, beforeSeq = "before_seq", limit
     }
 }
