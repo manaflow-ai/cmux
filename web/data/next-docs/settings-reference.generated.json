@@ -1,11 +1,23 @@
 {
   "version": 1,
-  "count": 489,
+  "count": 492,
   "sections": [
     {
       "id": "general",
       "title": "General",
       "rows": [
+        {
+          "key": "agentPane.attachmentView",
+          "title": "Attachment View",
+          "help": "How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same.",
+          "kind": "choice",
+          "default": "inline",
+          "group": "Agent Chat",
+          "values": [
+            "inline",
+            "strip"
+          ]
+        },
         {
           "key": "agentPane.editedFiles.maxRows",
           "title": "Edited Files Shown",
@@ -1380,6 +1392,19 @@
           }
         },
         {
+          "key": "agentPane.display.environment.placement",
+          "title": "Session Info Chip",
+          "help": "Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it.",
+          "kind": "choice",
+          "default": "left",
+          "group": "Agent Chat",
+          "values": [
+            "left",
+            "right",
+            "off"
+          ]
+        },
+        {
           "key": "agentPane.display.font.lineHeight",
           "title": "Chat Line Height",
           "help": "",
@@ -2452,6 +2477,14 @@
           "kind": "string_map",
           "default": {},
           "group": "App Theme"
+        },
+        {
+          "key": "appearance.wallpaperTint",
+          "title": "Tint with Desktop Wallpaper",
+          "help": "The glass takes the colors of your desktop picture and follows it when the picture or Space changes.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Window Background"
         },
         {
           "key": "diff.colors",

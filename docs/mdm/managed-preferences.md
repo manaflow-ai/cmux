@@ -130,6 +130,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.backgroundOpacity` | real |  | 0 to 1 | Opacity. How much of the theme color covers the material behind the window. |
 | `appearance.backgroundBlur` | string |  | `frosted`, `glass`, `glass-clear`, `none` | Material. Unset, the window follows Ghostty's background-opacity and background-blur. |
 | `appearance.inactiveWindowDim` | real | `0` | 0 to 1 | Dim Inactive Windows. How much more theme color covers a window while another one is in front. 0 keeps the same look. |
+| `appearance.wallpaperTint` | boolean | `true` |  | Tint with Desktop Wallpaper. The glass takes the colors of your desktop picture and follows it when the picture or Space changes. |
 | `appearance.glassTransparency` | real | `0` | 0 to 1 | Glass Transparency. How much of the desktop or wallpaper shows through the glass. |
 | `appearance.hue` | real | `0.5` | 0 to 1 | Hue. Shift the tint color around the hue wheel. |
 | `appearance.saturation` | real | `1` | 0 to 2 | Saturation. Increase or reduce the tint color intensity. |
