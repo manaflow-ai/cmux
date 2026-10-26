@@ -102,6 +102,7 @@ static int selftest;                 // main thread only: the self-test's calls 
 static char out_pattern[1024];       // CMUX_BLOCKING_PROBE_OUT, copied at load
 static uint64_t loaded_ns;
 static const void *probe_base;       // the probe's own image, left out of the reported stacks
+static uint64_t until_ns;            // CMUX_BLOCKING_PROBE_UNTIL_MS: record only calls that end before this uptime
 
 static inline uint64_t now_ns(void) {
     if (timebase.denom == 0) mach_timebase_info(&timebase);  // a call before the constructor ran
@@ -142,6 +143,7 @@ static void record_entry(const char *kind, uint64_t ns) {
 
 static void record(const char *kind, uint64_t ns) {
     if (selftest) kind = "selftest";
+    if (until_ns && !selftest && now_ns() - loaded_ns > until_ns) return;
     in_probe = 1;
     uint64_t start = now_ns();
     record_entry(kind, ns);
@@ -447,7 +449,10 @@ __attribute__((constructor)) static void start(void) {
     if (dladdr((const void *)&start, &self)) probe_base = self.dli_fbase;
     const char *out = getenv("CMUX_BLOCKING_PROBE_OUT");
     if (out != NULL) snprintf(out_pattern, sizeof out_pattern, "%s", out);
+    const char *until = getenv("CMUX_BLOCKING_PROBE_UNTIL_MS");
+    if (until != NULL) until_ns = strtoull(until, NULL, 10) * 1000000ull;
     unsetenv("CMUX_BLOCKING_PROBE_OUT");
+    unsetenv("CMUX_BLOCKING_PROBE_UNTIL_MS");
     unsetenv("DYLD_INSERT_LIBRARIES");
     atexit(dump_at_exit);
     if (out_pattern[0]) dispatch_async_f(dispatch_get_main_queue(), NULL, run_selftest);

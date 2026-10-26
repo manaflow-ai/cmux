@@ -285,6 +285,10 @@ if "--suite=cef-resize-sync" in sys.argv:
 # `--suite=launch`: launch time, scripts/cmux-next/bench-startup.py (the launch-time budget that left the pull request
 # CI, 2026-10-23). bench-startup.py takes the app's tag from --app, so --tag and --out are dropped; --json stays.
 # The step passes whenever the JSON was written (an over-budget launch is in it).
+# `--suite=launch-seed`: p08-startup-072's hour-0 launch seed (scratch ref only): scripts/cmux-next/launch-seed-072.py.
+if "--suite=launch-seed" in sys.argv:
+    sys.exit(subprocess.call([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "launch-seed-072.py")]
+                             + [a for a in sys.argv[1:] if a != "--suite=launch-seed"]))
 if "--suite=launch" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-startup.py")
     rest, skip, report_path = [], False, None
