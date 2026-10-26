@@ -100,7 +100,7 @@ extension TraceRuntime {
     /// at the trace point.
     @inlinable @inline(__always)
     public func isEnabled(_ categories: TraceCategories) -> Bool {
-        categoryFlags.load(ordering: .relaxed) & categories.rawValue != 0
+        categoryMask & categories.rawValue != 0
     }
 
     /// Replaces the categories that record (launch defaults, `trace.start`, `trace.stop`, the secure-input gate).
