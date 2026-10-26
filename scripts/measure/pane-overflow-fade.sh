@@ -284,6 +284,10 @@ git worktree add --detach "$WORK/before" "$RED_SHA"
 git worktree add --detach "$WORK/after" "$HEAD_SHA"
 prepare_before_regression "$WORK/before"
 assert_measurement_checkout "$WORK/before" "$RED_SHA"
+# The old cache installer deletes tracked GENERATED.md placeholders. Use the
+# tooling checkout's narrow setup wrapper in both historical checkouts; product,
+# test and other tracked-source fences remain unchanged.
+export CMUX_WEB_BUNDLES_BUILD="$ROOT/scripts/measure/pane-overflow-bundle-setup.py"
 # These worktrees belong to this one attempt; keep them and their receipts on failure.
 for label in before after; do
   checkout="$WORK/$label"
