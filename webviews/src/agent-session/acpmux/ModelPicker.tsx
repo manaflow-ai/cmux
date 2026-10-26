@@ -101,7 +101,8 @@ function quickSections(
 ): { shown: ModelChoice[]; more: ModelChoice[] } {
   const { latest, older } = sectionsFor(entry);
   const latestIds = new Set(latest.map((choice) => choice.id));
-  const all = groupVariants([...latest, ...older], model)
+  const groups = groupVariants([...latest, ...older], model);
+  const all = groups
     .map(({ model: choice, name, tag, offers, count }): ModelChoice | undefined => {
       // Establish owner identities from the complete catalog before hiding unavailable offers. This
       // keeps an available bare owner row from joining a different model when its peer is offline.
@@ -132,7 +133,9 @@ function quickSections(
   // A model is a top one when any provider's row of it is.
   const top = all.filter((choice) => choice.curated || (choice.offers ?? [choice]).some((offer) => latestIds.has(offer.id)));
   const picks = [...top.filter((choice) => !isVariant(choice)), ...top.filter(isVariant)].slice(0, QUICK_ROWS);
-  const runs = all.find((choice) => choice.id === model);
+  // The landing row may be an available sibling when the running provider is unavailable;
+  // keep that logical group in the compact picks by matching the complete offer list.
+  const runs = all.find((choice, index) => groups[index]?.offers.some((offer) => offer.model.id === model));
   const chosen = new Set(runs && !picks.includes(runs) ? [...picks.slice(0, QUICK_ROWS - 1), runs] : picks);
   return { shown: all.filter((choice) => chosen.has(choice)), more: all.filter((choice) => !chosen.has(choice)) };
 }
@@ -147,11 +150,8 @@ function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[];
   if (!entry) return { latest: [], older: [] };
   const cached = choiceCache.get(entry);
   if (cached) return cached;
-  const seen = new Set<string>();
   const choices = entry.models.flatMap((model): ModelChoice[] => {
     if (isDefaultChoice(model)) return [];
-    if (seen.has(model.id)) return [];
-    seen.add(model.id);
     return [
       {
         id: model.id,
@@ -164,7 +164,8 @@ function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[];
       },
     ];
   });
-  const sections = curatedSections(modelSections(choices, entry.name), entry.top);
+  // Keep duplicate catalog rows until groupVariants can choose an available/current offer.
+  const sections = curatedSections(modelSections(choices, entry.name, false), entry.top);
   choiceCache.set(entry, sections);
   return sections;
 }
@@ -749,9 +750,17 @@ export function ModelPicker(props: ModelPickerProps) {
       (entry) => !entry.folder && entry.pickable && !blockedProfile(entry),
     );
     const list: QuickFamily[] = [];
-    const starred = startable
-      .filter((entry) => loginFor(entry) === undefined)
-      .flatMap((entry) => choicesFor(entry).flatMap((model) => (favorites.has(model.id) ? [row(entry, model)] : [])));
+    const starred = startable.flatMap((entry) => {
+      if (loginFor(entry) !== undefined) return [];
+      const { shown, more } = quickSections(entry);
+      return [...shown, ...more]
+        .filter((model) => favorites.has(model.id) || model.offers?.some((offer) => favorites.has(offer.id)))
+        .map((model) => {
+          // Preserve a favorite provider as the landing offer while retaining every provider row.
+          const favorite = model.offers?.find((offer) => favorites.has(offer.id));
+          return row(entry, favorite ? { ...model, ...favorite, name: model.name, offers: model.offers } : model);
+        });
+    });
     if (starred.length) list.push({ id: STARRED, name: starredText, starred: true, models: starred, more: [] });
     for (const entry of startable) {
       const signedOutHere = loginFor(entry) !== undefined;

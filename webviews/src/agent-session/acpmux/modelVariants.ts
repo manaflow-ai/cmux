@@ -46,10 +46,11 @@ export function providerOf(model: VariantModel): {
   const parts = model.id.split("/");
   const id = parts.length > 1 ? parts[0]! : undefined;
   const slash = model.name.lastIndexOf("/");
-  const named = slash > 0 ? model.name.slice(0, model.name.indexOf("/")).trim() : undefined;
   const bare = slash > 0 ? model.name.slice(slash + 1).trim() : model.name.trim();
   const tag = BRACKET_TAG.exec(bare)?.[1];
-  const provider = id ? (named ?? PROVIDER_NAMES[id.toLowerCase()] ?? id[0]!.toUpperCase() + id.slice(1)) : undefined;
+  // The route prefix is authoritative. Names can carry an owner ("Qwen/Coder 3")
+  // that must never be shown as the provider (OpenRouter).
+  const provider = id ? (PROVIDER_NAMES[id.toLowerCase()] ?? id[0]!.toUpperCase() + id.slice(1)) : undefined;
   return {
     ...(provider ? { provider } : {}),
     key: (parts.at(-1) ?? model.id).toLowerCase(),
