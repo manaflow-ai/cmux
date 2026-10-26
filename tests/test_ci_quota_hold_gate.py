@@ -53,11 +53,19 @@ HOLD_GATED = (
 )
 
 # Optional pull request workflows that skip drafts and run on ready_for_review.
+# Only workflows whose skipped run no merger reads as a pass: next-autoland
+# treats a skipped check as passing and ignores a pending one, so a check that
+# can block a merge (the capture check, the defaults guard) keeps running on
+# drafts. The fast gates are safe: mergers read their commit status, and one
+# missing on the head dispatches the gates rather than passing.
 DRAFT_SKIPPED = (
-    "cmux-next-defaults-guard.yml",
     "cmux-next-fast-gates.yml",
     "gallery-advisory.yml",
     "gallery-link.yml",
+)
+# Checks a merger reads as a pass when skipped; they must never skip drafts.
+NEVER_DRAFT_SKIPPED = (
+    "cmux-next-defaults-guard.yml",
     "pr-capture-check.yml",
 )
 DRAFT = "!github.event.pull_request.draft"
@@ -190,9 +198,11 @@ class QuotaHoldGateTests(unittest.TestCase):
             failures = draft_violations(others + [dropped])
         self.assertTrue(any("does not list ready_for_review" in f for f in failures), failures)
 
-    def test_the_closed_receipt_of_the_defaults_guard_still_runs(self) -> None:
-        job = load(WORKFLOWS / "cmux-next-defaults-guard.yml")["jobs"]["defaults"]
-        self.assertIn("github.event.action == 'closed' && github.event.pull_request.merged", job["if"])
+    def test_merge_blocking_checks_still_run_on_drafts(self) -> None:
+        for name in NEVER_DRAFT_SKIPPED:
+            with self.subTest(workflow=name):
+                self.assertNotIn("pull_request.draft", (WORKFLOWS / name).read_text(encoding="utf-8"))
+                self.assertNotIn(name, DRAFT_SKIPPED)
 
     def write(self, directory: Path, name: str, text: str) -> Path:
         path = directory / name

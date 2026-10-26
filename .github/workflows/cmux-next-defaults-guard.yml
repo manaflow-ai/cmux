@@ -39,8 +39,7 @@ concurrency:
 jobs:
   defaults:
     name: defaults guard
-    # A draft is judged when it is marked ready (ready_for_review above).
-    if: ${{ github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'closed' && github.event.pull_request.merged || github.event.action != 'closed' && !github.event.pull_request.draft) }}
+    if: ${{ github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action != 'closed' || github.event.pull_request.merged) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 5
     permissions:

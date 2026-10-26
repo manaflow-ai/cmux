@@ -19,8 +19,6 @@ concurrency:
 jobs:
   capture:
     name: pr-capture-check
-    # A draft is checked when it is marked ready (ready_for_review above).
-    if: ${{ !github.event.pull_request.draft }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
