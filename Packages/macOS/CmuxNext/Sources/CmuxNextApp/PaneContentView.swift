@@ -5,6 +5,7 @@ import CmuxNextDesign
 import CmuxNextInput
 import CmuxNextLaunch
 import CmuxNextTabs
+import CmuxNextTrace
 import CmuxNextWakeups
 import Observation
 import os
@@ -410,10 +411,10 @@ extension PaneContentView: TitlebarPressDeciding {
     func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress { .staysPut }
 }
 
-/// Tab switch timeline marks (cx-asb1): wall-clock ms, so a bench can line
-/// them up with the page's own clock. Debug level: nothing is written unless
+/// Tab switch timeline marks (cx-asb1): trace-clock ms (``TraceClock``, Chromium's `base::TimeTicks`
+/// clock), like every tab-switch mark. Debug level: nothing is written unless
 /// a `log stream --level debug` reads category "tab-switch".
 private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
-private func tabSwitchMark(_ name: String) {
-    tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
+private func tabSwitchMark(_ name: String, clock: TraceClock = TraceClock()) {
+    tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Double(clock.nowNanos()) / 1e6, format: .fixed(precision: 3), privacy: .public)")
 }

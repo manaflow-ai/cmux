@@ -60,7 +60,7 @@ enum DebugTimings {
     /// sends the bench `launch.temperature.<name>` and `launch.pageins_run_loop_start`.
     nonisolated static func markLaunch(_ name: String, at date: Date = Date()) {
         let reading = LaunchSlices.Reading(mark: name, clock: launchClock)
-        let endNanos = reading.milestone == nil ? 0 : LaunchMarks.uptimeNanos(of: date)
+        let endNanos = reading.milestone == nil ? 0 : LaunchMarks.uptimeNanos(of: date, clock: launchClock)
         let (ms, trace, step) = launchMarks.withLock { state -> (Double?, StartupTrace?, LaunchSlices.Step) in
             guard let ms = state.marks.record(name, at: date, processStart: processStartDate) else {
                 return (nil, state.marks.trace, LaunchSlices.Step())
@@ -70,7 +70,7 @@ enum DebugTimings {
         guard let ms else { return }
         step.publish(into: .shared)
         LaunchMarkSink.shared.write(name: name, ms: ms)
-        LaunchMarks.forward(name, at: date, to: trace)
+        LaunchMarks.forward(name, at: date, to: trace, clock: launchClock)
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("launch.\(name)", at: date)
         #endif

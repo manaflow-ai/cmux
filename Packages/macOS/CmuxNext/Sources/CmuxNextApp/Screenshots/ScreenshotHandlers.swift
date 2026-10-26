@@ -221,6 +221,7 @@ enum ScreenshotHandlers {
     nonisolated private static func saveTemporary(_ png: Data) async throws -> String {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-screenshots", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // wall-clock: a file name stamp; pruning reads the files' dates.
         let stamp = Int(Date().timeIntervalSince1970 * 1000)
         let file = directory.appendingPathComponent("screenshot-\(stamp)-\(UUID().uuidString.prefix(8)).png")
         try png.write(to: file, options: .atomic)

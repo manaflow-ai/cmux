@@ -1357,7 +1357,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // depends on CmuxNextApp.
         .target(
             name: "CmuxNextLaunch",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextInputCore", "CmuxNextSignposts", "CmuxNextWakeups"],
+            // Trace: LaunchMarks moves a mark's Date onto the trace clock through LaunchClock's paired read.
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextInputCore", "CmuxNextSignposts", "CmuxNextTrace",
+                           "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(

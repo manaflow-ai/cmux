@@ -1,4 +1,4 @@
-import Darwin
+public import CmuxNextTrace
 public import Foundation
 
 /// The launch marks of this process (`debug.timings`' `launch_ms_since_process_start`): each name once, in
@@ -31,13 +31,16 @@ public struct LaunchMarks: Sendable {
     }
 
     /// Sends a first mark to `trace` (nil: no trace attached).
-    public static func forward(_ name: String, at date: Date, to trace: StartupTrace?) {
-        trace?.mark(name, at: uptimeNanos(of: date))
+    public static func forward(_ name: String, at date: Date, to trace: StartupTrace?, clock: LaunchClock = LaunchClock()) {
+        trace?.mark(name, at: uptimeNanos(of: date, clock: clock))
     }
 
-    /// `date` in `CLOCK_UPTIME_RAW` nanoseconds: now, less how long ago `date` was.
-    public static func uptimeNanos(of date: Date) -> UInt64 {
-        let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
-        return now - min(now, UInt64(max(0, Date().timeIntervalSince(date)) * 1e9))
+    /// `date` on the trace clock (``TraceClock``, `CLOCK_UPTIME_RAW` nanoseconds), through one paired read of
+    /// both clocks (``LaunchClock/now()``), as Chrome's `StartupTimeToTimeTicks` moves a `base::Time` onto
+    /// `TimeTicks` (components/startup_metric_utils/common/startup_metric_utils.cc). A date after the pairing
+    /// read is now; one before uptime 0 is 0.
+    public static func uptimeNanos(of date: Date, clock: LaunchClock = LaunchClock()) -> UInt64 {
+        let wallNanos = (max(0, date.timeIntervalSince1970) * 1e9).rounded()
+        return LaunchClock.uptimeNanos(ofWallNanos: wallNanos < 0x1p64 ? UInt64(wallNanos) : .max, pairedWith: clock.now())
     }
 }

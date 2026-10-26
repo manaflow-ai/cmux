@@ -1,4 +1,5 @@
 import CmuxNextCompat
+public import CmuxNextTrace
 public import Foundation
 import CmuxNextWakeups
 
@@ -51,6 +52,8 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
     private let launcher = ProcessLauncher(label: "com.cmuxterm.next.now-playing", priority: .userVisible)
     public let script: URL
     public let framework: URL
+    /// Times each stream's run, so an exit soon after its start counts as quick.
+    private let clock: TraceClock
     private static let perl = URL(fileURLWithPath: "/usr/bin/perl")
     private var process: Process?
     /// The write end of the stream's stdin: open while cmux lives, so the watch shell waits.
@@ -85,9 +88,10 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
         exit "$status"
         """
 
-    public init(script: URL, framework: URL) {
+    public init(script: URL, framework: URL, clock: TraceClock = TraceClock()) {
         self.script = script
         self.framework = framework
+        self.clock = clock
     }
 
     /// The adapter cmux bundles: the script in Resources/MediaRemoteAdapter and
@@ -166,9 +170,10 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
                 for update in updates { onUpdate(update) }
             }
         }
-        let started = Date()
+        let clock = self.clock, started = clock.nowNanos()
         stream.terminationHandler = { [weak self] _ in
-            Task { @MainActor [weak self] in self?.exited(run: current, after: Date().timeIntervalSince(started)) }
+            let seconds = Double(clock.nowNanos() &- started) / 1e9
+            Task { @MainActor [weak self] in self?.exited(run: current, after: seconds) }
         }
         process = stream
         lifeline = stdin

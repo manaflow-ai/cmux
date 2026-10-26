@@ -1,5 +1,6 @@
 import AppKit
 import os
+import CmuxNextTrace
 import CmuxNextWakeups
 
 /// Checks, once layout and presentation settle after a change, that every
@@ -24,7 +25,7 @@ final class SurfaceInvariantMonitor {
     private(set) var checks = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.surfaces")
     private var occlusionObserver: (any NSObjectProtocol)?
-    /// Tab switch timeline marks (category "tab-switch", debug level).
+    /// Tab switch timeline marks (category "tab-switch", debug level), in trace-clock ms (``TraceClock``).
     nonisolated static let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
 
     /// Re-checks after any window's occlusion changes (AppServices wiring).
@@ -39,7 +40,7 @@ final class SurfaceInvariantMonitor {
                 guard let window else { return }
                 let child = window.parent != nil
                 let visible = window.occlusionState.contains(.visible)
-                Self.tabSwitchLog.debug("tab-switch occlusion-\(child ? "child" : "top", privacy: .public)-\(visible ? "visible" : "hidden", privacy: .public)-\(String(describing: type(of: window)).filter(\.isLetter), privacy: .public)\(window.identifier?.rawValue.filter(\.isLetter) ?? "", privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
+                Self.tabSwitchLog.debug("tab-switch occlusion-\(child ? "child" : "top", privacy: .public)-\(visible ? "visible" : "hidden", privacy: .public)-\(String(describing: type(of: window)).filter(\.isLetter), privacy: .public)\(window.identifier?.rawValue.filter(\.isLetter) ?? "", privacy: .public) \(Double(TraceClock().nowNanos()) / 1e6, format: .fixed(precision: 3), privacy: .public)")
             }
             // task-owner: one main-actor hop per occlusion change; noteChange only arms the settle frames.
             Task { @MainActor in self?.noteChange() }

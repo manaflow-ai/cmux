@@ -1,4 +1,5 @@
 @testable import CmuxNextLaunch
+import CmuxNextTrace
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Dispatch
@@ -79,6 +80,17 @@ import Testing
         #expect(marks.record("main_start", at: Date(), processStart: processStart) == nil)
         #expect(marks.all.map { $0.name } == ["early", "main_start"])
         #expect(trace.status.pending == 2)
+    }
+
+    /// A mark's date reaches the trace clock through one paired read of both clocks (Chrome's
+    /// `StartupTimeToTimeTicks`), so a wall-clock step after the pairing does not move it.
+    @Test func aMarkDateMovesOntoTheTraceClockThroughOnePairedRead() {
+        let second: UInt64 = 1_000_000_000
+        let clock = LaunchClock(reader: LaunchClock.Reader(
+            processStartWallNanos: { nil }, wallNanos: { 1_000 * second }, uptimeNanos: { 50 * second }, pageins: { nil }))
+        #expect(LaunchMarks.uptimeNanos(of: Date(timeIntervalSince1970: 998), clock: clock) == 48 * second)
+        #expect(LaunchMarks.uptimeNanos(of: Date(timeIntervalSince1970: 1_005), clock: clock) == 50 * second)
+        #expect(LaunchMarks.uptimeNanos(of: Date(timeIntervalSince1970: 900), clock: clock) == 0)
     }
 
     // MARK: file
