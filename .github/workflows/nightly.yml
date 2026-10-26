@@ -5318,9 +5318,11 @@ jobs:
         id: notes
         if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
         # The notes take seconds. Bounded here, a slow notes run fails before
-        # any asset upload instead of using up the job's 30 minutes and being
+        # any asset upload instead of using up the job's time and being
         # cancelled mid-upload (run 37611677848 left partial assets that way).
-        timeout-minutes: 10
+        # 60 of these minutes are the most its gh calls may wait for a rate-limit
+        # reset (gh_budget_wait.sh); the job's timeout leaves 20 after them.
+        timeout-minutes: 70
         env:
           GH_TOKEN: ${{ github.token }}
           NOTES_HEAD: ${{ steps.source.outputs.build_sha }}

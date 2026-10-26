@@ -113,6 +113,17 @@ class WrapperTests(unittest.TestCase):
                     FAKE_ERROR='{"message": "You have exceeded a secondary rate limit"}')
         self.assertEqual(h.gh("api", "x").returncode, 0)
 
+    def test_a_caller_reading_stderr_with_stdout_gets_only_the_data(self) -> None:
+        # nightly-next-legacy-requirement.sh and -recovery-lineage.sh compare `$(gh api ... 2>&1)` exactly.
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1")
+        summary = h.runner_temp / "summary.md"
+        h.env["GITHUB_STEP_SUMMARY"] = str(summary)
+        out = subprocess.run(["bash", "-c", f'x="$("{h.shim}" api x 2>&1)"; printf "%s" "$x"'],
+                             env=h.env, capture_output=True, text=True, check=True)
+        self.assertEqual(out.stdout, "ok api x")
+        self.assertIn("GitHub API budget: gh api x was refused", summary.read_text())
+        self.assertIn("gh api x was refused", (h.runner_temp / "gh-budget-wait" / "waits.log").read_text())
+
     def test_a_429_counts(self) -> None:
         h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1", FAKE_ERROR="HTTP 429: Too Many Requests")
         self.assertEqual(h.gh("api", "x").returncode, 0)
@@ -210,6 +221,10 @@ class WorkflowTests(unittest.TestCase):
         for name in PUBLISH_PATH:
             timeout = self.jobs[name].get("timeout-minutes", 360)
             self.assertGreaterEqual(int(timeout), 65, name)
+            # A step bounded on its own that calls gh needs the hour too, or it times out mid-wait.
+            for step in self.jobs[name]["steps"]:
+                if "timeout-minutes" in step and "GH_TOKEN" in step.get("env", {}):
+                    self.assertGreaterEqual(int(step["timeout-minutes"]), 65, (name, step.get("name")))
 
     def test_the_attestation_reserves_budget_and_its_retry_shares_the_ledger(self) -> None:
         steps = self.jobs["build-nightly-app"]["steps"]

@@ -56,6 +56,19 @@ seconds_to_reset_core() {
   if [ "$reset" -gt "$now" ]; then echo $((reset - now + 5)); else echo 60; fi
 }
 
+# Log a wait. A caller that reads stderr with stdout (`2>&1`, as the nightly guard scripts that
+# compare an exact status do) would get the notice in its data, so then it goes to the step
+# summary instead. Every wait is also kept in the job's ledger directory.
+log_wait() {
+  mkdir -p "$ledger_dir"
+  echo "$(date -u +%H:%M:%SZ) $1" >>"$ledger_dir/waits.log"
+  if [ /dev/fd/1 -ef /dev/fd/2 ]; then
+    [ -z "${GITHUB_STEP_SUMMARY:-}" ] || echo "- GitHub API budget: $1" >>"$GITHUB_STEP_SUMMARY"
+  else
+    echo "::notice title=GitHub API budget::$1" >&2
+  fi
+}
+
 # Sleep for $1 seconds within this job's total, logging why. Fails when the total is spent.
 wait_for_budget() {
   local want="$1" why="$2" spent remaining
@@ -63,7 +76,7 @@ wait_for_budget() {
   remaining=$((max_total - spent))
   [ "$remaining" -gt 0 ] || return 1
   [ "$want" -le "$remaining" ] || want="$remaining"
-  echo "::notice title=GitHub API budget::$why; waiting ${want}s for the budget to reset (${spent}s waited in this job so far)" >&2
+  log_wait "$why; waiting ${want}s for the budget to reset (${spent}s waited in this job so far)"
   sleep "$want"
   mkdir -p "$ledger_dir"
   echo $((spent + want)) >"$ledger_dir/waited"
