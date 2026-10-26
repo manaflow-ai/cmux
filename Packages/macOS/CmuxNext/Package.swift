@@ -1426,6 +1426,15 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: daemonSwiftSettings
         ),
+        .testTarget(
+            name: "CmuxNextCrashReportingTests",
+            dependencies: [
+                "CmuxNextCrashReporting",
+                .product(name: "Sentry-Dynamic", package: "sentry-cocoa"),
+                .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
+            ],
+            swiftSettings: daemonSwiftSettings
+        ),
         // The diff viewer engine (the diff page provider, sidecar, grants,
         // stores and strings). DiffPageService in the App opens and hosts it.
         .target(
