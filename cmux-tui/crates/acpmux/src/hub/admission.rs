@@ -224,7 +224,15 @@ fn registry_source() -> (PathBuf, bool) {
 /// A `set` path (`FLEET_REGISTRY`) that is missing is unreadable too: a rename,
 /// a failed mount or a typo never lifts the cap either.
 fn read_registry(source: &Path, set: bool) -> (Option<Value>, bool) {
-    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    read_registry_in(&mut LAST.lock().unwrap_or_else(|e| e.into_inner()), source, set)
+}
+
+/// [`read_registry`] with its last good copy kept in `last`.
+fn read_registry_in(
+    last: &mut Option<(PathBuf, Value)>,
+    source: &Path,
+    set: bool,
+) -> (Option<Value>, bool) {
     let read = std::fs::read(source)
         .map_err(|e| e.to_string())
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).map_err(|e| e.to_string()));
@@ -503,6 +511,9 @@ mod tests {
     fn an_unreadable_registry_keeps_the_last_good_copy() {
         let dir = std::env::temp_dir().join(format!("acpmux-reg-{}", uuid::Uuid::now_v7()));
         std::fs::create_dir_all(&dir).unwrap();
+        // Its own last good copy: the process-wide one is shared with every test that admits.
+        let mut last = None;
+        let mut read_registry = |source: &Path, set: bool| read_registry_in(&mut last, source, set);
         let path = dir.join("fleet-registry.json");
         std::fs::write(&path, br#"{"machines":{"m":{"max_lanes":1}}}"#).unwrap();
         let fresh = dir.join("first-read-truncated.json");
