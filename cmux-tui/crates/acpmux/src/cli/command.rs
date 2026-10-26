@@ -1112,7 +1112,8 @@ pub struct NewArgs {
     #[arg(long, value_name = "SESSION")]
     pub parent: Option<String>,
     /// Show the session in the cmux app's sidebar, in this workspace group
-    /// (made when missing). Runs `cmux agent open` on this machine.
+    /// (made when missing). Runs `cmux agent open` on this machine, including
+    /// with --host: the agent runs remotely, its workspace opens here.
     #[arg(long, value_name = "GROUP")]
     pub group: Option<String>,
     /// When a session named --name already exists, use it instead of failing;
