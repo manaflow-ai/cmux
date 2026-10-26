@@ -28,6 +28,7 @@ import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextSignposts
 import CmuxNextTerminal
+import CmuxNextTrace
 import CmuxNextUpdater
 import CmuxNextVSCodeServer
 import CmuxNextWakeups
@@ -430,6 +431,9 @@ final class AppServices {
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil)) {
         self.work = work
         (self.launchImages, self.relaunchWake) = (launchImages, relaunchWake)
+        do { try ConcurrencyHook().install() } catch {  // task.post for cooperative-pool jobs while tracing (p09-123)
+            Logger(subsystem: "com.cmuxterm.app.next", category: "trace").error("Swift enqueue hook not installed: \(String(describing: error), privacy: .public)")
+        }
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))

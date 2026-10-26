@@ -106,6 +106,27 @@ section on the main thread is allowed (a contended wait over 2 ms is recorded), 
 main thread (`blockingSync`) is still reported: the QoS override bounds the inversion, yet the main thread
 still waits for everything queued before it on that queue.
 
+## Swift global-enqueue hook (p09-observability-123, owner Performance Lead)
+
+`CmuxNextTrace/ConcurrencyHook.swift` installs `swift_task_enqueueGlobal_hook` once, from `AppServices`. Every
+job the Swift runtime puts on the cooperative pool passes through it. Phase 1 only measures: while the trace's
+`task` category is on, the hook writes one `task.post` flow-out (arg0: the job priority in bits 16-23; arg1: the
+job address with bit 63 set, the flow id), then calls the runtime's own enqueue. Off, it costs the category-flag
+load and a tail call. It adds no thread, no queue and no lock, and it never replaces a hook that another library
+installed. The runtime does not promise this symbol: when `dlsym` does not find it, the app logs once and runs
+without the records.
+
+Phase 2 is not done. In phase 2, a cmux-owned executor would run each job inside a `HangWatchScope` and a
+`task.run` slice, as Chrome's ThreadPool does (base/task/thread_pool/task_tracker.cc `RunTask`). Reasons:
+
+- The hook only sees the enqueue. To run the job, cmux must own the threads that run it: that replaces the
+  cooperative pool's width, QoS and priority-escalation handling, which the runtime does well today.
+- The lead decides after the task 090 overhead bench and a STRESS recording with phase 1. They show how many
+  pool jobs there are, at which priorities, and what a scope per job would cost.
+- The lanes that can block get this without a pool executor: `BackgroundWork` and `MainActorWorkQueue` write
+  `task.run` (task 042) and register their lanes with HangWatch (machine queue MQ7). Blocking work never runs on
+  the pool (the rule in "QoS and task priority").
+
 ## Registered threads and queues
 
 A new thread or queue in `Packages/macOS/CmuxNext/Sources` needs its label here (the `thread-doc` guardrail
