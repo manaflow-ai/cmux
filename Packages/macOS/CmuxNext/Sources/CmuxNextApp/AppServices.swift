@@ -402,8 +402,13 @@ final class AppServices {
     /// Energy Saver's one owner of power inputs (Low Power Mode, power source, battery, thermal state);
     /// its Low Power Mode goes out by init and its inputs are pushed (end of `init`), never a shared instance.
     let energyMonitor = EnergyMonitor()
-    /// Pushes the monitor's inputs to WebKit's render rate and KeepAwake's battery rule.
+    /// Pushes the monitor's inputs to WebKit's render rate, KeepAwake's battery rule (its one writer) and
+    /// ``energyDriver``.
     private var energyLink: MainActorHandlerRegistration<EnergyInputs>?
+    /// Writes `mainWork.energy`, the policy every scheduler reads, from the inputs and `energy.saver`.
+    private(set) lazy var energyDriver = EnergyPolicyDriver(source: mainWork.energy, isEnabled: features.isEnabled(.energySaver))
+    /// Follows `energy.saver` into ``energyDriver`` (`followEnergySaver`).
+    private var energySaverObservation: Task<Void, Never>?
     /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
     var updateFeedObservation: Task<Void, Never>?
     /// Page menus and the open-menu diagnostic shared by browser hosts.
@@ -674,6 +679,17 @@ final class AppServices {
         energyLink = energyMonitor.follow { [weak self] inputs in
             self?.cache.webKit.lowPowerMode = inputs.lowPowerMode
             KeepAwakeService.shared.setOnBattery(inputs.onBattery)
+            self?.energyDriver.update(inputs: inputs)
+        }
+    }
+    /// Follows `energy.saver` into ``energyDriver`` once the settings have loaded, so the first policy it
+    /// publishes already follows the setting. `AppDelegate` calls it at launch; a second call does nothing.
+    func followEnergySaver(_ settings: SettingsController) {
+        guard energySaverObservation == nil else { return }
+        // task-owner: app lifetime; event-driven (Observation)
+        energySaverObservation = Task { [weak self] in
+            await settings.waitForLoad(atLeast: 1)
+            for await mode in ObservationStream({ settings.snapshot.energySaver }) { self?.energyDriver.update(setting: mode) }
         }
     }
     // MARK: Lookup
