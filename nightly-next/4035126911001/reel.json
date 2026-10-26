@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "build": "4035126911001",
+  "notes": "notes/4035126911001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 25470,
+      "title": "ci(publish): back off a secondary rate limit, upload one at a time, log the refusal",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25504,
+      "title": "ci(cmux-next): run changed Swift suites before the broad pass",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25503,
+      "title": "acpmux: the registry test keeps its own last good copy",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25457,
+      "title": "acpmux: --force-admit and exit 5 in the CLI; sub-session starts need room (2/3 of #24281)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25280,
+      "title": "VS Code Minimap: streaming placeholder looks in the gallery; paired bench arm (4/4)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25481,
+      "title": "cmux NEXT daemon update: a DEBUG capture hook for the ssh machine tooltip and the failure toast",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25366,
+      "title": "acpmux: a lane reports the end of each turn to the session that started it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25453,
+      "title": "acpmux: admit a new session only while this host has room (1/3 of #24281)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
