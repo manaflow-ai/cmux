@@ -67,6 +67,13 @@ impl RequestQos {
         }
         CauseScope { _qos: class.map(WorkQos::enter), _cause: cause_scope }
     }
+
+    /// With the feature on, runs this thread at `class` until the scope
+    /// drops, as a request of that class: a daemon thread's work that no
+    /// request waits on (the journal writer between receipts).
+    pub(crate) fn enter_class(self, class: cmux_threads::ThreadQos) -> Option<WorkQos> {
+        self.enabled.then(|| WorkQos::enter(class))
+    }
 }
 
 /// A request's cause and class on this thread. The class drops first, then

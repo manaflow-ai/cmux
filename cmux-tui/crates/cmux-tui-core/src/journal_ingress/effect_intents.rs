@@ -11,8 +11,9 @@
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicU8;
-use std::sync::mpsc::{Receiver, TryRecvError, sync_channel};
 use std::time::Instant;
+
+use cmux_threads::sync::mpsc::{Receiver, RecvTimeoutError, TryRecvError, sync_channel};
 
 use super::{
     COMMIT_PENDING, JournalCommitIndeterminate, JournalIngressCompletion, JournalIngressEvent,
@@ -63,10 +64,11 @@ impl PendingRegistryReceipt {
         site: &'static std::panic::Location<'static>,
     ) -> Option<Result<RegistryReceipt, String>> {
         crate::request_path::note_at(crate::request_path::BlockingKind::JournalWait, site);
-        match cmux_threads::checked::sync::recv_timeout(&self.0, timeout) {
+        // wakeup-allow: deadline the caller's own timeout, forwarded unchanged
+        match self.0.recv_timeout(timeout) {
             Ok(result) => Some(result),
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            Err(RecvTimeoutError::Timeout) => None,
+            Err(RecvTimeoutError::Disconnected) => {
                 Some(Err("the session journal writer dropped the receipt".into()))
             }
         }
@@ -101,6 +103,7 @@ impl JournalIngressSender {
         if !self.accepts_effects() {
             return EffectSend::NotQueued(intent);
         }
+        let _wait = self.state.request_waits.enter();
         let (completion, result) = sync_channel(1);
         let deadline = Instant::now() + journal_durable_wait();
         let commit_fence = Arc::new(AtomicU8::new(COMMIT_PENDING));

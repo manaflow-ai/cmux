@@ -59,9 +59,11 @@ pub(super) struct Writer {
 impl Writer {
     pub(super) fn start(&self, mux: Weak<Mux>) -> anyhow::Result<()> {
         let state = self.state.clone();
-        let thread = std::thread::Builder::new()
-            .name("mux-output-store-writer".into())
-            .spawn(move || run(&mux, &state))?;
+        let thread = cmux_threads::spawn(
+            "mux-output-store-writer",
+            cmux_threads::ThreadQos::Utility,
+            move || run(&mux, &state),
+        )?;
         *self.thread.lock().unwrap_or_else(PoisonError::into_inner) = Some(thread);
         Ok(())
     }
