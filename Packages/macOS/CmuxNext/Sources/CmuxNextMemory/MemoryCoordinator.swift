@@ -18,15 +18,22 @@ public import CmuxNextCompat
 /// - A consumer whose limit rises again before its release ran is not called: critical then normal
 ///   in one frame makes no release call.
 /// - A repeated level makes no call at all.
+/// - While no cmux window is visible (``isAppHidden``) there is no frame to protect and the hidden
+///   app's frames come only on the stall deadline, so slices take 8 ms each, back to back on
+///   main-queue turns from the injected ``MemoryReleaseTurns``. Input (``inputDidArrive()``) or a
+///   window that shows puts the next slice back on a frame, at 2 ms.
 /// - A consumer that registers gets the current limit before its registration's init returns, and
 ///   joins the release when that limit is under 100 %.
 ///
 /// The level is the debug override when set (`debug.hibernation.pressure`), else the kernel's level
 /// from ``MemoryPressureEvents`` (read at init, then each change). Nothing here waits or polls: the
-/// pressure events and the slicer's frames are its only inputs.
+/// pressure events, the app's visibility and input calls, and the slicer's frames and turns are its
+/// only inputs.
 ///
 /// ```swift
-/// let coordinator = MemoryCoordinator(pressure: memoryPressure, mode: .medium, slicer: frameSlicer)
+/// let coordinator = MemoryCoordinator(
+///     pressure: memoryPressure, mode: .medium, slicer: frameSlicer, turns: mainTurns)
+/// coordinator.isAppHidden = !windows.anyDraws || displaysAsleep
 /// registration = MemoryConsumerRegistration(
 ///     name: "preview-images", traits: traits, consumer: cache, registry: coordinator)
 /// ```
@@ -34,6 +41,16 @@ public import CmuxNextCompat
 public final class MemoryCoordinator: MemoryConsumerRegistry {
     /// The main-thread time one release slice may take (p07-memory.md section 3.A).
     public nonisolated static let sliceBudget: Duration = .milliseconds(2)
+    /// The main-thread time one release slice may take while no cmux window is visible.
+    public nonisolated static let hiddenSliceBudget: Duration = .milliseconds(8)
+
+    /// How the release slices are paced.
+    public nonisolated enum ReleasePace: Hashable, Sendable {
+        /// One slice of at most ``MemoryCoordinator/sliceBudget`` per frame.
+        case frames
+        /// Slices of at most ``MemoryCoordinator/hiddenSliceBudget``, back to back on main-queue turns.
+        case hiddenTurns
+    }
 
     /// The level the limits come from: ``pressureOverride`` when set, else ``kernelLevel``.
     public private(set) var level: MemoryPressureLevel
@@ -59,14 +76,36 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
         }
     }
 
+    /// Whether no cmux window is visible: none draws (`WindowDrawPolicy`) or the displays sleep.
+    /// The app sets it from its windows' occlusion and the display sleep and wake notifications.
+    public var isAppHidden = false {
+        didSet {
+            guard isAppHidden != oldValue else { return }
+            inputSinceHidden = false
+            paceInputsDidChange()
+        }
+    }
+
+    /// The pace of the next slice: ``ReleasePace/hiddenTurns`` while the app is hidden, no input came
+    /// since it was hidden and a ``MemoryReleaseTurns`` was given; else ``ReleasePace/frames``.
+    public var pace: ReleasePace {
+        isAppHidden && !inputSinceHidden && turns != nil ? .hiddenTurns : .frames
+    }
+
     private var policy: MemoryLimitPolicy
     /// The registered consumers in release order; released entries are dropped on each add and walk.
     private var consumers: [Registered] = []
     private var nextSequence: UInt64 = 0
-    private var isSliceScheduled = false
+    /// A consumer is over its limit and waits for a slice.
+    private var needsSlice = false
+    private var isFrameAsked = false
+    private var isTurnAsked = false
+    private var inputSinceHidden = false
     private let slicer: any MemoryReleaseSlicer
+    private let turns: (any MemoryReleaseTurns)?
     private let clock: any Clock<Duration>
     private let budget: Duration
+    private let hiddenBudget: Duration
     private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
 
     /// Makes the coordinator and starts following `pressure`, from its current level.
@@ -75,22 +114,29 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
     ///   - pressure: The process's one pressure source.
     ///   - mode: The `memory.saver` mode.
     ///   - slicer: Runs release slices on later frames.
+    ///   - turns: Runs release slices on later main-queue turns while the app is hidden; without it
+    ///     every slice waits for a frame.
     ///   - clock: Measures each slice's budget (`ContinuousClock` in the app, a fake in tests).
-    ///   - sliceBudget: The time one slice may take.
+    ///   - sliceBudget: The time one slice on a frame may take.
+    ///   - hiddenSliceBudget: The time one slice on a turn of a hidden app may take.
     public init(
         pressure: MemoryPressureEvents,
         mode: MemorySaverMode = .medium,
         slicer: any MemoryReleaseSlicer,
+        turns: (any MemoryReleaseTurns)? = nil,
         clock: any Clock<Duration> = ContinuousClock(),
-        sliceBudget: Duration = MemoryCoordinator.sliceBudget
+        sliceBudget: Duration = MemoryCoordinator.sliceBudget,
+        hiddenSliceBudget: Duration = MemoryCoordinator.hiddenSliceBudget
     ) {
         let initial = pressure.currentLevel
         level = initial
         kernelLevel = initial
         policy = MemoryLimitPolicy(mode: mode)
         self.slicer = slicer
+        self.turns = turns
         self.clock = clock
         budget = sliceBudget
+        hiddenBudget = hiddenSliceBudget
         pressureObservation = pressure.observe { [weak self] level in self?.kernelLevelDidChange(level) }
     }
 
@@ -100,6 +146,14 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
     /// - Returns: Its limit.
     public func limit(for traits: MemoryConsumerTraits) -> MemoryLimit {
         policy.limit(for: traits, at: level)
+    }
+
+    /// Notes that the person gave input: while the app is hidden, the next slice goes back to a frame
+    /// at ``sliceBudget`` until the app is hidden again. Cheap enough for every input event.
+    public func inputDidArrive() {
+        guard isAppHidden, !inputSinceHidden else { return }
+        inputSinceHidden = true
+        paceInputsDidChange()
     }
 
     public func addMemoryConsumer(_ entry: MemoryConsumerEntry) {
@@ -140,16 +194,44 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
     }
 
     private func scheduleSlice() {
-        guard !isSliceScheduled else { return }
-        isSliceScheduled = true
-        slicer.scheduleSlice { [weak self] in self?.runSlice() }
+        needsSlice = true
+        askForSlice()
     }
 
-    /// One frame's release: the consumers over their limit, in order, until the budget is spent.
-    private func runSlice() {
-        isSliceScheduled = false
+    /// Asks the current pace's scheduler for a slice, unless one is asked for there already.
+    private func askForSlice() {
+        switch pace {
+        case .frames:
+            guard !isFrameAsked else { return }
+            isFrameAsked = true
+            slicer.scheduleSlice { [weak self] in self?.sliceDidCome(on: .frames) }
+        case .hiddenTurns:
+            guard !isTurnAsked, let turns else { return }
+            isTurnAsked = true
+            turns.scheduleTurn { [weak self] in self?.sliceDidCome(on: .hiddenTurns) }
+        }
+    }
+
+    /// A waiting slice moves to the new pace's scheduler; the one asked for on the old pace finds
+    /// the pace changed when it comes and does nothing.
+    private func paceInputsDidChange() {
+        if needsSlice { askForSlice() }
+    }
+
+    private func sliceDidCome(on arrived: ReleasePace) {
+        switch arrived {
+        case .frames: isFrameAsked = false
+        case .hiddenTurns: isTurnAsked = false
+        }
+        guard arrived == pace, needsSlice else { return }
+        runSlice(budget: arrived == .frames ? budget : hiddenBudget)
+    }
+
+    /// One slice's release: the consumers over their limit, in order, until `sliceTime` is spent.
+    private func runSlice(budget sliceTime: Duration) {
+        needsSlice = false
         dropReleased()
-        let isExpired = Self.deadline(on: clock, after: budget)
+        let isExpired = Self.deadline(on: clock, after: sliceTime)
         for registered in consumers where registered.needsRelease {
             guard !isExpired() else {
                 scheduleSlice()
