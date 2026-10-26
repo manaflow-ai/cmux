@@ -465,3 +465,5 @@ the gap, no row left out of place after drop or cancel).
 - 2026-10-26: hotswap-opus: the Update Available button hides during the person's own check (the card shows it) and leaves a too-narrow row when Priority is off.
 - 2026-10-26: hotswap-opus: the Update Available button takes the bell's slot only when the bell clears the titlebar's leading reserve.
 - 2026-10-26: https://github.com/manaflow-ai/cmux/pull/25427 (re-cut of #21945) adds the session tree's needs-you tray (`SidebarNeedsYouTrayView`, `SidebarView+NeedsYou`), behind `sidebar.sessionTree`; target row "Needs-you tray" above.
+
+- 2026-10-26: [8b5cafb988b](https://github.com/manaflow-ai/cmux/commit/8b5cafb988bab5e8dfb4a4f9c968dd7552851dfd) ([#25481](https://github.com/manaflow-ai/cmux/pull/25481)): reviewed, no visual change. The DEBUG-only `machineHeaderFrameInWindow` capture hook returns the existing machine header rectangle so `debug.daemon_update` can open its tooltip; production sidebar drawing and layout are unchanged.
