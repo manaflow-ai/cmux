@@ -46,10 +46,13 @@ final class TerminalComposerDockUITests: XCTestCase {
 
         // Hide Toolbar folds the key row and the composer; a terminal tap brings them back.
         let hide = app.buttons["Hide Toolbar"]
-        app.otherElements["More keys"].swipeLeft()
-        app.otherElements["More keys"].swipeLeft()
-        app.otherElements["More keys"].swipeLeft()
-        if !hide.isHittable { app.otherElements["More keys"].swipeLeft() }
+        // Drag the key row's scroller (right of the pinned keys) to its end.
+        let window = app.windows.firstMatch.frame
+        let rowY = (keyboardKey.frame.midY - window.minY) / window.height
+        for _ in 0..<8 where !(hide.exists && hide.isHittable) {
+            let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: rowY))
+            from.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.38, dy: rowY)))
+        }
         XCTAssertTrue(hide.waitForExistence(timeout: 5), "Hide Toolbar at the row's end\n\(app.debugDescription)")
         hide.tap()
         XCTAssertTrue(composeKey.waitForNonExistence(timeout: 5), "Hide Toolbar hides the key row")
