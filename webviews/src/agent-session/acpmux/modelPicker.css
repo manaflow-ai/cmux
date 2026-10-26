@@ -314,7 +314,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
+  padding: 4px 8px;
   border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   color: var(--agent-muted);
   font-size: var(--text-caption);
@@ -322,7 +322,7 @@
 .acpmux-quick-update > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui-menu-item.acpmux-quick-update-action {
   flex: none;
-  padding: 4px 6px;
+  padding: 4px 8px;
   border: 0;
   border-radius: var(--ui-row-radius, 5px);
   background: transparent;
