@@ -139,6 +139,7 @@ enum DebugCEF {
             "passes_while_input_pending": .object(stats.passesWhileInputPending.byName.mapValues { .number(Double($0)) }),
             "deferred_for_input": .number(Double(stats.deferredForInput)),
             "pass_ms_p99": .number(stats.passMillisecondsP99),
+            "early_passes": .number(Double(stats.earlyPasses)),
         ])
     }
 

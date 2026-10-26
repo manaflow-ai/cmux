@@ -24,7 +24,26 @@ import os
 /// dispatch ends, the next frame deadline or one refresh at most; after an
 /// input AppKit delivered to a Chromium page, a due pass runs on the next run
 /// loop pass, outside that input's dispatch.
+///
+/// Each timer fire is one main wake in the wakeup ledger (owner ``ledgerOwner``) with the reason it
+/// fired (``LedgerReason``), as Chrome's `MessagePumpCFRunLoopBase` tells its wakes apart by what woke
+/// it (`RunDelayedWorkTimer` or `RunWorkSource`, base/message_loop/message_pump_apple.mm).
 final class CEFMessagePump {
+    /// The wakeup ledger owner of every pump wake.
+    static let ledgerOwner = "CEFMessagePump"
+
+    /// Why a timer fire woke the main thread (`debug.wakeups` reason).
+    nonisolated enum LedgerReason: String, CaseIterable, Sendable {
+        /// An immediate request: `OnScheduleMessagePumpWork(0)` or cmux's own "pump now".
+        case now
+        /// The fire date of CEF's delayed request.
+        case delayed
+        /// The deadline of a Chromium thread's delayed request the gate kept (``CEFPumpCrossThreadGate``).
+        case kept
+        /// A fire while a pass was running (a nested run loop); the outer pass runs the pump again.
+        case reentered
+    }
+
     private let work: () -> Void
     private let timer: any CEFPumpTimer
     private let clock: () -> TimeInterval
@@ -45,6 +64,7 @@ final class CEFMessagePump {
     /// An input to a Chromium page was dispatched with a pass due: the next fire runs it whatever input
     /// is pending, at once.
     private var chromiumInputPass = false
+    private var earlyPassWatch = CEFPumpStats.EarlyPassWatch()
     /// What Chromium threads ask whether a delayed request must wake the main thread.
     let gate: CEFPumpCrossThreadGate
 
@@ -119,7 +139,9 @@ final class CEFMessagePump {
         guard isRunning else { return }
         if milliseconds <= 0 { counters.immediateRequests += 1 } else { counters.delayedRequests += 1 }
         pumpMark("pump-req-\(min(milliseconds, 9_999))")
-        schedule.request(milliseconds: milliseconds, now: clock())
+        let now = clock()
+        if earlyPassWatch.request(milliseconds: milliseconds, now: now) { counters.earlyPasses += 1 }
+        schedule.request(milliseconds: milliseconds, now: now)
         rearm()
     }
 
@@ -136,14 +158,23 @@ final class CEFMessagePump {
 
     private func timerFired() {
         guard isRunning else { return }
-        ledger.record("CEFMessagePump", reason: "scheduled")
-        runDuePass()
+        let reason = fireReason()
+        ledger.record(Self.ledgerOwner, reason: reason.rawValue)
+        runDuePass(for: reason)
+    }
+
+    /// What this fire is for, read before the pass merges kept requests: those were kept because
+    /// the armed fire came first, so none of them armed it.
+    private func fireReason() -> LedgerReason {
+        if schedule.isWorking { return .reentered }
+        guard let wake = schedule.nextWake, wake.deadline.isFinite else { return .now }
+        return wake.deadline == schedule.keptDeadline ? .kept : .delayed
     }
 
     /// Runs the pass that is due, unless pending input or a late frame holds it. The input policy
     /// goes first: a pass it holds takes no late frame's slice. A fire inside a running pass (a nested
     /// run loop) goes straight to the slice check and `fire()`, which defers it.
-    private func runDuePass() {
+    private func runDuePass(for reason: LedgerReason) {
         var admission = CEFPumpInputPolicy.Admission.run
         if let input, !schedule.isWorking {
             let now = clock()
@@ -164,7 +195,7 @@ final class CEFMessagePump {
         case .runAtBound: counters.passesWhileInputPending.boundExpired += 1
         case .run, .hold: break
         }
-        fire()
+        fire(for: reason)
     }
 
     /// An input's dispatch ended (outside its dispatch scope). A pass held for it is re-armed for the
@@ -198,7 +229,8 @@ final class CEFMessagePump {
         }
     }
 
-    private func fire() {
+    /// `reason`: the timer fire that runs this pass; nil for the quit path's drain.
+    private func fire(for reason: LedgerReason? = nil) {
         guard isRunning else { return }
         // Before any work: no request is kept against a fire that is already running, and those
         // kept until now join the schedule (rearm() publishes again after the pass).
@@ -215,6 +247,7 @@ final class CEFMessagePump {
         inputHoldDeadline = nil
         chromiumInputPass = false
         input?.holdEnded()
+        earlyPassWatch.passBegan(servesFireDate: reason == .delayed || reason == .kept)
         rearm()
         pumpMark("pump-start")
         work()
@@ -224,6 +257,9 @@ final class CEFMessagePump {
         counters.workRuns += 1
         counters.workSeconds += elapsed
         if elapsed >= CEFPumpSchedule.timeSlice { counters.longWorkRuns += 1 }
+        if earlyPassWatch.passEnded(at: finished, usedWholeSlice: elapsed >= CEFPumpSchedule.timeSlice) {
+            counters.earlyPasses += 1
+        }
         if input != nil { counters.passTimes.record(nanos: UInt64(max(0, elapsed) * 1e9)) }
         schedule.endWork()
         rearm()
