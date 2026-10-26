@@ -261,7 +261,13 @@ async fn forward_inner(
             {
                 crate::hub::file_uploads::peer_unsupported(&peer)
             } else if e.message.contains("Method not found") {
-                            RpcError::internal(format!("{}; peer {} runs acpmux build {} (this daemon: {}); run `acpmux host update {}`", e.message, peer.name, peer.remote_build().unwrap_or_else(|| "unknown".into()), crate::hub::BUILD, peer.name))
+                            RpcError::internal(format!("peer {} does not support {m}; it runs acpmux build {} (this daemon: {}); run `acpmux host update {}`", peer.name, peer.remote_build().unwrap_or_else(|| "unknown".into()), crate::hub::BUILD, peer.name))
+                                .with_data(json!({
+                                    "reason": "peer_version_skew",
+                                    "try": format!("acpmux host update {}", peer.name),
+                                    "peer": peer.name,
+                                    "method": m,
+                                }))
                         } else {
                             e
                         }
