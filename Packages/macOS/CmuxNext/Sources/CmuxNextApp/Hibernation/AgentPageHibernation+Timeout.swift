@@ -141,7 +141,7 @@ extension AgentPageHibernation: UrgentDiscardOwner {
     /// Lets chat `key`'s page go (after its wake state and frame); false when it is not a hidden chat
     /// that may go now.
     func urgentDiscard(_ key: String) -> Bool {
-        guard lifecycle == nil, hiddenAt[key] != nil, !releasing.contains(key), keepsPage(key) == nil else { return false }
+        guard hiddenAt[key] != nil, !releasing.contains(key), keepsPage(key) == nil else { return false }
         release(key)
         return releasing.contains(key)
     }
