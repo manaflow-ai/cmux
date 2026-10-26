@@ -1430,7 +1430,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextWakeups",
             // Signposts: the main-thread scheduler's `stall.main_task` and `stall.over_budget` (MainFrameBudget), and
             // the typing probe's key-press flow hops (`key.flow`).
-            dependencies: ["CmuxNextCompat", "CmuxNextInputCore", "CmuxNextSignposts", "CmuxNextTrace", "CmuxNextMetrics"],
+            // Atomics: JobDelegate's inlinable `shouldYield` names the `Bool: AtomicValue` conformance (p02-threads-125).
+            dependencies: ["CmuxNextCompat", "CmuxNextInputCore", "CmuxNextSignposts", "CmuxNextTrace", "CmuxNextMetrics",
+                           .product(name: "Atomics", package: "swift-atomics")],
             swiftSettings: daemonSwiftSettings
         ),
         // The one test clock of the CmuxNext test targets (ManualClock); test targets only.

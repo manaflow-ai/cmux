@@ -1,4 +1,7 @@
-import CmuxNextCompat
+// Public: the inlined `shouldYield` reads the Compat `Atomic` from other modules, and its
+// `Bool: AtomicValue` conformance comes from swift-atomics, so inlinable code needs that import too.
+public import Atomics
+public import CmuxNextCompat
 
 /// What one run of a yieldable job's body did (``BackgroundWork/job(_:shutdown:state:fileID:line:_:)``).
 public enum JobStep<T: Sendable>: Sendable {
