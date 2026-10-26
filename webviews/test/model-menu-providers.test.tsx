@@ -109,6 +109,7 @@ describe("groupVariants", () => {
     expect(providerOf(rows[1]!)).toEqual({
       provider: "OpenRouter",
       key: "deepseek-v4-pro",
+      vendor: "deepseek",
       name: "DeepSeek V4 Pro",
     });
     expect(providerOf(rows[4]!)).toEqual({ key: "claude-opus-5-5", name: "Opus 5.5" });
@@ -125,6 +126,19 @@ describe("groupVariants", () => {
     ]);
     expect(groups[0]!.model.id).toBe("opencode/deepseek-v4-pro");
     expect(groups[0]!.tag).toBe("New");
+  });
+
+  test("two vendors' models that share a last id segment stay two models", async () => {
+    const { groupVariants } = await variants();
+    const groups = groupVariants([
+      { id: "openrouter/qwen/coder-3", name: "OpenRouter/Coder 3" },
+      { id: "together/mistral/coder-3", name: "Together/Coder 3" },
+      { id: "qwen/coder-3", name: "Qwen/Coder 3" },
+    ]);
+    expect(groups.map((group) => group.offers.map((offer) => offer.model.id))).toEqual([
+      ["openrouter/qwen/coder-3", "qwen/coder-3"],
+      ["together/mistral/coder-3"],
+    ]);
   });
 
   test("the running provider's row is the one its model lands", async () => {
@@ -150,7 +164,10 @@ const openCode = [
   },
 ];
 
-async function mount(model = "opencode/deepseek-v4-pro") {
+async function mount(
+  model: string | undefined = "opencode/deepseek-v4-pro",
+  { catalog = openCode, fixed = true }: { catalog?: typeof openCode; fixed?: boolean } = {},
+) {
   const { createRoot } = await import("react-dom/client");
   const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
   const landed: string[] = [];
@@ -158,13 +175,13 @@ async function mount(model = "opencode/deepseek-v4-pro") {
   await act(async () =>
     root!.render(
       <ModelPicker
-        catalog={openCode}
+        catalog={catalog}
         harness="opencode"
         model={model}
         label="DeepSeek V4 Pro"
         efforts={[]}
         recents={[]}
-        harnessFixed
+        harnessFixed={fixed}
         quick={{}}
         onLand={(id) => landed.push(id)}
         onEffort={() => undefined}
@@ -220,4 +237,82 @@ test("a chat on another provider's row of a model checks that model's one row an
   const pro = modelRows(menus()[0]!).find((row) => nameOf(row) === "DeepSeek V4 Pro")!;
   expect(pro.getAttribute("aria-checked")).toBe("true");
   expect(detailOf(pro)).toBe("DeepSeek");
+});
+
+const field = () => menus()[0]?.querySelector<HTMLInputElement>(".acpmux-quick-search input") ?? null;
+const typeIn = (text: string) =>
+  act(async () => {
+    const input = field()!;
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input, text);
+    input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  });
+
+test("a search lists a model several providers serve once, naming its provider", async () => {
+  await mount();
+  expect(field()).not.toBeNull();
+  await typeIn("v4 pro");
+  const rows = modelRows(menus()[0]!);
+  expect(rows.map(nameOf)).toEqual(["DeepSeek V4 Pro"]);
+  expect(detailOf(rows[0]!)).toBe("OpenCode");
+});
+
+test("a New Tab row of a model lands an available provider when the first one is unavailable", async () => {
+  const catalog = [
+    {
+      ...openCode[0]!,
+      models: openCode[0]!.models.map((model) =>
+        model.id === "opencode/deepseek-v4-pro" ? { ...model, unavailable: "Not on this plan" } : model,
+      ),
+    },
+  ];
+  // The chat runs another model, so nothing pins the row to the unavailable provider.
+  await mount("zai/glm-5.3", { catalog, fixed: false });
+  const more = [...menus()[0]!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
+    item.textContent?.startsWith("More models"),
+  )!;
+  await act(async () => more.click());
+  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  const pro = menus()
+    .flatMap(modelRows)
+    .find((row) => nameOf(row) === "DeepSeek V4 Pro")!;
+  expect(pro).toBeDefined();
+  expect(pro.hasAttribute("data-disabled")).toBe(false);
+  expect(detailOf(pro)).toBe("OpenRouter");
+});
+
+test("Starred lists a model once when several of its providers are starred", async () => {
+  dom.window.localStorage.setItem(
+    "cmux.model-picker.favorites",
+    JSON.stringify(["opencode/deepseek-v4-pro", "openrouter/deepseek/deepseek-v4-pro"]),
+  );
+  await mount("zai/glm-5.3", { fixed: false });
+  const starred = menus()[0]!.querySelector<HTMLButtonElement>('.acpmux-quick-rail-tab[aria-label="Starred"]')!;
+  expect(starred).not.toBeNull();
+  await act(async () => starred.click());
+  expect(modelRows(menus()[0]!).map(nameOf)).toEqual(["DeepSeek V4 Pro"]);
+});
+
+test("More models names each model's provider and tag", async () => {
+  const catalog = [
+    {
+      ...openCode[0]!,
+      models: [
+        ...openCode[0]!.models,
+        { id: "opencode/kimi-k3", name: "Kimi K3 [New]" },
+        { id: "opencode/qwen-coder-3", name: "Qwen Coder 3" },
+      ],
+    },
+  ];
+  await mount("opencode/deepseek-v4-pro", { catalog, fixed: false });
+  const more = [...menus()[0]!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
+    item.textContent?.startsWith("More models"),
+  )!;
+  expect(more).toBeDefined();
+  await act(async () => more.click());
+  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  const rows = modelRows(menus().at(-1)!);
+  expect(rows.length).toBeGreaterThan(0);
+  for (const row of rows) expect(detailOf(row), nameOf(row)).not.toBe("");
+  const kimi = rows.find((row) => nameOf(row) === "Kimi K3");
+  if (kimi) expect(kimi.querySelector(".acpmux-quick-tag")?.textContent).toBe("New");
 });
