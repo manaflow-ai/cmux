@@ -97,26 +97,30 @@ function quickSections(
 ): { shown: ModelChoice[]; more: ModelChoice[] } {
   const { latest, older } = sectionsFor(entry);
   const latestIds = new Set(latest.map((choice) => choice.id));
-  const all = groupVariants([...latest, ...older].filter(usable), model).map(
-    ({ model: choice, name, tag, offers }): ModelChoice => {
-      // Keep the running provider when present; otherwise a grouped row lands the first available
-      // provider so an unavailable representative does not hide a selectable alternate.
-      const landing =
-        choice.id === model
-          ? choice
-          : choice.unavailable
-            ? (offers.find((offer) => !offer.model.unavailable)?.model ?? choice)
-            : choice;
-      const provider = offers.find((offer) => offer.model === landing)?.provider;
+  const all = groupVariants([...latest, ...older], model)
+    .map(({ model: choice, name, tag, offers }): ModelChoice | undefined => {
+      // Establish owner identities from the complete catalog before hiding unavailable offers. This
+      // keeps an available bare owner row from joining a different model when its peer is offline.
+      const visible = offers.filter((offer) => usable(offer.model));
+      if (visible.length === 0) return undefined;
+      // Keep the running provider when present; otherwise land the first available provider.
+      const landing = (
+        visible.find((offer) => offer.model.id === model) ??
+        visible.find((offer) => offer.model.id === choice.id) ??
+        visible[0]!
+      ).model;
+      const provider = visible.find((offer) => offer.model === landing)?.provider;
       return {
         ...landing,
         name,
         ...(tag ? { tag } : {}),
         ...(provider ? { provider } : {}),
-        ...(offers.length > 1 ? { offers: offers.map((offer) => ({ ...offer.model, provider: offer.provider })) } : {}),
+        ...(visible.length > 1
+          ? { offers: visible.map((offer) => ({ ...offer.model, provider: offer.provider })) }
+          : {}),
       };
-    },
-  );
+    })
+    .filter((choice): choice is ModelChoice => choice !== undefined);
   // A model is a top one when any provider's row of it is.
   const top = all.filter((choice) => (choice.offers ?? [choice]).some((offer) => latestIds.has(offer.id)));
   const picks = [...top.filter((choice) => !isVariant(choice)), ...top.filter(isVariant)].slice(0, QUICK_ROWS);

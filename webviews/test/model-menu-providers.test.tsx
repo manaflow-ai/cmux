@@ -338,6 +338,23 @@ test("an available alternate provider keeps a grouped row enabled", async () => 
   expect(rows[0]!.hasAttribute("data-disabled")).toBe(false);
 });
 
+test("fixed-harness filtering keeps bare owners in the right grouped model", async () => {
+  const catalog = [
+    {
+      id: "opencode",
+      name: "OpenCode",
+      models: [
+        { id: "openrouter/qwen/coder-3", name: "Coder 3" },
+        { id: "together/mistral/coder-3", name: "Coder 3", unavailable: "Together is unavailable" },
+        { id: "mistral/coder-3", name: "Coder 3" },
+      ],
+    },
+  ];
+  await mount("openrouter/qwen/coder-3", false, catalog);
+  const rows = modelRows(menus()[0]!);
+  expect(rows.map(detailOf)).toEqual(["OpenRouter", "Mistral"]);
+});
+
 // Astra on #25175: the Provider row is a row of the chat's tab, so the held list height and width
 // (QuickModelMenu's tabExtent and width probe) count it, or the chat's tab overflows the held
 // height and the menu's top edge moves as the pointer crosses the rail.
