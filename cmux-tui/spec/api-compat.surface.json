@@ -7370,6 +7370,33 @@
         "required": true
       }
     },
+    "request:agent-inventory": {
+      "/expected_machine_id": {
+        "ty": "string"
+      }
+    },
+    "request:agent-inventory-refresh": {
+      "/expected_machine_id": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:agent-inventory-watch": {
+      "/admission_receipt": {
+        "ty": "boolean"
+      },
+      "/enabled": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/expected_machine_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_watch_id": {
+        "ty": "string"
+      }
+    },
     "request:agent-session-attach": {
       "/after_seq": {
         "ty": "uint64",
@@ -10074,6 +10101,7 @@
         "required": true
       }
     },
+    "request:debug-daemon-locks": {},
     "request:delete-bookmark": {
       "/bookmark": {
         "ty": "string",
@@ -14396,6 +14424,206 @@
           "\"pending\"",
           "\"prepared\""
         ]
+      }
+    },
+    "response:agent-inventory": {
+      "/data/cached": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "true"
+        ]
+      },
+      "/data/harnesses": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/harnesses/*": {
+        "ty": "object"
+      },
+      "/data/harnesses/*/auth": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "signedIn",
+          "signedOut",
+          "unknown"
+        ]
+      },
+      "/data/harnesses/*/channel": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "brew",
+          "brewCask",
+          "bun",
+          "launcher",
+          "missing",
+          "native",
+          "npm",
+          "standalone"
+        ]
+      },
+      "/data/harnesses/*/checkedAt": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/harnesses/*/family": {
+        "ty": "enum",
+        "required": true,
+        "nullable": true,
+        "values": [
+          "amp",
+          "chief",
+          "claude",
+          "codex",
+          "copilot",
+          "cursor",
+          "gemini",
+          "opencode",
+          "pi"
+        ]
+      },
+      "/data/harnesses/*/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/harnesses/*/latest": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/harnesses/*/latestCheckedAt": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/harnesses/*/outdated": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/harnesses/*/version": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/view": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"inventory\""
+        ]
+      }
+    },
+    "response:agent-inventory-refresh": {
+      "/data/cached": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "true"
+        ]
+      },
+      "/data/harnesses": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/harnesses/*": {
+        "ty": "object"
+      },
+      "/data/harnesses/*/auth": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "signedIn",
+          "signedOut",
+          "unknown"
+        ]
+      },
+      "/data/harnesses/*/channel": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "brew",
+          "brewCask",
+          "bun",
+          "launcher",
+          "missing",
+          "native",
+          "npm",
+          "standalone"
+        ]
+      },
+      "/data/harnesses/*/checkedAt": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/harnesses/*/family": {
+        "ty": "enum",
+        "required": true,
+        "nullable": true,
+        "values": [
+          "amp",
+          "chief",
+          "claude",
+          "codex",
+          "copilot",
+          "cursor",
+          "gemini",
+          "opencode",
+          "pi"
+        ]
+      },
+      "/data/harnesses/*/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/harnesses/*/latest": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/harnesses/*/latestCheckedAt": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/harnesses/*/outdated": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/harnesses/*/version": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/view": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"inventory\""
+        ]
+      }
+    },
+    "response:agent-inventory-watch": {
+      "/data": {
+        "ty": "untagged_union",
+        "required": true
+      },
+      "/data/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/revision": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/watch_id": {
+        "ty": "string",
+        "required": true
       }
     },
     "response:agent-session-attach": {
@@ -18780,6 +19008,12 @@
         "required": true
       }
     },
+    "response:debug-daemon-locks": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
     "response:delete-bookmark": {
       "/data/deleted": {
         "ty": "array",
@@ -22569,6 +22803,101 @@
       },
       "/data/ipc/writes/syscalls_per_message": {
         "ty": "float64",
+        "required": true
+      },
+      "/data/ipc_methods": {
+        "ty": "array"
+      },
+      "/data/ipc_methods/*": {
+        "ty": "object"
+      },
+      "/data/ipc_methods/*/class": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/ipc_methods/*/handler_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/ipc_methods/*/handler_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/handler_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/handler_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/handler_us/p95": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/handler_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/id": {
+        "ty": "uint16",
+        "required": true,
+        "nullable": true
+      },
+      "/data/ipc_methods/*/latency_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/ipc_methods/*/latency_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/latency_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/latency_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/latency_us/p95": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/latency_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/lock_wait_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/ipc_methods/*/lock_wait_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/lock_wait_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/lock_wait_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/lock_wait_us/p95": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/lock_wait_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/method": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/ipc_methods/*/trace_id": {
+        "ty": "uint16",
         "required": true
       },
       "/data/journal_writer": {

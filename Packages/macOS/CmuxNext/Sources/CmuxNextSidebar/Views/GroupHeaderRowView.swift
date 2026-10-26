@@ -235,6 +235,7 @@ final class GroupHeaderRowView: SidebarRowView {
         (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme)
     }
 
+    /// Layer colors only: `layerContentsRedrawPolicy` (.onSetNeedsDisplay, SidebarRowView) runs it on needsDisplay, never on a resize.
     override func updateLayer() {
         performWithTheme {
             // The solid bar in the group's color (Lawrence 2026-10-11); hover,

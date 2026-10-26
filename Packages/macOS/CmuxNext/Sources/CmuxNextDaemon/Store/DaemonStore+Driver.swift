@@ -189,11 +189,20 @@ struct StoreDriver {
         (self.connection, self.inbox, self.scheduler) = (connection, inbox, scheduler)
         self.snapshot = snapshot ?? { try await connection.snapshot() }
     }
+
+    /// Buffers `envelope` and asks for one drain frame when the inbox had none pending. Runs on the
+    /// thread that produced the event (the connection's reader for daemon events).
+    func deliver(_ envelope: DaemonEventEnvelope, drain: @escaping @MainActor @Sendable () -> Void) {
+        if inbox.append(envelope) { scheduler.scheduleFrame(drain) }
+    }
 }
 
 extension DaemonStore {
-    /// Mirrors the daemon until the connection closes. The event stream is
-    /// consumed off the main actor; batches reach the main actor at most once
+    /// Mirrors the daemon until the connection closes. Events go from the
+    /// connection's reader thread straight into the inbox
+    /// (``DaemonConnection/consumeEvents(_:)``: no cooperative-pool job on the
+    /// echo path); only those the connection buffered before this run pass
+    /// through the pump task. Batches reach the main actor at most once
     /// per frame. A batch that invalidates the tree triggers one snapshot,
     /// fetched and decoded off the main actor; events it supersedes (by
     /// sequence barrier) are dropped. No polling and no timers.
@@ -203,9 +212,7 @@ extension DaemonStore {
         beginConnection()
         let pump = Task.detached { [weak self] () -> String? in
             do {
-                for try await envelope in connection.events where driver.inbox.append(envelope) {
-                    driver.scheduler.scheduleFrame { self?.drain() }
-                }
+                try await connection.consumeEvents { envelope in driver.deliver(envelope) { self?.drain() } }
                 return nil
             } catch {
                 return String(describing: error)
@@ -401,7 +408,7 @@ extension DaemonStore {
         }
         let timer = DemandTimer(owner: "DaemonStore.resync", clock: resyncClock)
         resyncRetry = timer
-        timer.schedule(after: delay) { @MainActor [weak self] in
+        timer.scheduleOnMain(after: delay) { [weak self] in
             guard let self, self.driver != nil, self.resyncRetry === timer else { return }
             self.resyncRetry = nil
             self.resync(seedAgents: seedAgents)

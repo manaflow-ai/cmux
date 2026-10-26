@@ -72,7 +72,8 @@ final class CaptureSceneRegistry {
                     && self.services.windows.controller(for: targetWindowID)?.sidebar.model.sections.flatMap(\.workspaces).contains { !$0.rowState.isPending } == true
                     && self.services.showcase.agentTabs.values.contains {
                     guard let view = self.services.agentTabs.existingView($0) else { return false }
-                    return view.webView.window != nil && !view.webView.isLoading
+                    // Shown and painted, in whichever engine shows the chat.
+                    return view.window != nil && view.page.hasPainted
                 }
             },
             start: start,
@@ -247,6 +248,7 @@ final class CaptureSceneRegistry {
         frames.start()
         let settled = await frames.settled(
             until: {
+                // visibility-walk-allow: the capture waits for what AppKit shows before it snapshots the window; a node would mirror it a turn late
                 guard page.window != nil, !page.isHiddenOrHasHiddenAncestor, let model = taskManager.model else { return false }
                 return model.memorySaved && model.snapshot.discarded == TaskManagerFixtureSource.captureDiscarded
             },

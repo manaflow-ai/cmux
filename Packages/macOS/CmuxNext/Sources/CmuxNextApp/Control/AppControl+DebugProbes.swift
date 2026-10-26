@@ -9,6 +9,7 @@ import CmuxNextEnergy
 import CmuxNextErrorJournal
 import CmuxNextInput
 import CmuxNextInputDiagnostics
+import CmuxNextLaunch
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -36,6 +37,8 @@ extension AppControl {
             BlockingControl(detector: services.blocking).method,
             // Observations per owner: armed, evaluated, applied, show re-reads, hosting bodies; {"reset": true} zeroes them.
             ObservationsControl(ledger: services.observations).method,
+            // Lane queue wait and run time per lane and priority (RUN-13); {"reset": true} zeroes them.
+            WorkControl(work: services.work).method,
             // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class,
             // the run loop's turns, per owner the wait and run percentiles, and its idle class's periods under
             // "idle"; main only copies, the turns and owners fold off it.
@@ -69,7 +72,9 @@ extension AppControl {
                                                          hiddenWork: services?.hiddenLayoutWork))
             },
             // A full-screen or Space transition: notifications, resizes, layout passes (fullscreen-transition.py).
-            .mainActor("debug.window_transition") { call in .value(DebugWindowTransition.shared.handle(call.params)) },
+            .mainActor("debug.window_transition") { [events = services.workspaceEvents] call in
+                .value(DebugWindowTransition.shared.handle(call.params, workspaceEvents: events))
+            },
             // A split's or close's terminals: grids sent, drawn and announced, ms from start (bench-terminal-resize.py split-resize).
             .mainActor("debug.terminal_final_grid") { [weak services] call in
                 guard let trace = services?.finalGridTrace else { return .value(.null) }
@@ -85,8 +90,7 @@ extension AppControl {
             // Click by Hint labels (hint-mode-e2e.py).
             .mainActor("debug.hints") { [weak services] call in
                 guard let services else { return .value(.null) }
-                DebugHints.watchMenus()
-                return .value(DebugHints.report(services.windowHints, params: call.params))
+                return .value(DebugHints.report(services.windowHints, menus: services.menuTracking, params: call.params))
             },
             .mainActor("debug.page_host_pool") { [weak services] call in
                 .value(DebugPageHostPool.handle(call.params, services: services))
@@ -183,6 +187,16 @@ extension AppControl {
                 return .value(DebugCrashes.report(services))
             },
         ])
+        #if CMUX_PGO_PROFILE
+        // The profile build only (p08-startup-103): rest.profraw before quit, on the files lane; launch.profraw
+        // was written at startup complete.
+        if let flush = profileFlush {
+            router.register([.async("debug.pgo_flush") { _ in
+                let rest = try await flush.writeRestProfile()
+                return ["rest": .string(rest.file.path), "rest_bytes": .number(Double(rest.bytes)), "launch": .string(flush.files.launch.path)]
+            }.withDeadline(.fixed(.seconds(30)))])
+        }
+        #endif
     }
 }
 #endif

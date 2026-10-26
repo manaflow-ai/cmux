@@ -30,7 +30,11 @@ final class FilesPaneService: InternalPageProvider {
 
     private weak var services: AppServices?
     private var tabs: [String: Tab] = [:]
-    private let icons = FileIconProvider()
+    /// Icons and thumbnails for every Files tab, held to a share of the image cache budget; with
+    /// `memoryFileHomeCaches` also a memory consumer.
+    private let icons: FileIconProvider
+    /// Open With's apps, from the app's Launch Services answers (asked on the system lane).
+    private let fileApps: WorkspaceFileApps
     /// Favorites and Locations, shared by every Files tab (the composition root picks `.standard`).
     private let sidebar = SidebarModel(home: FileManager.default.homeDirectoryForCurrentUser, defaults: .standard)
     private var volumeWatch: [Task<Void, Never>] = []
@@ -46,13 +50,17 @@ final class FilesPaneService: InternalPageProvider {
     /// What each open asked for, for the tab it opened.
     private let opens = PageOpenRequests<OpenRequest>()
     /// The shared file menu's Open as Text, Open With and Share rows for the pane's context menu.
-    private lazy var fileMenu = FileActionsMenu(actions: .init(
+    private lazy var fileMenu = FileActionsMenu(apps: fileApps, actions: .init(
         openInCmux: { [weak self] url in self?.services?.linkOpener.openFile(url, from: self?.services?.windows.active?.focusedPane) },
         revealInFiles: { [weak self] url in try? self?.reveal(url, focus: true) },
         openAsText: { [weak self] url in self?.services?.linkOpener.openFile(url, from: self?.services?.windows.active?.focusedPane, asText: true) }))
 
     init(services: AppServices) {
         self.services = services
+        let memory = AppMemoryConsumers(services: services)
+        icons = FileIconProvider(queries: services.workspaceQueries, thumbnailBytes: memory.filesThumbnailBytes)
+        fileApps = WorkspaceFileApps(queries: services.workspaceQueries)
+        if let registry = memory.fileCacheRegistry { icons.registerMemoryConsumer(with: registry) }
         let sidebar = self.sidebar
         volumeWatch = [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification,
                        NSWorkspace.didRenameVolumeNotification].map { name in

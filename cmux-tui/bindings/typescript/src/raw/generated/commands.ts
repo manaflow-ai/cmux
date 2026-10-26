@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 87e9b8e373ca5a50e0b57f549781a75e4c8e38d4e86011638c213050e8d7c034. */
+/* cmux-tui mux protocol 12, IR d7f3a638eb345c945cc9b1ab620d70e8e2c30fcc0d714cad368f04024f9b38e4. */
 
 
 import type * as T from "./types.js";
@@ -154,6 +154,33 @@ export interface AgentCliUpdateJobResolveRequest extends CmuxRequestBase {
   "idempotency_key": string;
 }
 export type AgentCliUpdateJobResolveResult = T.AgentCLIJobResolution;
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentInventoryRequest extends CmuxRequestBase {
+  cmd: "agent-inventory";
+  /** Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector. */
+  "expected_machine_id"?: string;
+}
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentInventoryRefreshRequest extends CmuxRequestBase {
+  cmd: "agent-inventory-refresh";
+  /** Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector. */
+  "expected_machine_id": string;
+}
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentInventoryWatchRequest extends CmuxRequestBase {
+  cmd: "agent-inventory-watch";
+  /** Only with enabled:true: an unavailable, unsupported or busy refusal carries data {machine, admission:"not_admitted"} when this connection holds no lease. */
+  "admission_receipt"?: boolean;
+  /** true opens (or acknowledges again) this connection's lease; false retires it without an ended event. */
+  "enabled": boolean;
+  /** Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector. */
+  "expected_machine_id": string;
+  /** Only with enabled:false: retire the lease only while it has this id. */
+  "expected_watch_id"?: string;
+}
 
 /** Protocol v12; authority: local-admin. */
 export interface AgentSessionAttachRequest extends CmuxRequestBase {
@@ -1631,6 +1658,12 @@ export interface CreateWorkspaceGroupRequest extends CmuxRequestBase {
   "name": string;
 }
 export type CreateWorkspaceGroupResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface DebugDaemonLocksRequest extends CmuxRequestBase {
+  cmd: "debug-daemon-locks";
+}
+export type DebugDaemonLocksResult = T.JsonValue;
 
 /** Protocol v12; authority: control. */
 export interface DeleteBookmarkRequest extends CmuxRequestBase {
@@ -3624,6 +3657,9 @@ export type CmuxRequest =
   | AgentCliIntentsSettleRequest
   | AgentCliUpdateJobRequest
   | AgentCliUpdateJobResolveRequest
+  | AgentInventoryRequest
+  | AgentInventoryRefreshRequest
+  | AgentInventoryWatchRequest
   | AgentSessionAttachRequest
   | AgentSessionCancelRequest
   | AgentSessionChildrenRequest
@@ -3756,6 +3792,7 @@ export type CmuxRequest =
   | CreateTerminalRequest
   | CreateWorkspaceRequest
   | CreateWorkspaceGroupRequest
+  | DebugDaemonLocksRequest
   | DeleteBookmarkRequest
   | DeleteBrowserProfileRequest
   | DeletePersonalGroupRequest
@@ -4073,6 +4110,30 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "agent-cli-update-job-resolve-v1";
+    stream: null;
+  };
+  "agent-inventory": {
+    request: AgentInventoryRequest;
+    result: T.AgentInventoryResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-inventory-v1";
+    stream: null;
+  };
+  "agent-inventory-refresh": {
+    request: AgentInventoryRefreshRequest;
+    result: T.AgentInventoryRefreshResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-inventory-refresh-v1";
+    stream: null;
+  };
+  "agent-inventory-watch": {
+    request: AgentInventoryWatchRequest;
+    result: T.AgentInventoryWatchResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-inventory-watch-v1";
     stream: null;
   };
   "agent-session-attach": {
@@ -5129,6 +5190,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "workspace-groups-v1";
+    stream: null;
+  };
+  "debug-daemon-locks": {
+    request: DebugDaemonLocksRequest;
+    result: DebugDaemonLocksResult;
+    authority: "local-admin";
+    since: 12;
+    capability: null;
     stream: null;
   };
   "delete-bookmark": {

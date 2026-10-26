@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Darwin
 public import Foundation
 import MachO
@@ -23,18 +24,18 @@ public struct AppSymbolMap: Sendable {
     /// Where each name starts in ``nameBytes``, one per offset.
     let nameStarts: [UInt32]
 
-    /// The map of the running executable, or nil when the bundle has none or
-    /// it holds no slice with this executable's UUID. Loaded on first use;
-    /// read it off the main thread.
-    // Immutable data read from the bundle once, not runtime state.
-    public static let main: AppSymbolMap? = {
+    /// Reads the map of the running executable, or nil when the bundle has none
+    /// or it holds no slice with this executable's UUID. A file read and an
+    /// inflate: call it off the main thread, once per symbolication job (the
+    /// hang recorder's symbol queue, a crash record), never from a static
+    /// initializer that blocks whichever thread reads it first (p02-threads-122).
+    public static func loadMain() -> AppSymbolMap? {
         guard let header = _dyld_get_image_header(0), let uuid = Self.uuid(of: header),
               let url = Bundle.main.url(forResource: "cmux-symbols", withExtension: "bin"),
-              // concurrency-allow: diagnostics only, read once off the main thread.
-              let data = try? Data(contentsOf: url, options: .mappedIfSafe)
+              let data = try? Data(blockingContentsOf: url, options: .mappedIfSafe)
         else { return nil }
         return AppSymbolMap(data: data, uuid: uuid)
-    }()
+    }
 
     /// The slice for `uuid` in a `cmux-symbols.bin` file, or nil when there is
     /// none or the file does not decode.

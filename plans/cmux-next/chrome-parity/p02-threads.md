@@ -347,7 +347,8 @@ R4. Actor methods that block use a custom serial executor on a named queue at th
     HomeCache pattern, `// executor: <label>`). Use `await work.run` in an actor method only when it
     reads no actor state after the await.
 R5. No hand-written Task.detached outside CmuxNextWakeups; no DispatchQueue.global; no
-    `delegateQueue: nil`; no `runModal(`; no blocking in static, lazy or global initializers.
+    `delegateQueue: nil`; no nested `runModal(` (NSPrintOperation's sheet form with `delegate:` is not
+    one); no blocking in static, lazy or global initializers.
 R6. Every queue, thread, OperationQueue, tokio runtime, child process and launchd plist states its QoS
     or role, and the label is in threading-model.md.
 R7. `.blockShutdown` only for one bounded write (< 50 ms). Migrations are resumable.
@@ -373,7 +374,7 @@ R12. Compat changes land in one early batch (wave 0) and Compat is then frozen f
   threading-model.md "Reviewed blocking allowances"; arch-ratchet blocking_allow_escapes 3 or fewer.
   Rust: `rg -c 'AllowReason::' cmux-tui/crates --glob '!**/cmux-threads/**'` sites are listed in the
   doc and the enum has 3 or fewer variants.
-- **INV-5** `rg -n 'DispatchQueue\.global\(|delegateQueue: *nil|\.runModal\(|OSAllocatedUnfairLock|NSLock\(' Packages/macOS/CmuxNext/Sources --glob '!**/CmuxNextWakeups/**' --glob '!**/CmuxNextCompat/**'`
+- **INV-5** `rg -n --pcre2 'DispatchQueue\.global\(|delegateQueue: *nil|\.runModal\((?![^)]*delegate:)|OSAllocatedUnfairLock|NSLock\(' Packages/macOS/CmuxNext/Sources --glob '!**/CmuxNextWakeups/**' --glob '!**/CmuxNextCompat/**'`
   = 0, except audio-tap locks marked `// lock-allow: realtime audio tap`.
 - **RUN-1** Fleet Debug build: every-action-sweep light and STRESS, then lifecycle-sweep (RUN-12), with
   CMUX_BLOCKING_TRAP=1 and CMUX_BLOCKING_TRAP_POOL=1, exit 0 with 0 traps. `debug.blocking` reports
@@ -1228,7 +1229,10 @@ declared=null; hidden-workspace Ghostty threads read UTILITY; the doc names the 
 S/CmuxNextFilesUI/FilesPrompts.swift, S/CmuxNextScreenshots/ScreenshotsCommands.swift,
 S/CmuxNextHomeEngine/HomeChiefSettingsView.swift, S/CmuxNextBrowser/Engine/BrowserPagePrint.swift,
 guardrails.py. Change: beginSheetModal or begin(completionHandler:); alerts move to CmuxDialogSpec; add
-`runModal(` to ALWAYS_BLOCKING. Acceptance: `rg -n '\.runModal\(' S` = 0; fixture refuses a new one.
+`runModal(` to ALWAYS_BLOCKING. Reviewed exception: NSPrintOperation's sheet form
+`runModal(for: window, delegate: ...)` returns once the sheet shows (AppKit documents it as document-modal), so
+BrowserPagePrint keeps it, with `canSpawnSeparateThread = true` so the job spools off main. Acceptance:
+`rg -n --pcre2 '\.runModal\((?![^)]*delegate:)' S` = 0; fixture refuses a new one and accepts the sheet form.
 Test: T0; T2.
 
 **133 Key echo path never hops through the pool.** Files: S/CmuxNextDaemon/Connection/{DaemonConnection,
@@ -1537,3 +1541,18 @@ Chromium open number committed. Test: T0 + T1 release compile.
 every-action-sweep.py. Change: trigger launch cold/warm, quit, debug.simulate.wake, debug.simulate.display,
 appearance toggle, kill -9 daemon and Chromium host, update install, with traps; read debug.blocking and
 debug.hangs; file sites with the MQ-1 recipe. Depends 300, 128, 129. Acceptance: RUN-12 exit 0. Test: T2.
+
+**308 mux-line-out's idle wait.** Found by p15-oracle-069 on the VM: a debug daemon panics on every Unix line
+connection at `bounded_outbound.rs` `recv` (condvar-wait on thread mux-line-out, an echo thread with blocking
+disallowed), so the oracle's daemon cases need `CMUX_DAEMON_BLOCKING=record`. The writer waits for its own queue
+when idle; that is not blocking work. Chromium: `WaitableEvent::declare_only_used_while_idle()`
+(base/synchronization/waitable_event.h), which MessagePumpDefault's event uses, so a thread idle at the bottom
+of its stack is not a ScopedBlockingCall. Change: an idle-wait primitive in cmux_threads::checked that records no
+violation, used by the outbound queue's recv only. Acceptance: a debug daemon under CMUX_DAEMON_BLOCKING=panic
+serves `cmux raw operation session.snapshot` with no panic. Test: cmux-threads tests; T1r.
+
+**309 origin_gate on mux-conn.** Found by p15-oracle-069: a debug daemon panics on every accepted Unix connection
+at `origin_gate.rs` `is_bundled_mobile_host_path` (fs: canonicalize of the peer executable on thread mux-conn,
+blocking disallowed). Chromium does file work in a MayBlock task (base/task/task_traits.h), never on an IO
+thread. Change: resolve the peer executable on a may-block worker before the connection dispatches, or compare
+without a file-system call. Acceptance: as 308, no fs site on mux-conn in `server.blocking`. Test: T1r.

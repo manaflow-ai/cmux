@@ -4,6 +4,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHomeEngine
+import CmuxNextLaunch
 import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -26,6 +27,9 @@ final class QuitCoordinator {
     private(set) var isQuitting = false
     /// The last dialog brought the app forward (`debug.quit`).
     private(set) var lastAskActivated = false
+    /// The browser tabs that held Secure Input as this quit began, before any dialog took the keyboard: they leave
+    /// no launch picture (`TabContentCache.secureInputPages`).
+    private var secureInputPages: Set<String> = []
     private unowned let services: AppServices
     /// The quit hook's participants (`AppServices.quitUnsaved`; tests replace it).
     var unsaved: QuitUnsavedRegistry
@@ -79,6 +83,7 @@ final class QuitCoordinator {
             return .terminateLater
         }
         isQuitting = true
+        secureInputPages = services.cache.secureInputPages()
         // Quit (menu, Cmd-Q, socket) never waits on another open sheet.
         SheetDismissal.endAll()
         let origin = origins.consume(appleEventReason: Self.quitReason())
@@ -144,7 +149,7 @@ final class QuitCoordinator {
 
     private func complete(_ choice: QuitSessionsChoice, remember: Bool, _ sender: NSApplication) async {
         logger.info("quit choice=\(choice.rawValue, privacy: .public) remember=\(remember)")
-        let services = services
+        let services = services, secureInputPages = secureInputPages
         // Sparkle installs a staged update as the app exits unless
         // `updates.installOnQuit` is off (then its installer is cancelled now).
         services.updater.prepareForQuit()
@@ -180,10 +185,20 @@ final class QuitCoordinator {
                 // Agent panes on screen draw their last page at the next launch.
                 await services.agentTabs.launchImages.save(services.agentTabs.shownPageImages())
                 await TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()).save(services.cache.terminals.mapValues(\.session))  // and terminals their last frame
+                // And browser pages theirs (`browserLaunchPictures`; with it off, the last quit's pictures go).
+                if let pictures = services.environment.browserLaunchPictures {
+                    var shots: [BrowserLaunchPictures.Shot] = []
+                    if services.cache.launchPictures != nil {
+                        shots = await services.cache.launchPictureShots(Self.launchPicturePanes(services), secureInput: secureInputPages)
+                    }
+                    await pictures.save(shots)
+                }
                 // Browser tabs reopen at their recorded page (before any
                 // session ends, while the daemon still answers).
                 await services.cache.browserTabs.flushRecords()
                 await services.windows.prepareForTermination()
+                // A sidebar change whose idle task has not run yet is saved too.
+                await services.windows.flushSidebarSnapshots()
                 await services.sidebarSnapshots.flush()
                 // Home's drafts, scroll places and unsent sends (its cache's last batch).
                 await services.home.flushCacheForQuit()
@@ -223,6 +238,19 @@ final class QuitCoordinator {
             finishDrain: { await services.work.shutdown() }
         ))
         sender.reply(toApplicationShouldTerminate: true)
+    }
+
+    /// The panes on screen that show a tab, with their content area: in windows ordered in, not minimized, on the
+    /// active Space and not full screen (a window's picture is never taken there either, p08-startup 3C).
+    private static func launchPicturePanes(_ services: AppServices) -> [(key: String, host: NSView)] {
+        services.windows.controllers.flatMap { controller -> [(key: String, host: NSView)] in
+            guard let window = controller.window, VisiblePaneRefs.Window.isOnScreen(window), window.isOnActiveSpace,
+                  !window.styleMask.contains(.fullScreen), let content = controller.content, !content.isParked else { return [] }
+            return content.panes.values.compactMap { pane in
+                guard let key = pane.currentTabKey, VisiblePaneRefs.Window.isOnScreen(pane.view) else { return nil }
+                return (key, pane.view.contentHost)
+            }
+        }
     }
 
     /// Shows "Some sessions did not end" and waits for the answer.

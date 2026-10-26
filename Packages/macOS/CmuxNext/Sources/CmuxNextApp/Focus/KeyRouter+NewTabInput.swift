@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextFocusUI
 import CmuxNextAgentPane
 import CmuxNextWakeups
 
@@ -20,7 +21,8 @@ import CmuxNextWakeups
 @MainActor
 final class NewTabInputCoordinator {
     weak var router: KeyRouter?
-    private var buffers: [Int: Entry] = [:]
+    /// The router's typing keys come here only while some window holds keys (``KeyRouterMode/newTabCapture``).
+    private var buffers: [Int: Entry] = [:] { didSet { router?.modes.set(.newTabCapture, !buffers.isEmpty) } }
     /// The longest a key may wait for the New Tab field. Its readiness normally comes within one
     /// page render; past this the field (or whatever has focus) takes the keys directly.
     var holdLimit: Duration = .seconds(2)
@@ -70,7 +72,7 @@ final class NewTabInputCoordinator {
         var owns: Bool {
             guard let window else { return false }
             if incoming != nil { return true }
-            guard let pane, pane.view.window === window, !pane.view.isHiddenOrHasHiddenAncestor else { return false }
+            guard let pane, pane.view.window === window, pane.view.isShownForInput else { return false }
             guard let key = pane.currentTabKey else { return !shown }
             if pane.services.agentTabs.isNewTabPage(key) { return true }
             return !shown && key == opened
@@ -123,7 +125,7 @@ final class NewTabInputCoordinator {
         let buffer = NewTabInputBuffer(began: now(), focusField: { [weak pane, weak window] in
             guard let pane, let window, let key = pane.currentTabKey, pane.services.agentTabs.isNewTabPage(key),
                   let view = pane.services.agentTabs.existingView(key), view.window === window,
-                  !view.isHiddenOrHasHiddenAncestor else { return false }
+                  view.isShownForInput else { return false }
             // A Chromium page window may be key: the shell takes it back, so later keys follow.
             // Never from another cmux window the person moved to since Cmd-T: their keys go there.
             // A Chromium page's own grant moves the keys to its page window: the shell does not take
@@ -147,7 +149,7 @@ final class NewTabInputCoordinator {
                 view.focusChat()
                 return true
             }
-            return window.makeFirstResponder(view.webView)
+            return window.makeFirstResponder(view.focusTarget)
         }, deliver: deliver(in: window))
         let entry = Entry(buffer: buffer, limit: holdLimit, opened: pane.currentTabKey, pane: pane, window: window)
         install(entry, in: window)
@@ -170,7 +172,7 @@ final class NewTabInputCoordinator {
             guard let services, let window, let key = target.key,
                   let view = target.view ?? (services.agentTabs.isNewTabPage(key) ? services.agentTabs.existingView(key) : nil),
                   view.model.newTab != nil, let shown = view.window,
-                  shown === window || target.followsNewWindow, !view.isHiddenOrHasHiddenAncestor else { return false }
+                  shown === window || target.followsNewWindow, view.isShownForInput else { return false }
             // A Chromium page window or the old window may be key: the page's window takes it. A
             // Chromium page's grant (below) moves the keys itself: one key-window change (#24913).
             if !shown.isKeyWindow, NSApp.isActive, view.chromiumPage == nil { shown.makeKey() }
@@ -179,7 +181,7 @@ final class NewTabInputCoordinator {
                 view.focusChat()
                 return true
             }
-            return shown.makeFirstResponder(view.webView)
+            return shown.makeFirstResponder(view.focusTarget)
         }, deliver: { [weak router, weak window] event in
             // Ready: the page's window. Not ready (the limit, a failed creation): the key window.
             guard let router, let to = target.pageWindow ?? (target.followsNewWindow ? NSApp.keyWindow : nil) ?? window else { return }
@@ -272,7 +274,7 @@ final class NewTabInputCoordinator {
         if let key = NSApp.keyWindow, key !== window, key.parent === window { return key }
         guard window.firstResponder === window || window.firstResponder == nil else { return nil }
         return window.childWindows?.first { child in
-            child.isVisible && chromiumAgentPane(under: child, in: window).map { !$0.isHiddenOrHasHiddenAncestor } == true
+            child.isVisible && chromiumAgentPane(under: child, in: window).map { $0.isShownForInput } == true
         }
     }
 

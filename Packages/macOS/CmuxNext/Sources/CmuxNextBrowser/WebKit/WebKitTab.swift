@@ -180,7 +180,8 @@ public final class WebKitTab: NSObject, BrowserTab {
     public func snapshot() async throws -> CGImage {
         guard !isClosed else { throw BrowserTabError.closed }
         let image = try await webView.takeSnapshot(configuration: nil)
-        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+        // SAFETY: a nil rect pointer: AppKit uses the image's own size and writes nothing back.
+        guard let cgImage = unsafe image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             throw BrowserTabError.snapshotUnavailable
         }
         return cgImage
@@ -273,13 +274,7 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// There is no public API for this; if WebKit removes it, the user can
     /// still use "Inspect Element" from the context menu.
     public func showDevTools() {
-        let selector = NSSelectorFromString("_inspector")
-        guard webView.responds(to: selector),
-              let inspector = webView.perform(selector)?.takeUnretainedValue() as? NSObject else { return }
-        let show = NSSelectorFromString("show")
-        if inspector.responds(to: show) {
-            inspector.perform(show)
-        }
+        WebKitInspector(webView: webView).show()
     }
 
     public func close() {
@@ -332,7 +327,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         case .apply(let update):
             apply(.titleChanged(update.title))
         case .later(let until):
-            titleTimer.scheduleIfIdle(after: .milliseconds(Int64(max(0, until - now) * 1000) + 1)) { @MainActor [weak self] in
+            titleTimer.scheduleOnMainIfIdle(after: .milliseconds(Int64(max(0, until - now) * 1000) + 1)) { [weak self] in
                 guard let self, !self.isClosed,
                       let update = self.titleCoalescer.fire(now: ProcessInfo.processInfo.systemUptime) else { return }
                 self.apply(.titleChanged(update.title))

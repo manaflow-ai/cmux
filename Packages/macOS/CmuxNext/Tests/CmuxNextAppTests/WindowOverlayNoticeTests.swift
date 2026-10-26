@@ -175,7 +175,7 @@ import Testing
         rig.showPage()
         // The layer asks the window's pages on the default center (`CEFHostView` listens there).
         let posts = Count()
-        let watch = MainActorObservation(Notification.Name.browserChildWindowPagesNeedUpdate, object: rig.window) { posts.value += 1 }
+        let watch = MainActorObservation(Notification.Name("CmuxBrowserChildWindowPagesNeedUpdate"), object: rig.window) { posts.value += 1 }
 
         rig.center.post(name: NSWindow.didMoveNotification, object: rig.window)
         #expect(posts.value == 1, "the pages follow the move at once")

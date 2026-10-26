@@ -36,11 +36,11 @@ final class WindowManager {
     /// Called after a window is ordered in (the restart notice attaches).
     var onPresent: ((WindowController) -> Void)?
     /// Writes the window records (WindowRecordSaver).
-    lazy var recordSaver = WindowRecordSaver(manager: self)
-    private var loadObservation: Task<Void, Never>?
-    var membershipObservation: Task<Void, Never>?
+    lazy var recordSaver = WindowRecordSaver(manager: self, deadlines: services.mainDeadlines)
+    private var loadObservation: ServiceObservation<Bool>?
+    var membershipObservation: ServiceObservation<[String]>?
     /// Records connected sessions in the home session (rooms, data-model.md 1.1).
-    private(set) lazy var sessionRegistrar = SessionRegistrar(machines: services.machines)
+    private(set) lazy var sessionRegistrar = SessionRegistrar(machines: services.machines, work: services.work, mainWork: services.mainWork)
     /// New workspaces a window asked for before the daemon reported them:
     /// reconcile places each in that window (opening it when it is not
     /// registered yet) and selects it.
@@ -49,6 +49,7 @@ final class WindowManager {
     var quietClaims: Set<String> = [], behindWindows: Set<String> = []
     /// Restored windows but the front one, not shown yet (`present`); `keepsOrder` while one shows alone.
     private var restacking: Set<String> = [], keepsOrder = false
+    // memory: fixed one 32-byte CGRect per new window that waits for its claimed workspace (`claimNew`); `makeController` takes it when the window opens
     /// Frames for windows that open once their claimed workspace arrives.
     var pendingFrames: [String: CGRect] = [:]
     /// Sidebar slots for new workspaces, applied once the daemon reports
@@ -82,8 +83,8 @@ final class WindowManager {
     var ordersWindowsIn = true
     /// Restore finished: windows saved in full screen may enter it.
     var fullScreenRestoreReady = false
-    /// A restored window is entering full screen (one at a time).
-    var fullScreenRestoreRunning = false
+    /// The restored window entering full screen now (one at a time).
+    var fullScreenRestore: RestoredFullScreen?
     var onFirstWindow: ((WindowController) -> Void)?
     /// The restore's and the visible panes' startup refs (p08-startup task 013), passed to `restoreWhenLoaded`.
     private var launchPaneRefs: VisiblePaneRefs?
@@ -190,12 +191,14 @@ final class WindowManager {
             launchWindowID = id
             makeController(for: WindowRegistry.Window(id: id))
         }
-        let store = services.daemon.store
-        loadObservation = Task { [weak self] in
-            for await loaded in ObservationStream({ store.isLoaded }) where loaded {
-                await self?.restore()
-                return
-            }
+        let store = services.daemon.store, work = services.work
+        // The restore awaits the saved window state off main; `restore` runs once (`restored`).
+        loadObservation = ServiceObservation(.visible, owner: "WindowManager.restoreWhenLoaded", on: services.mainWork) {
+            store.isLoaded
+        } apply: { [weak self] loaded in
+            guard loaded, let self, !restored else { return }
+            loadObservation?.cancel()
+            work.task(.userBlocking) { [weak self] in await self?.restore() }
         }
     }
 
@@ -420,6 +423,14 @@ final class WindowManager {
         isTerminating = true
         membershipObservation?.cancel()
         // Chromium stops later, as the last quit step (QuitCompletion).
+    }
+
+    /// Quit: each open window's sidebar change still waiting for its idle task reaches the snapshot
+    /// store (`SidebarSnapshotRecorder.flushNow`), before the store's flush.
+    func flushSidebarSnapshots() async {
+        for controller in controllers {
+            await controller.sidebar.flushSnapshot()
+        }
     }
 
     /// Copies each open window's frame and display into the registry.

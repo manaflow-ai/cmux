@@ -151,6 +151,18 @@
         "id": 3596,
         "priority": "control"
       },
+      "agent-inventory": {
+        "id": 3597,
+        "priority": "control"
+      },
+      "agent-inventory-refresh": {
+        "id": 3598,
+        "priority": "background"
+      },
+      "agent-inventory-watch": {
+        "id": 3599,
+        "priority": "control"
+      },
       "agent-session-attach": {
         "id": 4864,
         "priority": "control"
@@ -679,6 +691,10 @@
         "id": 2575,
         "priority": "control"
       },
+      "debug-daemon-locks": {
+        "id": 274,
+        "priority": "background"
+      },
       "delete-bookmark": {
         "id": 3076,
         "priority": "control"
@@ -928,7 +944,7 @@
         "priority": "control"
       },
       "memory-report": {
-        "id": 274,
+        "id": 275,
         "priority": "background"
       },
       "mint-terminal-renderer": {

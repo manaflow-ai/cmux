@@ -194,6 +194,7 @@ enum DebugWindowSnapshot {
         var result: [(CEFTab, NSRect)] = []
         for pane in controller.content?.panes.values.map({ $0 }) ?? [] {
             guard case .browser(let entry)? = pane.currentContent, let page = entry.tab as? CEFTab,
+                  // visibility-walk-allow: the snapshot paints the pages AppKit composites, the window server's own view state
                   page.contentView.window === window, !page.contentView.isHiddenOrHasHiddenAncestor else { continue }
             let rect = page.devToolsDiagnosticFrames.map { window.convertFromScreen($0.page) }
                 ?? page.contentView.convert(page.contentView.bounds, to: nil)
@@ -236,6 +237,7 @@ enum DebugWindowSnapshot {
             guard !view.isHidden, view.alphaValue > 0 else { return }
             if let webView = view as? WKWebView,
                webView.window === window,
+               // visibility-walk-allow: the snapshot paints the web views AppKit composites, the window server's own view state
                !webView.isHiddenOrHasHiddenAncestor,
                webView.alphaValue > 0,
                webView.bounds.width > 0,

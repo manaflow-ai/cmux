@@ -23,6 +23,9 @@ public final class Commands {
     public static final CommandMetadata AGENT_CLI_INTENTS_SETTLE = new CommandMetadata("agent-cli-intents-settle", Authority.LOCAL_ADMIN, 12, "agent-cli-intents-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata AGENT_CLI_UPDATE_JOB = new CommandMetadata("agent-cli-update-job", Authority.LOCAL_ADMIN, 12, "agent-cli-update-job-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata AGENT_CLI_UPDATE_JOB_RESOLVE = new CommandMetadata("agent-cli-update-job-resolve", Authority.LOCAL_ADMIN, 12, "agent-cli-update-job-resolve-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata AGENT_INVENTORY = new CommandMetadata("agent-inventory", Authority.LOCAL_ADMIN, 12, "agent-inventory-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("expected_machine_id", "agent-inventory-owner-v1")));
+    public static final CommandMetadata AGENT_INVENTORY_REFRESH = new CommandMetadata("agent-inventory-refresh", Authority.LOCAL_ADMIN, 12, "agent-inventory-refresh-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata AGENT_INVENTORY_WATCH = new CommandMetadata("agent-inventory-watch", Authority.LOCAL_ADMIN, 12, "agent-inventory-watch-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("admission_receipt", "agent-inventory-watch-admission-v1"), Map.entry("expected_watch_id", "agent-inventory-watch-fence-v1")));
     public static final CommandMetadata AGENT_SESSION_ATTACH = new CommandMetadata("agent-session-attach", Authority.LOCAL_ADMIN, 12, "agent-session-attach-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata AGENT_SESSION_CANCEL = new CommandMetadata("agent-session-cancel", Authority.LOCAL_ADMIN, 12, "agent-session-attach-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata AGENT_SESSION_CHILDREN = new CommandMetadata("agent-session-children", Authority.LOCAL_ADMIN, 12, "agent-session-children-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -155,6 +158,7 @@ public final class Commands {
     public static final CommandMetadata CREATE_TERMINAL = new CommandMetadata("create-terminal", Authority.CONTROL, 7, "workspace-registry-v1", StreamKind.NONE, Map.ofEntries(Map.entry("detached", 12L), Map.entry("env", 12L), Map.entry("keep", 12L), Map.entry("shell_args", 12L), Map.entry("terminal_id", 9L)), Map.ofEntries(Map.entry("detached", "detached-terminals-v1"), Map.entry("env", "terminal-env-v1"), Map.entry("keep", "terminal-reap-v1"), Map.entry("shell_args", "terminal-shell-args-v1")));
     public static final CommandMetadata CREATE_WORKSPACE = new CommandMetadata("create-workspace", Authority.CONTROL, 7, "workspace-registry-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CREATE_WORKSPACE_GROUP = new CommandMetadata("create-workspace-group", Authority.CONTROL, 12, "workspace-groups-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata DEBUG_DAEMON_LOCKS = new CommandMetadata("debug-daemon-locks", Authority.LOCAL_ADMIN, 12, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata DELETE_BOOKMARK = new CommandMetadata("delete-bookmark", Authority.CONTROL, 12, "bookmarks-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata DELETE_BROWSER_PROFILE = new CommandMetadata("delete-browser-profile", Authority.CONTROL, 12, "browser-profiles-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata DELETE_PERSONAL_GROUP = new CommandMetadata("delete-personal-group", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -384,6 +388,9 @@ public final class Commands {
         values.put("agent-cli-intents-settle", AGENT_CLI_INTENTS_SETTLE);
         values.put("agent-cli-update-job", AGENT_CLI_UPDATE_JOB);
         values.put("agent-cli-update-job-resolve", AGENT_CLI_UPDATE_JOB_RESOLVE);
+        values.put("agent-inventory", AGENT_INVENTORY);
+        values.put("agent-inventory-refresh", AGENT_INVENTORY_REFRESH);
+        values.put("agent-inventory-watch", AGENT_INVENTORY_WATCH);
         values.put("agent-session-attach", AGENT_SESSION_ATTACH);
         values.put("agent-session-cancel", AGENT_SESSION_CANCEL);
         values.put("agent-session-children", AGENT_SESSION_CHILDREN);
@@ -516,6 +523,7 @@ public final class Commands {
         values.put("create-terminal", CREATE_TERMINAL);
         values.put("create-workspace", CREATE_WORKSPACE);
         values.put("create-workspace-group", CREATE_WORKSPACE_GROUP);
+        values.put("debug-daemon-locks", DEBUG_DAEMON_LOCKS);
         values.put("delete-bookmark", DELETE_BOOKMARK);
         values.put("delete-browser-profile", DELETE_BROWSER_PROFILE);
         values.put("delete-personal-group", DELETE_PERSONAL_GROUP);

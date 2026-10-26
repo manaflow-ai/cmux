@@ -52,6 +52,12 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let browserSetLayerHosting: @convention(c) (Int32, Int32) -> UInt32
     /// Fork API 27: `cmux_shim_browser_set_resize_sync` (deadline in ms, 0 never holds the commit).
     let browserSetResizeSync: @convention(c) (Int32, Int32) -> Int32
+    /// Fork API 30: `cmux_shim_browser_set_embedder_active`, a detached page's key state: its focus
+    /// with no key window (0 when the fork lacks it or the page is not detached).
+    let browserSetEmbedderActive: @convention(c) (Int32, Int32) -> Int32
+    /// Fork API 34: `cmux_shim_browser_set_embedder_visibility` (a `cmux_shim_embedder_visibility_t`; 1 when the
+    /// fork took it). Nil on a shim without the export (task p03-rendering-058).
+    let browserSetEmbedderVisibility: (@convention(c) (Int32, Int32) -> Int32)?
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
@@ -64,6 +70,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setScheduleDelayed: @convention(c) (ScheduleDelayedFn?) -> Int32
     /// `cmux_shim_set_energy_saver(enabled, exempt_scheme)` (``CEFEnergySaver``); 1 when the fork took it.
     let setEnergySaver: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
+    /// `cmux_shim_memory_pressure_vote(level)`: cmux's vote in Chromium's pressure aggregator (``CEFMemoryPressureVote``).
+    let memoryPressureVote: @convention(c) (Int32) -> Int32
 
     let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     /// The same window whose first tab has no renderer and never navigates (the spare window's
@@ -201,9 +209,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let sslStatus: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
     /// Clears the profile's certificate error decisions and connections.
     let clearCertificateExceptions: @convention(c) (Int32, Int32) -> Int32
-    /// Answers the browser's next certificate error `code` on `host`:
-    /// continue (0), or let Chromium's own interstitial decide (1); 0 when
-    /// the browser is gone.
+    /// Answers the browser's next certificate error `code` on `host`: continue (0), or let
+    /// Chromium's own interstitial decide (1); 0 when the browser is gone.
     let certificateProceed: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, Int32) -> Int32
     let freeOwned: @convention(c) (UnsafeMutablePointer<CChar>?) -> Void
     /// Distinct renderer client ids hosting the tab's frames.
@@ -231,6 +238,12 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// `WebContents::Discard` in place (p13-webui-018): browser; 1 discarded, 0 refused. Nil without the
     /// export and in host mode, whose return means only "sent" (the answer is a later REPLY).
     let tabDiscard: (@convention(c) (Int32) -> Int32)?
+    let widgets: CEFShimWidgetOps
+    /// `cmux_shim_browser_attach_view(browser, parent_view)` (fork API 33, p03-rendering-044, Track B): moves the
+    /// browser's `WebContentsViewCocoa` into `parent_view` (an NSView*), below its other subviews; 1 attached, 0
+    /// refused (an unknown browser, no page window yet, a fork below API 33). Nil without the export and in host
+    /// mode, where no view pointer crosses the process.
+    let browserAttachView: (@convention(c) (Int32, UnsafeMutableRawPointer?) -> Int32)?
 
     /// Every renderer-path export is there (`CEFForkFeatures`).
     var hasRendererPaths: Bool {
@@ -320,10 +333,13 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         fileDialogAnswer = try r("cmux_shim_file_dialog_answer")
         browserSetLayerHosting = try r("cmux_shim_browser_set_layer_hosting")
         browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
+        browserSetEmbedderActive = try r("cmux_shim_browser_set_embedder_active")
+        browserSetEmbedderVisibility = r.optional("cmux_shim_browser_set_embedder_visibility")
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         setScheduleDelayed = try r("cmux_shim_set_schedule_delayed")
         setEnergySaver = try r("cmux_shim_set_energy_saver")
+        memoryPressureVote = try r("cmux_shim_memory_pressure_vote")
         createWindow = try r("cmux_shim_create_window")
         createPlaceholderWindow = try r("cmux_shim_create_placeholder_window")
         placeholderSupported = try r("cmux_shim_placeholder_supported")
@@ -427,6 +443,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         tabSendClick = r.optional("cmux_shim_tab_send_click")
         tabSetColorScheme = r.optional("cmux_shim_tab_set_color_scheme")
         tabDiscard = r.hostExports == nil ? r.optional("cmux_shim_tab_discard") : nil
+        widgets = CEFShimWidgetOps(setGeometry: r.optional("cmux_shim_widget_set_geometry"), dismiss: r.optional("cmux_shim_widget_dismiss"),
+                                   sendInput: r.optional("cmux_shim_widget_send_input"))
+        browserAttachView = r.hostExports == nil ? r.optional("cmux_shim_browser_attach_view") : nil
         setContextProxy = try r("cmux_shim_set_context_proxy")
         contextProxyState = try r("cmux_shim_context_proxy_state")
         setContextProxyServer = try r("cmux_shim_set_context_proxy_server")

@@ -31,18 +31,12 @@ impl RequestQosGate {
     /// wins), the lists `cmux_features::Snapshot::from_env` reads; the
     /// registry default is off on every channel.
     pub(crate) fn from_env() -> Self {
-        let list = |name: &str| std::env::var(name).ok();
-        Self::from_lists(
-            list(cmux_features::ENABLE_ENV).as_deref(),
-            list(cmux_features::DISABLE_ENV).as_deref(),
-        )
+        Self(AtomicBool::new(cmux_features::listed_in_env(FEATURE)))
     }
 
+    #[cfg(test)]
     fn from_lists(enable: Option<&str>, disable: Option<&str>) -> Self {
-        let names = |list: Option<&str>| {
-            list.is_some_and(|list| list.split(',').any(|name| name.trim() == FEATURE))
-        };
-        Self(AtomicBool::new(names(enable) && !names(disable)))
+        Self(AtomicBool::new(cmux_features::listed(FEATURE, enable, disable)))
     }
 
     pub(crate) fn snapshot(&self) -> RequestQos {

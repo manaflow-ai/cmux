@@ -1,11 +1,14 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextBrowser
+import CmuxNextBrowserImport
 import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextInput
+import CmuxNextIPC
 import CmuxNextLaunch
 import CmuxNextMallocZone
 import CmuxNextRemoteFetch
@@ -49,9 +52,11 @@ public struct CmuxNextApp {
         DebugTimings.markLaunch("main.warmup_started")
         // One hang watch for the process: the lanes, the daemon readers and the terminal output lanes.
         let hangWatch = TraceRuntime.shared.hangWatch
+        // The main task board, shared by the lanes (an awaited low item in an input turn is a Debug site) and the budget.
+        let mainBoard = MainTaskBoard()
         // The launch's file reads run on these lanes, never on the main thread (p08-startup 033).
-        let work = BackgroundWork(hangs: hangWatch, onRan: startupTrace?.laneJobSink)
-        // Idle and best-effort lane work waits for startup complete (Chrome's BeginBestEffortFence); the order made on it lowers it.
+        let work = BackgroundWork(hangs: hangWatch, onRan: startupTrace?.laneJobSink, inputTurns: mainBoard)
+        // Idle and best-effort lane work waits for startup complete, 3 s at most (Chrome's BeginBestEffortFence); the order made on it lowers it.
         let fence = LaunchOrder.BestEffortFence(raisingOn: work)
         startupTrace?.start(writingOn: work) // its file is written on work's files lane, never here
         startupTrace?.whenClosed { work.stopReportingRuns() } // a closed trace costs the lanes nothing
@@ -77,19 +82,40 @@ public struct CmuxNextApp {
         let ledgerThenSettings = work.sequence("launch.ledger-then-settings")
         environment.incognitoLeftovers = IncognitoWorkspaceLedger.startLaunchRead(
             at: IncognitoWorkspaceLedger.standardURL(bundleIdentifier: Bundle.main.bundleIdentifier), in: ledgerThenSettings)
+        // The Labs page's local feature choices (DEV and NIGHTLY), first in that sequence: the launch's features take
+        // them when this read has ended by the time they resolve (components/flags_ui, applied at start).
+        if Feature.Channel(environment.build.kind).allowsLocalOverrides {
+            let file = SidebarSnapshotFile.buildDirectory(launch: environment.launch)
+                .appending(path: "features", directoryHint: .isDirectory).appending(path: FeatureLocalOverrides.fileName)
+            environment.featureLocalOverridesFile = file
+            environment.featureLocalOverrides = LaunchRead(in: ledgerThenSettings, dropped: FeatureLocalOverrides()) { FeatureLocalOverrides.read(file) }
+        }
         // cmux-next.json (made on first launch) read and merged with the managed layers on the files lane, next:
         // the launch steps that need it run when it lands, never waiting for it on main (p08-startup 025).
         let settingsRead = SettingsController.startLaunchRead(on: work, in: ledgerThenSettings)
         let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: state)
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
         TerminalLaunchFrames.beside(state).prefetch(on: work) { DebugTimings.markLaunch($0) }
+        environment.browserLaunchPictures = BrowserLaunchPictures(state: state, work: work)  // browser pages' (p08-startup-043)
+        environment.browserLaunchPictures?.prefetch { DebugTimings.markLaunch($0) }
         relaunchWake.begin(on: work)
+        // The browser source registry (browser-sources.json) the import pickers and the Passwords page read:
+        // in memory before them, never read on the thread that asks first (p02-threads-122).
+        BrowserSourceRegistryInstall.shared.load(on: work)
+        // This app's signing team, which every acpmux resolve and the Computer Use admission require: asked of
+        // securityd on the system lane, so a main-thread resolve reads it from memory (p02-threads-122).
+        work.post(.userVisible, mayBlock: .system) { SigningTeamInstall.process.load() }
         DebugTimings.markLaunch("main.launch_reads")
         // Tab favicons resolve their hosts on work's host-resolution slots (system lane), never on the pool;
         // video wallpapers list the windows above theirs on its system lane, never on main.
         BrowserFaviconLoader.shared.useResolver(SystemRemoteResolver(runner: work))
         BackdropVideoPlayers.shared.lanes = work
-        let wireStats = DaemonWireStats.forBuild()  // `debug.daemon.wire`'s counters; nil in a release build
+        // The launch's feature values, once, before the first feature read (the daemon connect's).
+        let features = AppServices.launchFeatures(environment)
+        // `debug.daemon.wire`'s counters, each schema method timed; nil in a release build unless the
+        // person opted in to field data.
+        let wireStats = DaemonWireStats.forBuild(fieldData: features.isEnabled(.ipcMethodLatencyFieldData),
+                                                 methods: MethodTable.schema.methods.map { .init(id: $0.id.rawValue, name: $0.name) })
         // The daemon connect overlaps AppKit's start (off the main thread).
         let prestart = DaemonService.prestart(work: work, launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                                               resolvedTerminalEnvironment: environment.resolvedTerminalEnvironment(),
@@ -110,9 +136,9 @@ public struct CmuxNextApp {
         // and services make any: their owners in many packages make them with no tap (p04-input-013).
         WindowOverlayHost.appInputTap = inputTap
         TooltipPresenter.shared.inputTap = inputTap
-        let order = LaunchOrder(fence: fence, input: inputTap) { DebugTimings.markLaunch($0) }
+        let order = LaunchOrder(fence: fence, board: mainBoard, input: inputTap) { DebugTimings.markLaunch($0) }
         DaemonLauncher.captureLoginEnvironment(after: order.startup) // at once only with nothing remembered (p08-startup-034)
-        let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats,
+        let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats, features: features,
                                    startupTrace: startupTrace, order: order, inputTap: inputTap, settingsRead: settingsRead,
                                    launchReads: (work, launchImages, relaunchWake))
         DebugTimings.markLaunch("main.delegate")

@@ -1,6 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextSettings
+import CmuxNextWakeups
 import Observation
 import os
 
@@ -31,32 +32,33 @@ extension OmniboxConfiguration {
 enum BrowserOmnibarPreference {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "omnibar")
 
-    static func follow(_ settings: SettingsController, cache: TabContentCache) {
+    /// Starts following; the caller keeps the returned followers for as long as the engines follow (the app's life).
+    static func follow(_ settings: SettingsController, cache: TabContentCache, on mainWork: MainWorkScheduler) -> [AnyObject] {
         // The password keys follow from here too: AppDelegate, which starts the followers, is at its line budget.
-        BrowserPasswordsPreference.follow(settings, chromium: cache.chromium)
+        let passwords = BrowserPasswordsPreference.follow(settings, chromium: cache.chromium, on: mainWork)
         // Chromium's own search (chrome://settings/search, its menu rows) uses the same engine: the newest
         // one when its engine is built, then each change. Following builds no engine.
         cache.chromium.whenBuilt { [weak cache] cef in
             if let cache { cef.setDefaultSearch(cache.omniboxConfiguration.searchEngine) }
         }
-        // task-owner: lives as long as the app's settings and cache; both weak.
-        Task { [weak settings, weak cache] in
-            guard let settings else { return }
-            var reported: BrowserOmnibarSetting?
-            for await setting in ObservationStream({ settings.snapshot.browserOmnibar }) {
-                guard let cache else { return }
-                let resolved = OmniboxConfiguration.resolve(setting)
-                if resolved.invalidCustomEngine, reported != setting {
-                    // One fault per distinct setting; the address itself is not logged (privacy).
-                    logger.fault("browser.searchEngine is custom without a usable browser.customSearchEngine.search; searching with Google")
-                }
-                reported = resolved.invalidCustomEngine ? setting : nil
-                OmnibarGlassAppearance.shared.apply(glass: setting.glass, tint: setting.glassTint, tintStrength: setting.glassTintStrength,
-                                                    cornerRadius: setting.cornerRadius, shadow: setting.shadow, backgroundOpacity: setting.backgroundOpacity)
-                cache.omniboxConfiguration = resolved.configuration
-                for engine in cache.suggestionEngines { engine.apply(cache.omniboxConfiguration) }
-                cache.chromium.built?.setDefaultSearch(resolved.configuration.searchEngine)
+        var reported: BrowserOmnibarSetting?
+        // `visible`: the omnibar's glass and its suggestions show the change.
+        let omnibar = ServiceObservation(.visible, owner: "BrowserOmnibarPreference", on: mainWork) {
+            settings.snapshot.browserOmnibar
+        } apply: { [weak cache] setting in
+            guard let cache else { return }
+            let resolved = OmniboxConfiguration.resolve(setting)
+            if resolved.invalidCustomEngine, reported != setting {
+                // One fault per distinct setting; the address itself is not logged (privacy).
+                logger.fault("browser.searchEngine is custom without a usable browser.customSearchEngine.search; searching with Google")
             }
+            reported = resolved.invalidCustomEngine ? setting : nil
+            OmnibarGlassAppearance.shared.apply(glass: setting.glass, tint: setting.glassTint, tintStrength: setting.glassTintStrength,
+                                                cornerRadius: setting.cornerRadius, shadow: setting.shadow, backgroundOpacity: setting.backgroundOpacity)
+            cache.omniboxConfiguration = resolved.configuration
+            for engine in cache.suggestionEngines { engine.apply(cache.omniboxConfiguration) }
+            cache.chromium.built?.setDefaultSearch(resolved.configuration.searchEngine)
         }
+        return [passwords, omnibar]
     }
 }

@@ -24,12 +24,17 @@ final class SidebarBridge {
     weak var state: WindowState?
     /// The rows and selection observations, also run in the turn the window shows a workspace.
     private(set) lazy var sameTurn = SidebarSameTurn(view: container.sidebarView)
-    private var widthObservation: Task<Void, Never>?
+    private var widthObservation: ServiceObservation<(CGFloat, SidebarPresentation)>?
     /// Item presentation for sidebar sections (SidebarBridge+Sections).
-    var sectionsObservation: Task<Void, Never>?
+    var sectionsObservation: ServiceObservation<SectionInputs>?
     /// The window's app sections (no All chats: it is on the New Tab page, cx-n0i9).
     private var appSections: SidebarAppSections?
+    /// The bottom-left cards (SidebarBridge+Cards).
+    var cards: ServiceObservation<SidebarCardFeed.Cards>?
+    /// The Now Playing card, the Priority view and the window's top items.
     var cardsObservation: Task<Void, Never>?
+    /// The footer's avatar (`SidebarProfileControl.followAvatar`).
+    private var profileAvatar: ServiceObservation<SidebarAvatar>?
     /// True once the sidebar shows real content: saved rows, the first
     /// live rows, or a settled empty or unavailable state, which marks the
     /// sidebar region ready for `LaunchReveal`.
@@ -38,7 +43,7 @@ final class SidebarBridge {
     private var seed = SidebarSeed()
     /// The one writer of the rows: live rows plus pending edits (cx-odqn).
     lazy var rows = SidebarRows(model: model)
-    lazy var selectionHold = SidebarSelectionHold(model: model)
+    lazy var selectionHold = SidebarSelectionHold(model: model, deadlines: services.mainDeadlines)
     /// The saved space bar, shown until the local daemon reports its spaces.
     private var seededProfiles: (profiles: [SidebarProfile], active: SidebarProfileKey?)?
     /// Saves what the sidebar shows (`SidebarSnapshotStore`).
@@ -88,6 +93,7 @@ final class SidebarBridge {
         container.sidebarView.hoverFrameInput = services.hoverFrameInput
         container.railView.hoverFrameInput = services.hoverFrameInput
         container.sidebarView.onHoverRow = { [weak self] row in self?.noteRowHover(row) } // `intentPrewarmHover`
+        container.sidebarView.onPressRow = { [weak self] row in self?.noteRowPress(row) } // `intentPrewarmPress`
         if services.features.isEnabled(.sidebarRowsNearViewport) { container.sidebarView.rowFeed = rowFeed }
         container.sidebarView.customization = services.sidebarCustomization
         // The workspace card's history (u3320), read from the workspace's daemon and the acpmux
@@ -115,6 +121,7 @@ final class SidebarBridge {
         observe()
         observeSections()
         observeCards()
+        profileAvatar = SidebarProfileControl(services: services, state: state).followAvatar(model: model)
     }
 
     func teardown() {
@@ -124,6 +131,8 @@ final class SidebarBridge {
         sectionsObservation?.cancel()
         appSections?.releaseAll()
         cardsObservation?.cancel()
+        cards?.cancel()
+        profileAvatar?.cancel()
         // The update surface pages cancel their subscriptions (cx-urd.61.2).
         container.sidebarView.updateSurfaces = nil
     }
@@ -197,15 +206,7 @@ final class SidebarBridge {
                               tabTitle: Self.tabTitle(services))
             }
         }
-        let state = windowState, model = model
-        widthObservation = Task { [weak self] in
-            for await (width, presentation) in ObservationStream({ (model.width, model.presentation) }) {
-                guard let self else { return }
-                state.sidebarWidth = Double(width)
-                state.sidebarHidden = presentation == .hidden
-                self.services.windows.recordSaver.stateDidChange(state)
-            }
-        }
+        let state = windowState
         // One selection: the shown page's top item, else the shown workspace.
         sameTurn.observe({ SidebarNavigation.selectedItem(page: state.page, workspace: state.workspaceID,
                                                           creationRow: state.cloudCreation.flatMap { creations.creation($0)?.rowID },
@@ -282,6 +283,13 @@ final class SidebarBridge {
     func recordSnapshot() {
         guard let state else { return }
         snapshotRecorder.record(model, window: state.id, services: services)
+    }
+
+    /// Quit: a sidebar change still waiting for its idle task reaches the snapshot store now, before
+    /// the store's flush writes the file.
+    func flushSnapshot() async {
+        guard let state, let pending = snapshotRecorder.flushNow(model, window: state.id, services: services) else { return }
+        await services.sidebarSnapshots.record(pending.snapshot, window: state.id, sequence: pending.sequence)
     }
 
     private func markReadyForReveal() {
@@ -446,5 +454,21 @@ final class SidebarBridge {
     /// Applies saved state without animating.
     func restore(width: Double?, hidden: Bool) {
         container.restore(width: width.map { CGFloat($0) }, presentation: hidden ? .hidden : .shown)
+        followWidth()
+    }
+
+    /// Writes the sidebar's width and presentation into the window's state, which other owners read, and
+    /// saves its record: a service observation. Started once the saved width is restored, so its first
+    /// value is that width, never the default over it.
+    private func followWidth() {
+        let model = model
+        widthObservation = ServiceObservation(.visible, owner: "SidebarBridge.width", on: services.mainWork) {
+            (model.width, model.presentation)
+        } apply: { [weak state, weak windows = services.windows] sidebar in
+            guard let state, let windows else { return }
+            state.sidebarWidth = Double(sidebar.0)
+            state.sidebarHidden = sidebar.1 == .hidden
+            windows.recordSaver.stateDidChange(state)
+        }
     }
 }

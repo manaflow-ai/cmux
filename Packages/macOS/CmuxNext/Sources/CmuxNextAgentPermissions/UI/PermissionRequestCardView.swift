@@ -29,6 +29,7 @@ public final class PermissionRequestCardView: NSView {
     private let strings = PermissionStrings()
     private let actions: Actions
     private let appURL: (PermissionKind) -> URL?
+    private let appIcon: (PermissionKind) -> NSImage?
     private let stack = NSStackView()
     /// The card shows the guide (Esc closes it, Return does nothing).
     private var isGuiding = false
@@ -36,9 +37,11 @@ public final class PermissionRequestCardView: NSView {
     /// - Parameters:
     ///   - actions: what the buttons do.
     ///   - appURL: the app that gets a grant (cmux, or the Computer Use helper), for the drag tile.
-    public init(actions: Actions, appURL: @escaping (PermissionKind) -> URL?) {
+    ///   - appIcon: that app's icon, read off the main thread (nil until it is).
+    public init(actions: Actions, appURL: @escaping (PermissionKind) -> URL?, appIcon: @escaping (PermissionKind) -> NSImage?) {
         self.actions = actions
         self.appURL = appURL
+        self.appIcon = appIcon
         super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 10))
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -110,7 +113,7 @@ public final class PermissionRequestCardView: NSView {
         let grant = request.guidingGrant ?? request.request.kind.grants[0]
         if grant.usesDragHelper, let url = appURL(grant) {
             add(label(strings.dragGuide(PermissionAppTile.displayName(url)), size: TypeScale.detail, color: Palette.textPrimary, lines: 2))
-            add(PermissionAppTile(appURL: url))
+            add(PermissionAppTile(appURL: url, icon: appIcon(grant)))
         } else {
             add(label(strings.promptGuide, size: TypeScale.detail, color: Palette.textPrimary, lines: 2))
         }

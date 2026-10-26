@@ -31,6 +31,10 @@ MODEL_BY_PATH = {
     'types/AgentCLIJobResolution/variants/pending': models.AgentCLIJobResolutionPending,
     'types/AgentCLIJobResolution/variants/prepared': models.AgentCLIJobResolutionPrepared,
     'types/AgentCLIStoredIntent': models.AgentCLIStoredIntent,
+    'types/AgentInventoryHarness': models.AgentInventoryHarness,
+    'types/AgentInventoryRefreshResult': models.AgentInventoryRefreshResult,
+    'types/AgentInventoryResult': models.AgentInventoryResult,
+    'types/AgentInventoryWatchActive': models.AgentInventoryWatchActive,
     'types/AgentRecord': models.AgentRecord,
     'types/AgentSessionAnsweredBy': models.AgentSessionAnsweredBy,
     'types/AgentSessionSource': models.AgentSessionSource,
@@ -196,6 +200,8 @@ MODEL_BY_PATH = {
     'types/ServerStatsLockStall': models.ServerStatsLockStall,
     'types/ServerStatsLockWait': models.ServerStatsLockWait,
     'types/ServerStatsLockWaits': models.ServerStatsLockWaits,
+    'types/ServerStatsMethodLatency': models.ServerStatsMethodLatency,
+    'types/ServerStatsPercentiles': models.ServerStatsPercentiles,
     'types/ServerStatsRegistryLock': models.ServerStatsRegistryLock,
     'types/ServerStatsRequestLatency': models.ServerStatsRequestLatency,
     'types/ServerStatsRequestPathIo': models.ServerStatsRequestPathIo,
@@ -286,6 +292,9 @@ MODEL_BY_PATH = {
     'commands/agent-cli-intents-settle/result': models.AgentCliIntentsSettleResult,
     'commands/agent-cli-update-job/request': models.AgentCliUpdateJobRequest,
     'commands/agent-cli-update-job-resolve/request': models.AgentCliUpdateJobResolveRequest,
+    'commands/agent-inventory/request': models.AgentInventoryRequest,
+    'commands/agent-inventory-refresh/request': models.AgentInventoryRefreshRequest,
+    'commands/agent-inventory-watch/request': models.AgentInventoryWatchRequest,
     'commands/agent-session-attach/request': models.AgentSessionAttachRequest,
     'commands/agent-session-cancel/request': models.AgentSessionCancelRequest,
     'commands/agent-session-cancel/result': models.AgentSessionCancelResult,
@@ -468,6 +477,7 @@ MODEL_BY_PATH = {
     'commands/create-terminal/request': models.CreateTerminalRequest,
     'commands/create-workspace/request': models.CreateWorkspaceRequest,
     'commands/create-workspace-group/request': models.CreateWorkspaceGroupRequest,
+    'commands/debug-daemon-locks/request': models.DebugDaemonLocksRequest,
     'commands/delete-bookmark/request': models.DeleteBookmarkRequest,
     'commands/delete-bookmark/result': models.DeleteBookmarkResult,
     'commands/delete-browser-profile/request': models.DeleteBrowserProfileRequest,
@@ -798,6 +808,9 @@ MODEL_BY_PATH = {
 
 ENUM_BY_PATH = {
     'types/AccessRequestKind': models.AccessRequestKind,
+    'types/AgentInventoryAuth': models.AgentInventoryAuth,
+    'types/AgentInventoryChannel': models.AgentInventoryChannel,
+    'types/AgentInventoryFamily': models.AgentInventoryFamily,
     'types/AgentPresenceActivity': models.AgentPresenceActivity,
     'types/AgentReportSource': models.AgentReportSource,
     'types/AgentSource': models.AgentSource,
@@ -847,6 +860,7 @@ ENUM_BY_PATH = {
 
 PYTHON_FIELD_NAMES = {
     'bytes': 'bytes_data',
+    'class': 'class_',
     'from': 'from_',
     'self': 'is_self'
 }

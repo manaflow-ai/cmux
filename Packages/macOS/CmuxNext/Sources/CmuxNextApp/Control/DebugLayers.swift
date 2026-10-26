@@ -119,6 +119,7 @@ enum DebugLayers {
                 "presentation": .string(entry.tab.presentation == .childWindow ? "child_window" : "in_view"),
                 "content_in_window": .bool(content.window === window),
             ]
+            // visibility-walk-allow: the report checks AppKit's own view state against the page windows; a node would hide the mismatch it looks for
             if entry.tab.presentation == .childWindow, content.window === window, !content.isHiddenOrHasHiddenAncestor {
                 // The page window must cover the host view exactly, in
                 // screen coordinates, whatever moved the window.
@@ -171,6 +172,9 @@ enum DebugLayers {
             "divider_catcher_updates": .number(Double(layer.catchers?.panelUpdates ?? 0)),
             "page_windows_take_mouse": .bool(layer.pageWindowsTakeMouse),
             "reorders": .number(Double(layer.reorderCount)),
+            // p03-rendering-052: overlays in the window's own top layer, and whether a panel was ever made.
+            "overlay_top_layer_in_window": .bool(WindowOverlayHost.existingHost(for: window)?.isTopLayerInWindow == true),
+            "overlay_panel_made": .bool(WindowOverlayHost.existingHost(for: window)?.madePanel != nil),
             "child_window_violations": .array(ChildWindowPolicy.violations.map(JSONValue.string)),
             "pages_in_sync": .bool(pagesInSync),
             "rings_in_sync": .bool(ringsInSync),

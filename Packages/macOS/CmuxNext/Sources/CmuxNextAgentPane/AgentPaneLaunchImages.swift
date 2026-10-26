@@ -116,7 +116,7 @@ public final class AgentPaneLaunchImages {
         }
         self.read = read
         // A deadline: the pages no pane took by then are dropped (decoded pages are large).
-        discard.schedule(after: keep) { @MainActor [weak self] in self?.dropRead() }
+        discard.scheduleOnMain(after: keep) { [weak self] in self?.dropRead() }
         // task-owner: ends with the read; only tests await it.
         return Task { _ = await read.finished() }
     }
@@ -160,6 +160,13 @@ public final class AgentPaneLaunchImages {
         nextHeldOrder += 1
         heldBytes += data.count
         while held.count > heldLimit { dropOldestHeld() }
+    }
+
+    /// Holds `data`, tab `key`'s frame encoded already (the picture its page took as it hid, kept by the
+    /// page lifecycle), as ``hold(_:_:size:appearance:)`` holds one.
+    public func hold(_ key: String, encoded data: Data, size: NSSize, appearance: NSAppearance.Name?) {
+        guard size.width > 0 else { return }
+        held[key] = (data, size, appearance)
     }
 
     /// The tab closed or showed its live page: its held frame goes.

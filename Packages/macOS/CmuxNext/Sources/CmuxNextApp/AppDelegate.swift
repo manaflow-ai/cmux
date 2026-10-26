@@ -29,8 +29,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let launchReveal: LaunchReveal
     /// The startup trace `CMUX_TRACE_STARTUP` asked for (nil: none): launch phases record their slices in it.
     private let startupTrace: StartupTrace?
-    /// The app's daemon wire counters, made in `main` (nil in a release build).
+    /// The app's daemon wire counters, made in `main` (nil in a release build without field data opt-in).
     private let wireStats: DaemonWireStats?
+    /// The launch's feature list from the composition root (``AppServices/launchFeatures(_:)``).
+    private let features: FeatureList?
     /// The first live terminal frame (or no daemon): reveals the pane region and, with the launch images, starts the control socket.
     private let launchSettle: LaunchSettle
     /// An unavailable daemon's settle: every phase reference and startup ref it ends.
@@ -79,12 +81,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var webAuthHandler: WebAuthSessionHandler?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
-    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, wireStats: DaemonWireStats?,
+    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, wireStats: DaemonWireStats?, features: FeatureList? = nil,
          startupTrace: StartupTrace? = nil, order: LaunchOrder, inputTap: InputEventTap, settingsRead: SettingsController.PendingLaunchRead,
          launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake), launchCleanup: LaunchCleanup = LaunchCleanup()) {
         (self.environment, self.launchReads, self.settingsRead) = (environment, launchReads, settingsRead)
         (self.daemonPrestart, self.startupTrace) = (daemonPrestart, startupTrace)
-        self.wireStats = wireStats
+        (self.wireStats, self.features) = (wireStats, features)
         self.launchCleanup = launchCleanup
         self.order = order
         launchImageHold = LaunchImageHold(startup: order.startup)
@@ -96,7 +98,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         (launchReveal, launchSettle) = (reveal, LaunchSettle(reveal: reveal, paneRefs: paneRefs))
         startupReferences = StartupReferences(startup: startup, reveal: reveal, paneRefs: paneRefs)
         (self.mainWork, self.inputTap) = (order.mainWork, inputTap)
-        control = AppControl(mainWork: order.mainWork, input: inputTap)
+        let control = AppControl(mainWork: order.mainWork, input: inputTap)
+        #if CMUX_PGO_PROFILE
+        control.profileFlush = order.profileFlush
+        #endif
+        self.control = control
         mouseSideButtons = MouseSideButtons(input: inputTap)
         super.init()
     }
@@ -153,12 +159,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment, launchReveal: launchReveal, work: launchReads.work, mainWork: mainWork,
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats, inputTap: inputTap,
-                                   launchImageHold: launchImageHold, launchStartup: order.startup, crashKeys: control.crashKeys)
+                                   launchImageHold: launchImageHold, launchStartup: order.startup, crashKeys: control.crashKeys,
+                                   features: features)
         AppProcessRoot.shared.adopt(services)
         self.services = services
         controlSocket = AppControl.beginBind(features: services.features, settingsRead: settingsRead, launch: environment.launch,
                                              work: launchReads.work, mainWork: mainWork)  // p08-startup-019: on a lane
         TooltipPresenter.shared.appEvents = services.appEvents  // its inactive-app dismissal shares the app's one observer
+        BrowserExternalApps.shared.queries = services.workspaceQueries  // a page's app links ask Launch Services on the system lane
         // Frame rate classes (p03-rendering-013): links at their clients' rate, loops at 30 Hz.
         let rateClasses = services.features.isEnabled(.frameRateClasses)
         FrameScheduler.appDisplays.followsClientRates = rateClasses
@@ -182,13 +190,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
         services.debugSettings.start()
         DebugTimings.markLaunch("dfl.services")
-        AppActions.bind(services)
-        HandlerCoverage.verify(services.registry)
+        AppActions.bindAtLaunch(services, on: order.startup)  // critical `AppActions.bind`: keys work from the first frame
         services.palettes.bindRegistryActions()  // the palette itself is built after the first frame, or by the first palette key
         let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter, launchImages: launchImageHold)
         self.ghosttyKeybinds = ghosttyKeybinds
         ghosttyKeybinds.start()
-        let ghosttyConfigLiveReload = GhosttyConfigLiveReload()
+        let ghosttyConfigLiveReload = GhosttyConfigLiveReload(deadlines: services.mainDeadlines)
         self.ghosttyConfigLiveReload = ghosttyConfigLiveReload
         ghosttyConfigLiveReload.start()
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
@@ -197,16 +204,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         GhosttyRuntime.shared.inputSources.start(runner: services.work)
         DebugTimings.markLaunch("dfl.bind")
         startSettingsAndControl(services: services, launch: settingsRead)
-        services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
         DebugTimings.markLaunch("dfl.settings")
-        NSApp.mainMenu = MainMenu.make(registry: services.registry, blocking: services.blocking)
+        MainMenu.install(registry: services.registry, blocking: services.blocking, on: order.startup)  // critical `MainMenu.make`
         DebugTimings.markLaunch("dfl.menu")
-        logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
+        HandlerCoverage.verifyAtLaunch(services.registry)  // every handler is bound by now; Debug builds only
         WindowActivation.activateApp()
-        launchSettle.install(daemon: services.daemon, warmup: services.agentPageWarmup)
+        launchSettle.install(daemon: services.daemon, warmup: services.agentPageWarmup, on: services.mainWork)
         daemonPrompts = DaemonPrompts.start(services)
         services.startLocalDaemon(prestart: daemonPrestart)  // the painted terminal colors first (OSC 10/11/12)
-        FeaturePolicyEnforcer(services: services).start()
+        services.lifetimeFollowers.append(FeaturePolicyEnforcer(services: services).start())
         services.postCloudStart(on: order.startup)  // no Cloud restore or connect before the first frame (p08-startup 020)
         services.postNonPaintServices(on: order.startup)
         // Before the first window opens (restoreWhenLoaded opens one at once).
@@ -253,7 +259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore)
         services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent())
         // cmux-page:// first-party pages for Chromium, before any window can start it.
-        FirstPartyPageSchemes.install(processGroups: services.features.isEnabled(.pageProcessGroups))
+        FirstPartyPageSchemes.install(processGroups: services.features.isEnabled(.pageProcessGroups), rendererSharing: services.features.isEnabled(.cmuxPageRendererSharing))
         let spareAfterFirstTab = services.features.isEnabled(.chromiumSpareAfterFirstTab)
         services.cache.cef.spareAfterFirstTab = { spareAfterFirstTab }
         // The page host already exists (`services.iconPicker` above reads it) but has opened no page;
@@ -301,11 +307,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Start the web OTA launch check before any restored or prewarmed page can
         // request its entry document. Otherwise the entry can come from the app
         // bundle while later chunks come from the kept update tree.
-        WebUpdates.shared.prepare(launch.snapshot.updates, bundle: .main)
+        WebUpdates.shared.prepare(
+            launch.snapshot.updates, bundle: .main, files: services.work, energy: services.mainWork.energy,
+            shown: services.features.isEnabled(.hiddenPollPause) ? services.appVisibility.shownWindows : nil)
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
         settings.applyManagedFeaturesNow()
-        ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloudAuth).start()
+        services.lifetimeFollowers += ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloudAuth, mainWork: services.mainWork, appEvents: services.appEvents).start()
         self.settings = settings
         services.settings = settings
         // No socket write asks for a confirmation before the first frame: the control socket starts after it.
@@ -338,7 +346,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, firstWindow: { [startup = order.startup] in await startup.afterFirstFrame() })
         // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings.
         let acpmux = QuitAgents.environment(services)
-        ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath)
+        services.lifetimeFollowers += ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath, on: services.mainWork)
         // The platform services: what the first frame or the restore reads now, the rest posted (p08-startup-029).
         services.startPlatformServices(settings: settings, on: order.startup, hotKeys: !environment.isolatedLaunch)
         services.followEnergySaver(settings)
@@ -357,10 +365,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         services.configActions.start(settings: settings)
         // What an engine reads when it makes a page or starts, before any does (managed policy included).
-        services.cache.browserTabs.preference.follow(settings)
-        BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, chromium: services.cache.chromium)
+        services.cache.browserTabs.preference.follow(settings, on: services.mainWork)
+        services.lifetimeFollowers += BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, chromium: services.cache.chromium, on: services.mainWork)
         WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
-        BrowserOmnibarPreference.follow(settings, cache: services.cache)
+        services.lifetimeFollowers += BrowserOmnibarPreference.follow(settings, cache: services.cache, on: services.mainWork)
         services.terminalTheme.follow(settings)
         services.themes.start()
         services.themes.followChromeTheme(settings)

@@ -53,7 +53,8 @@ Sessions (--sessions):
            Chromium pages elsewhere); its 10 busy terminals are stopped (Ctrl-C) before the settle, so the
            terminals are quiet
   tabs-static   the launch pane with 5 WebKit and 10 Chromium tabs hidden behind 1 shown static Chromium tab,
-                every page tab_pages' static page; the settle lasts past `browser.freezeHiddenTabs`
+                every page tab_pages' static page; the settle lasts past `browser.freezeHiddenTabs`; after the
+                window one hidden Chromium tab is shown and the roles read again (Reshow, below)
   minimized     the light session with its window minimized (action minimizeWindow)
   occluded      the light session with benchhelper's opaque full-screen window over it (`benchhelper cover`: another
                 app that activates and shows its key window in front; debug.window_list must report every main window
@@ -77,7 +78,8 @@ Sessions (--sessions):
                 Chrome History fixture (Chromium's `urls` table) imported with Keep in Sync (the tag's BrowserImport
                 store, seeded before the launch and restored after) that gets a visit appended every
                 HISTORY_PERIOD_S; the writes run through the settle and the window, from this script
-  energy-saver  tabs-static with `energy.saver: always`, the shown tab an animated page (/anim, rAF every
+  energy-saver  tabs-static with `energy.saver: always` (and the default-off `energySaver` feature on: saver_launch,
+                which bench-typing's --energy-saver uses too), the shown tab an animated page (/anim, rAF every
                 frame, no input) whose rAF count the page server reads at the window's two ends: the page keeps
                 one fetch the server holds (no wake while held); the bench answers it and the page POSTs
                 its count, page clock and visibilityState (any build, Release + CMUX_BENCH_HOOKS included)
@@ -132,11 +134,17 @@ rows.
 Roles (D16 of plans/cmux-next/chrome-parity/p14-energy.md, task 106): at the window's end each task's base priority
 (proc_pidinfo pti_priority) and the kernel's darwinbg bit give its observed role (darwinbg, suppressed, default:
 observed_role). The app is napped while no window shows; renderers the debug.webui census marks hidden (or every
-renderer while no window shows) and the extension process are best-effort (Chrome's kBestEffort); the daemon and
+renderer while no window shows) and the extension process are best-effort (Chrome's kBestEffort); in tabs-static
+(`judge_shown_renderers`) a renderer it marks shown is not backgrounded (kUserBlocking, task 107); the daemon and
 terminal hosts are never backgrounded while a terminal shows; pooled acpmux agents are PRIO_DARWIN_BG. A budget
 `role` (napped, best-effort, background, not-background; null: not judged) overrides the default. Each mismatch is
 one `IDLE-BUDGET-OVER <session> <kind> role owner=role pids=... observed=... expected=...` line; a role that could not
 be read and a renderer of unknown visibility are IDLE-BUDGET-NOT-JUDGED.
+Reshow (task 107, tabs-static's `reshow`): after the window and its samples, a hidden Chromium tab whose renderer was
+read best-effort is selected (action tab.focus, as a click does) and the roles are read again until its renderer is
+not backgrounded and the tab shown before is best-effort, or RESHOW_WAIT_S passes (reshow_tab, IDLE-BUDGET-RESHOW).
+Each renderer that does not change is one `IDLE-BUDGET-OVER tabs-static cef-renderer role owner=role pids=...
+observed=... expected=... phase=reshow` line (reshow_audit); a reshow that could not run is IDLE-BUDGET-NOT-JUDGED.
 
 A session that fails (STRESS refuses a window under the Dock, a launch fails) is recorded with its exit
 code (`session_exits` in the report) and the others still run; the script exits 0 unless --gate.
@@ -189,6 +197,14 @@ IDLE-BUDGET-READER-FAILED for a D15 reader that failed, POWER-BREAKDOWN / -OWNER
 power sessions and POWER-OVER <owner> <mW>, IDLE-BUDGET-MODE with the shipping fields, for a hidden session
 `HIDDEN-WAKE {json}` per source and one `HIDDEN-WAKE-TOTAL {json}` with sha and host, a Markdown table, and --json
 with every sample.
+
+Results (cmux-perf-result/v1, p12-perf-process-063): each cmux session that measured writes its perf cron rows
+(cron_rows, one value per window, p50 = p95 = p99) into --out through BenchApp.record, and every cmux session writes
+`idle_budget.<session>.failed` (1 when it did not measure) once its app answered (a session whose app was never
+built or never answered has no build or features to name). Stories (idle_burst_bench_report.idle_budget_story):
+idle-budget (the Chromium light sessions), idle-budget-webkit (light-webkit) and idle-budget-stress (STRESS); the
+sessions of one story in one invocation share one run. The reference sessions (chrome-static, chrome-power-visible)
+measure another browser and write none.
 """
 import argparse, contextlib, dataclasses, fcntl, fnmatch, glob, hashlib, json, os, platform, plistlib, re, select, \
     shlex, shutil, socket, sqlite3, subprocess, sys, tempfile, threading, time
@@ -531,6 +547,7 @@ def measure(app, instance, seconds, read_anim=None, attribute=False, shown_tab=N
     if helper is not None:
         coalition = coalition_without(coalition, helper0, helper1, elapsed)
     result = {"seconds": round(elapsed, 1), "processes": rows, "ends": {"start": start, "end": end},
+              "browser_tabs": census_tab_pids(census),
               "exited": exited_rows(first, last, WindowKinds(pids.rows, census, shown_tab), network=network, logs=logs),
               "coalition": coalition,
               "readers": {"network": network is not NOT_MEASURED, "log": logs is not NOT_MEASURED},
@@ -1721,6 +1738,8 @@ def summarize(session, result, budget):
         entry["over"], entry["not_judged"] = [], []
         return entry
     roles, role_notes = role_audit(session, result["processes"], budget)
+    reshown, reshow_notes = reshow_audit(session, result.get("reshow"))
+    roles, role_notes = roles + reshown, role_notes + reshow_notes
     entry["role_mismatches"] = roles
     entry["over"] = [list(o) for o in over_budget(session, kinds, budget, window_facts(entry))]
     entry["over"] += [[m["kind"], "role", m["observed"], m["expected"]] for m in roles]
@@ -2098,7 +2117,8 @@ def ratio_over(of, field, kinds, vs, reference, max_ratio, suffix, floor=None):
 #
 # Chrome's model (base/process/process_mac.cc `Process::SetPriority`; RenderProcessHostImpl::UpdateProcessPriority
 # in content/browser/renderer_host/render_process_host_impl.cc): a hidden or spare renderer is kBestEffort
-# (TASK_BACKGROUND_APPLICATION + TASK_SUPPRESSION_POLICY: low CPU priority), a shown one is not. App Nap suppresses a
+# (TASK_BACKGROUND_APPLICATION + TASK_SUPPRESSION_POLICY: low CPU priority), a shown one kUserBlocking
+# (TASK_FOREGROUND_APPLICATION; kUserVisible maps to it while kUserVisibleProcessPriority is off, its default). App Nap suppresses a
 # hidden app the same way. The audit reads each task's role at the window's end (procs.priorities: its base priority
 # and darwinbg bit, never its busiest thread's priority) and compares it with D16 or the budget's `role`.
 
@@ -2196,7 +2216,10 @@ def renderer_visibility(row):
 def expected_role(session, row, budget=None, sessions=None):
     """The role D16 expects of one process in `session`, or None when it is not judged: the budget's `role` wins (an
     explicit null: not judged); a busy kind or a reference session is not judged; a renderer is best-effort when the
-    census marks it hidden or no window shows, and not judged when it is shown or its visibility is unknown."""
+    census marks it hidden or no window shows; in a session with `judge_shown_renderers` (tabs-static) it is not
+    backgrounded when a window shows and the census marks it shown (Chrome's kUserBlocking for a visible widget:
+    RenderProcessPriority::GetProcessPriority in content/browser/child_process_launcher.cc); otherwise a shown
+    renderer, or one of unknown visibility, is not judged."""
     budget = budget or {}
     name = row["kind"]
     limit = budget_role(budget, session, name)
@@ -2209,6 +2232,9 @@ def expected_role(session, row, budget=None, sessions=None):
         return "best-effort"
     if name == "cef-renderer" and (facts.get("shown") is False or renderer_visibility(row) == "hidden"):
         return "best-effort"
+    if (name == "cef-renderer" and facts.get("judge_shown_renderers") and facts.get("shown")
+            and renderer_visibility(row) == "shown"):
+        return "not-background"
     if facts.get("shown") is False and name == "app":
         return "napped"
     if facts.get("shown") and name in ("daemon", "terminal-host"):
@@ -2248,8 +2274,130 @@ def role_audit(session, rows, budget=None, sessions=None):
 def role_over_line(session, mismatch):
     """One Q9 work item: `IDLE-BUDGET-OVER <session> <kind> role owner=role pids=... observed=... expected=...`."""
     pids = ",".join(str(pid) for pid in mismatch["pids"])
+    phase = f" phase={mismatch['phase']}" if mismatch.get("phase") else ""
     return (f"IDLE-BUDGET-OVER {session} {mismatch['kind']} role owner=role pids={pids} "
-            f"observed={mismatch['observed']} expected={mismatch['expected']}")
+            f"observed={mismatch['observed']} expected={mismatch['expected']}{phase}")
+
+
+# The reshow step (task 107). Chrome changes a renderer's priority on every visibility change of its widgets
+# (RenderWidgetHostImpl::WasShown / WasHidden -> RenderProcessHostImpl::UpdateProcessPriority in
+# content/browser/renderer_host/render_process_host_impl.cc): a renderer that went to kBestEffort while its tab was
+# hidden comes back to kUserBlocking when the tab is shown, and the tab hidden by that switch goes to kBestEffort.
+# The window's own role read sees only the steady state, so tabs-static shows a hidden tab after its window and reads
+# the roles again.
+RESHOW_WAIT_S = 10
+
+
+def census_tab_pids(census):
+    """{census name: sorted renderer pids} of the Chromium browser tabs in a debug.webui reply."""
+    return {tab.get("tab"): sorted(host_pids(tab)) for tab in census_rows(census, "browser_tabs")
+            if isinstance(tab.get("tab"), str)}
+
+
+def reshow_candidate(rows, browser_tabs, shown_tab):
+    """(tab, its renderer pids, None) of the first Chromium browser tab (census name order) that is not the shown
+    one, shares no renderer with it, and whose every renderer the window read hidden and best-effort; (None, None,
+    why) when there is none."""
+    previous = set((shown_tab or {}).get("tabs") or [])
+    if not browser_tabs or not previous:
+        return None, None, "no census browser_tabs or no shown tab"
+    by_pid = {row["pid"]: row for row in rows}
+    previous_pids = {pid for name in previous for pid in browser_tabs.get(name, [])}
+    for name in sorted(browser_tabs):
+        pids = browser_tabs[name]
+        if name in previous or not pids or previous_pids & set(pids):
+            continue
+        if all(by_pid.get(pid, {}).get("kind") == "cef-renderer" and by_pid[pid].get("hidden") is True
+               and by_pid[pid].get("role") in ROLE_EXPECTATIONS["best-effort"] for pid in pids):
+            return name, pids, None
+    return None, None, "no hidden Chromium tab was read best-effort at the window's end"
+
+
+def tab_selected(app, tab):
+    """Whether browser.page.tabs reports the tab `tab` selected in its pane."""
+    reply = read_rpc(app, "browser.page.tabs", {"all": True})
+    tabs = reply.get("tabs") if isinstance(reply.get("tabs"), list) else []
+    return any(isinstance(t, dict) and t.get("id") == tab and t.get("selected") is True for t in tabs)
+
+
+def reshow_settled(after, priority):
+    """Whether, in one priority read, every renderer of the shown tab is not backgrounded and every renderer of the
+    tab shown before is best-effort."""
+    want = {"tab": ROLE_EXPECTATIONS["not-background"], "previous": ROLE_EXPECTATIONS["best-effort"]}
+    return all(observed_role(priority.get(item["pid"])) in want[item["of"]] for item in after)
+
+
+def reshow_tab(app, rows, browser_tabs, shown_tab, read_priorities=procs.priorities, clock=time.monotonic,
+               sleep=time.sleep, wait_s=RESHOW_WAIT_S):
+    """Shows a hidden Chromium tab (reshow_candidate) through the action path a click takes (tab.focus) and reads
+    the roles again. Waits up to `wait_s` for browser.page.tabs to report it selected, takes the renderer pids of it
+    and of the tab shown before from a fresh census, then reads their priorities until reshow_settled or `wait_s`
+    passes. Returns {tab, previous, before: [{pid, of, role}] from the window's read, selected, after: [{pid, of,
+    priority}], waited_s} for reshow_audit, or {"skipped": why} (no candidate, or the app refused the switch)."""
+    tab, pids, why = reshow_candidate(rows, browser_tabs, shown_tab)
+    if tab is None:
+        return {"skipped": why}
+    previous = sorted((shown_tab or {}).get("tabs") or [])
+    roles = {row["pid"]: row.get("role") for row in rows}
+    before_previous = sorted({pid for name in previous for pid in browser_tabs.get(name, [])})
+    record = {"tab": tab, "previous": previous,
+              "before": [{"pid": pid, "of": "tab", "role": roles.get(pid)} for pid in pids]
+                        + [{"pid": pid, "of": "previous", "role": roles.get(pid)} for pid in before_previous]}
+    try:
+        run_action(app, "tab.focus", target=f"tab:{tab}", focus=True)
+    except SessionShapeError as error:  # the window is measured; a refused switch skips only the reshow
+        return {"skipped": str(error)}
+    began = clock()
+    while not tab_selected(app, tab) and clock() - began < wait_s:
+        sleep(0.2)  # bench: bounded wait for the selection to land
+    record["selected"] = tab_selected(app, tab)
+    after_tabs = census_tab_pids(read_rpc(app, "debug.webui"))
+    shown_pids = after_tabs.get(tab, [])
+    hidden_after = sorted({pid for name in previous for pid in after_tabs.get(name, [])} - set(shown_pids))
+    after = [{"pid": pid, "of": "tab"} for pid in shown_pids] + [{"pid": pid, "of": "previous"} for pid in hidden_after]
+    priority = read_priorities([item["pid"] for item in after])
+    while not reshow_settled(after, priority) and clock() - began < wait_s:
+        sleep(0.2)  # bench: bounded wait for Chromium's priority change on show and hide (proc_pidinfo wakes no one)
+        priority = read_priorities([item["pid"] for item in after])
+    record["after"] = [{**item, "priority": priority.get(item["pid"])} for item in after]
+    record["waited_s"] = round(clock() - began, 1)
+    return record
+
+
+def reshow_audit(session, reshow):
+    """([mismatch with phase "reshow"], [not-judged note]) of a reshow_tab record: after the switch every renderer
+    of the shown tab must be not-background and every renderer of the tab shown before best-effort. The before half
+    is the window's own role read (role_audit). A skipped reshow, a tab that was not selected, an unread role, a tab
+    with no renderer after the switch and a tab that runs a new renderer (no return measured) are notes."""
+    if not reshow:
+        return [], []
+    prefix = f"{session} cef-renderer reshow: not judged:"
+    if reshow.get("skipped"):
+        return [], [f"{prefix} {reshow['skipped']}"]
+    tab = reshow["tab"]
+    if not reshow.get("selected"):
+        return [], [f"{prefix} tab {tab} was not reported selected in {RESHOW_WAIT_S:g} s"]
+    want = {"tab": "not-background", "previous": "best-effort"}
+    out, unread, notes = [], [], []
+    for item in reshow["after"]:
+        role = observed_role(item["priority"])
+        if role is None:
+            unread.append(item["pid"])
+        elif role not in ROLE_EXPECTATIONS[want[item["of"]]]:
+            out.append({"kind": "cef-renderer", "pids": [item["pid"]], "observed": role, "expected": want[item["of"]],
+                        "phase": "reshow"})
+    before = sorted(item["pid"] for item in reshow["before"] if item["of"] == "tab")
+    after = sorted(item["pid"] for item in reshow["after"] if item["of"] == "tab")
+    if not after:
+        notes.append(f"{prefix} tab {tab} has no renderer in the census after the switch")
+    elif before != after:
+        notes.append(f"{prefix} tab {tab} runs a new renderer after the switch (pids before="
+                     f"{','.join(map(str, before))} after={','.join(map(str, after))}): its return is not measured")
+    if not any(item["of"] == "previous" for item in reshow["after"]):
+        notes.append(f"{prefix} the tab shown before ({','.join(reshow['previous'])}) has no renderer of its own")
+    if unread:
+        notes.append(f"{prefix} unread pids={','.join(map(str, sorted(unread)))}")
+    return out, notes
 
 
 def acpmux_homes(env=None, user_home=None):
@@ -2397,9 +2545,9 @@ CRON_SUM_FLOORS = {"wakeups_per_s": 0.5, "energy_mw_billed": 1.0, "energy_mw_cpu
 
 
 def cron_rows(report, budget=None):
-    """{row: {p50, p95, unit, budget, floor}} for the perf cron (scripts/cmux-next/perf-cron.py) from one
+    """{row: {p50, p95, p99, unit, budget, floor}} for the perf cron (scripts/cmux-next/perf-cron.py) from one
     idle-budget report: `idle_budget.<session>.<kind>.<field>` and the sums `idle_budget.<session>.<selector>.<field>`,
-    one value per run (p50 = p95)."""
+    one value per run (p50 = p95 = p99: one window is one sample)."""
     budget = budget if budget is not None else load_budget(BUDGET_FILE)
     out = {}
     for session, entry in ((report or {}).get("sessions") or {}).items():
@@ -2410,7 +2558,7 @@ def cron_rows(report, budget=None):
                 if not isinstance(value, (int, float)):
                     continue
                 unit = CRON_UNITS.get(field, "/s")
-                out[f"idle_budget.{session}.{name}.{field}"] = {"p50": value, "p95": value, "unit": unit,
+                out[f"idle_budget.{session}.{name}.{field}"] = {"p50": value, "p95": value, "p99": value, "unit": unit,
                                                                  "budget": limit_for(budget, session, name, field),
                                                                  "floor": floor}
         sums = session_budget(budget, session).get("sums") or {}
@@ -2420,9 +2568,26 @@ def cron_rows(report, budget=None):
                 if value is None:
                     continue
                 out[f"idle_budget.{session}.{selector}.{field}"] = {
-                    "p50": value, "p95": value, "unit": CRON_UNITS.get(field, "/s"),
+                    "p50": value, "p95": value, "p99": value, "unit": CRON_UNITS.get(field, "/s"),
                     "budget": (sums.get(selector) or {}).get(field), "floor": floor}
     return out
+
+
+def record_session(app, session, entry, budget, failed=False):
+    """The session's cron rows and its `failed` count as cmux-perf-result/v1 in the BenchApp's out folder
+    (idle_burst_bench_report.idle_budget_series, BenchApp.record); {`story/metric`: path or `not recorded: <why>`}.
+    A session that failed before its app answered has no features snapshot, so record() writes nothing and says why.
+    A writer that raises is reported as {"error": ...} and an IDLE-BUDGET-RESULTS-FAILED line: the other sessions
+    still measure."""
+    import idle_burst_bench_report as results_v1
+    try:
+        rows = {} if failed else cron_rows({"sessions": {session: entry}}, budget)
+        return results_v1.record_all(app, results_v1.idle_budget_series(session, SESSIONS[session], rows,
+                                                                        failed=failed))
+    except Exception as error:  # noqa: BLE001 - a result file that can not be written loses that file, not the run
+        problem = f"{type(error).__name__}: {error}"[:300]
+        print(f"IDLE-BUDGET-RESULTS-FAILED {session}: {problem}", flush=True)
+        return {"error": problem}
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -2632,6 +2797,48 @@ ANIM_PAGE = ("<!doctype html><meta charset='utf-8'><title>idle anim</title>"
              "{method:'POST'})}).then(ask,function(){setTimeout(ask,1000)})}"
              "fetch('/loaded/anim',{method:'POST'}).then(ask)</script>")
 
+# The scroll page of bench-typing's chromium-page-scroll (D8, task 135): SCROLL_ROWS rows, nothing running until a
+# wheel event arrives. A wheel event (a passive listener: the compositor still scrolls, as for any page) starts one
+# rAF loop if none runs, and the loop runs until SCROLL_QUIET_MS pass with no wheel event. Each loop is one run of
+# the record, so a pause in the input longer than the quiet time starts a new run and is never a frame interval. Per
+# frame the run keeps the rAF time (the BeginMainFrame time, vsync aligned) and the time after that frame's
+# main-thread work (a MessageChannel message posted in the rAF callback, as acpmux perf.ts times a key's `paint`).
+# Both are main-frame times, not presentation times: the loop itself asks for a main frame every vsync, and a frame
+# that viz or the display compositor drops after its main frame is not seen. The read path is the animated page's: a
+# held GET of SCROLL_READ_PATH; once the bench reads (IdlePages.read_scroll) the page POSTs
+# SCROLL_FRAMES_PATH/<wheel events>/<scrolled px>/<rAF runs>/<after-frame runs> (ms from the record's first frame,
+# comma separated, runs separated by `;`, `-` for none), starts a new record and, with no loop running, scrolls back
+# to the top, so every gesture has the page's height to scroll.
+SCROLL_PATH = "/scroll"
+SCROLL_READ_PATH = "/scroll-read"
+SCROLL_FRAMES_PATH = "/scroll-frames"
+SCROLL_QUIET_MS = 50
+SCROLL_ROWS = 500
+SCROLL_PAGE_PX = SCROLL_ROWS * 96  # 88 px rows, their 8 px margins collapsed between rows
+SCROLL_PAGE = ("<!doctype html><meta charset='utf-8'><title>scroll</title>"
+               "<style>body{margin:0;font:16px -apple-system,sans-serif;background:#f4f4f6}"
+               ".r{height:88px;margin:8px 16px;padding:0 12px;border-radius:10px;background:#c9d4e8;line-height:88px}"
+               "</style><div id='rows'></div><script>const rows=document.getElementById('rows');"
+               f"for(let i=0;i<{SCROLL_ROWS};i++){{const d=document.createElement('div');d.className='r';"
+               "d.textContent='row '+i+' lorem ipsum dolor sit amet';rows.appendChild(d)}"
+               "let runs=[],posts=[],run=null,post=null,wheels=0,from=null,last=-1e9,looping=false;"
+               f"function tick(t){{if(run.length&&performance.now()-last>{SCROLL_QUIET_MS}){{looping=false;return}}"
+               "run.push(t);const into=post,channel=new MessageChannel();"
+               "channel.port1.onmessage=function(){into.push(performance.now());channel.port1.close()};"
+               "channel.port2.postMessage(0);requestAnimationFrame(tick)}"
+               "addEventListener('wheel',function(){wheels++;last=performance.now();if(from===null)from=scrollY;"
+               "if(!looping){looping=true;run=[];post=[];runs.push(run);posts.push(post);requestAnimationFrame(tick)}},"
+               "{passive:true});"
+               "function enc(list,t0){return list.length?list.map(function(times){"
+               "return times.map(function(t){return (t-t0).toFixed(2)}).join(',')}).join(';'):'-'}"
+               f"function ask(){{fetch('{SCROLL_READ_PATH}',{{cache:'no-store'}}).then(function(){{"
+               "const t0=runs.length&&runs[0].length?runs[0][0]:0,n=wheels,moved=from===null?0:Math.round(scrollY-from);"
+               "const fields=n+'/'+moved+'/'+enc(runs,t0)+'/'+enc(posts,t0);"
+               "runs=looping?[run]:[];posts=looping?[post]:[];wheels=0;from=null;if(!looping)scrollTo(0,0);"
+               f"return fetch('{SCROLL_FRAMES_PATH}/'+fields,{{method:'POST'}})}})"
+               ".then(ask,function(){setTimeout(ask,1000)})}"
+               "fetch('/loaded/scroll',{method:'POST'}).then(ask)</script>")
+
 
 def parse_anim_count(path):
     """{count, t_ms, visibility} from the page's ANIM_COUNT_PATH POST, or {"error": ...}."""
@@ -2642,52 +2849,103 @@ def parse_anim_count(path):
         return {"error": f"unreadable rAF count post {path[:80]}"}
 
 
+def parse_scroll_frames(path):
+    """{wheels, scrolled_px, runs_ms, post_runs_ms} from the scroll page's SCROLL_FRAMES_PATH POST, or
+    {"error": ...}. `runs_ms` holds one list per rAF loop (SCROLL_PAGE) of its frames' rAF times and `post_runs_ms`
+    the same frames' after-frame times, in ms from the record's first frame (no runs when no input came)."""
+    parts = path.split("?", 1)[0].removeprefix(SCROLL_FRAMES_PATH + "/").split("/")
+
+    def runs(field):
+        return [] if field == "-" else [[float(v) for v in run.split(",")] if run else [] for run in field.split(";")]
+    try:
+        if len(parts) != 4:
+            raise ValueError(f"{len(parts)} fields")
+        return {"wheels": int(parts[0]), "scrolled_px": int(parts[1]), "runs_ms": runs(parts[2]),
+                "post_runs_ms": runs(parts[3])}
+    except ValueError:
+        return {"error": f"unreadable scroll frames post {path[:80]}"}
+
+
+class HeldRead:
+    """One page's read path: the page keeps one GET of `read_path` open, the server holds it until the bench asks
+    (``read``), and the page then POSTs `post_path/<fields>` (parsed by `parse`) and asks again."""
+
+    def __init__(self, read_path, post_path, parse, what):
+        self.read_path, self.post_path, self.parse, self.what = read_path, post_path, parse, what
+        self._cond = threading.Condition()
+        self._asked = 0  # reads the bench asked for
+        self._answered = 0  # reads a held GET answered; a GET is held while this equals asked
+        self._posts = []  # the page's parsed posts, in order
+
+    def hold(self, closing):
+        """Holds the page's GET until the bench asks for a read or the server closes."""
+        with self._cond:
+            self._cond.wait_for(lambda: self._asked > self._answered or closing.is_set())
+            self._answered = self._asked
+
+    def posted(self, path):
+        with self._cond:
+            self._posts.append(self.parse(path))
+            self._cond.notify_all()
+
+    def read(self, seconds):
+        """The page's next post: answers its held read and waits for what it posts (a read asked before the page's
+        next GET arrives is answered by that GET); {"error": ...} when nothing comes in `seconds`."""
+        with self._cond:
+            posted = len(self._posts)
+            self._asked += 1
+            self._cond.notify_all()
+            if not self._cond.wait_for(lambda: len(self._posts) > posted, seconds):
+                return {"error": f"the page posted no {self.what} in {seconds:g} s (no held {self.read_path})"}
+            return self._posts[posted]
+
+    def wake(self):
+        with self._cond:
+            self._cond.notify_all()
+
+
 class IdlePages(tab_pages.TabPages):
-    """The shared tab-page server plus energy-saver's animated page at ANIM_PATH and its read path."""
+    """The shared tab-page server plus energy-saver's animated page at ANIM_PATH, bench-typing's scroll page at
+    SCROLL_PATH, and their read paths."""
 
     def __init__(self, *args, **kwargs):
-        self._anim = threading.Condition()
-        self._anim_asked = 0  # reads the bench asked for (read_anim)
-        self._anim_answered = 0  # reads a held ANIM_READ_PATH GET answered; a GET is held while this equals asked
-        self._anim_reads = []  # the page's parsed ANIM_COUNT_PATH posts, in order
+        self._held = {held.read_path: held for held in (
+            HeldRead(ANIM_READ_PATH, ANIM_COUNT_PATH, parse_anim_count, "rAF count"),
+            HeldRead(SCROLL_READ_PATH, SCROLL_FRAMES_PATH, parse_scroll_frames, "scroll frames"))}
         super().__init__(*args, **kwargs)
 
     def body(self, path):
         path = path.split("?", 1)[0]
         if path == ANIM_PATH:
             return ANIM_PAGE.encode()
-        if path == ANIM_READ_PATH:
-            with self._anim:
-                self._anim.wait_for(lambda: self._anim_asked > self._anim_answered or self.closing.is_set())
-                self._anim_answered = self._anim_asked
+        if path == SCROLL_PATH:
+            return SCROLL_PAGE.encode()
+        if path in self._held:
+            self._held[path].hold(self.closing)
             return b""
         return super().body(path)
 
     def report(self, path):
-        if path.startswith(ANIM_COUNT_PATH + "/"):
-            with self._anim:
-                self._anim_reads.append(parse_anim_count(path))
-                self._anim.notify_all()
-            return
+        for held in self._held.values():
+            if path.startswith(held.post_path + "/"):
+                held.posted(path)
+                return
         super().report(path)
 
     def read_anim(self, seconds=10):
-        """The animated page's {count, t_ms, visibility} now: answers the page's held read and waits for the count
-        it posts (a read asked before the page's next GET arrives is answered by that GET); {"error": ...} when none
-        comes in `seconds`."""
-        with self._anim:
-            posted = len(self._anim_reads)
-            self._anim_asked += 1
-            self._anim.notify_all()
-            if not self._anim.wait_for(lambda: len(self._anim_reads) > posted, seconds):
-                return {"error": f"the page posted no rAF count in {seconds:g} s (no held {ANIM_READ_PATH})"}
-            return self._anim_reads[posted]
+        """The animated page's {count, t_ms, visibility} now (HeldRead.read)."""
+        return self._held[ANIM_READ_PATH].read(seconds)
+
+    def read_scroll(self, seconds=10):
+        """The scroll page's {wheels, scrolled_px, runs_ms, post_runs_ms} since its last read (HeldRead.read); the
+        page then starts a new record."""
+        return self._held[SCROLL_READ_PATH].read(seconds)
 
     def close(self):
         """Ends the held reads with the other held loads."""
         super().close()
-        with self._anim:
-            self._anim.notify_all()
+        for held in self._held.values():
+            held.wake()
 
     def wait_loaded(self, key, seconds):
         """True once the page `key` reported /loaded/<key>, False after `seconds`."""
@@ -2703,12 +2961,15 @@ class SessionShapeError(RuntimeError):
     """The session could not be built as its table entry says (a tab that never opened, a window not minimized)."""
 
 
-def run_action(app, action, args=None, focus=False, timeout=30):
+def run_action(app, action, args=None, focus=False, timeout=30, target=None):
     """action.run from a script; raises SessionShapeError on the app's refusal. A reply that times out is no
     refusal (a cold CefInitialize can outlast the reply while the tab still opens): the caller checks the result.
-    `focus` selects what the action opens, as STRESS and browser-idle-cost-live open their tabs."""
-    reply = app.rpc("action.run", {"action": action, "args": args or {}, "focus": focus, "origin": "script"},
-                    timeout=timeout)
+    `focus` selects what the action opens, as STRESS and browser-idle-cost-live open their tabs; `target` is the
+    action's target (`tab:<id>`)."""
+    params = {"action": action, "args": args or {}, "focus": focus, "origin": "script"}
+    if target is not None:
+        params["target"] = target
+    reply = app.rpc("action.run", params, timeout=timeout)
     error = reply.get("error") if isinstance(reply, dict) else None
     code = error.get("code") if isinstance(error, dict) else None
     if error and code != "timeout" and not (isinstance(reply, dict) and reply.get("unreachable")):
@@ -3099,12 +3360,24 @@ def build_busy_hidden(app, period_s, stress_module=None):
     return built
 
 
-def session_app(app_class, app_path, out, session, env):
+def session_app(app_class, app_path, out, session, env, runs=None):
     """(app, agents) of one cmux session: an agent session's AgentHome (else None), whose ACPMUX_HOME and
-    ACPMUX_SOCKET join the launch `env`, so the app's acpmux and agent hosts run in it. `app_class`: BenchApp."""
-    agents = AgentHome(os.path.join(out, session), session) if SESSIONS[session].get("agents") else None
-    app = app_class(app_path, out=os.path.join(out, session), env={**env, **(agents.env() if agents else {})},
-                    config=session_config(session))
+    ACPMUX_SOCKET join the session's launch env (session_env), so the app's acpmux and agent hosts run in it.
+    The app's result-v1 files go into `out` itself (the lab reads only that folder) as the session's perf session
+    (idle_burst_bench_report.idle_budget_story: stress for a STRESS session), in the run its story's sessions
+    share (`runs`: story -> perf_result.Run, filled here); its log and the agent home go into out/<session>.
+    `app_class`: BenchApp."""
+    import idle_burst_bench_report as results_v1
+    folder = os.path.join(out, session)
+    os.makedirs(folder, exist_ok=True)
+    story, _engine, perf_session = results_v1.idle_budget_story(session, SESSIONS[session])
+    run = None
+    if runs is not None:
+        run = runs[story] = runs.get(story) or results_v1.perf_result.Run.start()
+    agents = AgentHome(folder, session) if SESSIONS[session].get("agents") else None
+    app = app_class(app_path, out=out, env={**session_env(session, env), **(agents.env() if agents else {})},
+                    config=session_config(session), log_name=os.path.join(session, "app.log"),
+                    perf_session=perf_session, run=run)
     return app, agents
 
 
@@ -3150,6 +3423,19 @@ FREEZE_HIDDEN_TABS_S = 30
 FREEZE_GRACE_S = 15
 TABS_CONFIG = {"browser": {"freezeHiddenTabs": FREEZE_HIDDEN_TABS_S}}
 TABS_STATIC = {"webkit_hidden": 5, "chromium_hidden": 10, "shown": "static"}
+# The `energySaver` feature is default-off (schemas/features/features.d/energySaver.json) and the saver setting does
+# nothing while it is off (EnergyPolicyResolver.isEnabled), so a launch that asks for the saver turns the feature on
+# through CmuxNextFeatures' FeatureOverrides.enableVariable.
+ENERGY_FEATURE_ENV = {"CMUX_ENABLE_FEATURES": "energySaver"}
+
+
+def saver_launch(on):
+    """(cmux-next.json keys, environment) of a launch with the energy saver forced on (`energy.saver: always`) or
+    off (`off`). The feature is on in both, so two runs differ only in the setting (D8 compares them)."""
+    return {"energy": {"saver": "always" if on else "off"}}, dict(ENERGY_FEATURE_ENV)
+
+
+
 # The power sessions (p14-energy-096): one shown static Chromium tab and nothing else, in cmux and in the reference
 # browser, every owner of the window's power attributed; settled past Chromium's two minutes of post-load work.
 ONE_TAB = {"webkit_hidden": 0, "chromium_hidden": 0, "shown": "static"}
@@ -3167,7 +3453,8 @@ QUIT_SETTLE_S = 30
 # external-churn: writes per second into the watched project, and seconds between two Chrome History visits.
 CHURN_WRITES_PER_S = 10
 HISTORY_PERIOD_S = 5
-# The sessions (the docstring describes each). Keys: config (merged into BASE_CONFIG: session_config), hide, minimize,
+# The sessions (the docstring describes each). Keys: config (merged into BASE_CONFIG: session_config), env (adds to
+# the launch environment: session_env), hide, minimize,
 # stress, static (STRESS without its rAF spinner), tabs (build_tabs's plan), settle_min (seconds), saver (the energy
 # saver state the session asks for; --gate refuses a window that shows another), anim (read the animated page's rAF
 # count at both ends), power (attribute the window's power: power_attribution), chrome (the reference browser with
@@ -3176,7 +3463,9 @@ HISTORY_PERIOD_S = 5
 # agents (build_agents's plan, in the session's own acpmux home: AgentHome), busy_terminal (the hidden terminal's
 # print period: build_busy_hidden), cover (benchhelper's full-screen window over the app), home (Home selected),
 # sign_in (the agent test account), display_sleep (`pmset displaysleepnow` after the activation), quit
-# (quitKeepSessions after the settle; the window measures what is left), churn (external-churn's writers).
+# (quitKeepSessions after the settle; the window measures what is left), churn (external-churn's writers),
+# judge_shown_renderers (role_audit: a renderer the census marks shown must be not-background) and reshow (after the
+# window, show a hidden tab and read the roles again: reshow_tab).
 SESSIONS = {
     "light": {"shown": True},
     "light-webkit": {"config": {"browser": {"defaultEngine": "webkit"}}, "shown": True},
@@ -3191,9 +3480,10 @@ SESSIONS = {
     "stress": {"stress": True, "shown": True},
     "stress-static": {"stress": True, "static": True, "shown": True},
     "tabs-static": {"config": TABS_CONFIG, "tabs": TABS_STATIC, "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S,
-                    "shown": True},
-    "energy-saver": {"config": {**TABS_CONFIG, "energy": {"saver": "always"}}, "tabs": {**TABS_STATIC, "shown": "anim"},
-                     "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S, "saver": True, "anim": True, "shown": True},
+                    "shown": True, "judge_shown_renderers": True, "reshow": True},
+    "energy-saver": {"config": {**TABS_CONFIG, **saver_launch(True)[0]}, "env": saver_launch(True)[1],
+                     "tabs": {**TABS_STATIC, "shown": "anim"}, "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S,
+                     "saver": True, "anim": True, "shown": True},
     # The references (run_chrome_static): the cmux session's pages in a Chromium, settled as long as it.
     CHROME_SESSION: {"chrome": True, "tabs": TABS_STATIC, "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S},
     POWER_SESSION: {"tabs": ONE_TAB, "power": True, "settle_min": POWER_SETTLE_S},
@@ -3217,6 +3507,11 @@ def merged(base, top):
     for key, value in top.items():
         out[key] = merged(out[key], value) if isinstance(value, dict) and isinstance(out.get(key), dict) else value
     return out
+
+
+def session_env(session, env):
+    """The launch environment of `session`: `env` with the session's own variables on top."""
+    return {**env, **(SESSIONS[session].get("env") or {})}
 
 
 def parse_sessions(text):
@@ -4133,6 +4428,7 @@ def main(argv=None):
     import bench_launch
     from bench_launch import BenchApp
     env = launch_env(shipping_draw=opts.shipping_draw == "on")
+    runs = {}  # story -> the result-v1 run its sessions of this invocation share
     out = opts.out or os.path.join(os.getcwd(), "artifacts", "idle-budget")
     os.makedirs(out, exist_ok=True)
     machine = host_facts()
@@ -4153,7 +4449,7 @@ def main(argv=None):
         pages = IdlePages() if spec.get("tabs") else None
         try:
             sha = build_sha_of(opts.app) if spec.get("hidden_wake") else None  # before the launch: no report without it
-            app, agents = session_app(BenchApp, opts.app, out, session, rig.env(env))
+            app, agents = session_app(BenchApp, opts.app, out, session, rig.env(env), runs)
             entry = {"fresh_session": fresh_session(app), "shape": rig.shape}  # a failed session keeps its shape too
             report["sessions"][session] = entry
             consent = bench_launch.seed_hang_report_consent(app.app)
@@ -4234,6 +4530,11 @@ def main(argv=None):
                 result["main_callouts"] = main_callouts_from_samples(texts)
             if trace is not None:
                 result["wake_trace"] = name_trace(trace, app.process.pid, texts[0] if texts else None)
+            if spec.get("reshow") and measured_app:
+                # After the window and its samples (input would be counted), before the WindowServer reference hides
+                # the app.
+                result["reshow"] = reshow_tab(app, result["processes"], result.get("browser_tabs") or {}, shown_tab)
+                print(f"IDLE-BUDGET-RESHOW {session} " + json.dumps(result["reshow"]), flush=True)
             if result.get("power"):
                 # Named while the app runs: the app's first sample above, and one sample of each other process with an
                 # unnamed owner over the floor.
@@ -4306,6 +4607,7 @@ def main(argv=None):
             markdown.append(table(session, kinds, overs, entry) + "\n\n" + coalition_line(result.get("coalition"))
                             + power_table(entry.get("power")))
             print(f"IDLE-BUDGET-COALITION {session} " + json.dumps(result.get("coalition")), flush=True)
+            entry["results_v1"] = record_session(app, session, entry, budget)
             entry["exit"] = 0
         except BaseException as error:  # noqa: BLE001 - one session's failure (a STRESS shape refusal, a launch
             # failure) is recorded with its exit code; the other sessions still measure and report.
@@ -4315,6 +4617,8 @@ def main(argv=None):
             markdown.append(f"\n### {session}\n\nnot measured: {type(error).__name__}: {str(error)[:300]}")
             if isinstance(error, KeyboardInterrupt):
                 raise
+            if app is not None:  # no app was built: nothing names the build or its features
+                report["sessions"][session]["results_v1"] = record_session(app, session, {}, budget, failed=True)
         finally:
             try:
                 # The app stops (stop_session: the gated agent turns end first) before the rig's fixtures go.

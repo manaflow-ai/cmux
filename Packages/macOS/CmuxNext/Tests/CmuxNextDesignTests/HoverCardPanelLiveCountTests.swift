@@ -27,7 +27,7 @@ import Testing
         let box = autoreleasepool { PanelBox(HoverCardPanel(countWindow: count.move)) }
         #expect(count.current == 1)
         let release = await Task.detached(priority: .userInitiated) {
-            let onMain = Thread.isMainThread
+            let onMain = pthread_main_np() != 0
             let freed = box.release()
             return (onMain: onMain, freed: freed, left: count.current)
         }.value

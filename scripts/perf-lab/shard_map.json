@@ -5,8 +5,8 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 21940,
-            "T2": 32040
+            "T1": 23860,
+            "T2": 41580
           },
           "stories": {
             "T1": [
@@ -20,6 +20,7 @@
               "blocking-hangs",
               "browser-hibernation",
               "browser-hibernation-webkit",
+              "burst",
               "chat-anim",
               "chromium-host",
               "command-pan",
@@ -34,6 +35,7 @@
               "idle-tabs-webkit",
               "launch-cold",
               "launch-cold-realistic",
+              "launch-connect",
               "launch-warm-realistic",
               "main-turn",
               "memory-hidden",
@@ -52,6 +54,7 @@
               "palette-open-webkit",
               "pane-stress",
               "perf-gate",
+              "relaunch-e2e",
               "remote-browser-media",
               "renderer-sharing",
               "sidebar",
@@ -89,29 +92,45 @@
               "action-sweep-stress-6",
               "action-sweep-stress-7",
               "action-sweep-stress-8",
+              "anim-perf",
               "app-perf",
               "automation-typing",
               "browser-engine-chromium",
               "browser-engine-webkit",
+              "browser-idle-cost",
+              "burst-stress",
               "cef-resize-sync",
               "cef-resize-sync-stress",
               "cli-storm",
               "cli-storm-stress",
+              "cmd-n-paint",
               "column-resize-live",
               "command-pan-stress",
+              "control-publish",
               "daemon-spawn",
               "devtools-resize-live",
               "drag-daemon",
+              "fsync",
+              "home-typing-still",
+              "idle-budget",
+              "idle-budget-stress",
+              "idle-budget-webkit",
               "launch-after-reboot",
               "layout-loop-stress",
               "new-surfaces-stress",
+              "new-workspace-typing",
+              "pane-chromium",
               "pane-scale",
+              "pane-zoom",
               "perceived-speed",
+              "readiness-soak",
               "script-storm",
               "script-storm-stress",
               "sidebar-churn-typing",
               "sidebar-drag-live",
               "sidebar-drag-stress",
+              "split-spring",
+              "stalls",
               "terminal-resize-stress",
               "tui-browser-frames",
               "typing-flood-stress"
@@ -129,7 +148,7 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 32040
+            "T2": 41580
           },
           "stories": {
             "T2": [
@@ -150,29 +169,45 @@
               "action-sweep-stress-6",
               "action-sweep-stress-7",
               "action-sweep-stress-8",
+              "anim-perf",
               "app-perf",
               "automation-typing",
               "browser-engine-chromium",
               "browser-engine-webkit",
+              "browser-idle-cost",
+              "burst-stress",
               "cef-resize-sync",
               "cef-resize-sync-stress",
               "cli-storm",
               "cli-storm-stress",
+              "cmd-n-paint",
               "column-resize-live",
               "command-pan-stress",
+              "control-publish",
               "daemon-spawn",
               "devtools-resize-live",
               "drag-daemon",
+              "fsync",
+              "home-typing-still",
+              "idle-budget",
+              "idle-budget-stress",
+              "idle-budget-webkit",
               "launch-after-reboot",
               "layout-loop-stress",
               "new-surfaces-stress",
+              "new-workspace-typing",
+              "pane-chromium",
               "pane-scale",
+              "pane-zoom",
               "perceived-speed",
+              "readiness-soak",
               "script-storm",
               "script-storm-stress",
               "sidebar-churn-typing",
               "sidebar-drag-live",
               "sidebar-drag-stress",
+              "split-spring",
+              "stalls",
               "terminal-resize-stress",
               "tui-browser-frames",
               "typing-flood-stress"
@@ -190,7 +225,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 10930
+            "T1": 11950
           },
           "stories": {
             "T0": [
@@ -203,10 +238,12 @@
               "blocking-hangs",
               "browser-hibernation",
               "browser-hibernation-webkit",
+              "burst",
               "command-pan",
               "daemon-ops",
               "home-perf",
               "launch-cold-realistic",
+              "launch-connect",
               "main-turn",
               "motion",
               "new-browser-tab-webkit",
@@ -231,7 +268,7 @@
           "index": 1,
           "seconds": {
             "T0": 150,
-            "T1": 11010
+            "T1": 11910
           },
           "stories": {
             "T0": [
@@ -263,6 +300,7 @@
               "omnibar-click-webkit",
               "palette-open",
               "perf-gate",
+              "relaunch-e2e",
               "remote-browser-media",
               "renderer-sharing",
               "sidebar",

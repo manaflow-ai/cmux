@@ -29,49 +29,31 @@
   ],
   "steps": [
     {
-      "id": "fx-workspace",
-      "op": "resource.call",
-      "target": {
-        "machine": "current",
-        "session": "current"
-      },
-      "args": {
-        "method": "workspace.create",
-        "params": {
-          "initial_content": "terminal",
-          "name": "oracle"
-        },
-        "idempotencyKey": "tab-focus-error.fx-workspace"
-      },
-      "expect": {
-        "outcome": "ok",
-        "receipt": "mutation_result"
-      }
-    },
-    {
       "id": "call",
       "op": "resource.call",
       "target": {
         "machine": "current",
         "session": "current",
-        "tab": "$step:fx-workspace#/value/tab_id"
+        "tab": "tab_00000000000000000000000000000000"
       },
       "args": {
         "method": "tab.focus",
-        "params": {
-          "expected_revision": -1
-        },
+        "params": {},
         "idempotencyKey": "tab-focus-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "selector.not_found",
+        "errorDetails": {
+          "scope": "tab",
+          "selector": "tab_00000000000000000000000000000000"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "expected_revision breaks its catalog type (value must be an unsigned decimal string); the daemon's catalog check refuses it"
+      "note": "a well-formed tab id that names no tab: focus does not move"
     }
   ],
   "invariants": [

@@ -59,7 +59,8 @@
       "args": {
         "method": "screen.update",
         "params": {
-          "pinned": false
+          "pinned": true,
+          "color": "#336699"
         },
         "idempotencyKey": "screen-update-ok.call"
       },
@@ -71,7 +72,27 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "pinned and color change in one commit"
+    },
+    {
+      "id": "pinned",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/extra/pinned",
+        "equals": true,
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "colored",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/extra/color",
+        "equals": "#336699",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
     }
   ],
   "invariants": [

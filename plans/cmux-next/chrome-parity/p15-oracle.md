@@ -573,7 +573,13 @@ Dropped or merged draft items: 022 and 045 (replaced by 026 and 191); 025 merged
 | 061-070 | Daemon-op families | M | 18-48 | 060 | MQ-daemon-ops |
 | 237 | Driver user connection (install-key hello) | M | 20-36 | 023, 200, 070 | MQ-daemon-ops |
 | 238 | Driver loopback pairing step | S | 20-36 | 023, 200, 070 | MQ-daemon-ops |
-| 239 | Chromium daemon-op cases on the app product | M | 20-40 | 047, 061 | MQ-daemon-ops |
+| 239 | Chromium daemon-op cases on the app product | M | 20-40 | 047, 061, 067 | MQ-daemon-ops |
+| 240 | Driver: errorDetails, mock agent, chief connections | M | 20-36 | 023, 237, 069 | MQ-daemon-ops |
+| 241 | Typed refusals the chief family found | S | 20-28 | 069 | |
+| 242 | normalize.py snapshot-v1 keywords | S | 18-28 | 013, 011 | |
+| 245 | The holder exits at shutdown end_terminals | S | 20-28 | 065 | |
+| 246 | Facet: a terminal's view scroll offset | S | 20-28 | 065 | |
+| 247 | Driver: a call that ends the daemon, expect.result references | S | 20-36 | 023 | MQ-daemon-ops |
 | 206 | I10 idempotent retry steps | S | 20-28 | 060, 110 | |
 | 204 | Streams suite + I8 | L | 18-36 | 023, 110 | |
 | 205 | restore_preview + I9 | M | 18-30 | 021, 201 | |
@@ -898,11 +904,88 @@ The case daemon's WebSocket listener binds 127.0.0.1:0 (still offline); a `pairi
 (`server/websocket_listener.rs` begin_pairing) and waits until the facet lists the pairing request; the
 pairing_request.resolve success case rejects it by a `$step:` reference. Test: VM, the case green twice, no pairing left.
 
-**239 Chromium daemon-op cases on the app product.** Files: `driver_app.py`, `browser/_tuning.json`. driver_app.py runs a
+**239 Chromium daemon-op cases on the app product.** Files: `driver_app.py`, `browser/_tuning.json`, `tab/_tuning.json`.
+Depends on 067 (the tab tuning). driver_app.py runs a
 `requires: chromium` case's resource.call steps on the app's own daemon, whose browser host is the cmux-browser provider,
-in place of handing them to driver_daemon.py (a daemon with no provider answers engine_unavailable). The 9 engine success
-cases (browser.activate/back/forward/reload/navigate, browser.input.key/text/mouse/wheel) lose their gaps; mouse and wheel
-also need a presented frame token from a stream step (204). Test: fleet, the 9 cases green twice.
+in place of handing them to driver_daemon.py (a daemon with no provider answers engine_unavailable). The 10 chromium
+success cases lose their gaps: the 9 engine ops (browser.activate/back/forward/reload/navigate,
+browser.input.key/text/mouse/wheel) and tab.create_browser (a daemon-rendered browser tab in the fixture pane); mouse and
+wheel also need a presented frame token from a stream step (204). Test: fleet, the 10 cases green twice.
+
+**240 Driver: errorDetails, mock agent, chief connections.** Files: `driver_daemon.py`, `mock_chief.py`,
+`chief/_tuning.json`. (1) A resource.call step's `expect.errorDetails` is checked with
+`case_checks.error_details_mismatch` against the typed error's `details` (the SDK `ResourceError.details`); a
+mismatch fails the step with the pointer. No driver on the branch checks it before this task. (2) A case with
+`fixture.agent: mock` runs `mock_chief.MockAgent(<case run dir>)`: `start()` before the daemon (its environment
+joins the case env: `CMUX_TUI_CHIEF_TOOLS_SOCKET`), `ready(command)` once the daemon answers (the mock
+conversation, a v1 `conversation-create`), `close()` at teardown, inside the I6 proof. (3) A step with
+`connection: agent` runs on a second connection bound to the mock conversation's agent participant
+(`conversation-agent-token`, `conversation-bind`), so conversation.draft's success case loses its gap. (4) With
+237's `connection: user` (the verified-app actor), agent.message.unsend's success takes back the fixture message,
+and agent.message.release's success approves a held delivery made by a `cmux agent message send` that the
+fixture terminal runs into another workspace (a terminal actor, cross_workspace hold). Acceptance: the 48 chief
+cases green twice with no Skip line left for the chief family; a wrong errorDetails value fails its case
+(negative control). Test: VM, the chief family twice; `gen_daemon_ops.py --check`.
+
+**241 Typed refusals the chief family found.** agent.report of an unknown terminal answers operation.failed with
+`operation: resource.runtime` and the reason `unknown terminal <id>` (an anyhow context, agent_reports.rs), while
+agent.message.send answers `resource.not_found {scope: terminal, id}` for the same id. room.create with an empty
+name answers validation.invalid with only a prose reason, and room.delete of the default room operation.failed
+`resource.runtime` with a prose reason. Change: agent.report answers resource.not_found {scope: terminal, id} (the
+catalog gains the code); room.create's refusal names `field: name`; room.delete's names `operation: room.delete`
+and a reason token (`default_room`). chief/_tuning.json then asserts those keys. Test: the cmux-tui-core tests of
+the three handlers; VM, the three error cases.
+
+**242 normalize.py snapshot-v1 keywords.** `normalize.py --lint-schema --schema schemas/oracle/snapshot-v1.schema.json`
+refuses x-oracle-decimal, x-oracle-open-keys, x-oracle-id-unpatterned and the list form of x-oracle-id-kind, which
+snapshot-v1 uses, so every daemon case fails at canonicalization. Change: implement them (the schema's $comment
+says what each means). Test: `normalize.py --lint-schema` clean on snapshot-v1; `normalize.py --selftest`.
+
+**243 Driver builds fixture.repo.** Files: `driver_daemon.py`, `hermetic_env.py`, `oracle.py`, `gen_daemon_ops.py`,
+`git/_tuning.json`. Before the first step of a case with `fixture.repo`, driver_daemon.py runs `make_repo.build_for_case`
+for `tests/oracle/fixtures/git/<repo>.json` under the case root, with HOME the case's own folder (git_ops/worktree.rs writes
+`~/.cmux/worktrees`), and expands `$CASE_ROOT` in step params. The daemon product then offers `git_repo` (oracle.py
+PRODUCTS) and REPO_GAP goes away, so the 8 git operations are covered. Test: VM, the 18 git family cases green twice;
+`gen_daemon_ops.py --check`.
+
+**244 A case folder the project store takes.** Files: `hermetic_env.py`, `make_repo.py`, `git/_tuning.json`. Every case
+root is under /tmp and state/projects.rs refuses every path under /tmp, /var/folders and the home folder, so project.add's
+success cannot run. Give a case with a generated repository a checkout outside those roots (a per-run folder the
+hermetic environment owns and removes), and project.add's success loses its gap. Test: VM, project.add green twice; no
+folder left after the run.
+
+**245 The holder exits at shutdown end_terminals.** Files: `cmux-holder/src/holder.rs`, `holder_runtime.rs`,
+`mux/terminal_reap.rs`, `terminal/_tuning.json`. On the holder arm (CMUX_TUI_TERMINAL_HOST_MODEL=holder),
+`shutdown-daemon end_terminals` ends every terminal but leaves the holder running until its idle exit (IDLE_EXIT, 30 s):
+the holder model has no frame that ends the holder, so driver_daemon.py's I6 teardown (10 s) reports it left behind on
+every holder-arm case. Change: when the daemon ends its last holder terminal for shutdown, it tells the holder to exit
+(or the holder exits when its owner leaves and it holds no terminal), and the daemon waits for that exit before it
+answers. terminal/_tuning.json then drops its `expectations` entry (the 18 `[ new ] ... [ Failure ]` lines). Test: the
+cmux-holder and holder_runtime tests of the exit; VM, the 18 terminal cases green twice on the holder arm with the stock
+driver.
+
+**246 Facet: a terminal's view scroll offset.** Files: `oracle_state.rs`, `snapshot-v1.schema.json`, `terminal/_tuning.json`.
+terminal.viewport.scroll moves only the compatibility view's anchor (Surface::view_scroll_delta), which no read and no
+facet field returns: terminal.copy and terminal.screen.read read the terminal's own viewport. Change: the daemon facet
+reports each terminal's view scrollbar {offset, total, len} (Surface::view_scrollbar), and the scroll success case
+settles on offset = total - len - 5 after the call; its gap goes away. Test: VM, the scroll success case green twice on
+both holder arms, and red when the handler scrolls 0 rows or the other way (negative control).
+
+**247 Driver: a call that ends the daemon, expect.result references.** Files: `driver_daemon.py`,
+`driver_daemon_test.py`, `case_values.py`, `case_checks.py`, `case-v1.schema.json`, `case-v1-mutations.json`. Found by
+063 (session.shutdown and the graceful restart). (1) case-v1 step `ends: daemon` (a mutating resource.call only):
+after an ok reply the runner waits for the daemon's exit in that step, records it as the step's exit and checks it
+against allow_crashes (I17), and fails the step unless the exit is a normal termination (exit 0;
+`base/process/kill.h` TERMINATION_STATUS_NORMAL_TERMINATION). A later restart finds no running daemon, so it starts
+one and never sends shutdown-daemon to a daemon that is exiting; case_checks.py counts the step as one that ends a
+daemon. (2) `expect.result` resolves its `$step:` references before the comparison (case-v1 stepRef: the runner
+substitutes it), so `"$step:<id>#"` holds a reply equal to an earlier one, compared with JSON types (a bool never
+equals a number). (3) `expect.resultExcept`: JSON pointers, `*` for every item or member, removed from both values
+first (case_values.without_pointers), for what a new daemon generation changes. Implemented with 063's fixer, which
+needs all three: without (1) session-shutdown-ok races the exiting daemon at the restart (a Crash). Test:
+driver_daemon_test.py (ExpectTests, without_pointers; live: a call that ends the daemon owns its exit, three runs,
+and one outside allow_crashes is a Crash at the call); case_checks.py --selftest (ends and resultExcept vectors);
+VM, the 22 session cases green twice.
 
 **206 I10 idempotent retry.** For each of the 201 `idempotency: required` ops, the generator adds a same-key retry step. Test: holds on all ops.
 

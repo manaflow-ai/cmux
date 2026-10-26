@@ -24,7 +24,7 @@ import Darwin
 ///   the repeating timers from it to name what wakes the main thread outside the ledger.
 enum DebugWakeups {
     static func report(_ params: [String: JSONValue], budgeted: FrameScheduler) async -> JSONValue {
-        var object = await MainActor.run { mainActorPart(params, budgeted: budgeted) }
+        var object = mainActorPart(params, budgeted: budgeted)
         object["processes"] = .array(AppProcesses.sample().map(\.json))
         return .object(object)
     }

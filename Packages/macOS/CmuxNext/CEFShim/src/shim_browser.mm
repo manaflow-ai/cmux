@@ -35,6 +35,26 @@ int CreateWindowWith(int request, void* parent_view, int width, int height, cons
 
 }  // namespace
 
+namespace cmux_shim {
+
+// Chromium asks to focus a page: after every navigation it starts (a new
+// browser's first load, LoadURL), and inside cmux's own SetFocus and
+// embedder-active calls. In process cmux's handler answers (CEFTab+Focus.swift:
+// a page window that took focus would take the keys from the omnibar). The
+// Chromium Host installs none: a page cmux marked embedder-active, one its
+// window's first responder shows, may take focus, also after its own load;
+// any other page (a background pane, a page not adopted yet) may not.
+bool RefusesFocus(int browser_id, int source) {
+  const Host& h = host();
+  return h.embedder_focus.Refuses(h.focus_request, h.ctx, browser_id, source);
+}
+
+void NoteEmbedderActive(int browser_id, bool active) {
+  host().embedder_focus.SetActive(browser_id, active);
+}
+
+}  // namespace cmux_shim
+
 extern "C" {
 
 int cmux_shim_create_window(int request, void* parent_view, int width, int height, const char* url,
@@ -173,6 +193,11 @@ void cmux_shim_set_zoom_level(int browser_id, double level) {
 void cmux_shim_set_accessibility(int browser_id, int enabled) {
   if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id))
     host->SetAccessibilityState(enabled != 0 ? STATE_ENABLED : STATE_DISABLED);
+}
+
+int cmux_shim_browser_set_embedder_visibility(int browser_id, int visibility) {
+  if (!fork_api().browser_set_embedder_visibility) return 0;
+  return fork_api().browser_set_embedder_visibility(browser_id, visibility);
 }
 
 int cmux_shim_print(int browser_id) {

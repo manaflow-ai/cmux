@@ -22,8 +22,10 @@ final class DividerHandleView: NSView {
         /// The pointer passed `point` at `time` before a later move of the same delivery: it feeds
         /// the release velocity only.
         case sampled(NSPoint, time: CFTimeInterval)
-        /// The divider goes to `point`, where the pointer was at `time`.
-        case moved(NSPoint, time: CFTimeInterval)
+        /// The pointer was at `point` at `time`: the real sample, which the velocity, snaps and the
+        /// release read. The divider is drawn at `shown`, the pointer resampled at the frame's time
+        /// (`input.resampleDrags`); nil draws it at `point`.
+        case moved(NSPoint, time: CFTimeInterval, shown: NSPoint? = nil)
         /// The pointer went up at `point` at `time`.
         case ended(NSPoint, time: CFTimeInterval)
         case doubleClick
@@ -52,6 +54,11 @@ final class DividerHandleView: NSView {
     var pointerFrames: () -> FrameInputCoalescers? = { nil }
     /// This drag's consumer of its window's coalescer, from mouse-down to mouse-up.
     private var frameDrag: PointerFrameConsumer?
+    /// A new drag's resampler for where the divider is drawn (``LayoutRootView/dragResampler``); nil
+    /// draws it at the real pointer. Read once per drag, on mouse-down, with frame-aligned input only.
+    var dragResampler: () -> DragResampler? = { nil }
+    /// This drag's resampler, from mouse-down to mouse-up.
+    private var resampler: DragResampler?
     /// The screen's uncovered rect and this handle's scroll area window when it was last placed
     /// (`applyPresentation`): its hidden state and cursor clip follow from them and the frame, so
     /// equal ones skip the work.
@@ -62,6 +69,16 @@ final class DividerHandleView: NSView {
     /// keeps no hover of its own, because a layout change can move it under a
     /// still pointer.
     var onPointerChange: ((NSEvent) -> Void)?
+
+    /// Render-server spring calls on the handle's layer that have not landed yet (``springToRest(_:spring:landed:)``).
+    private(set) var renderSpringsInFlight = 0
+    /// The handle's frame is at rest and Core Animation shows it springing there: it takes no hover and
+    /// shows no resize cursor until it lands (``ScreenDividers/refreshHover(at:)``).
+    var isOnRenderSpring: Bool { renderSpringsInFlight > 0 }
+    /// Frame assignments since the handle was made (tests: a render-server spring sets one, in its start's
+    /// turn, and none until it lands, p03-rendering-024).
+    private(set) var frameSetCount = 0
+    override var frame: NSRect { didSet { frameSetCount += 1 } }
 
     private let line = CALayer()
     private(set) var isHovered = false { didSet { if isHovered != oldValue { applyColors() } } }
@@ -159,7 +176,8 @@ final class DividerHandleView: NSView {
     override func resetCursorRects() {
         cursorRectResets += 1
         let rect = cursorRectInBounds
-        guard !rect.isEmpty else { return }
+        // Mid-spring the frame is at rest but the handle shows elsewhere: its landing brings the cursor back.
+        guard !rect.isEmpty, !isOnRenderSpring else { return }
         if #available(macOS 15, *) {
             addCursorRect(rect, cursor: axis == .horizontal ? .columnResize : .rowResize)
         } else {
@@ -183,11 +201,14 @@ final class DividerHandleView: NSView {
         convert(lineFrame, to: superview)
     }
 
-    private var lineFrame: CGRect {
+    private var lineFrame: CGRect { lineRect(in: bounds.size) }
+
+    /// The line's frame in a handle of `size`: centered across the axis, the handle's whole length along it.
+    private func lineRect(in size: CGSize) -> CGRect {
         let t = isColumnEdge ? LayoutStyle.columnEdgeLineThickness(dividerThickness: lineThickness) : lineThickness
         return switch axis {
-        case .horizontal: CGRect(x: (bounds.width - t) / 2, y: 0, width: t, height: bounds.height)
-        case .vertical: CGRect(x: 0, y: (bounds.height - t) / 2, width: bounds.width, height: t)
+        case .horizontal: CGRect(x: (size.width - t) / 2, y: 0, width: t, height: size.height)
+        case .vertical: CGRect(x: 0, y: (size.height - t) / 2, width: size.width, height: t)
         }
     }
 
@@ -218,9 +239,80 @@ final class DividerHandleView: NSView {
             isDragging = false
             endFrameDrag()
             isHovered = false
-            // Its render-server springs end now, so their landings run (`ScreenContentView.springDivider`).
-            if let layer { for keyPath in ["position", "bounds.size"] { RenderSpring.stop(layer, keyPath) } }
+            // Its render-server springs end now; their landings still run (``springToRest(_:spring:landed:)``).
+            if let layer {
+                for keyPath in Self.renderSpringKeyPaths {
+                    RenderSpring.stop(layer, keyPath)
+                    RenderSpring.stop(line, keyPath)
+                }
+            }
         }
+    }
+
+    /// The key paths a render-server spring of the handle animates, on its backing layer and on its line.
+    static let renderSpringKeyPaths = ["position", "bounds.size", "opacity"]
+
+    /// Lets the render server show the handle, placed at rest in this turn (``ScreenDividers/place(_:_:at:alpha:uncovered:force:)``
+    /// set its frame, alpha, hidden state and clips, its one frame set until it lands), springing there from
+    /// `move.from` at `move.velocity` (alpha `move.fromAlpha`) on `spring`, the token of the panes beside it:
+    /// additive springs of its backing layer's position, size and opacity (``NSView/renderSpringMoves(from:velocity:)``)
+    /// and of its line's position and size (the line does not scale with the layer), from one begin time, as
+    /// Chromium's compositor runs a layer's transform animation off the main thread (`cc/animation/animation_host.h`).
+    /// A spring on a handle already springing retargets; the springs still running keep their velocity.
+    /// `landed` runs once, when this call's springs ended or a newer call took over (`RenderSpring.Completion`),
+    /// after the handle's cursor rects follow its rest frame again.
+    func springToRest(_ move: SplitMotion.RenderMove, spring: RenderSpring, landed: @escaping @MainActor @Sendable () -> Void) {
+        renderSpringsInFlight += 1
+        window?.invalidateCursorRects(for: self)
+        let finish: RenderSpring.Completion = { [weak self] _ in
+            self?.renderSpringLanded()
+            landed()
+        }
+        guard let layer, let superview else { return finish(true) }
+        var moves = renderSpringMoves(from: move.from, velocity: move.velocity)
+        if move.fromAlpha != move.toAlpha { moves.append(RenderSpring.Move(layer, .opacity, from: move.fromAlpha, to: move.toAlpha)) }
+        // The layer's start size and size velocity, as its own size springs read them.
+        let start = superview.convertToLayer(move.from), rest = superview.convertToLayer(frame), size = layer.bounds.size
+        let fromSize = CGSize(width: size.width + start.width - rest.width, height: size.height + start.height - rest.height)
+        let sizeRate = RenderLayerAxes(superview).velocity(move.velocity, anchor: layer.anchorPoint).size
+        moves += lineMoves(from: fromSize, sizeVelocity: sizeRate)
+        spring.animateGroup(moves, in: self, completion: finish)
+    }
+
+    /// The line's springs from where it shows in a handle of `size` growing at `sizeVelocity` to its rest in
+    /// the handle's bounds. ``lineRect(in:)`` is linear in the size, so its rate is its change over one second.
+    private func lineMoves(from size: CGSize, sizeVelocity: CGSize) -> [RenderSpring.Move] {
+        let rest = lineRect(in: bounds.size), start = lineRect(in: size)
+        let ahead = lineRect(in: CGSize(width: size.width + sizeVelocity.width, height: size.height + sizeVelocity.height))
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        line.frame = rest
+        CATransaction.commit()
+        let anchor = line.anchorPoint
+        let restAt = RenderLayerAxes.position(of: rest, anchor: anchor), startAt = RenderLayerAxes.position(of: start, anchor: anchor)
+        let aheadAt = RenderLayerAxes.position(of: ahead, anchor: anchor)
+        return [
+            RenderSpring.Move(line, .positionX, from: startAt.x, to: restAt.x, velocity: aheadAt.x - startAt.x),
+            RenderSpring.Move(line, .positionY, from: startAt.y, to: restAt.y, velocity: aheadAt.y - startAt.y),
+            RenderSpring.Move(line, .boundsWidth, from: start.width, to: rest.width, velocity: ahead.width - start.width),
+            RenderSpring.Move(line, .boundsHeight, from: start.height, to: rest.height, velocity: ahead.height - start.height),
+        ]
+    }
+
+    /// The handle's and its line's position and size springs end (a fade runs on): its CPU frame takes what
+    /// shows (`ScreenContentView.takeRenderSpringsBack`).
+    func stopRenderMoves() {
+        guard let layer else { return }
+        for target in [layer, line] { ScreenContentView.stopMoveSprings(target) }
+    }
+
+    /// The line's layer, for tests: it springs with the handle (``springToRest(_:spring:landed:)``).
+    var lineLayer: CALayer { line }
+
+    /// One render-server spring call landed: after the last, the resize cursor shows at the rest frame.
+    private func renderSpringLanded() {
+        renderSpringsInFlight -= 1
+        if renderSpringsInFlight == 0 { window?.invalidateCursorRects(for: self) }
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -236,9 +328,10 @@ final class DividerHandleView: NSView {
         }
         isDragging = true
         endFrameDrag()
-        frameDrag = window.flatMap { pointerFrames()?.coalescer(for: $0) }?.consumer(owner: "DividerHandleView") { [weak self] input in
-            self?.deliver(input)
+        frameDrag = window.flatMap { pointerFrames()?.coalescer(for: $0) }?.frameTimedConsumer(owner: "DividerHandleView") { [weak self] input, frame in
+            self?.deliver(input, at: frame)
         }
+        resampler = frameDrag == nil ? nil : dragResampler()
         onDrag?(.began(event.locationInWindow))
     }
 
@@ -261,8 +354,9 @@ final class DividerHandleView: NSView {
     }
 
     /// One delivery of the frame-aligned drag: every point but the latest feeds the velocity, then
-    /// the divider moves to the latest. No allocation: the points are the delivery's own.
-    private func deliver(_ input: PointerCoalescedInput) { // perf-hot: 2ms resize-drag (each leading or trailing delivery)
+    /// the divider moves to the latest, drawn at the pointer resampled at `frame` while a resampler
+    /// runs. No allocation: the points are the delivery's own.
+    private func deliver(_ input: PointerCoalescedInput, at frame: PointerFrameTime) { // perf-hot: 2ms resize-drag (each leading or trailing delivery)
         guard isDragging else { return }
         let samples = input.samples
         if samples.count > 1 {
@@ -271,13 +365,16 @@ final class DividerHandleView: NSView {
             }
         }
         let latest = input.latest
-        onDrag?(.moved(NSPoint(x: latest.location.x, y: latest.location.y), time: latest.timestamp))
+        let shown = resampler?.points(for: input, at: frame).visualPoint
+        onDrag?(.moved(NSPoint(x: latest.location.x, y: latest.location.y), time: latest.timestamp,
+                       shown: shown.map { NSPoint(x: $0.x, y: $0.y) }))
     }
 
     /// Drops this drag's consumer and anything it still has pending.
     private func endFrameDrag() {
         frameDrag?.cancel()
         frameDrag = nil
+        resampler = nil
     }
 
     override func viewDidChangeEffectiveAppearance() {

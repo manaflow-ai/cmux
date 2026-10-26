@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
+import CmuxNextWakeups
 
 /// New Message as a page, as in Messages (Lawrence 2026-10-19: "it makes a
 /// modal but iMessage just creates a new page"): the To: field across the
@@ -27,7 +28,11 @@ final class HomeNewMessageView: NSView {
     /// The blank page's message box, over a store that only knows the draft.
     private(set) var composer: HomeNativeTranscriptView?
     private var composerStore: HomeStore?
-    private var spellCheckingWatch: Task<Void, Never>?
+    /// This page in the visibility tree: its observation reads only while the page is on screen.
+    private let visibility = ViewVisibility("home.newMessage")
+    private var visibilityNode: VisibilityNode { visibility.node }
+    private let mainWork: MainWorkScheduler
+    private var spellCheckingWatch: VisibleObservation<Bool>?
     private weak var services: AppServices?
     /// The first send made this conversation (the Home page shows it).
     var onSent: (ConversationID) -> Void = { _ in }
@@ -37,6 +42,7 @@ final class HomeNewMessageView: NSView {
 
     init(services: AppServices) {
         self.services = services
+        mainWork = services.mainWork
         super.init(frame: .zero)
         setAccessibilityIdentifier("cmux.home.newMessage")
         content.wantsLayer = true
@@ -61,13 +67,14 @@ final class HomeNewMessageView: NSView {
             onEscape()
         }
         showComposer(carrying: "")
-        spellCheckingWatch = Task { [weak self, weak services] in
-            for await enabled in ObservationStream({ services?.settings?.snapshot.agentPaneComposer.spellChecking ?? false }) {
-                self?.composer?.composerSpellCheckingEnabled = enabled
-            }
+        spellCheckingWatch = VisibleObservation(visibilityNode, owner: "HomeNewMessage.spellChecking", on: services.mainWork) { [weak services] in
+            services?.settings?.snapshot.agentPaneComposer.spellChecking ?? false
+        } apply: { [weak self] enabled in
+            self?.composer?.composerSpellCheckingEnabled = enabled
         }
         field.refreshSuggestions()
         // task-owner: one read of the team and Chiefs for the suggestions; ends when it is read
+        // main-hop-allow: userBlocking rest of the person opening New Message (p06 rule 2): it awaits the main-actor HomeDirectory; post has no userBlocking class
         Task { [weak self] in
             await home.directory.refresh()
             self?.field.refreshSuggestions()
@@ -82,16 +89,29 @@ final class HomeNewMessageView: NSView {
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     // The last reference can go on any thread (OffMainReleaseCleanupTests' shape, 39256ad7181). This view owns no
     // Sendable handle; its composer's own HomeStore is main-actor and only stop() ends its connection, resend and
-    // prune tasks and flushes its cache, so the stops run on the main actor. A guard that returned off main
-    // skipped them, and the store ran on.
+    // prune tasks and flushes its cache, so the stops are posted to the main actor. A guard that returned off main
+    // skipped them, and the store ran on. Releasing the observation ends it.
     nonisolated deinit {
         let composer = composer, composerStore = composerStore
-        spellCheckingWatch?.cancel()
-        // task-owner: the main-actor half of this view's release; one call each, then it ends
-        Task { @MainActor in
+        mainWork.postFromAnyThread(.visible, owner: "HomeNewMessage.release") {
             composer?.stop()
             composerStore?.stop()
         }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        visibility.place(in: window)
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        visibilityNode.set(.hidden)
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        visibilityNode.set(.visible)
     }
 
     /// Nothing chosen, nothing typed in To:, and an empty message box:

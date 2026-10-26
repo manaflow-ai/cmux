@@ -28,6 +28,7 @@ extension PageWebView {
         let host = WebPopupHost(
             webView: focusView, zoom: { [weak self] in CGFloat(self?.pageZoom ?? 1) },
             send: { [weak self] event in self?.router.publishPopup(JSONValue(foundation: event) ?? .null) })
+        host.hoverFrameInput = popupHoverFrameInput
         let keep = keepReasons
         host.onShownChange = { shown in
             if shown { keep.begin(.popup) } else { keep.end(.popup) }

@@ -34,8 +34,8 @@ public final class HistoryPageModel {
         }
     }
 
-    public var text = "" { didSet { if text != oldValue { reload() } } }
-    public var filter: Filter = .all { didSet { if filter != oldValue { reload() } } }
+    public var text = "" { didSet { if text != oldValue, !restoring { reload() } } }
+    public var filter: Filter = .all { didSet { if filter != oldValue, !restoring { reload() } } }
     public var grouping: HistoryGrouping = .day { didSet { regroup() } }
     public private(set) var groups: [HistoryGrouping.Group] = []
     public private(set) var isLoading = false
@@ -49,6 +49,10 @@ public final class HistoryPageModel {
     @ObservationIgnored private var entries: [HistoryEntry] = []
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var loading: Task<Void, Never>?
+    /// A ``restore(text:filter:selection:loaded:)`` waiting for its rows.
+    @ObservationIgnored private var pendingRestore: PendingRestore?
+    /// True while a restore sets the query, so its two changes make one reload.
+    @ObservationIgnored private var restoring = false
     @ObservationIgnored public var calendar = Calendar.current
     public static let limit = 1_000
 
@@ -69,12 +73,32 @@ public final class HistoryPageModel {
         }
     }
 
+    /// Shows the search, filter and selection a discarded page had, with one reload. The selection
+    /// is set once that reload's rows are in, then `loaded` runs (a saved scroll needs the rows).
+    public func restore(text: String, filter: Filter, selection: String?, loaded: @escaping () -> Void = {}) {
+        pendingRestore = PendingRestore(selection: selection, loaded: loaded)
+        restoring = true
+        self.text = text
+        self.filter = filter
+        restoring = false
+        reload()
+    }
+
     /// Installs loaded entries (tests call it directly).
     public func apply(_ loaded: [HistoryEntry]) {
         entries = loaded
         isLoading = false
         regroup()
+        let restored = pendingRestore
+        pendingRestore = nil
+        if let restored { selection = restored.selection }
         if let selection, !loaded.contains(where: { $0.id == selection }) { self.selection = loaded.first?.id }
+        restored?.loaded()
+    }
+
+    private struct PendingRestore {
+        let selection: String?
+        let loaded: () -> Void
     }
 
     private func regroup() {

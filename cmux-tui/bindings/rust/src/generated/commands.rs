@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 87e9b8e373ca5a50e0b57f549781a75e4c8e38d4e86011638c213050e8d7c034.
+// cmux-tui mux protocol 12, IR d7f3a638eb345c945cc9b1ab620d70e8e2c30fcc0d714cad368f04024f9b38e4.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -182,6 +182,36 @@ pub struct AgentCliUpdateJobResolveRequest {
 
 #[rustfmt::skip]
 pub type AgentCliUpdateJobResolveResult = T::AgentCLIJobResolution;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct AgentInventoryRequest {
+    /// Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub expected_machine_id: Option<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentInventoryRefreshRequest {
+    /// Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector.
+    pub expected_machine_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentInventoryWatchRequest {
+    /// Only with enabled:true: an unavailable, unsupported or busy refusal carries data {machine, admission:"not_admitted"} when this connection holds no lease.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub admission_receipt: Option<bool>,
+    /// true opens (or acknowledges again) this connection's lease; false retires it without an ended event.
+    pub enabled: bool,
+    /// Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector.
+    pub expected_machine_id: String,
+    /// Only with enabled:false: retire the lease only while it has this id.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub expected_watch_id: Option<String>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2306,6 +2336,14 @@ pub struct CreateWorkspaceGroupRequest {
 
 #[rustfmt::skip]
 pub type CreateWorkspaceGroupResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct DebugDaemonLocksRequest {
+}
+
+#[rustfmt::skip]
+pub type DebugDaemonLocksResult = serde_json::Value;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -5145,6 +5183,27 @@ impl CmuxClient {
         self.execute(&AGENT_CLI_UPDATE_JOB_RESOLVE_METADATA, &request)
     }
 
+    pub fn agent_inventory(&mut self, request: AgentInventoryRequest) -> Result<T::AgentInventoryResult> {
+        if request.expected_machine_id.is_some() {
+            self.require_capability_field("agent-inventory", "agent-inventory-owner-v1")?;
+        }
+        self.execute(&AGENT_INVENTORY_METADATA, &request)
+    }
+
+    pub fn agent_inventory_refresh(&mut self, request: AgentInventoryRefreshRequest) -> Result<T::AgentInventoryRefreshResult> {
+        self.execute(&AGENT_INVENTORY_REFRESH_METADATA, &request)
+    }
+
+    pub fn agent_inventory_watch(&mut self, request: AgentInventoryWatchRequest) -> Result<T::AgentInventoryWatchResult> {
+        if request.admission_receipt.is_some() {
+            self.require_capability_field("agent-inventory-watch", "agent-inventory-watch-admission-v1")?;
+        }
+        if request.expected_watch_id.is_some() {
+            self.require_capability_field("agent-inventory-watch", "agent-inventory-watch-fence-v1")?;
+        }
+        self.execute(&AGENT_INVENTORY_WATCH_METADATA, &request)
+    }
+
     pub fn agent_session_attach(&mut self, request: AgentSessionAttachRequest) -> Result<AgentSessionAttachResult> {
         self.execute(&AGENT_SESSION_ATTACH_METADATA, &request)
     }
@@ -5777,6 +5836,10 @@ impl CmuxClient {
 
     pub fn create_workspace_group(&mut self, request: CreateWorkspaceGroupRequest) -> Result<CreateWorkspaceGroupResult> {
         self.execute(&CREATE_WORKSPACE_GROUP_METADATA, &request)
+    }
+
+    pub fn debug_daemon_locks(&mut self, request: DebugDaemonLocksRequest) -> Result<DebugDaemonLocksResult> {
+        self.execute(&DEBUG_DAEMON_LOCKS_METADATA, &request)
     }
 
     pub fn delete_bookmark(&mut self, request: DeleteBookmarkRequest) -> Result<DeleteBookmarkResult> {

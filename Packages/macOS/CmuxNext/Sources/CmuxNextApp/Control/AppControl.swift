@@ -39,6 +39,10 @@ final class AppControl {
     let terminalDisplayProbe: DebugTerminalDisplayProbe
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
     let motionCommitProbe = MotionCommitProbe()
+    #if CMUX_PGO_PROFILE
+    /// The profile build's flushes (`LaunchOrder.profileFlush`): `debug.pgo_flush` writes the rest profile.
+    var profileFlush: ProfileFlush?
+    #endif
     #if DEBUG || CMUX_BENCH_HOOKS
     private let keySequencePlayer = DebugKeySequencePlayer() // `debug.key` sequences' player (one at a time), not a static
     let hops = InputTurnHops() // `debug.input hops` (p04-input-022); the MainJobGate hook (021) records into `hops.recorder`
@@ -99,7 +103,7 @@ final class AppControl {
         AppMemoryConsumers(services: services).registerControlCaches(service)
         actionBudget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
                                             overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,
-                                            logsRuns: ControlService.isDebugBuild)
+                                            logsRuns: ControlService.isDebugBuild, work: services.work)
         services.restartControlListener = { [weak service] in try service?.restartListener() }
         // A busy renderer's record names the Chromium tabs it serves (p14-energy-124), from the snapshot
         // the cache publishes: the watchdog reads it off the main thread.
@@ -110,19 +114,18 @@ final class AppControl {
 
     /// The error journal (`cmux errors`): app log, page consoles, acpmux, Chief, crash reports.
     func startErrorJournal(_ services: AppServices, on router: ControlRouter) {
-        let errors = ErrorJournalService.make(environment: services.environment)
+        let errors = ErrorJournalService.make(environment: services.environment, energy: services.mainWork.energy)
         errors.start()
         errorJournal = errors
         router.register(ErrorJournalControl(journal: errors.journal, sources: errors.sources).methods)
     }
 
-    /// Resources, extensions, Ghostty diagnostics and `debug.memory` (release builds too).
+    /// Resources, extensions, Ghostty diagnostics, `features.list` and `debug.memory` (release builds too).
     func registerResourceMethods(_ services: AppServices, on router: ControlRouter) {
         router.register([
             // CPU and memory per tab and workspace, two samples `interval_ms` apart.
             .async("resources") { [weak services] call in
-                let services = await MainActor.run { services }
-                return try await ResourceControl.run(call.params, services: services)
+                try await ResourceControl.run(call.params, services: services)
             }.withDeadline(.fixed(ResourceControl.deadline)),
             // Installed Chrome extensions, shortcuts and toolbar badges.
             .mainActor("browser.extensions") { [weak services] _ in
@@ -131,6 +134,8 @@ final class AppControl {
             },
             // Ghostty config keys and keybind actions cmux does not apply (R92).
             GhosttyDiagnosticsControl().method,
+            // Every feature's value and source (`cmux settings feature-flags`), read-only.
+            FeatureFlagsReport(features: services.features).method,
         ])
         router.register(DebugHibernationControl.methods(services)) // debug.memory serves release builds too
     }
@@ -150,6 +155,7 @@ final class AppControl {
         // The local daemon's wire traffic, decodes, output copies and connections by role.
         if let wireStats = services.wireStats { router.register([DaemonWireControl(stats: wireStats).method]) }
         router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap), DebugCEF.pumpInputSource(services.cache.chromium),
+                                               IntentPrewarmDebugSource { [weak services] in services?.cache.hibernation?.intentPrewarm?.service },
                                                ScrollViewAuditSource { [mainWork = services.mainWork] in
                                                    await withCheckedContinuation { continuation in
                                                        mainWork.postFromAnyThread(.automation, owner: "debug.input.scroll_views") {
@@ -243,10 +249,16 @@ extension AppControl {
             group("Control.registerBrowserPage", services) { [weak settings] _, services, router in
                 // The passkey hand-off: an agent's request waits for the person's banner click.
                 let passkeys = BrowserPasskeyRequests(host: AppBrowserPasskeyHost(services: services))
-                services.notifications.onPasskeyBanner = { id in Task { _ = try? await passkeys.answer(id) } }
+                // The person's banner click: the answer awaits the requests' actor off main; its reveal is main work.
+                services.notifications.onPasskeyBanner = { [work = services.work] id in
+                    _ = work.task(.userBlocking) { _ = try? await passkeys.answer(id) }
+                }
+                // Read per agent click: the agent's work, in the automation class.
                 BrowserPageService(engine: AppBrowserPageEngine(services: services), passkeys: passkeys,
-                                   agentMouse: { [weak settings] in
-                                       await MainActor.run { settings?.snapshot.browserAgentMouse } ?? AgentMouseSetting().fallback
+                                   agentMouse: { [weak settings, work = services.mainWork] in
+                                       await work.apply(.automation, owner: "browser.agent_mouse") {
+                                           settings?.snapshot.browserAgentMouse
+                                       } ?? AgentMouseSetting().fallback
                                    }).install(on: router)
                 services.apps.attach(router: router)
             },

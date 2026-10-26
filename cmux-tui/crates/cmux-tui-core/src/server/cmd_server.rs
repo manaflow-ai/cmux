@@ -37,6 +37,15 @@ pub(super) fn server_stats(
     Ok(serde_json::to_value(server_stats::server_stats(mux, include.as_deref()))?)
 }
 
+/// `debug-daemon-locks`: the registry and state locks' wait and hold time
+/// by caller class and request op (server/server_stats.rs).
+pub(super) fn daemon_locks(mux: &Arc<Mux>, client: u64) -> anyhow::Result<Value> {
+    if !mux.control_clients.is_unix(client) {
+        return Err(server_stats::DaemonLocksRefused::NotLocal.into());
+    }
+    Ok(serde_json::to_value(server_stats::daemon_locks(mux))?)
+}
+
 /// `trace-start`, `trace-stop` and `trace-status` (server/trace_control.rs):
 /// owner only, refused before `call` reads a parameter.
 pub(super) fn trace_control(

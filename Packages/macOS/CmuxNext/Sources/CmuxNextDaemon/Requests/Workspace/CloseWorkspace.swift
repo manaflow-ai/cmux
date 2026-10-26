@@ -25,7 +25,7 @@ public struct CloseWorkspaceRequest: DaemonRequest {
         self.mutation = mutation
     }
 
-    enum CodingKeys: String, CodingKey { case endTerminals, reason, ifEmpty }
+    enum CodingKeys: String, CodingKey { case endTerminals = "end_terminals", reason, ifEmpty = "if_empty" }
 
     public func encode(to encoder: any Encoder) throws {
         try WorkspaceRefFields(ref: workspace).encode(to: encoder)
