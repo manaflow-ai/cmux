@@ -92,6 +92,9 @@ final class AgentTabStore {
         set { resolvedLocalHost = newValue }
     }
     var views: [String: AgentPaneView] = [:]
+    /// A tab's page view is about to be made (``view(for:)``; a spare is not shown): the launch's
+    /// New Tab feeds start right after the first frame (`AppDelegate.registerHomeFeeds`, p08-startup-027).
+    var pageShown: @MainActor () -> Void = {}
     /// Agent tabs whose view waits for the launch's first pane content (`deferAtLaunch`).
     var launchDeferred: Set<String> = []
     /// The tabs' pages from the last quit, drawn at launch (`AgentPaneLaunchImages`).
@@ -318,6 +321,7 @@ final class AgentTabStore {
         let key = resolve(key)
         if let view = views[key] { return view }
         guard let (record, store) = lookup(key) else { return nil }
+        pageShown()
         let kind = AgentPaneHostKind(record, localHost: localHost, chiefHost: chiefHost)
         // A Chief subagent runs on this Mac too, in the Chief home's acpmux.
         let local = kind != .remote
