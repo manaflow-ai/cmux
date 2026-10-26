@@ -278,10 +278,10 @@ final class AppServices {
     }()
     private(set) lazy var phoneFeedback = PhoneChiefFeedback(home: home)
     /// Every declared feature's value (`schemas/features/features.d`, Chrome's `base::FeatureList`):
-    /// built once, on first read, from this build's channel and the launch environment
-    /// (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`). Tests set their own before the first read.
-    lazy var features = FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind),
-                                    overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment))
+    /// resolved once in init (`launchFeatures`, which crash reporting reads first) from this build's channel and the launch
+    /// environment (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`). Tests set their own before the first read.
+    lazy var features = launchFeatures
+    private let launchFeatures: FeatureList
     /// The windows' frame-aligned pointer input for resize drags (feature `pointerFrameDrags`): pane dividers,
     /// column and row edges, both sidebars' resize edges and the DevTools divider move on a frame interval's first
     /// drag event and once more at its frame (p04-input-030). Nil while it is off: each drag event moves them.
@@ -590,8 +590,8 @@ final class AppServices {
         popups = BrowserPopupWindows(contextMenus: contextMenus)
         self.environment = environment; self.agentPaneEnvironment = agentPaneEnvironment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun, crashKeys: crashKeys)
-        // After the run marker's handlers: Sentry calls them after its report.
-        crashReporting = AppCrashReporting(environment: environment)
+        launchFeatures = FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind), overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment))
+        crashReporting = AppCrashReporting(environment: environment, handlersFirst: launchFeatures.isEnabled(.sentryHandlersFirst), startup: launchStartup)  // after the run marker's handlers
         DebugTimings.markLaunch("services.crash_reporting")
         machines = MachineRegistry(local: daemon)
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }

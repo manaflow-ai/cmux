@@ -4,6 +4,7 @@ public import Darwin
 public import Foundation
 public import Sentry
 import CmuxNextCompat
+import os
 
 /// Sends cmux-next crashes (signals, Mach exceptions, uncaught Objective-C
 /// exceptions, app hangs) to Sentry, under ``CrashReportingPolicy``.
@@ -19,7 +20,27 @@ import CmuxNextCompat
 /// them after its report. Chromium resets every signal action at its start;
 /// call ``reassertSignalHandlers()`` after the run marker installs its
 /// handlers again.
+///
+/// Start cost (p08-startup-032). `SentrySDK.start` on main installs every
+/// integration in that call; the SDK has no API to install one later. So
+/// ``StartProfile/handlersFirst`` only leaves out what can be left out
+/// (the URLSession swizzle) and pauses what can be paused (app-hang
+/// reports) until ``startDeferredIntegrations()``. Each start is a
+/// `launch.sentry_start` signpost interval (category `launch`), so the App
+/// Launch template measures it.
 public final class CrashReporter: Sendable {
+    /// What `SentrySDK.start` turns on at launch.
+    public nonisolated enum StartProfile: Sendable, Equatable {
+        /// Every integration the options allow, at start.
+        case standard
+        /// Crash capture at start; the rest after startup (feature `sentryHandlersFirst`). No URLSession
+        /// network breadcrumbs: with them, tracing and failed-request capture off, the SDK's network
+        /// integration skips its swizzle and the probe session it makes for it
+        /// (`SentryNetworkTrackingIntegration`). App-hang reports are paused until
+        /// ``CrashReporter/startDeferredIntegrations()``; the main-thread watchdog reports launch hangs.
+        case handlersFirst
+    }
+
     /// The DSN of the macOS app's Sentry project (`manaflow/cmuxterm-macos`),
     /// as in the main app; cmux-next events are told apart by
     /// ``CrashEventLabels``.
@@ -40,8 +61,8 @@ public final class CrashReporter: Sendable {
     /// Whether Sentry runs in this process.
     public var isStarted: Bool { sentryHandlers.withLock { $0 != nil } }
 
-    /// The Sentry options for ``policy``.
-    public func options() -> Options {
+    /// The Sentry options for ``policy`` and `profile`.
+    public func options(profile: StartProfile = .standard) -> Options {
         let options = Options()
         options.dsn = Self.dsn
         options.environment = policy.environment
@@ -59,6 +80,7 @@ public final class CrashReporter: Sendable {
         // channel already registers (cx-r3q, CrashOnExceptions).
         options.enableUncaughtNSExceptionReporting = policy.crashesOnExceptions
         options.enableLogs = false
+        if profile == .handlersFirst { options.enableNetworkBreadcrumbs = false }
         let scrubber = SentryEventScrubber()
         let labels = CrashEventLabels(policy: policy)
         options.beforeSend = { event in
@@ -73,9 +95,11 @@ public final class CrashReporter: Sendable {
 
     /// Starts Sentry when the policy allows it. Call once, on the main
     /// thread, after the run marker's handlers are installed.
+    /// - Parameter profile: What starts now; with ``StartProfile/handlersFirst``,
+    ///   call ``startDeferredIntegrations()`` once startup completes.
     /// - Returns: whether Sentry started.
     @discardableResult
-    public func start() -> Bool {
+    public func start(profile: StartProfile = .standard) -> Bool {
         guard policy.shouldStart, !isStarted else { return false }
         // The main app's startup race (#836): Sentry's init thread reads the
         // environment while the main thread first builds the locale.
@@ -83,13 +107,28 @@ public final class CrashReporter: Sendable {
         _ = NSLocale.preferredLanguages
         let appOwned = SignalActions(capturing: Self.appOwnedSignals)
         TaskExceptionPorts.captureBeforeSentry()
-        SentrySDK.start(options: options())
+        let sentryOptions = options(profile: profile)
+        let interval = Self.launchSignposter.beginInterval("launch.sentry_start")
+        SentrySDK.start(options: sentryOptions)
+        Self.launchSignposter.endInterval("launch.sentry_start", interval)
+        if profile == .handlersFirst { SentrySDK.pauseAppHangTracking() }
         TaskExceptionPorts.noteSentryStarted()
         appOwned.restore()
         let handlers = SignalActions(capturing: Self.fatalSignals)
         sentryHandlers.withLock { $0 = handlers }
         return true
     }
+
+    /// The part of a ``StartProfile/handlersFirst`` start that waits for
+    /// startup: app-hang reports resume. Call once, on main, after startup
+    /// completes; does nothing while Sentry is off.
+    public func startDeferredIntegrations() {
+        guard isStarted else { return }
+        SentrySDK.resumeAppHangTracking()
+    }
+
+    /// The launch signposts' log (subsystem and category as `LaunchSignposts`).
+    private static let launchSignposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "launch")
 
     /// Puts Sentry's fatal-signal handlers back after something reset them
     /// (Chromium's start). Sentry still calls the handlers it saved at

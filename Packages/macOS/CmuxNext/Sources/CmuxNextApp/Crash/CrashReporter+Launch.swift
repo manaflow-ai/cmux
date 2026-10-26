@@ -4,6 +4,7 @@ import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 extension CrashReporter {
@@ -33,6 +34,14 @@ extension CrashReporter {
 /// The app process's crash reporting (cx-urd.58): the Sentry reporter and
 /// the helper crash report forwarder. Starts only for the app itself
 /// (`marksRun`), after the run marker installed its signal handlers.
+///
+/// With `handlersFirst` (feature `sentryHandlersFirst`, p08-startup-032) Sentry
+/// starts with ``CrashReporter/StartProfile/handlersFirst`` and the rest is one
+/// afterStartup post (``AfterStartup``), as Chrome posts non-critical startup
+/// work through `AfterStartupTaskUtils::PostTask`
+/// (chrome/browser/after_startup_task_utils.cc): app-hang reports resume and
+/// the forwarders read the previous runs' reports. The `crash.sentry_start`
+/// and `crash.sentry_started` launch marks bound the start.
 struct AppCrashReporting: Sendable {
     let reporter: CrashReporter
     /// Nil outside the app process. With reports off it only marks reports done.
@@ -43,7 +52,10 @@ struct AppCrashReporting: Sendable {
     /// process or with no acpmux.
     let acpmuxPanics: OwnerPanicForwarder?
 
-    init(environment: AppEnvironment) {
+    /// - Parameters:
+    ///   - handlersFirst: Feature `sentryHandlersFirst`: only crash capture before startup completes.
+    ///   - startup: The launch's scheduler for the deferred part; nil (tests) runs it at once.
+    init(environment: AppEnvironment, handlersFirst: Bool = false, startup: StartupScheduler? = nil) {
         reporter = CrashReporter.forThisLaunch(bundleID: environment.launch.bundleID)
         guard environment.marksRun else {
             forwarder = nil
@@ -51,12 +63,13 @@ struct AppCrashReporting: Sendable {
             acpmuxPanics = nil
             return
         }
-        let sends = reporter.start()
+        DebugTimings.markLaunch("crash.sentry_start")
+        let sends = reporter.start(profile: handlersFirst ? .handlersFirst : .standard)
+        DebugTimings.markLaunch("crash.sentry_started")
         let forwarder = SystemCrashForwarder(
             stateFile: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
                 .appending(path: "crash-forwarder.json"),
             bundlePath: Bundle.main.bundlePath, mainExecutable: Bundle.main.executablePath, sends: sends)
-        forwarder.start()
         self.forwarder = forwarder
         let ownerPanics = OwnerPanicForwarder(
             log: OwnerPanicForwarder.log(stateRoot: Self.ownerStateRoot(stateDirectory: environment.daemonStateDirectory),
@@ -64,22 +77,38 @@ struct AppCrashReporting: Sendable {
             stateFile: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
                 .appending(path: "owner-panic-forwarder.json"),
             sends: sends)
-        ownerPanics.start()
         self.ownerPanics = ownerPanics
         // A panic in a daemon request task ends only that task: before this log, the
         // 2026-10-14 sort panic reached only daemon.log.
-        if let home = Self.acpmuxHome(environment: environment) {
-            let acpmuxPanics = OwnerPanicForwarder(
+        let acpmuxPanics = Self.acpmuxHome(environment: environment).map { home in
+            OwnerPanicForwarder(
                 log: RustPanicSource.acpmuxLog(acpmuxHome: home),
                 stateFile: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
                     .appending(path: "acpmux-panic-forwarder.json"),
                 sends: sends, source: .acpmux)
-            acpmuxPanics.start()
-            self.acpmuxPanics = acpmuxPanics
-        } else {
-            acpmuxPanics = nil
         }
+        self.acpmuxPanics = acpmuxPanics
         Self.installLayoutPassGuard(reporter: reporter)
+        let later = AfterStartup { [reporter = self.reporter] in
+            reporter.startDeferredIntegrations()
+            forwarder.start()
+            ownerPanics.start()
+            acpmuxPanics?.start()
+        }
+        if handlersFirst { later.post(on: startup) } else { later.work() }
+    }
+
+    /// The crash reporting work that waits for startup: one afterStartup main post of the
+    /// launch's scheduler, or at once without one.
+    struct AfterStartup {
+        /// The post's name in the startup log.
+        static let taskName: StaticString = "CrashReporting.afterStartup"
+        let work: @MainActor @Sendable () -> Void
+
+        func post(on startup: StartupScheduler?) {
+            guard let startup else { return work() }
+            startup.post(.afterStartup, Self.taskName, on: .main, work)
+        }
     }
 
     /// A layout feedback loop (one view laid out more than
