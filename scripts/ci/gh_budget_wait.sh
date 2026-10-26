@@ -14,7 +14,7 @@
 #   gh_budget_wait.sh --reserve N    wait (once, bounded) until the core budget has
 #                                    at least N calls left; never fails
 #
-# A refused call is retried at most GH_BUDGET_WAIT_ATTEMPTS times (default 3), and
+# A refused call is tried at most GH_BUDGET_WAIT_ATTEMPTS times (default 6), and
 # one job waits at most GH_BUDGET_WAIT_MAX_SECONDS in all (default 3600, the
 # longest a reset can be away); each wait is logged. Reading /rate_limit costs
 # nothing. A refused request did nothing on GitHub's side, so retrying a write is
@@ -28,22 +28,29 @@ set -u
 
 ledger_dir="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/gh-budget-wait"
 max_total="${GH_BUDGET_WAIT_MAX_SECONDS:-3600}"
-attempts="${GH_BUDGET_WAIT_ATTEMPTS:-3}"
+attempts="${GH_BUDGET_WAIT_ATTEMPTS:-6}"
 
 waited_so_far() {
   cat "$ledger_dir/waited" 2>/dev/null || echo 0
 }
 
-# Seconds until the exhausted budget resets (core, graphql or search), or 60 when
-# none reads exhausted (a secondary limit), capped by what this job has left.
+# Seconds until the exhausted budget resets (core, graphql or search). When none reads
+# exhausted, the refusal is GitHub's secondary limit on bursts (it sends no reset; all of
+# the repository's GITHUB_TOKENs count as one actor), so back off: 60 s on the first try,
+# then 120, 240 and 300 s per wait. $1 is the try number.
 seconds_to_reset() {
-  local now reset left
+  local now reset left try="${1:-1}"
   now="$(date +%s)"
   reset="$("$REAL_GH" api rate_limit --jq \
     '[.resources.core, .resources.graphql, .resources.search] | map(select(.remaining == 0) | .reset) | max // 0' \
     2>/dev/null || echo 0)"
   case "$reset" in '' | *[!0-9]*) reset=0 ;; esac
-  if [ "$reset" -gt "$now" ]; then left=$((reset - now + 5)); else left=60; fi
+  if [ "$reset" -gt "$now" ]; then
+    left=$((reset - now + 5))
+  else
+    left=$((60 << (try - 1)))
+    [ "$left" -le 300 ] || left=300
+  fi
   echo "$left"
 }
 
@@ -129,7 +136,7 @@ while [ "$try" -le "$attempts" ]; do
     ! grep -qiE 'rate limit exceeded|secondary rate limit|abuse detection|too many requests|HTTP 429' "$work/err" "$work/out"; then
     break
   fi
-  wait_for_budget "$(seconds_to_reset)" "gh ${1:-} ${2:-} was refused for the API rate limit (try $try of $attempts)" || break
+  wait_for_budget "$(seconds_to_reset "$try")" "gh ${1:-} ${2:-} was refused for the API rate limit (try $try of $attempts)" || break
   try=$((try + 1))
 done
 cat "$work/out"

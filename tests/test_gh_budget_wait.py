@@ -22,7 +22,7 @@ SCRIPT = ROOT / "scripts" / "ci" / "gh_budget_wait.sh"
 NIGHTLY = ROOT / ".github" / "workflows" / "nightly.yml"
 
 # The fake gh: `api rate_limit` reports an exhausted core budget that reset a moment ago (so a
-# wait is the 60 s floor, capped below by GH_BUDGET_WAIT_MAX_SECONDS); any other call fails for
+# wait is the secondary-limit backoff, capped by GH_BUDGET_WAIT_MAX_SECONDS); any other call fails for
 # the rate limit while REFUSALS has calls left, then prints its arguments and stdin.
 FAKE_GH = r"""#!/bin/bash
 state="$FAKE_STATE"
@@ -123,6 +123,17 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual(out.stdout, "ok api x")
         self.assertIn("GitHub API budget: gh api x was refused", summary.read_text())
         self.assertIn("gh api x was refused", (h.runner_temp / "gh-budget-wait" / "waits.log").read_text())
+
+    def test_a_refusal_with_no_exhausted_budget_backs_off_exponentially(self) -> None:
+        # GitHub's secondary limit sends no reset: 60, 120, 240, then 300 s per wait (sleep is faked).
+        h = self.harness(refusals=5, GH_BUDGET_WAIT_MAX_SECONDS="3600")
+        fake_sleep = Path(h.env["PATH"].split(":")[0]) / "sleep"
+        fake_sleep.write_text('#!/bin/bash\necho "$1" >> "$FAKE_STATE/slept"\n')
+        fake_sleep.chmod(0o755)
+        result = h.gh("release", "upload", "v1", "a.dmg")
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual((h.state / "slept").read_text().split(), ["60", "120", "240", "300", "300"])
+        self.assertEqual(h.waited(), 1020)
 
     def test_a_429_counts(self) -> None:
         h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1", FAKE_ERROR="HTTP 429: Too Many Requests")

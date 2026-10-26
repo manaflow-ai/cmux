@@ -5,6 +5,9 @@ import http.server
 import socket
 import importlib.util
 import json
+import subprocess
+import os
+import io
 from pathlib import Path
 import sys
 import tempfile
@@ -134,10 +137,10 @@ class PublicationTests(unittest.TestCase):
     def test_payloads_finish_before_any_feed_changes(self):
         payloads = [self.asset(f"build-{index}.dmg") for index in range(5)]
         feeds = [self.asset("appcast-arm64.xml", True), self.asset("appcast.xml", True)]
-        self.client.overlap_event = threading.Event()
         self.publish(payloads, feeds)
         self.assertEqual([event[1] for event in self.client.events if event[0] == "rename"], [asset.path.name for asset in feeds])
-        self.assertEqual(self.client.peak, 2)
+        # One upload at a time: parallel uploads from one token burst into GitHub's secondary limit.
+        self.assertEqual(self.client.peak, 1)
 
     def test_rerun_reuses_verified_payloads_and_feeds(self):
         payload, feed = self.asset("build.dmg"), self.asset("appcast.xml", True)
@@ -413,7 +416,9 @@ class TransportTests(unittest.TestCase):
         """Publish one file after the queued answers; returns the waits slept."""
         self.responses = list(responses)
         publisher._rate_limit_deadline = None
+        publisher._secondary_waits = 0
         self.addCleanup(setattr, publisher, "_rate_limit_deadline", None)
+        self.addCleanup(setattr, publisher, "_secondary_waits", 0)
         waits = []
         with patch.object(publisher, "_sleep", side_effect=waits.append):
             publisher.publish(self.client, 42, [[self.file()], [], []])
@@ -433,6 +438,32 @@ class TransportTests(unittest.TestCase):
         waits = self.rate_limited_publish((403, {"retry-after": "30"}, {"message": "You have exceeded a secondary rate limit."}))
         self.assertEqual(waits, [30.0])
         self.assertEqual(len(self.uploads), 2)
+
+    def test_a_refusal_with_no_reset_backs_off_exponentially_within_the_budget(self):
+        # GitHub's secondary limit: no retry-after and no x-ratelimit headers (2026-10-26, run 40298250989).
+        refused = (403, {"x-github-request-id": "E60C:1"}, {"message": "API rate limit exceeded for installation."})
+        with patch.object(publisher, "RATE_LIMIT_BUDGET_SECONDS", 1800):
+            waits = self.rate_limited_publish(*[refused] * 5)
+        self.assertEqual(waits, [60.0, 120.0, 240.0, 300.0, 300.0])
+        self.assertEqual(len(self.uploads), 6)
+
+    def test_a_refusal_logs_every_header_and_the_rate_limit_snapshot(self):
+        refused = (403, {"x-github-request-id": "E60C:1", "x-oauth-scopes": ""}, {"message": "API rate limit exceeded"})
+        with patch("sys.stderr", new_callable=io.StringIO) as err:
+            self.rate_limited_publish(refused)
+        text = err.getvalue()
+        self.assertIn("Rate-limited POST response headers: ", text)
+        self.assertIn("x-github-request-id=E60C:1", text)
+        self.assertIn("/rate_limit at the refusal: ", text)
+        self.assertNotIn("fake-test-token", text)
+
+    def test_the_budget_comes_from_the_environment(self):
+        script = Path(publisher.__file__)
+        out = subprocess.run([sys.executable, "-c", f"import runpy; m = runpy.run_path({str(script)!r}, run_name='x'); "
+                              "print(m['RATE_LIMIT_BUDGET_SECONDS'])"],
+                             env={**os.environ, "CMUX_RELEASE_RATE_LIMIT_SECONDS": "1800"},
+                             capture_output=True, text=True, check=True)
+        self.assertEqual(out.stdout.strip(), "1800")
 
     def test_rate_limit_403_named_only_in_the_body_is_retried(self):
         waits = self.rate_limited_publish((403, {}, {"message": "API rate limit exceeded for installation ID 1."}))
