@@ -49,6 +49,7 @@ const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
 const { VIDEO_INFO_DEADLINE_MS, isVideoAttachment, parseVideoInfo, useVideoInfo } =
   await import("../src/agent-session/acpmux/composer/videoAttachments");
+const { keptChips } = await import("../src/agent-session/acpmux/composer/keptAttachments");
 
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
@@ -77,16 +78,16 @@ setChipHost(
 let state: { attachments: ComposerAttachment[]; reading: number; remove(id: string): void } | undefined;
 function Harness({ initial, local }: { initial: ComposerAttachment[]; local: boolean }) {
   const [attachments, setAttachments] = useState(initial);
-  const reading = useVideoInfo(attachments, setAttachments, () => local);
+  const reading = useVideoInfo(attachments, setAttachments, local);
   const remove = (id: string) => setAttachments((current) => current.filter((chip) => chip.id !== id));
   state = { attachments, reading, remove };
   return <AttachmentStrip attachments={attachments} onRemove={remove} />;
 }
 
-async function render(initial: ComposerAttachment[], local = true) {
+async function render(initial: ComposerAttachment[], local = true, key: string = crypto.randomUUID()) {
   calls = [];
   await act(async () => {
-    root.render(<Harness key={crypto.randomUUID()} initial={initial} local={local} />);
+    root.render(<Harness key={key} initial={initial} local={local} />);
   });
 }
 
@@ -141,6 +142,12 @@ try {
     expect(calls.filter((call) => call.method === "video.info").length).toBe(1);
   });
 
+  test("a chat's kept draft never carries a video's poster and frames: they are read again", () => {
+    const read = { ...video(), video: INFO };
+    expect(keptChips([read])).toEqual([video()]);
+    expect(keptChips([video()])).toEqual([video()]);
+  });
+
   test("a video the host cannot read stays a file chip and holds nothing", async () => {
     await render([video()]);
     await act(async () => calls[0]!.answer(undefined));
@@ -155,6 +162,51 @@ try {
     expect(calls).toEqual([]);
     expect(state?.reading).toBe(0);
     expect(host.querySelector(".acpmux-attachment-link-name")?.textContent).toBe(video().name);
+  });
+
+  test("a chat that turns out to be on this Mac reads the video it already holds", async () => {
+    await render([video()], false, "same");
+    expect(calls).toEqual([]);
+    await act(async () => {
+      root.render(<Harness key="same" initial={[]} local />);
+    });
+    expect(calls.map((call) => call.method)).toEqual(["video.info"]);
+    expect(state?.reading).toBe(1);
+  });
+
+  test("the same video removed and added again is read again, and the first read's end leaves the second busy", async () => {
+    await render([video()]);
+    await act(async () => state!.remove(video().id));
+    // Added again (dropped a second time): a new chip object with the same id.
+    await act(async () => {
+      root.render(<Harness key="readd" initial={[video()]} local />);
+    });
+    const [first, second] = calls.filter((call) => call.method === "video.info");
+    expect(second).toBeDefined();
+    expect(state?.reading).toBe(1);
+    // The first composer's read ends late: the second's tile still spins.
+    await act(async () => first!.answer(undefined));
+    expect(state?.reading).toBe(1);
+    expect(host.querySelector(".acpmux-attachment-pending")).not.toBeNull();
+    await act(async () => second!.answer(INFO));
+    expect(state?.reading).toBe(0);
+  });
+
+  test("a composer that goes away ends its reads: nothing stays busy", async () => {
+    await render([video()]);
+    const { useVideoReading } = await import("../src/agent-session/acpmux/composer/videoAttachments");
+    let busy: boolean | undefined;
+    function Probe() {
+      busy = useVideoReading(video().id);
+      return null;
+    }
+    await act(async () => {
+      root.render(<Probe />);
+    });
+    expect(busy).toBe(false);
+    // Its late answer adds nothing anywhere.
+    await act(async () => calls[0]!.answer(INFO));
+    expect(busy).toBe(false);
   });
 
   test("other files are not read", async () => {

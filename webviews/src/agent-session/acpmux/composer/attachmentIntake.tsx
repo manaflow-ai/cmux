@@ -75,6 +75,9 @@ export type AttachmentIntakeOptions = {
   scope?: string;
   /// Keeps chips whose read ended after the composer left `scope` for that chat (keptAttachments.ts).
   elsewhere?(scope: string, attachments: ComposerAttachment[]): void;
+  /// A chat on this Mac, whose attached videos the host may read (composer/videoAttachments.ts);
+  /// `localPaths` says so too. Quick Chat has no `localPaths` but is on this Mac.
+  localChat?: boolean;
   /// When the composer moves to another chat: whether the files still being read move with it (a
   /// harness switch's new session carries the prompt). A chat that had no id yet always carries.
   carries?(): boolean;
@@ -293,9 +296,13 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const shown = pending.filter((chip) => chip.scope === scope);
   /// The chips still loading (a failed one waits for its Retry or ×, not the send).
   const loading = shown.filter((chip) => !chip.failed).length;
-  /// The video chips whose poster and frames the host still reads, for a chat on this Mac (its
-  /// `localPaths`): a send waits for them a few seconds at most (composer/videoAttachments.ts).
-  const videoReading = useVideoInfo(attachments, setAttachments, () => Boolean(live.current.options.localPaths));
+  /// The video chips whose poster and frames the host still reads, for a chat on this Mac: a send
+  /// waits for them a few seconds at most (composer/videoAttachments.ts).
+  const videoReading = useVideoInfo(
+    attachments,
+    setAttachments,
+    Boolean(options.localPaths) || options.localChat === true,
+  );
   /// The landing animation ended: the overlay hides.
   const [dropLanded] = useState(() => () => showDrop(HIDDEN_DROP));
   return {

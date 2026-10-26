@@ -8,6 +8,7 @@ import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import { type AttachmentError, type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
+import { opensProcessTerminal } from "./processTerminal";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
 import { showsLocationRow } from "./locationRow";
@@ -503,6 +504,8 @@ export function Composer({
     // pasted in: its chip joins that chat's kept chips (keptAttachments.ts), unless a switch carries
     // the prompt to its new session.
     scope: sessionId,
+    // A chat on this Mac (Quick Chat too): its attached videos show their posters.
+    localChat: opensProcessTerminal(snapshot.summary),
     elsewhere: (chat, chips) => {
       if (!keptAttachments) return;
       void keptAttachments

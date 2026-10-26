@@ -3,9 +3,10 @@
 // reading a recording's bytes froze the composer), so the host reads it with AVFoundation, off its
 // main thread (`video.info`, AgentPaneVideoInfo.swift): only for a file whose path it knows, in a
 // chat on this Mac. The answer goes on the chip (`ComposerAttachment.video`): its tile draws the
-// poster and length, and the prompt sends the frames, so a send never waits on a read it could do
-// without. A send made while a read is out waits for it a few seconds at most (VIDEO_INFO_DEADLINE_MS);
-// a chip whose read failed or timed out stays a file chip and goes as its path alone.
+// poster and length, and its key frames are there for the prompt (sent with the video's link by
+// videoPrompt.ts, which comes with the sent bubble's tile). A send made while a read is out waits
+// for it a few seconds at most (VIDEO_INFO_DEADLINE_MS); a chip whose read failed or timed out
+// stays a file chip and goes as its path alone.
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { ComposerAttachment } from "../attachments";
 import { callChipHost } from "../chips/host";
@@ -55,13 +56,14 @@ export function parseVideoInfo(value: unknown): VideoInfo | undefined {
   };
 }
 
-/// The chips whose video is being read, by id, so a chip draws its busy tile wherever it shows.
-let reading: ReadonlySet<string> = new Set();
+/// The reads out now, by chip id (each read its own token), so a chip draws its busy tile wherever it
+/// shows; a read that ends clears only its own token, never a later read of the same chip.
+let reading: ReadonlyMap<string, symbol> = new Map();
 const listeners = new Set<() => void>();
-function setReading(id: string, on: boolean) {
-  if (reading.has(id) === on) return;
-  const next = new Set(reading);
-  if (on) next.add(id);
+function setReading(id: string, token: symbol, on: boolean) {
+  if (on ? reading.get(id) === token : reading.get(id) !== token) return;
+  const next = new Map(reading);
+  if (on) next.set(id, token);
   else next.delete(id);
   reading = next;
   for (const listener of listeners) listener();
@@ -77,37 +79,53 @@ export function useVideoReading(id: string): boolean {
   return useSyncExternalStore(subscribe, readingNow, readingNow).has(id);
 }
 
-/// Reads the video of each staged video chip that has none yet (`enabled`: a chat on this Mac, whose
-/// files the host may read) and puts it on the chip. Answers how many staged chips are still being
-/// read, for the send's wait (useSendWhenAttached): a removed chip, a refusal or the deadline ends it.
+/// Reads the video of each staged video chip that has none yet, while `enabled` (a chat on this Mac,
+/// whose files the host may read), and puts it on the chip. Answers how many staged chips are still
+/// being read, for the send's wait (useSendWhenAttached): a removed chip, a refusal, the deadline or
+/// the composer going away ends it.
 export function useVideoInfo(
   attachments: readonly ComposerAttachment[],
   setAttachments: (update: (current: ComposerAttachment[]) => ComposerAttachment[]) => void,
-  enabled: () => boolean,
+  enabled: boolean,
 ): number {
-  /// Each staged chip is asked once; one removed and added again is asked again.
-  const asked = useRef(new Set<string>());
+  /// The chips asked (each chip object once: one added again, or replaced without its video, is a
+  /// new object and is asked again), and the reads this composer has out, to end on unmount.
+  const asked = useRef(new WeakSet<ComposerAttachment>());
+  const out = useRef(new Map<symbol, { id: string; deadline: ReturnType<typeof setTimeout> }>());
   const mounted = useRef(true);
   const shown = useSyncExternalStore(subscribe, readingNow, readingNow);
   useEffect(() => {
     mounted.current = true;
+    const reads = out.current;
     return () => {
       mounted.current = false;
+      for (const [token, { id, deadline }] of reads) {
+        clearTimeout(deadline);
+        setReading(id, token, false);
+      }
+      reads.clear();
     };
   }, []);
   useEffect(() => {
-    for (const id of asked.current) if (!attachments.some((chip) => chip.id === id)) asked.current.delete(id);
+    if (!enabled) return;
     for (const chip of attachments) {
-      if (!isVideoAttachment(chip) || chip.video || asked.current.has(chip.id) || !enabled()) continue;
-      asked.current.add(chip.id);
+      if (!isVideoAttachment(chip) || chip.video || asked.current.has(chip)) continue;
+      asked.current.add(chip);
       const { id, path } = chip;
-      setReading(id, true);
+      const token = Symbol(id);
+      const end = () => {
+        const read = out.current.get(token);
+        if (read) clearTimeout(read.deadline);
+        out.current.delete(token);
+        setReading(id, token, false);
+      };
+      setReading(id, token, true);
       // The send waits no longer than this; a late answer still draws the poster.
-      const deadline = setTimeout(() => setReading(id, false), VIDEO_INFO_DEADLINE_MS);
+      out.current.set(token, { id, deadline: setTimeout(end, VIDEO_INFO_DEADLINE_MS) });
       void callChipHost("video.info", { src: path }).then((answer) => {
-        clearTimeout(deadline);
-        setReading(id, false);
+        end();
         const video = parseVideoInfo(answer);
+        // An answer after its deadline still draws the poster, unless the composer went away.
         if (!video || !mounted.current) return;
         setAttachments((current) =>
           current.some((staged) => staged.id === id && staged.path === path && !staged.video)
@@ -116,8 +134,6 @@ export function useVideoInfo(
         );
       });
     }
-    // `enabled` is read when a chip comes in, as the intake's options are.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attachments, setAttachments]);
+  }, [attachments, setAttachments, enabled]);
   return attachments.filter((chip) => shown.has(chip.id)).length;
 }
