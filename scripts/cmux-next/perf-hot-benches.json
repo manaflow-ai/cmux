@@ -23,7 +23,7 @@
     },
     "key-dispatch": {
       "what": "every key-down: shortcut table, chord tracker, focus routing",
-      "bench": "scripts/cmux-next/bench-typing.py",
+      "bench": "CMUX_BENCH=1 swift test -c release --filter KeyRouterBench (KEY-ROUTER-BENCH JSON: plain_p99_us, chord_p99_us, plain_allocs, chord_allocs, tis_calls, key_equiv_views; plain key, Cmd-T, Cmd-D, a when-clause binding and Ctrl-C in a terminal, 60 workspaces, 30 panes), then scripts/cmux-next/bench-typing.py",
       "owner": "PL-typing",
       "trace": [
         "key.frame",
