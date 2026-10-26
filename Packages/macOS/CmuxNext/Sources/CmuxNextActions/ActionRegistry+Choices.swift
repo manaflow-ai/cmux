@@ -16,7 +16,12 @@ extension ActionRegistry {
         guard !cases.isEmpty || trailer != nil else { return nil }
         let submenu = NSMenu(title: title)
         submenu.autoenablesItems = false
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let coordinator = ActionChoicesMenuCoordinator(registry: self, action: descriptor.id, argument: argument.name, target: target,
+                                                       trace: contextMenuTrace)
+        #else
         let coordinator = ActionChoicesMenuCoordinator(registry: self, action: descriptor.id, argument: argument.name, target: target)
+        #endif
         // `NSMenu.delegate` is weak; the coordinator lives as long as the menu.
         choiceCoordinators.setObject(coordinator, forKey: submenu)
         submenu.delegate = coordinator
@@ -94,6 +99,9 @@ final class ActionChoicesMenuCoordinator: NSObject, NSMenuDelegate {
     private let action: ActionID
     private let argument: String
     private let target: ActionTargetRef?
+    #if DEBUG || CMUX_BENCH_HOOKS
+    private weak var trace: ActionContextMenuTrace?
+    #endif
 
     init(registry: ActionRegistry, action: ActionID, argument: String, target: ActionTargetRef?) {
         self.registry = registry
@@ -102,7 +110,17 @@ final class ActionChoicesMenuCoordinator: NSObject, NSMenuDelegate {
         self.target = target
     }
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    convenience init(registry: ActionRegistry, action: ActionID, argument: String, target: ActionTargetRef?, trace: ActionContextMenuTrace?) {
+        self.init(registry: registry, action: action, argument: argument, target: target)
+        self.trace = trace
+    }
+    #endif
+
     func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        trace?.record(menu: menu, item: item)
+        #endif
         let value = (item?.representedObject as? ActionMenuPayload)?.arguments[argument]?.stringValue
         registry?.choicePreview?(action, argument, value, target)
     }

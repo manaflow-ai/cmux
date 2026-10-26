@@ -21,6 +21,9 @@ extension ActionRegistry {
         let runFacts = Self.impliedContext(for: context)
         let effective = self.context.union(runFacts).union(implied)
         let menu = NSMenu()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        installContextMenuTrace(on: menu)
+        #endif
         // Context menus are complete snapshots. Letting AppKit validate every row while the
         // pointer tracks through the menu repeats action predicates on the main thread for each
         // hover event, which makes a large workspace menu feel sticky.
@@ -100,6 +103,9 @@ extension ActionRegistry {
                 let item = NSMenuItem(title: title.droppingEllipsis, action: nil, keyEquivalent: "")
                 item.image = descriptor(for: id).flatMap { Self.menuIcon($0.symbol) }
                 let submenu = NSMenu(title: item.title)
+                #if DEBUG || CMUX_BENCH_HOOKS
+                installContextMenuTrace(on: submenu)
+                #endif
                 submenu.autoenablesItems = false
                 childItems.forEach(submenu.addItem)
                 item.submenu = submenu
@@ -110,6 +116,9 @@ extension ActionRegistry {
                 let item = NSMenuItem(title: folder.title, action: nil, keyEquivalent: "")
                 item.image = Self.menuIcon(folder.symbol)
                 let submenu = NSMenu(title: folder.title)
+                #if DEBUG || CMUX_BENCH_HOOKS
+                installContextMenuTrace(on: submenu)
+                #endif
                 submenu.autoenablesItems = false
                 childItems.forEach(submenu.addItem)
                 item.submenu = submenu

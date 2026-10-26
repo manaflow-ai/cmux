@@ -109,6 +109,12 @@ public final class ActionRegistry {
     @ObservationIgnored public var choiceState: (@MainActor (ActionID, ActionTargetRef?) -> String?)?
     @ObservationIgnored public var targetChoices: (@MainActor (_ action: ActionID, _ kind: ActionTargetKind, _ target: ActionTargetRef?) -> ActionTargetChoices?)?
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// DEBUG-only trace for the native context-menu latency harness. It is deliberately kept out
+    /// of release builds so menu tracking has no observer or timestamp work in production.
+    @ObservationIgnored let contextMenuTrace = ActionContextMenuTrace()
+    #endif
+
     /// Old IDs folded into canonical IDs on register and lookup.
     @ObservationIgnored public private(set) var aliases: [ActionID: ActionID] = [:]
 

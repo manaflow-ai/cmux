@@ -520,6 +520,22 @@ final class AppControl {
                 return .value(["stalled_ms": .number(Double(milliseconds))])
             },
         ])
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // DEBUG-only native context-menu hover samples and validation count. The latency
+        // harness resets this before each traversal and reads it after each item.
+        service.router.register(.mainActor("debug.menu_trace") { [weak services] call in
+            guard let registry = services?.registry else { return .value(.null) }
+            let reset = call.params["reset"]?.boolValue == true
+            let samples = registry.contextMenuHoverSamples(reset: reset)
+            let validations = registry.contextMenuValidationCount(reset: reset)
+            return .value(["validations": JSONValue(validations),
+                           "samples": .array(samples.map { sample in
+                ["menu": .string(sample.menuTitle), "item": .string(sample.itemTitle),
+                 "action": sample.actionID.map(JSONValue.string) ?? .null,
+                 "uptime": .number(sample.uptime)]
+            })])
+        })
+        #endif
         // Sidebar fixtures and the sidebar focus ring live in CmuxNextSidebar behind DEBUG only, so a bench
         // build (CMUX_BENCH_HOOKS without DEBUG) registers these routes in DEBUG builds alone.
         #if DEBUG

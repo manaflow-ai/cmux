@@ -48,10 +48,23 @@ struct ContextMenuImpliedFactsTests {
         _ = NSApplication.shared
         let registry = ActionRegistry.standard()
         registry.bind("bookmark.addPage", invoke: { _ in })
-        registry.context = []
-        let menu = registry.makeContextMenu(for: .bookmarksBar, implied: .browserFocused)
+        var validations = 0
+        var observedTarget: ActionTargetRef?
+        let target = ActionTargetRef(kind: .workspace, id: "clicked")
+        ActionTargetReasons.set("bookmark.addPage", in: registry) { invocation in
+            validations += 1
+            observedTarget = invocation.target
+            return validations == 1 ? "disabled for this clicked target" : nil
+        }
+        registry.context = [.browserFocused]
+        let menu = registry.makeContextMenu(for: .bookmarksBar, target: target, entries: [.action("bookmark.addPage")], implied: .browserFocused)
         let add = try #require(row("bookmark.addPage", in: menu))
         #expect(!menu.autoenablesItems, "context menus snapshot validation before tracking")
-        #expect(!add.isEnabled, "a row that lacks its required context is enabled until AppKit updates the menu")
+        #expect(validations == 1, "the row is validated once while the clicked target is current")
+        #expect(observedTarget == target, "validation receives the clicked target")
+        #expect(!add.isEnabled, "a row refused for the clicked target is enabled until AppKit updates the menu")
+        menu.update()
+        #expect(validations == 1, "tracking does not revalidate a snapshotted row")
+        #expect(!add.isEnabled, "a later AppKit update cannot replace the clicked target snapshot")
     }
 }

@@ -32,7 +32,65 @@ extension ActionRegistry {
         guard let payload = item.representedObject as? ActionMenuPayload else { return nil }
         return (payload.id, payload.target, payload.arguments)
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// DEBUG-only menu tracking samples for the tagged-build hover harness. The timestamp uses
+    /// system uptime so a caller can subtract its pointer-move start without wall-clock skew.
+    public func contextMenuHoverSamples(reset: Bool = false) -> [ContextMenuHighlightSample] {
+        contextMenuTrace.samples(reset: reset)
+    }
+
+    /// DEBUG-only count of AppKit validation calls since the last reset. A context menu with
+    /// automatic validation disabled should not increment this while its pointer is moving.
+    public func contextMenuValidationCount(reset: Bool = false) -> Int {
+        contextMenuTrace.validationCount(reset: reset)
+    }
+
+    func installContextMenuTrace(on menu: NSMenu) {
+        menu.delegate = contextMenuTrace
+    }
+    #endif
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+/// One AppKit `willHighlight` callback observed by the DEBUG-only menu harness.
+public struct ContextMenuHighlightSample: Sendable {
+    public let menuTitle: String
+    public let itemTitle: String
+    public let actionID: String?
+    public let uptime: Double
+}
+
+final class ActionContextMenuTrace: NSObject, NSMenuDelegate {
+    private let capacity = 4096
+    private var highlights: [ContextMenuHighlightSample] = []
+    private var validations = 0
+
+    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        guard let item else { return }
+        let actionID = (item.representedObject as? ActionMenuPayload)?.id.rawValue
+        highlights.append(ContextMenuHighlightSample(menuTitle: menu.title, itemTitle: item.title,
+                                                     actionID: actionID, uptime: ProcessInfo.processInfo.systemUptime))
+        if highlights.count > capacity { highlights.removeFirst(highlights.count - capacity) }
+    }
+
+    func record(menu: NSMenu, item: NSMenuItem?) { self.menu(menu, willHighlight: item) }
+
+    func noteValidation() { validations += 1 }
+
+    func samples(reset: Bool) -> [ContextMenuHighlightSample] {
+        let result = highlights
+        if reset { highlights.removeAll(keepingCapacity: true) }
+        return result
+    }
+
+    func validationCount(reset: Bool) -> Int {
+        let result = validations
+        if reset { validations = 0 }
+        return result
+    }
+}
+#endif
 
 /// What a menu item runs: an action and, for context menus, its target
 /// (and, for a choices submenu, the chosen argument).
@@ -78,6 +136,9 @@ final class ActionMenuTarget: NSObject, NSMenuItemValidation {
     /// the menu item afterwards. Clicks in an open menu are not gated.
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let registry, let payload = Self.payload(of: menuItem) else { return false }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        registry.contextMenuTrace.noteValidation()
+        #endif
         // A feature an administrator turned off leaves the menu (DisabledFeatures).
         menuItem.isHidden = registry.disabledFeature(for: payload.id) != nil
         if menuItem.isHidden { return false }
