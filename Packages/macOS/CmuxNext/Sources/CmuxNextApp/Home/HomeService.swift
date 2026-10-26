@@ -449,7 +449,7 @@ extension HomeService {
         if replyNotice != notice { replyNotice = notice }
         guard let head, let next = ChiefReplyWatchdog.nextCheck(head, now: now) else { return }
         // One deadline: when the notice appears or its minute count changes; the next head resets it.
-        replyTimer.schedule(after: .seconds(max(1, next.timeIntervalSinceNow))) { @MainActor [weak self] in
+        replyTimer.scheduleOnMain(after: .seconds(max(1, next.timeIntervalSinceNow))) { [weak self] in
             guard let self else { return }
             armReplyTimer(HomeChiefName.select(from: conversations))
         }
