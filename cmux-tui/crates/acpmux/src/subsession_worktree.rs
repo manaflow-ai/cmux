@@ -442,6 +442,8 @@ fn empty_held(dir: &std::fs::File) -> std::io::Result<()> {
         if fd < 0 {
             return Err(std::io::Error::last_os_error());
         }
+        #[cfg(test)]
+        after_dup(fd);
         let stream = unsafe { libc::fdopendir(fd) };
         if stream.is_null() {
             let e = std::io::Error::last_os_error();
@@ -689,6 +691,20 @@ thread_local! {
 fn before_path_removal(root: &Path) {
     if let Some(f) = BEFORE_PATH_REMOVAL.with(|h| h.borrow_mut().take()) {
         f(root);
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Runs once on the next descriptor [`empty_held`] duplicates, right after it does.
+    static AFTER_DUP: std::cell::RefCell<Option<Box<dyn FnOnce(i32)>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(all(test, unix))]
+fn after_dup(fd: i32) {
+    if let Some(f) = AFTER_DUP.with(|h| h.borrow_mut().take()) {
+        f(fd);
     }
 }
 
@@ -1166,6 +1182,49 @@ mod tests {
         remove_worktree(repo.as_path().into(), &made);
         assert!(made.root.join("sentinel").exists(), "the folder at its path is not removed");
         assert!(branch_in(&repo, "task"), "its branch stays with its registration");
+    }
+
+    /// Removing a worktree removes its own registration only: another worktree of the same
+    /// repository whose folder is away for now keeps its own (its index, its HEAD).
+    #[cfg(unix)]
+    #[test]
+    fn removing_a_worktree_keeps_another_worktrees_registration_while_its_folder_is_away() {
+        let (scratch, repo, home) = repo();
+        let other = scratch.0.join("other");
+        sh(&repo, &["worktree", "add", "-q", "-b", "other", &other.to_string_lossy()]);
+        std::fs::write(other.join("staged.txt"), "staged\n").unwrap();
+        sh(&other, &["add", "staged.txt"]);
+        let away = scratch.0.join("other-away");
+        std::fs::rename(&other, &away).unwrap();
+
+        let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
+        remove_worktree(repo.as_path().into(), &made);
+        assert!(!made.root.exists(), "removed");
+        assert!(!branch_in(&repo, "task"), "its branch removed");
+
+        std::fs::rename(&away, &other).unwrap();
+        let staged = sh(&other, &["diff", "--cached", "--name-only"]);
+        assert_eq!(staged.trim(), "staged.txt", "the other worktree keeps its index");
+    }
+
+    /// The descriptor removal reads a folder through never reaches a child another thread
+    /// spawns meanwhile: it is close-on-exec from the moment it exists.
+    #[cfg(unix)]
+    #[test]
+    fn the_descriptor_a_removal_reads_through_is_close_on_exec_at_once() {
+        let (scratch, _repo, _home) = repo();
+        let dir = scratch.0.join("to-empty");
+        std::fs::create_dir_all(dir.join("a")).unwrap();
+        let flags = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let seen = flags.clone();
+        AFTER_DUP.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move |fd| {
+                *seen.lock().unwrap() = Some(unsafe { libc::fcntl(fd, libc::F_GETFD) });
+            }))
+        });
+        empty_held(&std::fs::File::open(&dir).unwrap()).unwrap();
+        let flags = flags.lock().unwrap().expect("a descriptor was duplicated");
+        assert_ne!(flags & libc::FD_CLOEXEC, 0, "close-on-exec");
     }
 
     /// Off unix there is no folder identity: an untouched worktree is proven by git alone.
