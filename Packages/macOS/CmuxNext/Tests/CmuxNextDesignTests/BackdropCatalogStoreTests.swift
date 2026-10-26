@@ -54,7 +54,7 @@ import Testing
         try FileManager.default.createDirectory(at: movies, withIntermediateDirectories: true)
         try Data(#"{"assets":[{"id":"B2","accessibilityLabel":"Iceland Dusk"}]}"#.utf8)
             .write(to: aerials.appendingPathComponent("entries.json"))
-        let downloaded = movies.resolvingSymlinksInPath().appendingPathComponent("B2.mov")
+        let downloaded = movies.appendingPathComponent("B2.mov")
         let store = BackdropCatalogStore(systemDirectory: pictures, userImages: nil, aerials: aerials, assetFolders: [])
         store.start()
         defer { store.stop() }
