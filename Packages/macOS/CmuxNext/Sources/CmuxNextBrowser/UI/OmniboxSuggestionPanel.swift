@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextInput
+import CmuxNextWakeups
 import QuartzCore
 
 /// The lower part of the suggestion card: flush under the bar, as wide as
@@ -39,6 +41,27 @@ final class OmniboxSuggestionPanel {
         didSet { rows.forEach { $0.faviconSource = faviconSource } }
     }
 
+    /// Every row's moves, enters and exits, on the card's one consumer: a delivery reports the row under
+    /// the latest point, or none, where the rows are now (a typed character can reorder them between the
+    /// move and the frame).
+    private(set) lazy var hoverMoves = PointerFrameHover(owner: "OmniboxSuggestionPanel.hover", view: content) { [weak self] point in
+        self?.pointerMoved(toWindowPoint: point)
+    }
+
+    /// One hover delivery at `windowPoint` (the card's window): the row under it, or nil off the rows.
+    private func pointerMoved(toWindowPoint windowPoint: CGPoint) {
+        let local = content.card.convert(windowPoint, from: nil)
+        let row = rows.firstIndex { $0.frame.contains(local) }
+        onHover?(row, content.window?.convertPoint(toScreen: windowPoint) ?? NSEvent.mouseLocation)
+    }
+
+    /// The windows' frame-aligned pointer input (feature `pointerFrameHover`): the rows hover on a frame
+    /// interval's first move and once more at its frame, at the latest point. Nil: each move.
+    var hoverFrameInput: FrameInputCoalescers? {
+        get { hoverMoves.frames }
+        set { hoverMoves.frames = newValue }
+    }
+
     /// Shows `suggestions` under `anchor` (the bar), or above it when `upward`, clipped to `pane`.
     /// Rows already on the card take the new matches in place, so typing
     /// never rebuilds the card (no flash, hover tracking kept); only a
@@ -56,13 +79,14 @@ final class OmniboxSuggestionPanel {
                 let row = SuggestionRowView(suggestion: suggestion, faviconSource: faviconSource)
                 rowViewsMade += 1
                 row.onClick = { [weak self] flags in self?.onPick?(index, flags) }
-                row.onPointer = { [weak self] inside, pointer in self?.onHover?(inside ? index : nil, pointer) }
+                row.hoverMoves = hoverMoves
                 rows.append(row)
                 content.card.addSubview(row)
             }
             rows[index].isHighlighted = index == highlighted
         }
         if rows.count != count { content.setAccessibilityRows(rows) }
+        content.hoverMoves = hoverMoves
         place(at: anchor, upward: upward, pane: pane, in: window)
     }
 
@@ -158,6 +182,10 @@ final class SuggestionCardView: NSView {
     var cardFrame: NSRect = .zero { didSet { needsLayout = true } }
     /// Above the bar: rounded at the top, not the bottom.
     var opensUpward = false { didSet { needsLayout = true } }
+    /// The rows' hover consumer (``OmniboxSuggestionPanel/hoverMoves``): the pointer leaving the card is
+    /// discrete, so its pending move lands then (`ShouldFlushQueue`).
+    weak var hoverMoves: PointerFrameHover?
+    private var tracking: NSTrackingArea?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -191,8 +219,20 @@ final class SuggestionCardView: NSView {
         refresh()
     }
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        tracking = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {}
+    override func mouseExited(with event: NSEvent) { hoverMoves?.flush() }
+
     /// The card never scrolls (at most 15 rows); the wheel must not reach
     /// the page under it either.
+    // input-coalesce: native (it drops the wheel; nothing runs to coalesce)
     override func scrollWheel(with event: NSEvent) {}
 
     override func viewDidChangeEffectiveAppearance() {
