@@ -116,6 +116,9 @@ import xml.etree.ElementTree as ET
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from bench_launch import LaunchError  # noqa: E402  (a failed launch is a SystemExit subclass: a stage error, not a signal)
+from bench_launch import PERF_LAB, load_by_path  # noqa: E402
+
+perf_stats = load_by_path("perf_stats", os.path.join(PERF_LAB, "perf_stats.py"))
 
 SUBSYSTEM = "com.cmuxterm.app.next"
 # Tracks that are not OS threads (signpost lanes, daemon spans, stalls, syscalls, driver) get ids from here up
@@ -203,20 +206,16 @@ def read_json(path, default=None):
         return default
 
 
-PERCENTILES_PER_MILLE = {"p50": 500, "p95": 950, "p99": 990}
+PERCENTILE_KEYS = ("p50", "p95", "p99", "max")
 
 
 def pct(values):
-    """n, p50, p95, p99 and max by the nearest-rank method: the p-th percentile is the smallest value with at
-    least p% of the values at or below it (rank ceil(p * n), in integers so no float rounding moves a rank)."""
+    """n, p50, p95, p99 and max from perf_stats.summary (the lab's one definition: linear interpolation), each
+    rounded to 0.01 ms; None when empty."""
     if not values:
         return None
-    s = sorted(values)
-    row = {"n": len(s)}
-    for key, per_mille in PERCENTILES_PER_MILLE.items():
-        row[key] = round(s[max(1, -(-per_mille * len(s) // 1000)) - 1], 2)
-    row["max"] = round(s[-1], 2)
-    return row
+    summary = perf_stats.summary(values)
+    return {"n": summary["n"], **{key: round(summary[key], 2) for key in PERCENTILE_KEYS}}
 
 
 # ---------------------------------------------------------------- stages
@@ -3771,7 +3770,7 @@ def summarize(meta, roles, app_pid, samples, offset_us, signposts, stalls, block
     per_action = collections.defaultdict(dict)
     for row in rows:
         if row["name"] in ("action.input_to_commit", "action.commit", "action.perform", "action.commit.missed"):
-            per_action[row["detail"]][row["name"]] = {k: row[k] for k in ("count", "p50_ms", "p95_ms", "max_ms")}
+            per_action[row["detail"]][row["name"]] = {k: row[k] for k in ("count", "p50_ms", "p95_ms", "p99_ms", "max_ms")}
     # Cross-process waits: the main thread off CPU inside an action's perform (no samples while it ran).
     waits = collections.defaultdict(lambda: {"count": 0, "ms": 0.0, "max_ms": 0.0, "example": None})
     for i in actions:
@@ -3953,16 +3952,18 @@ def summary_text(s):
             lines.append("    leaf: " + "; ".join(f"{x['frame'][:90]} x{x['samples']}" for x in stall["sampled_leaf"]))
         if stall["chromium_main_thread"]:
             lines.append("    chromium on main: " + "; ".join(f"{x['event']} {x['ms']} ms" for x in stall["chromium_main_thread"]))
-    lines.append("Input to commit per action (ms, p50/p95/max, n):")
+    lines.append("Input to commit per action (ms, p50/p95/p99/max, n):")
     for action, rows in sorted((s.get("actions") or {}).items(), key=lambda kv: -((kv[1].get("action.commit") or {}).get("p95_ms") or 0)):
         if action == "*":
             continue
         i2c = rows.get("action.input_to_commit") or {}
         commit = rows.get("action.commit") or {}
         perform = rows.get("action.perform") or {}
-        lines.append(f"  {action:32} input->commit {i2c.get('p50_ms', '-')}/{i2c.get('p95_ms', '-')}/{i2c.get('max_ms', '-')} "
-                     f"n={i2c.get('count', 0)}  commit {commit.get('p50_ms', '-')}/{commit.get('p95_ms', '-')}  "
-                     f"perform {perform.get('p50_ms', '-')}/{perform.get('p95_ms', '-')}"
+        lines.append(f"  {action:32} input->commit {i2c.get('p50_ms', '-')}/{i2c.get('p95_ms', '-')}/"
+                     f"{i2c.get('p99_ms', '-')}/{i2c.get('max_ms', '-')} "
+                     f"n={i2c.get('count', 0)}  commit {commit.get('p50_ms', '-')}/{commit.get('p95_ms', '-')}/"
+                     f"{commit.get('p99_ms', '-')}  "
+                     f"perform {perform.get('p50_ms', '-')}/{perform.get('p95_ms', '-')}/{perform.get('p99_ms', '-')}"
                      + (f"  missed {rows['action.commit.missed']['count']}" if rows.get("action.commit.missed") else ""))
     flows = s.get("key_flows") or {}
     if flows.get("presses") or flows.get("warnings"):
@@ -4254,6 +4255,9 @@ def check_parsers_and_merge():
         lanes = {e.get("name"): e.get("cat") for e in trace["traceEvents"]}
         assert lanes.get("stall.palette_open") == "signpost.stall" and lanes.get("switch.tab warm") == "signpost.switch", lanes
         assert summary["actions"]["tab.new"]["action.input_to_commit"]["p50_ms"] == 7.5, summary["actions"]
+        # Each action row carries p99 next to p95 (perf-signposts' perf_stats rows), and the text prints it.
+        assert summary["actions"]["tab.new"]["action.commit"]["p99_ms"] == 6.0, summary["actions"]
+        assert "input->commit 7.5/7.5/7.5/7.5 n=1  commit 6.0/6.0/6.0" in summary_text(summary), summary_text(summary)
         assert summary["waits"]["stall:lock"]["count"] == 1 and "unattributed" not in summary["waits"], summary["waits"]
         span = next(e for e in trace["traceEvents"] if e.get("name") == "daemon new-tab")
         assert span["ts"] == 2000.0 and span["dur"] == 3000.0, span
@@ -5039,26 +5043,25 @@ def check_flow_gaps_warn():
     assert flow_warnings([], [], []) == [], "a recording without flows warns about nothing"
 
 
-def reference_percentile(values, p):
-    """The nearest-rank percentile from its definition, for the self-test: the smallest value with at least p% of
-    the values at or below it (counted, not computed from a rank)."""
-    return next(v for v in sorted(values) if 100 * sum(1 for x in values if x <= v) >= p * len(values))
+def reference_row(values):
+    """pct()'s row from perf_stats.pct, for the self-test (perf-lab/tests/test_perf_stats.py checks pct itself)."""
+    quantiles = {"p50": 0.50, "p95": 0.95, "p99": 0.99, "max": 1.0}
+    return {"n": len(values), **{key: round(perf_stats.pct(values, q), 2) for key, q in quantiles.items()}}
 
 
 def check_percentiles():
-    """pct() is the nearest-rank percentile: p50/p95/p99/max match the definition on fixed and random samples
-    (ties, one value, sizes around the ranks' steps), and an empty sample is None."""
+    """pct() is perf_stats' linear interpolation, rounded to 0.01: fixed vectors (the old nearest-rank pct gave
+    50/95/99 and 5/10/10 on the first two) and random samples with ties match it, and an empty sample is None."""
     import random
     assert pct([]) is None
-    assert pct(list(range(1, 101))) == {"n": 100, "p50": 50, "p95": 95, "p99": 99, "max": 100}, pct(list(range(1, 101)))
-    assert pct(list(range(1, 11))) == {"n": 10, "p50": 5, "p95": 10, "p99": 10, "max": 10}
+    assert pct(list(range(1, 101))) == {"n": 100, "p50": 50.5, "p95": 95.05, "p99": 99.01, "max": 100}, \
+        pct(list(range(1, 101)))
+    assert pct(list(range(1, 11))) == {"n": 10, "p50": 5.5, "p95": 9.55, "p99": 9.91, "max": 10}, pct(list(range(1, 11)))
     assert pct([7.0]) == {"n": 1, "p50": 7.0, "p95": 7.0, "p99": 7.0, "max": 7.0}
     rng = random.Random(24)
     for n in (2, 3, 19, 20, 21, 99, 100, 101, 199, 200, 201, 1000):
         values = [round(rng.lognormvariate(1.0, 0.8), 2) for _ in range(n)] + [3.0] * (n // 7)
-        row = pct(values)
-        expected = {"n": len(values), "max": max(values),
-                    **{key: reference_percentile(values, per_mille / 10) for key, per_mille in PERCENTILES_PER_MILLE.items()}}
+        row, expected = pct(values), reference_row(values)
         assert row == expected, (n, row, expected)
 
 
@@ -5108,10 +5111,7 @@ def check_clock_order_and_percentiles():
     commits = [(140 + n) / 1000 for n in range(40)]
     presents = [(150 + n + 17 * (n % 3)) / 1000 for n in range(40)]
     for kind, values in (("key_to_commit_ms", commits), ("key_to_present_estimate_ms", presents)):
-        row = rows[kind]["terminal"]
-        expected = {"n": 40, "max": round(max(values), 2),
-                    **{key: round(reference_percentile(values, per_mille / 10), 2)
-                       for key, per_mille in PERCENTILES_PER_MILLE.items()}}
+        row, expected = rows[kind]["terminal"], reference_row(values)
         assert row == expected, (kind, row, expected)
     hops = rows["hop_ms"]["terminal"]
     assert set(hops) == {hop for alternatives in FLOW_HOPS[1:] for hop in alternatives[:1]}, \
@@ -5367,7 +5367,7 @@ def check_input_latency_slices():
     assert set(rows) == {"keyPress terminal estimatedVsync", "keyPress textView metalPresented",
                          "mousePress chromiumPage pageEstimated", "unknown#200 other nominalRefresh"}, rows
     text_view = rows["keyPress textView metalPresented"]["total_ms"]
-    assert (text_view["n"], text_view["p50"], text_view["p99"], text_view["max"]) == (2, 8.0, 10.0, 10.0), text_view
+    assert (text_view["n"], text_view["p50"], text_view["p99"], text_view["max"]) == (2, 9.0, 9.98, 10.0), text_view
     assert rows["keyPress terminal estimatedVsync"]["stage_ms"]["PtyWrittenToEchoRead"]["p95"] == 1.0, rows
     assert rows["mousePress chromiumPage pageEstimated"]["total_ms"]["n"] == 2, rows
     text = summary_text(summary)

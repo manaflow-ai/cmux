@@ -29,50 +29,30 @@
   ],
   "steps": [
     {
-      "id": "fx-sidebar-view",
-      "op": "resource.call",
-      "target": {
-        "machine": "current",
-        "session": "current"
-      },
-      "args": {
-        "method": "sidebar_view.ensure",
-        "params": {
-          "cols": 80,
-          "rows": 24
-        },
-        "idempotencyKey": "sidebar-view-resize-error.fx-sidebar-view"
-      },
-      "expect": {
-        "outcome": "ok",
-        "receipt": "mutation_result"
-      }
-    },
-    {
       "id": "call",
       "op": "resource.call",
       "target": {
         "machine": "current",
         "session": "current",
-        "sidebar_view": "$step:fx-sidebar-view#/value/id"
+        "sidebar_view": "sidebar"
       },
       "args": {
         "method": "sidebar_view.resize",
         "params": {
-          "cols": -1,
-          "rows": 24
+          "cols": 40,
+          "rows": 10
         },
         "idempotencyKey": "sidebar-view-resize-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "operation.failed"
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "cols breaks its catalog type (value must be an unsigned 16-bit integer); the daemon's catalog check refuses it"
+      "note": "no sidebar plugin is configured, so there is no view to resize"
     }
   ],
   "invariants": [

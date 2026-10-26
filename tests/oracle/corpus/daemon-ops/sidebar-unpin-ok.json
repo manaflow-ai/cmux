@@ -29,6 +29,51 @@
   ],
   "steps": [
     {
+      "id": "adopt-remote",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "sidebar.adopt",
+        "params": {
+          "refs": [
+            {
+              "session_id": "oracle-remote",
+              "workspace_id": "ws_0123456789abcdef0123456789abcdef"
+            }
+          ]
+        },
+        "idempotencyKey": "sidebar-unpin-ok.adopt-remote"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "pin-remote",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "sidebar.pin",
+        "params": {
+          "items": [
+            "itm_w_oracle-remote_ws_0123456789abcdef0123456789abcdef"
+          ]
+        },
+        "idempotencyKey": "sidebar-unpin-ok.pin-remote"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -39,7 +84,7 @@
         "method": "sidebar.unpin",
         "params": {
           "items": [
-            "oracle"
+            "itm_w_oracle-remote_ws_0123456789abcdef0123456789abcdef"
           ]
         },
         "idempotencyKey": "sidebar-unpin-ok.call"
@@ -52,7 +97,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "a pinned workspace goes back to the end of its machine section"
     }
   ],
   "invariants": [
@@ -61,8 +106,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.items[0] is a fixed placeholder, not a fixture object; sidebar/_tuning.json tunes it"
   ]
 }

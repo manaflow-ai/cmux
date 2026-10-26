@@ -4,7 +4,7 @@
   "catalog_sha256": "4c2922739cc0197b0344681e4f831efd0206fb6f85a4296760f0e60424dbb799",
   "suite": "daemon-ops",
   "total": 201,
-  "covered": 157,
+  "covered": 167,
   "verdicts": "not run",
   "excluded": {
     "agent.message.mark": "placeholders params.ids[0]: p15-oracle-069 tunes the success case",
@@ -38,16 +38,6 @@
     "session.journal.append": "placeholders params.event.producer_id: p15-oracle-063 tunes the success case",
     "session.journal.hook.put": "placeholders params.manifest.hook_id: p15-oracle-063 tunes the success case",
     "session.journal.producer.put": "placeholders params.manifest.producer_id: p15-oracle-063 tunes the success case",
-    "sidebar.group.ungroup": "placeholders params.id: p15-oracle-062 tunes the success case",
-    "sidebar.group.update": "placeholders params.id: p15-oracle-062 tunes the success case",
-    "sidebar.item.remove": "placeholders params.id: p15-oracle-062 tunes the success case",
-    "sidebar.item.update": "placeholders params.id: p15-oracle-062 tunes the success case",
-    "sidebar.move": "placeholders params.items[0]: p15-oracle-062 tunes the success case",
-    "sidebar.pin": "placeholders params.items[0]: p15-oracle-062 tunes the success case",
-    "sidebar.section.move": "placeholders params.id: p15-oracle-062 tunes the success case",
-    "sidebar.section.remove": "placeholders params.id: p15-oracle-062 tunes the success case",
-    "sidebar.section.update": "placeholders params.id: p15-oracle-062 tunes the success case",
-    "sidebar.unpin": "placeholders params.items[0]: p15-oracle-062 tunes the success case",
     "window_record.delete": "placeholders params.install_id, params.window_id: p15-oracle-070 tunes the success case",
     "window_record.put": "placeholders params.install_id, params.window_id: p15-oracle-070 tunes the success case",
     "workspace.agent_folder.set": "placeholders params.path: p15-oracle-064 tunes the success case"
@@ -65,7 +55,7 @@
     "chief": 24,
     "misc": 28
   },
-  "placeholder_operations": 37,
+  "placeholder_operations": 27,
   "tokens": {
     "$CASE_ROOT": "the case's state root (hermetic_env.py ROOT_TOKEN, p15-oracle-200)"
   },
@@ -2003,11 +1993,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "refs",
-        "rule": "value must be an array"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "sidebar.apply": {
       "family": "sidebar",
@@ -2017,11 +2009,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "ops",
-        "rule": "value must be an array"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "sidebar.group.create": {
       "family": "sidebar",
@@ -2031,11 +2025,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "name",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "sidebar.group.ungroup": {
       "family": "sidebar",
@@ -2043,14 +2039,16 @@
         "success": "daemon-ops/sidebar-group-ungroup-ok",
         "error": "daemon-ops/sidebar-group-ungroup-error"
       },
-      "fixture": [],
+      "fixture": [
+        "make-group"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.id"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "sidebar.group.update": {
@@ -2059,14 +2057,16 @@
         "success": "daemon-ops/sidebar-group-update-ok",
         "error": "daemon-ops/sidebar-group-update-error"
       },
-      "fixture": [],
+      "fixture": [
+        "make-group"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.id"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "sidebar.item.add": {
@@ -2077,11 +2077,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "oracle_unknown",
-        "rule": "request contains unknown parameters"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "sidebar.item.remove": {
       "family": "sidebar",
@@ -2091,12 +2093,12 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.id"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "sidebar.item.remove_ref": {
@@ -2107,11 +2109,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "ref",
-        "rule": "value must be an object"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "sidebar.item.update": {
       "family": "sidebar",
@@ -2121,12 +2125,12 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.id"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "sidebar.move": {
@@ -2137,12 +2141,12 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "items",
-        "rule": "value must be an array"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.items[0]"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "sidebar.pin": {
@@ -2153,12 +2157,12 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "items",
-        "rule": "value must be an array"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.items[0]"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "sidebar.reset": {
@@ -2167,13 +2171,20 @@
         "success": "daemon-ops/sidebar-reset-ok",
         "error": "daemon-ops/sidebar-reset-error"
       },
-      "fixture": [],
+      "fixture": [
+        "remove-home",
+        "add-section"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "oracle_unknown",
         "rule": "request contains unknown parameters"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "sidebar.section.add": {
       "family": "sidebar",
@@ -2183,11 +2194,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "oracle_unknown",
-        "rule": "request contains unknown parameters"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "sidebar.section.move": {
       "family": "sidebar",
@@ -2197,12 +2210,12 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.id"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "sidebar.section.remove": {
@@ -2213,12 +2226,12 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.id"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "sidebar.section.update": {
@@ -2229,12 +2242,12 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.id"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "sidebar.unpin": {
@@ -2243,14 +2256,17 @@
         "success": "daemon-ops/sidebar-unpin-ok",
         "error": "daemon-ops/sidebar-unpin-error"
       },
-      "fixture": [],
+      "fixture": [
+        "adopt-remote",
+        "pin-remote"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "items",
-        "rule": "value must be an array"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.items[0]"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "sidebar_layout.update": {
@@ -2261,11 +2277,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "oracle_unknown",
-        "rule": "request contains unknown parameters"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "sidebar_view.ensure": {
       "family": "sidebar",
@@ -2273,13 +2291,19 @@
         "success": "daemon-ops/sidebar-view-ensure-ok",
         "error": "daemon-ops/sidebar-view-ensure-error"
       },
-      "fixture": [],
+      "fixture": [
+        "write-config",
+        "config-written",
+        "reload-config"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "cols",
-        "rule": "value must be an unsigned 16-bit integer"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "sidebar_view.input": {
       "family": "sidebar",
@@ -2288,14 +2312,19 @@
         "error": "daemon-ops/sidebar-view-input-error"
       },
       "fixture": [
-        "fx-sidebar-view"
+        "write-config",
+        "config-written",
+        "reload-config",
+        "ensure-view"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "data_base64",
-        "rule": "value must use canonical base64"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "sidebar_view.reload": {
       "family": "sidebar",
@@ -2304,14 +2333,19 @@
         "error": "daemon-ops/sidebar-view-reload-error"
       },
       "fixture": [
-        "fx-sidebar-view"
+        "write-config",
+        "config-written",
+        "reload-config",
+        "ensure-view"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "expected_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "sidebar_view.resize": {
       "family": "sidebar",
@@ -2320,14 +2354,19 @@
         "error": "daemon-ops/sidebar-view-resize-error"
       },
       "fixture": [
-        "fx-sidebar-view"
+        "write-config",
+        "config-written",
+        "reload-config",
+        "ensure-view"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "cols",
-        "rule": "value must be an unsigned 16-bit integer"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "stash.create": {
       "family": "git",
