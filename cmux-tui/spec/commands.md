@@ -9271,7 +9271,9 @@ flight per attachment), `agent_session.timeout` (5 s), `agent_session.refused`
 `agent_session.read_only` (a mutation sent to an observation attachment),
 `agent_session.mode_conflict` (an `agent-session-attach` or
 `agent-session-observe` for a surface this connection already has attached in
-the other mode; detach first to switch modes).
+the other mode; detach first to switch modes), `agent_session.not_shared` (a
+teammate's frame for a surface that no longer shows the chat its share named;
+see `agent-session-proxy-bind`).
 
 ### agent-session-attach
 
@@ -9329,10 +9331,17 @@ single ACP text content block and answers once acpmux recorded it:
 ### agent-session-permission
 
 `{id, cmd:"agent-session-permission", surface, permission_id, option_id,
-decision_nonce?, person_decision?, answered_by?}`
+answers?, annotations?, decision_nonce?, person_decision?, answered_by?}`
 answers a permission request acpmux announced on this attachment (pending at
 attach or sent as `agent-session-permission`), once (a failed answer can be
 sent again). The daemon never answers a request by itself.
+
+`answers` is a question's answers, a JSON object of at most 64 KiB, passed to
+acpmux unchanged as `answers`; acpmux checks them against the question, and a
+decision proof for that answer covers them (`acpmux-person-decision-answers-v1`).
+Any other value is a bad request. `annotations` (Claude Code's chosen preview
+and notes, by question) goes the same way, only beside `answers`, and the proof
+covers it too.
 
 `decision_nonce` and `person_decision` (64 lowercase hex characters each) are
 the person's decision proof for this answer, which the app makes with the
@@ -9388,6 +9397,50 @@ gets `{event:"agent-session-presence", surface, presence}` on every change (one
 that did not never gets it), where `presence` is acpmux's `_acpmux/presence`
 `{sessionId, participants}` of that session only. The attach page carries the
 set at attach in `presence`, as acpmux answers it.
+
+### agent-session-proxy-bind, agent-session-of
+
+A shared chat (`cmux host share`, chat multiplayer) reaches a teammate through
+the owner's own host proxy, never by a teammate's own connection to this
+daemon. `{id, cmd:"agent-session-proxy-bind", author:{login, node}}` makes a
+same-user Unix connection that proxy's link for one teammate: `login` (at most
+320 bytes, lower-cased) and `node` (at most 255) are the tailnet identity the
+proxy checked, and the daemon fixes the author to
+`{id:"tailnet:<login>", name, login, node}`. It is refused
+(`agent_session.not_trusted`) on a WebSocket or remote-relay connection, a
+second time on the same connection, as anything but the connection's first
+line, or with any `_host_` field; it answers `{app, protocol, version, generation, capabilities}` and nothing
+about the machine's sessions or paths.
+
+Every later `agent-session-*` frame on a bound connection carries
+`_host_author` (exactly the bound author, else `agent_session.not_trusted`)
+and, except `agent-session-detach`, `_host_session`: the chat the owner shared.
+The frame is refused as `agent_session.not_shared` unless the surface shows
+that chat now, so a tab rebound to another chat is not shared. An unbound
+connection sending either field, or any connection sending another `_host_`
+field, is `agent_session.not_trusted`. A bound
+attachment stamps the author on every acpmux call (`_meta.acpmux.author`),
+pages and streams only the `transcript` kinds, never gets a `composer` record
+(a draft), a `presence` set or event, a descendant's change, or the session
+summary's folder, parent, children, tags, tools, rules, MCP servers, peer or
+pull requests (the change keeps `sessionId`, `kind`, `recordKind`, `seq` and
+the cut summary). A bound connection may send only `agent-session-attach`,
+`-observe`, `-events`, `-prompt`, `-cancel` and `-detach`; any other frame
+(`agent-session-start`, `-trust`, `-media`, `-children`, `-permission`,
+`-typing`, `-view`, `-of`, or any other daemon command, resource or page
+line) is `agent_session.not_trusted`. Each request uses the chat its check
+validated: an attach, a page or a command on an attachment of another chat,
+and a page acpmux answers after the tab was rebound, are refused as
+`agent_session.not_shared`. A rebind waits for any write to or for a teammate's
+attachment that has checked its tab, so nothing of the old chat reaches the
+teammate (and no prompt or cancel reaches the old chat) after the tab shows
+another chat; the attachment ends at its next event.
+
+`{id, cmd:"agent-session-of", surface}` answers `{surface, session}`, the
+agent session the tab shows, so `cmux host share` can pin it; only the owner's
+own unbound same-user Unix connection may ask (otherwise
+`agent_session.not_trusted`; a tab with no session is
+`agent_session.unknown_tab`).
 
 ### agent-session-start
 

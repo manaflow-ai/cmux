@@ -113,6 +113,17 @@ export type CreateOptions = {
    */
   providerCredential?: ProviderCredential;
   /**
+   * The workflow's durable record of the allocation. A driver whose cleanup
+   * needs a short-lived user credential names its provider id with `record`
+   * before it sends the allocation request (and must not allocate when that
+   * rejects), so an interrupted create still leaves a row naming its instance.
+   * It calls `released` once its own rollback confirmed the allocation gone.
+   */
+  createCleanupIntent?: {
+    readonly record: (providerVmId: string) => Promise<void>;
+    readonly released: () => void;
+  };
+  /**
    * Name of a persistent volume to mount as the machine's home directory. Providers that
    * support it create the volume if missing and record it in providerMetadata so attach can
    * resurrect a dead sandbox around the same home. Providers without volume support ignore it.
@@ -661,7 +672,11 @@ export interface VMProvider {
   readonly capabilities?: Partial<VmCapabilities>;
 
   create(options: CreateOptions): Promise<VMHandle>;
-  destroy(vmId: string, credential?: ProviderCredential): Promise<void>;
+  /**
+   * Delete the machine; a machine already gone counts as deleted. `strict`: only the provider's
+   * own "no such machine" answer counts as gone (not any 404, which can be an endpoint error).
+   */
+  destroy(vmId: string, credential?: ProviderCredential, options?: { readonly strict?: boolean }): Promise<void>;
 
   /**
    * Optional: delete a persistent home volume by name. Implementations must treat
