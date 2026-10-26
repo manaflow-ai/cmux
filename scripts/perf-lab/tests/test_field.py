@@ -1,0 +1,301 @@
+#!/usr/bin/env python3
+"""field.py: SELECT-only queries, the credential kept out of argv and logs, and aggregation on fixture rows.
+
+  python3 -m unittest scripts/perf-lab/tests/test_field.py
+"""
+from __future__ import annotations
+
+import argparse
+import contextlib
+import importlib.util
+import io
+import json
+import sys
+import tempfile
+import unittest
+import unittest.mock
+from pathlib import Path
+
+LAB = Path(__file__).resolve().parent.parent
+
+
+def _load(name: str, filename: str):
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, LAB / filename)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+field = _load("perf_lab_field", "field.py")
+lab = _load("perf_lab_lab", "lab.py")
+dashboard = _load("perf_lab_dashboard", "dashboard.py")
+
+PASSWORD = "pscale_pw_S3cret+/x"
+URL = f"postgresql://field-ro.abc:{PASSWORD.replace('+', '%2B').replace('/', '%2F')}@aws.connect.psdb.cloud:5432/postgres?sslmode=verify-full"
+ENVIRON = {field.URL_ENV: URL, "PATH": "/usr/bin", "HOME": "/home/lab", "UNRELATED_TOKEN": "nope"}
+
+
+def stall(*buckets):
+    return [{"lowMs": low, "highMs": high, "count": count} for low, high, count in buckets]
+
+
+def interval(category, name, *buckets, count=None):
+    return {"category": category, "name": name, "count": count or sum(b[2] for b in buckets),
+            "buckets": stall(*buckets)}
+
+
+def row(*, version="0.71.0", build="2001", chip="Apple M4 Pro", memory=24, install="a", stalls=(), active=None,
+        intervals=(), features=None):
+    out = {"app_version": version, "app_build": build, "chip": chip, "memory_gb": memory, "install": install,
+           "stall_histogram": stall(*stalls), "intervals": list(intervals)}
+    if active is not None:
+        out["active_seconds"] = active
+    if features is not None:
+        out["features_hash"] = features
+    return out
+
+
+class FakePsql:
+    """Records each psql call; answers the privilege check and the reports query."""
+
+    def __init__(self, *, rows=(), privileges=None, code=0, stderr=""):
+        self.calls = []
+        self.rows = list(rows)
+        self.privileges = privileges or {name.lower(): False for name in field.WRITE_PRIVILEGES}
+        self.code = code
+        self.stderr = stderr
+
+    def __call__(self, argv, env, script):
+        self.calls.append((list(argv), dict(env), script))
+        if self.code:
+            return self.code, "", self.stderr
+        if "has_table_privilege" in script:
+            return 0, json.dumps(self.privileges) + "\n", ""
+        return 0, "".join(json.dumps(r) + "\n" for r in self.rows), ""
+
+
+class SelectOnlyTests(unittest.TestCase):
+    def test_generated_queries_pass(self):
+        for script in (field.privilege_query(), field.reports_query(since_hours=168, channel="nightly")):
+            statements = field.assert_select_only(script)
+            self.assertEqual(statements[0], "BEGIN TRANSACTION READ ONLY")
+            self.assertEqual(statements[-1], "ROLLBACK")
+            self.assertTrue(all(s.startswith("SELECT ") for s in statements[1:-1]))
+
+    def test_refuses_writes_and_meta_commands(self):
+        bad = [
+            "BEGIN TRANSACTION READ ONLY; INSERT INTO hang_reports VALUES (1); ROLLBACK;",
+            "BEGIN TRANSACTION READ ONLY; SELECT 1; DROP TABLE hang_reports; ROLLBACK;",
+            "BEGIN TRANSACTION READ ONLY; SELECT * INTO copy_t FROM hang_reports; ROLLBACK;",
+            "BEGIN TRANSACTION READ ONLY; SELECT 1 \\gexec ROLLBACK;",
+            "BEGIN TRANSACTION READ ONLY; SELECT set_config('x', 'y', false); SET ROLE postgres; ROLLBACK;",
+            "SELECT 1;",
+            "BEGIN; SELECT 1; COMMIT;",
+            "",
+        ]
+        for script in bad:
+            with self.subTest(script=script), self.assertRaises(field.FieldError):
+                field.assert_select_only(script)
+
+    def test_literal_keywords_are_data(self):
+        field.assert_select_only("BEGIN TRANSACTION READ ONLY; SELECT 'INSERT; DROP' AS x; ROLLBACK;")
+
+    def test_reports_query_takes_only_closed_values(self):
+        with self.assertRaises(field.FieldError):
+            field.reports_query(since_hours=24, channel="nightly' OR 1=1 --")
+        for hours in (0, field.MAX_SINCE_HOURS + 1, "24"):
+            with self.subTest(hours=hours), self.assertRaises(field.FieldError):
+                field.reports_query(since_hours=hours, channel="nightly")
+
+    def test_reports_query_reads_no_frames_and_no_raw_install_id(self):
+        script = field.reports_query(since_hours=24, channel="nightly")
+        self.assertNotIn("frames", script)
+        self.assertNotIn("'hangs'", script)
+        self.assertIn("md5(install_id::text)", script)
+        self.assertNotIn("'install_id', install_id", script)
+
+
+class CredentialTests(unittest.TestCase):
+    def test_url_becomes_pg_variables(self):
+        credential = field.credential_from_url(URL)
+        self.assertEqual(credential.env["PGPASSWORD"], PASSWORD)
+        self.assertEqual(credential.env["PGUSER"], "field-ro.abc")
+        self.assertEqual(credential.env["PGHOST"], "aws.connect.psdb.cloud")
+        self.assertEqual(credential.env["PGSSLMODE"], "verify-full")
+        self.assertIn("default_transaction_read_only=on", credential.env["PGOPTIONS"])
+        self.assertNotIn(PASSWORD, repr(credential))
+
+    def test_missing_or_bad_credential(self):
+        with self.assertRaisesRegex(field.FieldError, field.URL_ENV):
+            field.credential_from_environment({})
+        for url in ("mysql://u:p@h/db", "postgres://h/db", "postgres://user@h/db"):
+            with self.subTest(url=url), self.assertRaises(field.FieldError):
+                field.credential_from_url(url)
+
+    def test_credential_never_in_argv_and_url_env_not_passed(self):
+        psql = FakePsql(rows=[row()])
+        credential = field.credential_from_environment(ENVIRON)
+        field.fetch_reports(since_hours=24, channel="nightly", credential=credential, runner=psql, environ=ENVIRON)
+        self.assertEqual(len(psql.calls), 2)
+        for argv, env, script in psql.calls:
+            joined = " ".join(argv)
+            for secret in (PASSWORD, URL, "psdb.cloud", "field-ro"):
+                self.assertNotIn(secret, joined)
+                self.assertNotIn(secret, script)
+            self.assertNotIn(field.URL_ENV, env)
+            self.assertNotIn("UNRELATED_TOKEN", env)
+            self.assertEqual(env["PGPASSWORD"], PASSWORD)
+            self.assertEqual(argv[-2:], ["--file", "-"])
+            self.assertIn("--no-psqlrc", argv)
+
+    def test_psql_error_is_redacted(self):
+        psql = FakePsql(code=2, stderr=f"FATAL: password authentication failed: {PASSWORD} at {URL}")
+        credential = field.credential_from_environment(ENVIRON)
+        with self.assertRaises(field.FieldError) as caught:
+            field.fetch_reports(since_hours=24, channel="nightly", credential=credential, runner=psql, environ=ENVIRON)
+        self.assertNotIn(PASSWORD, str(caught.exception))
+        self.assertNotIn(URL, str(caught.exception))
+        self.assertIn("<redacted>", str(caught.exception))
+
+    def test_a_role_that_can_write_is_refused_before_reading(self):
+        privileges = {name.lower(): False for name in field.WRITE_PRIVILEGES} | {"insert": True}
+        psql = FakePsql(rows=[row()], privileges=privileges)
+        credential = field.credential_from_environment(ENVIRON)
+        with self.assertRaisesRegex(field.FieldError, "INSERT"):
+            field.fetch_reports(since_hours=24, channel="nightly", credential=credential, runner=psql, environ=ENVIRON)
+        self.assertEqual(len(psql.calls), 1)
+
+    def test_missing_privilege_answer_counts_as_write(self):
+        psql = FakePsql(privileges={"insert": False})
+        credential = field.credential_from_environment(ENVIRON)
+        with self.assertRaisesRegex(field.FieldError, "UPDATE"):
+            field.check_read_only(credential, runner=psql, environ=ENVIRON)
+
+
+class AggregationTests(unittest.TestCase):
+    def test_percentile_interpolates_inside_the_bucket(self):
+        histogram = {(0, 10): 50, (10, 20): 50}
+        self.assertEqual(field.percentile(histogram, 0.5), 10.0)
+        self.assertEqual(field.percentile(histogram, 0.75), 15.0)
+        self.assertEqual(field.percentile(histogram, 1.0), 20.0)
+        self.assertIsNone(field.percentile({}, 0.5))
+
+    def test_rate_per_build_hardware_class_and_arm(self):
+        rows = [
+            # 2 hangs (>= 250 ms) in 1 h, plus stalls under 250 ms that do not count.
+            row(install="a", stalls=[(50, 100, 9), (100, 250, 4), (250, 500, 1), (2000, 5000, 1)], active=3600),
+            # 1 hang in 1 h, another install.
+            row(install="b", stalls=[(500, 1000, 1)], active=3600),
+            # no active time: counted, but not in the rate.
+            row(install="b", stalls=[(1000, 2000, 7)]),
+            row(version="0.71.1", build="2002", install="c", stalls=[(250, 500, 2)], active=7200),
+            row(chip="Apple M1", memory=16, install="d", stalls=[(250, 500, 1)]),
+            row(install="e", stalls=[(250, 500, 4)], active=1800, features="f00d"),
+        ]
+        groups = {(g.build, g.hardware_class, g.arm): g for g in field.aggregate(rows)}
+        self.assertEqual(set(groups), {
+            ("0.71.0 (2001)", "apple-m4-pro/24gb", field.NO_ARM),
+            ("0.71.1 (2002)", "apple-m4-pro/24gb", field.NO_ARM),
+            ("0.71.0 (2001)", "apple-m1/16gb", field.NO_ARM),
+            ("0.71.0 (2001)", "apple-m4-pro/24gb", "f00d"),
+        })
+        main = groups[("0.71.0 (2001)", "apple-m4-pro/24gb", field.NO_ARM)]
+        self.assertEqual((main.reports, len(main.installs)), (3, 2))
+        self.assertEqual(main.hangs_over_250ms, 10)
+        self.assertEqual(main.timed_reports, 2)
+        self.assertAlmostEqual(main.hangs_per_1000_active_hours, 3 / 2 * 1000)
+        self.assertAlmostEqual(groups[("0.71.1 (2002)", "apple-m4-pro/24gb", field.NO_ARM)]
+                               .hangs_per_1000_active_hours, 1000.0)
+        self.assertIsNone(groups[("0.71.0 (2001)", "apple-m1/16gb", field.NO_ARM)].hangs_per_1000_active_hours)
+        self.assertAlmostEqual(groups[("0.71.0 (2001)", "apple-m4-pro/24gb", "f00d")]
+                               .hangs_per_1000_active_hours, 8000.0)
+
+    def test_action_and_turn_histograms(self):
+        rows = [
+            row(intervals=[interval("action", "workspace.create", (0, 10, 8), (10, 20, 2)),
+                           interval("action", "main_turn", (0, 4, 90), (4, 8, 10)),
+                           interval("motion", "sidebar.toggle", (0, 16, 5))]),
+            row(intervals=[interval("action", "workspace.create", (0, 10, 2), (10, 20, 8)),
+                           interval("key", "input_queueing", (0, 2, 10))]),
+        ]
+        [group] = field.aggregate(rows)
+        self.assertEqual(group.action, {"workspace.create": {(0, 10): 10, (10, 20): 10}})
+        self.assertEqual(group.turn, {"main_turn": {(0, 4): 90, (4, 8): 10}, "input_queueing": {(0, 2): 10}})
+        metrics = {r["metric"]: r for r in field.field_rows([group])}
+        self.assertEqual(metrics["action.workspace.create.p50"]["value"], 10.0)
+        self.assertEqual(metrics["action.workspace.create.p95"]["samples"], 20)
+        self.assertEqual(metrics["turn.main_turn.p50"]["value"], 2.2222)
+        self.assertNotIn("action.sidebar.toggle.p50", metrics)
+        self.assertIsNone(metrics["hangs_over_250ms_per_1000_active_hours"]["value"])
+
+    def test_malformed_parts_are_skipped(self):
+        rows = [row(stalls=[]) | {"stall_histogram": [{"lowMs": 300, "highMs": 200, "count": 5},
+                                                        {"lowMs": "250", "highMs": 500, "count": 5},
+                                                        {"lowMs": 250, "highMs": 500, "count": -3}, "x",
+                                                        {"lowMs": 250, "highMs": 500, "count": 2}],
+                                    "intervals": "nope", "active_seconds": "3600"},
+                {"chip": None, "memory_gb": "24"}]
+        groups = field.aggregate(rows)
+        self.assertEqual([g.hangs_over_250ms for g in groups], [2, 0])
+        self.assertEqual(groups[0].timed_reports, 0)
+        self.assertEqual(groups[1].hardware_class, "unknown/unknown")
+        self.assertEqual(groups[1].build, "unknown")
+
+    def test_rows_are_dashboard_field_rows(self):
+        rows = field.field_rows(field.aggregate([row(active=3600, stalls=[(250, 500, 1)],
+                                                     intervals=[interval("action", "tab.close", (0, 8, 4))])]))
+        for item in rows:
+            dashboard.FieldRow(**item)
+        self.assertIn("No field data", dashboard.render_field([]))
+        self.assertIn("hangs_over_250ms_per_1000_active_hours",
+                      dashboard.render_field([dashboard.FieldRow(**item) for item in rows]))
+
+
+class CommandTests(unittest.TestCase):
+    def test_since(self):
+        self.assertEqual(field.parse_since("7d"), 168)
+        self.assertEqual(field.parse_since("48h"), 48)
+        for text in ("7", "0d", "-1d", "7w", "91d", "7d; drop"):
+            with self.subTest(text=text), self.assertRaises(field.FieldError):
+                field.parse_since(text)
+
+    def test_lab_field_fixture_json(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory) / "rows.jsonl"
+            fixture.write_text("\n".join(json.dumps(r) for r in [row(active=3600, stalls=[(250, 500, 3)])]) + "\n")
+            out_path = Path(directory) / "out" / "field.json"
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                code = lab.main(["field", "--fixture", str(fixture), "--json", "--out", str(out_path)])
+            self.assertEqual(code, 0)
+            result = json.loads(stdout.getvalue())
+            self.assertEqual(json.loads(out_path.read_text()), result)
+        self.assertEqual(result["source"], "fixture")
+        self.assertEqual(result["reports"], 1)
+        self.assertEqual(result["groups"][0]["hangs_over_250ms_per_1000_active_hours"], 3000.0)
+
+    def test_live_read_through_fake_psql_prints_no_credential(self):
+        psql = FakePsql(rows=[row(active=3600, stalls=[(250, 500, 1)], intervals=[
+            interval("action", "workspace.create", (0, 10, 4))])])
+        out = io.StringIO()
+        args = argparse.Namespace(since="7d", channel="nightly", fixture=None, out=None, json=False)
+        self.assertEqual(field.field_command(args, runner=psql, environ=ENVIRON, out=out), 0)
+        text = out.getvalue()
+        self.assertIn("1000.0 per 1000 active hours", text)
+        self.assertIn("action.workspace.create.p50", text)
+        self.assertNotIn(PASSWORD, text)
+        self.assertIn("make_interval(hours => 168)", psql.calls[1][2])
+
+    def test_no_credential_exits_2_without_running_psql(self):
+        stderr = io.StringIO()
+        args = argparse.Namespace(since="7d", channel="nightly", fixture=None, out=None, json=True)
+        with contextlib.redirect_stderr(stderr), unittest.mock.patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(field.run("field", args), 2)
+        self.assertIn(field.URL_ENV, stderr.getvalue())
+
+
+if __name__ == "__main__":
+    unittest.main()
