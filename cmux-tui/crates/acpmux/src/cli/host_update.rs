@@ -550,7 +550,8 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
         return up.end(Outcome::Failed, reason, why.clone());
     }
     // From here on the peer changes.
-    let version = match push_update(remote, &binary) {
+    let running = probe.build.as_deref().and_then(build_commit);
+    let version = match push_update(remote, &binary, running) {
         Ok(version) => version,
         // The install checks the pushed binary runs before it replaces
         // anything, so the installed one is still the old one.

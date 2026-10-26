@@ -228,25 +228,29 @@ pub(crate) fn push_binary(r: &dyn Remote, bin: &str) -> Result<String> {
 /// rename, never in place: macOS kills a running binary that is
 /// overwritten); answers the new binary's `--version`. The copy runs as
 /// acpmux by its argv0 (cmux-tui's too), so it waits as `.acpmux-new/acpmux`,
-/// the same name, while it is checked ([`INSTALL_PUSHED`]).
-fn push_update(r: &dyn Remote, local: &Path) -> Result<String> {
+/// the same name, while it is checked ([`INSTALL_PUSHED`]). `running` is
+/// the commit of the daemon that answered, if one did.
+fn push_update(r: &dyn Remote, local: &Path, running: Option<&str>) -> Result<String> {
     run(
         r,
         "mkdir -p ~/.local/bin ~/.acpmux && rm -rf ~/.local/bin/.acpmux-new ~/.local/bin/acpmux.new && mkdir ~/.local/bin/.acpmux-new",
     )?;
     r.push(local, "~/.local/bin/.acpmux-new/acpmux")?;
-    run(r, INSTALL_PUSHED)
+    let running = running.filter(|c| c.bytes().all(|b| b.is_ascii_hexdigit())).unwrap_or("");
+    run(r, &format!("c={running}; {INSTALL_PUSHED}"))
 }
 
 /// Install the pushed `.acpmux-new/acpmux` once its `--version` runs (else
 /// delete it and leave the installed binary alone), keeping the binary it
 /// replaces as `acpmux.prev` (a hard link, else a copy; none when nothing
 /// was installed, so a rollback never brings back an older one) for a
-/// rollback. Pushing the binary already installed keeps `acpmux.prev`: it
-/// still holds the build before it (review of #24232). The rename swaps the two in one step; prints the new binary's
+/// rollback. When the daemon runs (`$c`, its commit) a build other than
+/// the installed one (an update stopped between its install and its
+/// restart), the installed binary never ran here, so the `acpmux.prev` there
+/// is kept: it is still the build that last ran (review of #24232). The rename swaps the two in one step; prints the new binary's
 /// version. Once it is in place nothing fails the install: a staging folder
 /// that will not go is left for the next push to clear.
-const INSTALL_PUSHED: &str = "cd ~/.local/bin && chmod +x .acpmux-new/acpmux && { v=$(.acpmux-new/acpmux --version) || { rm -rf .acpmux-new; echo 'the pushed acpmux does not run on this host' >&2; exit 1; }; } && { if [ -e acpmux ] && cmp -s acpmux .acpmux-new/acpmux; then :; elif [ -e acpmux ]; then ln -f acpmux acpmux.prev 2>/dev/null || cp -p acpmux acpmux.prev; else rm -f acpmux.prev; fi; } && mv -f .acpmux-new/acpmux acpmux && { rmdir .acpmux-new 2>/dev/null; printf '%s\\n' \"$v\"; }";
+const INSTALL_PUSHED: &str = "cd ~/.local/bin && chmod +x .acpmux-new/acpmux && { v=$(.acpmux-new/acpmux --version) || { rm -rf .acpmux-new; echo 'the pushed acpmux does not run on this host' >&2; exit 1; }; } && { if [ ! -e acpmux ]; then rm -f acpmux.prev; elif [ -n \"$c\" ] && [ -f acpmux.prev ] && ! grep -qaF \"($c\" acpmux; then :; else ln -f acpmux acpmux.prev 2>/dev/null || cp -p acpmux acpmux.prev; fi; } && mv -f .acpmux-new/acpmux acpmux && { rmdir .acpmux-new 2>/dev/null; printf '%s\\n' \"$v\"; }";
 
 /// Put `acpmux.prev` back as `~/.local/bin/acpmux`; fails without one.
 const RESTORE_PREV: &str = "(cd ~/.local/bin && [ -f acpmux.prev ] && rm -f acpmux && { ln acpmux.prev acpmux 2>/dev/null || cp -p acpmux.prev acpmux; })";
