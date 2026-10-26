@@ -1384,6 +1384,33 @@ Example:
 {"event":"terminal-clipboard-read-cancelled","request_id":"6f1c2b9e-3d4a-4e5f-8a7b-1c2d3e4f5a6b"}
 ```
 
+### script-log
+
+| Field | Value |
+| --- | --- |
+| event | `script-log` |
+| status | implemented targeted control event |
+| since | protocol 12 |
+
+Payload:
+
+```text
+object{event:"script-log", level:string, message:string, request?:json, session?:string}
+```
+
+Meaning: One console line of a running script cell, sent only on the
+connection that runs it and before the cell's reply. `request` is the id of
+the `script-run` that wrote it; `session` names the REPL session
+(`script-repl-open`) whose cell wrote it; exactly one of the two is present.
+Lines past the cell's budget are dropped and counted in the reply's
+`dropped_log_lines`.
+
+Example:
+
+```json
+{"event":"script-log","level":"log","message":"hello","request":7}
+```
+
 ## Attach Events
 
 ### render-state

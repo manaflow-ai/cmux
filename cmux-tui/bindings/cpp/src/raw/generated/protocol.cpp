@@ -41981,6 +41981,75 @@ Result<ScreenRenamedEvent> Codec<ScreenRenamedEvent>::decode(const Json& value) 
     return result;
 }
 
+Result<Json> Codec<ScriptLogEvent>::encode(const ScriptLogEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("script-log")));
+    auto encoded_level = encode_value(value.level);
+    if (!encoded_level) return std::move(encoded_level).error();
+    object.emplace("level", std::move(encoded_level).value());
+    auto encoded_message = encode_value(value.message);
+    if (!encoded_message) return std::move(encoded_message).error();
+    object.emplace("message", std::move(encoded_message).value());
+    if (value.request) {
+        auto encoded = encode_value(*value.request);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("request", std::move(encoded).value());
+    }
+    if (value.session) {
+        auto encoded = encode_value(*value.session);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("session", std::move(encoded).value());
+    }
+    return Json(std::move(object));
+}
+
+Result<ScriptLogEvent> Codec<ScriptLogEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ScriptLogEvent result{};
+    const Json* field_level = value.find("level");
+    if (!field_level) {
+        return make_error(ErrorCode::decode, "missing required field 'level'");
+    }
+    if (field_level) {
+        auto decoded = decode_value<std::string>(*field_level);
+        if (!decoded) return std::move(decoded).error();
+        result.level = std::move(decoded).value();
+    }
+    const Json* field_message = value.find("message");
+    if (!field_message) {
+        return make_error(ErrorCode::decode, "missing required field 'message'");
+    }
+    if (field_message) {
+        auto decoded = decode_value<std::string>(*field_message);
+        if (!decoded) return std::move(decoded).error();
+        result.message = std::move(decoded).value();
+    }
+    const Json* field_request = value.find("request");
+    if (field_request) {
+        auto decoded = decode_value<JsonValue>(*field_request);
+        if (!decoded) return std::move(decoded).error();
+        result.request = std::move(decoded).value();
+    }
+    const Json* field_session = value.find("session");
+    if (field_session) {
+        auto decoded = decode_value<std::string>(*field_session);
+        if (!decoded) return std::move(decoded).error();
+        result.session = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("script-log"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<ScrollChangedEvent>::encode(const ScrollChangedEvent& value) {
     (void)value;
     Json::Object object;
@@ -46224,6 +46293,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
+    if (name.value() == "script-log") {
+        auto decoded = decode_value<ScriptLogEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "scroll-changed") {
         auto decoded = decode_value<ScrollChangedEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -46731,13 +46805,13 @@ constexpr std::array<CommandMetadata, 320> kCommands{{
     {"focus-direction", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"focus-pane", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"forget-session", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"fs.delete", "local-admin", 12U, "fs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"fs.list", "local-admin", 12U, "fs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"fs.mkdir", "local-admin", 12U, "fs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"fs.read", "local-admin", 12U, "fs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"fs.rename", "local-admin", 12U, "fs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"fs.stat", "local-admin", 12U, "fs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"fs.write", "local-admin", 12U, "fs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"fs.delete", "control", 12U, "fs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"fs.list", "control", 12U, "fs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"fs.mkdir", "control", 12U, "fs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"fs.read", "control", 12U, "fs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"fs.rename", "control", 12U, "fs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"fs.stat", "control", 12U, "fs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"fs.write", "control", 12U, "fs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"get-blob", "control", 12U, "icon-assets-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"get-browser-provider", "local-admin", 10U, "browser-provider-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"get-cell-pixels", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -46917,7 +46991,7 @@ constexpr std::array<CommandMetadata, 320> kCommands{{
     {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 87> kEvents{{
+constexpr std::array<EventMetadata, 88> kEvents{{
     {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"agent-inventory-changed", 12U, "agent-inventory-watch-v1", "control", "emitted"},
@@ -46978,6 +47052,7 @@ constexpr std::array<EventMetadata, 87> kEvents{{
     {"screen-changed", 12U, "screen-metadata-v1", "subscribe-deltas", "emitted"},
     {"screen-closed", 7U, "", "subscribe-deltas", "emitted"},
     {"screen-renamed", 7U, "", "subscribe-deltas", "emitted"},
+    {"script-log", 12U, "", "control", "emitted"},
     {"scroll-changed", 6U, "", "subscribe,attach-byte,attach-render,attach-browser", "emitted"},
     {"settings-changed", 12U, "settings-v1", "subscribe", "emitted"},
     {"size-state", 12U, "shared-sizing-v1", "subscribe,attach-byte,attach-render", "emitted"},

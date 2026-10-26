@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 96092969f6fbce263dc06135b19cd2e08ba76ea380ee9187919638dc07351612. */
+/* cmux-tui mux protocol 12, IR 47484b2cf492bb93a6c5e990b4816b79521dc4679699587db06e8490a49fab51. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "96092969f6fbce263dc06135b19cd2e08ba76ea380ee9187919638dc07351612" as const;
+export const SDK_IR_SHA256 = "47484b2cf492bb93a6c5e990b4816b79521dc4679699587db06e8490a49fab51" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1626,7 +1626,7 @@ export const COMMAND_METADATA = {
     ]
   },
   "fs.delete": {
-    "authority": "local-admin",
+    "authority": "control",
     "since": 12,
     "capability": "fs-v1",
     "fields": {},
@@ -1638,7 +1638,7 @@ export const COMMAND_METADATA = {
     ]
   },
   "fs.list": {
-    "authority": "local-admin",
+    "authority": "control",
     "since": 12,
     "capability": "fs-v1",
     "fields": {},
@@ -1650,7 +1650,7 @@ export const COMMAND_METADATA = {
     ]
   },
   "fs.mkdir": {
-    "authority": "local-admin",
+    "authority": "control",
     "since": 12,
     "capability": "fs-v1",
     "fields": {},
@@ -1662,7 +1662,7 @@ export const COMMAND_METADATA = {
     ]
   },
   "fs.read": {
-    "authority": "local-admin",
+    "authority": "control",
     "since": 12,
     "capability": "fs-v1",
     "fields": {},
@@ -1675,7 +1675,7 @@ export const COMMAND_METADATA = {
     ]
   },
   "fs.rename": {
-    "authority": "local-admin",
+    "authority": "control",
     "since": 12,
     "capability": "fs-v1",
     "fields": {},
@@ -1687,7 +1687,7 @@ export const COMMAND_METADATA = {
     ]
   },
   "fs.stat": {
-    "authority": "local-admin",
+    "authority": "control",
     "since": 12,
     "capability": "fs-v1",
     "fields": {},
@@ -1699,7 +1699,7 @@ export const COMMAND_METADATA = {
     ]
   },
   "fs.write": {
-    "authority": "local-admin",
+    "authority": "control",
     "since": 12,
     "capability": "fs-v1",
     "fields": {},
@@ -4518,6 +4518,14 @@ export const EVENT_METADATA = {
     "capability": null,
     "streams": [
       "subscribe-deltas"
+    ],
+    "emission": "emitted"
+  },
+  "script-log": {
+    "since": 12,
+    "capability": null,
+    "streams": [
+      "control"
     ],
     "emission": "emitted"
   },
@@ -34041,6 +34049,60 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "script-log": {
+    "additional_properties": false,
+    "constraints": [
+      "Sent only on the connection that runs the cell, before that cell's reply; exactly one of request and session.",
+      "A cell's lines past its line budget are dropped and counted in its reply's dropped_log_lines."
+    ],
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "script-log"
+        }
+      },
+      "level": {
+        "description": "The console method that wrote the line (log, info, warn, error, debug).",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "message": {
+        "description": "The line, its arguments joined as the console prints them.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "request": {
+        "description": "The id of the script-run that wrote the line; absent for a REPL session's line.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "session": {
+        "description": "The REPL session (script-repl-open) whose cell wrote the line; absent for a script-run's line.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },

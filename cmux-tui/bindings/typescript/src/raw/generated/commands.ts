@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 96092969f6fbce263dc06135b19cd2e08ba76ea380ee9187919638dc07351612. */
+/* cmux-tui mux protocol 12, IR 47484b2cf492bb93a6c5e990b4816b79521dc4679699587db06e8490a49fab51. */
 
 
 import type * as T from "./types.js";
@@ -1473,7 +1473,7 @@ export interface ForgetSessionRequest extends CmuxRequestBase {
 }
 export type ForgetSessionResult = T.JsonValue;
 
-/** Protocol v12; authority: local-admin. */
+/** Protocol v12; authority: control. */
 export interface FsDeleteRequest extends CmuxRequestBase {
   cmd: "fs.delete";
   "paths": Array<string>;
@@ -1482,7 +1482,7 @@ export interface FsDeleteRequest extends CmuxRequestBase {
 export type FsDeleteResult = {
 };
 
-/** Protocol v12; authority: local-admin. */
+/** Protocol v12; authority: control. */
 export interface FsListRequest extends CmuxRequestBase {
   cmd: "fs.list";
   "cursor"?: (string) | null;
@@ -1494,7 +1494,7 @@ export interface FsListRequest extends CmuxRequestBase {
 }
 export type FsListResult = T.FsPage;
 
-/** Protocol v12; authority: local-admin. */
+/** Protocol v12; authority: control. */
 export interface FsMkdirRequest extends CmuxRequestBase {
   cmd: "fs.mkdir";
   "name": string;
@@ -1502,7 +1502,7 @@ export interface FsMkdirRequest extends CmuxRequestBase {
 }
 export type FsMkdirResult = T.FsEntryResult;
 
-/** Protocol v12; authority: local-admin. */
+/** Protocol v12; authority: control. */
 export interface FsReadRequest extends CmuxRequestBase {
   cmd: "fs.read";
   "max_bytes": bigint;
@@ -1510,7 +1510,7 @@ export interface FsReadRequest extends CmuxRequestBase {
   "path": string;
 }
 
-/** Protocol v12; authority: local-admin. */
+/** Protocol v12; authority: control. */
 export interface FsRenameRequest extends CmuxRequestBase {
   cmd: "fs.rename";
   "name": string;
@@ -1518,13 +1518,13 @@ export interface FsRenameRequest extends CmuxRequestBase {
 }
 export type FsRenameResult = T.FsEntryResult;
 
-/** Protocol v12; authority: local-admin. */
+/** Protocol v12; authority: control. */
 export interface FsStatRequest extends CmuxRequestBase {
   cmd: "fs.stat";
   "path": string;
 }
 
-/** Protocol v12; authority: local-admin. */
+/** Protocol v12; authority: control. */
 export interface FsWriteRequest extends CmuxRequestBase {
   cmd: "fs.write";
   "bytes_base64"?: (T.Base64) | null;
@@ -4646,7 +4646,7 @@ export interface CmuxCommandDefinitionMap {
   "fs.delete": {
     request: FsDeleteRequest;
     result: FsDeleteResult;
-    authority: "local-admin";
+    authority: "control";
     since: 12;
     capability: "fs-v1";
     stream: null;
@@ -4654,7 +4654,7 @@ export interface CmuxCommandDefinitionMap {
   "fs.list": {
     request: FsListRequest;
     result: FsListResult;
-    authority: "local-admin";
+    authority: "control";
     since: 12;
     capability: "fs-v1";
     stream: null;
@@ -4662,7 +4662,7 @@ export interface CmuxCommandDefinitionMap {
   "fs.mkdir": {
     request: FsMkdirRequest;
     result: FsMkdirResult;
-    authority: "local-admin";
+    authority: "control";
     since: 12;
     capability: "fs-v1";
     stream: null;
@@ -4670,7 +4670,7 @@ export interface CmuxCommandDefinitionMap {
   "fs.read": {
     request: FsReadRequest;
     result: T.FsReadResult;
-    authority: "local-admin";
+    authority: "control";
     since: 12;
     capability: "fs-v1";
     stream: null;
@@ -4678,7 +4678,7 @@ export interface CmuxCommandDefinitionMap {
   "fs.rename": {
     request: FsRenameRequest;
     result: FsRenameResult;
-    authority: "local-admin";
+    authority: "control";
     since: 12;
     capability: "fs-v1";
     stream: null;
@@ -4686,7 +4686,7 @@ export interface CmuxCommandDefinitionMap {
   "fs.stat": {
     request: FsStatRequest;
     result: T.FsStatResult;
-    authority: "local-admin";
+    authority: "control";
     since: 12;
     capability: "fs-v1";
     stream: null;
@@ -4694,7 +4694,7 @@ export interface CmuxCommandDefinitionMap {
   "fs.write": {
     request: FsWriteRequest;
     result: FsWriteResult;
-    authority: "local-admin";
+    authority: "control";
     since: 12;
     capability: "fs-v1";
     stream: null;

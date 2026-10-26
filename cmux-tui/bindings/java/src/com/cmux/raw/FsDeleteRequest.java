@@ -10,7 +10,7 @@ import java.util.Map;
 import java.util.Objects;
 
 
-/** Immutable fs.delete request. Protocol v12; authority: local-admin. */
+/** Immutable fs.delete request. Protocol v12; authority: control. */
 public final class FsDeleteRequest implements WireValue {
     private final List<String> paths;
     private final Field<Boolean> permanent;

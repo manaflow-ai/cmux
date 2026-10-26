@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "96092969f6fbce263dc06135b19cd2e08ba76ea380ee9187919638dc07351612";
+inline constexpr std::string_view kProtocolIrSha256 = "47484b2cf492bb93a6c5e990b4816b79521dc4679699587db06e8490a49fab51";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -712,6 +712,7 @@ struct ScreenAddedEvent;
 struct ScreenChangedEvent;
 struct ScreenClosedEvent;
 struct ScreenRenamedEvent;
+struct ScriptLogEvent;
 struct ScrollChangedEvent;
 struct SettingsChangedEvent;
 struct SizeStateEvent;
@@ -5352,6 +5353,14 @@ struct ScreenRenamedEvent {
     Id screen{};
     Id workspace{};
     friend bool operator==(const ScreenRenamedEvent&, const ScreenRenamedEvent&) = default;
+};
+
+struct ScriptLogEvent {
+    std::string level{};
+    std::string message{};
+    std::optional<JsonValue> request{};
+    std::optional<std::string> session{};
+    friend bool operator==(const ScriptLogEvent&, const ScriptLogEvent&) = default;
 };
 
 struct ScriptReplCloseRequest {
@@ -10919,6 +10928,12 @@ template <>
 struct Codec<ScreenRenamedEvent> {
     static Result<Json> encode(const ScreenRenamedEvent& value);
     static Result<ScreenRenamedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ScriptLogEvent> {
+    static Result<Json> encode(const ScriptLogEvent& value);
+    static Result<ScriptLogEvent> decode(const Json& value);
 };
 
 template <>

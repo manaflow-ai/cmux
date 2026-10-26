@@ -26,7 +26,8 @@ Rules, each a table below:
                terminal host); it must hold every Swift
                `TerminalSpawningRequest` command
   clients      sdk for every command; macos for the ipc-census Q1 names,
-               cli for the Q14 names; ios is kept when set by hand
+               cli for the Q14 names and CLI_CALL_HELPER_SENDS; ios is
+               kept when set by hand
 
 Stdlib only, plus the schema validator in cmux-tui/bindings/codegen.
 """
@@ -166,6 +167,8 @@ EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
         "conversation-*", "participant-avatar-changed", "chief-changed",
     )),
     "cloud-events": (0xC6, "cmux Cloud session, conversations and inbox.", ("cloud-*",)),
+    # 0xC7 is p05-ipc-016's loopback-events.
+    "script-events": (0xC8, "Console output of script runs and REPL cells.", ("script-*",)),
 }
 
 # Priority (p05-ipc design 3.4) -----------------------------------------------
@@ -191,7 +194,12 @@ COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
         "get-blob",
         # File and bundle reads: up to 16 MiB per fs.read, 4 MiB per
         # agent-transfer-read page. fs.list stays control: it keeps a listing
-        # snapshot, so it is not read_only.
+        # snapshot, so it is not read_only. fs.stat stays control: its answer
+        # is one fixed-size entry, nothing a control reply waits behind. Their
+        # writes stay control by the rule above: fs.write (12 MiB) is followed
+        # by an fs.rename of its part, and agent-transfer-write (4 MiB pages) by
+        # the agent-transfer-finish that lands them; a bulk write would let
+        # that control command pass the bytes it names.
         "fs.read", "agent-transfer-read",
     ),
     "background": ("server-stats", "machine-usage", "terminal-resources"),
@@ -199,7 +207,8 @@ COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
 
 # Events: what draws the person's terminal rides input (the key echo path,
 # IPC-5); the subscribe copy of output is bulk; usage and inventory refreshes
-# are background; else control.
+# are background; else control. script-log stays control: a cell's console
+# lines must arrive before its control reply.
 EVENT_PRIORITY: dict[str, tuple[str, ...]] = {
     "input": ("output", "render-delta", "render-state", "frame"),
     "bulk": ("surface-output",),
@@ -211,6 +220,9 @@ EVENT_PRIORITY: dict[str, tuple[str, ...]] = {
 # they may pass the connection's control sequence. Each one is read_only and
 # names no stream target (validate.py rejects anything else). A cloud command
 # is never here: it needs the lease this connection set with cloud-session-set.
+# fs.read and fs.stat are not here: they observe the files this connection's
+# own fs.write, fs.mkdir, fs.rename and fs.delete change (sync_cli's push
+# stats a folder its failed mkdir found, and reads back what it wrote).
 INDEPENDENT = ("server-stats", "machine-usage", "machine-listening-tcp")
 
 # Durability --------------------------------------------------------------------
@@ -264,6 +276,11 @@ MEMORY = (
     # pages and abort, a move's begin, commit and abort (acpmux keeps the
     # move), access requests (a status read takes a delivered secret), the
     # script host's cells and sessions, and the CLI updates acpmux runs.
+    # receive and finish also write the askable-receive and landed-chat
+    # records (agent_transfer/askable.rs, landed.rs), and begin forgets a
+    # landed chat, but best effort: a failed save is only logged and the
+    # reply still says ok, so the reply never reports a commit.
+    "agent-transfer-receive", "agent-transfer-finish",
     "agent-transfer-write", "agent-transfer-receive-abort", "agent-transfer-begin",
     "agent-transfer-commit", "agent-transfer-abort",
     "access-request", "access-request-status", "access-request-answer",
@@ -273,14 +290,9 @@ MEMORY = (
 # records an intent before it contacts an owner so a restarted app resumes the
 # same update, and a job's receipt names a durable creation record
 # (commands.md "Update intent ledger").
-# A chat move's receive and finish write their agent-transfer state file (the
-# askable receive, the landed chat) before the reply, so a pump that lost a
-# reply after a daemon restart can still resolve the move (commands.md "Agent
-# chat transfer").
 REPLY_AFTER_JOURNAL = (
     "journal-frontend-event", "agent-cli-intents-record", "agent-cli-intents-settle",
     "agent-cli-intents-attach", "agent-cli-update-job",
-    "agent-transfer-receive", "agent-transfer-finish",
     # fs.write and fs.rename answer after their change is fsynced (the file
     # system is their journal); fs.mkdir and fs.delete do not fsync, so they
     # keep the default.
@@ -326,6 +338,29 @@ SPAWNS_TERMINAL = (
     "sidebar-plugin", "reopen-saved-screen-group", "reopen-saved-tab-group", "move-tab-to-split",
     "move-tab-to-column", "agent-cli-update-job",
 )
+
+# CLI senders outside census Q14 ---------------------------------------------------
+# Wire names the Rust CLI sends through a call helper that takes the name as
+# an argument (`RemoteMachine::call`, `sync_cli::machine_call`, the move pump's
+# `call` and `call_once`), not on a hand-built `"cmd": "..."` line, so census
+# Q14 does not see them. name -> the CLI file (under crates/cmux-tui/src) that
+# sends it; the script refuses an entry whose file stops naming it.
+CLI_SRC = ROOT / "cmux-tui/crates/cmux-tui/src"
+_SYNC_REMOTE = "link/sync_cli/remote.rs"
+_MOVE_PUMP = "link/agent_cli.rs"
+_ACCESS_CLI = "link/access_cli/requests.rs"
+CLI_CALL_HELPER_SENDS: dict[str, str] = {
+    "fs.stat": _SYNC_REMOTE, "fs.list": _SYNC_REMOTE, "fs.read": _SYNC_REMOTE,
+    "fs.write": _SYNC_REMOTE, "fs.mkdir": _SYNC_REMOTE, "fs.rename": _SYNC_REMOTE,
+    "fs.delete": _SYNC_REMOTE,
+    "agent-transfer-receive": _MOVE_PUMP, "agent-transfer-write": _MOVE_PUMP,
+    "agent-transfer-finish": _MOVE_PUMP, "agent-transfer-receive-abort": _MOVE_PUMP,
+    "agent-transfer-begin": _MOVE_PUMP, "agent-transfer-source": _MOVE_PUMP,
+    "agent-transfer-read": _MOVE_PUMP, "agent-transfer-commit": _MOVE_PUMP,
+    "agent-transfer-abort": _MOVE_PUMP,
+    "access-request": _ACCESS_CLI, "access-request-status": _ACCESS_CLI,
+    "access-request-list": _ACCESS_CLI, "access-request-answer": _ACCESS_CLI,
+}
 
 COMMAND_KEY_ORDER = (
     "method_id", "priority", "ordering", "durability", "stream_scoped", "crosses_stream_ok",
@@ -378,6 +413,19 @@ def census_names(queue: str) -> set[str]:
     return {hit["key"] for hit in json.loads(result.stdout)}
 
 
+def cli_call_helper_names() -> set[str]:
+    """CLI_CALL_HELPER_SENDS, each checked against the file that sends it."""
+
+    for name, relative in CLI_CALL_HELPER_SENDS.items():
+        try:
+            text = (CLI_SRC / relative).read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            raise AssignError(f"CLI_CALL_HELPER_SENDS: cannot read {relative} for {name!r}: {error}") from error
+        if f'"{name}"' not in text:
+            raise AssignError(f"CLI_CALL_HELPER_SENDS: {relative} no longer names {name!r}; remove or move the entry")
+    return set(CLI_CALL_HELPER_SENDS)
+
+
 def _match_brace(text: str, open_: int) -> int:
     depth = 0
     for index in range(open_, len(text)):
@@ -426,7 +474,7 @@ class Sources:
     """The name sets read outside the schema, loaded only when a command needs them."""
 
     macos: Callable[[], set[str]] = lambda: census_names("Q1")
-    cli: Callable[[], set[str]] = lambda: census_names("Q14")
+    cli: Callable[[], set[str]] = lambda: census_names("Q14") | cli_call_helper_names()
     swift_spawning: Callable[[], set[str]] = swift_spawning_commands
 
 
@@ -576,6 +624,7 @@ class Assigner:
             ("REPLY_AFTER_JOURNAL", REPLY_AFTER_JOURNAL, commands),
             ("CROSSES_STREAM_OK", list(CROSSES_STREAM_OK), commands),
             ("SPAWNS_TERMINAL", SPAWNS_TERMINAL, commands),
+            ("CLI_CALL_HELPER_SENDS", list(CLI_CALL_HELPER_SENDS), commands),
         ]
         for family, (family_id, _, patterns) in FAMILIES.items():
             named.append((f"FAMILIES[{family}]", patterns, commands))

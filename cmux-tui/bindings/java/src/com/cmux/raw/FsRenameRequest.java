@@ -10,7 +10,7 @@ import java.util.Map;
 import java.util.Objects;
 
 
-/** Immutable fs.rename request. Protocol v12; authority: local-admin. */
+/** Immutable fs.rename request. Protocol v12; authority: control. */
 public final class FsRenameRequest implements WireValue {
     private final String name;
     private final String path;

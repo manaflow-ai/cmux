@@ -102,6 +102,59 @@ class HandlerFactTests(unittest.TestCase):
                 self.assertNotEqual(commands[name].get("ordering"), "independent")
 
 
+class AgentMachineFilesScriptsTests(unittest.TestCase):
+    """p05-ipc-019's commands: fs reads, chat move records, CLI senders, script-log."""
+
+    def test_fs_reads_are_bulk_or_control_and_keep_call_order(self) -> None:
+        commands = live()["commands"]
+        self.assertEqual(commands["fs.read"]["priority"], "bulk")
+        self.assertEqual(commands["agent-transfer-read"]["priority"], "bulk")
+        self.assertEqual(commands["fs.stat"]["priority"], "control")
+        # A read after this connection's own write must see it.
+        for name in ("fs.read", "fs.stat", "agent-transfer-read"):
+            self.assertNotEqual(commands[name].get("ordering"), "independent", name)
+        # A later control rename or finish must not pass the bytes it names.
+        for name in ("fs.write", "agent-transfer-write"):
+            self.assertEqual(commands[name]["priority"], "control", name)
+
+    def test_best_effort_move_records_do_not_reply_after_journal(self) -> None:
+        commands = live()["commands"]
+        for name, path, evidence in (
+            ("agent-transfer-receive", "server/agent_transfer/askable.rs",
+             'eprintln!("cmux-tui: chat move receive record not written: {error}");'),
+            ("agent-transfer-finish", "server/agent_transfer/landed.rs",
+             'eprintln!("cmux-tui: landed chat record not written: {error}");'),
+        ):
+            with self.subTest(name=name):
+                self.assertIn(evidence, (CORE / path).read_text())
+                self.assertEqual(commands[name]["durability"], "memory")
+
+    def test_cli_call_helper_sends_are_cli_clients(self) -> None:
+        commands = live()["commands"]
+        self.assertEqual(ASSIGN.cli_call_helper_names(), set(ASSIGN.CLI_CALL_HELPER_SENDS))
+        for name in ("fs.read", "agent-transfer-write", "access-request-answer"):
+            self.assertIn("cli", commands[name]["clients"], name)
+        for name in ("agent-update-plan", "agent-update-apply"):
+            self.assertNotIn("cli", commands[name]["clients"], name)
+
+    def test_a_cli_call_helper_entry_its_file_no_longer_names_is_refused(self) -> None:
+        sends = dict(ASSIGN.CLI_CALL_HELPER_SENDS)
+        sends["agent-update-plan"] = "link/sync_cli/remote.rs"
+        original = ASSIGN.CLI_CALL_HELPER_SENDS
+        ASSIGN.CLI_CALL_HELPER_SENDS = sends
+        try:
+            with self.assertRaisesRegex(ASSIGN.AssignError, "no longer names 'agent-update-plan'"):
+                ASSIGN.cli_call_helper_names()
+        finally:
+            ASSIGN.CLI_CALL_HELPER_SENDS = original
+
+    def test_script_log_has_an_event_id_and_rides_control(self) -> None:
+        document = live()
+        event = document["events"]["script-log"]
+        self.assertEqual(event["event_id"] >> 8, document["families"]["script-events"]["id"])
+        self.assertEqual(event["priority"], "control")
+
+
 class AssignmentTests(unittest.TestCase):
     def test_new_command_takes_next_ordinal_of_its_family_and_keeps_other_ids(self) -> None:
         document = live()

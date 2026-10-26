@@ -168,6 +168,11 @@
    "id": 22,
    "description": "Script runs and REPL sessions in the daemon's script host.",
    "next_ordinal": 4
+  },
+  "script-events": {
+   "id": 200,
+   "description": "Console output of script runs and REPL cells.",
+   "next_ordinal": 1
   }
  },
  "types": {
@@ -29703,7 +29708,7 @@
    ]
   },
   "fs.stat": {
-   "authority": "local-admin",
+   "authority": "control",
    "since": 12,
    "capability": "fs-v1",
    "request": {
@@ -29734,11 +29739,12 @@
    "priority": "control",
    "durability": "read_only",
    "clients": [
+    "cli",
     "sdk"
    ]
   },
   "fs.list": {
-   "authority": "local-admin",
+   "authority": "control",
    "since": 12,
    "capability": "fs-v1",
    "request": {
@@ -29819,11 +29825,12 @@
    "priority": "control",
    "durability": "memory",
    "clients": [
+    "cli",
     "sdk"
    ]
   },
   "fs.read": {
-   "authority": "local-admin",
+   "authority": "control",
    "since": 12,
    "capability": "fs-v1",
    "request": {
@@ -29875,11 +29882,12 @@
    "priority": "bulk",
    "durability": "read_only",
    "clients": [
+    "cli",
     "sdk"
    ]
   },
   "fs.write": {
-   "authority": "local-admin",
+   "authority": "control",
    "since": 12,
    "capability": "fs-v1",
    "request": {
@@ -29964,11 +29972,12 @@
    "priority": "control",
    "durability": "reply_after_journal",
    "clients": [
+    "cli",
     "sdk"
    ]
   },
   "fs.mkdir": {
-   "authority": "local-admin",
+   "authority": "control",
    "since": 12,
    "capability": "fs-v1",
    "request": {
@@ -30010,11 +30019,12 @@
    "priority": "control",
    "durability": "reply_before_journal",
    "clients": [
+    "cli",
     "sdk"
    ]
   },
   "fs.rename": {
-   "authority": "local-admin",
+   "authority": "control",
    "since": 12,
    "capability": "fs-v1",
    "request": {
@@ -30056,11 +30066,12 @@
    "priority": "control",
    "durability": "reply_after_journal",
    "clients": [
+    "cli",
     "sdk"
    ]
   },
   "fs.delete": {
-   "authority": "local-admin",
+   "authority": "control",
    "since": 12,
    "capability": "fs-v1",
    "request": {
@@ -30110,6 +30121,7 @@
    "priority": "control",
    "durability": "reply_before_journal",
    "clients": [
+    "cli",
     "sdk"
    ]
   },
@@ -30422,8 +30434,9 @@
    ],
    "method_id": 5120,
    "priority": "control",
-   "durability": "reply_after_journal",
+   "durability": "memory",
    "clients": [
+    "cli",
     "sdk"
    ]
   },
@@ -30498,6 +30511,7 @@
    "priority": "control",
    "durability": "memory",
    "clients": [
+    "cli",
     "sdk"
    ]
   },
@@ -30552,8 +30566,9 @@
    ],
    "method_id": 5122,
    "priority": "control",
-   "durability": "reply_after_journal",
+   "durability": "memory",
    "clients": [
+    "cli",
     "sdk"
    ]
   },
@@ -30617,6 +30632,7 @@
    "priority": "control",
    "durability": "memory",
    "clients": [
+    "cli",
     "sdk"
    ]
   },
@@ -30703,6 +30719,7 @@
    "durability": "memory",
    "stream_scoped": true,
    "clients": [
+    "cli",
     "sdk"
    ]
   },
@@ -30749,6 +30766,7 @@
    "durability": "read_only",
    "stream_scoped": true,
    "clients": [
+    "cli",
     "sdk"
    ]
   },
@@ -30839,6 +30857,7 @@
    "priority": "bulk",
    "durability": "read_only",
    "clients": [
+    "cli",
     "sdk"
    ]
   },
@@ -30904,6 +30923,7 @@
    "durability": "memory",
    "stream_scoped": true,
    "clients": [
+    "cli",
     "sdk"
    ]
   },
@@ -30958,6 +30978,7 @@
    "durability": "memory",
    "stream_scoped": true,
    "clients": [
+    "cli",
     "sdk"
    ]
   },
@@ -31052,6 +31073,7 @@
    "priority": "control",
    "durability": "memory",
    "clients": [
+    "cli",
     "sdk"
    ]
   },
@@ -31086,6 +31108,7 @@
    "priority": "control",
    "durability": "memory",
    "clients": [
+    "cli",
     "sdk"
    ]
   },
@@ -31124,6 +31147,7 @@
    "priority": "control",
    "durability": "read_only",
    "clients": [
+    "cli",
     "sdk"
    ]
   },
@@ -31200,6 +31224,7 @@
    "priority": "control",
    "durability": "memory",
    "clients": [
+    "cli",
     "sdk"
    ]
   },
@@ -36410,6 +36435,70 @@
     "additional_properties": false
    },
    "event_id": 49443,
+   "priority": "control"
+  },
+  "script-log": {
+   "since": 12,
+   "capability": null,
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "script-log"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "level": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "The console method that wrote the line (log, info, warn, error, debug)."
+     },
+     "message": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "The line, its arguments joined as the console prints them."
+     },
+     "request": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "description": "The id of the script-run that wrote the line; absent for a REPL session's line."
+     },
+     "session": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "description": "The REPL session (script-repl-open) whose cell wrote the line; absent for a script-run's line."
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "Sent only on the connection that runs the cell, before that cell's reply; exactly one of request and session.",
+     "A cell's lines past its line budget are dropped and counted in its reply's dropped_log_lines."
+    ]
+   },
+   "event_id": 51200,
    "priority": "control"
   }
  }

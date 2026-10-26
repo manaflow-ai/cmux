@@ -10,7 +10,7 @@ import java.util.Map;
 import java.util.Objects;
 
 
-/** Immutable fs.list request. Protocol v12; authority: local-admin. */
+/** Immutable fs.list request. Protocol v12; authority: control. */
 public final class FsListRequest implements WireValue {
     private final Field<String> cursor;
     private final Field<FsFilter> filter;

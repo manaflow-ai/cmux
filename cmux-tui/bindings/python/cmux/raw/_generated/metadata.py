@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '96092969f6fbce263dc06135b19cd2e08ba76ea380ee9187919638dc07351612'
+IR_SHA256 = '47484b2cf492bb93a6c5e990b4816b79521dc4679699587db06e8490a49fab51'
 
 
 @dataclass(frozen=True)
@@ -1830,10 +1830,10 @@ COMMANDS = {
     ),
     'fs.delete': CommandMetadata(
         'fs.delete',
-        'local-admin',
+        'control',
         12,
         'fs-v1',
-        ('local-admin',),
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
             'paths': CommandFieldMetadata(None, None),
@@ -1842,10 +1842,10 @@ COMMANDS = {
     ),
     'fs.list': CommandMetadata(
         'fs.list',
-        'local-admin',
+        'control',
         12,
         'fs-v1',
-        ('local-admin',),
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
             'cursor': CommandFieldMetadata(None, None),
@@ -1858,10 +1858,10 @@ COMMANDS = {
     ),
     'fs.mkdir': CommandMetadata(
         'fs.mkdir',
-        'local-admin',
+        'control',
         12,
         'fs-v1',
-        ('local-admin',),
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
             'name': CommandFieldMetadata(None, None),
@@ -1870,10 +1870,10 @@ COMMANDS = {
     ),
     'fs.read': CommandMetadata(
         'fs.read',
-        'local-admin',
+        'control',
         12,
         'fs-v1',
-        ('local-admin',),
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
             'max_bytes': CommandFieldMetadata(None, None),
@@ -1883,10 +1883,10 @@ COMMANDS = {
     ),
     'fs.rename': CommandMetadata(
         'fs.rename',
-        'local-admin',
+        'control',
         12,
         'fs-v1',
-        ('local-admin',),
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
             'name': CommandFieldMetadata(None, None),
@@ -1895,10 +1895,10 @@ COMMANDS = {
     ),
     'fs.stat': CommandMetadata(
         'fs.stat',
-        'local-admin',
+        'control',
         12,
         'fs-v1',
-        ('local-admin',),
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
             'path': CommandFieldMetadata(None, None),
@@ -1906,10 +1906,10 @@ COMMANDS = {
     ),
     'fs.write': CommandMetadata(
         'fs.write',
-        'local-admin',
+        'control',
         12,
         'fs-v1',
-        ('local-admin',),
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
             'bytes_base64': CommandFieldMetadata(None, None),
@@ -4360,6 +4360,7 @@ EVENTS = {
     'screen-changed': EventMetadata('screen-changed', 12, 'screen-metadata-v1', ('subscribe-deltas',), 'emitted'),
     'screen-closed': EventMetadata('screen-closed', 7, None, ('subscribe-deltas',), 'emitted'),
     'screen-renamed': EventMetadata('screen-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
+    'script-log': EventMetadata('script-log', 12, None, ('control',), 'emitted'),
     'scroll-changed': EventMetadata('scroll-changed', 6, None, ('subscribe', 'attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
     'settings-changed': EventMetadata('settings-changed', 12, 'settings-v1', ('subscribe',), 'emitted'),
     'size-state': EventMetadata('size-state', 12, 'shared-sizing-v1', ('subscribe', 'attach-byte', 'attach-render'), 'emitted'),

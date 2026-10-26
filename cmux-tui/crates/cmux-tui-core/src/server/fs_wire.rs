@@ -113,10 +113,22 @@ pub(super) fn answer_line(
             Err(FsError::ParamsInvalid("a byte stream needs a link dial of its own".into())),
         );
     }
-    let answer = serde_json::from_value::<Command>(Value::Object(request))
-        .map_err(|error| FsError::ParamsInvalid(error.to_string()))
-        .and_then(|command| command.run(service, owner));
-    stream::answer(&id, answer)
+    stream::answer(&id, answer_fs_request(service, owner, Value::Object(request)))
+}
+
+/// Runs one `fs-v1` line op on `service`: `request` is the whole frame
+/// (`{id?, cmd: "fs.<op>", ...flat params}`), decoded by its `cmd`. `owner`
+/// keys the caller's listing snapshots. `answer_line` calls it after its
+/// transport and stream checks; a test that serves a real [`FsService`] on
+/// a socket of its own calls it the same way.
+pub fn answer_fs_request(
+    service: &FsService,
+    owner: &str,
+    request: Value,
+) -> Result<Value, FsError> {
+    serde_json::from_value::<Command>(request)
+        .map_err(|error| FsError::ParamsInvalid(error.to_string()))?
+        .run(service, owner)
 }
 
 /// The seven `fs-v1` line ops, decoded by their `cmd` into the params of

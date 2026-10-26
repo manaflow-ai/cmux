@@ -10173,7 +10173,10 @@ both sides is `cmux link access` (`request` on the machine, `triage` and
 Who: trusted local (Unix) connections that are not remote clients. Others
 get `access_request.not_trusted`; the remote relay (`cmux link`) answers
 `remote_denied`. A command-bearing or unknown param is
-`access_request.bad_request`. 64 requests are kept, pending or answered;
+`access_request.bad_request`, and so is any frame that does not decode (a
+missing param, a non-string value): the frame is checked before its
+`request_id` is looked up, so only a well-formed frame gets
+`access_request.unknown_request`. 64 requests are kept, pending or answered;
 each is forgotten 15 minutes after it was made or answered
 (`access_request.limit` when full; the machine's own agents can fill it, which only stalls that machine's requests). Other codes:
 `access_request.unknown_request` and `access_request.answered`.

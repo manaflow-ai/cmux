@@ -10,7 +10,7 @@ import java.util.Map;
 import java.util.Objects;
 
 
-/** Immutable fs.mkdir request. Protocol v12; authority: local-admin. */
+/** Immutable fs.mkdir request. Protocol v12; authority: control. */
 public final class FsMkdirRequest implements WireValue {
     private final String name;
     private final String path;

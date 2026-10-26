@@ -3661,6 +3661,29 @@
         "required": true
       }
     },
+    "event:script-log": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"script-log\""
+        ]
+      },
+      "/level": {
+        "ty": "string",
+        "required": true
+      },
+      "/message": {
+        "ty": "string",
+        "required": true
+      },
+      "/request": {
+        "ty": "json"
+      },
+      "/session": {
+        "ty": "string"
+      }
+    },
     "event:scroll-changed": {
       "/at_bottom": {
         "ty": "boolean",

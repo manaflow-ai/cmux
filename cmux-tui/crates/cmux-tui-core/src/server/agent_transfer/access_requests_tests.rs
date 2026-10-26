@@ -106,3 +106,27 @@ fn a_secret_is_answered_to_the_first_status_read_only() {
     assert_eq!(run(&requests, status.clone()), Ok(json!({"state":"delivered","value":"s3"})));
     assert_eq!(run(&requests, status), Ok(json!({"state":"delivered","taken":true})));
 }
+
+/// The frame is decoded before its `request_id` is looked up (a message is
+/// validated before dispatch, as Mojo's generated validators do): a frame
+/// that does not decode is a bad request even for an id nobody filed, and
+/// only a well-formed frame learns that its id is unknown.
+#[test]
+fn a_malformed_answer_is_a_bad_request_before_its_id_is_looked_up() {
+    let requests = AccessRequests::default();
+    let unknown = "0".repeat(32);
+    for value in [
+        json!({"cmd":"access-request-answer","request_id":unknown}),
+        json!({"cmd":"access-request-answer","request_id":unknown,"outcome":"denied","value":7}),
+        json!({"cmd":"access-request-answer","request_id":unknown,"outcome":"denied","extra":1}),
+    ] {
+        assert_eq!(run(&requests, value.clone()), Err("access_request.bad_request"), "{value}");
+    }
+    let well_formed =
+        json!({"cmd":"access-request-answer","request_id":unknown,"outcome":"denied"});
+    assert_eq!(run(&requests, well_formed), Err("access_request.unknown_request"));
+    assert_eq!(
+        run(&requests, json!({"cmd":"access-request-status","request_id":unknown})),
+        Err("access_request.unknown_request")
+    );
+}

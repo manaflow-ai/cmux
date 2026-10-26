@@ -10,7 +10,7 @@ import java.util.Map;
 import java.util.Objects;
 
 
-/** Immutable fs.read request. Protocol v12; authority: local-admin. */
+/** Immutable fs.read request. Protocol v12; authority: control. */
 public final class FsReadRequest implements WireValue {
     private final UInt64 maxBytes;
     private final Field<UInt64> offset;

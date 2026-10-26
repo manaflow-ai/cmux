@@ -10,7 +10,7 @@ import java.util.Map;
 import java.util.Objects;
 
 
-/** Immutable fs.write request. Protocol v12; authority: local-admin. */
+/** Immutable fs.write request. Protocol v12; authority: control. */
 public final class FsWriteRequest implements WireValue {
     private final Field<Bytes> bytesBase64;
     private final Field<String> expected;

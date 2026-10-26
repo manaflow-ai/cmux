@@ -503,7 +503,14 @@
       "update-workspace-group",
       "vt-state",
       "wait-for",
-      "zoom-pane"
+      "zoom-pane",
+      "fs.stat",
+      "fs.list",
+      "fs.read",
+      "fs.write",
+      "fs.mkdir",
+      "fs.rename",
+      "fs.delete"
     ],
     "frontend": [
       "sidebar-plugin",
@@ -617,13 +624,6 @@
       "agent-cli-intents-attach",
       "agent-cli-update-job",
       "agent-cli-update-job-resolve",
-      "fs.stat",
-      "fs.list",
-      "fs.read",
-      "fs.write",
-      "fs.mkdir",
-      "fs.rename",
-      "fs.delete",
       "script-run",
       "script-repl-open",
       "script-repl-eval",
@@ -1182,6 +1182,12 @@
     },
     {
       "name": "agent-inventory-watch-ended",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "script-log",
       "streams": [
         "control"
       ]

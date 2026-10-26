@@ -238,7 +238,7 @@ mod websocket_listener;
 use cmd_subscribe::subscribed_event_json;
 use cmd_subscribe::subscription_overflow_json;
 #[cfg(unix)]
-pub use fs_wire::FsGate;
+pub use fs_wire::{FsGate, answer_fs_request};
 pub use launch_snapshot::{
     LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
     start_launch_snapshot_writer_with,
