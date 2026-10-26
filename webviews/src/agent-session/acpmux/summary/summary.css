@@ -128,8 +128,12 @@
 .acpmux-pr-dock[data-mode="compact"]{padding-bottom:4px}
 .acpmux-pr-dock__compact{display:flex;align-items:center}
 .acpmux-pr-dock__list{display:contents}
-.acpmux-pr-dock__popover{max-width:min(480px,calc(100vw - 24px));max-height:var(--available-height,70vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);color:var(--agent-text);font-size:var(--text-control);line-height:var(--text-control--line-height)}
-.acpmux-pr-dock__popover .acpmux-pr-dock__list{display:flex;flex-direction:column;gap:4px;outline:none}
+/* Inline expansion grows the measured composer stack, reserving transcript room for every chip. */
+.acpmux-pr-dock[data-mode="compact"] .acpmux-pr-dock__list{display:flex;flex-wrap:wrap;gap:4px;max-width:100%;order:-1;outline:none}
+/* Gallery alternatives: all three arrangements keep chips in the dock's flow. */
+html[data-pr-dock-layout="below"] .acpmux-pr-dock[data-mode="compact"] .acpmux-pr-dock__list{order:0}
+html[data-pr-dock-layout="beside"] .acpmux-pr-dock[data-mode="compact"]{flex-direction:row;flex-wrap:wrap;align-items:center}
+html[data-pr-dock-layout="beside"] .acpmux-pr-dock[data-mode="compact"] .acpmux-pr-dock__list{order:0;flex:1;min-width:0}
 .acpmux-pr-dock__list[hidden]{display:none}
 .acpmux-pr-dock__count{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 4px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;cursor:default}
 .acpmux-pr-dock__count>svg{color:var(--agent-muted)}

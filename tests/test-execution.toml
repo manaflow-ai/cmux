@@ -1305,6 +1305,10 @@ path = "tests/test_nightly_next_web_bundles_order.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_helpers_beside_release_build.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_r2_presign.py"
 lane = "linux-guard"
 
@@ -1587,6 +1591,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_feat_publish_order.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_publish_retries.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1936,6 +1944,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_step_coverage.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_delivery_concurrency.py"
 lane = "linux-guard"
 
 [[test]]
