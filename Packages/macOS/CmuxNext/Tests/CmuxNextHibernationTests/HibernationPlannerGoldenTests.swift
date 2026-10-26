@@ -35,7 +35,7 @@ import Testing
     func exemptionMatchesTheRecordedPlanner(_ index: Int) {
         let (setting, candidates) = Self.recordedSet(index)
         for candidate in candidates {
-            #expect(HibernationPlanner.exemption(candidate, setting: setting)?.rawValue
+            #expect(ContentDiscardPlanner().eligibility(of: candidate, setting: setting, for: .urgent).reason?.rawValue
                     == RecordedBrowserPlan.exemption(candidate, setting: setting), "set \(index) page \(candidate.key)")
         }
     }

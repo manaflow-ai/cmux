@@ -11,6 +11,9 @@ import Testing
     let planner = ContentDiscardPlanner()
     let setting = BrowserHibernationSetting.fallback
 
+    /// A timeout pace for the tests: two per pass, every 5 s, no minimum.
+    let timeoutPace = ContentDiscardPlanner.Pace(perPass: 2, interval: 5, minimumHidden: 0)
+
     func page(_ key: String = "p", kind: ContentKind = .browser, hiddenFor: Double = 7_200) -> ContentDiscardPlanner.Candidate {
         ContentDiscardPlanner.Candidate(key: key, kind: kind, hiddenFor: hiddenFor)
     }
@@ -63,6 +66,14 @@ import Testing
             (.agentLease, { $0.hasAgentLease = true }),
             (.unsavedEdits, { $0.hasUnsavedEdits = true }),
             (.runningCommand, { $0.runsCommand = true }),
+            (.audio, { $0.isAudible = true }),
+            (.formInput, { $0.hasFormInput = true }),
+            (.unreadableFrame, { $0.hasUnreadableFrame = true }),
+            (.beforeUnload, { $0.asksBeforeUnload = true }),
+            (.webRTC, { $0.hasWebRTC = true }),
+            (.connectedDevice, { $0.hasConnectedDevice = true }),
+            (.webAudio, { $0.usesWebAudio = true }),
+            (.unanswered, { $0.isUnanswered = true; $0.isDoubted = true }),
         ]
         for (reason, apply) in facts {
             var candidate = page(kind: .terminalSurface)
@@ -82,7 +93,7 @@ import Testing
         var shell = page("shell", kind: .terminalSurface)
         shell.runsCommand = true
         let idle = page("idle", kind: .sidebarSection)
-        let plan = planner.plan(setting, for: .proactive, threshold: 600, pace: .normal, candidates: [editor, shell, idle])
+        let plan = planner.plan(setting, for: .proactive, threshold: 600, pace: timeoutPace, candidates: [editor, shell, idle])
         #expect(plan.due == ["idle"])
         #expect(plan.exemptions == ["editor": .unsavedEdits, "shell": .runningCommand])
     }
@@ -90,10 +101,109 @@ import Testing
     @Test func urgentPlansTakeTheLeastValuableOldEnoughContentBeforeItsTimeout() {
         let young = page("young", hiddenFor: 5)
         let old = page("old", hiddenFor: 120)
-        let plan = planner.plan(setting, for: .urgent, threshold: 600, pace: .critical, candidates: [young, old])
+        let pace = ContentDiscardPlanner.Pace(perPass: 3, interval: 3, minimumHidden: 10)
+        let plan = planner.plan(setting, for: .urgent, threshold: 600, pace: pace, candidates: [young, old])
         #expect(plan.due == ["old"])
-        #expect(plan.nextCheck == ContentDiscardPlanner.Pace.critical.interval)
-        #expect(planner.plan(setting, for: .proactive, threshold: 600, pace: .normal, candidates: [young, old]).due.isEmpty)
+        #expect(plan.nextCheck == pace.interval)
+        #expect(planner.plan(setting, for: .proactive, threshold: 600, pace: timeoutPace, candidates: [young, old]).due.isEmpty)
+    }
+
+    /// New kinds take Chrome's urgent pace: one discard per pass, the next look 5 s later.
+    @Test func chromesUrgentPaceTakesOneAndLooksAgainInFiveSeconds() {
+        let pace = ContentDiscardPlanner.Pace.chromeUrgent
+        #expect(pace == ContentDiscardPlanner.Pace(perPass: 1, interval: 5, minimumHidden: 0))
+        let hidden = (0..<4).map { page("s\($0)", kind: .sidebarSection, hiddenFor: Double(60 * ($0 + 1))) }
+        let plan = planner.plan(setting, for: .urgent, threshold: 600, pace: pace, candidates: hidden)
+        #expect(plan.due == ["s3"], "the least valuable section goes first, alone")
+        #expect(plan.nextCheck == 5)
+    }
+
+    /// The browser's paces stay on the browser's planner (p07-memory.md section 3.C, until task 114).
+    @Test func theBrowserKeepsItsOwnPaces() {
+        #expect(HibernationPlanner.pace(at: .normal) == ContentDiscardPlanner.Pace(perPass: 2, interval: 5, minimumHidden: 0))
+        #expect(HibernationPlanner.pace(at: .warning) == ContentDiscardPlanner.Pace(perPass: 1, interval: 15, minimumHidden: 60))
+        #expect(HibernationPlanner.pace(at: .critical) == ContentDiscardPlanner.Pace(perPass: 3, interval: 3, minimumHidden: 10))
+        #expect(HibernationPlanner.pace(at: .critical) != ContentDiscardPlanner.Pace.chromeUrgent)
+    }
+
+    /// `browser.hibernation` is the browser's policy: off, a Never Hibernate host or the pinned rule
+    /// keeps browser pages only. A terminal, a conversation or a sidebar section still goes.
+    @Test func theBrowsersSettingKeepsOnlyBrowserPages() {
+        let off = BrowserHibernationSetting(mode: .off)
+        let excluding = BrowserHibernationSetting(mode: .moderate, exclusions: ["example.com"])
+        for kind in ContentKind.allCases where kind != .browser {
+            var candidate = page(kind: kind)
+            candidate.host = "example.com"
+            candidate.isPinned = true
+            candidate.allowsNotifications = true
+            candidate.isNeighbor = true
+            candidate.isAgentDriving = true
+            candidate.showsFormSubmission = true
+            for reason in DiscardReason.allCases {
+                #expect(planner.eligibility(of: candidate, setting: off, for: reason).result == .eligible, "\(kind) at \(reason), off")
+                #expect(planner.eligibility(of: candidate, setting: excluding, for: reason).result == .eligible, "\(kind) at \(reason)")
+            }
+        }
+        var terminal = page("shell", kind: .terminalSurface)
+        terminal.host = "example.com"
+        let plan = planner.plan(off, for: .proactive, threshold: 600, pace: timeoutPace, candidates: [terminal, page("web")])
+        #expect(plan.due == ["shell"])
+        #expect(plan.exemptions == ["web": .disabled])
+        var browser = page()
+        browser.host = "example.com"
+        #expect(planner.eligibility(of: browser, setting: excluding, for: .urgent).reason == .excluded)
+    }
+
+    /// The person's Hibernate Tab is Chrome's external discard: every disallowed rule refuses it,
+    /// no protected rule does.
+    @Test func hibernateTabIsRefusedOnlyByDisallowedRules() {
+        let facts: [(CannotDiscardReason, (inout ContentDiscardPlanner.Candidate) -> Void)] = [
+            (.unsupported, { $0.canRestore = false }),
+            (.formSubmission, { $0.showsFormSubmission = true }),
+        ]
+        let disallowed = DiscardRule.registered.filter { $0.result == .disallowed }.map(\.reason)
+        #expect(Set(disallowed) == Set(facts.map(\.0)), "a disallowed rule has no Hibernate Tab case here")
+        for (reason, apply) in facts {
+            var candidate = page()
+            apply(&candidate)
+            #expect(HibernationPlanner.hibernateTabRefusal(candidate, setting: setting) == reason)
+        }
+        var kept = page()
+        kept.isPinned = true
+        kept.hasDevTools = true
+        kept.isCapturing = true
+        kept.isDownloading = true
+        kept.hasAgentLease = true
+        kept.isNeighbor = true
+        kept.isAgentDriving = true
+        kept.allowsNotifications = true
+        kept.host = "example.com"
+        kept.isAudible = true
+        kept.hasFormInput = true
+        kept.asksBeforeUnload = true
+        kept.isUnanswered = true
+        kept.isDoubted = true
+        let excluding = BrowserHibernationSetting(mode: .off, exclusions: ["example.com"])
+        #expect(planner.eligibility(of: kept, setting: excluding, for: .urgent).result == .protected)
+        #expect(HibernationPlanner.hibernateTabRefusal(kept, setting: excluding) == nil)
+        for rule in DiscardRule.registered {
+            #expect(rule.discardReasons.contains(.external) == (rule.result == .disallowed), "\(rule.reason)")
+        }
+    }
+
+    /// The probe fills the lead rule's facts and the rules decide, in the probe's order.
+    @Test func theProbesAnswerIsDecidedByTheRules() {
+        var facts = page()
+        PageProbe(playingMedia: true, editedForm: true, webAudio: true).fill(&facts)
+        #expect(facts.isAudible && facts.hasFormInput && facts.usesWebAudio)
+        #expect(planner.eligibility(of: facts, setting: setting, for: .urgent).reasons == [.audio, .formInput, .webAudio])
+        #expect(PageProbe(playingMedia: true, capturing: true).exemption == .capturing)
+        var unanswered = page()
+        PageProbe(answered: false).fill(&unanswered)
+        #expect(planner.eligibility(of: unanswered, setting: setting, for: .proactive).reason == .unanswered)
+        #expect(planner.eligibility(of: unanswered, setting: setting, for: .urgent).result == .eligible, "no doubt left")
+        unanswered.isDoubted = true
+        #expect(planner.eligibility(of: unanswered, setting: setting, for: .urgent).reason == .unanswered)
     }
 
     @Test func eachRegisteredRuleHasItsOwnReason() {

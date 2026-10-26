@@ -49,6 +49,33 @@ package nonisolated struct ContentDiscardPlanner: Sendable {
         /// A terminal's command still runs.
         package var runsCommand = false
 
+        /// The tab sits beside a pane's shown tab or was just hovered (browser pages).
+        package var isNeighbor = false
+        /// An agent called the page within its grace (browser pages).
+        package var isAgentDriving = false
+
+        // The lead rule's facts (p07-memory.md section 3.C). A web page's probe fills them right
+        // before a discard (`PageProbe.fill(_:)`); other kinds set them from their own state.
+
+        /// Sound, media its mute silences, or Picture in Picture.
+        package var isAudible = false
+        /// The person's edits in its form fields.
+        package var hasFormInput = false
+        /// The person moved into a child frame whose fields cannot be read.
+        package var hasUnreadableFrame = false
+        /// Its `beforeunload` would ask before it unloads.
+        package var asksBeforeUnload = false
+        /// A connected WebRTC peer connection.
+        package var hasWebRTC = false
+        /// An open USB, HID or serial device, or a connected Bluetooth GATT server.
+        package var hasConnectedDevice = false
+        /// A running Web Audio context.
+        package var usesWebAudio = false
+        /// Its probe got no answer, so its edits are unknown.
+        package var isUnanswered = false
+        /// It still gets the benefit of the doubt for a missed answer (`PageProbeHistory`).
+        package var isDoubted = false
+
         package init(key: String, kind: ContentKind = .browser, hiddenFor: Double, host: String? = nil, isPinned: Bool = false,
                      hasDevTools: Bool = false, isCapturing: Bool = false, canRestore: Bool = true, showsFormSubmission: Bool = false,
                      recentFocusCount: Int = 0, memoryBytes: UInt64? = nil, isDownloading: Bool = false,
@@ -88,6 +115,13 @@ package nonisolated struct ContentDiscardPlanner: Sendable {
             self.interval = interval
             self.minimumHidden = minimumHidden
         }
+
+        /// Chrome's urgent pace, the one for every new kind (p07-memory.md section 3.C): one discard
+        /// per critical pressure event (`UrgentPageDiscardingPolicy`,
+        /// chrome/browser/performance_manager/policies/urgent_page_discarding_policy.cc), then one
+        /// every 5 s while it stays critical. Browser pages keep their own paces
+        /// (`HibernationPlanner.pace(at:)`) until task 114 measures both.
+        package static let chromeUrgent = Self(perPass: 1, interval: 5, minimumHidden: 0)
     }
 
     package nonisolated struct Plan: Hashable, Sendable {
@@ -119,13 +153,14 @@ package nonisolated struct ContentDiscardPlanner: Sendable {
     ///
     /// - Parameters:
     ///   - candidate: The content's facts.
-    ///   - setting: `browser.hibernation` (its switch, exclusions and pinned rule).
+    ///   - setting: `browser.hibernation` (its switch, exclusions and pinned rule), read only by the
+    ///     rules of browser pages.
     ///   - reason: Why the discard would happen.
     /// - Returns: The worst result of the rules that match and their reasons in rule order.
     package func eligibility(of candidate: Candidate, setting: BrowserHibernationSetting, for reason: DiscardReason) -> DiscardEligibility {
-        let context = DiscardRule.Context(setting: setting, reason: reason)
+        let context = DiscardRule.Context(browser: setting, reason: reason)
         var eligibility = DiscardEligibility()
-        for rule in rules where rule.discardReasons.contains(reason) && rule.matches(candidate, context) {
+        for rule in rules where rule.matches(candidate, context) {
             eligibility.result = max(eligibility.result, rule.result)
             eligibility.reasons.append(rule.reason)
         }
@@ -161,7 +196,7 @@ package nonisolated struct ContentDiscardPlanner: Sendable {
     /// `Pace.interval` while more are waiting.
     ///
     /// - Parameters:
-    ///   - setting: `browser.hibernation`, read by the rules.
+    ///   - setting: `browser.hibernation`, read by the rules of browser pages.
     ///   - reason: ``DiscardReason/proactive`` without pressure, ``DiscardReason/urgent`` with it.
     ///   - threshold: Seconds of idleness before a candidate is due.
     ///   - pace: How many go per pass and how often.

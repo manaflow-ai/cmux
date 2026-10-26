@@ -3,7 +3,8 @@
 nonisolated extension DiscardRule {
     /// The page's site may show notifications: the timeout keeps it, memory pressure does not (Chrome's
     /// `kNotificationsEnabled`, proactive discards only).
-    package static let notifications = DiscardRule(.notifications, result: .protected, for: [.proactive]) { candidate, _ in
+    package static let notifications = DiscardRule(.notifications, result: .protected, for: [.proactive],
+                                                   kinds: DiscardRule.browserPages) { candidate, _ in
         candidate.allowsNotifications
     }
 }

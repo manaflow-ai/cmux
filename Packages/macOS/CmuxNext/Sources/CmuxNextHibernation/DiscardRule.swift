@@ -1,30 +1,37 @@
 package import CmuxNextSettings
 
-/// One reason ``ContentDiscardPlanner`` keeps content: which discards it applies to, how strongly it
-/// keeps (``CanDiscardResult/protected`` or ``CanDiscardResult/disallowed``) and the fact it reads.
+/// One reason ``ContentDiscardPlanner`` keeps content: which kinds and discards it applies to, how
+/// strongly it keeps (``CanDiscardResult/protected`` or ``CanDiscardResult/disallowed``) and the fact
+/// it reads.
 ///
 /// One check of Chrome's `DiscardEligibilityPolicy::CanDiscard`
 /// (chrome/browser/performance_manager/policies/discard_eligibility_policy.cc) per value. Each
 /// rule lives in its own file under `Rules/` as a static value on this type, and ``registered``
 /// lists them all once, so a new rule adds one file and one line.
 ///
+/// A rule that reads a kind's own policy (`browser.hibernation` for browser pages) applies to that
+/// kind only (``kinds``): turning browser hibernation off, or a Never Hibernate host, never keeps a
+/// terminal or a conversation. A kind that plans through the planner adds its own policy rule
+/// (its `memory.discard.<kind>` switch) the same way.
+///
 /// ```swift
 /// nonisolated extension DiscardRule {
-///     package static let pinned = DiscardRule(.pinned, result: .protected, for: DiscardRule.pressure) {
-///         candidate, context in candidate.isPinned && !context.setting.includesPinnedTabs
+///     package static let pinned = DiscardRule(.pinned, result: .protected, for: DiscardRule.pressure,
+///                                             kinds: DiscardRule.browserPages) { candidate, context in
+///         candidate.isPinned && !context.browser.includesPinnedTabs
 ///     }
 /// }
 /// ```
 package nonisolated struct DiscardRule: Sendable {
     /// What a rule reads besides the candidate.
     package nonisolated struct Context: Sendable {
-        /// `browser.hibernation`.
-        package var setting: BrowserHibernationSetting
+        /// `browser.hibernation`: read only by rules scoped to ``browserPages``.
+        package var browser: BrowserHibernationSetting
         /// Why the discard would happen.
         package var reason: DiscardReason
 
-        package init(setting: BrowserHibernationSetting, reason: DiscardReason) {
-            self.setting = setting
+        package init(browser: BrowserHibernationSetting, reason: DiscardReason) {
+            self.browser = browser
             self.reason = reason
         }
     }
@@ -35,6 +42,8 @@ package nonisolated struct DiscardRule: Sendable {
     package let result: CanDiscardResult
     /// The discards the rule is checked for.
     package let discardReasons: Set<DiscardReason>
+    /// The kinds of content the rule is checked for.
+    package let kinds: Set<ContentKind>
     private let test: @Sendable (ContentDiscardPlanner.Candidate, Context) -> Bool
 
     /// Makes a rule.
@@ -43,23 +52,32 @@ package nonisolated struct DiscardRule: Sendable {
     ///   - reason: The reason reported when it matches.
     ///   - result: ``CanDiscardResult/protected`` or ``CanDiscardResult/disallowed``.
     ///   - discardReasons: The discards it is checked for.
+    ///   - kinds: The kinds it is checked for; every kind unless it reads one kind's policy or facts.
     ///   - test: Whether the candidate matches.
     package init(_ reason: CannotDiscardReason, result: CanDiscardResult, for discardReasons: Set<DiscardReason>,
+                 kinds: Set<ContentKind> = DiscardRule.everyKind,
                  test: @escaping @Sendable (ContentDiscardPlanner.Candidate, Context) -> Bool) {
         self.reason = reason
         self.result = result
         self.discardReasons = discardReasons
+        self.kinds = kinds
         self.test = test
     }
 
-    /// Whether `candidate` matches the rule.
+    /// Whether the rule keeps `candidate` from a discard for `context.reason`: it applies to the
+    /// candidate's kind and to that discard, and its fact holds.
     ///
     /// - Parameters:
     ///   - candidate: The content's facts.
-    ///   - context: The setting and the discard's reason.
+    ///   - context: The settings and the discard's reason.
     package func matches(_ candidate: ContentDiscardPlanner.Candidate, _ context: Context) -> Bool {
-        test(candidate, context)
+        kinds.contains(candidate.kind) && discardReasons.contains(context.reason) && test(candidate, context)
     }
+
+    /// Every kind of content.
+    package static let everyKind = Set(ContentKind.allCases)
+    /// Browser pages only: the rules that read `browser.hibernation` or the tab strip.
+    package static let browserPages: Set<ContentKind> = [.browser]
 
     /// The discards a protected rule keeps content from: the timeout and memory pressure.
     package static let pressure: Set<DiscardReason> = [.proactive, .urgent]
@@ -72,8 +90,13 @@ package nonisolated struct DiscardRule: Sendable {
 
     /// Every rule, in the order their reasons are reported (the first match is the reason
     /// `debug.surfaces` shows). Browser hibernation reported its reasons in this order before the
-    /// planner; keep new rules after them.
+    /// planner: the tab strip's neighbor and agent grace first, then the planner's rules, with the page
+    /// probe's answers (``PageProbe``) in the probe's own order where it checked capture. The probe's
+    /// facts are false until it answers, so they change no plan made before it. Keep new rules after
+    /// these.
     package static let registered: [DiscardRule] = [
+        .neighbor,
+        .agentDriving,
         .disabled,
         .unsupported,
         .agentLease,
@@ -81,10 +104,18 @@ package nonisolated struct DiscardRule: Sendable {
         .formSubmission,
         .devTools,
         .capturing,
+        .audio,
+        .formInput,
+        .unreadableFrame,
+        .beforeUnload,
+        .webRTC,
+        .connectedDevice,
+        .webAudio,
         .pinned,
         .excluded,
         .unsavedEdits,
         .runningCommand,
         .notifications,
+        .unanswered,
     ]
 }

@@ -5,7 +5,8 @@ import CmuxNextSettings
 nonisolated extension DiscardRule {
     /// The page's host is in `browser.hibernationExclusions` (Never Hibernate This Site; Chrome's
     /// `kOptedOut`).
-    package static let excluded = DiscardRule(.excluded, result: .protected, for: DiscardRule.pressure) { candidate, context in
-        context.setting.excludes(host: candidate.host)
+    package static let excluded = DiscardRule(.excluded, result: .protected, for: DiscardRule.pressure,
+                                              kinds: DiscardRule.browserPages) { candidate, context in
+        context.browser.excludes(host: candidate.host)
     }
 }

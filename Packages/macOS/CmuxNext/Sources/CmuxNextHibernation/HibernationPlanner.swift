@@ -35,11 +35,10 @@ package struct HibernationPlanner {
         }
     }
 
-    /// Why `candidate` stays loaded at any memory pressure, or nil: the first ``DiscardRule`` that
-    /// matches for an urgent discard. ``plan(_:pressure:candidates:)`` also keeps a page that may
-    /// show notifications while there is no pressure.
-    package static func exemption(_ candidate: Candidate, setting: BrowserHibernationSetting) -> Exemption? {
-        ContentDiscardPlanner().eligibility(of: candidate, setting: setting, for: .urgent).reason
+    /// Why the person's Hibernate Tab refuses hidden page `candidate`, or nil when it may go: Chrome's
+    /// external discard, which only a ``CanDiscardResult/disallowed`` rule stops.
+    package static func hibernateTabRefusal(_ candidate: Candidate, setting: BrowserHibernationSetting) -> Exemption? {
+        ContentDiscardPlanner().eligibility(of: candidate, setting: setting, for: .external).reason
     }
 
     /// Which hidden pages freeze now, and when the next one will: after
@@ -79,32 +78,38 @@ package struct HibernationPlanner {
     /// The pages to hibernate now, least valuable first, and when to look again.
     ///
     /// ``ContentDiscardPlanner/plan(_:for:threshold:pace:candidates:)`` with the browser's timeout
-    /// (`browser.hibernation`; 10 minutes at most under pressure) and pace (`Pace.at(pressure)`): a
+    /// (`browser.hibernation`; 10 minutes at most under pressure) and pace (``pace(at:)``): a
     /// proactive plan without pressure, an urgent one with it. With hibernation off every page is
-    /// kept as disabled.
+    /// kept, as disabled unless an earlier rule (a neighbor) keeps it.
     package static func plan(_ setting: BrowserHibernationSetting, pressure: MemoryPressureLevel, candidates: [Candidate]) -> Plan {
+        let planner = ContentDiscardPlanner()
+        let reason = discardReason(at: pressure)
         guard let threshold = threshold(setting, pressure: pressure == .critical ? .warning : pressure) else {
             var plan = Plan()
-            for candidate in candidates { plan.exemptions[candidate.key] = .disabled }
+            for candidate in candidates {
+                plan.exemptions[candidate.key] = planner.eligibility(of: candidate, setting: setting, for: reason).reason ?? .disabled
+            }
             return plan
         }
-        return ContentDiscardPlanner().plan(setting, for: discardReason(at: pressure), threshold: threshold, pace: .at(pressure),
-                                            candidates: candidates)
+        return planner.plan(setting, for: reason, threshold: threshold, pace: pace(at: pressure), candidates: candidates)
     }
-}
 
-/// Browser hibernation's paces (``HibernationPlanner``); other kinds pick their own.
-nonisolated extension ContentDiscardPlanner.Pace {
-    package static let normal = Self(perPass: 2, interval: 5, minimumHidden: 0)
-    package static let warning = Self(perPass: 1, interval: 15, minimumHidden: 60)
-    package static let critical = Self(perPass: 3, interval: 3, minimumHidden: 10)
+    // The browser's own paces. Other kinds use Chrome's (`Pace.chromeUrgent`); these stay for
+    // browser pages until task 114 measures both (p07-memory.md section 3.C).
+
+    /// Without pressure: two pages per pass, every 5 s while more are due.
+    package static let normalPace = Pace(perPass: 2, interval: 5, minimumHidden: 0)
+    /// At warning: one page hidden at least a minute, every 15 s.
+    package static let warningPace = Pace(perPass: 1, interval: 15, minimumHidden: 60)
+    /// At critical: three pages hidden at least 10 s, every 3 s.
+    package static let criticalPace = Pace(perPass: 3, interval: 3, minimumHidden: 10)
 
     /// The browser's pace at `pressure`.
-    package static func at(_ pressure: MemoryPressureLevel) -> Self {
+    package static func pace(at pressure: MemoryPressureLevel) -> Pace {
         switch pressure {
-        case .normal: .normal
-        case .warning: .warning
-        case .critical: .critical
+        case .normal: normalPace
+        case .warning: warningPace
+        case .critical: criticalPace
         }
     }
 }

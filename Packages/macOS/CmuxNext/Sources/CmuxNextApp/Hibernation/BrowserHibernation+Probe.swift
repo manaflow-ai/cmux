@@ -3,7 +3,7 @@ import CmuxNextControl
 import CmuxNextHibernation
 import Foundation
 
-// The page probe of browser hibernation (moved from BrowserHibernation.swift).
+// The page probe of browser hibernation and the facts it adds to (moved from BrowserHibernation.swift).
 extension BrowserHibernation {
     /// Asks hidden page `tab` what it does (`PageProbe`). Runs no page code: whether a `beforeunload`
     /// handler would ask is learned only right before a discard (`asksBeforeUnload`).
@@ -37,5 +37,34 @@ extension BrowserHibernation {
         let media = tab.state.media
         let playing = media.map { $0.isAudible || ($0.isPlaying && tab.state.isAudioMuted) || $0.isPictureInPicture } ?? false
         return PageProbe(playingMedia: playing, answered: false)
+    }
+
+    /// The planner's facts of hidden page `key`, before any probe (`PageProbe.fill(_:)` adds its answer).
+    func candidate(_ key: String, entry: BrowserEntry, hiddenFor: Double, now: ContinuousClock.Instant = .now) -> HibernationPlanner.Candidate {
+        let tab = entry.tab
+        let capturing = (tab as? any PageInfoProviding).map { !$0.pageInfoInUse.union($0.pageInfoActivity.inUse).isEmpty } ?? false
+        var candidate = HibernationPlanner.Candidate(
+            key: key, hiddenFor: hiddenFor, host: tab.state.url?.host(), isPinned: isPinned(key),
+            hasDevTools: (tab as? any BrowserDevToolsHosting)?.devTools.isOpen ?? false, isCapturing: capturing,
+            canRestore: (tab as? any BrowserHibernationSource)?.supportsHibernation ?? false,
+            showsFormSubmission: (tab as? any BrowserHibernationSource)?.showsFormSubmission ?? false
+        )
+        candidate.recentFocusCount = recentFocusCount(key, now: now)
+        candidate.memoryBytes = memoryBytes[key]
+        candidate.isDownloading = isDownloading(key)
+        candidate.hasAgentLease = leased.contains(key)
+        candidate.allowsNotifications = (tab as? any BrowserHibernationSource)?.allowsNotifications ?? false
+        return candidate
+    }
+
+    /// Whether hidden page `key` would ask before it unloads (`BrowserTab.asksBeforeUnload()`): runs
+    /// its handlers once per hidden period; a page that asked, or could not be asked, stays.
+    func asksBeforeUnload(_ key: String, _ tab: any BrowserTab) async -> Bool {
+        if askedBeforeUnload.contains(key) { return true }
+        let asks = (try? await ControlDeadline.shared.run(method: "hibernation.beforeunload", deadline: .now + .seconds(2)) { @MainActor in
+            try await tab.asksBeforeUnload()
+        }) ?? true
+        if asks { askedBeforeUnload.insert(key) }
+        return asks
     }
 }

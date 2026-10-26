@@ -67,7 +67,7 @@ final class BrowserHibernation {
     /// Hidden pages whose `beforeunload` asked, once, right before a discard: they stay until shown,
     /// and their handlers do not run again on every replan (each run is the page's own unload logic
     /// on a page that lives on).
-    private var askedBeforeUnload: Set<String> = []
+    var askedBeforeUnload: Set<String> = []
     private let deadline = DemandTimer(owner: "BrowserHibernation")
     /// Hidden pages frozen now (`browser.freezeHiddenTabs`); they thaw when shown or driven.
     private(set) var frozen: Set<String> = []
@@ -81,8 +81,12 @@ final class BrowserHibernation {
     private let freezeDeadline = DemandTimer(owner: "BrowserFreeze")
     /// The memory coordinator it registers with, made by `AppServices` (tests pass their own).
     private let memory: any MemoryConsumerRegistry
-    /// Its lossy consumer registration while started; the coordinator hands it each level.
+    /// Its lossy consumer registration while started; the coordinator hands it each level and limit.
     private var memoryRegistration: MemoryConsumerRegistration?
+    /// The coordinator's limit: critical (0 %) means the next release slice runs an urgent pass.
+    private(set) var memoryLimit = MemoryLimit.default
+    /// Urgent passes the coordinator's critical release slices ran (`debug.surfaces`).
+    private(set) var urgentPasses = 0
     /// Pinned state of a tab (the daemon record); injected by the App.
     var isPinned: (String) -> Bool = { _ in false }
     /// Memory pressure changed (the App resizes the terminal warm set).
@@ -189,13 +193,16 @@ final class BrowserHibernation {
         replan()
     }
 
-    func pressureDidChange(_ level: MemoryPressureLevel) {
+    /// Takes a new pressure level; `replans` false leaves the pass to the caller (the coordinator's
+    /// critical release slice, `releaseMemory(within:)`).
+    func pressureDidChange(_ level: MemoryPressureLevel, replans: Bool = true) {
         guard level != pressure else { return }
         pressure = level
         logger.info("memory pressure \(level.rawValue, privacy: .public)")
         onPressureChange?(level)
         agentPages?.update(setting: setting, pressure: pressure)
         refreshNeighbors(replans: false)
+        guard replans else { return }
         replan()
         refreshMemoryIfNeeded()
     }
@@ -394,28 +401,22 @@ final class BrowserHibernation {
         var graceEnds: Double?
         let candidates = cache.lifecycle.keys(in: .mountedHidden).compactMap { key -> HibernationPlanner.Candidate? in
             guard let at = hiddenAt[key], !probing.contains(key), let entry = cache.browsers[key] else { return nil }
-            // Beside a shown tab or just hovered: stays awake for an instant switch.
-            if awakeNeighbors.contains(key) {
-                exemptions[key] = .neighbor
-                return nil
-            }
-            if let left = hoverLeft(key, now: now) {
-                exemptions[key] = .neighbor
-                graceEnds = min(graceEnds ?? left, left)
-                return nil
-            }
-            if exemptions[key] == .neighbor { exemptions[key] = nil }
-            if let used = agentUsedAt[key] {
+            var facts = candidate(key, entry: entry, hiddenFor: (now - at).seconds, now: now)
+            // Beside a shown tab or just hovered: stays awake for an instant switch (`DiscardRule.neighbor`).
+            let hover = awakeNeighbors.contains(key) ? nil : hoverLeft(key, now: now)
+            facts.isNeighbor = awakeNeighbors.contains(key) || hover != nil
+            if let hover { graceEnds = min(graceEnds ?? hover, hover) }
+            if !facts.isNeighbor, exemptions[key] == .neighbor { exemptions[key] = nil }
+            if !facts.isNeighbor, let used = agentUsedAt[key] {
                 let left = Self.agentGrace - (now - used).seconds
                 if left > 0, setting.isEnabled {
-                    exemptions[key] = .agentDriving
+                    facts.isAgentDriving = true
                     graceEnds = min(graceEnds ?? left, left)
-                    return nil
+                } else {
+                    agentUsedAt[key] = nil
+                    if exemptions[key] == .agentDriving { exemptions[key] = nil }
                 }
-                agentUsedAt[key] = nil
-                if exemptions[key] == .agentDriving { exemptions[key] = nil }
             }
-            var facts = candidate(key, entry: entry, hiddenFor: (now - at).seconds, now: now)
             if let kept = probeKeptAt[key] {
                 if (now - kept).seconds < Self.keptBackoff { facts.recentlyKept = true } else { probeKeptAt[key] = nil }
             }
@@ -430,7 +431,7 @@ final class BrowserHibernation {
         } else {
             deadline.cancel()
         }
-        replanFreeze(candidates)
+        replanFreeze(candidates.filter { !$0.isNeighbor && !$0.isAgentDriving })
     }
 
     // MARK: Freeze
@@ -521,32 +522,17 @@ final class BrowserHibernation {
     /// switches neighbors exist to avoid (`debug.surfaces`, the bench).
     private(set) var coldShows = 0
 
-    private func candidate(_ key: String, entry: BrowserEntry, hiddenFor: Double, now: ContinuousClock.Instant = .now) -> HibernationPlanner.Candidate {
-        let tab = entry.tab
-        let capturing = (tab as? any PageInfoProviding).map { !$0.pageInfoInUse.union($0.pageInfoActivity.inUse).isEmpty } ?? false
-        var candidate = HibernationPlanner.Candidate(
-            key: key, hiddenFor: hiddenFor, host: tab.state.url?.host(), isPinned: isPinned(key),
-            hasDevTools: (tab as? any BrowserDevToolsHosting)?.devTools.isOpen ?? false, isCapturing: capturing,
-            canRestore: (tab as? any BrowserHibernationSource)?.supportsHibernation ?? false,
-            showsFormSubmission: (tab as? any BrowserHibernationSource)?.showsFormSubmission ?? false
-        )
-        candidate.recentFocusCount = recentFocusCount(key, now: now)
-        candidate.memoryBytes = memoryBytes[key]
-        candidate.isDownloading = isDownloading(key)
-        candidate.hasAgentLease = leased.contains(key)
-        candidate.allowsNotifications = (tab as? any BrowserHibernationSource)?.allowsNotifications ?? false
-        return candidate
-    }
-
     // MARK: Hibernate
 
-    /// The user's Hibernate Tab action: a hidden page hibernates now unless
-    /// its engine cannot restore it. Returns why not, or nil when it started.
+    /// The user's Hibernate Tab action (Chrome's external discard): a hidden page hibernates now
+    /// unless a disallowed rule keeps it (`HibernationPlanner.hibernateTabRefusal`). Returns why
+    /// not, or nil when it started.
     func hibernateNow(_ key: String) -> HibernationPlanner.Exemption? {
         guard let cache, let entry = cache.browsers[key], cache.lifecycle.phase(key) == .mountedHidden else { return .disabled }
-        let facts = candidate(key, entry: entry, hiddenFor: 0)
-        guard facts.canRestore else { return .unsupported }
-        guard !facts.showsFormSubmission else { exemptions[key] = .formSubmission; return .formSubmission }
+        if let refusal = HibernationPlanner.hibernateTabRefusal(candidate(key, entry: entry, hiddenFor: 0), setting: setting) {
+            exemptions[key] = refusal
+            return refusal
+        }
         prepare(key, user: true)
         return nil
     }
@@ -560,18 +546,18 @@ final class BrowserHibernation {
         // The probe and the history capture run script: a frozen page runs none.
         thaw(key)
         Task { @MainActor [weak self] in
-            // The person's Hibernate Tab asks the page nothing (only a form result keeps it).
+            // The person's Hibernate Tab asks the page nothing (only a disallowed rule keeps it).
             var exemption: HibernationPlanner.Exemption?
             var mayAsk = false
             if user {
-                exemption = source.showsFormSubmission ? .formSubmission : nil
+                exemption = self.flatMap { HibernationPlanner.hibernateTabRefusal($0.candidate(key, entry: entry, hiddenFor: 0), setting: $0.setting) }
             } else {
                 let probe = await Self.probe(tab)
                 // The freeze probe counts the misses (it runs beside this one and refreezes the
                 // page); this one records an answer only.
                 let doubted = probe.answered ? self?.probeHistory.record(probe, for: key) ?? false : self?.probeHistory.doubted(key) ?? true
-                exemption = probe.keepReason(pressure: self?.pressure ?? .normal, doubted: doubted,
-                                             showsFormSubmission: source.showsFormSubmission)
+                exemption = self.flatMap { probe.keepReason($0.candidate(key, entry: entry, hiddenFor: 0), setting: $0.setting,
+                                                            pressure: $0.pressure, doubted: doubted) }
                 mayAsk = probe.unloadHandler
             }
             // A page that stays needs no picture (each replan probes it again).
@@ -657,17 +643,6 @@ final class BrowserHibernation {
         case go, stale
         case keep(HibernationPlanner.Exemption)
     }
-
-    /// Whether hidden page `key` would ask before it unloads (`BrowserTab.asksBeforeUnload()`): runs
-    /// its handlers once per hidden period; a page that asked, or could not be asked, stays.
-    private func asksBeforeUnload(_ key: String, _ tab: any BrowserTab) async -> Bool {
-        if askedBeforeUnload.contains(key) { return true }
-        let asks = (try? await ControlDeadline.shared.run(method: "hibernation.beforeunload", deadline: .now + .seconds(2)) { @MainActor in
-            try await tab.asksBeforeUnload()
-        }) ?? true
-        if asks { askedBeforeUnload.insert(key) }
-        return asks
-    }
 }
 
 private extension Duration {
@@ -675,17 +650,29 @@ private extension Duration {
 }
 
 // One lossy memory consumer of the app's coordinator, as Chrome's urgent page discarding policy
-// (urgent_page_discarding_policy.cc: kLarge, kLossy, IsStateful::kNo). It takes the level and paces
-// its own discards (`HibernationPlanner.Pace`), so a release slice has nothing to free.
+// (urgent_page_discarding_policy.cc: kLarge, kLossy, IsStateful::kNo), which acts when its limit
+// reaches the critical threshold. The critical limit's release slice, a frame after the level
+// change, runs one urgent pass; the planner's critical pace runs the next ones. The level sets the
+// timeout and the warning pace (p07-memory.md section 3.A).
 extension BrowserHibernation: MemoryLevelConsumer {
     static let memoryConsumerName = "browser-hibernation"
     static let memoryTraits = MemoryConsumerTraits(
         estimatedUsage: .large, dataAccess: .reads, retention: .lossy, recreateCost: .expensive,
         releaseCPUCost: .high, isStateful: false, supportsMemoryLimit: false)
 
-    func memoryLevelDidChange(_ level: MemoryPressureLevel) { pressureDidChange(level) }
-    func updateMemoryLimit(_ limit: MemoryLimit) {}
-    func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress { .done }
+    /// The coordinator gives the limit first, so at critical the pass waits for the release slice.
+    func memoryLevelDidChange(_ level: MemoryPressureLevel) { pressureDidChange(level, replans: !memoryLimit.isCritical) }
+    func updateMemoryLimit(_ limit: MemoryLimit) { memoryLimit = limit }
+
+    /// At the critical limit, one urgent pass: it starts the probes of the pages due now (each
+    /// discard finishes on its own turn) and arms the planner's next look.
+    func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
+        guard slice.limit.isCritical else { return .done }
+        urgentPasses += 1
+        replan()
+        refreshMemoryIfNeeded()
+        return .done
+    }
 
     /// The last sampled memory of the hidden pages it could discard; nil before the first sample.
     var memoryUsage: MemoryUsage? {

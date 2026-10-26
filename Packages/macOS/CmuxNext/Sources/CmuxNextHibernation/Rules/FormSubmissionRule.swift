@@ -3,7 +3,8 @@
 nonisolated extension DiscardRule {
     /// The page shows the result of a form POST (BR-R1): restoring it would send the form again or
     /// show an error, so no discard takes it.
-    package static let formSubmission = DiscardRule(.formSubmission, result: .disallowed, for: DiscardRule.always) { candidate, _ in
+    package static let formSubmission = DiscardRule(.formSubmission, result: .disallowed, for: DiscardRule.always,
+                                                    kinds: DiscardRule.browserPages) { candidate, _ in
         candidate.showsFormSubmission
     }
 }
