@@ -150,3 +150,41 @@ it("keeps cmux.* snapshot labels", async () => {
   expect((await patchSnapshot(t, key, snapshotId, { labels: {} })).status).toBe(403);
   expect(rowOf(t, snapshotId)?.labels).toEqual({ "cmux.agent": "key_1" });
 });
+
+it("never answers 409 for a rename after changing the provider limits", async () => {
+  const t = await harness(), { vmId, upstreamId } = t.addVm(TENANT, "running", { team: "a" });
+  const key = await t.addKey(TENANT, ["vm:write"]);
+  let limitsChanged = false;
+  // Another writer renames the VM while the provider PATCH runs.
+  t.upstream.updateReplies.set(upstreamId, () => {
+    limitsChanged = true;
+    const index = t.resources.findIndex((row) => row.cmuxId === vmId);
+    const row = t.resources[index];
+    if (row !== undefined) t.resources[index] = { ...row, displayName: "racer" };
+    const vm = t.upstream.vms.get(upstreamId);
+    return Response.json({ id: upstreamId, slug: `slug-${upstreamId}`, snapshotId: `sc-${upstreamId}`, state: vm?.state ?? "running", resources: vm?.resources, idleTimeoutSeconds: vm?.idleTimeoutSeconds ?? 300, maxRunTotalSeconds: null, maxRunSeconds: 3600, displayName: null, metadata: {}, createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-02T00:00:00Z" });
+  });
+  const response = await patchVm(t, bearer(key), vmId, { displayName: "mine", maxRunSeconds: 3600 });
+  // The name was claimed before the provider write, so the later rename cannot turn an applied limit change into a 409.
+  expect(limitsChanged).toBe(true);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ displayName: "mine", maxRunSeconds: 3600 });
+});
+
+it("a failed limit change puts the VM's name and labels back", async () => {
+  const t = await harness(), { vmId } = t.addVm(TENANT, "running", { team: "a" });
+  const key = await t.addKey(TENANT, ["vm:write"]);
+  t.upstream.fail("update", 503);
+  const response = await patchVm(t, bearer(key), vmId, { displayName: "mine", labels: { team: "b" }, maxRunSeconds: 3600 });
+  expect(response.status).toBe(503);
+  // The provider call failed after the name was claimed, so the name is put back.
+  expect(rowOf(t, vmId)).toMatchObject({ displayName: null, labels: { team: "a" } });
+});
+
+it("a failed snapshot retention change puts the name and labels back", async () => {
+  const t = await harness(), { snapshotId } = t.s3a.addSnapshot(TENANT, { displayName: "before", labels: { a: "1" } });
+  const key = await t.addKey(TENANT, ["snapshot:write"]);
+  t.upstream.fail("updateSnapshot", 400);
+  expect((await patchSnapshot(t, key, snapshotId, { displayName: "after", labels: { b: "2" }, ttlSeconds: 86400 })).status).toBe(400);
+  expect(rowOf(t, snapshotId)).toMatchObject({ displayName: "before", labels: { a: "1" } });
+});

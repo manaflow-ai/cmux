@@ -45,6 +45,23 @@ const limitOf = (value: number | null | undefined): number | null => (value === 
 const sameLabels = (a: Readonly<Record<string, string>>, b: Readonly<Record<string, string>>) =>
   Object.keys(a).length === Object.keys(b).length && Object.entries(a).every(([key, value]) => b[key] === value);
 
+type Metadata = { readonly displayName: string | null; readonly labels: Readonly<Record<string, string>> };
+
+/**
+ * Compare-and-sets a resource's name and labels from `before` to `after`
+ * before any provider write, so a 409 means nothing changed. Returns the
+ * effect that puts `before` back (still compare-and-set, so a later writer's
+ * change is never overwritten) for when the provider write then fails.
+ */
+const claimMetadata = (tenantId: Principal["tenantId"], kind: "vm" | "snapshot", cmuxId: string, before: Metadata, after: Metadata) =>
+  Effect.gen(function* () {
+    if (after.displayName === before.displayName && sameLabels(after.labels, before.labels)) return Effect.void;
+    const store = yield* OwnershipStore;
+    const updated = yield* store.updateMetadata(tenantId, kind, cmuxId, before, after).pipe(Effect.mapError(() => unavailable()));
+    if (!updated) return yield* Effect.fail(conflict(CHANGED));
+    return store.updateMetadata(tenantId, kind, cmuxId, after, before).pipe(Effect.ignore);
+  });
+
 export const updateVm = (rawId: string, payload: UpdateVmRequest) =>
   audited(
     "vm.update",
@@ -63,6 +80,11 @@ export const updateVm = (rawId: string, payload: UpdateVmRequest) =>
         }
         if (payload.maxRunSeconds !== undefined) patch.maxRunSeconds = payload.maxRunSeconds;
         if (payload.autoDeleteSeconds !== undefined) patch.autoDeleteSeconds = payload.autoDeleteSeconds;
+        // Name and labels are compare-and-set first, so a 409 here has changed nothing; the
+        // provider limits follow, and a failed limit change puts the name and labels back.
+        const before = { displayName: proofs.owns.displayName, labels: proofs.owns.labels };
+        const after = { displayName, labels };
+        const restore = yield* claimMetadata(caller.value.tenantId, "vm", vm.value, before, after);
         const upstream = yield* UpstreamClient;
         const current = yield* upstream.updateVm(vm, proofs, patch).pipe(
           Effect.mapError((error) =>
@@ -71,14 +93,9 @@ export const updateVm = (rawId: string, payload: UpdateVmRequest) =>
             : error.status === 409 ? conflict("The VM cannot be changed right now; retry")
             : unavailable(),
           ),
+          Effect.tapError(() => restore),
         );
-        if (displayName !== proofs.owns.displayName || !sameLabels(labels, proofs.owns.labels)) {
-          const store = yield* OwnershipStore;
-          const expected = { displayName: proofs.owns.displayName, labels: proofs.owns.labels };
-          const updated = yield* store.updateMetadata(caller.value.tenantId, "vm", vm.value, expected, { displayName, labels }).pipe(Effect.mapError(() => unavailable()));
-          if (!updated) return yield* Effect.fail(conflict(CHANGED));
-        }
-        return toVm(vm.value, { displayName, labels }, current);
+        return toVm(vm.value, after, current);
       }),
     ),
   );
@@ -100,6 +117,7 @@ export const updateSnapshot = (rawId: string, payload: UpdateSnapshotRequest) =>
         }
         const labels = payload.labels === undefined ? row.value.labels : yield* replacementLabels(caller.value, row.value.labels, payload.labels);
         const displayName = payload.displayName === undefined ? row.value.displayName : payload.displayName;
+        const restore = yield* claimMetadata(caller.value.tenantId, "snapshot", snapshot.value, { displayName: row.value.displayName, labels: row.value.labels }, { displayName, labels });
         const upstream = yield* UpstreamClient;
         const live = yield* upstream
           .updateSnapshot(snapshot, proofs, {
@@ -113,13 +131,8 @@ export const updateSnapshot = (rawId: string, payload: UpdateSnapshotRequest) =>
               : error.status === 409 ? conflict("The snapshot cannot be changed right now; retry")
               : unavailable(),
             ),
+            Effect.tapError(() => restore),
           );
-        if (displayName !== row.value.displayName || !sameLabels(labels, row.value.labels)) {
-          const ownership = yield* OwnershipStore;
-          const expected = { displayName: row.value.displayName, labels: row.value.labels };
-          const updated = yield* ownership.updateMetadata(caller.value.tenantId, "snapshot", snapshot.value, expected, { displayName, labels }).pipe(Effect.mapError(() => unavailable()));
-          if (!updated) return yield* Effect.fail(conflict(CHANGED));
-        }
         return new Snapshot({
           id: row.value.id,
           sourceVmId: row.value.sourceVmId,
