@@ -354,21 +354,32 @@ class GatewayRoute(unittest.TestCase):
             return dict(line.split("=", 1) for line in output.read_text().splitlines())
 
     def test_with_no_idle_gateway_the_compiles_skip_and_the_release_compile_takes_blacksmith(self):
-        gateway = {"GATEWAY_LABEL": LIGHT_SIDE, "GATEWAY_JOBS": "app-compile-fleet", "GATEWAY_CASCADE": "release-compile"}
+        gateway = {"GATEWAY_LABEL": LIGHT_SIDE, "GATEWAY_JOBS": "app-compile-fleet", "GATEWAY_CASCADE": "release-compile",
+                   "CASCADE_RUNS": " cmux-scheme-compile "}
         lines = self.run_main(self.light(True, True) + self.std(True, True), **gateway)
-        self.assertEqual((lines["gateway_runner"], lines["gateway_placed"]), ("", "true"))
+        self.assertEqual((lines["gateway_runner"], lines["gateway_attempt"]), ("", "1"))
         self.assertIn(" release-compile ", lines["blacksmith_12_jobs"])
-        # One idle std side runner is the run's own first Mac job's (decide()), not the gateway's.
+        # The one idle std side runner is the run's scheme compile's, which races for it, not the gateway's.
         lines = self.run_main(self.light(True, True) + self.std(True, False), **gateway)
         self.assertEqual(lines["gateway_runner"], "")
-        # An idle runner beyond the run's own jobs takes the compile; the Mac fallback stays out of the cascade.
-        lines = self.run_main(self.light(True, True) + self.std(True, *[False] * (len(JOBS) + 1)), **gateway)
-        self.assertEqual((lines["gateway_runner"], lines["gateway_placed"]), (SIDE, "true"))
+        # A second idle runner takes the compile; the Mac fallback stays out of the cascade.
+        lines = self.run_main(self.light(True, True) + self.std(True, False, False), **gateway)
+        self.assertEqual((lines["gateway_runner"], lines["gateway_attempt"]), (SIDE, "1"))
         self.assertNotIn("release-compile", lines["blacksmith_12_jobs"])
+        self.assertEqual(self.run_main(self.light(False), GITHUB_RUN_ATTEMPT="2", **gateway)["gateway_attempt"], "2")
+
+    def test_only_the_side_jobs_that_run_count_against_the_gateway(self):
+        runners = self.light(True) + self.std(False, False)
+        values = env(SIDE_LABEL=LIGHT_SIDE, GATEWAY_JOBS="app-compile-fleet swift-canary-fleet",
+                     CASCADE_RUNS=" swift-canary release-compile cmux-scheme-compile ")
+        # GUI suites take another label; swift-canary and release-compile stand in for the gateway jobs.
+        self.assertEqual(placement.gateway_taken(values, runners), {SIDE: 1})
+        self.assertEqual(placement.gateway_taken({**values, "CASCADE_RUNS": " swift-canary "}, runners), {})
+        self.assertEqual(placement.gateway_taken({**values, "CASCADE_RUNS": ""}, runners, FAST), {FAST: 1})
 
     def test_without_the_variable_nothing_is_judged(self):
         lines = self.run_main(self.light(False))
-        self.assertEqual((lines["gateway_runner"], lines["gateway_placed"]), ("", ""))
+        self.assertEqual((lines["gateway_runner"], lines["gateway_attempt"]), ("", ""))
 
 
 class SpillToCompatiblePool(unittest.TestCase):

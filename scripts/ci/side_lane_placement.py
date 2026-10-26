@@ -59,14 +59,16 @@ contains(' <key> ') matches whole keys only:
   now, else empty (fast_route()). Only then does the fast tier leave JOBS and
   CASCADE_RUNS; otherwise it is placed like any other job, so a busy or shrunken
   fast pool never holds it in a queue no overflow reaches.
-- `gateway_runner` and `gateway_placed`: GATEWAY_LABEL (vars.CI_COMPILE_CHECK_GATEWAY,
+- `gateway_runner` and `gateway_attempt`: GATEWAY_LABEL (vars.CI_COMPILE_CHECK_GATEWAY,
   the tailnet runner label the build-fleet compile jobs hand their commit from)
   or the same label on a wider class, while it has an idle online runner for
   each of GATEWAY_JOBS beyond the ones this run's own jobs take, else empty
   (gateway_route());
-  `gateway_placed` is "true" whenever GATEWAY_LABEL was judged, so a workflow
-  reads an empty `gateway_runner` as "no idle gateway" only from a script that
-  writes it. With no idle gateway, the build-fleet compiles are skipped and
+  `gateway_attempt` is the run attempt GATEWAY_LABEL was judged in, so a
+  workflow trusts `gateway_runner` (or its absence) only from a script that
+  writes it, and only in that attempt: a re-run that reuses an earlier
+  attempt's placement is not given its idle reading. With no idle gateway, the
+  build-fleet compiles are skipped and
   their Mac fallbacks run, and GATEWAY_CASCADE (the Mac fallback of the PR's
   app compile, release-compile) joins CASCADE_RUNS, so it takes a free
   Blacksmith slot instead of the minis' queue.
@@ -296,6 +298,9 @@ def nightly_runner_ready(env: Mapping[str, str], runners: Sequence[Mapping[str, 
 
 
 FAST_JOB = "fast-tier"
+# The Mac job each build-fleet gateway job stands in for: it needs a Mac only when the fleet gives no
+# pass, so it takes no idle runner from the gateway job.
+GATEWAY_FALLBACKS = {"app-compile-fleet": "release-compile", "swift-canary-fleet": "swift-canary"}
 
 
 def fast_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> str:
@@ -342,6 +347,29 @@ def gateway_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] |
         if pool.live_owned_free(runners, [candidate])[candidate] - (taken or {}).get(candidate, 0) >= want:
             return candidate
     return ""
+
+
+def gateway_taken(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
+                  fast: str = "") -> dict[str, int]:
+    """The idle runners this run's own Mac jobs take as they start, by label.
+
+    The side jobs that run (in CASCADE_RUNS, as `env` holds it once the fast
+    tier left) all take decide()'s route and race for its idle runners, while
+    the GUI suites take another label. A Mac job a gateway job stands in for
+    (GATEWAY_FALLBACKS) is not counted: it needs a Mac only without a fleet
+    pass. The fast tier, routed, takes its own label (`fast`).
+    """
+    label = (env.get("SIDE_LABEL") or "").strip()
+    jobs = (env.get("JOBS") or "").split()
+    runs = set((env.get("CASCADE_RUNS") or "").split())
+    replaced = {GATEWAY_FALLBACKS[job] for job in (env.get("GATEWAY_JOBS") or "").split() if job in GATEWAY_FALLBACKS}
+    racing = [job for job in jobs if job in runs and job not in replaced]
+    taken: dict[str, int] = {}
+    if racing:
+        taken[side_route(label, runners, len(jobs)) or label] = len(racing)
+    if fast:
+        taken[fast] = taken.get(fast, 0) + 1
+    return taken
 
 
 def with_gateway_cascade(env: Mapping[str, str]) -> dict[str, str]:
@@ -391,12 +419,8 @@ def main(env: Mapping[str, str] = os.environ) -> int:
         why += (f"; the fast tier takes idle `{fast}`" if fast
                 else f"; no idle `{env['FAST_LABEL'].strip()}` runner, so the fast tier is placed like the other jobs")
     gateway_label = (env.get("GATEWAY_LABEL") or "").strip()
-    # Idle runners this run's own jobs take: the owned jobs on decide()'s route, the fast tier on its label.
-    taken: dict[str, int] = {}
-    taken[side_route(label, runners, len((env.get("JOBS") or "").split())) or label] = len(owned)
-    if fast:
-        taken[fast] = taken.get(fast, 0) + 1
-    gateway = gateway_route(env, runners, taken)
+    attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
+    gateway = gateway_route(env, runners, gateway_taken(env, runners, fast))
     if gateway_label:
         if gateway:
             why += f"; the build-fleet compiles take idle `{gateway}`"
@@ -417,7 +441,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
                          f"free_gui_runner={free_gui}\nfree_session_runner={free_session}\n"
                          f"nightly_runner_ready={'true' if dedicated_ready else ''}\n"
                          f"fast_runner={fast}\n"
-                         f"gateway_runner={gateway}\ngateway_placed={'true' if gateway_label else ''}\n"
+                         f"gateway_runner={gateway}\ngateway_attempt={attempt if gateway_label else ''}\n"
                          f"watch={watch}\n")
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:

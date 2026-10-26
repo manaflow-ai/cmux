@@ -2542,6 +2542,7 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
             "github.event_name": event, "github.repository": "manaflow-ai/cmux",
             "github.repository_owner": "manaflow-ai", "vars.CI_COMPILE_CHECK_GATEWAY": gateway,
             "needs.path_route.outputs.native": native, "needs.push-head-preflight.outputs.current": "true",
+            "github.run_attempt": 1,
         }
         if event == "pull_request":
             context.update({"github.event.pull_request.head.repo.full_name": head_repo,
@@ -2562,21 +2563,28 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
             job = jobs[name]
             with self.subTest(job=name):
                 self.assertIn("macos-placement", job["needs"])
-                context = {**self.context(), "needs.path_route.outputs.swift_canary": "true"}
-                idle = {**context, "needs.macos-placement.outputs.gateway_placed": "true",
+                context = {**self.context(), "needs.path_route.outputs.swift_canary": "true",
+                           "github.run_attempt": 1}
+                idle = {**context, "needs.macos-placement.outputs.gateway_attempt": "1",
                         "needs.macos-placement.outputs.gateway_runner": "glaeda-side-std-xcode-26.6"}
                 self.assertTrue(evaluate(job["if"], idle))
                 self.assertEqual(evaluate(job["runs-on"], idle), "glaeda-side-std-xcode-26.6")
                 none_idle = {**idle, "needs.macos-placement.outputs.gateway_runner": ""}
                 self.assertFalse(evaluate(job["if"], none_idle))
-                # Placement skipped, failed, or ran an older base script: today's route.
+                # Placement skipped, failed, or ran an older base script: attempt 1 keeps today's route.
                 self.assertTrue(evaluate(job["if"], context))
                 self.assertEqual(evaluate(job["runs-on"], context), "glaeda-gateway")
+                # A re-run trusts only its own attempt's reading: an earlier attempt's idle runner may be
+                # busy now, and no reading at all is no reason to queue on the gateway.
+                self.assertFalse(evaluate(job["if"], {**idle, "github.run_attempt": 2}))
+                self.assertFalse(evaluate(job["if"], {**context, "github.run_attempt": 2}))
+                self.assertTrue(evaluate(job["if"], {**idle, "github.run_attempt": 2,
+                                                     "needs.macos-placement.outputs.gateway_attempt": "2"}))
 
     def test_placement_judges_the_gateway_for_the_jobs_that_start(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         placement = jobs["macos-placement"]
-        for output in ("gateway_runner", "gateway_placed"):
+        for output in ("gateway_runner", "gateway_attempt"):
             self.assertEqual(placement["outputs"][output], f"${{{{ steps.place.outputs.{output} }}}}")
         step_env = next(step["env"] for step in placement["steps"] if step.get("id") == "place")
         self.assertEqual(step_env["GATEWAY_LABEL"], "${{ vars.CI_COMPILE_CHECK_GATEWAY }}")
