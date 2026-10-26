@@ -31,6 +31,9 @@ struct MainWakeUpHeap<Payload> {
             self.owner = owner
             self.payload = payload
         }
+
+        /// When the entry fires if nothing else shares its wake: ``WakeLeeway/fireTime(deadline:)``.
+        var fireTime: UInt64 { window.fireTime(deadline: deadline) }
     }
 
     private var entries: [Entry] = []
@@ -61,6 +64,14 @@ struct MainWakeUpHeap<Payload> {
         return remove(at: 0)
     }
 
+    /// Pops the top when its fire time has passed: the release of a heap whose entries all share one
+    /// window shape (the hidden one), where an entry runs only in a fire at or after its own boundary.
+    /// With one shape the fire time grows with the latest time, so looking at the top alone is exact.
+    mutating func popReleased(now: UInt64) -> Entry? {
+        guard let top = entries.first, top.fireTime <= now else { return nil }
+        return remove(at: 0)
+    }
+
     /// When the timer must fire for the current top, in uptime ns, and the top's latest time (the end
     /// of the slack the system may add to share the wake with other processes); nil when empty.
     ///
@@ -70,7 +81,7 @@ struct MainWakeUpHeap<Payload> {
     /// after any entry's latest. An exact top fires at its own time.
     func wakeUp() -> (date: UInt64, latest: UInt64)? {
         guard let top = entries.first else { return nil }
-        return (top.window.fireTime(deadline: top.deadline), top.latest)
+        return (top.fireTime, top.latest)
     }
 
     // MARK: - Binary heap

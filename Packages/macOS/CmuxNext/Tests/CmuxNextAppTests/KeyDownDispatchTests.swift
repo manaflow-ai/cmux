@@ -4,7 +4,7 @@ import CmuxNextActions
 import CmuxNextControl
 import CmuxNextDaemonService
 @testable import CmuxNextFocusUI
-import CmuxNextTerminal
+@testable import CmuxNextTerminal
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Foundation

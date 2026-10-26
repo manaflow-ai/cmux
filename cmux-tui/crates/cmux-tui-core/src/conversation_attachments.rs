@@ -307,6 +307,7 @@ impl Attachments {
         let exists = self.has_blob(&piece.hash);
         match (piece.sink, &mut self.blobs) {
             (Sink::File { path, file }, Blobs::Directory(root)) => {
+                crate::request_path::note(crate::request_path::BlockingKind::FsWrite);
                 file.sync_all()?;
                 drop(file);
                 if exists {

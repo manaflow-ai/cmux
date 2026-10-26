@@ -85,6 +85,7 @@ fn changes(projects: &Projects, changed: &[String]) -> StateChanges {
 }
 
 impl Mux {
+    #[track_caller]
     fn commit_projects(
         &self,
         mutation: &WorkspaceMutation,
@@ -111,6 +112,7 @@ impl Mux {
     /// `project.observe`: `source` reports paths (acpmux's chat index, an
     /// editor adapter). Paths are normalized lexically, never read from disk;
     /// refused ones are skipped.
+    #[track_caller]
     pub(crate) fn state_project_observe(
         &self,
         mutation: &WorkspaceMutation,
@@ -134,6 +136,7 @@ impl Mux {
     /// `project.add`: the user adds a folder they picked (source `user`). It
     /// must be absolute and exist; its symlinks are resolved (the user chose
     /// this folder, so reading it is the user's act).
+    #[track_caller]
     pub(crate) fn state_project_add(
         &self,
         mutation: &WorkspaceMutation,
@@ -154,6 +157,7 @@ impl Mux {
     }
 
     /// `project.update`: the user's rename, pin, hide or order.
+    #[track_caller]
     pub(crate) fn state_project_update(
         &self,
         mutation: &WorkspaceMutation,
@@ -170,6 +174,7 @@ impl Mux {
     }
 
     /// `project.remove`: hidden if a source still reports it, else deleted.
+    #[track_caller]
     pub(crate) fn state_project_remove(
         &self,
         mutation: &WorkspaceMutation,
@@ -184,6 +189,7 @@ impl Mux {
 
     /// `project.source.update`: the user turns a source on or off. Turning
     /// an editor or app source on reads it again at once.
+    #[track_caller]
     pub(crate) fn state_project_source_update(
         &self,
         mutation: &WorkspaceMutation,
@@ -215,6 +221,7 @@ impl Mux {
 
     /// The daemon's own import of `scans` (startup, a source file changed):
     /// each list is complete, under the same rules as `project.observe`.
+    #[track_caller]
     pub(crate) fn state_project_import(&self, scans: &[SourceScan]) -> anyhow::Result<StateCommit> {
         anyhow::ensure!(
             scans.iter().all(|scan| scan.entries.len() <= MAX_OBSERVATIONS),
@@ -240,6 +247,7 @@ impl Mux {
     /// checked with its privacy rules (rule 4), and a fresh read of the editor
     /// sources (section 3), each one's list `complete`. The store never checks
     /// whether a project folder exists itself.
+    #[track_caller]
     pub(crate) fn state_project_sync(
         &self,
         mutation: &WorkspaceMutation,

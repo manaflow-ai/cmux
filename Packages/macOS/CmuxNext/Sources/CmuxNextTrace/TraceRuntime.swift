@@ -1,4 +1,6 @@
-// Public: the inlined category check reads the Compat `Atomic` from other modules.
+// Public: the inlined category check reads the Compat `Atomic` from other modules, and its
+// `UInt64: AtomicValue` conformance comes from swift-atomics, so inlinable code needs that import too.
+public import Atomics
 public import CmuxNextCompat
 
 /// The process's one trace runtime: the category flags every trace point reads, and (as the later
@@ -55,7 +57,7 @@ public final class TraceRuntime: Sendable {
     /// - Parameters:
     ///   - role: The process kind.
     ///   - clock: The clock that stamps records (tests inject one).
-    public init(role: Role, clock: TraceClock = TraceClock()) {
+    public convenience init(role: Role, clock: TraceClock = TraceClock()) {
         self.init(role: role, clock: clock, stubRecorder: nil)
     }
 

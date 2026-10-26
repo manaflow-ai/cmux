@@ -87,7 +87,7 @@ impl TerminalHostReconnectBackoff {
         };
         #[cfg(test)]
         pty.run_geometry_test_hook(PtyGeometryTestStep::ReconnectBackoffStarted);
-        std::thread::sleep(delay);
+        crate::request_path::sleep(delay);
         true
     }
 }
@@ -105,7 +105,7 @@ fn wait_unless_detached(pty: &PtySurface, delay: Duration) -> bool {
         else {
             return true;
         };
-        std::thread::sleep(left.min(TERMINAL_HOST_FAILED_RETRY_SLICE));
+        crate::request_path::sleep(left.min(TERMINAL_HOST_FAILED_RETRY_SLICE));
     }
 }
 
