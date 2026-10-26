@@ -1,20 +1,20 @@
-internal import os
+internal import CmuxSafeConcurrency
 #if DEBUG || CMUX_BLOCKING_CHECKS
 internal import Darwin
 #endif
 
 /// A value that only one thread at a time can read or change, with the API of
 /// `Synchronization.Mutex` (macOS 15) so that cmux-next runs on macOS 14
-/// (plans/cmux-next/macos-floor.md). It uses the same lock as the system type
-/// on Darwin, `os_unfair_lock`, so behavior is the same on every supported
-/// macOS. Import this module instead of `Synchronization`; call sites do not
-/// change.
+/// (plans/cmux-next/macos-floor.md). It is CmuxSafeConcurrency's portable `Mutex`
+/// (`os_unfair_lock`, the lock the system type uses on Darwin) with the
+/// main-thread blocking detector watching its waits. Import this module instead
+/// of `Synchronization`; call sites do not change.
 public struct Mutex<Value: ~Copyable>: ~Copyable {
-    private let storage: LockedStorage<Value>
+    private let base: CmuxSafeConcurrency.Mutex<Value>
 
     /// Makes a mutex that holds `initialValue`.
     public init(_ initialValue: consuming sending Value) {
-        storage = LockedStorage(initialValue)
+        base = CmuxSafeConcurrency.Mutex(initialValue)
     }
 
     /// Runs `body` with exclusive access to the value and returns its result.
@@ -37,16 +37,10 @@ public struct Mutex<Value: ~Copyable>: ~Copyable {
     ) throws(E) -> sending Result {
         #if DEBUG || CMUX_BLOCKING_CHECKS
         // A long main-thread wait is recorded after the unlock (Debug and bench-checks builds; Nightly to come).
-        let longWait = storage.lockNotingMainThreadWait()
-        defer {
-            storage.unlock()
-            if let longWait { longWait.table.mainThreadWaitedForLock(fileID: fileID, line: line, nanos: longWait.nanos) }
-        }
+        return try base.withLock(observedBy: MainThreadLockWaitObserver(fileID: fileID, line: line), body)
         #else
-        storage.lock()
-        defer { storage.unlock() }
+        return try base.withLock(body)
         #endif
-        return try body(&storage.pointer.pointee)
     }
 
     /// Runs `body` with exclusive access to the value when the lock is free
@@ -54,67 +48,33 @@ public struct Mutex<Value: ~Copyable>: ~Copyable {
     public borrowing func withLockIfAvailable<Result: ~Copyable, E: Error>(
         _ body: (inout sending Value) throws(E) -> sending Result
     ) throws(E) -> sending Result? {
-        guard storage.tryLock() else { return nil }
-        defer { storage.unlock() }
-        return try body(&storage.pointer.pointee)
+        try base.withLockIfAvailable(body)
     }
 }
 
-extension Mutex: @unchecked Sendable where Value: ~Copyable {} // crash-allow: the lock serializes every access, as in Synchronization.Mutex
+extension Mutex: Sendable where Value: ~Copyable {}
 
-/// The heap cell behind ``Mutex``: one `os_unfair_lock` and
-/// the value it protects. The lock needs a stable address, so it lives in its
-/// own allocation, never inline in a struct.
-final class LockedStorage<Value: ~Copyable>: @unchecked Sendable { // crash-allow: every access holds lockPointer
-    let pointer: UnsafeMutablePointer<Value>
-    private let lockPointer: UnsafeMutablePointer<os_unfair_lock> // concurrency-allow: Mutex back-port for macOS 14; os_unfair_lock is the lock Synchronization.Mutex uses on Darwin, held only for the caller's short critical section
+#if DEBUG || CMUX_BLOCKING_CHECKS
+/// The main-thread blocking detector watching one `withLock` call: it times a contended wait on the main
+/// thread with the active table's clock and records a wait past ``BlockingKind/lockWaitLimitNanos`` at the
+/// caller's site once the lock is released. Waits on other threads are not timed.
+struct MainThreadLockWaitObserver: MutexWaitObserver {
+    let fileID: StaticString
+    let line: UInt
 
-    init(_ initialValue: consuming Value) {
-        pointer = .allocate(capacity: 1)
-        pointer.initialize(to: initialValue)
-        lockPointer = .allocate(capacity: 1)
-        lockPointer.initialize(to: os_unfair_lock()) // concurrency-allow: Mutex back-port for macOS 14; os_unfair_lock is the lock Synchronization.Mutex uses on Darwin, held only for the caller's short critical section
-    }
-
-    deinit {
-        pointer.deinitialize(count: 1)
-        pointer.deallocate()
-        lockPointer.deinitialize(count: 1)
-        lockPointer.deallocate()
-    }
-
-    func lock() {
-        os_unfair_lock_lock(lockPointer) // concurrency-allow: Mutex back-port for macOS 14; os_unfair_lock is the lock Synchronization.Mutex uses on Darwin, held only for the caller's short critical section
-    }
-
-    #if DEBUG || CMUX_BLOCKING_CHECKS
-    /// Takes the lock. Returns the detector's table and the measured wait when the main thread waited
-    /// for it longer than the table's limit (``BlockingKind/lockWaitLimitNanos``); an uncontended lock
-    /// is one try-lock, as before, and only a contended one on the main thread is timed.
-    func lockNotingMainThreadWait() -> (table: BlockingViolationTable, nanos: UInt64)? {
-        if tryLock() { return nil }
-        return lockContended()
-    }
-
-    @inline(never)
-    private func lockContended() -> (table: BlockingViolationTable, nanos: UInt64)? {
-        guard pthread_main_np() != 0 else {
-            lock()
-            return nil
-        }
+    func waitWillBegin() -> (table: BlockingViolationTable, start: UInt64)? {
+        guard pthread_main_np() != 0 else { return nil }
         let table = BlockingViolationTable.active
-        let start = table.uptimeNanos()
-        lock()
-        let nanos = table.uptimeNanos() &- start
-        return nanos > table.lockWaitLimitNanos ? (table, nanos) : nil
-    }
-    #endif
-
-    func tryLock() -> Bool {
-        os_unfair_lock_trylock(lockPointer) // concurrency-allow: Mutex back-port for macOS 14; os_unfair_lock is the lock Synchronization.Mutex uses on Darwin, held only for the caller's short critical section
+        return (table, table.uptimeNanos())
     }
 
-    func unlock() {
-        os_unfair_lock_unlock(lockPointer) // concurrency-allow: Mutex back-port for macOS 14; os_unfair_lock is the lock Synchronization.Mutex uses on Darwin, held only for the caller's short critical section
+    func waitDidEnd(_ wait: (table: BlockingViolationTable, start: UInt64)) -> (table: BlockingViolationTable, nanos: UInt64)? {
+        let nanos = wait.table.uptimeNanos() &- wait.start
+        return nanos > wait.table.lockWaitLimitNanos ? (wait.table, nanos) : nil
+    }
+
+    func lockReleased(_ report: (table: BlockingViolationTable, nanos: UInt64)) {
+        report.table.mainThreadWaitedForLock(fileID: fileID, line: line, nanos: report.nanos)
     }
 }
+#endif
