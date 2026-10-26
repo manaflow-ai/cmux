@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextPages
 import SwiftUI
 import CmuxNextTasks
 

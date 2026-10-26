@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextFilesUI
 import CmuxNextHibernation
+import CmuxNextPages
 
 extension InternalPageID {
     /// Open Find as Pane: the right sidebar's Find section in a tab.

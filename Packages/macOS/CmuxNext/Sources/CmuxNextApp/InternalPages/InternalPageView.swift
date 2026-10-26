@@ -252,3 +252,6 @@ final class InternalPageView: NSView {
 }
 
 extension InternalPageView: ToolbarEdgeHosting {}
+
+/// A show's returned tab view, for the request its first show reads (``PageOpenRequests``).
+extension InternalPageView: PageOpenTarget {}

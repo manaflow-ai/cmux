@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextHibernation
 import CmuxNextHome
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
 

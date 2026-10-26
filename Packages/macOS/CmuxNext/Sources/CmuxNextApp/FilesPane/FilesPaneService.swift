@@ -5,6 +5,7 @@ import CmuxNextFiles
 import CmuxNextFilesUI
 import CmuxNextHibernation
 import CmuxNextIcons
+import CmuxNextPages
 import UniformTypeIdentifiers
 
 extension InternalPageID {

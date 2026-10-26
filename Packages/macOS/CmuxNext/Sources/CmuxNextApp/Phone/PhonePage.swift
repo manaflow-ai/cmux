@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextHibernation
+import CmuxNextPages
 import CmuxNextPhone
 import CmuxNextWakeups
 
