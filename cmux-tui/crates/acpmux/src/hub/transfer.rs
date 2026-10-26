@@ -299,10 +299,15 @@ impl Hub {
         let legacy_root = dirs::home_dir()
             .map(|home| home.join(".cmux-harness").join("sessions"))
             .filter(|legacy| legacy != root);
+        let current_state_present =
+            std::fs::symlink_metadata(root.join(agent_id)).is_ok()
+                || std::fs::read_dir(root).into_iter().flatten().flatten().any(|entry| {
+                    entry.path().extension().and_then(|e| e.to_str()) == Some("jsonl")
+                });
         let (journal_root, pi_session_path, session_bytes) =
             match Self::harness_pi_session_optional(root, agent_id)? {
                 Some((path, bytes)) => (root.to_path_buf(), path, bytes),
-                None => {
+                None if !current_state_present => {
                     let legacy = legacy_root.ok_or_else(|| {
                         anyhow::anyhow!("Pi session file for ACP session id is missing")
                     })?;
@@ -312,6 +317,11 @@ impl Hub {
                         .ok_or_else(|| anyhow::anyhow!("invalid legacy harness root"))?;
                     let (path, bytes) = Self::harness_pi_session(&legacy, agent_id)?;
                     (durable, path, bytes)
+                }
+                None => {
+                    return Err(anyhow::anyhow!(
+                        "current cmux-harness state is present but its Pi session is invalid"
+                    ));
                 }
             };
         let journal = journal_root.join(agent_id).join("journal.ndjson");
@@ -444,11 +454,8 @@ impl Hub {
             if meta.file_type().is_symlink() || !meta.file_type().is_file() {
                 return Err(anyhow::anyhow!("target Pi session is not a real file"));
             }
-            if !replace_durable {
-                return Err(anyhow::anyhow!("target Pi session filename is already occupied"));
-            }
+            return Err(anyhow::anyhow!("target Pi session filename is already occupied"));
         }
-        std::fs::create_dir_all(&journal_dir)?;
         let journal = journal_dir.join("journal.ndjson");
         let journal_tmp = journal_dir.join("journal.ndjson.importing");
         let journal_backup = journal_dir.join("journal.ndjson.transfer-backup");
@@ -459,6 +466,20 @@ impl Hub {
                 return Err(anyhow::anyhow!("durable transfer temporary path is occupied"));
             }
         }
+        let durable_state = root.join(format!(".{agent_id}.durable-transfer-state"));
+        if std::fs::symlink_metadata(&durable_state).is_ok() {
+            return Err(anyhow::anyhow!("durable transfer recovery marker is already present"));
+        }
+        std::fs::write(
+            &durable_state,
+            serde_json::to_vec(&json!({
+                "agentId": agent_id,
+                "piFilename": pi_target.file_name().and_then(|n| n.to_str()).unwrap_or(""),
+            }))?,
+        )?;
+        std::fs::File::open(&durable_state)?.sync_all()?;
+        std::fs::File::open(root)?.sync_all()?;
+        std::fs::create_dir_all(&journal_dir)?;
         let mut installed_journal = false;
         let mut installed_pi = false;
         let mut backed_journal = false;
@@ -493,8 +514,6 @@ impl Hub {
             installed_pi = true;
             std::fs::File::open(&journal_dir)?.sync_all()?;
             std::fs::File::open(root)?.sync_all()?;
-            let _ = std::fs::remove_file(&journal_backup);
-            let _ = std::fs::remove_file(&session_backup);
             Ok(())
         })();
         if let Err(e) = install {
@@ -515,9 +534,30 @@ impl Hub {
             if !journal_dir_was_present {
                 let _ = std::fs::remove_dir(&journal_dir);
             }
+            let _ = std::fs::remove_file(&durable_state);
             return Err(e);
         }
         Ok(())
+    }
+
+    pub(super) fn finalize_harness_state(&self, meta: &SessionMeta) {
+        if meta.harness != "cmux-harness" {
+            return;
+        }
+        let Some(agent_id) = meta.agent_session_id.as_deref() else { return };
+        let Some(session_dir) = self.store.session_dir(&meta.id) else { return };
+        let Some(root) = session_dir.parent() else { return };
+        let state = root.join(format!(".{agent_id}.durable-transfer-state"));
+        let filename = std::fs::read(&state)
+            .ok()
+            .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
+            .and_then(|v| v.get("piFilename").and_then(Value::as_str).map(str::to_owned));
+        let _ = std::fs::remove_file(root.join(agent_id).join("journal.ndjson.transfer-backup"));
+        if let Some(filename) = filename {
+            let _ = std::fs::remove_file(root.join(format!("{filename}.transfer-backup")));
+        }
+        let _ = std::fs::remove_file(state);
+        let _ = std::fs::File::open(root).and_then(|f| f.sync_all());
     }
 
     fn copy_bundle_events(&self, bundle: &Path, id: &str, control: Option<Control>) -> Result<u64> {

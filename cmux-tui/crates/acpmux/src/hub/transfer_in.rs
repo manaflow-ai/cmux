@@ -99,11 +99,41 @@ impl Hub {
                 continue;
             }
             let target = root.join(id);
+            let state = entry.path().with_extension("replacement-state.json");
             if std::fs::symlink_metadata(&target).is_ok() {
-                let _ = std::fs::remove_dir_all(entry.path());
-            } else {
-                let _ = std::fs::rename(entry.path(), target);
+                let _ = std::fs::remove_dir_all(&target);
             }
+            let _ = std::fs::rename(entry.path(), target);
+            let _ = std::fs::remove_file(state);
+        }
+        let Ok(entries) = std::fs::read_dir(root) else { return };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Some(agent_id) =
+                name.strip_prefix(".").and_then(|n| n.strip_suffix(".durable-transfer-state"))
+            else {
+                continue;
+            };
+            if !super::transfer::is_plain_id(agent_id) {
+                let _ = std::fs::remove_file(entry.path());
+                continue;
+            }
+            let Ok(marker) = std::fs::read(entry.path()) else { continue };
+            let Ok(value) = serde_json::from_slice::<Value>(&marker) else { continue };
+            let filename = value.get("piFilename").and_then(Value::as_str).unwrap_or("");
+            let journal = root.join(agent_id).join("journal.ndjson");
+            let journal_backup = root.join(agent_id).join("journal.ndjson.transfer-backup");
+            let pi = root.join(filename);
+            let pi_backup = root.join(format!("{filename}.transfer-backup"));
+            if std::fs::symlink_metadata(&journal_backup).is_ok() {
+                let _ = std::fs::remove_file(&journal);
+                let _ = std::fs::rename(&journal_backup, &journal);
+            }
+            if std::fs::symlink_metadata(&pi_backup).is_ok() {
+                let _ = std::fs::remove_file(&pi);
+                let _ = std::fs::rename(&pi_backup, &pi);
+            }
+            let _ = std::fs::remove_file(entry.path());
         }
     }
 
@@ -318,6 +348,15 @@ impl Hub {
                 if std::fs::symlink_metadata(&backup).is_ok() {
                     return Err(transfer_error("store", "source-store backup path is occupied"));
                 }
+                let state = backup.with_extension("replacement-state.json");
+                std::fs::write(
+                    &state,
+                    serde_json::to_vec(&json!({"id": id, "phase": "staged"})).unwrap_or_default(),
+                )
+                .map_err(|e| transfer_error("store", format!("write replacement state: {e}")))?;
+                std::fs::File::open(&state)
+                    .and_then(|f| f.sync_all())
+                    .map_err(|e| transfer_error("store", format!("sync replacement state: {e}")))?;
                 std::fs::rename(source_store, &backup)
                     .map_err(|e| transfer_error("store", format!("stage source store: {e}")))?;
                 Some((source_store.clone(), backup))
@@ -334,8 +373,10 @@ impl Hub {
         let session = match self.import_into(&bundle, name, true, guarded, replacing_durable).await
         {
             Ok(session) => {
+                self.finalize_harness_state(&session.meta());
                 if let Some((_, backup)) = source_store_backup.as_ref() {
                     let _ = std::fs::remove_dir_all(backup);
+                    let _ = std::fs::remove_file(backup.with_extension("replacement-state.json"));
                 }
                 session
             }
@@ -343,6 +384,7 @@ impl Hub {
                 if let Some((source_store, backup)) = source_store_backup.as_ref() {
                     let _ = std::fs::remove_dir_all(source_store);
                     let _ = std::fs::rename(backup, source_store);
+                    let _ = std::fs::remove_file(backup.with_extension("replacement-state.json"));
                 }
                 return Err(error);
             }
