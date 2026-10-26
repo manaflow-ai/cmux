@@ -74,7 +74,7 @@ INTERNAL_WORDS = re.compile(
     r"machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|"
     r"boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|"
     r"consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?|byte limit|"
-    r"changelog|appcast\w*|validators?|release[- ](?:headings?|notary))\b", re.I | re.A)
+    r"changelog|appcast\w*|fits the validator|release[- ](?:headings?|notary))\b", re.I | re.A)
 # Product names whose casing is not code ("MacOS": a title capitalized before LEADING_BRAND).
 BRANDS = re.compile(r"\b(?:[Mm]acOS|[Ii]OS|[Ii]PadOS|[Ii]Cloud|[Ii]Phone|[Ii]Pad|GitHub|YouTube|SwiftUI|WebKit|JavaScript|TypeScript|ChatGPT|OpenAI)\b")
 # Code-looking subjects (dotted names, snake_case, versioned ids, bead ids, backticks) are internal.
@@ -94,11 +94,14 @@ TOOLING_PATHS = re.compile(
     r"^(?:\.github/|scripts/|tests/|tests_v2/|docs/|plans/|design/|release-notes/|webviews/test/|webviews/bench/"
     r"|webviews/scripts/)|/Tests/|(?:^|/)(?:AGENTS|CLAUDE|README|STYLE|PLAN|TODO)\.md$|^[^/]+\.md$"
     r"|\.(?:test|spec|gallery)\.[cm]?[jt]sx?$|^webviews/src/pages/changelog/notesCheck\.ts$")
+# Scripts that build, bundle or install what ships (scripts/cmux-next/build-agent-pane-web.sh: #25001
+# fixed the agent pane by changing only it) are never tooling.
+SHIPPING_SCRIPTS = re.compile(r"(?:^|/)(?:build|bundle|embed|install|package|sign|notarize)[^/]*$", re.I)
 
 
 def tooling_only(paths):
     """True when a commit touches at least one file and every one is CI or tooling (TOOLING_PATHS)."""
-    return bool(paths) and all(TOOLING_PATHS.search(path) for path in paths)
+    return bool(paths) and all(TOOLING_PATHS.search(p) and not SHIPPING_SCRIPTS.search(p) for p in paths)
 
 
 # "area words: rest" after the conventional type: "cmux NEXT perf-split: review: …", "cmux-next strip: …".
@@ -465,15 +468,24 @@ def commits_with_authors(since, head, limit=MAX_CHANGES):
 
 def span_commits(since, head, limit=MAX_CHANGES):
     """(subject, author, paths) of each non-merge commit in the span, newest first, at most `limit`
-    (None: all). `paths` are the files the commit touches (none for an empty commit)."""
-    out = []
-    log = git("log", "--no-merges", "--name-only", "--format=%x1e%s%x1f%an", rev_range(since, head))
-    for record in log.split("\x1e")[1:]:
-        head_line, _, files = record.partition("\n")
-        subject, _, author = head_line.partition("\x1f")
-        if subject.strip():
-            out.append((subject, author, [f for f in files.splitlines() if f.strip()]))
-    return out[:limit]
+    (None: all). `paths` are the files the commit touches (none for an empty commit). NUL-separated
+    and keyed by hash, so no subject or file name can shift a path onto another commit."""
+    span = rev_range(since, head)
+    commits = []
+    for record in git("log", "--no-merges", "-z", "--format=%H%x1f%an%x1f%s", span).split("\0"):
+        sha, _, rest = record.strip("\n").partition("\x1f")
+        author, _, subject = rest.partition("\x1f")
+        if sha:
+            commits.append((sha, subject, author))
+    paths, current = {sha: [] for sha, _, _ in commits}, None
+    # "-z --name-only": each commit's hash, then "\n" and its files, every field ended by NUL.
+    for field in git("log", "--no-merges", "-z", "--name-only", "--format=%H", span).split("\0"):
+        name = field[1:] if field.startswith("\n") else field
+        if name in paths:
+            current = name
+        elif name and current:
+            paths[current].append(name)
+    return [(subject, author, paths[sha]) for sha, subject, author in commits if subject.strip()][:limit]
 
 
 def pr_lines(items, repo, limit=PR_LIMIT):

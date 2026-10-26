@@ -83,7 +83,8 @@ const releaseTooling: ReleaseNotes[] = [
         pr: 25527,
       },
       {
-        title: "acpmux: a restart reattaches live agents first, then reads the other chats' logs in the background (1/2)",
+        title:
+          "acpmux: a restart reattaches live agents first, then reads the other chats' logs in the background (1/2)",
         pr: 25531,
       },
       { title: "fix(changelog): validate release headings within their day", pr: 25533 },

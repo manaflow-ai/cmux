@@ -83,6 +83,8 @@ const RELEASE_USER_FACING = [
   "cmux NEXT (release blocker): the app raises its open-file limit at launch, before Chromium starts",
   "fix(next): a kernel memory pressure source is safe to release before it starts",
   "fix(updater): staged updates stay replaceable until the restart",
+  // Review of this change: a validator in the app is news; only the release gate's is not.
+  "fix(webviews): wire validator errors and the checkpoint and continuation labels come from the pane's table",
 ];
 
 test("release and changelog tooling is internal work; the What's New page's changes are not", () => {

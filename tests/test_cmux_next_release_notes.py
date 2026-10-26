@@ -242,6 +242,16 @@ class ReleaseNotesTests(unittest.TestCase):
         entries = (notes.get("whatsNew") or {}).get("entries", [])
         self.assertEqual([e["title"]["en"] for e in entries], ["Rows keep their order after a rename"])
 
+    def test_odd_subjects_and_file_names_keep_their_own_paths(self):
+        # A subject with separators in it, and file names with spaces, a newline and a tab: each
+        # commit keeps its own files.
+        since = self.head
+        self.touch("fix: rows \x1e keep \x1f order (#9101)", "webviews/src/pages/sidebar/A B.tsx")
+        self.touch("fix: tabs keep their names (#9102)", "scripts/ci/odd\nname.py", "tests/odd\tname.py")
+        notes = self.build(since, build="11")
+        self.assertEqual([(i["pr"], i.get("internal", False)) for i in notes["items"]], [(9102, True), (9101, False)])
+        self.assertEqual(len(notes["changes"]), 2)
+
     def test_tooling_paths(self):
         import importlib.util
         spec = importlib.util.spec_from_file_location("release_notes_paths", SCRIPT)
@@ -249,12 +259,14 @@ class ReleaseNotesTests(unittest.TestCase):
         spec.loader.exec_module(notes)
         for paths in (["webviews/src/pages/changelog/notesCheck.ts", "webviews/test/changelog-notes-check.test.ts"],
                       [".github/workflows/ci.yml"], ["scripts/cmux-next/release-notes.py", "tests/test_x.py"],
-                      ["docs/ci/runners.md", "AGENTS.md"], ["Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/A.swift"],
+                      ["docs/ci/runners.md", "AGENTS.md"], ["scripts/cmux-next/perf-cron.py"], ["Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/A.swift"],
                       ["release-notes/next/highlights/x.md"], ["webviews/src/pages/changelog/changelog.gallery.ts"]):
             self.assertTrue(notes.tooling_only(paths), paths)
         for paths in ([], ["webviews/src/pages/changelog/UpdateSurfaces.tsx", "webviews/test/updated-card-summary.test.tsx"],
                       ["Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdateHighlights.swift"],
-                      ["webviews/src/pages/changelog/Localizable.xcstrings"]):
+                      ["webviews/src/pages/changelog/Localizable.xcstrings"],
+                      # #25001 fixed the agent pane by changing only the script that bundles it.
+                      ["scripts/cmux-next/build-agent-pane-web.sh"], ["scripts/build-sign-upload.sh"]):
             self.assertFalse(notes.tooling_only(paths), paths)
 
     def check(self, notes_path):
