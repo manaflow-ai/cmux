@@ -141,11 +141,11 @@ export type TabExtent = { rows: number; separators: number };
 export function tabExtent(
   family: QuickFamily,
   menu: Pick<QuickMenu, "account" | "current" | "fast" | "providers" | "update"> & {
-    families: QuickFamilies;
+    families?: QuickFamilies;
     levels: number;
   },
 ): TabExtent {
-  const chat = family.id === menu.families.current;
+  const chat = !menu.families || family.id === menu.families.current;
   const shown = family.models.slice(0, FILTER_ROWS);
   const look = menu.providers ?? "row";
   let rows = shown.length || 1;
@@ -159,8 +159,8 @@ export function tabExtent(
   }
   // The Provider row, for the chat's running model when several providers serve it.
   if (chat && look === "row" && shown.some((model) => model.id === menu.current && model.offers)) rows += 1;
-  if (family.more.length > 0 || menu.families.onAddHarness) rows += 1;
-  if ((chat && menu.account) || (menu.families.onAccount && (family.accounts?.length ?? 0) > 1)) rows += 1;
+  if (!menu.families || family.more.length > 0 || menu.families.onAddHarness) rows += 1;
+  if ((chat && menu.account) || (menu.families?.onAccount && (family.accounts?.length ?? 0) > 1)) rows += 1;
   if (chat && menu.fast) {
     rows += 1;
     separators += 1;
@@ -219,7 +219,7 @@ function QuickMenuSpacer({
                 {row.value && <span className="acpmux-quick-value">{row.value}</span>}
               </>
             )}
-            {row.check && <span className="ui-menu-check">✓</span>}
+            {(row.check || row.offer) && <span className="ui-menu-check">{row.check ? "✓" : null}</span>}
             {row.sub && <span className="ui-submenu-chevron" />}
             {row.shortcut && <span className="ui-menu-shortcut">9</span>}
           </div>
@@ -447,10 +447,17 @@ export function QuickModelMenu({
       }
     }
   };
-  const tallest = (families?.list ?? []).reduce<TabExtent>(
+  // A fixed harness has no rail, but its list holds the same size while filtering.
+  const tabs: QuickFamily[] = families?.list ?? [
+    { id: "", name: "", models: models.map((model) => ({ ...model, family: "" })), more: [] },
+  ];
+  // Empty search returns the complete eligible catalog, including enabled folder profiles that
+  // intentionally have no rail tab. A later query can make any nine of these groups visible.
+  const searchable = search?.find("") ?? tabs.flatMap((family) => [...family.models, ...family.more]);
+  const tallest = tabs.reduce<TabExtent>(
     (most, family) => {
       const extent = tabExtent(family, {
-        families: families!,
+        families,
         levels: levels.length,
         account,
         fast,
@@ -466,75 +473,73 @@ export function QuickModelMenu({
       rows:
         Math.max(
           1,
-          (families?.list ?? [])
-            .filter((family) => !family.starred && !family.note)
-            .flatMap((family) => [...family.models, ...family.more])
+          searchable
             .map((model) => (menu.providers === "expanded" && model.offers ? 1 + model.offers.length : 1))
             .sort((a, b) => b - a)
             .slice(0, FILTER_ROWS)
             .reduce((sum, rows) => sum + rows, 0),
-        ) + (families ? 1 : 0),
+        ) + (search ? 1 : 0),
       separators: 0,
     },
   );
-  // Every tab's unfiltered rows, for the width the menu holds while open.
-  const widths: ProbeRow[] = families
-    ? [
-        ...families.list.flatMap((family): ProbeRow[] => [
-          ...family.models.slice(0, FILTER_ROWS).flatMap((model): ProbeRow[] => {
-            const chat = family.id === families.current;
-            const named = { label: model.name, group: true, ...(model.tag ? { tag: model.tag } : {}) };
-            // The expanded version: the model's name heads its provider rows, indented under it.
-            if (model.offers && menu.providers === "expanded")
-              return [
-                named,
-                ...model.offers.map((offer) => ({
-                  label: offer.provider,
-                  offer: true,
-                  ...(chat && offer.id === current ? { check: true } : {}),
-                })),
-              ];
-            return [
-              {
-                ...named,
-                ...(model.provider ? { value: model.provider } : {}),
-                ...(model.offers && menu.providers === "submenu"
-                  ? { sub: true }
-                  : chat && model.id === current
-                    ? { check: true }
-                    : { shortcut: true }),
-              },
-            ];
-          }),
-          ...(family.note && family.models.length === 0 ? [{ label: family.note }] : []),
-          ...(family.note && family.logIn ? [{ label: t("harness.logIn") }] : []),
-          ...(family.fork ? [{ label: t("picker.forkTo", { harness: family.name }) }] : []),
-          ...(families.onAccount && family.accounts && family.accounts.length > 1
-            ? [
-                {
-                  label: t("picker.account"),
-                  value: family.accounts.find((choice) => choice.id === family.account)?.name,
-                  sub: true,
-                },
-              ]
-            : []),
-          ...(family.id === families.current && (menu.providers ?? "row") === "row"
-            ? family.models
-                .slice(0, FILTER_ROWS)
-                .filter((model) => model.id === current && model.offers)
-                .map((model) => ({
-                  label: t("picker.provider"),
-                  value: model.offers?.find((offer) => offer.id === current)?.provider,
-                  sub: true,
-                }))
-            : []),
-        ]),
-        ...(effort && levels.length > 1 ? [{ label: t("effort.title"), value: level?.name, sub: true }] : []),
-        { label: t("picker.moreModels"), sub: true },
-        ...(account ? [{ label: t("picker.account"), value: accountValue, sub: true }] : []),
-        ...(fast ? [{ label: t("picker.fastMode") }] : []),
-      ]
-    : [];
+  const modelProbes = (model: QuickModel, chat: boolean): ProbeRow[] => {
+    const named = { label: model.name, group: true, ...(model.tag ? { tag: model.tag } : {}) };
+    if (model.offers && menu.providers === "expanded")
+      return [
+        named,
+        ...model.offers.map((offer) => ({
+          label: offer.provider,
+          offer: true,
+          ...(chat && offer.id === current ? { check: true } : {}),
+        })),
+      ];
+    return [
+      {
+        ...named,
+        ...(model.hint || model.provider ? { value: model.hint ?? model.provider } : {}),
+        ...(model.offers && menu.providers === "submenu"
+          ? { sub: true }
+          : chat && model.id === current
+            ? { check: true }
+            : { shortcut: true }),
+      },
+    ];
+  };
+  // Every tab and searchable model, for the width the menu holds while open.
+  const widths: ProbeRow[] = [
+    ...tabs.flatMap((family): ProbeRow[] => [
+      ...family.models
+        .slice(0, FILTER_ROWS)
+        .flatMap((model) => modelProbes(model, !families || family.id === families.current)),
+      ...(family.note && family.models.length === 0 ? [{ label: family.note }] : []),
+      ...(family.note && family.logIn ? [{ label: t("harness.logIn") }] : []),
+      ...(family.fork ? [{ label: t("picker.forkTo", { harness: family.name }) }] : []),
+      ...(families?.onAccount && family.accounts && family.accounts.length > 1
+        ? [
+            {
+              label: t("picker.account"),
+              value: family.accounts.find((choice) => choice.id === family.account)?.name,
+              sub: true,
+            },
+          ]
+        : []),
+      ...((!families || family.id === families.current) && (menu.providers ?? "row") === "row"
+        ? family.models
+            .slice(0, FILTER_ROWS)
+            .filter((model) => model.id === current && model.offers)
+            .map((model) => ({
+              label: t("picker.provider"),
+              value: model.offers?.find((offer) => offer.id === current)?.provider,
+              sub: true,
+            }))
+        : []),
+    ]),
+    ...searchable.flatMap((model) => modelProbes(model, !families || model.family === families.current)),
+    ...(effort && levels.length > 1 ? [{ label: t("effort.title"), value: level?.name, sub: true }] : []),
+    { label: t("picker.moreModels"), sub: true },
+    ...(account ? [{ label: t("picker.account"), value: accountValue, sub: true }] : []),
+    ...(fast ? [{ label: t("picker.fastMode") }] : []),
+  ];
   const currentValue = families ? rowValue({ family: families.current ?? "", id: current ?? "" }) : (current ?? "");
   // Keep the model menu's normal state as a compact list. A typed query remains labelled so the
   // filtered context is visible, while the static "Model · this session" caption adds no
@@ -934,7 +939,10 @@ export function QuickModelMenu({
             </div>
           </div>
         ) : (
-          list
+          <div className="acpmux-quick-body acpmux-quick-fixed" ref={body}>
+            <div className="acpmux-quick-list">{list}</div>
+            <QuickMenuSpacer {...tallest} widths={widths} />
+          </div>
         )}
         {menu.update && (
           <div className="acpmux-quick-update">

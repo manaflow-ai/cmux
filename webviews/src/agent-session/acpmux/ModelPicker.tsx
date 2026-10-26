@@ -750,11 +750,15 @@ export function ModelPicker(props: ModelPickerProps) {
         .filter(Boolean)
         .join(" · ");
       const quick = quickRow(entry.id, model);
-      const offers = quick.offers?.map((offer) => ({
-        ...offer,
-        ...(effort ? { effort } : {}),
-        ...(typed.fast ? { fast: true } : {}),
-      }));
+      const offers = model.offers?.map((offer) => {
+        const ownEffort = modelEffort(offer, typed.effort);
+        return {
+          ...quickRow(entry.id, offer),
+          provider: offer.provider,
+          ...(ownEffort ? { effort: ownEffort } : {}),
+          ...(typed.fast ? { fast: true } : {}),
+        };
+      });
       return {
         ...quick,
         ...(offers ? { offers } : {}),

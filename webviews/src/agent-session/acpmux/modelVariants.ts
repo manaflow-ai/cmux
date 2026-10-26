@@ -94,7 +94,7 @@ export function groupVariants<T extends VariantModel>(models: readonly T[], curr
     const { model, provider, name, tag } = row;
     const offer = { model, provider: provider ?? "" };
     const id = identity(row);
-    const bareId = id === undefined ? row.model.id.toLowerCase() : undefined;
+    const bareId = id === undefined ? row.model.id : undefined;
     const joined = id === undefined ? byBareId.get(bareId!) : byIdentity.get(id);
     if (joined) {
       joined.count += 1;
