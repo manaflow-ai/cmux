@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import itertools
+import re
 import sys
 import tempfile
 import unittest
@@ -598,34 +600,98 @@ class Wiring(unittest.TestCase):
         self.assertNotIn("CI_NIGHTLY_NEXT_TRUSTED_RUNNER", self.jobs["release-compile"]["runs-on"])
         self.assertNotIn("CI_NIGHTLY_NEXT_TRUSTED_RUNNER", self.jobs["release-compile"]["env"]["CMUX_NEXT_RUNNER"])
 
-    def test_a_feat_push_release_compile_never_targets_the_dedicated_nightly_runner(self):
-        runs_on = self.jobs["release-compile"]["runs-on"]
-        context = self.context()
-        context["github"].update(event_name="push", ref="refs/heads/feat-cmux-next", event={})
-        context["vars"].update(
-            CI_NIGHTLY_NEXT_TRUSTED_POOL="glaeda-trusted-light-xcode-26.6",
-            CI_NIGHTLY_NEXT_TRUSTED_RUNNER="glaeda-runner-cmux22-nightly-next",
-            CI_NEXT_PROMOTE_POOL=PROMOTE,
-        )
-        context["needs"]["macos-placement"]["outputs"]["nightly_runner_ready"] = "true"
-        self.assertNotEqual(evaluate(runs_on, context), [
-            "glaeda-trusted-light-xcode-26.6", "glaeda-runner-cmux22-nightly-next",
-            "glaeda-trusted-next-nightly",
-        ])
+    NIGHTLY_POOL = "glaeda-trusted-light-xcode-26.6"
+    NIGHTLY_RUNNER = "glaeda-runner-cmux22-nightly-next"
+
+    # The events release-compile runs on: a push to either branch, a dispatch, and a same-repo or fork pull request.
+    EVENTS = (("push", "refs/heads/feat-cmux-next", False), ("push", "refs/heads/main", False),
+              ("workflow_dispatch", "refs/heads/feat-cmux-next", False), ("pull_request", "refs/pull/1/merge", False),
+              ("pull_request", "refs/pull/1/merge", True))
+
+    def nightly_push(self, ready: str, attempt: str = "1", fast: tuple[str, str] = ("skipped", ""),
+                     event: tuple[str, str, bool] = EVENTS[0], actor: str = "teamleaderleo", config: str = "owned",
+                     **outputs: str) -> dict:
+        name, ref, fork = event
+        context = self.context(attempt, actor, fork=fork, **outputs)
+        if config == "another owner":
+            context["github"]["repository_owner"] = "someone"
+        elif config == "pool not owned":
+            context["vars"].pop("CI_PR_POOL_OWNED")
+        elif config == "no side route":
+            context["vars"].update(CI_SIDE_LANE_RUNNER="", MACOS_RUNNER_26="")
+        # The fleet fast check: skipped (no idle gateway), no verdict, or an unavailable fleet.
+        context["needs"]["release-compile-fast"] = {"result": fast[0], "outputs": {"verdict": fast[1]}}
+        context["github"].update(event_name=name, ref=ref)
+        if name != "pull_request":
+            context["github"]["event"] = {}
+        context["vars"].update(CI_NIGHTLY_NEXT_TRUSTED_POOL=self.NIGHTLY_POOL,
+                               CI_NIGHTLY_NEXT_TRUSTED_RUNNER=self.NIGHTLY_RUNNER, CI_NEXT_PROMOTE_POOL=PROMOTE)
+        # The job sees placement's step outputs through the workflow's own `outputs:` mapping, evaluated here,
+        # so a mapping that names a nightly variable reaches the runs-on.
+        placed = dict(context["needs"]["macos-placement"]["outputs"], nightly_runner_ready=ready)
+        mapping = self.jobs["macos-placement"]["outputs"]
+        step = {}
+        for key, expression in mapping.items():
+            match = re.fullmatch(r"\$\{\{ steps\.place\.outputs\.(\w+) \}\}", expression)
+            if match:
+                step[match.group(1)] = placed.get(key, "")
+        scope = dict(context, steps={"place": {"outputs": step}})
+        context["needs"]["macos-placement"]["outputs"] = {key: evaluate(expression, scope)
+                                                          for key, expression in mapping.items()}
+        if config == "placement skipped":
+            context["needs"]["macos-placement"] = {"result": "skipped", "outputs": {}}
+        return context
+
+    def off_the_nightly_runner(self, label) -> bool:
+        """`label` (a runs-on value: one label, or a list every runner must carry) is set and names no nightly label."""
+        labels = label if isinstance(label, list) else [label]
+        return bool(labels) and all(isinstance(name, str) and name and name not in (self.NIGHTLY_POOL, self.NIGHTLY_RUNNER)
+                                    and "nightly" not in name for name in labels)
+
+    CONFIGS = ("owned", "another owner", "pool not owned", "no side route", "placement skipped")
+
+    def test_release_compile_never_targets_the_dedicated_nightly_runner(self):
+        """The nightly runner builds and signs nightly-next; the Release compile that gates it never takes it,
+        whatever placement read about it. The runs-on and the job's own label variable are evaluated, as a
+        single label or a label list, on every event the workflow runs on, for every attempt, owner and pool
+        configuration, fast-check state and placement output it can see."""
+        job = self.jobs["release-compile"]
+        seen = {event: set() for event in self.EVENTS}
+        failures = []
+        attempts = (("1", "teamleaderleo"), ("2", "teamleaderleo"), ("2", BOT), ("3", "teamleaderleo"), ("3", BOT),
+                    ("4", BOT))
+        # Every fast-check state release-compile runs after: skipped, no verdict (failed, or the
+        # continue-on-error step left success with none), or an unavailable fleet.
+        fasts = (("skipped", ""), ("failure", ""), ("success", ""), ("success", "unavailable"),
+                 ("failure", "unavailable"))
+        placed = ({}, {"runner": ""}, {"large": " release-compile "}, {"small": " release-compile "}, {"retry": SMALL})
+        for event, config, ready, (attempt, actor), fast, outputs in itertools.product(
+                self.EVENTS, self.CONFIGS, ("true", ""), attempts, fasts, placed):
+            context = self.nightly_push(ready, attempt, fast, event, actor, config, **outputs)
+            label = evaluate(job["runs-on"], context)
+            if config == "owned" and attempt in ("1", "2"):
+                seen[event].add(tuple(label) if isinstance(label, list) else label)
+            for name, value in (("runs-on", label), ("CMUX_NEXT_RUNNER", evaluate(job["env"]["CMUX_NEXT_RUNNER"],
+                                                                                   context))):
+                if not self.off_the_nightly_runner(value):
+                    failures.append(f"{name}={value!r}: {event} {config} ready={ready!r} attempt={attempt} {actor} "
+                                    f"fast={fast} outputs={outputs}")
+        self.assertEqual(failures[:10], [], f"{len(failures)} cases name the nightly runner")
+        # Every route each event can take was evaluated: the cascade's two slots and the owned side label
+        # (a feat push also takes 6 vCPU with no placement runner, or a fast check that died before its
+        # verdict); a fork pull request takes 6 vCPU only. side_lane_placement never writes a nightly label
+        # into the runner outputs (test_ci_side_lane_placement.NightlyRunnerStaysOffTheRoutes).
+        for event in self.EVENTS:
+            self.assertEqual(seen[event], {SMALL} if event[2] else {LARGE, SMALL, SIDE}, event)
+        self.assertEqual(evaluate(job["runs-on"], self.nightly_push("", fast=("failure", ""))), SMALL)
 
     def test_a_configured_but_unavailable_dedicated_runner_overflows_to_blacksmith(self):
+        # Dedicated runner configured but not ready: the Blacksmith slot placement gave, else the owned route.
         runs_on = self.jobs["release-compile"]["runs-on"]
-        context = self.context()
-        context["github"].update(event_name="push", ref="refs/heads/feat-cmux-next", event={})
-        context["vars"].update(
-            CI_NIGHTLY_NEXT_TRUSTED_POOL="glaeda-trusted-light-xcode-26.6",
-            CI_NIGHTLY_NEXT_TRUSTED_RUNNER="glaeda-runner-cmux22-nightly-next",
-        )
-        context["needs"]["macos-placement"]["outputs"]["nightly_runner_ready"] = ""
-        self.assertNotEqual(evaluate(runs_on, context), [
-            "glaeda-trusted-light-xcode-26.6", "glaeda-runner-cmux22-nightly-next",
-            "glaeda-trusted-next-nightly",
-        ])
+        self.assertEqual(evaluate(runs_on, self.nightly_push("", large=" release-compile ")), LARGE)
+        self.assertEqual(evaluate(runs_on, self.nightly_push("", small=" release-compile ")), SMALL)
+        self.assertEqual(evaluate(runs_on, self.nightly_push("")), SIDE)
+        self.assertEqual(evaluate(runs_on, self.nightly_push("", runner="")), SMALL)
 
     def test_the_placement_knows_the_promotion_label_only_on_a_feat_push(self):
         place = next(step for step in self.jobs["macos-placement"]["steps"] if step.get("id") == "place")

@@ -661,7 +661,11 @@ export interface VMProvider {
   readonly capabilities?: Partial<VmCapabilities>;
 
   create(options: CreateOptions): Promise<VMHandle>;
-  destroy(vmId: string, credential?: ProviderCredential): Promise<void>;
+  /**
+   * Delete the machine; a machine already gone counts as deleted. `strict`: only the provider's
+   * own "no such machine" answer counts as gone (not any 404, which can be an endpoint error).
+   */
+  destroy(vmId: string, credential?: ProviderCredential, options?: { readonly strict?: boolean }): Promise<void>;
 
   /**
    * Optional: delete a persistent home volume by name. Implementations must treat

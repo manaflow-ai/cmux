@@ -4686,19 +4686,48 @@ jobs:
   # 40124390153, 2026-10-24). The result check below still requires the compile.
   # A same-tree DEV run is handed over only when it ran on the commit it built:
   # the publisher requires the run's head_sha to be the SHA in its name.
+  # The handoff spends no GITHUB_TOKEN budget: every workflow in the repository
+  # shares that one installation budget an hour, and it was spent by the time
+  # each DEV compile finished on 2026-10-26 (source runs 40280000359,
+  # 40298830622, 40306882038 failed with "API rate limit exceeded for
+  # installation"), so the five-minute dispatcher, on the same budget, handed
+  # them over only after the reset, 12 to 46 minutes later. The
+  # manaflow-glaeda-route App this workflow already mints for runner placement
+  # has its own budget and the installation's actions: write; GITHUB_TOKEN,
+  # waiting through a rate limit as scripts/ci/gh_budget_wait.sh does (#25434),
+  # is the fallback when the App token cannot be minted or its dispatch fails.
   request-cmux-next-dev-publish:
     needs: cmux-scheme-compile
     if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && needs.cmux-scheme-compile.result == 'success' && (inputs.same_tree_sha == '' || inputs.same_tree_sha == github.sha) && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
     name: Request cmux NEXT DEV publication
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
+    # The App key is a repository secret; this is the credential-free environment
+    # macos-placement mints the same App's token under (test_supplychain_security.py).
+    environment: ci-routing-agent
+    # The GITHUB_TOKEN fallback may wait up to an hour for the budget's reset.
+    timeout-minutes: 70
     permissions:
       actions: write
       contents: read
     steps:
+      - name: Mint the handoff token
+        id: handoff-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: write
+
+      # Evidence only: a refused read must never hold up the dispatch below.
       - name: Record source queue and handoff receipt
+        id: receipt
+        continue-on-error: true
+        timeout-minutes: 2
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.handoff-token.outputs.token || github.token }}
           GH_REPO: ${{ github.repository }}
           SOURCE_SHA: ${{ inputs.dev_daily_sha }}
           RUN_ID: ${{ github.run_id }}
@@ -4732,6 +4761,8 @@ jobs:
           print(json.dumps(receipt, sort_keys=True))
           PY
       - name: Upload queue-delay receipt
+        if: steps.receipt.outcome == 'success'
+        continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-next-dev-handoff-${{ inputs.dev_daily_sha }}
@@ -4740,14 +4771,52 @@ jobs:
           retention-days: 14
           compression-level: 0
       - name: Dispatch the exact source run to the publisher
+        id: app-dispatch
+        if: steps.handoff-token.outputs.token != ''
+        continue-on-error: true
+        timeout-minutes: 2
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.handoff-token.outputs.token }}
           GH_REPO: ${{ github.repository }}
           SOURCE_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
           gh workflow run cmux-next-dev-daily.yml --repo "$GH_REPO" --ref main -f "source_run_id=$SOURCE_RUN_ID"
-          echo "Requested cmux NEXT DEV publication for source run $SOURCE_RUN_ID"
+          echo "Requested cmux NEXT DEV publication for source run $SOURCE_RUN_ID (manaflow-glaeda-route token)"
+
+      # The fallback holds only GITHUB_TOKEN. A refusal for the rate limit waits
+      # for the budget's reset and tries again, at most 3 tries and an hour of
+      # waiting in all (the bounded wait of scripts/ci/gh_budget_wait.sh, #25434);
+      # a refused request did nothing on GitHub's side, so the retry is safe.
+      - name: Dispatch with GITHUB_TOKEN, waiting through a rate limit
+        if: steps.app-dispatch.outcome != 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          echo "::warning title=DEV handoff::the manaflow-glaeda-route token did not dispatch; using GITHUB_TOKEN"
+          waited=0
+          for try in 1 2 3; do
+            if out="$(gh workflow run cmux-next-dev-daily.yml --repo "$GH_REPO" --ref main -f "source_run_id=$SOURCE_RUN_ID" 2>&1)"; then
+              echo "Requested cmux NEXT DEV publication for source run $SOURCE_RUN_ID (GITHUB_TOKEN)"
+              exit 0
+            fi
+            echo "$out" >&2
+            grep -qiE 'rate limit exceeded|secondary rate limit|too many requests|HTTP 429' <<<"$out" || exit 1
+            [[ "$try" -lt 3 ]] || exit 1
+            now="$(date +%s)"
+            reset="$(gh api rate_limit --jq '.resources.core.reset' 2>/dev/null || echo 0)"
+            [[ "$reset" =~ ^[0-9]+$ ]] || reset=0
+            wait=$(( reset > now ? reset - now + 5 : 60 ))
+            (( wait > 3600 - waited )) && wait=$(( 3600 - waited ))
+            (( wait > 0 )) || exit 1
+            echo "::notice title=GitHub API budget::dispatch refused for the rate limit (try $try of 3); waiting ${wait}s for the reset"
+            sleep "$wait"
+            waited=$(( waited + wait ))
+          done
+          exit 1
 
   # The checks job's red sub-checks join the PR's red-checks line (pr-red-checks-comment.yml), each
   # compared with the base's run: ci.yml and cmux-next-guards.yml call it after their own checks.

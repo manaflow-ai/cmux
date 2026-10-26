@@ -933,6 +933,16 @@
             }
           },
           {
+            "key" : "settings.group.chiefEngine",
+            "rows" : [
+              "home.chiefEngine"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefEngine",
+              "text" : "Engine"
+            }
+          },
+          {
             "key" : "settings.group.chiefReactions",
             "rows" : [
               "chief.reactionsCanWake",
@@ -4089,7 +4099,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.updates",
@@ -4097,7 +4107,7 @@
       },
       "help" : {
         "key" : "settings.updates.downloadAutomatically.help",
-        "text" : "Off: a found update waits, and one click downloads and installs it."
+        "text" : "Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.downloadAutomatically",
@@ -4122,7 +4132,7 @@
       "summary" : null,
       "title" : {
         "key" : "settings.updates.downloadAutomatically",
-        "text" : "Download Updates Automatically"
+        "text" : "Download and Install Updates Automatically"
       },
       "validation" : "portable"
     },
@@ -4492,7 +4502,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 900,
+      "default" : 600,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.updates",
@@ -33586,6 +33596,80 @@
       "title" : {
         "key" : "settings.home.chiefPetMascot",
         "text" : "Character"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "auto",
+        "local",
+        "hosted"
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.chiefEngine.auto",
+            "text" : "Auto"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefEngine.local",
+            "text" : "This Mac"
+          },
+          "value" : "local"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefEngine.hosted",
+            "text" : "Hosted"
+          },
+          "value" : "hosted"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "auto",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefEngine",
+        "text" : "Engine"
+      },
+      "help" : {
+        "key" : "settings.home.chiefEngine.help",
+        "text" : "Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.chiefEngine",
+      "keywords" : [
+        "chief",
+        "engine",
+        "backend",
+        "hosted",
+        "cloud",
+        "local",
+        "optchat"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "chiefEngine"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.chiefEngine",
+        "text" : "Engine"
       },
       "validation" : "portable"
     },

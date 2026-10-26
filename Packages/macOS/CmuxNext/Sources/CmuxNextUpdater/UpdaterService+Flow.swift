@@ -13,10 +13,22 @@ extension UpdaterService {
     /// found update the person closed or snoozed (``updateSnooze``) stays
     /// hidden; a check they ask for clears that first (``checkForUpdates()``).
     public var card: UpdateCard? {
-        guard let card = flow.card(downloadsAutomatically: downloadSetting.enabled) else { return pulledWatch.card }
+        // A found update nobody asked about (downloads wait for a click) is the titlebar's quiet
+        // Update Available button (``availableButton``), not this card; a check they asked for shows here.
+        guard let card = flow.card(downloadsAutomatically: true) else { return pulledWatch.card }
         if card == .installing, installCardDismissed { return pulledWatch.card }
         if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return pulledWatch.card }
         return card
+    }
+
+    /// The titlebar's quiet Update Available button: a found update that waits for a click
+    /// (`updates.downloadAutomatically` off, or downloads deferred on a metered network); a click
+    /// downloads and installs it (``installClicked()``). Nil otherwise, and for a version the
+    /// person closed or snoozed (``updateSnooze``), and while a check the person asked for shows
+    /// it on the notice card (``card``).
+    public var availableButton: UpdateAvailableButton? {
+        guard !flow.userAsked, case .available(let version) = flow.phase, !updateSnooze.hides(version: version, at: now()) else { return nil }
+        return UpdateAvailableButton(version: version)
     }
 
     /// The footer's update pill, or nil when it does not show.
@@ -206,6 +218,9 @@ extension UpdaterService {
             controller?.idleInstallWaitCap = .seconds(idleInstall.maxWait)
         }
         downloadSetting = (downloadAutomatically, metered)
+        // "Download and Install Updates Automatically": on, a downloaded update installs by itself
+        // (the relaunch keeps every session); off, nothing downloads or relaunches until a click.
+        if let controller, controller.installsUpdatesWhenIdle != downloadAutomatically { controller.installsUpdatesWhenIdle = downloadAutomatically }
         stagedRefresh.reschedule(automatic: checkAutomatically, interval: checkInterval, updater: self)
         tipCheck.reschedule(automatic: checkAutomatically, updater: self)
         if automaticUpdates != downloadAutomatically { automaticUpdates = downloadAutomatically }
@@ -238,10 +253,11 @@ extension UpdaterService {
     /// `updates.downloadAutomatically` (a managed configuration can force it)
     /// on the user's metered-network choice, except that an update the
     /// organization requires (`MinimumVersion`) always downloads, and an app
-    /// off the organization's `UpdateChannel` downloads none of its own.
+    /// off the organization's `UpdateChannel` downloads none of its own, nor does one under a
+    /// forced `DisableAutoUpdate`.
     func applyDownloadPolicy() {
         let required = requiredMinimumVersion != nil
-        let enabled = (downloadSetting.enabled || required) && !isOffManagedChannel
+        let enabled = (downloadSetting.enabled || required) && !isOffManagedChannel && !policy.disablesUpdates
         let downloads = UpdateNetworkPolicy.downloadsAutomatically(setting: enabled, mode: required ? .download : downloadSetting.metered,
                                                                    constrained: network.constrained, expensive: network.expensive)
         // The tip app reads its feed every few minutes only where found updates download by
@@ -250,9 +266,16 @@ extension UpdaterService {
             tipCheck.refresh(self)
             stagedRefresh.policyChanged(updater: self)
         }
-        guard let controller, controller.downloadsUpdatesInBackground != downloads else { return }
-        controller.downloadsUpdatesInBackground = downloads
-        log.append("automatic downloads \(downloads ? "on" : "deferred") (setting \(downloadSetting.enabled), required \(required), off managed channel \(isOffManagedChannel), constrained \(network.constrained), expensive \(network.expensive))")
+        let resumed = downloads && !downloadsFoundUpdates
+        downloadsFoundUpdates = downloads
+        if let controller, controller.downloadsUpdatesInBackground != downloads {
+            controller.downloadsUpdatesInBackground = downloads
+            log.append("automatic downloads \(downloads ? "on" : "deferred") (setting \(downloadSetting.enabled), required \(required), off managed channel \(isOffManagedChannel), constrained \(network.constrained), expensive \(network.expensive))")
+        }
+        // Downloads came on (the setting, the link or the policy): an update a check found while they
+        // were off downloads now instead of waiting for a click (the driver's own state decides; a
+        // no-op when none waits).
+        if resumed { acceptAvailable() }
     }
 
     /// Follows the link's Low Data Mode and cost (path events, no polling).

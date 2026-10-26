@@ -19,6 +19,9 @@ const CODE: &str = "msc_00000000000000000000000000";
 const SECRET: &str =
     "AAAAAAAAAAAAAAAAAAAAAA.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
+#[path = "support/native_backend.rs"]
+mod backend;
+
 #[derive(Clone, Copy, Default)]
 enum Fault {
     #[default]
@@ -29,6 +32,7 @@ enum Fault {
     Device,
     Wg,
     Install,
+    Backend,
 }
 #[derive(Default)]
 struct State {
@@ -42,6 +46,10 @@ struct State {
     bad_grant: Option<&'static str>,
     fault: Fault,
     calls: Vec<(String, Value)>,
+    backend_calls: Vec<(String, Value)>,
+    backend_fault: Option<&'static str>,
+    lose_backend_reply: bool,
+    confirmed_at: Option<u64>,
 }
 struct Api {
     path: PathBuf,
@@ -185,6 +193,15 @@ impl Transport for Api {
         }
         Ok(Some(policy))
     }
+    fn backend_post(
+        &self,
+        origin: &str,
+        path: &str,
+        body: &Value,
+        bearer: Option<&str>,
+    ) -> Result<Value> {
+        backend::post(self, origin, path, body, bearer)
+    }
 }
 fn run(api: &Api, progress: &mut Vec<Value>) -> Result<Value> {
     // The human approval wait advanced the clock by three minutes.
@@ -222,7 +239,7 @@ fn server_pairing_native_signs_with_its_own_keys_and_confirms_before_completing(
     let mut progress = vec![];
     let result = run(&api, &mut progress).unwrap();
     assert_eq!(result["state"], "paired");
-    assert_eq!(result["network"]["state"], "registered");
+    assert_eq!(result["network"]["state"], "confirmed");
     assert_eq!(result["network"]["tenant"], "native_team");
     assert_eq!(pairing::status(&path).unwrap(), result);
     let loaded = EnrolledIdentity::load(&path).unwrap();
@@ -233,19 +250,180 @@ fn server_pairing_native_signs_with_its_own_keys_and_confirms_before_completing(
         assert!(!public.contains(private));
     }
     let record = private_record(&path);
-    assert_eq!(record["schema"], 2);
+    assert_eq!(record["schema"], 3);
     assert_eq!(record["native"]["state"], "registered");
+    assert_eq!(record["native"]["confirmed_at"], NOW);
     assert!(record["native"].get("response").is_none());
     assert!(!record.to_string().contains(CODE));
     let state = api.state.lock().unwrap();
     assert_eq!(state.begins, 1);
     assert_eq!(state.waits, 1);
     assert_eq!(state.calls.len(), 3);
+    assert_eq!(state.backend_calls.len(), 3);
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
     }
+}
+
+#[test]
+fn server_pairing_native_backend_failure_keeps_registration_pending_and_link_blocked() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pairing/identity.json");
+    let api = Api::new(&path);
+    api.state.lock().unwrap().fault = Fault::Backend;
+    assert!(
+        run(&api, &mut vec![]).is_err(),
+        "Native registration alone is not backend confirmation"
+    );
+    assert_eq!(pairing::status(&path).unwrap()["state"], "network_pending");
+    assert!(EnrolledIdentity::load(&path).is_err());
+    let record = private_record(&path);
+    assert!(record["native"].get("response").is_none(), "discard the spent private invitation");
+    assert!(!record.to_string().contains(CODE));
+    assert_eq!(enroll_count(&api), 1);
+}
+
+#[test]
+fn server_pairing_native_legacy_registered_record_still_needs_backend_confirmation() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pairing/identity.json");
+    let api = Api::new(&path);
+    api.state.lock().unwrap().fault = Fault::Backend;
+    let _ = run(&api, &mut vec![]);
+    // Schema 2 could finish Native enrollment without ever notifying TeamDO.
+    let mut legacy = private_record(&path);
+    legacy["schema"] = json!(2);
+    legacy["native"].as_object_mut().unwrap().remove("confirmed_at");
+    std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+    assert_eq!(pairing::status(&path).unwrap()["state"], "network_pending");
+    assert!(EnrolledIdentity::load(&path).is_err());
+    api.state.lock().unwrap().fault = Fault::None;
+    assert_eq!(run(&api, &mut vec![]).unwrap()["network"]["state"], "confirmed");
+    assert_eq!(private_record(&path)["schema"], 3);
+    assert_eq!(api.state.lock().unwrap().calls.len(), 3);
+}
+
+#[test]
+fn server_pairing_native_lost_backend_reply_retries_fresh_proof_after_invitation_expiry() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pairing/identity.json");
+    let api = Api::new(&path);
+    api.state.lock().unwrap().lose_backend_reply = true;
+    assert!(run(&api, &mut vec![]).is_err());
+    let before = private_record(&path);
+    assert_eq!(before["schema"], 3);
+    assert_eq!(before["native"]["state"], "registered");
+    assert!(before["native"].get("confirmed_at").is_none());
+    assert_eq!(pairing::status(&path).unwrap()["network"]["state"], "confirmation_pending");
+    assert!(!before.to_string().contains(CODE));
+    api.state.lock().unwrap().now += 720_000;
+    let result = run(&api, &mut vec![]).unwrap();
+    assert_eq!(result["network"]["confirmed_at"], NOW);
+    let after = private_record(&path);
+    assert_eq!(before["public_jwk"], after["public_jwk"]);
+    assert_eq!(before["protected_keys"], after["protected_keys"]);
+    let state = api.state.lock().unwrap();
+    assert_eq!(state.calls.len(), 3, "do not redeem or read Native again");
+    assert_eq!(state.backend_calls.len(), 6);
+    assert_eq!(state.begins, 1);
+    assert_eq!(state.waits, 1);
+    for secret in [CODE, SECRET, "fixture-daemon-access", "fixture-must-not-persist"] {
+        assert!(!after.to_string().contains(secret));
+        assert!(!result.to_string().contains(secret));
+    }
+    for field in ["signature", "nonce", "access_token", "accountCredential"] {
+        let key = format!("\"{field}\":");
+        assert!(!after.to_string().contains(&key));
+        assert!(!result.to_string().contains(&key));
+    }
+}
+
+#[test]
+fn server_pairing_native_backend_response_must_match_the_reserved_identity_and_operation() {
+    for field in [
+        "/op",
+        "/idempotency_key",
+        "/value/host",
+        "/value/network/state",
+        "/value/network/tenant",
+        "/value/network/mesh",
+        "/value/network/device",
+        "/value/network/confirmed_at",
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pairing/identity.json");
+        let api = Api::new(&path);
+        api.state.lock().unwrap().backend_fault = Some(field);
+        assert_eq!(
+            run(&api, &mut vec![]).unwrap_err().message,
+            "server.pair.invalid_backend_confirmation"
+        );
+        assert_eq!(pairing::status(&path).unwrap()["state"], "network_pending");
+        assert!(EnrolledIdentity::load(&path).is_err());
+        api.state.lock().unwrap().backend_fault = None;
+        assert_eq!(run(&api, &mut vec![]).unwrap()["state"], "paired");
+        assert_eq!(enroll_count(&api), 1);
+    }
+}
+
+#[test]
+fn server_pairing_native_backend_auth_checks_namespace_expiry_and_token_identity() {
+    for fault in [
+        "prefix",
+        "challenge_install",
+        "nonce",
+        "challenge_expired",
+        "token_team",
+        "token_user",
+        "token_install",
+        "token_expired",
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pairing/identity.json");
+        let api = Api::new(&path);
+        api.state.lock().unwrap().backend_fault = Some(fault);
+        assert_eq!(
+            run(&api, &mut vec![]).unwrap_err().message,
+            "server.pair.invalid_backend_confirmation"
+        );
+        assert_eq!(pairing::status(&path).unwrap()["state"], "network_pending");
+        assert!(api.state.lock().unwrap().backend_calls.iter().all(|(path, _)| path != "/v1/ops"));
+        assert!(EnrolledIdentity::load(&path).is_err());
+    }
+}
+
+#[test]
+fn server_pairing_native_backend_refusals_preserve_recovery_without_echoing_private_errors() {
+    for (fault, kind) in [
+        ("refused", cmux_server::ExitKind::Rejected),
+        ("retryable", cmux_server::ExitKind::Unreachable),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pairing/identity.json");
+        let api = Api::new(&path);
+        api.state.lock().unwrap().backend_fault = Some(fault);
+        let error = run(&api, &mut vec![]).unwrap_err();
+        assert_eq!(error.kind, kind);
+        assert!(!error.message.contains("private fixture error"));
+        assert_eq!(pairing::status(&path).unwrap()["state"], "network_pending");
+        assert!(EnrolledIdentity::load(&path).is_err());
+    }
+}
+
+#[test]
+fn server_pairing_native_confirmed_checkpoint_is_read_only_on_subsequent_pair_commands() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pairing/identity.json");
+    let api = Api::new(&path);
+    let result = run(&api, &mut vec![]).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    api.state.lock().unwrap().fault = Fault::Backend;
+    assert_eq!(run(&api, &mut vec![]).unwrap(), result);
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert_eq!(api.state.lock().unwrap().backend_calls.len(), 3);
+    assert!(EnrolledIdentity::load(&path).is_ok());
 }
 
 #[test]
@@ -337,39 +515,46 @@ fn server_pairing_native_revoked_reserved_identity_is_never_reported_as_paired()
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn server_pairing_native_cli_reports_pending_registration_without_mutating_it() {
-    let home = tempfile::tempdir().unwrap();
-    #[cfg(target_os = "linux")]
-    let path = home.path().join("state/cmux/server/pairing/identity.json");
-    #[cfg(target_os = "macos")]
-    let path = home.path().join("Library/Application Support/cmux/server/pairing/identity.json");
-    let api = Api::new(&path);
-    api.state.lock().unwrap().lose_enrollment_reply = true;
-    assert!(run(&api, &mut vec![]).is_err());
-    let before = std::fs::read(&path).unwrap();
-    for machine in [false, true] {
-        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-server"));
-        command.args(["pair", "status"]);
-        if machine {
-            command.arg("--json");
-        }
-        let output = command
-            .env_clear()
-            .env("HOME", home.path())
-            .env("XDG_STATE_HOME", home.path().join("state"))
-            .env("CMUX_SERVER_MODE", "user")
-            .env("LANG", "ja_JP.UTF-8")
-            .current_dir(home.path())
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-        if machine {
-            assert_eq!(
-                serde_json::from_slice::<Value>(&output.stdout).unwrap(),
-                pairing::status(&path).unwrap()
-            );
+    for backend_pending in [false, true] {
+        let home = tempfile::tempdir().unwrap();
+        #[cfg(target_os = "linux")]
+        let path = home.path().join("state/cmux/server/pairing/identity.json");
+        #[cfg(target_os = "macos")]
+        let path =
+            home.path().join("Library/Application Support/cmux/server/pairing/identity.json");
+        let api = Api::new(&path);
+        if backend_pending {
+            api.state.lock().unwrap().lose_backend_reply = true;
         } else {
-            assert_eq!(String::from_utf8(output.stdout).unwrap(), "ネットワーク登録待ち\n");
+            api.state.lock().unwrap().lose_enrollment_reply = true;
         }
+        assert!(run(&api, &mut vec![]).is_err());
+        let before = std::fs::read(&path).unwrap();
+        for machine in [false, true] {
+            let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-server"));
+            command.args(["pair", "status"]);
+            if machine {
+                command.arg("--json");
+            }
+            let output = command
+                .env_clear()
+                .env("HOME", home.path())
+                .env("XDG_STATE_HOME", home.path().join("state"))
+                .env("CMUX_SERVER_MODE", "user")
+                .env("LANG", "ja_JP.UTF-8")
+                .current_dir(home.path())
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+            if machine {
+                assert_eq!(
+                    serde_json::from_slice::<Value>(&output.stdout).unwrap(),
+                    pairing::status(&path).unwrap()
+                );
+            } else {
+                assert_eq!(String::from_utf8(output.stdout).unwrap(), "ネットワーク登録待ち\n");
+            }
+        }
+        assert_eq!(std::fs::read(&path).unwrap(), before);
     }
-    assert_eq!(std::fs::read(&path).unwrap(), before);
 }
