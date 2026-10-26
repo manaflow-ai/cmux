@@ -149,13 +149,13 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
     /// meta-framework over its UI library (Next.js is React, Nuxt is Vue), a desktop or mobile shell
     /// over the UI library inside it (an Electron app built with React shows Electron), a UI library
     /// over its bundler (a React app built with Vite shows React), so the mark says what kind of app
-    /// it is.
+    /// it is. A bare React Native app (no `expo`) shows React: the Expo mark is Expo's own.
     static let packageFrameworks: [(glyph: String, packages: [String])] = [
         ("next", ["next"]),
         ("nuxt", ["nuxt", "nuxt3"]),
         ("remix", ["@remix-run/react", "@remix-run/node", "@react-router/dev"]),
         ("astro", ["astro"]),
-        ("expo", ["expo", "react-native"]),
+        ("expo", ["expo"]),
         ("electron", ["electron"]),
         ("tauri", ["@tauri-apps/api", "@tauri-apps/cli"]),
         ("svelte", ["@sveltejs/kit", "svelte"]),
