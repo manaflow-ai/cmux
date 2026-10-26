@@ -39,6 +39,7 @@ import Testing
         now.advance(.milliseconds(100))
         let first = watch.scan(nowNanos: now.nanos).overdue
         #expect(first.map(\.name) == ["test.io"])
+        #expect(first.first?.tier == .jank)
         #expect(first.first?.kind == .io)
         #expect(first.first?.port == UInt32(truncatingIfNeeded: HangWatch.currentPort()))
         #expect(first.first.map(watch.isStillOpen) == true)
@@ -107,7 +108,10 @@ import Testing
         #expect(watch.scan(nowNanos: now.nanos).nextScanNanos == now.nanos + Self.nanos(.milliseconds(100)))
         for _ in 0..<50 { watch.watch(feed, deadline: .milliseconds(100)) {} }
         #expect(wakes.count == 2)
-        // Scopes that opened and closed between two scans leave no change: back to the job's deadline.
+        // Scopes that opened and closed between two scans are a change (their closed mark): one more
+        // period; a period with none goes back to the job's deadline.
+        now.advance(.milliseconds(100))
+        #expect(watch.scan(nowNanos: now.nanos).nextScanNanos == now.nanos + Self.nanos(.milliseconds(100)))
         now.advance(.milliseconds(100))
         #expect(watch.scan(nowNanos: now.nanos).nextScanNanos == now.start + Self.nanos(.seconds(30)))
         long.close()
@@ -116,6 +120,86 @@ import Testing
         now.advance(.milliseconds(100))
         #expect(watch.scan(nowNanos: now.nanos).nextScanNanos == nil, "nothing open: parked")
         #expect(wakes.count == 2)
+    }
+
+    /// Two tiers (p10-stability-031): a jank at the budget, then a hang `hangAfterBudget` (2 s) later,
+    /// each once; the jank plans the scan of the hang, so a quiet monitor sleeps to it.
+    @Test func aScopeJanksAtItsBudgetAndHangsTwoSecondsLater() {
+        let (watch, now, _) = Self.monitored()
+        let thread = watch.registerThread(.io, name: "test.tiers")
+        let scope = watch.watch(thread, deadline: .milliseconds(100))
+        now.advance(.milliseconds(150))
+        let jank = watch.scan(nowNanos: now.nanos)
+        #expect(jank.overdue.map(\.tier) == [.jank])
+        #expect(jank.overdue.first?.deadlineNanos == now.start + Self.nanos(.milliseconds(100)))
+        now.advance(.milliseconds(100))
+        let quiet = watch.scan(nowNanos: now.nanos)
+        #expect(quiet.overdue.isEmpty)
+        #expect(quiet.nextScanNanos == now.start + Self.nanos(.milliseconds(2_100)), "sleeps to the hang tier")
+        now.advance(.seconds(2))
+        let hang = watch.scan(nowNanos: now.nanos).overdue
+        #expect(hang.map(\.tier) == [.hang])
+        #expect(hang.first?.deadlineNanos == now.start + Self.nanos(.milliseconds(100)), "both tiers name the budget")
+        #expect(hang.first.map(watch.isStillOpen) == true)
+        now.advance(.seconds(10))
+        #expect(watch.scan(nowNanos: now.nanos).overdue.isEmpty, "each tier once")
+        scope.close()
+    }
+
+    /// A scan that comes after both tiers' deadlines returns only the hang.
+    @Test func aLateScanReportsOnlyTheHang() {
+        let (watch, now, _) = Self.monitored()
+        let thread = watch.registerThread(.io, name: "test.late")
+        let scope = watch.watch(thread, deadline: .milliseconds(100))
+        now.advance(.seconds(3))
+        #expect(watch.scan(nowNanos: now.nanos).overdue.map(\.tier) == [.hang])
+        now.advance(.seconds(3))
+        #expect(watch.scan(nowNanos: now.nanos).overdue.isEmpty)
+        scope.close()
+    }
+
+    /// An outer scope that janked keeps its jank under an inner scope: when the inner one closes, the
+    /// outer one's hang tier is planned and reported, and its jank is not reported again.
+    @Test func aJankedOuterScopeStillHangsAfterAnInnerOneCloses() {
+        let (watch, now, wakes) = Self.monitored()
+        let thread = watch.registerThread(.io, name: "test.outer-hang")
+        let outer = watch.watch(thread, deadline: .milliseconds(100))
+        now.advance(.milliseconds(150))
+        #expect(watch.scan(nowNanos: now.nanos).overdue.map(\.tier) == [.jank])
+        now.advance(.milliseconds(100))
+        _ = watch.scan(nowNanos: now.nanos) // quiet: sleeps to the hang tier at 2.1 s
+        let inner = watch.watch(thread, deadline: .seconds(10))
+        let before = wakes.count
+        inner.close()
+        #expect(wakes.count == before, "the plan already covers the outer hang tier")
+        #expect(watch.nextScanNanos == now.start + Self.nanos(.milliseconds(2_100)))
+        now.advance(.seconds(2))
+        let hang = watch.scan(nowNanos: now.nanos).overdue
+        #expect(hang.map(\.tier) == [.hang])
+        #expect(hang.map(\.name) == ["test.outer-hang"])
+        outer.close()
+    }
+
+    /// "No syscall on scope enter or exit in steady state" (p10-stability-031): a lane busy for 20 scan
+    /// periods (2,000 scopes, all closed before each scan) wakes the monitor once, at the first open
+    /// after the park; the monitor keeps its period, and parks after the first quiet period.
+    @Test func aBusyLaneMakesNoWakeCallInSteadyState() {
+        let (watch, now, wakes) = Self.monitored()
+        let lane = watch.registerLane("test.busy")
+        watch.watch(lane, deadline: .milliseconds(100)) {}
+        #expect(wakes.count == 1, "the first open after the park")
+        for _ in 0..<20 {
+            for _ in 0..<100 {
+                now.advance(.milliseconds(1))
+                watch.watch(lane, deadline: .milliseconds(100)) {}
+            }
+            #expect(watch.scan(nowNanos: now.nanos).nextScanNanos == now.nanos + Self.nanos(.milliseconds(100)))
+        }
+        #expect(wakes.count == 1, "\(wakes.count) wake calls for 2,001 scopes")
+        now.advance(.milliseconds(100))
+        #expect(watch.scan(nowNanos: now.nanos).nextScanNanos == nil, "a quiet period: parked")
+        watch.watch(lane, deadline: .milliseconds(100)) {}
+        #expect(wakes.count == 2, "the next open after the park wakes it again")
     }
 
     /// `invalidateActive()` cancels the open scopes of the calling thread; the next one watches again,
