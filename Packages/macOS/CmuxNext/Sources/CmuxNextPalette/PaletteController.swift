@@ -110,35 +110,52 @@ public final class PaletteController {
     /// Go to Workspace (Cmd-P, what is open now), Search (Cmd-Shift-A, everything) and Search
     /// Keyboard Shortcuts. Go to Tab is Search Tabs, which the App binds (`tab.search`).
     public func bindRegistryActions() {
-        registry.bind("commandPalette") { [weak self] in self?.toggle(.commands) }
-        registry.bind("palette.searchShortcuts") { [weak self] in self?.show(.keyboardShortcuts) }
+        Self.bindRegistryActions(on: registry, goToWorkspace: sources.workspaces != nil) { [weak self] in self }
+    }
+
+    /// Binds the palette's own catalog actions and the registry's argument
+    /// collector to the palette `resolve` returns when each one runs. An App
+    /// binds them before it builds its palette (p08-startup-023): the first
+    /// palette key builds it in that key's turn, as Chrome's keyed services
+    /// are made at their first `GetForProfile` (components/keyed_service/core/
+    /// keyed_service_factory.cc).
+    ///
+    /// - Parameters:
+    ///   - registry: The registry the palette runs on.
+    ///   - goToWorkspace: Whether the palette has a workspace source (binds Go to Workspace).
+    ///   - resolve: The palette, made at its first call; nil once it is gone.
+    public static func bindRegistryActions(on registry: ActionRegistry, goToWorkspace: Bool,
+                                           palette resolve: @escaping @MainActor () -> PaletteController?) {
+        registry.bind("commandPalette") { resolve()?.toggle(.commands) }
+        registry.bind("palette.searchShortcuts") { resolve()?.show(.keyboardShortcuts) }
         // Cmd-Shift-A: Search, which adds history and agent chats to the open items
         // (search-everything-DESIGN.md section 10.1). The id predates the change; user key files name it.
-        registry.bind("search.chats", invoke: { [weak self] invocation in
-            self?.show(scope: PaletteScopeID.search, query: invocation["query"]?.stringValue ?? "")
+        registry.bind("search.chats", invoke: { invocation in
+            resolve()?.show(scope: PaletteScopeID.search, query: invocation["query"]?.stringValue ?? "")
         })
-        if sources.workspaces != nil {
+        if goToWorkspace {
             // With a workspace (a palette row's typed ref, `palette.run`,
             // the CLI) it switches to it; without one it opens the page.
-            registry.bind("goToWorkspace", invoke: { [weak self] invocation in
+            registry.bind("goToWorkspace", invoke: { invocation in
+                guard let palette = resolve() else { return }
                 if let workspace = invocation["workspace"]?.targetValue?.id ?? invocation["workspace"]?.stringValue {
-                    guard let self, let source = self.sources.workspaces else { return }
+                    guard let source = palette.sources.workspaces else { return }
                     // An id that names no workspace is refused, never a silent success.
                     guard source.workspaces.contains(where: { $0.id == workspace }) else {
-                        return self.registry.refuseNotFound(PaletteStrings.workspaceNotFound(workspace))
+                        return palette.registry.refuseNotFound(PaletteStrings.workspaceNotFound(workspace))
                     }
                     source.selectWorkspace(id: workspace)
-                } else if self?.show(scope: PaletteScopeID.workspaces) != true {
+                } else if !palette.show(scope: PaletteScopeID.workspaces) {
                     // Cmd-P lists only what is open: workspaces, then their groups, panes and tabs.
-                    self?.show(.workspaces)
+                    palette.show(.workspaces)
                 }
             })
         }
-        registry.argumentCollector = { [weak self] id, invocation in
-            self?.collectArguments(for: id, invocation: invocation)
+        registry.argumentCollector = { id, invocation in
+            resolve()?.collectArguments(for: id, invocation: invocation)
         }
-        registry.argumentAsker = { [weak self] id, invocation, ask in
-            self?.collectArguments(for: id, invocation: invocation, asking: ask)
+        registry.argumentAsker = { id, invocation, ask in
+            resolve()?.collectArguments(for: id, invocation: invocation, asking: ask)
         }
     }
 

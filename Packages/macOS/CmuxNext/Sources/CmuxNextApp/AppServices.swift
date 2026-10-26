@@ -145,7 +145,9 @@ final class AppServices {
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
     var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings); if cloudContext != nil { followHostReplica(settings) } } } }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
-    var paletteShortcutEditor: PaletteShortcutEditor?
+    var paletteShortcutEditor: PaletteShortcutEditor? {
+        didSet { palettes.built?.shortcutRecorder.editor = paletteShortcutEditor }
+    }
     /// Where Chromium comes from: embedded, or downloaded on first use (bundle-size-DESIGN.md section 6).
     let chromiumRuntime = ChromiumRuntimeService.make()
     /// The browser stores both engines and the App share: the one answer to "is this profile off the record".
@@ -165,14 +167,12 @@ final class AppServices {
     #endif
     private(set) lazy var windows: WindowManager = WindowManager(services: self)  // first read in init (no IUO)
     private(set) lazy var dragSession: TabDragSession = TabDragSession(services: self)  // first read in init (no IUO)
-    private(set) lazy var palette: PaletteController = {
-        let palette = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self),
-                                        usage: DaemonPaletteUsageStore(services: self))
-        palette.hiddenActionIDs = {
-            AgentPaneTunables.pointerInspector.value ? [] : ["agentPane.togglePointerInspector"]
-        }
-        return palette
-    }()  // first read in init (no IUO)
+    /// The command palette on demand (p08-startup-023): launch builds none; it is built after the first frame
+    /// (`postBuild`) or by the first palette key, in that key's turn. Handlers add pages to `palettes.sources`.
+    private(set) lazy var palettes = PaletteOnDemand(registry: registry, sources: { [weak self] in self.map(PaletteSourcesBridge.make(services:)) ?? PaletteSources() }) { [registry, weak self] sources in
+        PaletteController(registry: registry, sources: sources, usage: self.map { DaemonPaletteUsageStore(services: $0) })
+    }
+    var palette: PaletteController { palettes.controller }
     private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache)  // first read in init (no IUO)
     /// CPU and memory for the hover cards and `resources` (sampled on demand).
     private(set) lazy var resources: AppResourceSource = AppResourceSource(services: self)  // first read in init (no IUO)
@@ -671,7 +671,7 @@ final class AppServices {
         remoteTerminals.start()
         WorkspaceClose.willClose = { [weak self] workspace in self?.remoteTerminals.workspaceClosing(workspace) }
         daemon.workTracker = { [registry] in registry.track($0) }
-        _ = palette  // built here, as before
+        palettes.whenBuilt { [weak self] in self?.paletteBuilt($0) }  // no palette at launch (p08-startup-023)
         terminalDelegate.services = self
         _ = configActions  // built here, as before
         let updateSheet = self.updateSheet  // built here, as before
@@ -682,7 +682,6 @@ final class AppServices {
                 for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }
             }
         }
-        observePaletteForFocus()
         input.start(services: self)
         DebugTimings.markLaunch("services.palette_updater")
         _ = chromiumWarmup  // built here, as before
