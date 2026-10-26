@@ -83,6 +83,7 @@ final class MarkdownOmnibarBar: NSView {
         toolbar.addressBar.setMachineBadge(nil, help: nil)
         reading?.cancel()
         guard let file else { return }
+        // main-hop-allow: the reader's git commands run in its runner off main; this task resumes on main once to apply the result
         reading = Task { [weak self, reader] in
             let location = await reader.read(file)
             guard let self, !Task.isCancelled, self.file == file else { return }
@@ -172,10 +173,12 @@ final class MarkdownOmnibarBar: NSView {
         let actions = actions
         menu.addItem(MarkdownMenuAction.item(MarkdownShareStrings.copyLiveLink) {
             // task-owner: one link request; ends when the server answers
+            // main-hop-allow: the live-share server is main-actor (its listener and shares); the link applies in its reply's job
             Task { if let link = await actions.liveLink(file) { Self.copy(link.absoluteString) } }
         })
         menu.addItem(MarkdownMenuAction.item(MarkdownShareStrings.openLiveLink) {
             // task-owner: one link request; ends when the server answers
+            // main-hop-allow: the live-share server is main-actor (its listener and shares); the link applies in its reply's job
             Task { if let link = await actions.liveLink(file) { actions.openInBrowser(link) } }
         })
         menu.addItem(MarkdownMenuAction.item(MarkdownShareStrings.revealInFinder) {

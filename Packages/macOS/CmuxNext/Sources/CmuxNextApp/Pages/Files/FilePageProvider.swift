@@ -3,6 +3,7 @@ import CmuxNextDesign
 import CmuxNextAgentPane
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// What a file page tab asks of its owner (``FilePageService``): the workspace roots, the
@@ -62,6 +63,8 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// Strong: the tab host holds its service weakly, so no cycle.
     private(set) var host: (any FilePageHosting)?
     private let clock: any Clock<Duration>
+    /// The app's main-thread scheduler: the file's change events reach main on it.
+    private let mainWork: MainWorkScheduler
     let libraries: URL?
     let images: any RemoteImageFetching
     private var watch: FileChangeWatch?
@@ -117,7 +120,8 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     init(kind: FilePageKind, file: URL?, userChose: Bool = true, readOnly: Bool = false, access: FileWorkspaceRoots.Grants? = nil,
          host: any FilePageHosting, clock: any Clock<Duration> = ContinuousClock(), libraries: URL?,
          images: any RemoteImageFetching, tableWidths: (any MarkdownTableWidthStoring)? = nil,
-         comments: (any MarkdownCommentStoring)? = nil) {
+         comments: (any MarkdownCommentStoring)? = nil, mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())) {
+        self.mainWork = mainWork
         self.kind = kind
         self.tableWidths = tableWidths
         self.comments = comments
@@ -414,7 +418,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         watch?.stop()
         watch = nil
         guard let file, !isClosed else { return }
-        let watch = FileChangeWatch(url: file, inWorkspace: { [weak self] in self?.inWorkspace(file) ?? false }, clock: clock) { [weak self] snapshot in
+        let watch = FileChangeWatch(url: file, inWorkspace: { [weak self] in self?.inWorkspace(file) ?? false }, clock: clock, mainWork: mainWork) { [weak self] snapshot in
             self?.publishChange(snapshot, of: file)
         }
         watch.knownHash = known

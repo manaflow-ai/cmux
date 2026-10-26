@@ -23,6 +23,7 @@ extension FilePageService {
             guard let title = registry.title(for: id) else { continue }
             rows.append(.init(title: title) { [weak page] in
                 // task-owner: one selection read per menu choice; ends with the page's answer
+                // main-hop-allow: the page's selection read is main-actor async; the action runs in its reply's job
                 Task { @MainActor in
                     guard let text = await page?.selectedText(), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                     _ = registry.perform(id, invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))
@@ -38,6 +39,7 @@ extension FilePageService {
         let op = kind.op("selection")
         let viewer: ChatQuote.Kind = kind == .markdown ? .markdown : .code
         // task-owner: one page call per menu choice; ends with the page's reply (the router fails it when the page closes).
+        // main-hop-allow: the page's router call is main-actor async; the quote and its prompt run in its reply's job
         Task { @MainActor [weak self, weak page] in
             guard let page, let reply = try? await page.router.callPage(op, params: .object([:])),
                   let quote = ChatQuote(selection: reply, source: file.path, kind: viewer) else { return }
@@ -52,6 +54,7 @@ extension FilePageService {
                 // The comment also stays in the Markdown viewer, as a margin marker on its lines.
                 guard let provider = self?.provider(key) else { return }
                 // task-owner: one store write per added comment; ends when the write does.
+                // main-hop-allow: the provider's comment store is main-actor async
                 Task { @MainActor in await provider.addComment(quote) }
             }
         }

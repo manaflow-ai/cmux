@@ -5,13 +5,12 @@ import CmuxNextDaemon
 import CmuxNextInputCore
 import CmuxNextInputCoreTestSupport
 import CmuxNextMemory
-import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
 /// The New Tab spare's next warm waits for quiet input through the app's input tap (p04-input-012):
 /// a key-down pushes it back by the quiet period, a key-up does not, and the warm drops the
-/// subscription.
+/// subscription. The warm is a background-class ``MainDeadline`` (p06-scheduler-309): the rig fires it.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct NewTabSparePoolTests {
     @Test func aKeyDownPushesTheWarmBackAndAKeyUpDoesNot() async throws {
@@ -19,8 +18,8 @@ struct NewTabSparePoolTests {
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-spare-input")
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
             let tap = FakeInputTap()
-            let clock = ManualClock()
-            let pool = NewTabSparePool(services: services, memory: services.memoryCoordinator, input: tap, clock: clock)
+            let rig = MainDeadlineRig()
+            let pool = NewTabSparePool(services: services, memory: services.memoryCoordinator, input: tap, deadlines: rig.deadlines)
             pool.webKit.markSlow() // the warm makes no web view: this test is about when it runs
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
                                   backing: .buffered, defer: true)
@@ -29,17 +28,14 @@ struct NewTabSparePoolTests {
             pool.retarget(window) // the launch warm, 250 ms out
             #expect(tap.liveSubscriptions == 1)
             #expect(tap.classes == [.key, .button, .scroll])
-            try await clock.waitForSleeper()
-            clock.advance(by: .milliseconds(200))
+            rig.advance(by: .milliseconds(200))
             tap.deliver(InputEventRecord(type: .keyDown, timestamp: 1)) // the warm moves to 950 ms
-            try await clock.waitForSleeper()
-            clock.advance(by: .milliseconds(100))
-            for _ in 0..<50 { await Task.yield() }
+            rig.advance(by: .milliseconds(100))
             #expect(tap.liveSubscriptions == 1, "the key-down pushed the 250 ms warm back")
             tap.deliver(InputEventRecord(type: .keyUp, timestamp: 2)) // a re-arm here would move it to 1050 ms
-            clock.advance(by: .milliseconds(660))
-            for _ in 0..<500 where tap.liveSubscriptions > 0 { await Task.yield() }
-            #expect(tap.liveSubscriptions == 0, "the warm ran at 950 ms and dropped the subscription")
+            rig.fireAndRun()
+            #expect(tap.liveSubscriptions == 0, "the warm ran and dropped the subscription")
+            #expect(rig.elapsed >= 0.95 && rig.elapsed < 1.0, "the warm ran at \(rig.elapsed) s, not 950 ms")
         }
     }
 
@@ -49,7 +45,7 @@ struct NewTabSparePoolTests {
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-spare-hooks")
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
             let tap = FakeInputTap()
-            let pool = NewTabSparePool(services: services, memory: services.memoryCoordinator, input: tap, clock: ManualClock())
+            let pool = NewTabSparePool(services: services, memory: services.memoryCoordinator, input: tap, deadlines: MainDeadlineRig().deadlines)
             pool.webKit.markSlow() // the warm makes no web view: this test is about when it is armed
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
                                   backing: .buffered, defer: true)
@@ -76,7 +72,7 @@ struct NewTabSparePoolTests {
             let pressure = MemoryPressureEvents(source: kernel)
             let memory = MemoryCoordinator(pressure: pressure, mode: .medium, slicer: BrowserHibernationPressureTests.HeldSlices())
             let tap = FakeInputTap()
-            let pool = NewTabSparePool(services: services, memory: memory, input: tap, clock: ManualClock())
+            let pool = NewTabSparePool(services: services, memory: memory, input: tap, deadlines: MainDeadlineRig().deadlines)
             pool.webKit.markSlow() // the warm makes no web view: this test is about when it is armed
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
                                   backing: .buffered, defer: true)

@@ -5,6 +5,7 @@ import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextUpdater
+import CmuxNextWakeups
 
 /// The React update surfaces in the sidebar (cx-urd.61.2): the changelog
 /// page's bundle, opened on `#/surface/ready` (the staged update's
@@ -115,17 +116,29 @@ final class UpdateSurfaceProvider: PageProvider {
     func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         guard stream == "cmux.changelog.surface.changes" else { throw PageError.unknownOp(stream) }
-        // task-owner: the page's subscription; cancelled with it.
-        let task = Task { @MainActor [weak self] in
-            for await highlights in ObservationStream({ [weak self] in self?.highlights }) {
-                guard let self else { return }
-                guard let value = try? json(highlights) else { continue }
-                services?.updater.log.append("update surface \(kind.rawValue): data \(highlights == nil ? "none" : "\(highlights?.items.count ?? 0) items")")
-                onEvent(value)
-            }
+        guard let mainWork = services?.mainWork else { throw PageError.closed }
+        // The page's router holds events while the page is hidden: a service observation, one flush per
+        // frame. The stream starts with the current highlights, sent in a posted task after the subscribe
+        // returned; the value applied inside `init` is that one.
+        let subscribed = PageStreamStart()
+        let observation = ServiceObservation(.visible, owner: "update-surface.changes", on: mainWork) { [weak self] in
+            self?.highlights
+        } apply: { [weak self] highlights in
+            if subscribed.isDone { self?.send(highlights, onEvent) }
+        }
+        subscribed.finish()
+        mainWork.post(.visible, owner: "update-surface.changes") { [weak self] in
+            guard let self, !observation.isCancelled else { return }
+            send(highlights, onEvent)
         }
         // Each event carries the whole highlights value: the newest replaces the rest.
-        return PageSubscription(frozenDelivery: .latest) { task.cancel() }
+        return PageSubscription(frozenDelivery: .latest) { observation.cancel() }
+    }
+
+    private func send(_ highlights: UpdateHighlights?, _ onEvent: @MainActor (JSONValue) -> Void) {
+        guard let value = try? json(highlights) else { return }
+        services?.updater.log.append("update surface \(kind.rawValue): data \(highlights == nil ? "none" : "\(highlights?.items.count ?? 0) items")")
+        onEvent(value)
     }
 }
 

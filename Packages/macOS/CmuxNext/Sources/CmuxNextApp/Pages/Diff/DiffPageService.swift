@@ -66,7 +66,7 @@ final class DiffPageService: InternalPageProvider {
     var chooser: any DiffFolderChoosing = OpenPanelFolderChooser()
     var tabs: [String: Tab] = [:]
     /// Teardowns still closing sessions (tests wait on them).
-    private(set) var closing: [Task<Void, Never>] = []
+    private(set) var closing: [UUID: Task<Void, Never>] = [:]
     /// The clock of the view state deadline (``viewStateTimeout``).
     let clock: any Clock<Duration>
 
@@ -135,6 +135,7 @@ final class DiffPageService: InternalPageProvider {
         let previous = tabs[key]?.reopen
         previous?.cancel()
         // task-owner: one reopen of this tab's repository, after the one before it; ends when the page reloads or a newer card takes over
+        // main-hop-allow: the provider's open is main-actor async; the reload runs in its reply's job
         tabs[key]?.reopen = Task {
             await previous?.value
             guard !Task.isCancelled,
@@ -182,6 +183,7 @@ final class DiffPageService: InternalPageProvider {
     private func record(_ repository: DiffRepository, source: DiffOpenSource) {
         let recents = recentsStore
         // task-owner: one ordered append to the recents file; DiffRecents chains its writes
+        // main-hop-allow: DiffRecents is main-actor state; record awaits its one load, its file write runs off main
         Task { await recents.record(repository, source: source) }
     }
 
@@ -337,12 +339,12 @@ final class DiffPageService: InternalPageProvider {
         tab.reopen?.cancel()
         tab.page?.close()
         guard let provider = tab.provider else { return }
-        let teardown = Task { await provider.close() }
-        closing.append(teardown)
-        // task-owner: drops the finished teardown from `closing`
-        Task { [weak self] in
-            await teardown.value
-            self?.closing.removeAll { $0 == teardown }
+        let id = UUID()
+        // task-owner: closing[id]; it leaves `closing` when the provider closed
+        // main-hop-allow: the provider's close is main-actor async (its sessions and grant)
+        closing[id] = Task { [weak self] in
+            await provider.close()
+            self?.closing[id] = nil
         }
     }
 
@@ -420,6 +422,7 @@ final class DiffTabHost: DiffTabHosting {
 
     func prepare(_ repository: DiffRepository, source: DiffOpenSource) -> Task<DiffTabReady, any Error> {
         service?.prepare(repository, source: source, for: key)
+            // main-hop-allow: a task that fails at once (the service is gone); it does no work on main
             ?? Task { throw DiffTabFailure(title: repository.name, message: DiffPageStrings.unavailable) }
     }
 

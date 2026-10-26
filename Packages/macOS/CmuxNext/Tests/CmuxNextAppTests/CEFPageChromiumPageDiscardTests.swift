@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -87,7 +88,7 @@ import Testing
             let request = try #require(runtime.pendingWindows.keys.first)
             runtime.handle(.afterCreated(browser: 7, request: request, window: 1))
             try #require(tab.browserID == 7)
-            return CEFPageChromiumPage(tab: tab, pageID: "cmux.markdown")
+            return CEFPageChromiumPage(tab: tab, pageID: "cmux.markdown", mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         }
 
         func close() {

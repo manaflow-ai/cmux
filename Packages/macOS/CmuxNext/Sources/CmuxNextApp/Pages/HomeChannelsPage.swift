@@ -52,6 +52,7 @@ extension PageFactory {
                 quote: { page?.send(command: PageSelectionMenu.quoteCommand) },
                 search: {
                     // task-owner: one selection read per menu choice; ends with the page's answer
+                    // main-hop-allow: the page's selection read is main-actor async; the action runs in its reply's job
                     Task { @MainActor in
                         guard let text = await page?.selectedText(), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                         _ = registry.perform("browser.selection.search", invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))

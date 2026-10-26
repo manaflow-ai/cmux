@@ -46,6 +46,9 @@ nonisolated struct NewTabSpareSlot<Spare> {
 /// window's width showed for ~40 ms at that width after Cmd-T). Memory pressure drops the spare, and none
 /// is made or recycled until normal (``SpareMemoryConsumer``). A spare exists while the new tab page is
 /// likely: a person's Cmd-T always opens it.
+///
+/// Nobody sees a spare until it is adopted, so its warm, refit and park run in the background
+/// class (``MainDeadline``s and one posted task): they wait behind the person's input and frames.
 @MainActor
 final class NewTabSparePool {
     /// One adoption, for `debug.new_tab` (timing test, section 2.3).
@@ -71,8 +74,8 @@ final class NewTabSparePool {
     private let parking = NewTabSpareParking()
     /// The main window the spare parks in (the key one, or the last key one).
     private(set) weak var target: NSWindow?
-    private let warmTimer: DemandTimer
-    private let fitTimer: DemandTimer
+    private let warmDeadline: MainDeadline
+    private let fitDeadline: MainDeadline
     /// The app's input tap: a warm waiting for quiet input observes its ``warmDelayingInput``.
     private let input: any InputObserving
     private var inputSubscription: InputSubscription?
@@ -82,7 +85,10 @@ final class NewTabSparePool {
     private var usedThisSession = false
     /// Set by `start(holdingWarm: true)` until ``startWarming()``: no spare is made meanwhile.
     private var warmHeld = false
-    private var windowObservers: [any NSObjectProtocol] = []
+    /// The app's one observer of every window's key change (``AppServices/appEvents``).
+    private var keySubscription: EventSubscription?
+    /// The target window's close, through that window's one observer per name.
+    private var closeSubscription: EventSubscription?
     private(set) var openings: [Opening] = []
     /// Main-thread time of the last move of the parked spare to another window.
     private(set) var lastRetargetMilliseconds: Double?
@@ -94,13 +100,15 @@ final class NewTabSparePool {
     /// - Parameters:
     ///   - memory: The app's memory coordinator; the pool registers its spare with it at once.
     ///   - input: The app's input tap.
-    ///   - clock: The warm and fit deadlines' clock (tests: a manual one).
+    ///   - deadlines: Where the warm and fit deadlines are placed (nil: the app's, `AppServices.mainDeadlines`;
+    ///     tests: one on a wake-up queue they fire).
     init(services: AppServices, memory: any MemoryConsumerRegistry, input: any InputObserving,
-         clock: any Clock<Duration> = ContinuousClock()) {
+         deadlines: MainDeadlineScheduler? = nil) {
         self.services = services
         self.input = input
-        warmTimer = DemandTimer(owner: "NewTabSparePool.warm", clock: clock)
-        fitTimer = DemandTimer(owner: "NewTabSparePool.fit", clock: clock)
+        let deadlines = deadlines ?? services.mainDeadlines
+        warmDeadline = MainDeadline(owner: "NewTabSparePool.warm", workClass: .background, scheduler: deadlines)
+        fitDeadline = MainDeadline(owner: "NewTabSparePool.fit", workClass: .background, scheduler: deadlines)
         spareMemory = SpareMemoryConsumer(
             name: "new-tab-spare", registry: memory, spares: { [weak self] in self?.slot.count ?? 0 },
             drop: { [weak self] in self?.dropForPressure() }, refill: { [weak self] in self?.scheduleWarm() })
@@ -148,28 +156,22 @@ final class NewTabSparePool {
         services.windows.controllers.contains { $0.window === window } ? window : nil
     }
 
-    /// The parked spare follows the key main window; a closing target hands
-    /// it to another main window (window notifications, no scan).
+    /// The parked spare follows the key main window (the app's one key-change observer, no scan);
+    /// a closing target hands it to another main window (``retarget(_:)``).
     private func observeWindows() {
-        guard windowObservers.isEmpty else { return }
-        let center = NotificationCenter.default
-        windowObservers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) {
-            [weak self] note in
-            let window = note.object as? NSWindow
-            MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                guard let self, let window = window.flatMap(self.mainWindow) else { return }
-                self.retarget(window)
-            }
-        })
-        windowObservers.append(center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) {
-            [weak self] note in
-            let window = note.object as? NSWindow
-            MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                guard let self, let window, window === self.target else { return }
-                let next = self.services.windows.controllers.compactMap(\.window).first { $0 !== window && $0.isVisible }
-                if let next { self.retarget(next) } else { self.dropAll() }
-            }
-        })
+        guard keySubscription == nil else { return }
+        keySubscription = services.appEvents.subscribe(NSWindow.didBecomeKeyNotification, owner: "NewTabSparePool.retarget") {
+            [weak self] in
+            guard let self, let window = NSApp.keyWindow.flatMap(self.mainWindow) else { return }
+            self.retarget(window)
+        }
+    }
+
+    /// The target window closes: the spare moves to another visible main window, or goes.
+    private func targetWillClose(_ window: NSWindow) {
+        guard window === target else { return }
+        let next = services.windows.controllers.compactMap(\.window).first { $0 !== window && $0.isVisible }
+        if let next { retarget(next) } else { dropAll() }
     }
 
     /// Parks the spare in `window`: moves the parked page there (no reload),
@@ -177,6 +179,10 @@ final class NewTabSparePool {
     func retarget(_ window: NSWindow) {
         guard window !== target else { return }
         target = window
+        closeSubscription = WindowEvents.of(window).subscribe(NSWindow.willCloseNotification, owner: "NewTabSparePool.targetClose") {
+            [weak self, weak window] in
+            if let window { self?.targetWillClose(window) }
+        }
         guard let content = window.contentView else { return }
         let start = ContinuousClock.now
         park(in: content)
@@ -226,7 +232,7 @@ final class NewTabSparePool {
         guard let window, window === target, let content = parking.superview else { return }
         let size = targetPaneSize ?? content.bounds.size
         guard parking.frame != NewTabSpareParking.frame(in: content.bounds, size: size) else { return }
-        fitTimer.schedule(after: Self.fitSettle) { @MainActor [weak self] in self?.fitParked() }
+        fitDeadline.schedule(after: Self.fitSettle) { [weak self] in self?.fitParked() }
     }
 
     /// The spare for a new tab page in `window`, or nil (the page loads cold).
@@ -244,7 +250,8 @@ final class NewTabSparePool {
         // not after quiet input, so a Cmd-N right after launch finds a page loading (cx-ec99).
         if !warmedOnce {
             warmedOnce = true
-            view.model.whenPainted { Task { @MainActor [weak self] in self?.warmNow() } }
+            let work = services.mainWork
+            view.model.whenPainted { work.post(.background, owner: "NewTabSparePool.warm") { [weak self] in self?.warmNow() } }
         }
         opening = (ObjectIdentifier(view), size)
         return (view, window !== target, size.map { view.frame.size != $0 } ?? false)
@@ -301,7 +308,7 @@ final class NewTabSparePool {
 
     /// Memory pressure: drops the spare and the warm that waits for quiet input.
     private func dropForPressure() {
-        warmTimer.cancel()
+        warmDeadline.cancel()
         inputSubscription = nil
         dropAll()
     }
@@ -342,7 +349,7 @@ final class NewTabSparePool {
         // (it set `usedThisSession`) must not make a web view in the person's keystroke.
         let launch = !warmedOnce && !usedThisSession
         warmedOnce = warmedOnce || launch
-        warmTimer.schedule(after: launch ? .milliseconds(250) : Self.idleInput) { @MainActor [weak self] in self?.warmNow() }
+        warmDeadline.schedule(after: launch ? .milliseconds(250) : Self.idleInput) { [weak self] in self?.warmNow() }
     }
 
     /// A recycled spare not yet back in the window.

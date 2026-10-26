@@ -88,6 +88,7 @@ final class ViewerService {
             // One diff open at a time: a newer choice cancels the one before.
             self.diffOpen?.cancel()
             let created = beside?()
+            // main-hop-allow: openDiff is main-actor async (the provider and the pane); a refusal shows in its reply's job
             self.diffOpen = Task { @MainActor [weak self, weak pane] in
                 guard let self, let pane else { return }
                 do { try await self.openDiff(folder.path, in: pane, focus: created == nil, created: created) } catch {

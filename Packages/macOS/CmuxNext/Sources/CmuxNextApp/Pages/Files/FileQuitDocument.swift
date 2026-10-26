@@ -116,14 +116,17 @@ final class FileQuitDocument: QuitUnsavedParticipant {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             let answers = FlushAnswer(done, waiting: flushes.count)
             // task-owner: the quit's wait for the pages; ends when all answered or at the timeout
+            // main-hop-allow: the timeout resumes this main-actor wait (FlushAnswer); the quit's deadline is flexible, no-sooner
             let deadline = Task { @MainActor in
                 // wakeup-allow: bounded the quit's one wait for its pages to save, cancelled when all answered
+                // timer-class-allow: the quit's one page-save deadline on the injected clock, raced with the pages' answers
                 do { try await clock.sleep(for: timeout, tolerance: WakeLeeway.window(delay: timeout).tolerance) } catch { return }
                 answers.finish()
             }
             answers.onFinish = { deadline.cancel() }
             for flush in flushes {
                 // task-owner: one page's flush call; a dead page's call ends when the page closes
+                // main-hop-allow: a page's flush is its main-actor router call; its answer is counted on main
                 Task { @MainActor in
                     _ = await flush()
                     answers.answered()
@@ -141,6 +144,7 @@ final class FileQuitDocument: QuitUnsavedParticipant {
     private func markClean() {
         hasUnsavedChanges = false
         let drafts = drafts, id = quitParticipantID
+        // main-hop-allow: the draft store's remove is its own async write; this task only starts it
         work.append(Task { await drafts.remove(id: id) })
     }
 

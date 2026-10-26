@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextPages
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -15,12 +16,16 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     let tab: CEFTab
     private let pageID: String
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page-host.chromium")
-    private var crashWatch: Task<Void, Never>?
+    /// Follows the tab's renderer exit while the page listens (``listen()``).
+    private var crashWatch: ServiceObservation<Bool>?
+    private let mainWork: MainWorkScheduler
     private var closed = false
 
-    init(tab: CEFTab, pageID: String) {
+    /// - Parameter mainWork: The app's main-thread scheduler: the crash watch flushes on it.
+    init(tab: CEFTab, pageID: String, mainWork: MainWorkScheduler) {
         self.tab = tab
         self.pageID = pageID
+        self.mainWork = mainWork
     }
 
     var contentView: NSView { tab.contentView }
@@ -65,11 +70,20 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         tab.pageFilesDragged = { [weak self] urls in self?.onEvent?(.filesDragged(urls)) }
         tab.pageUserInput = { [weak self] uptime in self?.onEvent?(.userInput(uptime)) }
         guard crashWatch == nil else { return }
+        // The page host reloads a crashed page (PageCrashReloads) whether or not it shows: a service
+        // observation, which runs while hidden. A renderer that exits again after a reload reports again.
+        // A renderer already gone is reported in a posted task, never inside the `onEvent` set that listens.
         let tab = tab
-        crashWatch = Task { [weak self] in
-            for await exit in ObservationStream({ tab.state.processExit }) where exit != nil {
-                self?.onEvent?(.crashed)
-            }
+        crashWatch = ServiceObservation(.visible, owner: "pages.chromium.crash", on: mainWork) {
+            tab.state.processExit != nil
+        } apply: { [weak self] exited in
+            guard exited, let self, self.crashWatch != nil else { return }
+            self.onEvent?(.crashed)
+        }
+        guard tab.state.processExit != nil else { return }
+        mainWork.post(.visible, owner: "pages.chromium.crash") { [weak self] in
+            guard let self, self.crashWatch != nil, tab.state.processExit != nil else { return }
+            self.onEvent?(.crashed)
         }
     }
 

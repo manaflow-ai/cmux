@@ -28,6 +28,8 @@ final class ChromiumPageHost: PageChromiumHosting {
     private weak var keyRouter: KeyRouter?
     /// The app's lanes: a page's screenshot reply is decoded on their `.cpu` lane.
     let work: BackgroundWork
+    /// The app's main-thread scheduler: each page's crash watch flushes on it.
+    private let mainWork: MainWorkScheduler
 
     /// - Parameters:
     ///   - chromium: The app's Chromium engine slot: the engine is built when the first page opens in Chromium.
@@ -35,12 +37,14 @@ final class ChromiumPageHost: PageChromiumHosting {
     ///     windows restore already follow the file).
     ///   - keyRouter: Gets the app's shortcuts from a focused Chromium page.
     ///   - work: The app's lanes (``PageChromiumHosting/work``).
+    ///   - mainWork: The app's main-thread scheduler (``CEFPageChromiumPage``'s crash watch).
     init(chromium: ChromiumEngineSlot, preference: @escaping @MainActor () -> BrowserDefaultEngine, keyRouter: KeyRouter?,
-         work: BackgroundWork) {
+         work: BackgroundWork, mainWork: MainWorkScheduler) {
         self.chromium = chromium
         enginePreference = preference
         self.keyRouter = keyRouter
         self.work = work
+        self.mainWork = mainWork
     }
 
     var preference: BrowserDefaultEngine { enginePreference() }
@@ -67,7 +71,7 @@ final class ChromiumPageHost: PageChromiumHosting {
         }
         tab.pageThemeSurface = .internalPage
         tab.keyRouter = keyRouter
-        let chromiumPage = CEFPageChromiumPage(tab: tab, pageID: page.id)
+        let chromiumPage = CEFPageChromiumPage(tab: tab, pageID: page.id, mainWork: mainWork)
         tab.delegate = chromiumPage
         tab.agentRelay.createBrowser()
         guard await tab.agentRelay.browserCreated() else {

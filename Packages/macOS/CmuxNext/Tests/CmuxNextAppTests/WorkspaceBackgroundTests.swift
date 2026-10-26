@@ -130,7 +130,7 @@ import Testing
         var preview: String?? = nil
         let window = ThemeScope(level: .workspace, parent: ThemeScope(level: .room))
         func show() { window.pinBackdrop(WorkspaceBackgroundStore.pin(preview ?? store.background(for: "ws"), now: Date())) }
-        let page = SettingsPageProvider(settings: settings)
+        let page = SettingsPageProvider(settings: settings, on: linklessMainWork())
         page.workspaceBackgrounds = SettingsWorkspaceBackgrounds(
             title: { $0 == "ws" ? "Research" : nil },
             value: { store.background(for: $0) },

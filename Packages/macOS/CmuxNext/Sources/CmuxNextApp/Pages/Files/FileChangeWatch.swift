@@ -7,13 +7,15 @@ import Foundation
 /// in-place writes, atomic renames and delete-and-recreate) and reports its new content once per
 /// burst: each event restarts a debounce on the injected clock, then the file is read off the main
 /// actor and reported when its hash differs from ``knownHash`` (nil: deleted). The page's own
-/// saves are reported too; the page recognizes them by hash.
+/// saves are reported too; the page recognizes them by hash. A kernel event reaches main as one
+/// visible-class task on the app's scheduler.
 final class FileChangeWatch {
     let url: URL
     /// The hash last reported (or read at open); a read with the same hash reports nothing.
     var knownHash: String?
     private let inWorkspace: () -> Bool
     private let clock: any Clock<Duration>
+    private let mainWork: MainWorkScheduler
     private let debounce: Duration
     private let onChange: (FileSnapshot?) -> Void
     private var watcher: ConfigFileWatcher?
@@ -30,11 +32,12 @@ final class FileChangeWatch {
         let modified: Int64
     }
 
-    init(url: URL, inWorkspace: @escaping () -> Bool, clock: any Clock<Duration>, debounce: Duration = .milliseconds(100),
-         onChange: @escaping (FileSnapshot?) -> Void) {
+    init(url: URL, inWorkspace: @escaping () -> Bool, clock: any Clock<Duration>, mainWork: MainWorkScheduler,
+         debounce: Duration = .milliseconds(100), onChange: @escaping (FileSnapshot?) -> Void) {
         self.url = url
         self.inWorkspace = inWorkspace
         self.clock = clock
+        self.mainWork = mainWork
         self.debounce = debounce
         self.onChange = onChange
     }
@@ -52,9 +55,9 @@ final class FileChangeWatch {
 
     func start() {
         guard watcher == nil else { return }
+        let mainWork = mainWork
         let watcher = ConfigFileWatcher(url: url) { [weak self] in
-            // task-owner: hops one kernel event to the main actor; the debounce owns the work
-            Task { @MainActor in self?.noteEvent() }
+            mainWork.postFromAnyThread(.visible, owner: "files.change-watch") { self?.noteEvent() }
         }
         self.watcher = watcher
         watcher.start()
@@ -74,10 +77,12 @@ final class FileChangeWatch {
         generation += 1
         let generation = generation
         let clock = clock, debounce = debounce, url = url, inWorkspace = inWorkspace()
+        // main-hop-allow: the debounce and the read it starts are one task, so the next event cancels either; the read is @concurrent
         pending = Task { [weak self] in
             do {
                 // wakeup-allow: deadline one debounce per disk event burst, cancelled by the next event. One task is the
                 // debounce and the read it starts, so the next event cancels either.
+                // timer-class-allow: the debounce runs on the provider's injected clock inside the cancellable read task above
                 try await clock.sleep(for: debounce, tolerance: WakeLeeway.window(delay: debounce).tolerance)
             } catch {
                 return

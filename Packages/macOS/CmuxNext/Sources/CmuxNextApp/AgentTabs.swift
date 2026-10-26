@@ -129,7 +129,9 @@ final class AgentTabStore {
     /// The prewarmed New Tab page, for a first page that has no view yet (NewTabSparePool).
     var takeSpare: (() -> AgentPaneView?)?
     /// Closed pages leave the view tree at once; their teardown waits (R81).
-    let retirer = AgentPageRetirer()
+    let retirer: AgentPageRetirer
+    /// The New Tab pages' open tabs and workspaces, kept current while any page is open (``NewTabPlacesFeed``).
+    var placesFeed: NewTabPlacesFeed?
     /// The session each tab's page reported, ahead of the store's echo of the bind and across a
     /// web content crash or a view rebuilt after the tab was released.
     var sessions: [String: String] = [:]
@@ -224,14 +226,17 @@ final class AgentTabStore {
     var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?, openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?, pullRequestReader: AgentChatPullRequestReader? // the App's one gh reader (`AppServices.pullRequests`); nil: no header chip
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
-    /// `input` is the app's input tap (`AppServices.inputTap`; a test's own); `mainWork`, the app's scheduler (`AppServices.mainWork`).
+    /// `input` is the app's input tap (`AppServices.inputTap`; a test's own); `mainWork`, the app's scheduler (`AppServices.mainWork`),
+    /// and `deadlines` its deadline placer (`AppServices.mainDeadlines`; nil: one on `mainWork`, for tests).
     /// `chatStores`, the chats' kept places and chips (``wired(to:)`` puts them beside the launch snapshot; tests keep none).
     init(build: BuildIdentity?, registry: ActionRegistry, webUI: WebUIHost, input: InputEventTap, environment: [String: String] = ProcessInfo.processInfo.environment,
          showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil,
          openPanel: MadeAheadOpenPanel? = nil, warmup: AgentPageWarmup? = nil, defaults: UserDefaults = .standard,
-         mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()), chatStores: AgentPaneChatStores = .keepsNothing) {
+         mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()), deadlines: MainDeadlineScheduler? = nil,
+         chatStores: AgentPaneChatStores = .keepsNothing) {
         gestureRouter = AgentPaneGestureRouter(input: input)
         self.mainWork = mainWork
+        retirer = AgentPageRetirer(deadlines: deadlines ?? MainDeadlineScheduler(work: mainWork))
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.adoptionsDefaultsKey),
            let saved = try? JSONDecoder().blockingDecode([String: String].self, from: data) {

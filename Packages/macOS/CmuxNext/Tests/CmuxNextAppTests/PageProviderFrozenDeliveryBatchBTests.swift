@@ -182,6 +182,6 @@ import Testing
         let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
             managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
-        return (SettingsPageProvider(settings: settings, hostLists: hostLists), settings, directory)
+        return (SettingsPageProvider(settings: settings, hostLists: hostLists, on: linklessMainWork()), settings, directory)
     }
 }

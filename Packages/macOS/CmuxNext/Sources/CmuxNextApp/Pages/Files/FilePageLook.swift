@@ -1,7 +1,7 @@
 import AppKit
-import CmuxNextCompat
 import CmuxNextDiff
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -10,7 +10,9 @@ import Observation
 /// `<config dir>/<section>/theme.css`, and for the editor the shared `appearance.syntaxTheme`, the
 /// user language pack and whether VoiceOver runs. A change of any is pushed to every listener with
 /// only the keys that changed; preference writes (PAGE-PREFS) go to the settings file and show at
-/// once, before the file watcher reloads.
+/// once, before the file watcher reloads. The look's followers write to every listening page (its
+/// router holds the push while a page is hidden), so they flush as visible-class work on the app's
+/// scheduler, behind the person's input.
 final class FilePageLook {
     private let kind: FilePageKind
     private let settings: () -> SettingsController?
@@ -19,7 +21,8 @@ final class FilePageLook {
     private var themeCSS = ""
     private var themeWatcher: ConfigFileWatcher?
     private var themeRead: Task<Void, Never>?
-    private var settingsTask: Task<Void, Never>?
+    private var settingsWatch: ServiceObservation<LookSettings>?
+    private let mainWork: MainWorkScheduler
     private var languageFeed: DiffLanguageFeed?
     private var stopLanguages: (() -> Void)?
     private var languages: JSONValue?
@@ -37,8 +40,11 @@ final class FilePageLook {
 
     /// `configDirectory`: where `<section>/theme.css` lives; nil uses the settings file's folder.
     /// `importSources`: where the code editor reads another editor's settings (the home folder).
+    /// `mainWork`: the app's main-thread scheduler (`AppServices.mainWork`).
     init(kind: FilePageKind, settings: @escaping () -> SettingsController?, configDirectory: URL? = nil,
-         importSources: EditorSettingsSources = EditorSettingsSources(home: FileManager.default.homeDirectoryForCurrentUser)) {
+         importSources: EditorSettingsSources = EditorSettingsSources(home: FileManager.default.homeDirectoryForCurrentUser),
+         mainWork: MainWorkScheduler) {
+        self.mainWork = mainWork
         self.kind = kind
         self.settings = settings
         fixedConfigDirectory = configDirectory
@@ -101,20 +107,23 @@ final class FilePageLook {
     // MARK: Watching
 
     private func start() {
-        guard settingsTask == nil else { return }
+        guard settingsWatch == nil else { return }
         let section = kind.section
         let settings = settings
-        settingsTask = Task { [weak self] in
-            for await _ in ObservationStream({ (settings()?.fileRoot[section], settings()?.fileRoot["appearance"]?["syntaxTheme"]) }) {
-                self?.followImportChoice()
-                self?.publish()
-            }
+        // Its first value is the look `current()` reads now: only later changes publish (the guard
+        // skips the apply inside `init`, which would start this again from `current()`).
+        settingsWatch = ServiceObservation(.visible, owner: "file-look.settings", on: mainWork) {
+            LookSettings(section: settings()?.fileRoot[section], syntaxTheme: settings()?.fileRoot["appearance"]?["syntaxTheme"])
+        } apply: { [weak self] _ in
+            guard let self, self.settingsWatch != nil else { return }
+            self.followImportChoice()
+            self.publish()
         }
+        let mainWork = mainWork
         if let directory = configDirectory {
             let file = directory.appending(path: section).appending(path: "theme.css")
             let watcher = ConfigFileWatcher(url: file) { [weak self] in
-                // task-owner: hops one kernel event to the main actor; readTheme owns the read
-                Task { @MainActor in self?.readTheme(file) }
+                mainWork.postFromAnyThread(.visible, owner: "file-look.theme") { self?.readTheme(file) }
             }
             themeWatcher = watcher
             watcher.start()
@@ -139,10 +148,10 @@ final class FilePageLook {
         guard choice != importChoice else { return }
         importChoice = choice
         importWatchers.forEach { $0.stop() }
+        let mainWork = mainWork
         importWatchers = importSources.watchedFiles(choice).map { file in
             let watcher = ConfigFileWatcher(url: file) { [weak self] in
-                // task-owner: hops one kernel event to the main actor; readImport owns the read
-                Task { @MainActor in self?.readImport() }
+                mainWork.postFromAnyThread(.visible, owner: "file-look.import") { self?.readImport() }
             }
             watcher.start(reportInitialChange: false)
             return watcher
@@ -154,6 +163,7 @@ final class FilePageLook {
         guard let choice = importChoice else { return }
         importRead?.cancel()
         let sources = importSources
+        // main-hop-allow: the load is @concurrent (off main); this task resumes on main once to apply it, and the next read cancels it
         importRead = Task { [weak self] in
             let found = await Self.load(sources, choice)
             guard let self, !Task.isCancelled else { return }
@@ -175,6 +185,7 @@ final class FilePageLook {
 
     private func readTheme(_ file: URL) {
         themeRead?.cancel()
+        // main-hop-allow: the read is @concurrent (off main); this task resumes on main once to apply it, and the next read cancels it
         themeRead = Task { [weak self] in
             let text = await Self.read(file)
             guard let self, !Task.isCancelled, text != self.themeCSS else { return }
@@ -201,8 +212,8 @@ final class FilePageLook {
     }
 
     func stop() {
-        settingsTask?.cancel()
-        settingsTask = nil
+        settingsWatch?.cancel()
+        settingsWatch = nil
         themeWatcher?.stop()
         themeWatcher = nil
         themeRead?.cancel()
@@ -236,4 +247,10 @@ final class FilePageLook {
         members[first] = path.count == 1 ? value : setting(value, at: Array(path.dropFirst()), in: child)
         return .object(members)
     }
+}
+
+/// What a file page's look follows in the settings: its section and the shared syntax theme.
+private nonisolated struct LookSettings: Equatable {
+    let section: JSONValue?
+    let syntaxTheme: JSONValue?
 }

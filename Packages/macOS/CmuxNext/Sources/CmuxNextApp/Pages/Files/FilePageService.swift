@@ -57,15 +57,15 @@ final class FilePageService: InternalPageProvider {
     private let tableWidths: (any MarkdownTableWidthStoring)?
     /// Where the markdown tabs keep viewer comments (viewer-comments-DESIGN.md "Comments in the viewer").
     private let comments: (any MarkdownCommentStoring)?
-    private(set) lazy var look = FilePageLook(kind: kind, settings: { [weak services] in services?.settings })
+    private(set) lazy var look = FilePageLook(kind: kind, settings: { [weak services] in services?.settings }, mainWork: services.mainWork)
     /// The documents of the R96 quit hook (one per file, shared with the other file page).
     let documents: FileQuitDocuments
     /// Files whose draft is over the store's limit and that already said so.
     var warnedTooLarge: Set<String> = []
     /// Pages saving or reporting their last edits after their tab closed or was discarded.
-    var flushing: [Task<Void, Never>] = []
+    var flushing: [UUID: Task<Void, Never>] = [:]
     /// The local live links of the Markdown Share menu, started on the first link.
-    private(set) lazy var liveShare = MarkdownLiveShareServer(clock: clock, work: services.work)
+    private(set) lazy var liveShare = MarkdownLiveShareServer(clock: clock, work: services.work, mainWork: services.mainWork)
 
     /// The file pages draw at the display's full rate, as the diff and agent pages do.
     static let engineOptions = PageEngineOptions(fullFrameRate: true)
@@ -301,7 +301,7 @@ final class FilePageService: InternalPageProvider {
         if tab.access != nil, tab.recoveredText == nil { tab.recoveredText = unsavedText(of: tab.file) }
         let provider = FilePageProvider(kind: kind, file: tab.file, userChose: tab.userChose, readOnly: tab.readOnly, access: tab.access,
                                         host: host, clock: clock, libraries: libraries, images: images, tableWidths: tableWidths,
-                                        comments: comments)
+                                        comments: comments, mainWork: services.mainWork)
         provider.recoveredText = tab.recoveredText
         provider.reveal = tab.reveal
         provider.viewState = tab.viewState
@@ -368,6 +368,7 @@ final class FilePageService: InternalPageProvider {
         // A tab showing a file keeps its history: the page opens the typed one as the next entry.
         if provider.file != nil, page.send(command: MarkdownPageCommand.open, arguments: ["text": .string(file.path)]) { return }
         // task-owner: one open of the typed file; ends when the tab shows it or refuses it
+        // main-hop-allow: the provider's open is main-actor async; the reload runs in its reply's job
         Task {
             guard (try? await provider.open(url)) != nil else { return NSSound.beep() }
             page.reload()
@@ -417,23 +418,17 @@ final class FilePageService: InternalPageProvider {
         } else {
             finish = { [weak self] in self?.settleDiscard(key, file: file) }
         }
-        let flush = Task { @MainActor in
-            let deadline = Task { @MainActor in
-                // wakeup-allow: bounded one flush wait on tab close, cancelled when the page answers
-                do { try await clock.sleep(for: Self.flushTimeout, tolerance: WakeLeeway.window(delay: Self.flushTimeout).tolerance) } catch { return }
-                page.close()
-            }
-            _ = try? await page.router.callPage(op, params: .object([:]))
-            deadline.cancel()
+        let id = UUID()
+        // task-owner: flushing[id]; it leaves `flushing` once the page answered or timed out and closed
+        // main-hop-allow: the flush awaits the page's main-actor router, then closes the page and the provider in its reply's job
+        flushing[id] = Task { @MainActor [weak self] in
+            // The page's answer or the timeout, whichever comes first (a flexible, no-sooner request deadline):
+            // closing the page then fails a call still pending.
+            _ = await Deadline(Self.flushTimeout, clock: clock).value("files.flush") { try? await page.router.callPage(op, params: .object([:])) }
             page.close()
             provider?.close()
             finish()
-        }
-        flushing.append(flush)
-        // task-owner: drops the finished flush from `flushing`
-        Task { [weak self] in
-            await flush.value
-            self?.flushing.removeAll { $0 == flush }
+            self?.flushing[id] = nil
         }
     }
 
