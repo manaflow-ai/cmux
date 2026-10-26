@@ -29,6 +29,9 @@ So do the conditions a launch cannot apply yet: environment keys other than view
 fixture.clock virtual, a named fixture handle (no seeding reaches the app) and a key aimed at a pane, tab or page.
 
 Expect: `result` is the action's own value (action.run's `result` member, never the run's sequence or ids).
+`errorDetails` is a subset of an action.run refusal's `error.data`; a cli, mcp or key reply has no details, so a
+check on one is a Crash. An action.run step's `focus: true` is sent as the request's `focus` (the run may change
+focus and selection, as a person's would).
 `receipt` needs the ActionEffect kind, which no app reply carries yet: the driver checks that an action ran,
 marks that step's checkpoints uncertain (never baselined) and says so in the result message.
 
@@ -726,6 +729,9 @@ class CaseRun:
             params["origin"] = entry
         elif entry not in (None, "unattributed"):
             raise CaseError("Crash", f"a socket caller cannot be the {entry} entrypoint; use a key step", step_id)
+        if args.get("focus") is True:
+            # ControlActionRequest.focus: the run may change focus and selection (ActionInvocation.allowsViewChange).
+            params["focus"] = True
         reply = self.call("action.run", params, step_id)
         if reply.get("ok") is not True:
             error = reply.get("error")
@@ -844,9 +850,7 @@ class CaseRun:
             if detail != expect["error"]:
                 raise CaseError("Failure", f"expected error {expect['error']}, got {detail}", step_id)
             if "errorDetails" in expect:
-                # The app's control, cli and mcp replies reach this driver as a typed code only.
-                raise CaseError("Crash", f"errorDetails: the {step['op']} reply gives this driver no error details",
-                                step_id)
+                self.check_error_details(step, expect["errorDetails"])
             return
         receipt = expect.get("receipt")
         if receipt is not None:
@@ -865,6 +869,21 @@ class CaseRun:
                 raise CaseError("Failure", "expected a result, but the action returned none", step_id)
             if value != expect["result"]:
                 raise CaseError("Failure", f"result differs: {json.dumps(value, sort_keys=True)[:300]}", step_id)
+
+    def check_error_details(self, step: Mapping[str, Any], expected: Any) -> None:
+        """expect.errorDetails against an action.run refusal's `error.data` (ControlError's details, for example
+        {"action": id, "reason": text}), compared as case_checks.error_details_mismatch says. The cli, mcp and key
+        replies reach this driver as a typed code only: a check on them is a Crash, never a silent pass."""
+        step_id = step["id"]
+        if step["op"] != "action.run":
+            raise CaseError("Crash", f"errorDetails: the {step['op']} reply gives this driver no error details",
+                            step_id)
+        import case_checks
+        error = (self.state.replies.get(step_id) or {}).get("error")
+        actual = error.get("data") if isinstance(error, dict) else None
+        problem = case_checks.error_details_mismatch(resolve_refs(expected, self.state.replies), actual)
+        if problem:
+            raise CaseError("Failure", f"errorDetails {problem}", step_id)
 
     # -- snapshots
 

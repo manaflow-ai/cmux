@@ -157,7 +157,9 @@ class FakeApp:
 
     def m_action_run(self, params):
         if params["action"] != "workspace.new":
-            return {"ok": False, "error": {"code": "not_found", "message": "no such action"}}
+            # As ControlError+ActionRun gives it: the details name the action and the reason.
+            return {"ok": False, "error": {"code": "not_found", "message": "no such action",
+                                           "data": {"action": params["action"], "reason": "no such action"}}}
         self.turn(params["action"])
         reply = {"action": params["action"], "ran": True, "waited": True, "args": {},
                  "target": params.get("target"), "created": [f"ws_{self.sequence}"], "sequence": self.sequence,
@@ -382,11 +384,37 @@ class AppSessionTest(unittest.TestCase):
         self.assertEqual(session.run_case(case(wrong), {"case_id": "actions/x"})["status"], "Failure")
         user = dict(NEW_WORKSPACE, args={"action": "workspace.new", "entrypoint": "key"})
         self.assertEqual(session.run_case(case(user), {"case_id": "actions/x"})["status"], "Crash")
-        # The reply gives no details: an errorDetails check is a Crash, never a silent pass.
-        detailed = dict(refused, expect={**refused["expect"], "errorDetails": {"extra": {"code": "x"}}})
+        # errorDetails is a subset of the refusal's error.data, compared key by key.
+        detailed = dict(refused, expect={**refused["expect"], "errorDetails": {"action": "nope.missing"}})
         result = session.run_case(case(detailed), {"case_id": "actions/x"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        other = dict(refused, expect={**refused["expect"], "errorDetails": {"action": "workspace.new"}})
+        result = session.run_case(case(other), {"case_id": "actions/x"})
+        self.assertEqual(result["status"], "Failure")
+        self.assertIn('/action: expected "workspace.new", got "nope.missing"', result["message"])
+        absent = dict(refused, expect={**refused["expect"], "errorDetails": {"extra": {"code": "x"}}})
+        result = session.run_case(case(absent), {"case_id": "actions/x"})
+        self.assertEqual(result["status"], "Failure")
+        self.assertIn("/extra: missing", result["message"])
+
+    def test_error_details_on_a_reply_with_no_details_are_a_crash(self) -> None:
+        # The cli reply reaches the driver as a typed code only: the check is a Crash, never a silent pass.
+        session = self.session()
+        self.run_proc.returncode = 1
+        self.run_proc.stdout = json.dumps({"error": {"code": "not_found"}})
+        cli = step("c", "cli", target={"workspace": "current"}, args={"argv": ["workspace", "list"]},
+                   expect={"outcome": "error", "error": "cli.not_found", "errorDetails": {"action": "x"}})
+        result = session.run_case(case(cli), {"case_id": "cli/c"})
         self.assertEqual(result["status"], "Crash")
-        self.assertIn("errorDetails", result["message"])
+        self.assertIn("errorDetails: the cli reply gives this driver no error details", result["message"])
+
+    def test_focus_reaches_action_run_only_when_the_step_asks(self) -> None:
+        session = self.session()
+        focused = dict(NEW_WORKSPACE, args={"action": "workspace.new", "focus": True})
+        self.assertEqual(session.run_case(case(focused), {"case_id": "actions/f"})["status"], "Pass")
+        session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/n"})
+        runs = [params for method, params in self.apps[-1].calls if method == "action.run"]
+        self.assertEqual([run.get("focus") for run in runs], [True, None])
 
     def test_other_drivers_ops_and_unsupported_environment_fail_loudly(self) -> None:
         session = self.session()

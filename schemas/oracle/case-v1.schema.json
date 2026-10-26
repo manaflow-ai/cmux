@@ -557,6 +557,10 @@
         "entrypoint": {
           "enum": ["key", "pointer", "unattributed", "cli", "mcp", "script", "remote", "page"],
           "description": "ActionEntrypoint the run is attributed to (CmuxNextActions/ActionEntrypoint.swift)."
+        },
+        "focus": {
+          "type": "boolean",
+          "description": "action.run's focus: the run may change focus, selection and the shown workspace, as a person's would (ControlActionRequest.focus, ActionInvocation.allowsViewChange). Without it a socket caller's new tab opens unselected beside the focused one."
         }
       }
     },

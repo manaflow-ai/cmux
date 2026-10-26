@@ -577,6 +577,11 @@ Dropped or merged draft items: 022 and 045 (replaced by 026 and 191); 025 merged
 | 240 | Driver: errorDetails, mock agent, chief connections | M | 20-36 | 023, 237, 069 | MQ-daemon-ops |
 | 241 | Typed refusals the chief family found | S | 20-28 | 069 | |
 | 242 | normalize.py snapshot-v1 keywords | S | 18-28 | 013, 011 | |
+| 245 | driver_app.py loopback web fixture | M | 20-36 | 047, 222 | MQ-actions |
+| 246 | Loopback TLS page | S | 18-28 | 222, 245, 072 | MQ-action-gaps |
+| 247 | Oracle test extension in the hermetic profile | M | 20-36 | 047, 072 | MQ-action-gaps |
+| 248 | Loopback permission-asking page | S | 18-24 | 222, 245, 072 | MQ-action-gaps |
+| 249 | Loopback Web Store stand-in | S | 18-28 | 222, 245, 072 | MQ-action-gaps |
 | 206 | I10 idempotent retry steps | S | 20-28 | 060, 110 | |
 | 204 | Streams suite + I8 | L | 18-36 | 023, 110 | |
 | 205 | restore_preview + I9 | M | 18-30 | 021, 201 | |
@@ -948,6 +953,40 @@ root is under /tmp and state/projects.rs refuses every path under /tmp, /var/fol
 success cannot run. Give a case with a generated repository a checkout outside those roots (a per-run folder the
 hermetic environment owns and removes), and project.add's success loses its gap. Test: VM, project.add green twice; no
 folder left after the run.
+
+The browser, browserProfile and devtools action cases (072) open their fixture page from 222's loopback server
+(openBrowser and `cmux browser navigate` refuse data: URLs), and their success paths that need a fixture no planned task
+made name these five follow-ups.
+
+**245 driver_app.py loopback web fixture.** Files: `driver_app.py`, `driver_app_test.py`. driver_app.py fails every case
+with `fixture.web` today ("no loopback web fixture yet"). For such a case it starts 222's server on a per-case loopback
+port before the first step, writes the origin for `$WEB` in step args, cli argv and waitFor values, gives the origin to
+normalize.py (`Context.web`, rewritten back to `$WEB`) and stops the server at teardown. Acceptance: the actions suite's
+page context (browser/_tuning.json `contexts.page`) reaches page-ready on both engines. Test: driver_app selftest with
+a fake server; fleet, one page case per engine green twice.
+
+**246 Loopback TLS page.** Files: `webfixture.py`, `tests/oracle/fixtures/web/`, `browser/_tuning.json`. An https
+listener on 127.0.0.1 with a per-run self-signed certificate the engines do not trust, so a load shows the engine's
+certificate warning (Chromium's `net/test/embedded_test_server` `CERT_EXPIRED` server). The success cases of
+browser.certificateWarning.goBack, browser.pageInfo.certificate (a real chain) and
+browser.pageInfo.reenableCertificateWarnings (after a person-path proceed) lose their gap_success. Test: fleet, the three
+cases green twice on both engines.
+
+**247 Oracle test extension.** Files: `driver_app.py`, `tests/oracle/fixtures/extensions/oracle/`, `browser/_tuning.json`.
+loadUnpacked is person-only, so before launch the driver installs an unpacked MV3 extension named oracle (an action, a
+command, an options page) into the tag's hermetic Chromium profile the way the profile's extension store reads it
+(BrowserExtensionStore), as Chromium's browser tests load one with `--load-extension`. The success cases of the ten
+browser.extension.* actions lose their gap_success. Test: fleet, the ten cases green twice on chromium.
+
+**248 Loopback permission-asking page.** Files: `tests/oracle/fixtures/web/`, `browser/_tuning.json`. A page on 222's
+origin that asks for the notifications permission on load, so a prompt is pending; browser.prompt.allow and
+browser.prompt.block run their success path on it. Test: fleet, both cases green twice on both engines.
+
+**249 Loopback Web Store stand-in.** Files: `BrowserExtensionInfo.swift`, `driver_app.py`, `tests/oracle/fixtures/web/`,
+`browser/_tuning.json`. browser.extensions.webStore opens the remote Chrome Web Store, which no oracle case may load. A
+DEBUG and bench-hooks launch value replaces `URL.browserExtensionWebStore` for the run (injected at launch, never read
+in a Release build); driver_app.py sets it to `$WEB/webstore.html`. The action loses its gap. Test: fleet, the case
+green twice; a Release build still opens chromewebstore.google.com.
 
 **206 I10 idempotent retry.** For each of the 201 `idempotency: required` ops, the generator adds a same-key retry step. Test: holds on all ops.
 
