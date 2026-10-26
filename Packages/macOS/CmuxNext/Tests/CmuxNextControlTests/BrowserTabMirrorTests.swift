@@ -155,3 +155,19 @@ import Testing
         #expect(pane.json["mirrored_tabs"] == ["tab_agent"])
     }
 }
+
+extension BrowserTabMirrorTests {
+    /// Review finding: the 90 s lease lapsed between two of the agent's steps, and its next write
+    /// mirrored and selected the tab in Home again, though the person had closed that mirror.
+    @Test func aMirrorThePersonClosedStaysClosedAfterTheAgentsPause() async throws {
+        let mirrors = RecordingMirrors()
+        let clock = BrowserPageLeaseTests.Clock()
+        let router = ControlRouter(identity: testIdentity(), executor: BrowserPageRightTests.OpeningExecutor())
+        BrowserPageService(engine: NoEngine(), leases: BrowserTabLeases(now: { clock.now }), mirrors: mirrors).install(on: router)
+        router.snapshots.publish { $0 = Self.snapshot() }
+        _ = try await call(router, "browser.page.eval", ["tab": "tab_agent", "agent": "Muse", "script": "1"]).get()
+        clock.advance(.seconds(600))
+        _ = try await call(router, "browser.page.eval", ["tab": "tab_agent", "agent": "Muse", "script": "2"]).get()
+        #expect(mirrors.adds.count == 1)
+    }
+}
