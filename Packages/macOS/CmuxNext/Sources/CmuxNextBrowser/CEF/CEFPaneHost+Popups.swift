@@ -55,7 +55,7 @@ extension CEFPaneHost {
         switch window {
         case .live:
             Task { @MainActor [weak self] in self?.movePopupsIn() }
-        case .creating:
+        case .awaitingProfileProxy, .creating:
             break
         case .none:
             let blank = CEFTab(id: .random(), profile: key.profile, host: self, runtime: runtime)

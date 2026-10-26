@@ -502,11 +502,22 @@ expect 1 "CEFReads.swift:7:" "only the head of a site names functions" -- --root
 edit_ops "$rewrite" 'd["host_mode_rewrites"][0]["site"] = "CmuxNextBrowser/CEF/CEFReads.swift: moves() and other()"'
 expect 0 "0 stand-in results read" "a site that names two functions" -- --root "$rewrite" --check-return-use
 
-# --swift-sites drops a site that is done (task p01-process-021): an async or mint call in the token
-# form (inside a closure handed to sendAsync, siteCall or profileWrite) and a site listed with needs
-# kept. A `reply` entry alone does not settle a site: its call must take the token form.
+# --swift-sites drops a site that is done (task p01-process-021): an async call in the token form
+# (inside a closure handed to sendAsync, siteCall or profileWrite), a mint_returns id call in the mint
+# form (its id keys a `.reply(for:` wait), and a site listed with needs kept (a local export on the
+# in-process path, which change names). Every other need, a mint call in sendAsync and a mint read
+# stay listed.
 settled="$work/settled"
 fixture "$settled"
+python3 - "$settled/$library" <<'EOF'
+import sys
+path = sys.argv[1]
+text = open(path, encoding="utf-8").read()
+text = text.replace('        goBack = try r("cmux_shim_go_back")\n',
+                    '        goBack = try r("cmux_shim_go_back")\n        tabAdd = try r("cmux_shim_tab_add")\n'
+                    '        initialize = try r("cmux_shim_initialize")\n')
+open(path, "w", encoding="utf-8").write(text)
+EOF
 cat >"$settled/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFAsync.swift" <<'EOF'
 extension CEFRuntime {
     func cookies() async throws -> CEFSiteReply {
@@ -533,24 +544,53 @@ extension CEFRuntime {
         let answer = sendAsync { _ in 0 }
         _ = shim.visitCookies(1, 4)
     }
+
+    func mintedInToken() {
+        let answer = sendAsync { shim in shim.tabAdd(1, nil) }
+    }
+
+    func minted(_ shim: CEFShimLibrary) async throws -> String {
+        let id = shim.tabAdd(1, nil)
+        let key = Key(browser: 1, id: id)
+        return try await waits.reply(for: key, timeout: .seconds(1)) { Failure() }
+    }
+
+    func mintedRead(_ shim: CEFShimLibrary) -> Bool {
+        shim.tabAdd(1, nil) != 0
+    }
+
+    func boot(_ library: Boot) {
+        if case .inProcess = library, shim.initialize(nil, nil, nil) != 1 { return }
+    }
 }
 EOF
+listed() { grep -q "CEFAsync.swift:$1"$'\t' <<<"$sites"; }
 sites="$(python3 "$gen" --root "$settled" --swift-sites)"
-for line in 3 9; do
-  grep -q "CEFAsync.swift:$line"$'\t' <<<"$sites" && fail "a call in the token form is listed (line $line): $sites"
+for line in 3 9 32; do
+  listed "$line" && fail "a call in the token or mint form is listed (line $line): $sites"
 done
-for line in 15 19 24; do
-  grep -q "CEFAsync.swift:$line"$'\t' <<<"$sites" || fail "a site not in the token form is not listed (line $line): $sites"
+for line in 15 19 24 28 38 42; do
+  listed "$line" || fail "a site in neither form is not listed (line $line): $sites"
 done
 edit_ops "$settled" 'd["host_mode_rewrites"] = [
-  {"site": "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.window(_:)", "exports": ["cmux_shim_create_window"],
-   "needs": "kept", "change": "returns the minted id", "task": "p01-process-021"},
+  {"site": "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.boot(_:)", "exports": ["cmux_shim_initialize"],
+   "needs": "kept", "change": "Runs only for CEFRuntimeBoot.inProcess.", "task": "p01-process-021"},
   {"site": "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.direct(_:)", "exports": ["cmux_shim_visit_cookies"],
-   "needs": "reply", "change": "awaits the reply", "task": "p01-process-021"}]'
-expect 0 "" "kept and reply entries are valid" -- --root "$settled" --check-ops
+   "needs": "reply", "change": "awaits the reply", "task": "p01-process-021"},
+  {"site": "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.mintedRead(_:)", "exports": ["cmux_shim_tab_add"],
+   "needs": "host_exit", "change": "fails when the host exits", "task": "p01-process-091"}]'
+expect 0 "" "kept, reply and host_exit entries are valid" -- --root "$settled" --check-ops
 sites="$(python3 "$gen" --root "$settled" --swift-sites)"
-grep -q $'CEFAsync.swift:19\t' <<<"$sites" && fail "a kept site is listed: $sites"
-grep -q $'CEFAsync.swift:15\t' <<<"$sites" || fail "a reply entry settled a call not in the token form: $sites"
+listed 42 && fail "a kept site is listed: $sites"
+listed 15 || fail "a reply entry settled a call not in the token form: $sites"
+listed 38 || fail "a host_exit entry settled a site whose work is still to do: $sites"
+edit_ops "$settled" 'd["host_mode_rewrites"][0]["change"] = "Runs only before the host attaches."'
+expect 1 "needs kept names the in-process-only path" "a kept entry that names no in-process path" -- --root "$settled" --check-ops
+edit_ops "$settled" 'd["host_mode_rewrites"][0]["change"] = "Runs only as loadInProcess."'
+expect 1 "which .*CEFAsync.swift does not use" "a kept entry that names a path its file does not use" -- --root "$settled" --check-ops
+edit_ops "$settled" 'd["host_mode_rewrites"][0] = {"site": "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.window(_:)",
+  "exports": ["cmux_shim_create_window"], "needs": "kept", "change": "CEFRuntimeBoot.inProcess", "task": "p01-process-021"}'
+expect 1 "needs kept is for local exports called only in process; cmux_shim_create_window is mint" "a kept mint" -- --root "$settled" --check-ops
 edit_ops "$settled" 'd["host_mode_rewrites"][0]["needs"] = "later"'
 expect 1 "needs 'later' is not one of" "an unknown needs" -- --root "$settled" --check-ops
 

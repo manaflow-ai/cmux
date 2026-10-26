@@ -56,13 +56,15 @@ Inputs (paths relative to --root, the repository by default):
          header does not declare yet (with a `fork_api`); they take op ids after the header's, and
          the host calls them through ctx.OptionalExport. `optional_events` are event kinds
          CEFShimEvent.swift decodes that cmux_shim_event_kind_t does not list yet.
-         `host_mode_rewrites` are Swift sites the remote shim cannot keep as they are, and the
-         sites that stay as written (needs `kept`, `change` says why: in-process-only code, a
-         local the remote answers the same way); --check-return-use and --check-pre-attach accept
-         a listed site's calls of its exports. --swift-sites drops a site that is done: one listed
-         with needs after_attach, host_exit or kept, and an async or mint call in the token form,
-         inside a closure handed to CEFRuntime's sendAsync, siteCall or profileWrite
-         (CEFRuntime+HostReplies.swift), which await the answer the same way in both backends.
+         `host_mode_rewrites` are Swift sites the remote shim cannot keep as they are;
+         --check-return-use and --check-pre-attach accept a listed site's calls of its exports.
+         --swift-sites drops a site that is done: an async call in the token form (inside a closure
+         handed to CEFRuntime's sendAsync, siteCall or profileWrite, CEFRuntime+HostReplies.swift,
+         which await the answer the same way in both backends), a mint_returns id call in the mint
+         form (its id keys a `.reply(for:` wait for its reply_event), and a site listed with needs
+         `kept`: a local export called only on the in-process path, which `change` names by an
+         identifier of the site's file (CEFRuntimeBoot.inProcess, loadInProcess). Every other need
+         names work still to do, and its site stays listed until the task doing it drops the entry.
 
 Outputs (written by a run without a check flag; --check fails when one is stale):
 
@@ -187,14 +189,17 @@ DOCUMENTED_FIELDS = EXPORT_FIELDS | set(TOP_LISTS)  # what `fields` in the ops J
 EVENT_FIELDS = {"kind", "value", "refreshes", "reason"}
 REWRITE_FIELDS = {"site", "exports", "needs", "change", "task"}
 REWRITE_NEEDS = ("after_attach", "reply", "pending_tab", "host_exit", "kept")
-# A listed site with one of these needs is done as the entry says; a `reply` site is done only in the
-# token form (TOKEN_FORM_CALLS), and a `pending_tab` one by its task's code.
-SETTLED_NEEDS = ("after_attach", "host_exit", "kept")
+# The one need that settles a listed site for --swift-sites: a local export called only on the in-process
+# path, which the entry's change names by an identifier of the site's file (KEPT_PATH). Every other need
+# names work still to do: its site stays listed until the code that does the work removes the entry.
+SETTLED_NEEDS = ("kept",)
+KEPT_PATH = re.compile(r"\b\w*[iI]nProcess\w*\b")  # CEFRuntimeBoot.inProcess, loadInProcess
 # CEFRuntime functions that send an async op and await its answer the same way in both backends
-# (CEFRuntime+HostReplies.swift, task p01-process-021): a call in a closure handed to one is in the
-# token form, and --swift-sites no longer lists it.
+# (CEFRuntime+HostReplies.swift, task p01-process-021): an async call in a closure handed to one is in
+# the token form, and --swift-sites no longer lists it. A mint call there is no reply's call (sendAsync
+# returns nothing sent for it), so it stays listed.
 TOKEN_FORM_CALLS = ("sendAsync", "siteCall", "profileWrite")
-TOKEN_FORM_CLASSES = ("async", "mint")
+TOKEN_FORM_CLASSES = ("async",)
 MINT_RETURNS = ("id", "sent")  # the minted id at once, or 1 when sent (the id arrives in reply_event)
 REPLY_WIRE = "wire:REPLY"  # the control channel's REPLY frame answers the call
 ARG_PREFIX = "arg_"  # every C argument in generated code; generator locals never start with it
@@ -848,6 +853,15 @@ def load_ops(header: Header, root: Path) -> tuple[Model | None, list[str], dict[
                 problems.append(f"{label}: {name!r} is no classified export")
             elif entry.get("needs") == "after_attach" and name in ops and ops[name].cls != "mirror":
                 problems.append(f"{label}: needs after_attach is for mirror reads; {name} is {ops[name].cls}")
+            elif entry.get("needs") == "kept" and name in ops and ops[name].cls != "local":
+                problems.append(f"{label}: needs kept is for local exports called only in process; {name} is {ops[name].cls}")
+        kept_path = KEPT_PATH.search(str(entry.get("change") or "")) if entry.get("needs") == "kept" else None
+        if entry.get("needs") == "kept" and kept_path is None:
+            problems.append(f"{label}: needs kept names the in-process-only path in change (CEFRuntimeBoot.inProcess, "
+                            f"loadInProcess)")
+        elif kept_path is not None and (root / APP / rel).is_file() \
+                and kept_path.group(0).split(".")[-1] not in (root / APP / rel).read_text(encoding="utf-8"):
+            problems.append(f"{label}: change names {kept_path.group(0)!r}, which {APP}/{rel} does not use")
         if entry.get("needs") not in REWRITE_NEEDS:
             problems.append(f"{label}: needs {entry.get('needs')!r} is not one of {', '.join(REWRITE_NEEDS)}")
         if not isinstance(entry.get("change"), str) or not entry["change"].strip():
@@ -1769,6 +1783,7 @@ class Site:
     function: str = ""  # the innermost func, init or computed var around the call
     offset: int = 0  # in the file's text
     token_form: bool = False  # in a closure handed to one of TOKEN_FORM_CALLS
+    mint_form: bool = False  # a mint_returns id call whose id keys the wait for its reply_event (in_mint_form)
 
 
 def shim_properties(root: Path) -> dict[str, str]:
@@ -2024,7 +2039,7 @@ def swift_sites(root: Path) -> list[Site]:
             owner, function = context_at(scopes, begin)
             sites.append(Site(rel, masked.count("\n", 0, begin) + 1, export, prop,
                               result_used(masked, start, close + 1), owner, function, begin,
-                              in_token_form(masked, scopes, begin)))
+                              in_token_form(masked, scopes, begin), in_mint_form(masked, scopes, start)))
     return sites
 
 
@@ -2064,10 +2079,53 @@ def in_token_form(masked: str, scopes: list[Scope], index: int) -> bool:
     return False
 
 
+MINT_BINDING = re.compile(r"\b(?:let|var)\s+([A-Za-z_]\w*)\s*(?::[^=\n]+)?=\s*$")
+REPLY_WAIT = re.compile(r"\.reply\(\s*for\s*:")
+
+
+def in_mint_form(masked: str, scopes: list[Scope], start: int) -> bool:
+    """Whether the call whose expression starts at `start` is in the mint form: its result is bound to a
+    local (`let message = shim.devToolsCall(...)`) that keys, directly or through locals made from it, a
+    `.reply(for:` wait later in the same function. The minted id is the key in both backends: the host
+    answers it in the export's reply_event, a refusal included, so nothing reads an answer in the call."""
+    line_start = masked.rfind("\n", 0, start) + 1
+    bound = MINT_BINDING.search(masked, line_start, start)
+    body = min((s for s in scopes if s.kind == "func" and s.open < start < s.close),
+               key=lambda s: s.close - s.open, default=None)
+    if bound is None or body is None:
+        return False
+    rest = masked[start:body.close]
+    names = {bound.group(1)}
+    for m in re.finditer(r"\b(?:let|var)\s+([A-Za-z_]\w*)\s*(?::[^=\n]+)?=([^\n]*)", rest):
+        if any(re.search(rf"\b{re.escape(n)}\b", m.group(2)) for n in names):
+            names.add(m.group(1))
+    for m in REPLY_WAIT.finditer(rest):
+        key = first_argument(rest, m.end(), matching_close(rest, rest.index("(", m.start()), "(", ")"))
+        if any(re.search(rf"\b{re.escape(n)}\b", key) for n in names):
+            return True
+    return False
+
+
+def first_argument(text: str, begin: int, close: int) -> str:
+    """text[begin:close] up to its first comma outside nested brackets."""
+    depth = 0
+    for i in range(begin, close):
+        if text[i] in "([{":
+            depth += 1
+        elif text[i] in ")]}":
+            depth -= 1
+        elif text[i] == "," and depth == 0:
+            return text[begin:i]
+    return text[begin:close]
+
+
 def site_settled(model: Model, site: Site, op: Op) -> bool:
-    """Whether a call site already meets host mode, so --swift-sites no longer lists it: an async or
-    mint call in the token form, or a site a host_mode_rewrites entry settles (SETTLED_NEEDS)."""
+    """Whether a call site already meets host mode, so --swift-sites no longer lists it: an async call in
+    the token form, a mint_returns id call in the mint form, or a site a `kept` host_mode_rewrites entry
+    settles (SETTLED_NEEDS)."""
     if site.token_form and op.cls in TOKEN_FORM_CLASSES:
+        return True
+    if site.mint_form and op.cls == "mint" and op.mint_returns == "id" and op.reply_event:
         return True
     rewrite = rewrite_for(model, site)
     return rewrite is not None and rewrite.needs in SETTLED_NEEDS

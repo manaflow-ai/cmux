@@ -18,13 +18,22 @@ extension CEFRuntime {
     /// profile default. Nil when the browser is gone or the kind is unknown.
     /// In host mode the host answers in a REPLY (task 018).
     func contentSetting(_ browser: Int32, url: String?, kind: SitePermissionKind) async -> CEFContentSetting? {
-        Self.contentSetting(try? await answer(sendContentSetting(browser, url: url, kind: kind), label: "content setting"))
+        await contentSettings(browser, [(url, kind)])[0]
+    }
+
+    /// ``contentSetting(_:url:kind:)`` for each query, in order: every read is sent in this turn and
+    /// the answers are awaited after, so in host mode they cost one round trip, not one each.
+    func contentSettings(_ browser: Int32, _ queries: [(url: String?, kind: SitePermissionKind)]) async -> [CEFContentSetting?] {
+        let sent = queries.map { sendContentSetting(browser, url: $0.url, kind: $0.kind) }
+        var values: [CEFContentSetting?] = []
+        for pending in sent { values.append(Self.contentSetting(try? await answer(pending, label: "content setting"))) }
+        return values
     }
 
     /// ``contentSetting(_:url:kind:)`` for a synchronous turn: `then` runs with
     /// the value in this turn in process, when the host's REPLY comes in host mode.
     func contentSetting(_ browser: Int32, url: String?, kind: SitePermissionKind, then: @escaping (CEFContentSetting?) -> Void) {
-        whenAnswered(sendContentSetting(browser, url: url, kind: kind)) { then(Self.contentSetting($0)) }
+        whenAnswered(sendContentSetting(browser, url: url, kind: kind), label: "content setting") { then(Self.contentSetting($0)) }
     }
 
     private func sendContentSetting(_ browser: Int32, url: String?, kind: SitePermissionKind) -> CEFShimAnswer<Int32> {
@@ -73,7 +82,7 @@ extension CEFRuntime {
     /// ``sslStatus(_:)`` for a synchronous turn (a load event): `then` runs in
     /// this turn in process, when the host's REPLY comes in host mode.
     func sslStatus(_ browser: Int32, then: @escaping (CEFSSLStatus?) -> Void) {
-        whenAnswered(sendSSLStatus(browser)) { json in then(json.flatMap { $0 }.flatMap(CEFSSLStatus.parse)) }
+        whenAnswered(sendSSLStatus(browser), label: "SSL status") { json in then(json.flatMap { $0 }.flatMap(CEFSSLStatus.parse)) }
     }
 
     private func sendSSLStatus(_ browser: Int32) -> CEFShimAnswer<String?> {
