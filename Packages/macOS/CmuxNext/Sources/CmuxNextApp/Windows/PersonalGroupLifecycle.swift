@@ -134,9 +134,14 @@ struct PersonalGroupLife {
                     if v2 { try await connection.state.deleteWorkspaceGroup(group.rawValue) } else { try await connection.deletePersonalGroup(group) }
                 }
             }
-            // Ending until the home store no longer lists the groups (or 5 s, then a resync owns it), so a reader (a selection
-            // close's Undo) never sees a deleted group as kept, whatever connection the store hears it on.
-            if deleted != nil { await ObservationDeadline(owner: "personal-group-delete").until({ doomed.allSatisfy { personal.group($0) == nil } }, limit: .seconds(5)) }
+            // Ending until the home store no longer lists the groups, so a reader (a selection close's Undo) never sees a deleted
+            // group as kept, whatever connection the store hears it on. Not heard within 5 s: a resync reads the truth, 5 s more.
+            let gone: @MainActor @Sendable () -> Bool = { doomed.allSatisfy { personal.group($0) == nil } }
+            if deleted != nil, !gone() { await ObservationDeadline(owner: "personal-group-delete").until(gone, limit: .seconds(5)) }
+            if deleted != nil, !gone() {
+                failed()
+                await ObservationDeadline(owner: "personal-group-delete-resync").until(gone, limit: .seconds(5))
+            }
             end()
             if deleted == nil { failed() }
         }
