@@ -144,7 +144,8 @@ public final class WebPopupHost {
         popup.onDismiss = { [weak self] in
             guard let self, model != nil else { return }
             model = nil
-            panel?.isClosing = true
+            // The host's panel (the property): the local `panel` above shadows it in this closure.
+            self.panel?.isClosing = true
             noteShown()
             send(["type": "dismiss"])
         }
