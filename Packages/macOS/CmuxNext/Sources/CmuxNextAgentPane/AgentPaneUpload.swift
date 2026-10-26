@@ -62,16 +62,15 @@ public nonisolated struct AgentPaneUpload: Sendable, Equatable, CustomStringConv
     public var debugDescription: String { description }
     public var customMirror: Mirror { Mirror(self, children: [:]) }
 
-    /// The whole-file `chat.upload` call (an older page) holds every file in memory: one GiB in
-    /// all. A file of any size streams in chunks (``AgentPaneUploadStageRequest``); Cloud uploads
-    /// keep their smaller policy in ``CloudUploads``.
-    public static let maximumFileBytes = 1 * 1024 * 1024 * 1024
-    public static let maximumTotalBytes = 1 * 1024 * 1024 * 1024
-    public static let maximumPeerFileBytes = maximumFileBytes
+    /// The most bytes one `chat.upload` message carries: it holds every file whole in memory, so
+    /// it is the old call only. A file of any size streams in chunks
+    /// (``AgentPaneUploadStageRequest``), which the page uses whenever the host takes them; Cloud
+    /// uploads keep their smaller policy in ``CloudUploads``.
+    public static let maximumMessageBytes = 1 * 1024 * 1024 * 1024
 
     /// The files of `chat.upload`'s params, nil when they break the contract: one or more files,
     /// each with a name a folder holds as one file and base64 bytes, at most
-    /// ``maximumFileBytes`` each and ``maximumTotalBytes`` in all.
+    /// ``maximumMessageBytes`` in all.
     static func files(_ params: [String: Any]?) -> [AgentPaneUpload]? {
         guard let params, Set(params.keys) == ["files"], let list = params["files"] as? [[String: Any]],
               !list.isEmpty else { return nil }
@@ -79,11 +78,11 @@ public nonisolated struct AgentPaneUpload: Sendable, Equatable, CustomStringConv
         var total = 0
         for item in list {
             guard Set(item.keys) == ["name", "data"], let name = item["name"] as? String, isFileName(name),
-                  let text = item["data"] as? String, text.utf8.count <= (maximumFileBytes / 3 + 1) * 4,
-                  let data = Data(base64Encoded: text), data.count <= maximumFileBytes else { return nil }
+                  let text = item["data"] as? String, text.utf8.count <= (maximumMessageBytes / 3 + 1) * 4,
+                  let data = Data(base64Encoded: text) else { return nil }
             let (sum, overflow) = total.addingReportingOverflow(data.count)
             total = overflow ? Int.max : sum
-            guard total <= maximumTotalBytes else { return nil }
+            guard total <= maximumMessageBytes else { return nil }
             files.append(AgentPaneUpload(name: name, data: data))
         }
         return files

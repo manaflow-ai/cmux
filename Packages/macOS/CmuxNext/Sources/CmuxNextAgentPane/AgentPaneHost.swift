@@ -19,7 +19,9 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// ssh peer's chat: on that peer) and answers its path there. Throws
     /// ``AgentPaneFilePutFailure``. Never starts a daemon.
     func putFile(sessionId: String, name: String, data: Data) async throws -> String
-    func putFile(sessionId: String, name: String, file: URL) async throws -> String
+    /// One step of a file of any size streamed there as the page sends it, so nothing holds the
+    /// whole file. Throws ``AgentPaneFilePutFailure``. Never starts a daemon.
+    func putFile(sessionId: String, step: AgentPaneFilePutStep) async throws -> AgentPaneFilePutProgress
 }
 
 extension AgentPaneHostProviding {
@@ -38,11 +40,8 @@ extension AgentPaneHostProviding {
         throw AgentPaneFilePutFailure.unsupported
     }
 
-    public func putFile(sessionId: String, name: String, file: URL) async throws -> String {
-        let data = try await Task.detached(priority: .utility) {
-            try Data(contentsOf: file)
-        }.value
-        return try await putFile(sessionId: sessionId, name: name, data: data)
+    public func putFile(sessionId: String, step: AgentPaneFilePutStep) async throws -> AgentPaneFilePutProgress {
+        throw AgentPaneFilePutFailure.unsupported
     }
 }
 
@@ -185,10 +184,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         return try await AcpmuxStatusClient.putFile(socketPath: environment.socketPath, sessionId: sessionId, name: name, data: data)
     }
 
-    public func putFile(sessionId: String, name: String, file: URL) async throws -> String {
+    public func putFile(sessionId: String, step: AgentPaneFilePutStep) async throws -> AgentPaneFilePutProgress {
         if environment == nil { environment = resolveEnvironment() }
         guard let environment else { throw AgentPaneFilePutFailure.unsupported }
-        return try await AcpmuxStatusClient.putFile(socketPath: environment.socketPath, sessionId: sessionId, name: name, file: file)
+        return try await AcpmuxStatusClient.putFile(socketPath: environment.socketPath, sessionId: sessionId, step: step)
     }
 
     private func endpoint(startsDaemon asked: Bool) async throws -> AcpmuxWebEndpoint {

@@ -380,8 +380,10 @@ final class AppServices {
     private(set) lazy var agentTabs = AgentTabStore.wired(to: self)
     /// Which agent chat opened each file, for viewer quotes (viewer-comments-DESIGN.md).
     private(set) lazy var chatQuoteOpeners = ChatQuoteOpeners()
-    /// Files streaming into chats on this Mac (``AgentChatUploads``).
+    /// Files streaming into chats on this Mac (``AgentChatUploads``), and to ssh peers' chats
+    /// (``AgentPeerUploads``).
     private(set) lazy var chatUploads = AgentChatUploads.stages()
+    private(set) lazy var peerUploads = AgentPeerUploads.stages()
     /// The device-wide Chats index (nil without acpmux), watched once for every window.
     private(set) lazy var chatsFeed: ChatsFeed? = ChatsFeed.started(for: self)
     /// Relays the Chats index and editor sources into the daemon's project list.

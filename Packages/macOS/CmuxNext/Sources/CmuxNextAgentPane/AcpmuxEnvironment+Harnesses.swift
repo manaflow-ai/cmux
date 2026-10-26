@@ -8,11 +8,14 @@ public nonisolated struct AcpmuxRPCError: Error, Sendable, Equatable, LocalizedE
     public var code: Int?
     public var name: String?
     public var message: String
+    /// The free bytes a refusal for disk space names (`filePut.noSpace`'s `freeBytes`).
+    public var freeBytes: Int64?
 
-    public init(code: Int? = nil, name: String? = nil, message: String) {
+    public init(code: Int? = nil, name: String? = nil, message: String, freeBytes: Int64? = nil) {
         self.code = code
         self.name = name
         self.message = message
+        self.freeBytes = freeBytes
     }
 
     init(_ error: [String: Any]) {
@@ -20,6 +23,7 @@ public nonisolated struct AcpmuxRPCError: Error, Sendable, Equatable, LocalizedE
         code = (error["code"] as? NSNumber)?.intValue
         name = data?["reason"] as? String ?? data?["code"] as? String
         message = error["message"] as? String ?? "acpmux request failed"
+        freeBytes = (data?["freeBytes"] as? NSNumber)?.int64Value
     }
 
     /// The daemon does not serve the method (an older acpmux): callers fall back to the CLI.

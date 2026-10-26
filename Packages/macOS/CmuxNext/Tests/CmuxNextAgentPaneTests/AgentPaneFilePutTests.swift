@@ -49,6 +49,9 @@ struct AgentPaneFilePutTests {
     @Test func refusalsMapToWhatTheComposerSays() {
         #expect(AgentPaneFilePutFailure(AcpmuxRPCError(code: -32601, message: "Method not found")) == .unsupported)
         #expect(AgentPaneFilePutFailure(AcpmuxRPCError(code: -32602, name: "filePut.tooLarge", message: "big")) == .tooLarge)
+        #expect(AgentPaneFilePutFailure(AcpmuxRPCError(["code": -32602, "message": "Not enough space on huge-blue for movie.mov (1.2 GB free)",
+                                                        "data": ["reason": "filePut.noSpace", "machine": "huge-blue", "freeBytes": 1_234_000_000]]))
+                == .noSpace(freeBytes: 1_234_000_000))
         #expect(AgentPaneFilePutFailure(AcpmuxRPCError(code: -32602, name: "filePut.name", message: "name")) == .failed)
         #expect(AgentPaneFilePutFailure(AcpmuxStatusClient.Failure.unsupportedFeature("filePut")) == .unsupported)
         #expect(AgentPaneFilePutFailure(AcpmuxStatusClient.Failure.unreachable("no daemon")) == .failed)
@@ -71,6 +74,33 @@ struct AgentPaneFilePutTests {
         #expect(path == "/uploads/s/big.bin")
         let methods = await calls.methods()
         #expect(methods == ["_acpmux/file_put_begin", "_acpmux/file_put_chunk", "_acpmux/file_put_chunk", "_acpmux/file_put_chunk", "_acpmux/file_put_finish"])
+    }
+
+    /// A streamed step goes on as the page sent it: the chunk's base64 text is never decoded here.
+    @Test func eachStreamedStepIsOneRequestWithThePagesText() async throws {
+        let calls = Calls()
+        let send: @Sendable (String, [String: any Sendable]) async throws -> [String: Any] = { method, params in
+            await calls.add(method, params["data"] as? String)
+            switch method {
+            case AcpmuxStatusClient.filePutBeginMethod: return ["uploadId": "0190a000-0000-7000-8000-000000000000"]
+            case AcpmuxStatusClient.filePutChunkMethod: return ["offset": (params["offset"] as? Int ?? 0) + 3]
+            case AcpmuxStatusClient.filePutFinishMethod: return ["path": "/uploads/s/movie.mov"]
+            default: return [:]
+            }
+        }
+        let upload = "0190a000-0000-7000-8000-000000000000"
+        #expect(try await AcpmuxStatusClient.putFile(sessionId: "s", step: .begin(name: "movie.mov", size: 3 << 30), send: send) == .begun(upload: upload))
+        #expect(try await AcpmuxStatusClient.putFile(sessionId: "s", step: .chunk(upload: upload, offset: 0, base64: "AQID"), send: send) == .wrote(offset: 3))
+        #expect(try await AcpmuxStatusClient.putFile(sessionId: "s", step: .finish(upload: upload, name: "movie.mov", size: 3), send: send) == .saved(path: "/uploads/s/movie.mov"))
+        #expect(try await AcpmuxStatusClient.putFile(sessionId: "s", step: .cancel(upload: upload), send: send) == .cancelled)
+        #expect(await calls.methods() == ["_acpmux/file_put_begin", "_acpmux/file_put_chunk", "_acpmux/file_put_finish", "_acpmux/file_put_cancel"])
+        #expect(await calls.data() == ["AQID"])
+        let full: @Sendable (String, [String: any Sendable]) async throws -> [String: Any] = { _, _ in
+            throw AcpmuxRPCError(code: -32602, name: "filePut.noSpace", message: "full", freeBytes: 5)
+        }
+        await #expect(throws: AgentPaneFilePutFailure.noSpace(freeBytes: 5)) {
+            try await AcpmuxStatusClient.putFile(sessionId: "s", step: .begin(name: "movie.mov", size: 3 << 30), send: full)
+        }
     }
 
     @Test func aHostWithoutAnAcpmuxTakesNoFiles() async {
@@ -103,6 +133,13 @@ struct AgentPaneFilePutTests {
             return next.data
         }
         func writes() -> [Data] { sent }
+    }
+
+    private actor Calls {
+        var entries: [(method: String, data: String?)] = []
+        func add(_ method: String, _ data: String?) { entries.append((method, data)) }
+        func methods() -> [String] { entries.map(\.method) }
+        func data() -> [String] { entries.compactMap(\.data) }
     }
 
     private actor CallLog {
