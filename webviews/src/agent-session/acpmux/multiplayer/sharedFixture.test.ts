@@ -27,3 +27,33 @@ test("the shared fixture seeds teammates' rows and shows who is here, for the ch
   expect(shownPresence.get()?.presence?.viewing.map((p) => p.name)).toEqual(["Ana Ruiz", "Sam Okafor", "Mei Lin"]);
   expect(shownPresence.get()?.presence?.typing.map((p) => p.name)).toEqual(["Ana Ruiz"]);
 });
+
+test("seeding another fixture after the shared one restores the live presence from before", async () => {
+  let rows: AcpmuxRow[] = [];
+  const debug = createAcpmuxDebug({
+    replaceRows: (next) => {
+      rows = next;
+      queueMicrotask(() => acpmuxPerf.commit(1, 0, [], performance.now()));
+    },
+    rowCount: () => rows.length,
+    sessionId: () => "chat-a",
+  });
+  const live = { viewing: [{ id: "tailnet:real@example.com", name: "Real Person" }], typing: [] };
+  shownPresence.set("chat-a", live);
+  await debug.seedRows(0, "shared");
+  await debug.seedRows(0, "shared");
+  expect(shownPresence.get()?.presence?.viewing.map((p) => p.name)).toEqual(["Ana Ruiz", "Sam Okafor", "Mei Lin"]);
+  await debug.seedRows(3, "short");
+  expect(shownPresence.get()).toEqual({ sessionId: "chat-a", presence: live });
+  // With nothing live before, leaving the fixture draws no faces.
+  shownPresence.set(undefined, undefined);
+  await debug.seedRows(0, "shared");
+  await debug.seedRows(3, "short");
+  expect(shownPresence.get()).toBeUndefined();
+  // A presence the chat's own acpmux set while the fixture showed is kept.
+  await debug.seedRows(0, "shared");
+  const newer = { viewing: [], typing: [] };
+  shownPresence.set("chat-a", newer);
+  await debug.seedRows(3, "short");
+  expect(shownPresence.get()?.presence).toBe(newer);
+});

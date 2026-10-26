@@ -107,6 +107,8 @@ export function createAcpmuxDebug(
   wire: AcpWireLog = acpWire,
 ): AcpmuxDebug {
   let timestamps: number[] = [];
+  /// The live presence the shared fixture replaced (`null`: the fixture is not shown).
+  let beforeShared: ReturnType<typeof shownPresence.get> | null = null;
   let nominal = 1000 / 60;
   let running = false;
   let generation = 0;
@@ -141,7 +143,18 @@ export function createAcpmuxDebug(
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
       host.replaceRows(rows);
-      if (fixture === "shared") shownPresence.set(host.sessionId?.(), SHARED_PRESENCE);
+      if (fixture === "shared") {
+        // Kept once, so seeding "shared" twice still restores the live presence from before.
+        if (beforeShared === null) beforeShared = shownPresence.get();
+        shownPresence.set(host.sessionId?.(), SHARED_PRESENCE);
+      } else if (beforeShared !== null) {
+        // Leaving the shared fixture: its made-up faces go, and the live presence from before
+        // comes back unless the chat's own acpmux has set a newer one since.
+        if (shownPresence.get()?.presence === SHARED_PRESENCE) {
+          shownPresence.set(beforeShared?.sessionId, beforeShared?.presence);
+        }
+        beforeShared = null;
+      }
       const at = await committed;
       return { rows: rows.length, commit_ms: at === undefined ? null : round2(at - start) };
     },
