@@ -162,8 +162,9 @@ if ! wait "$tee_pid" 2>/dev/null; then
   done
 fi
 
-# Prints the ::error lines and the step summary for the run's log. Exits 3
-# when Swift Testing output has no "Test run with" summary line.
+# Prints the ::error lines and the step summary for the run's log. Exits 3 when
+# the run was truncated: no "Test run with" summary line, or a summary that
+# reports fewer tests than the log shows starting.
 report() {
   awk -v summary_file="${GITHUB_STEP_SUMMARY:-}" -v status="$status" '
     function name_of(line) {
@@ -189,7 +190,13 @@ report() {
       if (!(name in started)) { started[name] = 1; starts[++start_count] = name }
     }
     /^✔ Test / || /^✘ Test .* failed after / || /^➜ Test / { finished[name_of($0)] = 1 }
-    /^[^ ]+ Test run with [0-9]+ tests? / { has_summary = 1 }
+    /^[^ ]+ Test run with [0-9]+ tests? / {
+      has_summary = 1
+      # "✔ Test run with 399 tests in 80 suites passed after ...": the count is the 5th field.
+      # Summed, not assigned: one log can hold a summary per test target, and the starts are
+      # counted across all of them, so only the total is comparable with start_count.
+      summary_tests += $5 + 0
+    }
     END {
       if (red_count > 0) {
         printf "::error title=cmux-next swift test reds::%d red tests: %s\n", red_count, join(reds, red_count)
@@ -206,6 +213,28 @@ report() {
           for (i = 1; i <= open_count; i++) printf "- `%s`\n", open_tests[i] >> summary_file
         }
         exit 3
+      }
+      # A summary line is not proof the run was whole. The summary counts the tests that
+      # REPORTED, so a run that ends while tests are still going can still print one, and then a
+      # truncated run reads as a normal result -- or as a pass, when the tests that did report
+      # were green. Two things hold on a whole run and fail on a truncated one: every test the
+      # log shows starting also finishes, and the summaries count at least as many tests as
+      # started. Not equality: a skipped test prints no "started." line (so the summary runs
+      # ahead of the starts -- 2 starts against "3 tests" on the green fixture, and a healthy
+      # CmuxNextAppTests run measured 399 started, 399 finished, "399 tests in 80 suites").
+      if (has_summary && start_count > 0) {
+        for (i = 1; i <= start_count; i++) if (!(starts[i] in finished)) open_tests[++open_count] = starts[i]
+        if (open_count > 0 || summary_tests < start_count) {
+          if (open_count > 0)
+            printf "::error title=cmux-next swift test reported fewer tests than it ran::the summaries count %d tests in total but %d started and %d of those never finished; swift test exited %s. A summary line does not make a truncated run a result: %s\n", summary_tests, start_count, open_count, status, join(open_tests, open_count)
+          else
+            printf "::error title=cmux-next swift test reported fewer tests than it ran::the summaries count %d tests in total but the log shows %d starting, and every one of those finished; swift test exited %s. A summary that undercounts the log is not a result.\n", summary_tests, start_count, status
+          if (summary_file != "") {
+            printf "### The run reported %d of %d tests (%d unfinished)\n\n", summary_tests, start_count, open_count >> summary_file
+            for (i = 1; i <= open_count; i++) printf "- `%s`\n", open_tests[i] >> summary_file
+          }
+          exit 3
+        }
       }
     }
   ' "$log"
@@ -229,7 +258,8 @@ if [[ -n "$crash_signal" ]]; then
   (( status != 0 )) || status=1
 fi
 
-# No summary and no signal line: the helper exited by itself or ended on a
+# A truncated run (no summary, or a summary that counts fewer tests than the log
+# shows starting) and no signal line: the helper exited by itself or ended on a
 # signal SwiftPM does not print. The system log says which: what the helper
 # logged as an error or fault, and what the kernel, launchd, RunningBoard,
 # WindowServer, loginwindow or Launch Services logged about its pid.
@@ -243,6 +273,7 @@ fi
 
 # The watcher fired: always fail, whatever status the killed run reported.
 if [ -e "$log.fired" ]; then exit $(( status == 0 ? 1 : status )); fi
-# A missing summary line fails the run even when swift test exited 0.
+# A truncated run fails even when swift test exited 0: a missing summary line,
+# or a summary that reports fewer tests than the log shows starting.
 if (( report_status == 3 && status == 0 )); then exit 1; fi
 exit "$status"

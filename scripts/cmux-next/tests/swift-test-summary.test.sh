@@ -3,8 +3,12 @@
 # Testing test in one ::error line and in the step summary, so a red stays
 # visible when a log viewer truncates the step's output. If the run ends
 # without the "Test run with" summary line, it fails and names the tests that
-# started and never finished (a crashed or killed test process). A test still
-# running after CMUX_NEXT_TEST_STUCK_SECONDS is named while the run is going.
+# started and never finished (a crashed or killed test process). A summary line
+# is not proof the run was whole either: it counts the tests that reported, so
+# a run that ends mid-flight still prints one. The job fails when the summary
+# counts fewer tests than the log shows starting, or when any started test
+# never finished, so a truncated run can never read as a pass.
+# A test still running after CMUX_NEXT_TEST_STUCK_SECONDS is named while the run is going.
 # No Swift: a stub `swift` prints canned Swift Testing output.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
@@ -159,6 +163,85 @@ run xctest 0
 run cut 1
 grep '^::error' <<<"$out" | grep -q 'swift test exited 1' || fail "the error does not give the exit status" "$out"
 grep '^::error' <<<"$out" | grep -q 'SIGKILL' || fail "the error does not say a silent signal is possible" "$out"
+
+# A truncated run that DOES print a summary: the process ends while tests are
+# still going, so the summary counts only the ones that reported. Every test
+# that reported passed and swift test exited 0, so without this check the run
+# reads as a pass and the tests that never ran are invisible. #23680's own log
+# printed no summary (2192 counted against 4736 started and 2890 unfinished, so
+# the earlier check caught it); this is that log's counts in the shape that gets
+# a summary too, which is the shape nothing caught. The run fails and names the
+# unfinished tests, not the finished one.
+cat > "$TMP/short.out" <<'EOF'
+◇ Test run started.
+◇ Test aPasses() started.
+✔ Test aPasses() passed after 0.001 seconds.
+◇ Test stillGoing() started.
+◇ Test alsoStillGoing() started.
+✔ Test run with 1 test in 1 suite passed after 0.002 seconds.
+EOF
+run short 0
+[[ "$status" != 0 ]] || fail "a truncated run with a summary line exited 0" "$out"
+short_error=$(grep '^::error title=cmux-next swift test reported fewer' <<<"$out" || true)
+[[ -n "$short_error" ]] || fail "no short-run ::error line" "$out"
+grep -q 'summaries count 1 tests in total but 3 started and 2 of those never finished' <<<"$short_error" \
+  || fail "the error does not give the three counts" "$short_error"
+grep -q 'stillGoing()' <<<"$short_error" || fail "the error does not name stillGoing()" "$short_error"
+grep -q 'alsoStillGoing()' <<<"$short_error" || fail "the error does not name alsoStillGoing()" "$short_error"
+if grep -q 'aPasses' <<<"$short_error"; then fail "the error names a finished test" "$short_error"; fi
+grep -q 'stillGoing()' <<<"$summary" || fail "the step summary does not name the unfinished tests" "$summary"
+
+# A summary that counts fewer tests than the log shows starting, with every
+# started test finished: the count itself is the evidence, so the run fails
+# without an unfinished test to name.
+cat > "$TMP/undercount.out" <<'EOF'
+◇ Test aPasses() started.
+✔ Test aPasses() passed after 0.001 seconds.
+◇ Test bPasses() started.
+✔ Test bPasses() passed after 0.001 seconds.
+✔ Test run with 1 test in 1 suite passed after 0.002 seconds.
+EOF
+run undercount 0
+[[ "$status" != 0 ]] || fail "a summary that undercounts the log exited 0" "$out"
+grep '^::error' <<<"$out" | grep -q 'count 1 tests in total but the log shows 2 starting' \
+  || fail "the error does not say the summary undercounts the log" "$out"
+
+# A skipped test prints no "started." line, so the summary legitimately counts
+# more than the log shows starting: that is not a truncation. The green case
+# above is exactly this shape (2 started, "3 tests"), and it must stay green.
+grep -q 'needsADisplay' "$TMP/green.out" || fail "the green fixture no longer covers a skip without a start line"
+
+# One log, one summary per test target: the starts are counted across the whole
+# log, so each target's own count is smaller than the total and only their sum
+# is comparable. Two whole runs in one log are not a truncation.
+cat > "$TMP/twotargets.out" <<'EOF'
+◇ Test aPasses() started.
+✔ Test aPasses() passed after 0.001 seconds.
+✔ Test run with 1 test in 1 suite passed after 0.002 seconds.
+◇ Test bPasses() started.
+✔ Test bPasses() passed after 0.001 seconds.
+✔ Test run with 1 test in 1 suite passed after 0.002 seconds.
+EOF
+run twotargets 0
+[[ "$status" == 0 ]] || fail "two whole runs in one log exited $status" "$out"
+[[ "$out" != *"::error"* ]] || fail "two whole runs in one log printed an error" "$out"
+
+# And a truncation inside the second of two targets still fails: the summaries
+# total 2, the log shows 3 starting, and one of those never finished.
+cat > "$TMP/twotargetscut.out" <<'EOF'
+◇ Test aPasses() started.
+✔ Test aPasses() passed after 0.001 seconds.
+✔ Test run with 1 test in 1 suite passed after 0.002 seconds.
+◇ Test bPasses() started.
+◇ Test cStillGoing() started.
+✔ Test bPasses() passed after 0.001 seconds.
+✔ Test run with 1 test in 1 suite passed after 0.002 seconds.
+EOF
+run twotargetscut 0
+[[ "$status" != 0 ]] || fail "a truncation inside the second target exited 0" "$out"
+grep '^::error' <<<"$out" | grep -q 'count 2 tests in total but 3 started and 1 of those never finished' \
+  || fail "the error does not total the summaries" "$out"
+grep '^::error' <<<"$out" | grep -q 'cStillGoing()' || fail "the error does not name cStillGoing()" "$out"
 
 # One test hangs while the others finish: past CMUX_NEXT_TEST_STUCK_SECONDS the
 # run fails within seconds, not at the whole-run limit, and one ::error names
