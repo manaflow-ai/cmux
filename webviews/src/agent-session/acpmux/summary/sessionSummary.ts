@@ -131,6 +131,11 @@ function sources(
 export const sessionPullRequests = (rows: readonly AcpmuxRow[]) =>
   transcriptPullRequests(rows).filter((pr) => pr.opened);
 
+/// Pull requests this session changed: ones it opened or acted on after opening. Changes and the
+/// composer's compact PR count use this same selector; read-only references remain Sources.
+export const sessionChanges = (pullRequests: readonly SummaryPullRequest[]) =>
+  pullRequests.filter((pr) => pr.opened || pr.changed === true);
+
 /// How background shells ended: on their call (`background`, direct.ts `markBackgroundCall`), or
 /// in a background task row when the call is not in the transcript.
 const backgroundEnds = (

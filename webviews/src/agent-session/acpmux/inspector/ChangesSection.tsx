@@ -8,14 +8,17 @@
 import { Counts } from "../changes/Counts";
 import { copyText } from "../conversation/clipboard";
 import { pullRequestStateSince, type HeaderPullRequest } from "../header/headerState";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { Tooltip } from "../../../ui/Tooltip";
-import type { SummaryPullRequest } from "../summary/sessionSummary";
-import { InspectorFold } from "./InspectorSection";
+import { GitHubMark } from "../conversation/icons";
+import { LinkHoverCard } from "../chips/LinkHoverCard";
+import { useSiteInfo } from "../chips/linkStore";
+import { useHoverCard } from "../chips/useHoverCard";
+import { sessionChanges, type SummaryPullRequest } from "../summary/sessionSummary";
 import { PullRequestGlyph, type PullRequestGlyphState } from "./PullRequestGlyph";
 
 const ROW_ICON = rowIconSize(12);
@@ -112,11 +115,10 @@ const ended = (state: PullRequestGlyphState) => state === "merged" || state === 
 export const visibleChanges = (
   pullRequests: readonly SummaryPullRequest[],
   statuses: Readonly<Record<string, InspectorPullRequestStatus>>,
-): SummaryPullRequest[] =>
-  pullRequests.filter((pr) => {
-    void statuses;
-    return pr.changed === true || pr.opened;
-  });
+): SummaryPullRequest[] => {
+  void statuses;
+  return sessionChanges(pullRequests);
+};
 
 /// The rows in Claude's order: the ones still open (drafts and conflicting ones included) first,
 /// then the merged and closed, the most recently touched or named first within each.
@@ -136,10 +138,13 @@ export function ChangesSection({
   pullRequests,
   statuses,
   onOpenBeside,
+  onDismiss,
 }: {
   /// In any order: Changes sorts them (changesOrder).
   pullRequests: readonly SummaryPullRequest[];
   statuses: Readonly<Record<string, InspectorPullRequestStatus>>;
+  /// Dismisses the PR's composer affordance while leaving the Changes row visible.
+  onDismiss?: (url: string) => void;
   /// Opens a pull request in the browser beside the chat; the menu item hides without it, and a
   /// row's click follows its link instead.
   onOpenBeside?: (url: string) => void;
@@ -153,13 +158,24 @@ export function ChangesSection({
     <>
       <ul className="acpmux-chat-inspector-list" data-section="changes">
         {shown.map((pr) => (
-          <PullRequestRow key={pr.url} pr={pr} live={statuses[pr.url] ?? {}} onOpenBeside={onOpenBeside} />
+          <PullRequestRow
+            key={pr.url}
+            pr={pr}
+            live={statuses[pr.url] ?? {}}
+            onOpenBeside={onOpenBeside}
+            onDismiss={onDismiss}
+          />
         ))}
       </ul>
       {folds && (
-        <InspectorFold className="acpmux-chat-inspector-pr-fold" open={all} onToggle={() => setAll(!all)}>
+        <button
+          type="button"
+          className="acpmux-chat-inspector-fold acpmux-chat-inspector-pr-fold"
+          aria-expanded={all}
+          onClick={() => setAll(!all)}
+        >
           {t(all ? "chatInspector.changes.showLess" : "chatInspector.changes.showMore")}
-        </InspectorFold>
+        </button>
       )}
     </>
   );
@@ -169,12 +185,18 @@ function PullRequestRow({
   pr,
   live,
   onOpenBeside,
+  onDismiss,
 }: {
   pr: SummaryPullRequest;
   live: InspectorPullRequestStatus;
   onOpenBeside?: (url: string) => void;
+  onDismiss?: (url: string) => void;
 }) {
   const t = useT();
+  const hover = useHoverCard();
+  const site = useSiteInfo(pr.url);
+  const [anchor, setAnchor] = useState<HTMLAnchorElement | null>(null);
+  const card = useId();
   const state = glyphState(pr, live);
   const title = live.title ?? pr.title;
   const repoName = pr.repo.split("/").pop() ?? pr.repo;
@@ -190,13 +212,16 @@ function PullRequestRow({
     // owner chip is inside the link and opens the pull request too; a label, not its own control.
     <li className="acpmux-chat-inspector-pr" data-state={state}>
       <a
+        ref={setAnchor}
         className="acpmux-chat-inspector-pr__link"
         href={pr.url}
+        aria-describedby={hover.open ? card : undefined}
         onClick={(event) => {
           if (!onOpenBeside || event.metaKey || event.ctrlKey || event.shiftKey) return;
           event.preventDefault();
           onOpenBeside(pr.url);
         }}
+        {...hover.trigger}
       >
         {/* tooltip-allow: the state glyph shows no text; its label is for screen readers only */}
         <span className="acpmux-chat-inspector-pr__icon" title={stateLabel}>
@@ -247,6 +272,16 @@ function PullRequestRow({
           </span>
         </span>
       </a>
+      <LinkHoverCard
+        id={card}
+        href={pr.url}
+        anchor={anchor}
+        hover={hover}
+        mark={<GitHubMark size={13} className="cv-chip__icon cv-chip__icon--gh" />}
+        siteTitle={site?.title}
+        pullRequest={{ repo: pr.repo, number: pr.number, title: title || undefined, state }}
+        side="top"
+      />
       <Menu>
         <MenuButton
           className="acpmux-chat-inspector-icon-button acpmux-chat-inspector-pr__more"
@@ -271,6 +306,11 @@ function PullRequestRow({
           <MenuItem className="acpmux-chat-inspector-menu__item" onSelect={() => void copyText(reference)}>
             {t("chatInspector.changes.copyReference")}
           </MenuItem>
+          {onDismiss && (
+            <MenuItem className="acpmux-chat-inspector-menu__item" onSelect={() => onDismiss(pr.url)}>
+              {t("prDock.dismiss", { number: pr.number })}
+            </MenuItem>
+          )}
         </MenuPopup>
       </Menu>
     </li>
