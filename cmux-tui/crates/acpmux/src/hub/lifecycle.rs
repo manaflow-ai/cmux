@@ -235,6 +235,8 @@ impl Hub {
                 return Err(RpcError::invalid_params(e.message().to_owned()));
             }
         }
+        // No `git` record exists yet; retain that baseline even if the chat grows before attach.
+        self.restore_git_branch(&session, session.meta().git_branch);
         self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
         if let Some(a) = &adopt {
             let adopted = if fork_from.is_some() {
@@ -683,6 +685,7 @@ impl Hub {
                 if let Some(sid) = known {
                     *tr.session_id.lock().await = Some(sid);
                 }
+                let program = plan.program.clone();
                 ChildAgent::spawn_with(
                     &meta.harness,
                     &profile,
@@ -695,7 +698,9 @@ impl Hub {
                 )
                 .await
                 .map_err(|e| {
-                    crate::launch_policy::spawn_error(e, |e| RpcError::internal(e.to_string()))
+                    crate::launch_policy::spawn_error(e, |e| {
+                        crate::recovery::spawn_failed(&e, &meta.harness, &program, &meta.cwd)
+                    })
                 })?
             }
         } else if self.agent_hosts_enabled() {
@@ -713,7 +718,10 @@ impl Hub {
             )
             .await
             .map_err(|e| {
-                crate::launch_policy::spawn_error(e, |e| RpcError::internal(e.to_string()))
+                crate::launch_policy::spawn_error(e, |e| {
+                    let program = profile.argv.first().map(String::as_str).unwrap_or_default();
+                    crate::recovery::spawn_failed(&e, &meta.harness, program, &meta.cwd)
+                })
             })?
         };
         // A direct start records the format its command was pinned to (a host's: hosts.rs).

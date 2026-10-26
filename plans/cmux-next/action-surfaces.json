@@ -21698,6 +21698,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "agent toggle-session-info",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentPane.toggleSessionInfo",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Toggle Session Info",
+      "title_key" : "action.agentPane.toggleSessionInfo",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "agent toggle-acp-inspector",
       "context_menu" : "offered",
       "context_menus" : [
@@ -21720,7 +21748,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle Session Info",
+      "title" : "Toggle Event Inspector",
       "title_key" : "action.agentPane.toggleInspector",
       "title_table" : "Localizable"
     },
@@ -25053,7 +25081,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "New Terminal on Machine",
+      "title" : "New Terminal Workspace on Machine",
       "title_key" : "action.cloudNewTerminal",
       "title_table" : "ActionCatalog"
     },
