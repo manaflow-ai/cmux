@@ -11,6 +11,7 @@ Linux or a fleet Mac only, never the person's Mac.
 from __future__ import annotations
 
 import copy
+import dataclasses
 import json
 import os
 import shutil
@@ -30,6 +31,8 @@ sys.path.insert(0, str(HERE))
 import driver_daemon as d  # noqa: E402
 
 BINARY = os.environ.get("CMUX_ORACLE_DAEMON_BINARY", "")
+# Until normalize.py loads the default schema (SchemaTests), the live tests can name one it loads.
+SNAPSHOT_SCHEMA = os.environ.get("CMUX_ORACLE_SNAPSHOT_SCHEMA", "")
 EXAMPLE = HERE.parents[2] / "schemas" / "oracle" / "fixtures" / "case-example-daemon.json"
 
 
@@ -56,6 +59,20 @@ class PathTests(unittest.TestCase):
             Path(root, "left").write_text("x")
             with self.assertRaises(d.CaseError):
                 d.CasePaths(Path(root)).create()
+
+    def test_each_case_has_its_own_session_and_install_directory(self):
+        a, b = d.CasePaths(Path("/tmp/o/aaaaaa/000001")), d.CasePaths(Path("/tmp/o/aaaaaa/000002"))
+        self.assertNotEqual(a.session, b.session)
+        self.assertNotEqual(a.install_dir, b.install_dir)
+        self.assertTrue(a.session.startswith(d.SESSION_NAME + "-"))
+        self.assertEqual(a.install_dir.parent, Path(f"/tmp/cmux-th-{os.geteuid()}"))
+        # Room for a host's `<32 hex terminal id>.sock` within the limit.
+        self.assertLessEqual(len(os.fsencode(str(a.install_dir / ("0" * 32 + ".sock")))), d.SOCKET_LIMIT)
+
+    def test_stable_token_is_cmux_tuis_fnv1a(self):
+        # codec.rs stable_token: FNV-1a 64; these are the published FNV-1a 64 values.
+        self.assertEqual(d.stable_token(""), "cbf29ce484222325")
+        self.assertEqual(d.stable_token("a"), "af63dc4c8601ec8c")
 
     def test_environment_is_built_from_nothing(self):
         paths = d.CasePaths(Path("/tmp/o/aaaaaa/bbbbbb"))
@@ -145,84 +162,184 @@ class CrashScopeTests(unittest.TestCase):
 
 
 class ProcessTests(unittest.TestCase):
-    def test_tree_running_and_scan_find_a_marked_process_then_its_exit(self):
+    def spawn_parent(self, marker: str) -> "tuple[subprocess.Popen, int]":
+        """A marked parent with one child that runs under `env -i` (no marker), like a daemon's hook or git
+        child; returns the parent and the child's pid."""
+        script = ("import subprocess, sys, time; "
+                  "p = subprocess.Popen(['/usr/bin/env', '-i', '/bin/sleep', '60'], start_new_session=True); "
+                  "print(p.pid, flush=True); time.sleep(60)")
+        parent = subprocess.Popen([sys.executable, "-c", script, "--socket", "/tmp/x.sock"], stdout=subprocess.PIPE,
+                                  env={"PATH": "/usr/bin:/bin", d.MARKER_ENV: marker}, start_new_session=True)
+        return parent, int(parent.stdout.readline())
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "reads /proc")
+    def test_the_tree_has_every_descendant_marked_or_not(self):
         marker = f"/tmp/o/test{os.getpid()}"
-        env = {"PATH": "/usr/bin:/bin", d.MARKER_ENV: marker}
-        # A parent with one child, both marked, like a daemon and its holder.
-        script = "import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); time.sleep(60)"
-        child = subprocess.Popen([sys.executable, "-c", script, "--socket", "/tmp/x.sock"], env=env,
-                                 start_new_session=True)
+        parent, child = self.spawn_parent(marker)
         try:
+            # The child has exec'd sleep once its environment is empty: then it is the process to find.
             deadline = time.monotonic() + 10
-            while len(d.process_tree(child.pid, marker)) < 2 and time.monotonic() < deadline:
-                time.sleep(0.02)  # test only: the grandchild needs a moment to exist
-            tree = d.process_tree(child.pid, marker)
-            self.assertEqual(len(tree), 2, tree)
-            self.assertEqual({p.pid for p in d.scan_markers()[marker]}, {p.pid for p in tree})
-            self.assertIn("/tmp/x.sock", d.socket_paths([p for p in tree if p.pid == child.pid]))
-            self.assertEqual(d.process_tree(child.pid, "/tmp/o/other"), [])
-            self.assertEqual(d.wait_for_exits([child.pid], 0.05), {child.pid})
-            for proc in tree:
-                os.kill(proc.pid, signal.SIGKILL)
-            child.wait()
-            self.assertEqual(d.wait_for_exits([p.pid for p in tree], 5), set())
-            self.assertEqual(d.still_running(tree, marker), [])
+            while Path(f"/proc/{child}/cmdline").read_bytes() != b"/bin/sleep\x0060\x00" \
+                    and time.monotonic() < deadline:
+                time.sleep(0.02)  # test only: env needs a moment to exec sleep
+            kids = d.descendants(parent.pid, marker)
+            self.assertEqual([p.pid for p in kids], [child], kids)
+            self.assertNotIn(f"{d.MARKER_ENV}={marker}".encode(), Path(f"/proc/{child}/environ").read_bytes())
+            self.assertEqual(d.still_running(kids), kids)
+            # A pid with another start time is another process.
+            self.assertEqual(d.still_running([dataclasses.replace(kids[0], start="1")]), [])
+            self.assertIn("/tmp/x.sock", d.socket_paths(d.descendants(os.getpid(), marker)))
+            self.assertEqual(d.wait_for_exits([parent.pid], 0.05), {parent.pid})
+            self.assertEqual({p.pid for p in d.scan_markers()[marker]}, {parent.pid})
+            os.kill(child, signal.SIGKILL)
+            os.kill(parent.pid, signal.SIGKILL)
+            parent.wait()
+            self.assertEqual(d.wait_for_exits([parent.pid, child], 5), set())
+            self.assertEqual(d.still_running(kids), [])
             self.assertNotIn(marker, d.scan_markers())
         finally:
-            if child.poll() is None:
-                child.kill()
-                child.wait()
+            for pid in (child, parent.pid):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            parent.wait()
+            parent.stdout.close()
 
-    def test_proof_reports_kills_and_removes_what_a_case_left(self):
+    @unittest.skipUnless(sys.platform.startswith("linux"), "PR_SET_CHILD_SUBREAPER is Linux only")
+    def test_a_worker_keeps_the_orphans_of_its_case_in_its_tree(self):
+        """The parent exits and leaves its env -i child: the worker, a subreaper, adopts it and still finds it."""
+        helper = r"""
+import json, os, subprocess, sys
+sys.path.insert(0, sys.argv[1])
+import driver_daemon as d
+d.become_subreaper()
+script = ("import subprocess; p = subprocess.Popen(['/usr/bin/env', '-i', '/bin/sleep', '60'], "
+          "start_new_session=True); print(p.pid, flush=True)")
+parent = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE,
+                          env={"PATH": "/usr/bin:/bin", d.MARKER_ENV: sys.argv[2]})
+orphan = int(parent.stdout.readline())
+parent.wait()
+tree = d.descendants(os.getpid(), sys.argv[2])
+print(json.dumps({"orphan": orphan, "me": os.getpid(), "tree": [[p.pid, p.ppid] for p in tree]}))
+left = d.end_processes(tree, 5)
+d.reap_orphans(None)
+print(json.dumps({"left": sorted(left), "after": [p.pid for p in d.descendants(os.getpid(), sys.argv[2])]}))
+"""
+        out = subprocess.run([sys.executable, "-I", "-c", helper, str(HERE), f"/tmp/o/test{os.getpid()}"],
+                             check=True, stdout=subprocess.PIPE, timeout=30).stdout.splitlines()
+        found, ended = json.loads(out[0]), json.loads(out[1])
+        self.assertIn([found["orphan"], found["me"]], found["tree"])
+        self.assertEqual(ended, {"left": [], "after": []})
+
+    def test_a_dead_socket_file_is_debt_and_a_listening_one_fails(self):
         paths = d.CasePaths(Path(f"/tmp/o/test{os.getpid()}/proof"))
         shutil.rmtree(paths.root, ignore_errors=True)
         paths.create()
+        paths.install_dir.mkdir(parents=True, exist_ok=True)
         listener = socket.socket(socket.AF_UNIX)
-        listener.bind(str(paths.root / "left.sock"))
+        listener.bind(str(paths.root / "live.sock"))
+        listener.listen(1)
+        for path in (paths.root / "bh-0" / "dead.sock", paths.install_dir / "host.sock"):
+            path.parent.mkdir(exist_ok=True)
+            dead = socket.socket(socket.AF_UNIX)
+            dead.bind(str(path))
+            dead.close()  # the file stays; nothing listens on it
+
+        def no_scan():
+            raise AssertionError("a finished worker proved its own tree: no process-table scan")
+
+        try:
+            proof = d.prove_clean(paths, [], True, no_scan, 5)
+            self.assertEqual(len(proof.problems), 1, proof.problems)
+            self.assertIn("still listening", proof.problems[0])
+            self.assertIn("live.sock", proof.problems[0])
+            self.assertEqual(len(proof.debt), 1, proof.debt)
+            self.assertIn("dead.sock", proof.debt[0])
+            self.assertIn(str(paths.install_dir / "host.sock"), proof.debt[0])
+            self.assertFalse(proof.dirty)
+            self.assertFalse(paths.root.exists())
+            self.assertFalse(paths.install_dir.exists())
+        finally:
+            listener.close()
+            shutil.rmtree(paths.root.parent, ignore_errors=True)
+            shutil.rmtree(paths.install_dir, ignore_errors=True)
+
+    def test_a_worker_that_did_not_finish_is_proved_by_one_scan(self):
+        paths = d.CasePaths(Path(f"/tmp/o/test{os.getpid()}/hung"))
+        shutil.rmtree(paths.root, ignore_errors=True)
+        paths.create()
         env = {"PATH": "/usr/bin:/bin", d.MARKER_ENV: str(paths.root)}
         orphan = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], env=env,
                                   start_new_session=True)
+        scans = []
+
+        def scan():
+            scans.append(1)
+            return d.scan_markers()
+
         try:
-            problems, dirty = d.prove_clean(paths, [], d.MarkerScan(), 5)
-            self.assertFalse(dirty)
-            self.assertTrue(any("processes left" in p and str(orphan.pid) in p for p in problems), problems)
-            self.assertTrue(any("sockets left" in p and "left.sock" in p for p in problems), problems)
+            proof = d.prove_clean(paths, [], False, scan, 5)
+            self.assertEqual(len(scans), 1)
+            self.assertTrue(any("did not finish" in p and str(orphan.pid) in p for p in proof.problems),
+                            proof.problems)
             self.assertEqual(orphan.wait(5), -signal.SIGKILL)
             self.assertFalse(paths.root.exists())
         finally:
-            listener.close()
             if orphan.poll() is None:
                 orphan.kill()
                 orphan.wait()
             shutil.rmtree(paths.root.parent, ignore_errors=True)
 
-    def test_cases_that_ask_together_share_one_scan(self):
-        started = threading.Event()
-        release = threading.Event()
-        calls = []
+
+class RunBatchTests(unittest.TestCase):
+    def test_the_sessions_of_a_run_scan_the_process_table_only_for_a_worker_that_did_not_finish(self):
+        """oracle.py opens a session per batch (batch limit 1 for the daemon), so a scan per case would be
+        one per case at any --jobs. A worker that finished proved its own tree; only a hung one needs a scan."""
+        import oracle  # noqa: PLC0415 - sibling of this file
+
+        scans = []
+        lock = threading.Lock()
 
         def scan():
-            calls.append(1)
-            started.set()
-            release.wait(5)
-            return {"/tmp/o/a/1": []}
+            with lock:
+                scans.append(1)
+            return {}
 
-        joined = d.MarkerScan(scan)
-        first = threading.Thread(target=joined.find, args=("/tmp/o/a/1",))
-        first.start()
-        started.wait(5)
-        # These ask while the first scan runs: they need a scan that starts after they asked, one for all.
-        waiters = [threading.Thread(target=joined.find, args=("/tmp/o/a/1",)) for _ in range(20)]
-        for waiter in waiters:
-            waiter.start()
-        deadline = time.monotonic() + 10
-        # CPython's Condition keeps its waiters in _waiters: all 20 wait before the first scan ends.
-        while len(joined._changed._waiters) < len(waiters) and time.monotonic() < deadline:
-            time.sleep(0.01)
-        release.set()
-        for thread in [first, *waiters]:
-            thread.join(10)
-        self.assertEqual(len(calls), 2)
+        class StubWorker(d.DaemonSession):
+            def __init__(self, session_ctx):  # noqa: D107 - no binary or schema: the worker is stubbed
+                self.scan = scan
+                self.session_ctx = dict(session_ctx)
+
+            def run_worker(self, case, case_ctx, scale):
+                hung = case.get("hung", False)
+                status = "Timeout" if hung else "Pass"
+                return {"status": status, "message": "", "checkpoints": [], "sockets": []}, not hung
+
+        base = Path(f"/tmp/o/test{os.getpid()}")
+        batches = []
+        for index in range(8):
+            data = {"id": f"c{index}", "suite": "s", "hung": index == 5}
+            case = oracle.Case(f"s/c{index}", "s", Path("c.json"), data)
+            batches.append((oracle.Work(case, {"case_id": case.id, "state_root": str(base / f"{index:06d}")}),))
+        try:
+            results, errors = oracle.run_phase(batches, StubWorker, {"run_id": "batch-test"}, 8)
+        finally:
+            shutil.rmtree(base, ignore_errors=True)
+        self.assertEqual(errors, [])
+        self.assertEqual(sorted(r["status"] for _work, r, _ms in results), ["Pass"] * 7 + ["Timeout"])
+        self.assertEqual(len(scans), 1)
+
+
+class SchemaTests(unittest.TestCase):
+    def test_a_session_opens_on_the_default_snapshot_schema(self):
+        """oracle.py passes no snapshot_schema, so `oracle.py run --product daemon` needs normalize.py to load
+        its own default schema. Red while schemas/oracle/snapshot-v1.schema.json uses keywords normalize.py
+        refuses (the p15-oracle-011/013 agreement)."""
+        try:
+            d.open_session({"binary": sys.executable, "run_id": "schema-test"})
+        except ValueError as error:
+            self.fail(str(error)[:3000])
 
 
 def example_case() -> dict:
@@ -242,7 +359,8 @@ class LiveTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.run_id = f"driver-test-{os.getpid()}-{time.time_ns()}"
-        cls.session = d.open_session({"binary": BINARY, "run_id": cls.run_id})
+        extra = {"snapshot_schema": SNAPSHOT_SCHEMA} if SNAPSHOT_SCHEMA else {}
+        cls.session = d.open_session({"binary": BINARY, "run_id": cls.run_id, **extra})
         cls.count = 0
 
     @classmethod
@@ -255,6 +373,7 @@ class LiveTests(unittest.TestCase):
         result = self.session.run_case(case, {"case_id": f"{case['suite']}/{case['id']}", "state_root": str(root)})
         self.assertNotIn(str(root), d.scan_markers(), "I6: the case left processes")
         self.assertFalse(root.exists(), "the case left its state root")
+        self.assertFalse(d.CasePaths(root).install_dir.exists(), "the case left its install directory")
         return result
 
     def test_example_case_passes_without_the_virtual_clock_step(self):
@@ -264,6 +383,7 @@ class LiveTests(unittest.TestCase):
         self.assertEqual(result["status"], "Pass", result["message"])
         last = result["checkpoints"][-1]["snapshot"]["facets"]["daemon"]["session"]
         self.assertEqual(len(last["workspaces"]), 1)
+        self.assertEqual(last["session"].get("name", d.SESSION_NAME), d.SESSION_NAME)
         self.assertEqual(result["checkpoints"][-1]["snapshot"]["facets"]["crashes"]["status"], "not-comparable")
 
     def test_two_runs_give_equal_canonical_layouts(self):
@@ -287,6 +407,31 @@ class LiveTests(unittest.TestCase):
         case["steps"] = [s for s in case["steps"] if s["id"] in ("create-ws", "kill-daemon")]
         result = self.run_case(case)
         self.assertEqual(result["status"], "Pass", result["message"])
+
+    def test_killed_daemon_with_no_terminal_leaves_nothing(self):
+        """Nothing outlives the daemon, so only the teardown's new daemon removes the killed one's socket."""
+        case = example_case()
+        case["steps"] = [s for s in case["steps"] if s["id"] == "kill-daemon"]
+        result = self.run_case(case)
+        self.assertEqual(result["status"], "Pass", result["message"])
+        self.assertNotIn("s.sock", " ".join(result.get("daemon_debt", [])))
+
+    def test_terminal_hosts_bind_in_the_case_install_directory(self):
+        paths = d.CasePaths(d.DEFAULT_STATE_BASE / d.short_token(self.run_id) / "hosts0")
+        paths.create()
+        daemon = d.Daemon(BINARY, paths, d.case_environment(paths, "hosts"), 1.0)
+        try:
+            daemon.start("hosts")
+            daemon.request("workspace.create", {**d.SELECTORS, "name": "w", "initial_content": "terminal"},
+                           "hosts-1", d.REQUEST_S)
+            deadline = time.monotonic() + 10
+            while not d.socket_files(paths.install_dir) and time.monotonic() < deadline:
+                time.sleep(0.02)  # test only: the host binds after workspace.create replies
+            self.assertTrue(d.socket_files(paths.install_dir), f"no host socket in {paths.install_dir}")
+            daemon.stop("hosts", end_terminals=True)
+        finally:
+            daemon.kill(signal.SIGKILL)
+            d.prove_clean(paths, [], False, d.scan_markers, 5)
 
     def test_kill_outside_allow_crashes_is_a_crash(self):
         case = example_case()
