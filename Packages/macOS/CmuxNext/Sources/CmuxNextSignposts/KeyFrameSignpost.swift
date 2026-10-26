@@ -1,3 +1,4 @@
+import Carbon.HIToolbox
 public import Foundation
 
 /// The always-on `key.frame` interval (``SignpostName/keyToFrame``): from the app dispatching a key-down to the end
@@ -17,6 +18,11 @@ public import Foundation
 /// way, made once for the pump's life (base/message_loop/message_pump_apple.mm, `PreWaitObserver`). A key begun
 /// in a before-waiting callout ahead of the commit ends at that commit, where a one-shot ``CommitBoundary``,
 /// installed too late for that pass, would report it missed.
+///
+/// Each key-down first samples the system's secure event input into the trace runtime's keystroke-timing gate
+/// (``TraceRuntime/KeyTimingHold/secureEventInput``, task 128): Chromium turns it on for a focused password field
+/// (ui/base/cocoa/secure_password_input.mm `ScopedPasswordInputEnabler`) and Ghostty for a terminal's password
+/// prompt, and while it is on no key timing is recorded, here, in the key flows or in the ring.
 ///
 /// The app holds one for its life (`CmuxApplication`); when it is released, its observer removes itself at its
 /// next callout.
@@ -39,10 +45,13 @@ public final class KeyFrameSignpost {
     private let capacity: Int
     /// The keys begun since the observer last fired, reserved to ``capacity`` once.
     private var pending: [KeyFrameInterval] = []
+    /// Whether secure event input is on now, read once per key-down (the system's `IsSecureEventInputEnabled`).
+    private let secureEventInput: () -> Bool
 
-    /// The app's key-frame signposts: ``Signposter/key``, ended by an observer on the main run loop.
+    /// The app's key-frame signposts: ``Signposter/key``, ended by an observer on the main run loop, gated by the
+    /// system's secure event input.
     public convenience init() {
-        self.init(signposter: .key)
+        self.init(signposter: .key, secureEventInput: { IsSecureEventInputEnabled() })
         installOnMainRunLoop()
     }
 
@@ -51,22 +60,27 @@ public final class KeyFrameSignpost {
     /// - Parameters:
     ///   - signposter: The key category's signposter.
     ///   - capacity: The most keys one turn holds open (several keys can dispatch in one turn when events queue).
-    init(signposter: Signposter, capacity: Int = 64) {
+    ///   - secureEventInput: Whether secure event input is on now (tests pass their own).
+    init(signposter: Signposter, capacity: Int = 64, secureEventInput: @escaping () -> Bool = { false }) {
         self.signposter = signposter
         self.capacity = capacity
+        self.secureEventInput = secureEventInput
         pending.reserveCapacity(capacity)
     }
 
     /// How many keys are open (tests).
     var openCount: Int { pending.count }
 
-    /// Begins the interval for a key-down dispatched now; it ends after this main run-loop turn's commit.
+    /// Begins the interval for a key-down dispatched now; it ends after this main run-loop turn's commit. It first
+    /// sets or clears the ``TraceRuntime/KeyTimingHold/secureEventInput`` hold from the system's secure event input,
+    /// so while that is on no interval begins and the key flows and the ring take no key timing either.
     ///
     /// - Parameters:
     ///   - target: What has the keyboard.
     ///   - eventTimestamp: The key event's timestamp (seconds since boot, `NSEvent.timestamp`); 0 records age -1.
     ///   - now: Seconds since boot now (`ProcessInfo.systemUptime`, the event timestamp's clock).
     public func begin(target: Target, eventTimestamp: TimeInterval, now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        signposter.trace.setKeyTimingSuppressed(secureEventInput(), by: .secureEventInput)
         guard signposter.isEnabled, pending.count < capacity else { return }
         pending.append(signposter.begin(.keyToFrame, target: target,
                                         ageMicros: Self.ageMicros(eventTimestamp: eventTimestamp, now: now)))

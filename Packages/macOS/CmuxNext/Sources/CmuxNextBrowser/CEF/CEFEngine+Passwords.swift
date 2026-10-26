@@ -11,7 +11,7 @@ extension CEFEngine {
     /// Whether this build's Chromium has every password core call.
     public func canManagePasswords() async -> Bool {
         do {
-            try await CEFRuntime.shared.start(layout: layout, trigger: "passwords")
+            try await startRuntime(trigger: "passwords")
         } catch {
             return false
         }
@@ -82,7 +82,7 @@ extension CEFEngine {
     }
 
     private func coreShim() async throws -> CEFShimLibrary {
-        try await CEFRuntime.shared.start(layout: layout, trigger: "passwords")
+        try await startRuntime(trigger: "passwords")
         guard let shim = Self.passwordCoreShim() else { throw ChromiumPasskeyError.unavailable }
         return shim
     }

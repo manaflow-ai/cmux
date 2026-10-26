@@ -154,7 +154,7 @@ fi
 # build-chromium-host.sh apart from the shim, so a host edit changes neither
 # the shim's key nor the runtime pack's.
 #
-# The host is a prototype that is off by default (browserHost.helperPrototype).
+# The host is a prototype that is off by default (browserHost.helper).
 # A host that does not build costs this Debug build the host app only: a
 # warning, and the app then reports that it has none. It never fails the
 # build, the way a missing CEF artifact does not. CMUX_NEXT_REQUIRE_CHROMIUM_HOST=1
@@ -327,7 +327,7 @@ for existing in "$frameworks"/*" Helper"*.app; do
   (( keep )) || rm -rf "$existing"
 done
 
-# 3b. The Chromium host (prototype behind browserHost.helperPrototype,
+# 3b. The Chromium host (prototype behind browserHost.helper,
 # plans/cmux-next/cef-helper-app-DESIGN.md): Chromium's browser process as a
 # second executable of this app, Contents/MacOS/<Product> Chromium Host, which
 # uses the helpers above for its child processes. Not an app of its own:

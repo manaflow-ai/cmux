@@ -99,6 +99,9 @@ public nonisolated enum TerminalIOEvent: Sendable, Equatable {
     case snapshot(Data, phase: TerminalSnapshotPhase)
     /// Live PTY output, fed to `ghostty_surface_process_output`.
     case output(Data)
+    /// The `output` before this one carries the echo of key press `flow`
+    /// (``TypingLatencyProbe``): only while the probe records.
+    case inputEcho(flow: UInt64)
     /// The PTY's grid from this point in the stream (the daemon applied a
     /// size). Always applied with `ghostty_surface_set_grid` on the output
     /// lane; after the first one the surface renders only these grids. Send one for every

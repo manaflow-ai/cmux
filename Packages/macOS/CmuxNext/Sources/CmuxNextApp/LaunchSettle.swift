@@ -30,6 +30,8 @@ final class LaunchSettle {
     private var sawTerminalContent = false
     /// The clock of ``settled(within:images:)``'s limit.
     private let clock: any Clock<Duration>
+    /// The agent pages' WebKit warm-up, whose empty page goes at the settle (``install(daemon:warmup:)``).
+    private weak var warmup: AgentPageWarmup?
 
     /// - Parameters:
     ///   - reveal: The app's launch load-in (`AppServices.launchReveal`).
@@ -65,8 +67,8 @@ final class LaunchSettle {
         isSettled = true
         unavailableWatch?.cancel()
         unavailableWatch = nil
-        // The agent pages' warm-up page is done: their first page made its own process by now.
-        AgentPaneView.finishWarmup()
+        // The agent pages' warm-up page goes; a warm-up still queued (afterStartup) runs later.
+        warmup?.settle()
         let waiting = waiters
         waiters = []
         for work in waiting { work() }
@@ -80,7 +82,12 @@ final class LaunchSettle {
     /// pane region becoming ready any other way (a page or an agent shown
     /// first, `PaneController`; or the reveal deadline), and for the local
     /// daemon becoming unavailable.
-    func install(daemon: DaemonService) {
+    ///
+    /// - Parameters:
+    ///   - daemon: The local daemon.
+    ///   - warmup: The agent pages' WebKit warm-up (`AppServices.agentPageWarmup`).
+    func install(daemon: DaemonService, warmup: AgentPageWarmup) {
+        self.warmup = warmup
         reveal.whenReady(.pane) { [weak self] in self?.settle() }
         TerminalTimings.onContentApplied = { [weak self] in self?.terminalContentApplied() }
         // task-owner: ends when the daemon is unavailable or the launch settled (cancelled in settle)

@@ -16,7 +16,13 @@ extension CEFTab: BrowserFreezing {
         return shim.devToolsCall(browserID, "Page.setWebLifecycleState", CEFDevToolsResult.params(["state": frozen ? "frozen" : "active"])) != 0
     }
 
-    /// Freezes a page that is never shown (the spare window's about:blank placeholder) through DevTools
+    /// The spare window's placeholder made with no renderer (`CEFPaneHost.placeholderHasNoRenderer`), as
+    /// Chrome makes restored tabs (`chrome/browser/ui/browser_tabrestore.cc`, `kNoRendererProcess`):
+    /// nothing runs in it, so it is never frozen.
+    var isRendererlessPlaceholder: Bool { host.placeholderHasNoRenderer && host.placeholder === self }
+
+    /// Freezes a page that is never shown (the spare window's about:blank placeholder, on a fork with no
+    /// renderer-less placeholder) through DevTools
     /// `Page.setWebLifecycleState`, which hides it to Chromium first (`WasHidden`): the fork's
     /// `cmux_shim_tab_set_frozen` freezes only pages Chromium already counts hidden, and
     /// `CefBrowserHost::WasHidden` does nothing for a windowed Chrome-style browser. Unfrozen, the

@@ -35,11 +35,6 @@ public final class AgentPaneSuggestedTasks {
     /// default, only forces them on.
     var isOn: Bool { setting() || AgentPaneTunables.suggestedTasks.value }
 
-    /// The script that tells a loaded page whether agents suggest tasks.
-    static func script(_ on: Bool) -> String {
-        "window.cmuxAcpmuxBridge?.applySuggestedTasks?.(\(on));"
-    }
-
     /// The switch, read now, as a page host event; `view` then also gets every change.
     func event(for view: AgentPaneView) -> AgentPageEvent {
         views.add(view)
@@ -55,8 +50,7 @@ public final class AgentPaneSuggestedTasks {
     }
 
     private func send(to view: AgentPaneView) {
-        let on = isOn
-        view.deliver([.suggestedTasks(on)], scripts: [Self.script(on)])
+        view.deliver([.suggestedTasks(isOn)])
     }
 
     // Same shape as AgentPaneView's (cx-t7hu): not an isolated deinit.

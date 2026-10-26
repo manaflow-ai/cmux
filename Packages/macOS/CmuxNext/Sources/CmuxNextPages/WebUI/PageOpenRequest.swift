@@ -47,8 +47,10 @@ extension PageWebView {
     ///   - chromium: Makes the page's Chromium view when the policy picks Chromium; nil keeps it on WebKit.
     ///   - openPanel: Answers the page's `<input type="file">` on WebKit; nil: a file input does nothing.
     ///   - registry: Lists the view for the debug verbs.
+    ///   - processGroups: The host's shared WebKit processes, which a page that asks for them
+    ///     (``PageEngineOptions/sharesWebKitProcess``) joins when it shows in WebKit.
     convenience init?(request: PageOpenRequest, chromium: (any PageChromiumHosting)?,
-                      openPanel: MadeAheadOpenPanel?, registry: PageRegistry) {
+                      openPanel: MadeAheadOpenPanel?, registry: PageRegistry, processGroups: WebProcessGroups? = nil) {
         let requested = ProcessInfo.processInfo.systemUptime
         let root: URL
         if let explicit = request.root {
@@ -59,12 +61,15 @@ extension PageWebView {
             root = served
         }
         let handler = PageSchemeHandler(page: request.descriptor, root: root, dynamicSource: request.dynamicResources)
+        let groups = request.options.sharesWebKitProcess
+            && Self.engineDecision(for: request.descriptor, options: request.options, hosting: chromium).engine == .webKit
+            ? processGroups : nil
         let host = Self.hostConfiguration(handler: handler, documentAttributes: request.documentAttributes,
-                                          options: request.options)
+                                          options: request.options, dataStore: groups?.dataStore)
         self.init(descriptor: request.descriptor, configuration: host.configuration,
                   inputReadiness: host.inputReadiness, routes: request.routes, route: request.route,
                   options: request.options, surface: request.surface, dynamicResources: request.dynamicResources,
                   pooled: false, load: true, openRequested: requested, chromium: chromium,
-                  openPanel: openPanel, registry: registry)
+                  openPanel: openPanel, registry: registry, processGroups: groups)
     }
 }
