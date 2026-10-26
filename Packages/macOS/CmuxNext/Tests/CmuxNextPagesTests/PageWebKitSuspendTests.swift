@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextHibernation
 @testable import CmuxNextPages
 import CmuxNextWakeups
@@ -380,7 +381,7 @@ struct PageWebKitParkingBench {
         let view = try await window.loadedPage(wakingPage)
         try await Self.nextFrame(of: view) // shown and painted
         let pid = try #require((view.value(forKey: "_webProcessIdentifier") as? NSNumber)?.int32Value)
-        view.configuration.preferences.enableHiddenPageThrottling()
+        view.configuration.preferences.setHiddenPageThrottling(.full)
         let hidden = await window.waitForVisibility("hidden") {
             switch mode {
             case .hiddenInWindow, .suspended: view.isHidden = true

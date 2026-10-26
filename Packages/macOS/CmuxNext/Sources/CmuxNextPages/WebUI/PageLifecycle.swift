@@ -300,7 +300,14 @@ package final class PageLifecycle {
         guard var entry = entries[decision.key], entry.state != decision.state else { return }
         switch (entry.state, decision.state) {
         case (.hidden, .frozen):
-            guard entry.target.freeze() else { return }
+            guard entry.target.freeze() else {
+                // Refused (its engine page is still starting, or still counts it visible): asked
+                // again after one recently visible window, as BrowserHibernation asks a refused
+                // page again after freezeSeconds. The plan's own deadline may be the discard, or none.
+                let retry = planner.timing.visibleWindow(lowPowerMode: conditions.lowPowerMode)
+                arm(at: uptime() + .seconds(retry))
+                return
+            }
         case (.hidden, .discarded), (.frozen, .discarded):
             entry.target.discard()
         case (.frozen, .hidden):
