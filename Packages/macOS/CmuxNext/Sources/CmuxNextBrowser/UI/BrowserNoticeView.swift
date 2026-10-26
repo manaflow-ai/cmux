@@ -87,6 +87,7 @@ final class BrowserNoticeView: ChromeFrameView, PageFloatingCard {
         for (view, rect) in zip(views, rects) { view.setChromeLayoutRect(rect) }
     }
 
+    // visibility-walk-allow: one text color and the glass tint in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

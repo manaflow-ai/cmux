@@ -129,9 +129,26 @@ nonisolated extension Feature {
         replaces: ["browserResize.layerHosting"]
     )
 
+    /// A Chromium tab's address, title, favicon and progress events apply once per frame: as visible work for a shown tab, as background work for a hidden one, whose progress waits until it shows. Commits, dialogs and crashes stay in order.
+    public static let cefMergedEvents = Feature(
+        index: 7,
+        name: "cefMergedEvents",
+        owner: "PL-motion-cef",
+        description: "A Chromium tab's address, title, favicon and progress events apply once per frame: as visible work for a shown tab, as background work for a hidden one, whose progress waits until it shows. Commits, dialogs and crashes stay in order.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-24",
+        params: [],
+        stories: ["omnibar", "idle-tabs"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// A predicted Chromium start reads the 367 MiB framework as an idle lane job that waits for startup complete (the best-effort fence), then maps it; a tab or a user feature that asks for Chromium reads the rest at user-blocking priority at once.
     public static let cefPrefetchBehindFence = Feature(
-        index: 7,
+        index: 8,
         name: "cefPrefetchBehindFence",
         owner: "Performance Lead",
         description: "A predicted Chromium start reads the 367 MiB framework as an idle lane job that waits for startup complete (the best-effort fence), then maps it; a tab or a user feature that asks for Chromium reads the rest at user-blocking priority at once.",
@@ -148,7 +165,7 @@ nonisolated extension Feature {
 
     /// The in-process Chromium message pump waits while a key, click, scroll or drag is pending for anything but a Chromium page, at most one display refresh, and runs at once after input to a Chromium page.
     public static let cefPumpInputPolicy = Feature(
-        index: 8,
+        index: 9,
         name: "cefPumpInputPolicy",
         owner: "PL-cef-layer",
         description: "The in-process Chromium message pump waits while a key, click, scroll or drag is pending for anything but a Chromium page, at most one display refresh, and runs at once after input to a Chromium page.",
@@ -165,7 +182,7 @@ nonisolated extension Feature {
 
     /// Chromium's renderer, GPU and utility processes and the browser's non-UI threads let a delayed timer fire up to its leeway late (TimerSlackMac), so the system can coalesce their wakes; the app's main-thread pump is not affected.
     public static let cefTimerSlack = Feature(
-        index: 9,
+        index: 10,
         name: "cefTimerSlack",
         owner: "PL-cef-layer",
         description: "Chromium's renderer, GPU and utility processes and the browser's non-UI threads let a delayed timer fire up to its leeway late (TimerSlackMac), so the system can coalesce their wakes; the app's main-thread pump is not affected.",
@@ -182,7 +199,7 @@ nonisolated extension Feature {
 
     /// The built-in ad blocker loads into a browser profile right before its first browser tab instead of when Chromium starts, so Home with no browser tab runs no extension renderer.
     public static let chromiumAdBlockerAtFirstTab = Feature(
-        index: 10,
+        index: 11,
         name: "chromiumAdBlockerAtFirstTab",
         owner: "PL-webui",
         description: "The built-in ad blocker loads into a browser profile right before its first browser tab instead of when Chromium starts, so Home with no browser tab runs no extension renderer.",
@@ -199,7 +216,7 @@ nonisolated extension Feature {
 
     /// In host mode, files, text and links dragged onto a Chromium page reach it as Chrome's own drop (file inputs and drop zones get the files), with the page's answer shown as the drag's operation; needs a Chromium fork at API 31.
     public static let chromiumHostDragIn = Feature(
-        index: 11,
+        index: 12,
         name: "chromiumHostDragIn",
         owner: "PL-cef-layer",
         description: "In host mode, files, text and links dragged onto a Chromium page reach it as Chrome's own drop (file inputs and drop zones get the files), with the page's answer shown as the drag's operation; needs a Chromium fork at API 31.",
@@ -216,7 +233,7 @@ nonisolated extension Feature {
 
     /// In host mode, a page's resize holds its window's frame on a Core Animation fence until the page draws at the new size, for one display frame at most; a later page shows its last frame on its background.
     public static let chromiumHostResizeFence = Feature(
-        index: 12,
+        index: 13,
         name: "chromiumHostResizeFence",
         owner: "PL-cef-layer",
         description: "In host mode, a page's resize holds its window's frame on a Core Animation fence until the page draws at the new size, for one display frame at most; a later page shows its last frame on its background.",
@@ -1738,6 +1755,7 @@ nonisolated extension Feature {
         .cefAttachedPages,
         .cefLaunchOrigin,
         .cefLayerHosting,
+        .cefMergedEvents,
         .cefPrefetchBehindFence,
         .cefPumpInputPolicy,
         .cefTimerSlack,
@@ -1841,6 +1859,7 @@ nonisolated extension Feature {
         .cefAttachedPages,
         .cefLaunchOrigin,
         .cefLayerHosting,
+        .cefMergedEvents,
         .cefPrefetchBehindFence,
         .cefPumpInputPolicy,
         .cefTimerSlack,
