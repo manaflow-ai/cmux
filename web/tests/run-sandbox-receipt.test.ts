@@ -91,6 +91,12 @@ describe("sandbox receipt", () => {
     });
   });
 
+  test("the launcher's error is the receipt's error when the journal has none", () => {
+    const base = snapshot();
+    const failed = { ...base, run: { ...base.run, status: "failed", receipt: { reply: null, exitCode: null, signal: null, timedOut: false, bootMs: null, error: "provider refused" } } } as RunSnapshotRow;
+    expect(sandboxReceiptFor(failed)?.error).toBe("provider refused");
+  });
+
   test("cleanup reads pending while an attempt still holds a VM or a VM row is still up", () => {
     expect(sandboxReceiptFor(snapshot({ providerVmId: "vm-1" }))?.cleanup).toBe("pending");
     expect(sandboxReceiptFor({ ...snapshot(), sandboxVmLive: true })?.cleanup).toBe("pending");

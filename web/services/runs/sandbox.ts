@@ -125,6 +125,7 @@ function storedOutcome(value: Record<string, unknown> | null | undefined): Sandb
     signal: num("signal"),
     timedOut: value.timedOut === true,
     bootMs: num("bootMs"),
+    error: typeof value.error === "string" ? value.error : null,
   };
 }
 
@@ -150,7 +151,7 @@ export function sandboxReceiptFor(snapshot: RunSnapshotRow, provider: ProviderId
     environment: "sandboxed",
     status,
     image: { id: run.imageId, version: run.imageVersion ?? null },
-    ...receiptOutcome(outcome, attempt?.exitCode ?? null, attempt?.error ?? run.error, handles),
+    ...receiptOutcome(outcome, attempt?.exitCode ?? null, outcome?.error ?? attempt?.error ?? run.error, handles),
     artifacts: snapshot.artifacts.map((artifact) => ({
       name: redactReceiptText(artifact.name, handles),
       // A bare `type/subtype`; parameters (`; token=…`) or anything else is not shown.
