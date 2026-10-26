@@ -105,45 +105,59 @@ enum LinkGuard {
 
     static func isIPLiteral(_ s: String) -> Bool {
         var a4 = in_addr(), a6 = in6_addr()
-        return inet_pton(AF_INET, s, &a4) == 1 || inet_pton(AF_INET6, s, &a6) == 1
+        // SAFETY: inet_pton reads the NUL-terminated copy of `s` Swift passes for the call and writes one address of
+        // its family's size into the local a4 (4 bytes) or a6 (16 bytes), during the call only.
+        return unsafe inet_pton(AF_INET, s, &a4) == 1 || inet_pton(AF_INET6, s, &a6) == 1
     }
 
     /// Every address of a name, numeric (getaddrinfo; IPv4 forms like 2130706433 or 0x7f.1 resolve too).
     static func resolve(_ host: String) -> [String] {
-        var hints = addrinfo(ai_flags: AI_ADDRCONFIG, ai_family: AF_UNSPEC, ai_socktype: SOCK_STREAM, ai_protocol: 0,
-                             ai_addrlen: 0, ai_canonname: nil, ai_addr: nil, ai_next: nil)
+        // SAFETY: the hints' pointers are null (no name, address or next hint).
+        var hints = unsafe addrinfo(ai_flags: AI_ADDRCONFIG, ai_family: AF_UNSPEC, ai_socktype: SOCK_STREAM, ai_protocol: 0,
+                                    ai_addrlen: 0, ai_canonname: nil, ai_addr: nil, ai_next: nil)
         var res: UnsafeMutablePointer<addrinfo>?
-        guard getaddrinfo(host, nil, &hints, &res) == 0, let first = res else {
+        // SAFETY: getaddrinfo reads the host's C string copy and the local hints during the call and stores in `res`
+        // a list it allocated; `numeric` copies the addresses out, then the list is freed exactly once (the defer).
+        guard unsafe getaddrinfo(host, nil, &hints, &res) == 0, let first = unsafe res else {
             // AI_ADDRCONFIG drops families without a route; ask again without it.
             hints.ai_flags = 0
-            guard getaddrinfo(host, nil, &hints, &res) == 0, res != nil else { return [] }
-            defer { freeaddrinfo(res) }
-            return numeric(res)
+            guard unsafe getaddrinfo(host, nil, &hints, &res) == 0, let again = unsafe res else { return [] }
+            defer { unsafe freeaddrinfo(again) }
+            return unsafe numeric(again)
         }
-        defer { freeaddrinfo(first) }
-        return numeric(first)
+        defer { unsafe freeaddrinfo(first) }
+        return unsafe numeric(first)
     }
     private static func numeric(_ list: UnsafeMutablePointer<addrinfo>?) -> [String] {
         var out: [String] = []
-        var p = list
-        while let ai = p {
+        // SAFETY: `list` is a getaddrinfo list its caller frees only after this returns: every node is live, its
+        // ai_addr points to ai_addrlen bytes of address and a null ai_next ends the list. getnameinfo writes at most
+        // buf.count bytes, NUL-terminated, into the local buffer, during the call only.
+        var p = unsafe list
+        while let ai = unsafe p {
             var buf = [CChar](repeating: 0, count: Int(truncatingIfNeeded: NI_MAXHOST)) /* a constant that widens exactly */
-            if getnameinfo(ai.pointee.ai_addr, ai.pointee.ai_addrlen, &buf, socklen_t(buf.count), nil, 0, NI_NUMERICHOST) == 0 {
+            if unsafe getnameinfo(ai.pointee.ai_addr, ai.pointee.ai_addrlen, &buf, socklen_t(buf.count), nil, 0, NI_NUMERICHOST) == 0 {
                 let s = String(cString: buf)
                 out.append(s.split(separator: "%").first.map(String.init) ?? s)   // drop a scope id
             }
-            p = ai.pointee.ai_next
+            p = unsafe ai.pointee.ai_next
         }
         return out
     }
 
     static func isPublicAddress(_ s: String) -> Bool {
         var a4 = in_addr(), a6 = in6_addr()
-        if inet_pton(AF_INET, s, &a4) == 1 {
-            return isPublicV4(withUnsafeBytes(of: a4.s_addr) { Array($0) })
+        // SAFETY: as isIPLiteral: inet_pton writes one address of its family's size into the local a4 or a6.
+        if unsafe inet_pton(AF_INET, s, &a4) == 1 {
+            // cmux: the address's bytes in network order, read from the value instead of through a raw pointer.
+            let v = UInt32(bigEndian: a4.s_addr)
+            return isPublicV4([UInt8(truncatingIfNeeded: v >> 24), UInt8(truncatingIfNeeded: v >> 16),
+                               UInt8(truncatingIfNeeded: v >> 8), UInt8(truncatingIfNeeded: v)])
         }
-        if inet_pton(AF_INET6, s, &a6) == 1 {
-            return isPublicV6(withUnsafeBytes(of: a6) { Array($0) })
+        // SAFETY: as above.
+        if unsafe inet_pton(AF_INET6, s, &a6) == 1 {
+            let b = a6.__u6_addr.__u6_addr8 // cmux: the 16 bytes as a tuple value, no raw pointer
+            return isPublicV6([b.0, b.1, b.2, b.3, b.4, b.5, b.6, b.7, b.8, b.9, b.10, b.11, b.12, b.13, b.14, b.15])
         }
         return false
     }

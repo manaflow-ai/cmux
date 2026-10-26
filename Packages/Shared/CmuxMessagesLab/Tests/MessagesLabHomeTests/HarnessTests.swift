@@ -357,7 +357,8 @@ enum LayerDump {
                     d["from"] = (b.fromValue as? NSNumber)?.doubleValue ?? 0; d["to"] = (b.toValue as? NSNumber)?.doubleValue ?? 0
                     d["timing"] = b.timingFunction.map { f -> [Float] in
                         var p: [Float] = []
-                        for i in 0..<4 { var c: [Float] = [0, 0]; f.getControlPoint(at: i, values: &c); p += c }
+                        // SAFETY: each call writes one control point, two floats, into the local two-float array.
+                        for i in 0..<4 { var c: [Float] = [0, 0]; unsafe f.getControlPoint(at: i, values: &c); p += c }
                         return p
                     } ?? []
                 }

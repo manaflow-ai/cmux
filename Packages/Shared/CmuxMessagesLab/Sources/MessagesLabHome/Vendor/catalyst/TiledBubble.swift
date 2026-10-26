@@ -369,7 +369,7 @@ final class TiledBody {
         guard key != bandKey else { return }
         bandKey = key
         if let img = TiledBody.bandImages[key] { band.contentsScale = s; band.contents = img; return }
-        defer { if let raw = band.contents, CFGetTypeID(raw as AnyObject) == CGImage.typeID { TiledBody.bandImages[key] = unsafeDowncast(raw as AnyObject, to: CGImage.self); if TiledBody.bandImages.count > 64 { TiledBody.bandImages.removeAll() } } }
+        defer { if let img = band.bitmapContents /* cmux: the checked downcast */ { TiledBody.bandImages[key] = img; if TiledBody.bandImages.count > 64 { TiledBody.bandImages.removeAll() } } }
         let font = HomeFonts.system(ofSize: Fixture.bodyFont.pointSize, weight: .semibold)
         let color = p.outgoing ? Fixture.outgoingText : Fixture.incomingLink // cmux: themed link tint
         let rule = (p.outgoing ? Fixture.outgoingText : Fixture.incomingText).withAlphaComponent(0.25)

@@ -152,8 +152,8 @@ struct ShortTextGeometry: RowTextGeometry {
         var j = r.location
         while j < NSMaxRange(r) {
             let c = ns.rangeOfComposedCharacterSequence(at: j)
-            let a = CTLineGetOffsetForStringIndex(ct, c.location - r.location, nil)
-            let b = CTLineGetOffsetForStringIndex(ct, min(r.length, NSMaxRange(c) - r.location), nil)
+            let a = ct.offset(forStringIndex: c.location - r.location)
+            let b = ct.offset(forStringIndex: min(r.length, NSMaxRange(c) - r.location))
             if x >= min(a, b) && x < max(a, b) { return c.location }
             j = NSMaxRange(c)
         }
@@ -180,9 +180,9 @@ struct ShortTextGeometry: RowTextGeometry {
             var x0: CGFloat = 0, x1: CGFloat = SelectionLook.newlineTail
             if lr.length > 0 {
                 let ct = ctLine(i)
-                x0 = CTLineGetOffsetForStringIndex(ct, s - lr.location, nil)
+                x0 = ct.offset(forStringIndex: s - lr.location)
                 x1 = e > NSMaxRange(lr) ? line.width + SelectionLook.newlineTail
-                    : CTLineGetOffsetForStringIndex(ct, min(lr.length, e - lr.location), nil)
+                    : ct.offset(forStringIndex: min(lr.length, e - lr.location))
             }
             out.append(CGRect(x: Fixture.bubblePadX + x0, y: y, width: max(1, x1 - x0), height: Fixture.lineHeight))
         }

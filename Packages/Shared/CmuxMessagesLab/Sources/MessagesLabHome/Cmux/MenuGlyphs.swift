@@ -19,7 +19,7 @@ enum MenuGlyphs {
         let img = NSImage(size: NSSize(width: side, height: side))
         for scale in [2, 1] {
             let px = CrashGuard.int(side, in: 1...256) * scale // cmux: no trap
-            guard let ctx = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0,
+            guard let ctx = CGContext.ownedBitmap(width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0,
                                       space: DisplayScale.colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
             else { continue }
             // Flipped, as the drawing handler was (flipped: true).
