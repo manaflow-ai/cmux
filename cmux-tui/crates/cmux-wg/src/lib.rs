@@ -32,6 +32,9 @@
 mod config;
 mod device;
 mod error;
+/// Packet-path entry points for cmux-tui/fuzz.
+#[cfg(feature = "fuzzing")]
+pub mod fuzzing;
 mod mesh;
 mod mesh_driver;
 mod mesh_gateway;
