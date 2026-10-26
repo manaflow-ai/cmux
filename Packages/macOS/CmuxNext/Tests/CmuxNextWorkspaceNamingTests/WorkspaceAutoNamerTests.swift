@@ -239,6 +239,33 @@ struct WorkspaceAutoNamerTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func aFailedAcceptedSendStaysIdleUntilRealTitleInput() async {
+        let fixture = Fixture()
+        fixture.title("First title")
+        fixture.acceptsThenFails = true
+        let events = AsyncStream<String>.makeStream()
+        fixture.onAttempt = { events.continuation.yield($0) }
+        let worker = Task { await fixture.namer.run() }
+        defer { worker.cancel(); events.continuation.finish() }
+        var iterator = events.stream.makeAsyncIterator()
+        #expect(await iterator.next() == "First title")
+        #expect(fixture.acceptedFailures.count == 1)
+
+        fixture.acceptedFailures.removeFirst()()
+        try? await Task.sleep(for: .milliseconds(30))
+        #expect(fixture.attempts == ["First title"],
+                "an RPC failure releases the candidate without an immediate retry loop")
+
+        fixture.acceptsThenFails = false
+        fixture.title("Second title")
+        #expect(await iterator.next() == "Second title")
+        try? await Task.sleep(for: .milliseconds(30))
+        #expect(fixture.sent == ["Second title"])
+        worker.cancel()
+        await worker.value
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func aQueueRefusalStaysIdleUntilRealDataChanges() async throws {
         let fixture = Fixture()
         fixture.title("First title")
