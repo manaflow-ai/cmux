@@ -179,7 +179,8 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
   const DETAILS = '[data-row-id="msg"] .cv-received__more';
   const BODY = '[data-row-id="msg"] .cv-received__body';
   const isCut = async (page: Page) =>
-    (await page.locator(BODY).count()) === 0 || (await page.locator(BODY).evaluate((body) => body.hasAttribute("data-cut")));
+    (await page.locator(BODY).count()) === 0 ||
+    (await page.locator(BODY).evaluate((body) => body.hasAttribute("data-cut")));
   /// Puts the message's line `y` px down the view, away from the transcript's end.
   const lineAt = (page: Page, y: number) =>
     page.evaluate((down) => {
