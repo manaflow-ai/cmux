@@ -180,7 +180,7 @@ export function ProjectChooser({
             autoHighlight
             label={t("project.search")}
             placeholder={t("project.search")}
-            inputClassName="block h-8 w-full min-w-0 appearance-none border-0 border-b-[0.5px] border-edge bg-transparent px-2 font-[inherit] text-fg outline-none placeholder:text-muted"
+            inputClassName="acpmux-project-search-field"
             listClassName="m-0 list-none p-0"
             itemClassName="acpmux-menu-item cursor-default rounded-lg data-[highlighted]:bg-hover"
             itemLabel={rowLabel}
