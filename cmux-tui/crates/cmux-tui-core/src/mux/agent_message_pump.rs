@@ -99,10 +99,10 @@ impl Mux {
             *slot = Some(wake);
         }
         let mux = Arc::downgrade(self);
-        let spawned = cmux_tui_platform::qos::spawn_outside_request(
-            std::thread::Builder::new()
-                .name("mux-agent-message-pump".into())
-                .stack_size(256 * 1024),
+        let spawned = cmux_threads::spawn_with_stack(
+            "mux-agent-message-pump",
+            cmux_tui_platform::qos::outside_request_class(),
+            256 * 1024,
             move || run(&mux, &woken),
         );
         if spawned.is_err() {
