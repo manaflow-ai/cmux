@@ -38,7 +38,8 @@ final class CEFDevToolsController {
     /// Host mode: the inspected browser the host holds a standing placement for. Every DevTools of
     /// it goes in ``hostedPage``, Chromium's own opens too; only a new browser of the tab places again.
     var hostedPlacement: Int32?
-    /// Host mode: the command cmux sent that may open DevTools, until a DevTools opens.
+    /// Host mode: the command cmux sent that may open DevTools, until a DevTools opens; `.close` once
+    /// cmux closed it again before the host's OPENED came.
     var hostedRequest: BrowserDevToolsCommand?
     /// Host mode: the open under way is the reopen of one that opened unplaced (``closeUnplaced``).
     var reopeningUnplaced = false
@@ -57,7 +58,7 @@ final class CEFDevToolsController {
         }
         switch command {
         case .toggle:
-            perform(tab.devTools.isOpen ? .close : .show)
+            perform(isOpenOrRequested ? .close : .show)
         case .show:
             _ = shim.devToolsCommand(browserID, CEFShimLibrary.DevToolsCommand.show, 0, 0)
         case .console:
@@ -67,12 +68,23 @@ final class CEFDevToolsController {
         case .close:
             afterClose = nil
             reopeningUnplaced = false
+            if hostedRequest != nil { hostedRequest = .close }
             _ = shim.devToolsCommand(browserID, CEFShimLibrary.DevToolsCommand.close, 0, 0)
         case .dock(let dock):
             move(to: dock)
         case .panel(let panel):
             _ = shim.devToolsShowPanel(browserID, panel.chromiumID)
         }
+    }
+
+    /// Whether DevTools is open or on its way: one between WILL_OPEN and OPENED, or (host mode) one cmux
+    /// asked the host for whose OPENED has not come. Cmd-Opt-I toggles from it, so a second press before
+    /// the host's answer closes the DevTools the first asked for (the wire keeps their order), as Chrome's
+    /// toggle decides from browser-process state in the key's turn
+    /// (chrome/browser/devtools/devtools_window.cc, `DevToolsWindow::ToggleDevToolsWindow`).
+    var isOpenOrRequested: Bool {
+        guard let tab else { return false }
+        return tab.devTools.isOpen || opening || (hostedRequest != nil && hostedRequest != .close)
     }
 
     func setFocused(_ focused: Bool) {
@@ -209,7 +221,7 @@ final class CEFDevToolsController {
             let (request, reopened) = (hostedRequest, reopeningUnplaced)
             (hostedRequest, reopeningUnplaced) = (nil, false)
             // `docked`: the shim had the placement's view when it made this DevTools (PrepareDevToolsPopup).
-            if !docked { return closeUnplaced(in: tab, reopen: reopened ? nil : request ?? .show) }
+            if !docked { return closeUnplaced(in: tab, reopen: reopened || request == .close ? nil : request ?? .show) }
         }
         // `docked` = a child of a cmux view (the pane's DevTools host).
         tab.devTools = BrowserDevToolsState(isOpen: true, dock: docked ? layout.dock : .window)
