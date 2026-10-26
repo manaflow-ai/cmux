@@ -14,14 +14,21 @@ problems: what is wrong now and could not be fixed. fixed: the last 24 h of acti
   disk    Free space on / stays above a floor. Else start the hygiene commands, each as its own
           transient unit (at most once per 15 min). Under the hard floor it is critical.
   ram     MemAvailable stays above a floor. Reported only: kills are the cgroup limits' job.
+  acpmux  For each user with lingering on: a failed acpmux*.service user unit is reset and
+          started (at most once per 5 min).
+  peer    For each running daemon: every peer that is not connected is reported with a fixed
+          summary of its last error (PEER_ERRORS, never the daemon's words) and how long it has been down; one down 10 min gets one forced reconnect
+          (_acpmux/peer_reconnect, what `acpmux host doctor NAME --fix` does) per 15 min. An
+          expected peer (config expectedPeers) the daemon has no peer for is reported, never added:
+          adding one needs a route and a token, the operator's or app's call.
 
-problems come most important first (dns, disk, ram, loop), at most 8.
+problems come most important first (acpmux, dns, disk, ram, peer, loop), at most 8.
 
 Config: /etc/cmux/machine-health.json overrides DEFAULTS. Install, from any copy of this file:
   sudo python3 cmux-machine-health install [--config FILE]
 Remove: sudo cmux-machine-health uninstall (or systemctl disable --now cmux-machine-health.timer).
 """
-import argparse, contextlib, fcntl, json, os, pwd, re, shutil, subprocess, sys, time
+import argparse, contextlib, fcntl, hashlib, json, os, pwd, re, shutil, socket, subprocess, sys, time
 
 STATE_DIR = "/run/cmux"
 HEALTH_FILE = f"{STATE_DIR}/machine-health.json"
@@ -29,6 +36,7 @@ STATE_FILE = f"{STATE_DIR}/machine-health-state.json"
 CONFIG_FILE = "/etc/cmux/machine-health.json"
 RESOLV_CONF = "/etc/resolv.conf"
 RESOLVED_STUB = "/run/systemd/resolve/stub-resolv.conf"
+LINGER_DIR = "/var/lib/systemd/linger"
 HYGIENE = "/usr/local/bin/cmux-machine-hygiene"
 SBIN = "/usr/local/sbin/cmux-machine-health"
 PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -42,20 +50,29 @@ DEFAULTS = {
     "diskHardFloorBytes": None,  # min(3 GB, 10% of the disk)
     "ramFloorBytes": None,  # min(2 GiB, 10% of RAM)
     "hygieneCommands": None,  # argv lists; default: cmux-machine-hygiene --apply per /home user
+    "acpmuxUnits": ["acpmux*.service"],
+    "acpmuxSockets": ["~/.acpmux/acpmux.sock"],
+    "peerDownMinutes": 10,
+    "expectedPeers": [],  # peer names every daemon here should have; none in code
 }
+PEER_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}")
 # The only actions a pass writes; an older fixed entry is kept only when it is one of them.
 FIXED_ACTIONS = re.compile("|".join([
     r"restarted systemd-resolved",
     r"relinked /etc/resolv\.conf to the systemd-resolved stub",
     r"restarted tailscaled so it picks systemd-resolved",
-    r"started disk hygiene \(\d+ of \d+ commands\)"
+    r"started disk hygiene \(\d+ of \d+ commands\)",
+    r"reset and started [A-Za-z0-9@._:-]{1,100} for [a-z_][a-z0-9_-]{0,31}",
+    r"forced a reconnect of the peer link to ([A-Za-z0-9][A-Za-z0-9._-]{0,79}|a peer with an unreadable name)"
 ]))
 HOSTNAME = re.compile(r"(?=.{1,253}$)[A-Za-z0-9_]([A-Za-z0-9_-]{0,62})(\.[A-Za-z0-9_]([A-Za-z0-9_-]{0,62}))*\.?")
-ORDER = ["dns", "disk", "ram", "loop"]
+ORDER = ["acpmux", "dns", "disk", "ram", "peer", "loop"]
 MAX_PROBLEMS = 8
+MAX_PEERS = 256  # rows read from one daemon's list
+MAX_REPLY = 4 << 20  # bytes read from one daemon socket
 GUARD = "# cmux machine guard (cmux-machine-health install). Managed, do not edit.\n"
 UNITS = {
-    "/etc/systemd/system/cmux-machine-health.service": "[Unit]\nDescription=cmux machine health: check and heal DNS, disk and RAM once\nAfter=network.target systemd-resolved.service\n\n[Service]\nType=oneshot\nExecStart=" + SBIN + " run\nTimeoutStartSec=45\nNice=10\nIOSchedulingClass=idle\nOOMScoreAdjust=-500\nMemoryMax=256M\nTasksMax=64\n",
+    "/etc/systemd/system/cmux-machine-health.service": "[Unit]\nDescription=cmux machine health: check and heal DNS, disk, RAM and acpmux once\nAfter=network.target systemd-resolved.service\n\n[Service]\nType=oneshot\nExecStart=" + SBIN + " run\nTimeoutStartSec=45\nNice=10\nIOSchedulingClass=idle\nOOMScoreAdjust=-500\nMemoryMax=256M\nTasksMax=64\n",
     "/etc/systemd/system/cmux-machine-health.timer": "[Unit]\nDescription=Run cmux machine health every minute\n\n[Timer]\nOnActiveSec=60\nOnUnitActiveSec=60\nAccuracySec=5\n\n[Install]\nWantedBy=timers.target\n",
     # Every ssh and login session (logind's session-N.scope): a runaway hits its own limits.
     # MemorySwapMax as a share of swap needs systemd 254+; older systemd ignores the line.
@@ -78,11 +95,68 @@ def gb(n):
     return f"{n / GB:.1f} GB"
 
 
-def clean(text):
-    """Short plain text: no hint tail, no home paths, no credentials."""
-    text = str(text).split("; `")[0]
-    text = re.sub(r"(?i)(token|key|secret|password)=\S+", r"\1=...", text)
-    return re.sub(r"/(home|Users|root)(/[^\s/]+)?", "~", text)[:200]
+def ago(seconds):
+    s = int(max(0, seconds))
+    return f"{s}s" if s < 120 else f"{s // 60}m" if s < 7200 else f"{s // 3600}h" if s < 172800 else f"{s // 86400}d"
+
+
+# A daemon's error text is never copied into the report: it becomes one of these fixed summaries
+# (first match wins, by substring of the lowercased text), or the fallback. `acpmux host doctor
+# NAME` shows the daemon's own text to whoever can reach the machine.
+PEER_ERRORS = (
+    (("handshake",), "WebSocket handshake not finished"),
+    (("refused",), "connection refused"),
+    (("timed out", "timeout", "deadline"), "timed out"),
+    (("host key", "known_hosts", "known hosts"), "ssh host key mismatch"),
+    (("permission denied", "unauthorized", "forbidden", "401", "403", "auth"), "authentication failed"),
+    (("resolve", "name or service", "dns", "no such host"), "name does not resolve"),
+    (("unreachable", "no route"), "host unreachable"),
+    (("reset",), "connection reset"),
+    (("closed", "eof", "broken pipe"), "connection closed"),
+    (("tls", "certificate", "ssl"), "TLS error"),
+    (("version", "protocol"), "protocol mismatch"),
+)
+
+
+def daemon_error(text):
+    """A fixed summary of a daemon's error (PEER_ERRORS), or "" for none; never its own words."""
+    low = str(text or "")[:2000].lower()
+    if not low.strip():
+        return ""
+    return next((summary for needles, summary in PEER_ERRORS if any(n in low for n in needles)), "an error it did not name (acpmux host doctor shows it)")
+
+
+SECRET_WORDS = ("token", "key", "secret", "password", "passwd", "auth", "cookie", "credential")
+# key[=:]value: a bounded key and separator, then the value; scanned left to right so every
+# key is seen (a value may itself start a key), and matching stays linear.
+KEY_SEP = re.compile(r"""(--?)?([\w-]{1,64})(["']?[ \t]{0,4}[:=][ \t]{0,4}|[ \t]{1,4}(?=["'\w]))""")
+VALUE = re.compile(r""""(?:[^"\\\n]|\\.){0,512}"?|'(?:[^'\\\n]|\\.){0,512}'?|[^\s"',}&]{1,512}""")
+
+
+def redact_keys(text):
+    out, pos = [], 0
+    while (m := KEY_SEP.search(text, pos)):
+        flag, key, sep = m.groups()
+        secret = any(w in key.lower() for w in SECRET_WORDS) and (flag or any(c in sep for c in ":="))
+        value = VALUE.match(text, m.end()) if secret else None
+        if value:
+            out.append(text[pos:m.end()] + "...")
+            pos = value.end()
+        else:
+            out.append(text[pos:m.end()])
+            pos = m.end()
+    return "".join(out) + text[pos:]
+
+
+def clean(text, homes=()):
+    """Short plain text: no control characters, hint tail, home paths or credentials."""
+    text = re.sub(r"\x1b\[[0-9;?]*[ -/]*[@-~]|[\x00-\x1f\x7f]", " ", str(text)[:2000]).split("; `")[0]
+    text = re.sub(r"(?i)\b(bearer|basic)[ \t]+\S{1,2000}", r"\1 ...", text)
+    text = re.sub(r"(?i)([a-z]{1,16}://)[^\s/@]{1,512}@", r"\1...@", text)
+    text = redact_keys(text)
+    for home in sorted({h for h in homes if h and h != "/"}, key=len, reverse=True):
+        text = text.replace(home, "~")
+    return re.sub(r"/(home|Users|root)(/[^\s/]+)?", "~", text).strip()[:200]
 
 
 class Host:
@@ -97,9 +171,13 @@ class Host:
     def sleep(self, s):
         time.sleep(s)
 
-    def run(self, argv, timeout):
+    def run(self, argv, timeout, user=None):
+        kw = {"env": {"PATH": PATH, "LANG": "C.UTF-8"}, "cwd": "/"}
+        if user is not None:
+            kw.update(user=user.pw_uid, group=user.pw_gid, extra_groups=[])
+            kw["env"]["HOME"] = user.pw_dir
         try:
-            r = subprocess.run(argv, capture_output=True, text=True, timeout=max(1, timeout), stdin=subprocess.DEVNULL, env={"PATH": PATH, "LANG": "C.UTF-8"}, cwd="/")
+            r = subprocess.run(argv, capture_output=True, text=True, timeout=max(1, timeout), stdin=subprocess.DEVNULL, **kw)
             return r.returncode, r.stdout
         except (OSError, subprocess.SubprocessError):
             return 124, ""
@@ -118,6 +196,12 @@ class Host:
                 yield False
                 return
             yield True
+
+    def getpwnam(self, name):
+        found = next((u for u in self.users() if u.pw_name == name), None)
+        if found is None:
+            raise KeyError(name)
+        return found
 
     def set_oom_score(self, pid, score, unit):
         """Write the score only if pid is still unit's manager: the /proc/PID directory fd stays
@@ -178,6 +262,12 @@ class Host:
         os.symlink("../run/systemd/resolve/stub-resolv.conf", tmp)
         os.replace(tmp, RESOLV_CONF)
 
+    def linger_users(self):
+        try:
+            return sorted(os.listdir(LINGER_DIR))
+        except OSError:
+            return []
+
     def users(self):
         """Local accounts from /etc/passwd: no NSS lookup, so a hung directory service cannot stall a pass."""
         rows = []
@@ -221,17 +311,19 @@ class Pass:
         self.since_was = {k: v for k, v in since.items() if isinstance(k, str) and stamp(v)} if isinstance(since, dict) else {}
         self.last = {k: v for k, v in last.items() if isinstance(v, (int, float)) and not isinstance(v, bool)} if isinstance(last, dict) else {}
         ok = lambda f: isinstance(f, dict) and f.get("check") in ORDER and isinstance(f.get("action"), str) and FIXED_ACTIONS.fullmatch(f["action"]) and stamp(f.get("at"))
-        state = {"fixed": [{"check": f["check"], "action": clean(f["action"]), "at": f["at"]} for f in fixed if ok(f)] if isinstance(fixed, list) else []}
+        # Every login account's home, known before any text is kept, so no detail or action can carry one.
+        self.homes = {u.pw_dir for u in host.users() if (u.pw_uid == 0 or u.pw_uid >= 1000) and u.pw_dir not in ("/", "/nonexistent")}
+        state = {"fixed": [{"check": f["check"], "action": clean(f["action"], self.homes), "at": f["at"]} for f in fixed if ok(f)] if isinstance(fixed, list) else []}
         self.since, self.problems, self.new_fixed = {}, [], []
         self.fixed_was = state.get("fixed", [])
 
     def left(self):
         return BUDGET_S - (self.host.mono() - self.start)
 
-    def run(self, argv, timeout):
+    def run(self, argv, timeout, user=None):
         """A command bounded by what is left of this pass, so the report is always written."""
         t = min(timeout, self.left() - 3)
-        return self.host.run(argv, t) if t >= 1 else (124, "")
+        return self.host.run(argv, t, user=user) if t >= 1 else (124, "")
 
     def may(self, key, every_s, needs_s=0):
         """True at most once per every_s for this fix, and only with needs_s left in this run. A
@@ -244,10 +336,10 @@ class Pass:
 
     def problem(self, check, key, detail, since=None):
         self.since[key] = self.since_was.get(key) or since or iso(self.host.now())
-        self.problems.append({"check": check, "detail": clean(detail), "since": self.since[key]})
+        self.problems.append({"check": check, "detail": clean(detail, self.homes), "since": self.since[key]})
 
     def fixed(self, check, action):
-        self.new_fixed.append({"check": check, "action": clean(action), "at": iso(self.host.now())})
+        self.new_fixed.append({"check": check, "action": clean(action, self.homes), "at": iso(self.host.now())})
 
     def run_check(self, name, fn):
         try:
@@ -334,6 +426,95 @@ class Pass:
         if avail < floor:
             self.problem("ram", "ram", f"RAM: {gb(avail)} available of {gb(total)}, under the floor of {gb(floor)}")
 
+    # acpmux
+    def check_acpmux(self):
+        answered = False
+        for name in self.host.linger_users():
+            try:
+                user = self.host.getpwnam(name)
+            except KeyError:
+                continue
+            self.homes.add(user.pw_dir)
+            self.check_units(user)
+            for sock in self.config["acpmuxSockets"]:
+                answered |= self.check_peers(user, user.pw_dir + sock[1:] if sock.startswith("~/") else sock, sock)
+        if self.config["expectedPeers"] and not answered:
+            self.problem("acpmux", "acpmux:none", "acpmux: no acpmux daemon answers on this machine, so its peers cannot be checked")
+
+    def check_units(self, user):
+        if not self.config["acpmuxUnits"]:
+            return  # no patterns: systemctl would list every failed unit
+        manager = ["systemctl", "--user", "-M", f"{user.pw_name}@"]
+        code, out = self.run(manager + ["list-units", "--state=failed", "--plain", "--no-legend", "--no-pager", "--"] + self.config["acpmuxUnits"], 10)
+        if code != 0:
+            return  # no user manager to ask
+        for unit in [line.split()[0] for line in out.splitlines() if line.strip()]:
+            key = f"acpmux:{user.pw_name}:{unit}"
+            if self.may(f"fix:{key}", 5 * 60, needs_s=25):
+                self.run(manager + ["reset-failed", "--", unit], 5)
+                started = self.run(manager + ["start", "--", unit], 20)[0] == 0
+                self.fixed("acpmux", f"reset and started {unit} for {user.pw_name}")
+                if started:
+                    continue
+            self.problem("acpmux", key, f"acpmux: {unit} for {user.pw_name} failed")
+
+    def rpc_as(self, user, sock, method, params, timeout):
+        """One daemon request over its socket, as its user; None when no daemon answers. Never starts one."""
+        t = int(min(timeout, self.left() - 6))
+        if t < 2:
+            return None
+        code, out = self.run([sys.executable, "-I", os.path.abspath(__file__), "rpc", "--timeout", str(t), sock, method, json.dumps(params)], t + 2, user=user)
+        try:
+            reply = json.loads(out) if code == 0 else None
+        except ValueError:
+            return None
+        return reply if isinstance(reply, dict) else None
+
+    def check_peers(self, user, sock, sock_key):
+        reply = self.rpc_as(user, sock, "_acpmux/peers", {}, 10)
+        peers = (reply or {}).get("peers")
+        if not isinstance(peers, list):
+            return False  # no daemon on this socket (a failed unit is the units check's)
+        now = self.host.now()
+        rows = [p for p in peers if isinstance(p, dict)]
+        listed = {p["name"] for p in rows if isinstance(p.get("name"), str) and p["name"]}
+        tag = hashlib.sha256(sock_key.encode()).hexdigest()[:8]  # rate limits per daemon, without its path
+        if len(rows) > MAX_PEERS:
+            self.problem("peer", f"peer:{user.pw_name}:{tag}:many", f"acpmux lists {len(rows)} peers; only the first {MAX_PEERS} were checked")
+        peers = rows[:MAX_PEERS]
+        for name in self.config["expectedPeers"]:
+            if name not in listed:
+                self.problem("peer", f"peer:{user.pw_name}:{tag}:{hashlib.sha256(name.encode()).hexdigest()[:16]}:missing", f"no acpmux peer for {name}: sessions there can't be reached from here")
+        for peer in peers:
+            if peer.get("connected") is True:
+                continue
+            raw = peer.get("name") if isinstance(peer.get("name"), str) and peer.get("name") else None
+            if self.left() < 3:
+                break  # the report is always written inside the pass budget
+            # Only a well-formed peer name is shown; any other is a placeholder (its hash keys its limits).
+            shown = raw if raw and PEER_NAME.fullmatch(raw) else "a peer with an unreadable name"
+            name, err, down = shown, daemon_error(peer.get("error") or ""), peer.get("downSince")
+            if isinstance(down, bool) or not isinstance(down, (int, float)) or not 0 < down < 1e15:
+                down = None
+            down_s = None if down is None else now - down / 1000
+            # The daemon's own name goes to the reconnect; the key hashes it, so long or similar names never collide.
+            key = f"peer:{user.pw_name}:{tag}:{hashlib.sha256((raw or '').encode()).hexdigest()[:16]}"
+            if raw and down_s is not None and down_s >= self.config["peerDownMinutes"] * 60 and self.may(f"fix:{key}", 15 * 60, needs_s=25):
+                again = self.rpc_as(user, sock, "_acpmux/peer_reconnect", {"name": raw, "wait": True}, 20)
+                self.fixed("peer", f"forced a reconnect of the peer link to {name}")
+                rows_again = (again or {}).get("peers")
+                row = next((p for p in rows_again[:MAX_PEERS] if isinstance(p, dict) and p.get("name") == raw), None) if isinstance(rows_again, list) else None
+                if row and row.get("connected") is True:
+                    continue
+                err = daemon_error((row or {}).get("error") or err)
+            why = f": {err}" if err else ""
+            if down_s is None:
+                self.problem("peer", key, f"peer link to {name} has not connected{why}")
+            else:
+                since = iso(down / 1000)
+                self.problem("peer", key, f"peer link to {name} down since {since} ({ago(down_s)}){why}", since=since)
+        return True
+
     def report(self):
         day_ago = iso(self.host.now() - 86400)
         fixed = ([f for f in self.fixed_was if f.get("at", "") >= day_ago] + self.new_fixed)[-20:]
@@ -349,9 +530,11 @@ def config_problems(given):
         return ["the config must be a JSON object"]
     unknown = set(given) - set(DEFAULTS)
     problems = [f"{len(unknown)} unknown config keys (known: {', '.join(DEFAULTS)})"] if unknown else []
-    for key in ("dnsNames",):
+    for key in ("dnsNames", "acpmuxUnits", "acpmuxSockets", "expectedPeers"):
         if key in given and not (isinstance(given[key], list) and all(isinstance(x, str) and x for x in given[key])):
             problems.append(f"{key} must be a list of non-empty strings")
+    if isinstance(given.get("expectedPeers"), list) and not all(isinstance(n, str) and PEER_NAME.fullmatch(n) for n in given["expectedPeers"]):
+        problems.append("expectedPeers must be peer names (letters, digits, dot, dash, underscore; at most 80)")
     if isinstance(given.get("dnsNames"), list) and not all(isinstance(n, str) and HOSTNAME.fullmatch(n) for n in given["dnsNames"]):
         problems.append("dnsNames must be host names")
     if "tailnetName" in given and not isinstance(given["tailnetName"], bool):
@@ -368,6 +551,12 @@ def config_problems(given):
     hc = given.get("hygieneCommands")
     if hc is not None and not (isinstance(hc, list) and all(isinstance(a, list) and a and all(isinstance(x, str) for x in a) for a in hc)):
         problems.append("hygieneCommands must be a list of argv lists")
+    m = given.get("peerDownMinutes", 10)
+    if isinstance(m, bool) or not isinstance(m, (int, float)) or not 0 < m < 10**6:
+        problems.append("peerDownMinutes must be a positive number")
+    for sock in given["acpmuxSockets"] if isinstance(given.get("acpmuxSockets"), list) else []:
+        if isinstance(sock, str) and not (sock.startswith("/") or sock.startswith("~/")):
+            problems.append("acpmuxSockets entries must be absolute or start with ~/")
     return problems
 
 
@@ -402,7 +591,7 @@ def run_pass(host, heal=True):
     p = Pass(host, config, state, heal)
     if config_error:
         p.problem("loop", "loop:config", config_error)
-    for name, fn in (("disk", p.check_disk), ("ram", p.check_ram), ("dns", p.check_dns)):
+    for name, fn in (("disk", p.check_disk), ("ram", p.check_ram), ("dns", p.check_dns), ("acpmux", p.check_acpmux)):
         p.run_check(name, fn)
     health, state = p.report()
     for item in p.problems:
@@ -410,6 +599,43 @@ def run_pass(host, heal=True):
     host.write(STATE_FILE, json.dumps(state), 0o600)
     host.write(HEALTH_FILE, json.dumps(health) + "\n", 0o644)
     return health
+
+
+def rpc(sock, method, params, timeout):
+    """A line-delimited JSON-RPC request to an acpmux daemon socket; prints the result."""
+    deadline = time.monotonic() + timeout
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+        s.settimeout(timeout)
+        try:
+            s.connect(sock)
+        except OSError:
+            return 3  # no daemon here
+        try:
+            s.sendall((json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": json.loads(params)}) + "\n").encode())
+        except OSError:
+            return 1
+        buf = b""
+        while time.monotonic() < deadline and len(buf) <= MAX_REPLY:
+            s.settimeout(max(0.1, deadline - time.monotonic()))
+            try:
+                chunk = s.recv(1 << 16)
+            except OSError:
+                return 1
+            if not chunk:
+                return 1
+            buf += chunk
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                try:
+                    msg = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(msg, dict) and msg.get("id") == 1:
+                    if "result" not in msg:
+                        return 1
+                    print(json.dumps(msg["result"]))
+                    return 0
+    return 1
 
 
 def protect_running_managers(host):
@@ -474,7 +700,14 @@ def main(argv=None, host=None):
     ins.add_argument("--no-start", action="store_true", help="enable the timer without starting it (an image bake starts it last)")
     sub.add_parser("uninstall", help="stop the timer and remove what install wrote")
     sub.add_parser("config", help="print the effective config")
+    r = sub.add_parser("rpc")
+    r.add_argument("--timeout", type=float, default=10)
+    r.add_argument("sock")
+    r.add_argument("method")
+    r.add_argument("params")
     args = ap.parse_args(argv)
+    if args.cmd == "rpc":
+        return rpc(args.sock, args.method, args.params, args.timeout)
     if args.cmd == "config":
         print(json.dumps(load_config(host)[0], indent=2))
         return 0
