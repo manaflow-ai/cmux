@@ -16,14 +16,11 @@ import Testing
 @Suite(.serialized)
 struct AgentPageLabsFollowTests {
     @Test func labsReachAnAgentPageWhenTheActionsWereBoundBeforeSettings() async throws {
-        // A page source without the bundle (Debug dev server origin), and no acpmux.
+        // A page source without the bundle (the shared test page, a Debug root override), and no acpmux.
         // Inject the process snapshot into AppServices instead of mutating environ:
         // libghostty retains environ slices after ghostty_init and concurrent test
         // suites must never rewrite that storage.
-        let agentPaneEnvironment = [
-            AgentPaneSource.devURLVariable: "http://127.0.0.1:9",
-            "CMUX_NEXT_AGENT_PANE_MOCK": "1",
-        ]
+        let agentPaneEnvironment = AgentPageAppTestRoot.environment.merging(["CMUX_NEXT_AGENT_PANE_MOCK": "1"]) { $1 }
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]), agentPaneEnvironment: agentPaneEnvironment)
         AppActions.bind(services)

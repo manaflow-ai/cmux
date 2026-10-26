@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHomeEngine
 import Foundation
@@ -46,7 +47,7 @@ final class HostedChiefCopy {
 
         /// The reply's JSON object off the main actor (a history page can be large).
         @concurrent nonisolated static func decode(_ data: Data) async -> sending [String: Any] {
-            (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+            (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any] ?? [:]
         }
 
         nonisolated static func errorCode(_ json: [String: Any]) -> String? { (json["error"] as? [String: Any])?["code"] as? String }
@@ -196,7 +197,7 @@ final class HostedChiefCopy {
     /// without them keeps its place after the others), stable.
     nonisolated static func sorted(_ lines: [String], by keys: [String]) -> [String] {
         let keyed = lines.enumerated().map { offset, line -> (key: [Int], offset: Int, line: String) in
-            let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
+            let object = (try? JSONSerialization.blockingJSONObject(with: Data(line.utf8))) as? [String: Any]
             let key = keys.map { (object?[$0] as? NSNumber)?.intValue ?? Int.max }
             return (key, offset, line)
         }

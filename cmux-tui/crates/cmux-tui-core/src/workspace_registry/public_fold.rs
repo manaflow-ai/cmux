@@ -89,6 +89,7 @@ fn without_workspace_key(value: &Value) -> Value {
 impl WorkspaceRegistry {
     /// Drop projection upserts that the journal already states with the same
     /// value, and renumber the remaining changes' `sequence`.
+    #[track_caller]
     pub(super) fn prune_stated_topology_deltas(&mut self, deltas: &Value) -> anyhow::Result<Value> {
         self.catch_up_public_fold();
         let Some(fold) = self.public_fold.as_ref() else { return Ok(deltas.clone()) };
@@ -118,6 +119,7 @@ impl WorkspaceRegistry {
     /// `journaled`. When they are the unpruned changes of a full topology
     /// projection (`full_projection`), they are the complete live set and
     /// seed an empty fold.
+    #[track_caller]
     pub(super) fn record_public_fold(
         &mut self,
         previous_revision: u64,
@@ -158,11 +160,13 @@ impl WorkspaceRegistry {
 
     /// Apply every resource record committed since the fold's revision, or
     /// clear the fold when the journal cannot supply them.
+    #[track_caller]
     fn catch_up_public_fold(&mut self) {
         let Some(mut fold) = self.public_fold.take() else { return };
+        let site = std::panic::Location::caller();
         let caught_up = (|| -> anyhow::Result<bool> {
             loop {
-                let head = current_resource_revision(&self.connection.get())?;
+                let head = current_resource_revision(&self.connection.get_at(site))?;
                 if fold.revision == head {
                     return Ok(true);
                 }
@@ -190,6 +194,7 @@ impl WorkspaceRegistry {
     /// The value the journal states for one topology resource, or `None`
     /// when the fold is unseeded or behind the store (no catch-up: callers
     /// hold only a shared registry borrow).
+    #[track_caller]
     pub(crate) fn stated_topology_value(&self, resource: &str, id: &str) -> Option<Option<Value>> {
         let fold = self.public_fold.as_ref()?;
         let head = current_resource_revision(&self.connection.get()).ok()?;
@@ -200,6 +205,7 @@ impl WorkspaceRegistry {
     /// The value the journal states for one topology resource, after
     /// catching up; `None` while the fold is unseeded.
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn stated_topology_value_for_test(
         &mut self,
         resource: &str,

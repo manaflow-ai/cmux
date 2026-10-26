@@ -37,6 +37,7 @@ mod browser_profile_ops;
 mod browser_site_engines;
 pub mod diagnostics;
 mod event_bus;
+mod event_cause;
 #[cfg(unix)]
 pub mod fs_ops;
 mod git_ops;
@@ -56,11 +57,16 @@ use cmux_tui_util::machine_name;
 mod model;
 mod mux;
 pub mod net_keepalive;
+/// `oracle-state` (p15-oracle task 021): debug and `--features oracle` builds only.
+#[cfg(any(debug_assertions, feature = "oracle"))]
+mod oracle_state;
 /// Remote access state; the cmux-tui-remote-access crate, re-exported at the old paths.
 use cmux_tui_remote_access::pairing;
+mod input_flow;
 mod output_store;
 /// `RecoverPoison` and `JsonFields` (panic-free lane).
 mod panic_free;
+mod process_trace;
 mod program_status;
 mod prompt_mode_reset;
 pub mod provider_management;
@@ -72,6 +78,8 @@ use cmux_tui_remote_access::remote_relay_state;
 mod login_shell;
 pub mod release;
 mod request_origin;
+/// Blocking notes on request threads (`server-stats` `request_path_io`).
+mod request_path;
 pub mod resource;
 mod resource_api;
 mod resource_mutation;

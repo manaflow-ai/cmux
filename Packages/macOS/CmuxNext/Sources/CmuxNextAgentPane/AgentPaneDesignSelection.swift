@@ -35,12 +35,11 @@ public nonisolated struct AgentPaneDesignSelection: Sendable, Equatable {
     /// Takes highlight `id`'s chips out of `view`'s composer (the highlight left the page).
     @MainActor public static func remove(_ id: String, from view: AgentPaneView) {
         let value: JSONValue = ["removed": .string(id)]
-        view.deliver([AgentPageEvent(kind: "designSelection", value: value)],
-                     scripts: ["window.cmuxAcpmuxBridge?.designSelection?.(\(value.compactText));"])
+        view.deliver([AgentPageEvent(kind: "designSelection", value: value)])
     }
 
     @MainActor public func push(to view: AgentPaneView) {
         let event = AgentPageEvent(kind: "designSelection", value: pageValue)
-        view.deliver([event], scripts: ["window.cmuxAcpmuxBridge?.designSelection?.(\(pageValue.compactText));"])
+        view.deliver([event])
     }
 }

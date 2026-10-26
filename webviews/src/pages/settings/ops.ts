@@ -850,6 +850,9 @@ export type SettingsOps = {
   "cmux.settings.preview": [{ key: string; value: unknown }, unknown];
   /** Native: drop the live preview of `key`. */
   "cmux.settings.preview.end": [{ key: string }, unknown];
+  /** Native: the form `form` holds typed values not saved yet (`editing`), or no longer does; the
+   * host keeps the page while any form does. */
+  "cmux.settings.editing": [{ form: string; editing: boolean }, unknown];
   /** Native: play a notification sound. */
   "cmux.settings.sound.play": [{ name: string }, unknown];
   /** Native: a catalog action, run with origin user (react-pages.md 1.3). */

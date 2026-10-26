@@ -14,12 +14,12 @@ extension ScreenContentView {
     /// true if the spring needs frames. A reveal that snaps (animation off,
     /// Reduce Motion) shows the `auto` scrollbar like the spring frames it
     /// replaces, only when `showsScrollbarOnSnap`: the caller passes false
-    /// for a window resize, launch, or a view out of its window.
+    /// for a window resize, launch, or a view out of its window. Part of a
+    /// change turn: a close's first frame waits for its end (`endMotionTurn`).
     @discardableResult
     func syncScroll(focused: PaneID?, source: ColumnFocusSource, mode: CenterFocusedColumn, animated: Bool, reveals: Bool = true,
                     showsScrollbarOnSnap: Bool = false) -> Bool {
         lastFocused = focused
-        defer { leadIfPending() }
         let animate = animated && !context.reduceMotion && bounds.width > 0
         // Inner first (scroll-areas-DESIGN.md K2): areas, then rows, then the strip.
         let areasNeedFrames = syncAreas(focused: focused, source: source, animated: animate, reveals: reveals)
@@ -45,7 +45,7 @@ extension ScreenContentView {
     @discardableResult
     func center(_ pane: PaneID, animated: Bool, reveal: Bool = false) -> Bool {
         scrollbarFlash = true
-        scrollRidesFrames = false
+        cpuTakesCamera()
         return apply(scrollState.reduce(reveal ? .reveal(pane, animated: animated && !context.reduceMotion) : .center(pane, animated: animated && !context.reduceMotion)))
     }
 
@@ -60,13 +60,13 @@ extension ScreenContentView {
     /// A scrollbar track click: rest on `offset` (ColumnScrollEvent.page).
     func page(to offset: CGFloat) {
         scrollbarFlash = true
-        scrollRidesFrames = false
-        apply(scrollState.reduce(.page(to: offset, animated: !context.reduceMotion)))
+        cpuTakesCamera()
+        motionTurn { apply(scrollState.reduce(.page(to: offset, animated: !context.reduceMotion))) }
     }
 
     func beginUserScroll() {
         // The user takes the camera over from a close in flight: its snap springs on the scroll spring.
-        scrollRidesFrames = false
+        cpuTakesCamera()
         scrollState.reduce(.gestureBegan)
     }
 
@@ -81,14 +81,14 @@ extension ScreenContentView {
         scrollbarFlash = true
         // The landing presents the strip (now, or on the fling's frames): nothing waits for a tick.
         panPresentationPending = false
-        apply(scrollState.reduce(.gestureEnded(time: timestamp, animated: !context.reduceMotion)))
+        motionTurn { apply(scrollState.reduce(.gestureEnded(time: timestamp, animated: !context.reduceMotion))) }
     }
 
     /// One mouse wheel notch: move to the adjacent snap point.
     func discreteScroll(direction: Int) {
         scrollbarFlash = true
-        scrollRidesFrames = false
-        apply(scrollState.reduce(.wheel(direction: direction, animated: !context.reduceMotion)))
+        cpuTakesCamera()
+        motionTurn { apply(scrollState.reduce(.wheel(direction: direction, animated: !context.reduceMotion))) }
     }
 
     @discardableResult

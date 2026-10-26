@@ -147,7 +147,7 @@ struct BookmarkBrowserImport {
     func run(_ profiles: [BrowserSourceProfile], target: String) async -> Outcome {
         var outcome = Outcome()
         for profile in profiles {
-            let read = await Task.detached { () -> [ImportedBookmark]? in try? BrowserImporter.readBookmarks(profile) }.value
+            let read = await Task.detached { () -> [ImportedBookmark]? in try? BrowserImporter.readBookmarks(profile).items }.value
             guard let bookmarks = read else {
                 outcome.failed.append(Self.pickerTitle(profile))
                 continue

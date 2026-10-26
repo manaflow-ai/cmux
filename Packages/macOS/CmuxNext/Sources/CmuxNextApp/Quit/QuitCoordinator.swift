@@ -6,6 +6,7 @@ import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextWakeups
 import os
 
 /// Runs a quit (user decision 2026-09-30). `applicationShouldTerminate`
@@ -153,6 +154,13 @@ final class QuitCoordinator {
         // Awaited (bounded) so `quitting` is on disk before the quit can end
         // the process; the write itself runs off the main thread.
         await services.crashRecovery.quitBegan()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let wedgeIfAsked: @MainActor () -> Void = { [weak self] in
+            if let self, wedgesEngineStop { deadline.wedgeMainThread(watchdog) }
+        }
+        #else
+        let wedgeIfAsked: @MainActor () -> Void = {}
+        #endif
         await QuitCompletion.run(choice, remember: remember, QuitSteps(
             remember: { behavior in
                 guard let settings = services.settings,
@@ -165,7 +173,7 @@ final class QuitCoordinator {
             prepareWindows: {
                 // Remote-terminal tabs keep their last screen for the
                 // placeholder after relaunch (data-model.md 1.4).
-                await services.remoteTerminals.saveSnapshots()
+                await services.madeRemoteTerminals?.saveSnapshots()
                 // Agent chats get their composer's chips, shell command and place back at the next
                 // launch (pages are asked at once, each within a second).
                 await services.agentTabs.relaunchWake.save(services.agentTabs.relaunchWakeStates())
@@ -196,21 +204,23 @@ final class QuitCoordinator {
                 let keep = ChiefHostStop.appAcpmuxEndKeep(chiefUsesAppAcpmux: services.home.chief.home.usesAppAcpmux)
                 return await QuitAgents.end(acpmux, keep: keep, waitForShutdown: attempts.isRetry())
             },
-            stopBrowserEngines: { [weak self, deadline = self.deadline] in
-                // Drafts typed after the save step (while "Some sessions did not end" waited) reach disk
-                // before the engines stop: nothing the user asked for comes after that (QuitSteps).
-                // Nothing is written when nothing changed.
-                await services.home.flushCacheForQuit()
+            // Drafts typed after the save step (while "Some sessions did not end" waited) reach disk
+            // before the engines stop: nothing the user asked for comes after that (QuitSteps).
+            // Nothing is written when nothing changed.
+            lastSave: { await services.home.flushCacheForQuit() },
+            armDeadline: { [weak self, deadline = self.deadline] in
                 // CefShutdown runs on the main thread and can block it for
                 // good: from here the quit ends by a deadline whatever it
                 // does, and a debug build reports that hang, never asserts it.
                 deadline.arm(after: QuitDeadline.engineStopLimit)
                 self?.watchdog?.endHangAssertions()
-                #if DEBUG || CMUX_BENCH_HOOKS
-                if self?.wedgesEngineStop == true { deadline.wedgeMainThread(self?.watchdog) }
-                #endif
+            },
+            beginDrain: { services.work.beginShutdown() },
+            stopBrowserEngines: {
+                wedgeIfAsked()
                 await services.cache.cef.shutdown()
-            }
+            },
+            finishDrain: { await services.work.shutdown() }
         ))
         sender.reply(toApplicationShouldTerminate: true)
     }

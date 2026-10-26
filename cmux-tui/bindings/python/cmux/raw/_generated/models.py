@@ -63,6 +63,31 @@ class AgentState(str, Enum):
     DONE = 'done'
     UNKNOWN = 'unknown'
 
+class AppOrigin(str, Enum):
+    USER = 'user'
+    CLI = 'cli'
+    MCP = 'mcp'
+    SCRIPT = 'script'
+    REMOTE = 'remote'
+
+class AppScopeClass(str, Enum):
+    STANDARD = 'standard'
+    SENSITIVE = 'sensitive'
+    RESTRICTED = 'restricted'
+    ELEVATED = 'elevated'
+    UNKNOWN = 'unknown'
+
+class AppSource(str, Enum):
+    DEFAULT = 'default'
+    USER = 'user'
+    BUNDLED = 'bundled'
+    LOCAL = 'local'
+
+class AppTier(str, Enum):
+    FIRST_PARTY = 'first-party'
+    VERIFIED = 'verified'
+    UNVERIFIED = 'unverified'
+
 class BrowserProviderAuthentication(str, Enum):
     NONE = 'none'
     BEARER = 'bearer'
@@ -97,6 +122,10 @@ class DetachReason(str, Enum):
     DISCONNECTED_BY = 'disconnected-by'
     HOST_SHUTDOWN = 'host-shutdown'
     SUPERSEDED = 'superseded'
+
+class EventCause(str, Enum):
+    FRONTEND = 'frontend'
+    AUTOMATION = 'automation'
 
 class FrontendFocusTarget(str, Enum):
     PANE = 'pane'
@@ -358,6 +387,89 @@ class ActivitySubscribeResult:
 
 
 @dataclass(frozen=True)
+class AgentCLIIntent:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIIntent'
+    cli: str
+    key: str
+    machine: str
+    profiles: List[str]
+    root_key: str
+    session: str
+
+
+@dataclass(frozen=True)
+class AgentCLIJobPath:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIJobPath'
+    terminal_id: str
+    kind: Literal['terminal']
+    pane_id: str
+    screen_id: str
+    tab_id: str
+    workspace_id: str
+
+
+@dataclass(frozen=True)
+class AgentCLIJobReceipt:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIJobReceipt'
+    cli: str
+    machine: str
+    path: AgentCLIJobPath
+    replayed: bool
+    revision: str
+    session: str
+
+
+@dataclass(frozen=True)
+class AgentCLIJobResolutionCreated:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIJobResolution/variants/created'
+    receipt: AgentCLIJobReceipt
+    state: Literal['created']
+
+
+@dataclass(frozen=True)
+class AgentCLIJobResolutionFailed:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIJobResolution/variants/failed'
+    code: str
+    state: Literal['failed']
+
+
+@dataclass(frozen=True)
+class AgentCLIJobResolutionIndeterminate:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIJobResolution/variants/indeterminate'
+    state: Literal['indeterminate']
+
+
+@dataclass(frozen=True)
+class AgentCLIJobResolutionNotFound:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIJobResolution/variants/not_found'
+    state: Literal['not_found']
+
+
+@dataclass(frozen=True)
+class AgentCLIJobResolutionPending:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIJobResolution/variants/pending'
+    state: Literal['pending']
+
+
+@dataclass(frozen=True)
+class AgentCLIJobResolutionPrepared:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIJobResolution/variants/prepared'
+    state: Literal['prepared']
+
+
+@dataclass(frozen=True)
+class AgentCLIStoredIntent:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIStoredIntent'
+    cli: str
+    key: str
+    machine: str
+    profiles: List[str]
+    receipt: Union[AgentCLIJobReceipt, None]
+    root_key: str
+    session: str
+
+
+@dataclass(frozen=True)
 class AgentRecord:
     __cmux_schema_path__: ClassVar[str] = 'types/AgentRecord'
     surface: Id
@@ -372,12 +484,82 @@ class AgentRecord:
 
 
 @dataclass(frozen=True)
+class AgentSessionAnsweredBy:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentSessionAnsweredBy'
+    device: str
+    feed_item: str
+
+
+@dataclass(frozen=True)
 class AgentSessionSource:
     __cmux_schema_path__: ClassVar[str] = 'types/AgentSessionSource'
     host: str
     harness: Union[str, None, MissingType] = field(default=MISSING)
     host_name: Union[str, None, MissingType] = field(default=MISSING)
     session: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppGrant:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppGrant'
+    granted: bool
+    scope: str
+
+
+@dataclass(frozen=True)
+class AppHiddenAccess:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppHiddenAccess'
+    automations: bool
+    cli: bool
+    mcp: bool
+
+
+@dataclass(frozen=True)
+class AppLogLine:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppLogLine'
+    level: str
+    message: str
+    ts_ms: int
+
+
+@dataclass(frozen=True)
+class AppPaletteCommand:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppPaletteCommand'
+    op: str
+    title: Union[JsonValue, None]
+    when: Union[JsonValue, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppRecord:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppRecord'
+    available: bool
+    bundle_dir: Union[str, None]
+    commands: List[AppPaletteCommand]
+    enabled: bool
+    grants: List[str]
+    hidden: bool
+    hidden_access: AppHiddenAccess
+    hide_only: bool
+    id: str
+    installed: bool
+    manifest: Union[JsonValue, None]
+    sandboxed: bool
+    scope_classes: Dict[str, AppScopeClass]
+    source: AppSource
+    tier: AppTier
+    version: str
+    revision: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppTerminalLink:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppTerminalLink'
+    app: str
+    channel: str
+    id: str
+    socket: Union[str, None]
+    target: str
 
 
 @dataclass(frozen=True)
@@ -392,6 +574,51 @@ class ApplyLayoutResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ApplyLayoutResult'
     screen: Id
     panes: List[AppliedPane]
+
+
+@dataclass(frozen=True)
+class AppsInventoryDemand:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppsInventoryDemand'
+    enabled: bool
+    sequence: int
+
+
+@dataclass(frozen=True)
+class AppsLinkChangedResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppsLinkChangedResult'
+    servers: int
+
+
+@dataclass(frozen=True)
+class AppsListResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppsListResult'
+    apps: List[AppRecord]
+    revision: int
+
+
+@dataclass(frozen=True)
+class AppsLogsResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppsLogsResult'
+    lines: List[AppLogLine]
+
+
+@dataclass(frozen=True)
+class AppsProviderRegisterResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppsProviderRegisterResult'
+    families: List[str]
+    inventory_demand: Union[AppsInventoryDemand, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsRunResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppsRunResult'
+    value: Union[JsonValue, None]
+
+
+@dataclass(frozen=True)
+class AppsTerminalLinksResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppsTerminalLinksResult'
+    links: List[AppTerminalLink]
 
 
 @dataclass(frozen=True)
@@ -1536,6 +1763,44 @@ class ServerStatsRegistryLock:
 
 
 @dataclass(frozen=True)
+class ServerStatsRequestLatency:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsRequestLatency'
+    agent: ServerStatsHistogram
+    browser: ServerStatsHistogram
+    cloud: ServerStatsHistogram
+    create: ServerStatsHistogram
+    other: ServerStatsHistogram
+    query: ServerStatsHistogram
+    terminal_io: ServerStatsHistogram
+    topology: ServerStatsHistogram
+
+
+@dataclass(frozen=True)
+class ServerStatsRequestPathIo:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsRequestPathIo'
+    child_process: int
+    fs_write: int
+    host_wait: int
+    journal_wait: int
+    network: int
+    proc_scan: int
+    process_spawn: int
+    recording: bool
+    scopes: int
+    sites: List[ServerStatsRequestPathSite]
+    sleep: int
+    sqlite: int
+    lock_hold_over_1ms: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ServerStatsRequestPathSite:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsRequestPathSite'
+    kind: str
+    site: str
+
+
+@dataclass(frozen=True)
 class ServerStatsResourceProjection:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsResourceProjection'
     commit_apply_us: ServerStatsHistogram
@@ -1565,8 +1830,46 @@ class ServerStatsResult:
     registry_lock: ServerStatsRegistryLock
     schema: int
     uptime_ms: int
+    dispatch_queue_us: Union[ServerStatsHistogram, MissingType] = field(default=MISSING)
+    request_latency_us: Union[ServerStatsRequestLatency, MissingType] = field(default=MISSING)
+    request_path_io: Union[ServerStatsRequestPathIo, MissingType] = field(default=MISSING)
     resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
+    slow_requests: Union[ServerStatsSlowRequests, MissingType] = field(default=MISSING)
     write_path: Union[ServerStatsWritePath, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ServerStatsSlowRequest:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsSlowRequest'
+    client: int
+    busy_ms: int
+    duration_ms: Union[int, None]
+    method: str
+    stack: List[ServerStatsSlowRequestFrame]
+    stack_error: Union[str, None]
+    stack_truncated: bool
+    started_ms: int
+
+
+@dataclass(frozen=True)
+class ServerStatsSlowRequestFrame:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsSlowRequestFrame'
+    image: Union[str, None]
+    image_id: Union[str, None]
+    offset: int
+    symbol: Union[str, None]
+
+
+@dataclass(frozen=True)
+class ServerStatsSlowRequests:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsSlowRequests'
+    expected_waits: int
+    recent: List[ServerStatsSlowRequest]
+    spawn_failures: int
+    threshold_ms: int
+    total: int
+    unwatched: int
+    watchdog_wakeups: int
 
 
 @dataclass(frozen=True)
@@ -2177,6 +2480,218 @@ class AddTabsToTabGroupRequest:
 
 
 @dataclass(frozen=True)
+class AgentCliIntentsAttachRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-intents-attach/request'
+    expected_machine_id: str
+    expected_session_id: str
+    key: str
+    receipt: AgentCLIJobReceipt
+
+
+@dataclass(frozen=True)
+class AgentCliIntentsAttachResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-intents-attach/result'
+    changed: bool
+    intent: AgentCLIStoredIntent
+
+
+@dataclass(frozen=True)
+class AgentCliIntentsListRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-intents-list/request'
+    expected_machine_id: str
+    expected_session_id: str
+
+
+@dataclass(frozen=True)
+class AgentCliIntentsListResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-intents-list/result'
+    intents: List[AgentCLIStoredIntent]
+
+
+@dataclass(frozen=True)
+class AgentCliIntentsRecordRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-intents-record/request'
+    expected_machine_id: str
+    expected_session_id: str
+    intents: List[AgentCLIIntent]
+
+
+@dataclass(frozen=True)
+class AgentCliIntentsRecordResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-intents-record/result'
+    changed: bool
+    intents: List[AgentCLIStoredIntent]
+
+
+@dataclass(frozen=True)
+class AgentCliIntentsSettleRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-intents-settle/request'
+    expected_machine_id: str
+    expected_session_id: str
+    keys: List[str]
+
+
+@dataclass(frozen=True)
+class AgentCliIntentsSettleResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-intents-settle/result'
+    changed: bool
+    intents: List[AgentCLIStoredIntent]
+
+
+@dataclass(frozen=True)
+class AgentCliUpdateJobRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-update-job/request'
+    cli: str
+    expected_machine_id: str
+    expected_session_id: str
+    idempotency_key: str
+
+
+@dataclass(frozen=True)
+class AgentCliUpdateJobResolveRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-update-job-resolve/request'
+    cli: str
+    expected_machine_id: str
+    expected_session_id: str
+    idempotency_key: str
+
+
+@dataclass(frozen=True)
+class AgentSessionAttachRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-attach/request'
+    surface: Id
+    after_seq: Union[int, None, MissingType] = field(default=MISSING)
+    before_seq: Union[int, None, MissingType] = field(default=MISSING)
+    kinds: Union[List[str], None, MissingType] = field(default=MISSING)
+    limit: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AgentSessionCancelRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-cancel/request'
+    surface: Id
+
+
+@dataclass(frozen=True)
+class AgentSessionCancelResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-cancel/result'
+    pass
+
+
+@dataclass(frozen=True)
+class AgentSessionChildrenRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-children/request'
+    surface: Id
+
+
+@dataclass(frozen=True)
+class AgentSessionChildrenResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-children/result'
+    sessions: List[AgentSessionSummary]
+
+
+@dataclass(frozen=True)
+class AgentSessionDetachRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-detach/request'
+    surface: Id
+
+
+@dataclass(frozen=True)
+class AgentSessionDetachResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-detach/result'
+    pass
+
+
+@dataclass(frozen=True)
+class AgentSessionEventsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-events/request'
+    surface: Id
+    after_seq: Union[int, None, MissingType] = field(default=MISSING)
+    before_seq: Union[int, None, MissingType] = field(default=MISSING)
+    kinds: Union[List[str], None, MissingType] = field(default=MISSING)
+    limit: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AgentSessionMediaRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-media/request'
+    surface: Id
+    path: str
+
+
+@dataclass(frozen=True)
+class AgentSessionMediaResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-media/result'
+    data: str
+    mimeType: Union[str, None]
+
+
+@dataclass(frozen=True)
+class AgentSessionObserveRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-observe/request'
+    surface: Id
+    after_seq: Union[int, None, MissingType] = field(default=MISSING)
+    before_seq: Union[int, None, MissingType] = field(default=MISSING)
+    kinds: Union[List[str], None, MissingType] = field(default=MISSING)
+    limit: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AgentSessionPermissionRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-permission/request'
+    surface: Id
+    option_id: str
+    permission_id: str
+    answered_by: Union[AgentSessionAnsweredBy, None, MissingType] = field(default=MISSING)
+    decision_nonce: Union[str, None, MissingType] = field(default=MISSING)
+    person_decision: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AgentSessionPromptRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-prompt/request'
+    surface: Id
+    prompt_id: str
+    text: str
+
+
+@dataclass(frozen=True)
+class AgentSessionPromptResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-prompt/result'
+    prompt_id: str
+    queued: bool
+    turn_id: Union[str, None]
+
+
+@dataclass(frozen=True)
+class AgentSessionStartRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-start/request'
+    surface: Id
+    cwd: str
+    harness: Union[str, None, MissingType] = field(default=MISSING)
+    home_confirmed: Union[bool, MissingType] = field(default=MISSING)
+    person_instance: Union[str, None, MissingType] = field(default=MISSING)
+    require_person_key: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AgentSessionStartResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-start/result'
+    surface: Id
+    conversation: ConversationTabRecord
+    session: str
+
+
+@dataclass(frozen=True)
+class AgentSessionTrustRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-trust/request'
+    surface: Id
+    cwd: str
+    home_confirmed: Union[bool, MissingType] = field(default=MISSING)
+    level: Union[Literal['trusted', 'untrusted', 'unknown'], None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ApplyLayoutRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/apply-layout/request'
     layout: DeclarativeLayout
@@ -2184,6 +2699,115 @@ class ApplyLayoutRequest:
     name: Union[str, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsAgentInventoryChangedRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-agent-inventory-changed/request'
+    demand_sequence: int
+
+
+@dataclass(frozen=True)
+class AppsDispatchRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-dispatch/request'
+    event: str
+    mount_id: str
+    node: str
+    origin: Union[AppOrigin, MissingType] = field(default=MISSING)
+    payload: Union[JsonValue, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsLinkChangedRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-link-changed/request'
+    origin: Union[AppOrigin, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsListRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-list/request'
+    origin: Union[AppOrigin, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsLogsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-logs/request'
+    app: str
+    follow: Union[bool, MissingType] = field(default=MISSING)
+    origin: Union[AppOrigin, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsMountRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-mount/request'
+    app: str
+    interface: str
+    mount_id: str
+    context: Union[JsonValue, None, MissingType] = field(default=MISSING)
+    origin: Union[AppOrigin, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsProviderRegisterRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-provider-register/request'
+    families: List[str]
+    inventory_watch: Union[bool, MissingType] = field(default=MISSING)
+    origin: Union[AppOrigin, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsProviderResultRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-provider-result/request'
+    ok: bool
+    request_id: int
+    body: Union[JsonValue, None, MissingType] = field(default=MISSING)
+    origin: Union[AppOrigin, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsRunRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-run/request'
+    app: str
+    op: str
+    args: Union[JsonValue, None, MissingType] = field(default=MISSING)
+    gesture: Union[str, None, MissingType] = field(default=MISSING)
+    idempotency_key: Union[str, None, MissingType] = field(default=MISSING)
+    origin: Union[AppOrigin, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsSetRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-set/request'
+    app: str
+    idempotency_key: str
+    enabled: Union[bool, None, MissingType] = field(default=MISSING)
+    grant: Union[AppGrant, None, MissingType] = field(default=MISSING)
+    hidden: Union[bool, None, MissingType] = field(default=MISSING)
+    hidden_access: Union[AppHiddenAccess, None, MissingType] = field(default=MISSING)
+    installed: Union[bool, None, MissingType] = field(default=MISSING)
+    origin: Union[AppOrigin, MissingType] = field(default=MISSING)
+    sandboxed: Union[bool, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsStoreRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-store/request'
+    op: str
+    args: Union[JsonValue, None, MissingType] = field(default=MISSING)
+    origin: Union[AppOrigin, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsTerminalLinksRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-terminal-links/request'
+    origin: Union[AppOrigin, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsUnmountRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-unmount/request'
+    mount_id: str
+    origin: Union[AppOrigin, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2335,6 +2959,12 @@ class BrowserWheelGuardedRequest:
     frame_seq: int
     x_px: float
     y_px: float
+
+
+@dataclass(frozen=True)
+class CancelRequestRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cancel-request/request'
+    target: Union[JsonValue, None]
 
 
 @dataclass(frozen=True)
@@ -4767,6 +5397,26 @@ class TerminalResumeCommandRequest:
 
 
 @dataclass(frozen=True)
+class TraceStartRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/trace-start/request'
+    categories: Union[List[str], None, MissingType] = field(default=MISSING)
+    keys: Union[bool, MissingType] = field(default=MISSING)
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
+class TraceStatusRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/trace-status/request'
+    pass
+
+
+@dataclass(frozen=True)
+class TraceStopRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/trace-stop/request'
+    pass
+
+
+@dataclass(frozen=True)
 class UndoLayoutRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/undo-layout/request'
     pane: Id
@@ -4995,6 +5645,7 @@ class AgentChangedEvent(EventBase):
     updated_at_ms: int
     agent: Union[str, None, MissingType] = field(default=MISSING)
     agent_session_id: Union[str, None, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     last_prompt: Union[str, None, MissingType] = field(default=MISSING)
     since_ms: Union[int, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
@@ -5032,6 +5683,7 @@ class AgentPresenceChangedEvent(EventBase):
     session: Union[str, None]
     tool: Union[str, None]
     updated_at_ms: Union[int, None]
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5040,6 +5692,7 @@ class BellEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/bell/payload'
     surface: Id
     event: Literal['bell']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5049,6 +5702,7 @@ class BookmarksChangedEvent(EventBase):
     bookmarks_revision: int
     browser_profile_id: str
     event: Literal['bookmarks-changed']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5074,6 +5728,7 @@ class ChiefChangedEvent(EventBase):
     change: Literal['created', 'updated', 'deleted']
     chief: str
     event: Literal['chief-changed']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5085,6 +5740,7 @@ class ClientAttachedEvent(EventBase):
     kind: Union[str, None]
     name: Union[str, None]
     transport: Literal['unix', 'ws']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5095,6 +5751,7 @@ class ClientChangedEvent(EventBase):
     event: Literal['client-changed']
     kind: Union[str, None]
     name: Union[str, None]
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5103,6 +5760,7 @@ class ClientDetachedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/client-detached/payload'
     client: int
     event: Literal['client-detached']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5110,6 +5768,7 @@ class ClientDetachedEvent(EventBase):
 class ClientListInvalidatedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/client-list-invalidated/payload'
     event: Literal['client-list-invalidated']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5123,6 +5782,7 @@ class CloudConversationChangedEvent(EventBase):
     seq: int
     transaction: str
     account: Union[str, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5133,6 +5793,7 @@ class CloudConversationLiveEvent(EventBase):
     event: Literal['cloud-conversation-live']
     frame: Union[JsonValue, None]
     account: Union[str, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5146,6 +5807,7 @@ class CloudConversationResyncedEvent(EventBase):
     seq: int
     summary: Union[JsonValue, None]
     account: Union[str, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5157,6 +5819,7 @@ class CloudConversationRunChangedEvent(EventBase):
     run: Union[JsonValue, None]
     steps: List[JsonValue]
     account: Union[str, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5168,6 +5831,7 @@ class CloudConversationTypingEvent(EventBase):
     on: bool
     participant: str
     account: Union[str, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5176,6 +5840,7 @@ class CloudHostReplicaNeededEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/cloud-host-replica-needed/payload'
     event: Literal['cloud-host-replica-needed']
     reason: str
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     expires_at: Union[int, None, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
@@ -5188,6 +5853,7 @@ class CloudInboxChangedEvent(EventBase):
     seq: int
     transaction: str
     account: Union[str, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5197,6 +5863,7 @@ class CloudInboxResetEvent(EventBase):
     event: Literal['cloud-inbox-reset']
     seq: int
     account: Union[str, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5207,6 +5874,7 @@ class CloudMuxResyncedEvent(EventBase):
     pending: Union[JsonValue, None]
     seq: int
     account: Union[str, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5217,6 +5885,7 @@ class CloudMuxWakeEvent(EventBase):
     seq: int
     wakes: Union[JsonValue, None]
     account: Union[str, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5225,6 +5894,7 @@ class CloudSessionNeededEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/cloud-session-needed/payload'
     event: Literal['cloud-session-needed']
     reason: str
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     expires_at: Union[int, None, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
@@ -5236,6 +5906,7 @@ class CloudSubscriptionStateEvent(EventBase):
     scope: str
     state: str
     account: Union[str, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     conversation: Union[str, None, MissingType] = field(default=MISSING)
     reason: Union[str, None, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
@@ -5262,6 +5933,7 @@ class ColorsChangedEvent(EventBase):
 class ConfigReloadRequestedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/config-reload-requested/payload'
     event: Literal['config-reload-requested']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5273,6 +5945,7 @@ class ConversationChangedEvent(EventBase):
     event: Literal['conversation-changed']
     rev: int
     transaction: Union[str, None]
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5283,6 +5956,7 @@ class ConversationDraftEvent(EventBase):
     event: Literal['conversation-draft']
     item: JsonValue
     participant: str
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5294,6 +5968,7 @@ class ConversationInboxChangedEvent(EventBase):
     marked_unread: bool
     participant: str
     pinned: bool
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     pin_position: Union[int, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
@@ -5304,6 +5979,7 @@ class ConversationLiveEvent(EventBase):
     conversation: str
     event: Literal['conversation-live']
     frame: Union[JsonValue, None]
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5314,6 +5990,7 @@ class ConversationRunChangedEvent(EventBase):
     event: Literal['conversation-run-changed']
     run: Union[JsonValue, None]
     steps: List[JsonValue]
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5324,6 +6001,7 @@ class ConversationTypingEvent(EventBase):
     event: Literal['conversation-typing']
     on: bool
     participant: str
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5350,6 +6028,7 @@ class DetachedEvent(EventBase):
 class EmptyEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/empty/payload'
     event: Literal['empty']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5375,6 +6054,7 @@ class FrontendProjectionChangedEvent(EventBase):
     projection_revision: int
     scope: str
     subject_key: str
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5384,6 +6064,7 @@ class GraphicsStatusEvent(EventBase):
     event: Literal['graphics-status']
     kind: Literal['kitty-image-budget-worker-start-failed', 'kitty-image-budget-update-failed', 'cell-pixel-update-retries-exhausted']
     attempts: Union[int, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     cell_height: Union[int, MissingType] = field(default=MISSING)
     cell_width: Union[int, MissingType] = field(default=MISSING)
     error: Union[str, MissingType] = field(default=MISSING)
@@ -5399,6 +6080,7 @@ class HistoryChangedEvent(EventBase):
     event: Literal['history-changed']
     kinds: List[str]
     revision: int
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5408,6 +6090,7 @@ class KeybindingsChangedEvent(EventBase):
     event: Literal['keybindings-changed']
     origin: Literal['user', 'cli', 'mcp', 'script', 'remote', 'app', 'file']
     revision: int
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5418,6 +6101,7 @@ class LayoutChangedEvent(EventBase):
     event: Literal['layout-changed']
     workspace: Union[Id, MissingType] = field(default=MISSING)
     active_pane: Union[Id, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     layout: Union[Layout, MissingType] = field(default=MISSING)
     transaction: Union[str, MissingType] = field(default=MISSING)
     zoomed_pane: Union[Id, None, MissingType] = field(default=MISSING)
@@ -5429,6 +6113,7 @@ class MachineUsageChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/machine-usage-changed/payload'
     event: Literal['machine-usage-changed']
     usage: Union[MachineUsage, None]
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5441,6 +6126,7 @@ class NotificationEvent(EventBase):
     level: NotificationLevel
     notification: Id
     title: str
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     desktop: Union[bool, MissingType] = field(default=MISSING)
     reply: Union[bool, MissingType] = field(default=MISSING)
     source: Union[NotificationSource, MissingType] = field(default=MISSING)
@@ -5475,6 +6161,7 @@ class PairingRequestedEvent(EventBase):
     event: Literal['pairing-requested']
     expires_in: int
     peer: str
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5483,6 +6170,7 @@ class PairingResolvedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/pairing-resolved/payload'
     request: int
     event: Literal['pairing-resolved']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5516,6 +6204,7 @@ class ParticipantAvatarChangedEvent(EventBase):
     avatar: Union[JsonValue, None]
     event: Literal['participant-avatar-changed']
     participant: str
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5524,6 +6213,7 @@ class PersonalChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/personal-changed/payload'
     event: Literal['personal-changed']
     personal_revision: int
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5533,6 +6223,7 @@ class ProgramStatusChangedEvent(EventBase):
     surface: Id
     event: Literal['program-status-changed']
     program_status: Union[ShownProgramStatus, None]
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5634,6 +6325,7 @@ class ScrollChangedEvent(EventBase):
     at_bottom: bool
     event: Literal['scroll-changed']
     offset: int
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5644,6 +6336,7 @@ class SettingsChangedEvent(EventBase):
     keys: List[str]
     origin: Literal['user', 'cli', 'mcp', 'script', 'remote', 'app', 'file']
     revision: int
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5653,6 +6346,7 @@ class SizeStateEvent(EventBase):
     surface: Id
     event: Literal['size-state']
     state: SizeState
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     self_participant: Union[str, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
@@ -5662,6 +6356,7 @@ class StatusEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/status/payload'
     event: Literal['status']
     message: str
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5670,6 +6365,7 @@ class SurfaceExitedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/surface-exited/payload'
     surface: Id
     event: Literal['surface-exited']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5678,6 +6374,7 @@ class SurfaceOutputEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/surface-output/payload'
     surface: Id
     event: Literal['surface-output']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5691,6 +6388,7 @@ class SurfaceResizeFailedEvent(EventBase):
     reservation_id: Union[int, None]
     retry_after_ms: Union[int, None]
     rows: int
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5702,6 +6400,7 @@ class SurfaceResizedEvent(EventBase):
     event: Literal['surface-resized']
     reservation_id: Union[int, None]
     rows: int
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5793,6 +6492,7 @@ class TerminalReapedEvent(EventBase):
     event: Literal['terminal-reaped']
     grace_ms: int
     terminal: Union[str, None]
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5804,6 +6504,7 @@ class TerminalRegistryChangedEvent(EventBase):
     refetch: Literal['terminal-events-or-list-terminals']
     registry_id: str
     terminal_revision: int
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5812,6 +6513,7 @@ class TitleChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/title-changed/payload'
     surface: Id
     event: Literal['title-changed']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     title: Union[str, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
@@ -5820,6 +6522,7 @@ class TitleChangedEvent(EventBase):
 class TreeChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/tree-changed/payload'
     event: Literal['tree-changed']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5852,6 +6555,7 @@ class WindowTitleRequestedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/window-title-requested/payload'
     event: Literal['window-title-requested']
     title: str
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5930,6 +6634,10 @@ class WorkspaceRenamedEvent(EventBase):
 
 
 # Named protocol aliases.
+AgentCLIJobResolution = Union[AgentCLIJobResolutionCreated, AgentCLIJobResolutionFailed, AgentCLIJobResolutionIndeterminate, AgentCLIJobResolutionNotFound, AgentCLIJobResolutionPending, AgentCLIJobResolutionPrepared]
+AgentSessionAcpmuxReply = Any
+AgentSessionPage = Any
+AgentSessionSummary = Any
 Base64 = str
 ColorHex = str
 DeclarativeLayout = Union[DeclarativeLayoutLeaf, DeclarativeLayoutSplit, DeclarativeLayoutStack]
@@ -5958,6 +6666,10 @@ __all__ = [
     'AgentReportSource',
     'AgentSource',
     'AgentState',
+    'AppOrigin',
+    'AppScopeClass',
+    'AppSource',
+    'AppTier',
     'BrowserProviderAuthentication',
     'BrowserProviderHosting',
     'ClientTransport',
@@ -5966,6 +6678,7 @@ __all__ = [
     'ConversationThreadStatus',
     'CursorStyle',
     'DetachReason',
+    'EventCause',
     'FrontendFocusTarget',
     'HomeChiefState',
     'HomeInboxKind',
@@ -5991,10 +6704,34 @@ __all__ = [
     'ViewAttachmentOutcome',
     'ActivitySnapshot',
     'ActivitySubscribeResult',
+    'AgentCLIIntent',
+    'AgentCLIJobPath',
+    'AgentCLIJobReceipt',
+    'AgentCLIJobResolutionCreated',
+    'AgentCLIJobResolutionFailed',
+    'AgentCLIJobResolutionIndeterminate',
+    'AgentCLIJobResolutionNotFound',
+    'AgentCLIJobResolutionPending',
+    'AgentCLIJobResolutionPrepared',
+    'AgentCLIStoredIntent',
     'AgentRecord',
+    'AgentSessionAnsweredBy',
     'AgentSessionSource',
+    'AppGrant',
+    'AppHiddenAccess',
+    'AppLogLine',
+    'AppPaletteCommand',
+    'AppRecord',
+    'AppTerminalLink',
     'AppliedPane',
     'ApplyLayoutResult',
+    'AppsInventoryDemand',
+    'AppsLinkChangedResult',
+    'AppsListResult',
+    'AppsLogsResult',
+    'AppsProviderRegisterResult',
+    'AppsRunResult',
+    'AppsTerminalLinksResult',
     'AttachedViewOutcomeResult',
     'AttachedViewResizeResult',
     'Bookmark',
@@ -6109,8 +6846,14 @@ __all__ = [
     'ServerStatsLockSite',
     'ServerStatsLockStall',
     'ServerStatsRegistryLock',
+    'ServerStatsRequestLatency',
+    'ServerStatsRequestPathIo',
+    'ServerStatsRequestPathSite',
     'ServerStatsResourceProjection',
     'ServerStatsResult',
+    'ServerStatsSlowRequest',
+    'ServerStatsSlowRequestFrame',
+    'ServerStatsSlowRequests',
     'ServerStatsWritePath',
     'SetCellPixelsResult',
     'SetHostSizePolicyResult',
@@ -6175,7 +6918,47 @@ __all__ = [
     'AckTabNotificationsRequest',
     'AddScreensToScreenGroupRequest',
     'AddTabsToTabGroupRequest',
+    'AgentCliIntentsAttachRequest',
+    'AgentCliIntentsAttachResult',
+    'AgentCliIntentsListRequest',
+    'AgentCliIntentsListResult',
+    'AgentCliIntentsRecordRequest',
+    'AgentCliIntentsRecordResult',
+    'AgentCliIntentsSettleRequest',
+    'AgentCliIntentsSettleResult',
+    'AgentCliUpdateJobRequest',
+    'AgentCliUpdateJobResolveRequest',
+    'AgentSessionAttachRequest',
+    'AgentSessionCancelRequest',
+    'AgentSessionCancelResult',
+    'AgentSessionChildrenRequest',
+    'AgentSessionChildrenResult',
+    'AgentSessionDetachRequest',
+    'AgentSessionDetachResult',
+    'AgentSessionEventsRequest',
+    'AgentSessionMediaRequest',
+    'AgentSessionMediaResult',
+    'AgentSessionObserveRequest',
+    'AgentSessionPermissionRequest',
+    'AgentSessionPromptRequest',
+    'AgentSessionPromptResult',
+    'AgentSessionStartRequest',
+    'AgentSessionStartResult',
+    'AgentSessionTrustRequest',
     'ApplyLayoutRequest',
+    'AppsAgentInventoryChangedRequest',
+    'AppsDispatchRequest',
+    'AppsLinkChangedRequest',
+    'AppsListRequest',
+    'AppsLogsRequest',
+    'AppsMountRequest',
+    'AppsProviderRegisterRequest',
+    'AppsProviderResultRequest',
+    'AppsRunRequest',
+    'AppsSetRequest',
+    'AppsStoreRequest',
+    'AppsTerminalLinksRequest',
+    'AppsUnmountRequest',
     'AttachSurfaceRequest',
     'BindConversationTabSessionRequest',
     'BindConversationTabSessionResult',
@@ -6193,6 +6976,7 @@ __all__ = [
     'BrowserReloadRequest',
     'BrowserWheelRequest',
     'BrowserWheelGuardedRequest',
+    'CancelRequestRequest',
     'ChiefInspectRequest',
     'ChiefInspectResult',
     'ClearHistoryRequest',
@@ -6481,6 +7265,9 @@ __all__ = [
     'TerminalReadRangeRequest',
     'TerminalResourcesRequest',
     'TerminalResumeCommandRequest',
+    'TraceStartRequest',
+    'TraceStatusRequest',
+    'TraceStopRequest',
     'UndoLayoutRequest',
     'UngroupScreenGroupRequest',
     'UngroupTabGroupRequest',
@@ -6594,6 +7381,10 @@ __all__ = [
     'WorkspaceClosedEvent',
     'WorkspaceMovedEvent',
     'WorkspaceRenamedEvent',
+    'AgentCLIJobResolution',
+    'AgentSessionAcpmuxReply',
+    'AgentSessionPage',
+    'AgentSessionSummary',
     'Base64',
     'ColorHex',
     'DeclarativeLayout',

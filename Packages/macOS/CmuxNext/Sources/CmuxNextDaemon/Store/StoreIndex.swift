@@ -15,7 +15,22 @@ import Foundation
 /// Rule for writers: every change of a record's ids or children (an
 /// `update` from a snapshot, an insert, a removal, a move) is followed by
 /// `insert` of the changed record (or `remove`), in the same turn.
+///
+/// Each key it gives or drops is reported to ``waiters`` (StoreWaiters.swift), so a wait for one
+/// tab or workspace reads its condition only when that key changes. Each workspace that joins or
+/// leaves is reported to ``unread`` (UnreadLedger.swift) and to ``workspaceListDigest``: the unread
+/// sum and the workspace-list check cost the workspaces a change names, never the list.
 @MainActor struct StoreIndex {
+    /// The keyed waits this index's changes resume; kept across ``rebuild(_:)``.
+    let waiters: StoreWaiters
+    /// The unread sum of the indexed workspaces; kept across ``rebuild(_:)``.
+    let unread: UnreadLedger
+
+    init(waiters: StoreWaiters, unread: UnreadLedger) {
+        self.waiters = waiters
+        self.unread = unread
+    }
+
     private(set) var tabsBySurface: [SurfaceID: TabModel] = [:]
     private(set) var tabsByID: [String: TabModel] = [:]
     private(set) var tabsByTerminal: [TerminalID: TabModel] = [:]
@@ -48,6 +63,30 @@ import Foundation
     /// An order change inside a pane, or of the workspaces, noted by its
     /// writer (`noteTabOrderChanged`).
     private var tabOrderChanged = false
+    /// Order changes noted since creation (kept across ``rebuild(_:)``): with the digest, what
+    /// ``pendingTabListMark`` compares.
+    private var tabOrderChanges = 0
+
+    /// The tab list as it differs from its last publish (``takeTabListChange()``), or nil when it
+    /// does not: two marks differ when a change was made between them (the store records its cause).
+    var pendingTabListMark: TabListMark? {
+        guard tabOrderChanged || tabMembership != takenMembership else { return nil }
+        return TabListMark(membership: tabMembership, orderChanges: tabOrderChanges)
+    }
+
+    /// One state of the tab list (``pendingTabListMark``).
+    struct TabListMark: Equatable {
+        let membership: Int
+        let orderChanges: Int
+    }
+
+    /// Indexed workspace records per list id (``WorkspaceModel/listID(id:handle:)``).
+    private var workspaceRecordsByListID: [String: Int] = [:]
+    /// An order-free digest of the set of list ids indexed (XOR of one hash per list id, toggled when
+    /// its first record comes or its last goes): a re-index of a workspace, or a move, leaves it as
+    /// it was, so it changes only when a workspace joined or left the set, or a stand-in was taken
+    /// over (`DaemonStore.workspaceListMayHaveChanged`).
+    private(set) var workspaceListDigest = 0
 
     private enum Keys {
         case workspace(handle: WorkspaceHandle, key: WorkspaceKey?, id: String, resource: ResourceID?)
@@ -97,15 +136,22 @@ import Foundation
 
     /// Indexes `workspaces` only (snapshot apply; the one O(tree) write).
     mutating func rebuild(_ workspaces: [WorkspaceModel]) {
-        let counted = indexedRecords
-        self = StoreIndex()
-        indexedRecords = counted
+        let counted = indexedRecords, orderChanges = tabOrderChanges
+        for entry in entries.values {
+            if case .workspace = entry.keys, let workspace = entry.record as? WorkspaceModel { unread.leave(workspace) }
+        }
+        self = StoreIndex(waiters: waiters, unread: unread)
+        (indexedRecords, tabOrderChanges) = (counted, orderChanges)
+        waiters.noteRebuilt()
         for workspace in workspaces { insert(workspace) }
-        tabOrderChanged = true
+        noteTabOrderChanged()
     }
 
     /// The order of tabs in a pane, or of the workspaces, changed.
-    mutating func noteTabOrderChanged() { tabOrderChanged = true }
+    mutating func noteTabOrderChanged() {
+        tabOrderChanged = true
+        tabOrderChanges &+= 1
+    }
 
     /// Whether the tab list (tabs, their panes, their order) changed since
     /// the last call; resets it.
@@ -198,6 +244,9 @@ import Foundation
             workspacesByID[id] = workspace
             if let key { workspacesByKey[key] = workspace }
             if let resource { workspacesByResource[resource] = workspace }
+            countList(WorkspaceModel.listID(id: id, handle: handle), by: 1)
+            unread.join(workspace)
+            waiters.noteWorkspaceKeyed(id: id, resource: resource)
         case .screen(let handle, let resource):
             guard let screen = record as? ScreenModel else { return }
             screensByHandle[handle] = screen
@@ -217,6 +266,7 @@ import Foundation
             if let resource { tabsByResource[resource] = tab }
             if let terminalResource { tabsByTerminalResource[terminalResource] = tab }
             if Self.isOverlayTab(id: id, surface: surface) { provisionalTabCount += 1 }
+            waiters.noteTabKeyed(id: id, surface: surface, resource: resource)
         }
     }
 
@@ -227,6 +277,8 @@ import Foundation
             Self.drop(id, from: &workspacesByID, if: record)
             if let key { Self.drop(key, from: &workspacesByKey, if: record) }
             if let resource { Self.drop(resource, from: &workspacesByResource, if: record) }
+            countList(WorkspaceModel.listID(id: id, handle: handle), by: -1)
+            if let workspace = record as? WorkspaceModel { unread.leave(workspace) }
         case .screen(let handle, let resource):
             Self.drop(handle, from: &screensByHandle, if: record)
             if let resource { Self.drop(resource, from: &screensByResource, if: record) }
@@ -256,7 +308,21 @@ import Foundation
             if let resource { Self.drop(resource, from: &tabsByResource, if: record) }
             if let terminalResource { Self.drop(terminalResource, from: &tabsByTerminalResource, if: record) }
             if Self.isOverlayTab(id: id, surface: surface) { provisionalTabCount -= 1 }
+            waiters.noteTabUnkeyed(id: id, surface: surface)
         }
+    }
+
+    /// Counts one workspace record of `listID` in or out; the digest toggles when the id's first
+    /// record comes or its last goes.
+    private mutating func countList(_ listID: String, by step: Int) {
+        let before = workspaceRecordsByListID[listID] ?? 0
+        let after = max(before + step, 0)
+        workspaceRecordsByListID[listID] = after > 0 ? after : nil
+        guard (before == 0) != (after == 0) else { return }
+        var hasher = Hasher()
+        hasher.combine("workspace-list")
+        hasher.combine(listID)
+        workspaceListDigest ^= hasher.finalize()
     }
 
     /// Whether a tab is the overlay's stand-in: a provisional id, or a provisional surface. A

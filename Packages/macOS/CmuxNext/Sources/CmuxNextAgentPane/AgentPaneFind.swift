@@ -15,6 +15,6 @@ public struct AgentPaneFind {
     public func run(_ command: String, takeFocus: Bool) {
         guard Self.commands.contains(command) else { return }
         if takeFocus, command != "hideFind" { pane.focusChat() }
-        pane.deliver([.command(command)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"\(command)\");"])
+        pane.deliver([.command(command)])
     }
 }

@@ -28,7 +28,6 @@ struct ObjCSelectorRuntimeTests {
     /// "unrecognized selector": remove the super call, then add the pair here.
     static let reviewedOverridesWithoutSuper: Set<String> = [
         // NSTextInputClient's optional placement: a constant answer, no super call.
-        "CmuxNextAgentPane.AgentPaneWKWebView.preferredTextAccessoryPlacement",
         "CmuxNextPages.PageWKWebView.preferredTextAccessoryPlacement",
         // NSTextViewDelegate's menu hook (the field editor's delegate): builds its own menu, no super call.
         "CmuxNextBrowser.AddressField.textView:menu:forEvent:atIndex:",

@@ -27,10 +27,11 @@ mod revocation;
 
 use std::sync::Arc;
 use std::sync::PoisonError;
+use std::time::Instant;
 
 use serde_json::{Value, json};
 
-use super::{ClientTransport, Command, MessageWriter, Mux, Response};
+use super::{ClientTransport, Command, MessageWriter, Mux, RequestArrival, RequestHead, Response};
 use crate::remote_relay_state::{
     BindRefused, LinkPeer, RelayLock, StreamPolicy, lock_checked, remote_participant,
 };
@@ -113,6 +114,19 @@ impl super::ClientRegistry {
             .map(|record| record.transport)
     }
 
+    /// [`Self::transport_of`] with the origin the client derives, in the
+    /// same lock: a frame reads both once.
+    fn transport_and_origin_of(
+        &self,
+        client: u64,
+    ) -> Option<(ClientTransport, crate::request_origin::RequestOrigin)> {
+        lock_checked(&self.state, RelayLock::Clients)
+            .ok()?
+            .clients
+            .get(&client)
+            .map(|record| (record.transport, record.origin.derive()))
+    }
+
     /// True for a connection that came through the remote entry (tests;
     /// dispatch uses `Mux::is_remote_client`, which also fails closed).
     #[cfg(test)]
@@ -127,7 +141,22 @@ impl Mux {
     /// at all. An unregistered id fails closed: it is never trusted as
     /// local (a frame racing its connection's disconnect, a stray id).
     pub(super) fn is_remote_client(&self, client: u64) -> bool {
-        match self.control_clients.transport_of(client) {
+        self.is_remote_with(client, self.control_clients.transport_of(client))
+    }
+
+    /// For one frame of `client`: [`Self::is_remote_client`] and the cause
+    /// of what the frame sets off, from one registry lookup. A client the
+    /// registry does not list is remote, and its cause is automation, as
+    /// the origin gate treats it as an agent.
+    pub(super) fn frame_client(&self, client: u64) -> (bool, crate::event_cause::EventCause) {
+        let found = self.control_clients.transport_and_origin_of(client);
+        let cause = found
+            .map_or(crate::event_cause::EventCause::Automation, |(_, origin)| origin.event_cause());
+        (self.is_remote_with(client, found.map(|(transport, _)| transport)), cause)
+    }
+
+    fn is_remote_with(&self, client: u64, transport: Option<ClientTransport>) -> bool {
+        match transport {
             // A poisoned peers lock cannot say the client has no peer
             // record: remote (fail closed).
             Some(ClientTransport::Unix | ClientTransport::WebSocket) => {
@@ -251,31 +280,85 @@ pub(super) fn intercept(
     })
 }
 
-/// Every frame of a remote client, from the top of the connection handler:
-/// one path, so no local router or error path (url-open, vt-state,
-/// shutdown, the pending-handoff refusal, a bad-request text) ever answers
-/// a remote client. Refusals are codes only.
+/// Tests: [`handle_watched_frame`] with no request watch.
+#[cfg(test)]
 pub(super) fn handle_frame(
     mux: &Arc<Mux>,
     client: u64,
     message: &str,
     writer: &MessageWriter,
+    arrived: Instant,
 ) -> bool {
+    handle_watched_frame(mux, client, message, writer, arrived, None)
+}
+
+/// Every frame of a remote client, from the top of the connection handler:
+/// one path, so no local router or error path (url-open, vt-state,
+/// shutdown, the pending-handoff refusal, a bad-request text) ever answers
+/// a remote client. Refusals are codes only. `watched` is the connection's
+/// request watch, named here by the handler the frame is in.
+pub(super) fn handle_watched_frame(
+    mux: &Arc<Mux>,
+    client: u64,
+    message: &str,
+    writer: &MessageWriter,
+    arrived: Instant,
+    watched: Option<&super::RequestScope<'_>>,
+) -> bool {
+    let stage = |stage: super::FrameStage| {
+        if let Some(scope) = watched {
+            scope.set_method(super::WatchedMethod::frame(stage));
+        }
+    };
+    // A line whose `cmd` names no `Command` (an `fs-v1` op, or a line the
+    // gate refuses) is answered under its own span; a `Command` opens its
+    // span at its handler, and a refusal of one opens it here.
+    let head = RequestHead::parse(message);
+    let stats = mux.request_stats();
+    let routed =
+        (!head.is_command()).then(|| head.open(stats, RequestArrival::parsed_now(arrived)));
+    let refuse = |routed: Option<super::RequestSpan<'_>>, code: &str| {
+        let mut span =
+            routed.unwrap_or_else(|| head.open(stats, RequestArrival::parsed_now(arrived)));
+        span.reply(|| writer.send_control(&refusal(message, code)).is_ok())
+    };
     if mux.daemon_handoff_in_progress() {
-        return writer.send_control(&refusal(message, REMOTE_ERROR)).is_ok();
+        return refuse(routed, REMOTE_ERROR);
     }
     // The seven `fs-v1` ops (exactly; fs_wire.rs) have their own owner and
     // checks, outside the conversation allowlist.
     #[cfg(unix)]
-    if let Some(keep_open) = super::fs_wire::try_handle(mux, client, message, writer) {
-        return keep_open;
-    }
+    let routed = {
+        stage(super::FrameStage::Fs);
+        match routed {
+            Some(mut span) => match super::fs_wire::try_handle(mux, client, message, writer) {
+                Some(keep_open) => return span.answered(keep_open),
+                None => Some(span),
+            },
+            None => None,
+        }
+    };
+    stage(super::FrameStage::RemoteRelay);
     if gate::check_frame(message).is_err() {
-        return writer.send_control(&refusal(message, REMOTE_DENIED)).is_ok();
+        return refuse(routed, REMOTE_DENIED);
     }
     match serde_json::from_str::<super::Request>(message) {
-        Ok(request) => super::handle_request(mux, client, request, writer),
-        Err(_) => writer.send_control(&refusal(message, REMOTE_ERROR)).is_ok(),
+        // Only a `cmd` the table names parses as a `Command`, so no line
+        // span is open here.
+        Ok(request) => {
+            if let Some(scope) = watched {
+                scope.command(&request.cmd);
+            }
+            super::handle_request_with_cancellation(
+                mux,
+                client,
+                request,
+                RequestArrival::parsed_now(arrived),
+                writer,
+                None,
+            )
+        }
+        Err(_) => refuse(routed, REMOTE_ERROR),
     }
 }
 

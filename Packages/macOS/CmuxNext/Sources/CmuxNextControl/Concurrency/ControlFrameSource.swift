@@ -24,6 +24,10 @@ public protocol ControlFrameSource: Sendable {
     /// there before queuing it, and counts queued injected input there, so batches yield to it.
     /// Nil by default.
     var mainTaskBoard: MainTaskBoard? { get }
+    /// That budget's clock where any thread may read it (``MainFrameBudget/postClock``): the queue
+    /// reads each request's enqueue time with it when the request is queued, so the board's ledger
+    /// records the request's wait. Nil by default (no wait recorded).
+    var mainTaskClock: (@Sendable () -> UInt64)? { get }
 }
 
 extension ControlFrameSource {
@@ -37,6 +41,7 @@ extension ControlFrameSource {
 
     @MainActor public var mainFrameBudget: MainFrameBudget? { nil }
     public var mainTaskBoard: MainTaskBoard? { nil }
+    public var mainTaskClock: (@Sendable () -> UInt64)? { nil }
 }
 
 /// Default frame source: one main run loop turn per frame. Each turn

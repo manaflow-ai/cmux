@@ -36,6 +36,9 @@ extension BrowserHibernation {
         let profile = cache.tabModel(key) == nil ? placeholder.profileID : cache.browserProfile?(key) ?? placeholder.profileID
         let history = profile == placeholder.profileID ? placeholder.restoreState : nil
         wakeLog.start(key, engine: placeholder.engineKind, snapshot: snapshotImage(key) != nil)
+        if case .appPage(let saved) = placeholder.restoreState {
+            return restoreAppPage(key, saved, token: token)
+        }
         var configuration = BrowserTabConfiguration(id: placeholder.id, profile: profile, zoom: placeholder.state.zoom)
         switch placeholder.engineKind {
         case .webkit:
@@ -62,6 +65,17 @@ extension BrowserHibernation {
         }
     }
 
+    /// A cmux page (`BrowserAppPage`) is built again at its address, as its tab's record opens it,
+    /// and gets its view state back.
+    private func restoreAppPage(_ key: String, _ saved: BrowserAppPageState, token: ContentLifecycle<String>.Token) {
+        guard let cache, let tab = cache.tabModel(key), let page = cache.makeAppPage(saved.url, for: tab) else {
+            cache?.applyLifecycle(cache?.lifecycle.send(.mountFailed(key, token)) ?? [])
+            return
+        }
+        (page as? any BrowserAppPage)?.restoreViewState(saved)
+        finishRestore(key, token: token, page: page)
+    }
+
     private func finishRestore(_ key: String, token: ContentLifecycle<String>.Token, page: any BrowserTab) {
         guard let cache, let asleep = cache.browsers[key]?.tab as? HibernatedBrowserTab, cache.lifecycle.record(key)?.pending == token else {
             // Closed or superseded while it restored.
@@ -73,20 +87,24 @@ extension BrowserHibernation {
         // Its last frame stays over the new page until the page paints: no blank frame on a wake.
         // The pixels the placeholder shows now are already decoded, so the cover has them in the
         // swap's own frame. A page that cannot show one (a Chromium page in its own child window) is counted.
+        // A native cmux page draws in its first frame and needs none; one in a web engine does. A remote
+        // stream connects first: it keeps the picture for a reconnect's cap (`BrowserWakeStandIn.wakeCoverCap`).
         let shown = asleep.shownPicture
-        if let picture = shown ?? snapshotImage(key) {
-            let covered = (page as? any BrowserWakeStandIn)?.showStandIn(picture, decoded: shown != nil, cap: Self.standInCap,
-                                                                         clock: standInClock) ?? false
+        if (page as? any BrowserAppPage)?.drawsInFirstFrame != true, let picture = shown ?? snapshotImage(key) {
+            let standIn = page as? any BrowserWakeStandIn
+            let covered = standIn?.showStandIn(picture, decoded: shown != nil, cap: standIn?.wakeCoverCap ?? Self.standInCap,
+                                               clock: standInClock) ?? false
             if !covered { uncoveredWakes += 1 }
         }
         cache.swapPage(key, with: page, asleep: asleep.state)
         cache.dormantTabs.set(key, false)
+        savedBytes[key] = nil
         // The live page now; a later sleep takes a new picture.
         snapshots.remove(key)
         cache.previews.remove(key)
         restoredCount += 1
         cache.applyLifecycle(cache.lifecycle.send(.mounted(key, token)))
-        wakeLog.mounted(key, visible: cache.lifecycle.phase(key) == .mountedVisible)
+        if let latency = wakeLog.mounted(key, visible: cache.lifecycle.phase(key) == .mountedVisible) { onWakeMounted(latency) }
         timeLoad(key, page: page)
         // A navigation or history step that woke the page runs once its
         // history is back (a reload just wakes it: restoring loads the page).
@@ -141,4 +159,9 @@ extension BrowserHibernation {
         let fitted = await TabPreviewFitting.fit(image, CGSize(width: Double(image.width) * scale, height: Double(image.height) * scale))
         return HibernationSnapshots.Picture(data: nil, image: fitted)
     }
+}
+
+/// One Duration in seconds, fractions included (the hibernation deadlines and their elapsed times).
+extension Duration {
+    var seconds: Double { Double(components.seconds) + Double(components.attoseconds) / 1e18 }
 }

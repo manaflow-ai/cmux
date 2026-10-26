@@ -38,6 +38,7 @@ fn note(message: &str) {
     eprintln!("cmux-tui: {message}");
 }
 
+#[track_caller]
 fn run(mux: &Weak<Mux>, layout: &Layout) {
     let (sender, events) = channel();
     let watcher = notify::recommended_watcher(move |event| {
@@ -126,6 +127,7 @@ fn is_source_path(path: &Path) -> bool {
 
 /// Rescans every source and commits the ones whose list changed. False when
 /// the daemon is gone.
+#[track_caller]
 fn import_changed(
     mux: &Weak<Mux>,
     layout: &Layout,

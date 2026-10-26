@@ -562,7 +562,8 @@ No perf-gate rows, budgets, CI jobs or CI tests. Agents run every bench themselv
    - unattributed share of busy main time <= 5 %
    - `yielded_to_input_response` > 0
    - 0 automation, background or idle tasks between a discrete input and the end of its first
-     tick render pass
+     tick render pass, except the one-frame-late progress task of task 002's decision when keys
+     arrive every frame
    - every person-caused apply runs before that commit (`input_response_pass.applies` > 0 and
      `late_person_applies` = 0)
 4. **Hidden-workspace storm** (`script-storm-bench.py --hidden 50`, 1000 CLI ops):
@@ -850,7 +851,22 @@ Each file is in exactly one task. Section 8 lists the planned cut (FG300-FG346),
     the frame.
   - For 500 ms after the last discrete input, automation and background run at least 1 task per
     100 ms and at most 10/s. Visible keeps the every-other-frame rule.
-  - Stats: `yieldedToInputResponse[]`, `inputResponseCapHits`, `maxInputResponseNanos`.
+  - Stats: `yieldedToInputResponse[]`, `waitedForBurstSlot[]`, `inputResponseCapHits`,
+    `maxInputResponseNanos`.
+  - The open state asks the budgeted link for one tick (a frame client of the MainWorkScheduler
+    that ticks while the state is open), and every measured render pass reports
+    `noteTickRenderEnded`. So a key with no budgeted work queued closes at its next frame, not at
+    the cap.
+  - The rate bounds use the whole 100 ms on both sides, so they hold for starts off a tick too.
+    Only requests count toward the rate: a batch that runs requests (the control drain) does not.
+    An injected key behind its connection's requests is never held by the automation rate.
+- **Decision (2026-10-26, review of 002): the two rules "0 automation tasks inside an input
+  response" (section 5, item 3) and "at least 1 task per 100 ms" conflict when frame-expecting
+  keys arrive every frame.** The input response wins for one frame: a due task that meets an open
+  response waits for the next frame, then runs, also inside a response. At 30 keys/s the next
+  frame has no open response, so no task runs inside one, and the gap between tasks is at most
+  100 ms plus one frame. At a key every frame, one task per 100 ms plus one frame runs inside a
+  response. The section 5 metric counts those. The lead can change this rule.
 - Acceptance: injected-clock tests:
   1. a key with expectsFrame=false opens no window
   2. with expectsFrame=true, automation stays false until noteTickRenderEnded and NOT at the
@@ -1011,6 +1027,17 @@ Each file is in exactly one task. Section 8 lists the planned cut (FG300-FG346),
   in one 8 ms bucket → 1 wakeup; precise ones are exact; cancelling all of them cancels the
   bucket.
 - Test phase: fleet AlignedWakeupsTests; bench_idle.py.
+- As built: AlignedWakeups is the placement layer on p14-energy-013's `MainWakeUpQueue` (its one
+  CFRunLoopTimer), not its own sleeps. `AlignedWakeups.Placement` (`.precise`, `.flexible`, `.hidden`)
+  is the resolved form of 011's `TimerAlignment`: `MainDeadline` maps `.whenHidden(node)` to `.hidden`
+  while the node is hidden and not exempt, else to `.flexible`. Hidden entries sit in a second heap
+  that runs only in a fire at or after each entry's whole uptime second, so they never ride an earlier
+  visible fire (Blink fences its throttled queue the same way). Blink also runs tasks that fall due in
+  the 3 ms after the wake-up; cmux holds those for their own second, so a re-arming hidden owner runs at
+  most once per second. DemandTimer sleeps with `WakeLeeway`'s tolerance by default (`.zero` for exact).
+- Follow-up (p06-scheduler-012b, after 011 lands): `MainDeadline` places through `AlignedWakeups` on
+  the composition root's `MainWakeUpQueue`. Until then no production deadline goes through
+  AlignedWakeups, and bench_idle.py measures only the DemandTimer tolerance.
 
 **p06-scheduler-013: FrameInputCoalescer.**
 - Files: `FrameInputCoalescer.swift` (new), `CmuxApplication.swift`,
@@ -1222,6 +1249,17 @@ Each file is in exactly one task. Section 8 lists the planned cut (FG300-FG346),
 - Acceptance: 1000 title events across 50 workspaces → recomputeSidebar 0 times; the counters
   prove it.
 - Test phase: fleet DrainCostTests; script-storm-bench `--hidden` drain p99 <= 1 ms.
+- As built: the unread sum (`UnreadLedger`, kept by StoreIndex) and the workspace-list check (an
+  order-free digest in StoreIndex) cost the workspaces that joined, left or changed their own count.
+  `recomputeSidebar` is still O(workspaces), but runs only for a batch that changed the order, the
+  membership or a group; a replayed add, a move to its own place and the lift and restore of an
+  unchanged overlay run none. `debug.drain_cost` reports the histogram (the owner ledger's buckets)
+  and the counters; script-storm-bench `--hidden` reads its p99.
+- Follow-up (p06-scheduler-033b): patch only the sidebar sections a batch touches. Placing a moved
+  workspace inside its section needs its daemon-order position without a walk of the list (an
+  order-statistic index over `workspaces`); until then one flattening is O(workspaces).
+- Follow-up (to p09-observability-000): a `HistogramID` for the drain (in us, owner PL-daemon), so
+  each drain also records through `Metrics`; the catalog is frozen, so DrainCost keeps a local one.
 
 **p06-scheduler-034: Lock admission by class.**
 - Files: `mux/signaled_mutex.rs`, `lock_rank.rs`, `diagnostics.rs` (per-class LockStats), the

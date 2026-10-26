@@ -2,7 +2,15 @@
 // expanded and which row is selected. Folders list on first expand and again on refresh. React reads
 // it through `useSyncExternalStore`.
 import { isPageError, type PageClient } from "../shared/pageClient";
-import { CLIPBOARD_WRITE, FilesOps, type FileEntry, type Listing, type RootInfo } from "./types";
+import {
+  CLIPBOARD_WRITE,
+  FilesOps,
+  filesViewStateOf,
+  type FileEntry,
+  type FilesViewState,
+  type Listing,
+  type RootInfo,
+} from "./types";
 
 export interface FolderState {
   entries?: FileEntry[];
@@ -50,6 +58,7 @@ export class FilesStore {
   private folders = new Map<string, FolderState>();
   private expanded = new Set<string>();
   private selected?: string;
+  private restoredScroll: number | null = null;
   private snapshot: FilesSnapshot = { rows: [], folders: this.folders, expanded: new Set() };
   private listeners = new Set<() => void>();
 
@@ -75,10 +84,33 @@ export class FilesStore {
     } catch (error) {
       return this.fail(isPageError(error) ? error.message : String(error));
     }
+    // A discarded page's tree comes back: its open folders list again, its row stays selected.
+    const saved = filesViewStateOf(this.root.viewState);
+    if (saved) {
+      for (const path of saved.expanded) this.expanded.add(path);
+      this.selected = saved.selected;
+      this.restoredScroll = saved.scroll;
+    }
     this.emit();
-    await this.list("");
+    await this.refresh();
     const first = this.rows()[0];
     if (first && this.selected === undefined) this.select(first.path);
+  }
+
+  /** `cmux.files.viewState`: the open folders and selected row, with the tree scrolled to `scroll`. */
+  viewState(scroll: number): FilesViewState {
+    return {
+      expanded: [...this.expanded].sort(),
+      ...(this.selected !== undefined ? { selected: this.selected } : {}),
+      scroll,
+    };
+  }
+
+  /** The scroll a discarded page of this tab was at, once; null when there is none. */
+  takeRestoredScroll(): number | null {
+    const scroll = this.restoredScroll;
+    this.restoredScroll = null;
+    return scroll;
   }
 
   /** Lists `path` again, and every expanded folder under it. */

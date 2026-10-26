@@ -41,6 +41,8 @@ public actor DaemonConnection {
     public nonisolated let events: AsyncThrowingStream<DaemonEventEnvelope, any Error>
     /// Identifies this event source; pair it with an envelope's connection serial.
     public nonisolated let eventSourceID: UUID = UUID()
+    /// The `mutation_id`s caused scopes sent on this connection, which name their echoes' cause.
+    public nonisolated let mutationCauses = MutationCauseLedger()
     private nonisolated let continuation: AsyncThrowingStream<DaemonEventEnvelope, any Error>.Continuation
 
     let configuration: Configuration
@@ -159,6 +161,8 @@ public actor DaemonConnection {
         requestStarted()
         defer { requestEnded() }
         try R.requireServed(by: identity)
+        // Before the line goes out: the echo can arrive before the reply.
+        DaemonCommandScope.recordEchoTransaction(of: request, in: mutationCauses)
         let response = try await Self.perform(request, on: ready.transport, timeout: timeout)
         DaemonCommandScope.noteCreated(by: request, response: response)
         return response
@@ -173,21 +177,25 @@ public actor DaemonConnection {
 
     /// Sends one `cmux.protocol/2` resource request (`ResourceRequestEnvelope`)
     /// on the control socket and decodes its `result`; `timeout` replaces the request deadline.
+    /// `onTransport` runs on the actor with the transport that carries the request, after the
+    /// handoff wait and before the line is sent; it throws to cancel the request.
     func resourceRequest<R: Decodable>(_ envelope: @escaping @Sendable (UInt64) -> ResourceRequestEnvelope,
-                                       as type: R.Type, timeout: Duration? = nil) async throws -> R {
+                                       as type: R.Type, timeout: Duration? = nil,
+                                       onTransport: (LineTransport) throws -> Void = { _ in }) async throws -> R {
         await waitOutHandoff()
         guard let ready else { throw DaemonError.notConnected }
+        try onTransport(ready.transport)
         requestStarted()
         defer { requestEnded() }
         let response = try await ready.transport.request(cmd: envelope(0).operation, timeout: timeout ?? configuration.requestTimeout) { id in
             try envelope(id).line()
         }
-        return try ResourceRequestEnvelope.decodeResult(R.self, from: response.line)
+        return try ResourceRequestEnvelope.decodeResult(R.self, from: response)
     }
 
     /// Delivers an event the connection itself produced, after those routed so far.
     func yieldEvent(_ envelope: DaemonEventEnvelope) {
-        continuation.yield(DaemonEventEnvelope(sequence: envelope.sequence, event: envelope.event, sourceID: eventSourceID))
+        continuation.yield(DaemonEventEnvelope(sequence: envelope.sequence, event: envelope.event, sourceID: eventSourceID, cause: envelope.cause))
     }
 
     /// The admitted control session, or nil when not connected.
@@ -210,17 +218,23 @@ public actor DaemonConnection {
         do {
             let endpoint = try await endpointProvider()
             DaemonLaunchTimings.shared.mark("daemon.endpoint_resolved")
-            let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)
+            let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge,
+                                              role: configuration.role == .pageRelay ? .pageRelay : .control,
+                                              stats: endpoint.wireStats, hangs: configuration.hangWatch)
             DaemonLaunchTimings.shared.mark("daemon.socket_connected")
             let gate = EventGate()
             let continuation = continuation
             let eventSourceID = eventSourceID
             let raw = configuration.role == .pageRelay
+            let decoder = transport.decoder
+            let mutationCauses = mutationCauses
             transport.start(
-                onEvent: { [weak self] name, line, index in
+                onCausedEvent: { [weak self] name, line, index, wireCause in
+                    let event = raw ? DaemonEvent.raw(name: name, line: line, decoder: decoder)
+                        : DaemonEvent.decode(name: name, line: line, decoder: decoder)
                     let envelope = DaemonEventEnvelope(
-                        sequence: DaemonEventEnvelope.sequence(serial: serial, index: index),
-                        event: raw ? DaemonEvent.raw(name: name, line: line) : DaemonEvent.decode(name: name, line: line), sourceID: eventSourceID)
+                        sequence: DaemonEventEnvelope.sequence(serial: serial, index: index), event: event, sourceID: eventSourceID,
+                        cause: event.cause(wire: wireCause, recorded: mutationCauses))
                     if case .sessionState(let item) = envelope.event, item.endsStream {
                         // task-owner: hop onto the actor; a stale serial is ignored there
                         Task { await self?.sessionStreamEvent(item, serial: serial) }

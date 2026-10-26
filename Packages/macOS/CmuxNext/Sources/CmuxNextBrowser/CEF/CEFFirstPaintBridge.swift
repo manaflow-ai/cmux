@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import CmuxNextWakeups
 
@@ -82,7 +83,7 @@ final class CEFFirstPaintBridge {
     nonisolated static func isFirstContentfulPaint(_ json: String, mainFrame: String?) -> Bool {
         guard json.contains("\"Page.lifecycleEvent\""), json.contains("\"\(firstContentfulPaint)\""),
               let data = json.data(using: .utf8),
-              let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let message = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
               message["method"] as? String == "Page.lifecycleEvent",
               let params = message["params"] as? [String: Any],
               params["name"] as? String == firstContentfulPaint

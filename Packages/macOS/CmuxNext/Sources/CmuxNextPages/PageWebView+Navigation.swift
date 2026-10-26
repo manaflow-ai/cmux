@@ -22,6 +22,7 @@ extension PageWebView {
         _ = claimState.end()
         loaded = false
         paintedUptime = nil
+        traceOpenLoadStarted(.navigated)
         repaintsAtNextLayout = false
         let scripts = scripts
         router.send = { envelope in scripts.send(envelope) }
@@ -34,5 +35,6 @@ extension PageWebView {
         applyTheme(force: true)
         applyLiveDocumentAttributes()
         resumeLoadWaiters()
+        onLoaded?()
     }
 }

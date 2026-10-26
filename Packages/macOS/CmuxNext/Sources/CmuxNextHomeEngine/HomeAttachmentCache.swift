@@ -1,4 +1,5 @@
 import CmuxHomeCore
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 import ImageIO
@@ -87,12 +88,11 @@ nonisolated struct HomeAttachmentCache: Sendable {
 
     /// A JPEG whose longer side is at most `maxPixel`, EXIF orientation applied.
     static func thumbnailJPEG(of url: URL, maxPixel: Int) throws -> Data {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+        guard let image = CheckedImageSource(blockingContentsOf: url)?.thumbnail(options: [
                   kCGImageSourceCreateThumbnailFromImageAlways: true,
                   kCGImageSourceCreateThumbnailWithTransform: true,
                   kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixel),
-              ] as CFDictionary) else { throw HomeRejection.invalid("thumbnail_failed") }
+              ]) else { throw HomeRejection.invalid("thumbnail_failed") }
         let data = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else {
             throw HomeRejection.invalid("thumbnail_failed")

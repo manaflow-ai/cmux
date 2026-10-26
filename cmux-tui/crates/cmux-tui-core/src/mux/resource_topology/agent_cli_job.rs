@@ -20,6 +20,7 @@ impl std::error::Error for AgentCLIJobBusy {}
 impl Mux {
     /// Looks up the original intent without preparing, reconciling or launching it.
     /// A client that lost a reply must not use an execution RPC as a status read.
+    #[track_caller]
     pub(crate) fn resolve_agent_cli_update_job(
         &self,
         cli: &str,
@@ -71,6 +72,7 @@ impl Mux {
     /// The caller has already admitted the principal, owner and user action.
     /// `prepare` is the owner's fixed-plan producer, never caller argv. It
     /// runs without registry/state locks, and is unnecessary for a receipt.
+    #[track_caller]
     pub(crate) fn create_agent_cli_update_job(
         self: &Arc<Self>,
         cli: &str,

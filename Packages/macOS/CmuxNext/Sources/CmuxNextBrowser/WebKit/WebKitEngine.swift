@@ -1,4 +1,5 @@
 import AppKit
+public import CmuxNextWakeups
 public import Foundation
 public import WebKit
 public import CmuxNextDesign
@@ -30,9 +31,11 @@ public final class WebKitEngine: BrowserEngine {
     /// The newest main-frame load per tab held for that check; only it may
     /// show the interstitial.
     var certificateAdmissions: [BrowserTabID: Int] = [:]
-    /// Low Power Mode keeps every open and new tab near 60 fps.
-    public let lowPowerMode: LowPowerMode
-    private var lowPowerModeObservation: LowPowerModeObservation?
+    /// Low Power Mode keeps every open and new tab near 60 fps. The App sets it from its energy
+    /// monitor at launch and on each change; open tabs follow a change.
+    public var lowPowerMode: Bool {
+        didSet { if lowPowerMode != oldValue { applyRenderRate(lowPowerMode: lowPowerMode) } }
+    }
     /// Open tabs, which follow a Low Power Mode change.
     private let openTabs = NSHashTable<WebKitTab>.weakObjects()
     /// The highest rate of a window's display (tests replace it).
@@ -66,6 +69,9 @@ public final class WebKitEngine: BrowserEngine {
     /// composer pages share, so a browser tab's file input gets the panel made ahead when one is,
     /// and its dead-panel guard.
     public let fileInput: any WebFileInputAnswering
+    /// Where its pages' keyed waits (``BrowserPageWaiting``) put their timeouts: the main thread's one
+    /// deadline queue.
+    let waitDeadlines: AlignedWakeups
 
     /// An engine over the App's `stores`.
     ///
@@ -74,6 +80,8 @@ public final class WebKitEngine: BrowserEngine {
     ///     since a test host cannot make an `NSOpenPanel`).
     ///   - stores: The stores both engines share; the App passes its one set, a test ``BrowserSharedStores/inMemory()``.
     ///   - profileStore: The profiles' website data stores; nil builds one over `stores.offTheRecord`.
+    ///   - waitDeadlines: The main thread's deadline queue (`MainWorkScheduler.wakeUps`, the one the Chromium engine
+    ///     has) for the pages' waits; nil (tests, fixtures): a queue of the engine's own.
     public init(
         fileInput: any WebFileInputAnswering,
         stores: BrowserSharedStores,
@@ -81,18 +89,17 @@ public final class WebKitEngine: BrowserEngine {
         faviconLoader: any BrowserFaviconLoading = BrowserFaviconLoader.shared,
         downloadsDirectory: URL = DownloadDestination.defaultDirectory,
         applicationNameForUserAgent: String? = "Version/26.0 Safari/605.1.15",
-        lowPowerMode: LowPowerMode = .system
+        lowPowerMode: Bool = false,
+        waitDeadlines: MainWakeUpQueue? = nil
     ) {
         self.fileInput = fileInput
+        self.waitDeadlines = AlignedWakeups(queue: waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource()))
         self.stores = stores
         self.profileStore = profileStore ?? WebKitProfileStore(offTheRecord: stores.offTheRecord)
         self.faviconLoader = faviconLoader
         self.downloadsDirectory = downloadsDirectory
         self.applicationNameForUserAgent = applicationNameForUserAgent
         self.lowPowerMode = lowPowerMode
-        lowPowerModeObservation = lowPowerMode.observe { [weak self] enabled in
-            self?.applyRenderRate(lowPowerMode: enabled)
-        }
     }
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
@@ -170,7 +177,7 @@ public final class WebKitEngine: BrowserEngine {
     private func prepare(_ configuration: WKWebViewConfiguration) {
         // The display's full rate (120 Hz on ProMotion); near 60 fps in Low
         // Power Mode. Open tabs follow a later change (applyRenderRate).
-        WebKitRenderRate.apply(fullRate: WebKitRenderRate.prefersFullRate(lowPowerMode: lowPowerMode.isEnabled),
+        WebKitRenderRate.apply(fullRate: WebKitRenderRate.prefersFullRate(lowPowerMode: lowPowerMode),
                                to: configuration.preferences)
         // Native element fullscreen takes over the display; the pane shim
         // replaces it (PaneFullscreenScript).

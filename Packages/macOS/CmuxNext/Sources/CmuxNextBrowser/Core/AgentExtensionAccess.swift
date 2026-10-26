@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Which enabled extensions of a profile can reach a page, from their
@@ -26,7 +27,7 @@ public nonisolated struct AgentExtensionAccess {
     public static var fromDisk: AgentExtensionAccess {
         AgentExtensionAccess { path in
             guard let data = FileManager.default.contents(atPath: (path as NSString).appendingPathComponent("manifest.json")) else { return nil }
-            return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            return (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any]
         }
     }
 

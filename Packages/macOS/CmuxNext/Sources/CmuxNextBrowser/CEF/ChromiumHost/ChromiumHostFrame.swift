@@ -1,7 +1,9 @@
+#if DEBUG || CMUX_BENCH_HOOKS
+// The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 /// One frame of the wire between cmux and the Chromium host app (prototype
-/// behind `browserHost.helperPrototype`; plans/cmux-next/cef-helper-app-DESIGN.md).
+/// behind `browserHost.helper`; plans/cmux-next/cef-helper-app-DESIGN.md).
 ///
-/// The C++ side is `CEFShim/src/chromium_host_wire.h`: a 64-byte
+/// The C++ side is `ChromiumHost/src/chromium_host_wire.h`: a 64-byte
 /// little-endian header and `payload` bytes after it. Both sides check the
 /// same golden frame (`ChromiumHostFrameTests`, `chromium_host_wire_test.cpp`).
 /// Field meanings by kind are listed in the header.
@@ -17,6 +19,12 @@ nonisolated struct ChromiumHostFrame: Equatable, Sendable {
     static let headerSize = 64
     /// Longer payloads end the connection: no kind carries more than a URL.
     static let maxPayload = 64 * 1024
+    /// How long a host may take to end after `quit` or EOF before it is
+    /// ended by force (`kQuitLimitSeconds` in the header: the host `_exit`s
+    /// itself; cmux SIGKILLs it). The same reasoning as the app's own
+    /// `QuitDeadline.engineStopLimit`: CEF's 3 s browser close plus
+    /// Chromium's 10 s shutdown watchdog, with room for a loaded machine.
+    static let quitLimit: Duration = .seconds(15)
 
     /// The raw kind, so a frame of a kind this side does not know still decodes.
     var rawKind: UInt32
@@ -97,3 +105,4 @@ nonisolated struct ChromiumHostFrame: Equatable, Sendable {
         return .frame(frame, consumed: headerSize + length)
     }
 }
+#endif

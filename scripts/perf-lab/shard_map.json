@@ -1,0 +1,114 @@
+{
+  "classes": {
+    "aws-m4pro": {
+      "shards": [
+        {
+          "index": 0,
+          "seconds": {
+            "T1": 10200,
+            "T2": 960
+          },
+          "stories": {
+            "T1": [
+              "chat-anim",
+              "home-idle",
+              "launch-cold",
+              "launch-cold-realistic",
+              "launch-warm-realistic",
+              "memory-hidden",
+              "memory-hidden-webkit",
+              "motion",
+              "new-surfaces-matrix",
+              "omnibar",
+              "pane-stress",
+              "perf-gate",
+              "sidebar",
+              "switch",
+              "tab-switch"
+            ],
+            "T2": [
+              "launch-after-reboot",
+              "new-surfaces-stress"
+            ]
+          }
+        }
+      ],
+      "tiers": [
+        "T1",
+        "T2"
+      ]
+    },
+    "cmux20-bench": {
+      "shards": [
+        {
+          "index": 0,
+          "seconds": {
+            "T2": 960
+          },
+          "stories": {
+            "T2": [
+              "launch-after-reboot",
+              "new-surfaces-stress"
+            ]
+          }
+        }
+      ],
+      "tiers": [
+        "T2"
+      ]
+    },
+    "m6": {
+      "shards": [
+        {
+          "index": 0,
+          "seconds": {
+            "T0": 330,
+            "T1": 5100
+          },
+          "stories": {
+            "T0": [
+              "new-surfaces"
+            ],
+            "T1": [
+              "chat-anim",
+              "launch-cold",
+              "launch-cold-realistic",
+              "motion",
+              "new-surfaces-matrix",
+              "omnibar",
+              "pane-stress",
+              "switch"
+            ]
+          }
+        },
+        {
+          "index": 1,
+          "seconds": {
+            "T0": 120,
+            "T1": 5100
+          },
+          "stories": {
+            "T0": [
+              "launch-warm"
+            ],
+            "T1": [
+              "home-idle",
+              "launch-warm-realistic",
+              "memory-hidden",
+              "memory-hidden-webkit",
+              "perf-gate",
+              "sidebar",
+              "tab-switch"
+            ]
+          }
+        }
+      ],
+      "tiers": [
+        "T0",
+        "T1"
+      ]
+    }
+  },
+  "generated_by": "scripts/perf-lab/gen_shard_map.py (do not edit; run it after a stories.d/ change)",
+  "schema": "cmux-perf-shard-map/v1"
+}

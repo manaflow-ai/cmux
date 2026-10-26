@@ -9,6 +9,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHibernation
 import CmuxNextLayout
 import Observation
 
@@ -28,7 +29,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private(set) var content: WorkspaceContentController?
     /// Every workspace this window showed, by id, kept mounted and paused (plans/cmux-next/tab-lifecycle.md):
     /// a switch back swaps its view in within the frame. Only its GPU surfaces leave, under the one memory
-    /// budget (`SurfaceLedger`'s LRU of hidden surfaces); the tree, panes and strips stay (perf I6).
+    /// budget (`SurfaceLedger`'s LRU of hidden surfaces); the tree, panes and strips stay (perf I6). With
+    /// `memoryDiscardParkedWorkspaces` the app's `ParkedWorkspaceBudget` tears the least recently parked
+    /// ones down past the Mac's budget or idle timeout (`WindowController+Parking`).
     /// With `sidebar.multiView` the ones `state.viewSet` shows beside `content` stay on screen (`arrangeOnScreen`).
     var parked: [String: WorkspaceContentController] = [:]
     /// Orders `parked` by when each was parked (`mountedContents`).
@@ -96,6 +99,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.tabbingMode = .disallowed
         super.init(window: window)
         installHistoryButtons()
+        // The key tracker observes through the app's events before the
+        // content's material views reach the window.
+        WindowMaterialView.observeKeyFamily(of: window, through: services.appEvents)
         // Kind, scope and backdrop before the content view (the root paints
         // the backdrop: `WindowSurfacePainting`).
         window.install(kind: .main, content: root, scope: themeScope)
@@ -130,6 +136,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         state.roomBrowserProfileOf = nil
         content?.teardown()
         content = nil
+        services.parkedWorkspaceBudget?.forgetAll(in: self)
         parked.values.forEach { $0.teardown() }
         parked.removeAll()
         topPages.teardown()
@@ -190,8 +197,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // A parked workspace that closed, whose machine left, or that moved to another window goes now.
         let listed = Set(services.windows.registry.members(of: state.id))
         for (id, controller) in parked where !listed.contains(id) || machines.workspace(id: id)?.0 !== controller.workspace {
-            parked[id] = nil
-            controller.teardown()
+            discardParkedWorkspace(id)
         }
         if state.page.map(showTopPage) == true || showCreation() { return arrangeOnScreen() }
         if let requested, let (workspace, daemon) = machines.workspace(id: requested) {
@@ -239,7 +245,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         guard content?.workspace !== workspace else { DebugWorkspaceSwitch.unchanged(self); return arrangeOnScreen() }
         if let current = content { park(current) }
         DebugWorkspaceSwitch.mark(self, "park")
-        let controller: WorkspaceContentController, kept = parked.removeValue(forKey: workspace.id)
+        let controller: WorkspaceContentController, kept = unpark(workspace.id)
         if let kept, kept.workspace === workspace, kept.daemon === daemon {
             controller = kept
             controller.unpark()

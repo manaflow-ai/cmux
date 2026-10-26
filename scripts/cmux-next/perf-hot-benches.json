@@ -2,8 +2,13 @@
   "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after; never add it to CI.",
   "paths": {
     "cef-host-input": {
-      "what": "one input event forwarded to the Chromium host app (prototype, browserHost.helperPrototype): encode and one non-blocking write",
+      "what": "one input event forwarded to the Chromium host app (prototype, browserHost.helper): encode and one non-blocking write",
       "bench": "scripts/cmux-next/chromium-host-bench.py (hop_us, ping_us)",
+      "owner": "PL-cef-helper"
+    },
+    "cef-host-control": {
+      "what": "one control op to the Chromium host (ChromiumHostControlChannel.send): encode, then one non-blocking sendmsg or an outbox push (the reader flushes waiting frames in batches, one sendmsg each)",
+      "bench": "CMUX_CHROMIUM_HOST_CONTROL_BENCH=1 swift test --filter ChromiumHostControlSendBench (send p50/p95/p99/max, direct write and outbox push; Debug: the channel is Debug-only), on macOS 26 and 27",
       "owner": "PL-cef-helper"
     },
     "key-dispatch": {
@@ -33,7 +38,7 @@
     },
     "motion-frame": {
       "what": "one split/close/zoom/column motion frame",
-      "bench": "scripts/measure/split-spring.sh --suite=pane-bench (PaneMotionBench, PaneMotionWorkTests), then pane-perf-terminal.py and anim-perf-terminal.py (panes.* rows, with and without Chromium, light and --layouts stress)",
+      "bench": "scripts/cmux-next/motion-main-work.py --vdisplay 120 (counts: RenderStats frame_sets, layouts, window_calls, tracking_area_adds in frames 2..n, light and STRESS), then scripts/cmux-next/motion-hitches.py (time: main ms per spring frame and hitches, RenderStats disarmed); scripts/measure/split-spring.sh --suite=pane-bench (PaneMotionBench, PaneMotionWorkTests), pane-perf-terminal.py and anim-perf-terminal.py stay for the panes.* rows",
       "owner": "PL-motion-core"
     },
     "frame-tick": {
@@ -71,10 +76,50 @@
       "bench": "scripts/cmux-next/instant-new-surfaces-bench.py",
       "owner": "PL-cef-tab"
     },
+    "action-perform": {
+      "what": "every ActionRegistry.perform turn's oracle hook: one nil check of the registry's immutable turnObserver (Release), or the depth count and one ActionRunObserver call at the end of the outermost turn (DEV, bench)",
+      "bench": "scripts/cmux-next/action-perform-ab.py run --base BASE_SHA --head HEAD_SHA (ActionPerformBench at both SHAs alternately on one host: what Release adds over the base per perform, 95% interval over paired runs), and CMUX_ORACLE_TURNS_BENCH=1 swift test -c release -Xswiftc -DCMUX_BENCH_HOOKS --filter OracleActionTurnsBench (the disarmed OracleActionTurns against no observer, interleaved rounds), on macOS 26 and 27",
+      "owner": "p15-oracle"
+    },
     "action-budget": {
       "what": "every action run's always-on budget record: two clock reads and one ring-slot write (ActionBudgetMonitor.record)",
       "bench": "CMUX_ACTION_BUDGET_BENCH=1 swift test -c release --filter ActionBudgetMonitorBench (ns per run and per batch), on macOS 26 and 27",
       "owner": "Performance Lead (PL-instant)"
+    },
+    "main-task-ledger": {
+      "what": "every scheduled main-thread task's MainOwnerLedger slot: five relaxed atomic stores and a releasing store (MainOwnerLedger.ended)",
+      "bench": "swift test -c release --filter MainOwnerLedgerTests/aLedgerWriteCostsUnderItsBudget (ns per slot write and per full-ring call; the whole posted run: MainTaskBoardSpanTests/aPostedTaskWithItsLedgerSlotCostsNanoseconds), on macOS 26 and 27",
+      "owner": "Performance Lead (PL-main)"
+    },
+    "trace-ring-write": {
+      "what": "one Release trace ring record under a catalog id (TraceRing.write(name:)): the thread's TLS state, one acquire load of the active ring, the seqlock publish, a chunk claim every 31st record",
+      "bench": "swift test -c release --filter 'TraceRingTests.*eightContendedThreadsKeepTheSingleThreadP99' (31-record batch p99, 1 and 8 threads)",
+      "owner": "p09-observability"
+    },
+    "trace-ring-write-interned": {
+      "what": "one trace ring record under a run-time name (TraceRing.write(_ InternedName)): the catalog-id write plus one relaxed load and a tag compare after the name's first record in the ring",
+      "bench": "swift test -c release --filter 'TraceNamesTests.*internedWriteCost' (31-record batch p50, interned vs catalog id)",
+      "owner": "p09-observability"
+    },
+    "main-turn": {
+      "what": "the always-on main run-loop turn meter: its four observer callouts per turn, the sendEvent input span and each scheduled task's span (MainTurnMeter, CmuxApplication.sendEvent); budget < 100 ns per turn over the clock reads",
+      "bench": "CMUX_MAIN_TURN_BENCH=1 swift test -c release --filter MainTurnMeterBench (ns per turn), on macOS 26 and 27",
+      "owner": "Performance Lead"
+    },
+    "idle-energy-wake": {
+      "what": "the idle wakeup histogram's afterWaiting observer at every main run-loop wake (IdleEnergyMonitor.noteWake, debug.energy idle): one uptime read, one relaxed input-count load and a compare; one proc_pid_rusage read only when a window opens or closes; budget < 100 ns per wake over the uptime read",
+      "bench": "CMUX_IDLE_ENERGY_BENCH=1 swift test -c release --filter IdleEnergyMonitorBench (ns per wake, ns per rusage read), on macOS 26 and 27",
+      "owner": "p14-energy"
+    },
+    "terminal-feed": {
+      "what": "one terminal output chunk parsed on its TerminalOutputLane (ghostty_surface_process_output, microseconds for an echoed key, about 1 ms for 256 KiB) inside its terminal.feed hang scope (HangWatch.watch: two stores and no system call once p09-observability-066 fills the slots)",
+      "bench": "scripts/cmux-next/bench-typing.py (echo: output parsed stage p95); the scope's own cost: swift test -c release --filter HangWatchTests (p09-observability-066 open and close cost)",
+      "owner": "PL-typing"
+    },
+    "daemon-request": {
+      "what": "every daemon request and connection frame, key input included: the request watchdog's slot claim, clock read and release (cmux-tui-core server/request_watchdog.rs begin and RequestScope end)",
+      "bench": "cargo test -p cmux-tui-core --release --lib -- request_watchdog_begin_bench --ignored --nocapture (ns per run), then scripts/cmux-next/bench-typing.py",
+      "owner": "PL-conn"
     }
   }
 }

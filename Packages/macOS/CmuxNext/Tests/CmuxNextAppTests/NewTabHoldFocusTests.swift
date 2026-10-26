@@ -50,7 +50,6 @@ struct NewTabHoldFocusTests {
         store.connectionState = .connected(identity)
         store.apply(snapshot: Self.tree())
         let controller = try #require(services.windows.openWindow(workspaces: ["hold-ws"], frame: CGRect(x: 200, y: 200, width: 1200, height: 760)))
-        let directory = FileManager.default.temporaryDirectory.appending(path: "new-tab-hold-\(UUID().uuidString)")
         var pageKey: String?
         defer {
             if let pageKey {
@@ -59,7 +58,6 @@ struct NewTabHoldFocusTests {
             }
             controller.teardown()
             controller.window?.close()
-            try? FileManager.default.removeItem(at: directory)
         }
         for _ in 0..<200 where controller.workspaceContent?.panes.count != 2 { try await Task.sleep(for: .milliseconds(10)) }
         let content = try #require(controller.workspaceContent)
@@ -76,12 +74,10 @@ struct NewTabHoldFocusTests {
         pageKey = key
 
         // The second pane's tab is a New Tab page whose field has not reported ready yet.
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let file = directory.appending(path: "index.html")
-        try Data("<html><body><input></body></html>".utf8).write(to: file)
+        let file = try #require(AgentPageAppTestRoot.page)
         let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
         model.becomeNewTab(AgentPaneNewTab(kind: .agent))
-        let page = try #require(AgentPaneView(model: model, source: .bundled(file)))
+        let page = try #require(AgentPaneView(model: model, source: .bundled(file), webUI: .agentTabsTestHost(), gestures: .testing()))
         page.frame = other.view.bounds
         other.view.addSubview(page)
         services.agentTabs.views[key] = page

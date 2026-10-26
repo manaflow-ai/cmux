@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// Palette entries for Tasks, generated from the operation catalog export
@@ -29,7 +30,7 @@ public nonisolated enum TasksPaletteCatalog {
     public static func items() -> [TasksPaletteItem] {
         guard let url = Bundle.module.url(forResource: "tasks-catalog", withExtension: "json"),
               let data = try? Data(contentsOf: url),
-              let export = try? JSONDecoder().decode(Export.self, from: data)
+              let export = try? JSONDecoder().blockingDecode(Export.self, from: data)
         else { return [] }
         return export.operations.compactMap { op in
             op.palette.map { TasksPaletteItem(op: op.name, title: TasksStrings.palette(op: op.name, fallback: $0.title), cliPath: op.cli.path) }

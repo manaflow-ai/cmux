@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextResources
 import CmuxNextSettings
 
 /// Describes the named DEBUG scenes available to the deterministic capture route.
@@ -98,8 +99,11 @@ final class CaptureSceneRegistry {
         // Home is native: it settles on its own conditions, and neither the
         // agent pane's readiness nor its web view is part of its picture.
         let isHome = definition.name == Self.homeChiefScene || definition.name == Self.homeChiefLongDraftScene
+        // The Task Manager is native too: its page covers the agent pane.
+        let isTaskManager = definition.name == Self.taskManagerScene
+        let isNative = isHome || isTaskManager
         let readiness = await DebugAgentPane.handle(["action": .string("readiness")], services)
-        guard isHome || readinessIsComplete(readiness) else {
+        guard isNative || readinessIsComplete(readiness) else {
             return .object([
                 "error": .string("agent pane is blank or composer is hidden"),
                 "scene": .string(definition.name), "readiness": readiness, "turn": turn,
@@ -107,12 +111,20 @@ final class CaptureSceneRegistry {
         }
 
         let sceneAction = await applySceneAction(definition.name)
-        let actionReadiness = isHome
-            ? await showHomeChief(windowID: targetWindowID, longDraft: definition.name == Self.homeChiefLongDraftScene) : await waitForSceneAnimation()
+        let actionReadiness: JSONValue
+        if isHome {
+            actionReadiness = await showHomeChief(windowID: targetWindowID, longDraft: definition.name == Self.homeChiefLongDraftScene)
+        } else if isTaskManager {
+            actionReadiness = await showTaskManager(windowID: targetWindowID)
+        } else {
+            actionReadiness = await waitForSceneAnimation()
+        }
         guard case .object(let actionReadinessReport) = actionReadiness,
               actionReadinessReport["error"] == nil,
-              isHome || actionReadinessReport["animations_pending"]?.boolValue == false else {
-            return .object(["error": .string(isHome ? "Home scene did not settle" : "scene popover did not become opaque before capture"),
+              isNative || actionReadinessReport["animations_pending"]?.boolValue == false else {
+            let failure = isHome ? "Home scene did not settle"
+                : isTaskManager ? "Task Manager scene did not settle" : "scene popover did not become opaque before capture"
+            return .object(["error": .string(failure),
                             "scene": .string(definition.name), "readiness": actionReadiness,
                             "scene_action": sceneAction])
         }
@@ -123,7 +135,7 @@ final class CaptureSceneRegistry {
         if isHome { clearShowcaseAgent(windowID: targetWindowID) }
         guard case .object(var result) = snapshot else { return snapshot }
         result["click"] = click
-        guard isHome || (result["webviews_composited"]?.intValue ?? 0) > 0 else {
+        guard isNative || (result["webviews_composited"]?.intValue ?? 0) > 0 else {
             return .object([
                 "error": .string("agent web view was not composited"),
                 "scene": .string(definition.name), "readiness": readiness, "snapshot": snapshot,
@@ -177,6 +189,43 @@ final class CaptureSceneRegistry {
         }
     }
 
+    static let taskManagerScene = "task-manager"
+
+    /// `task-manager`: opens the Task Manager in window `windowID` with `taskManagerMemorySaved` on,
+    /// over the app's sample plus ``TaskManagerFixtureSource/captureDiscarded``, then waits until its
+    /// page is in the window and lists those pages. An error names what never appeared.
+    private func showTaskManager(windowID: String) async -> JSONValue {
+        guard let controller = services.windows.controller(for: windowID) else {
+            return .object(["error": .string("capture window is gone")])
+        }
+        let taskManager = services.taskManager
+        guard taskManager.useCaptureFixture(TaskManagerFixtureSource(base: taskManager.source)) else {
+            return .object(["error": .string("a Task Manager page is open already; its model keeps the app's source")])
+        }
+        guard let page = services.pages.show(.taskManager, in: controller, focus: true) else {
+            return .object(["error": .string("Task Manager page did not open")])
+        }
+        frames.start()
+        let settled = await frames.settled(
+            until: {
+                guard page.window != nil, !page.isHiddenOrHasHiddenAncestor, let model = taskManager.model else { return false }
+                return model.memorySaved && model.snapshot.discarded == TaskManagerFixtureSource.captureDiscarded
+            },
+            start: .now,
+            window: 100,
+            deadline: 5_000,
+        )
+        let snapshot = taskManager.model?.snapshot
+        var report: [String: JSONValue] = [
+            "task_manager_frames": frames.stop(),
+            "rows": .number(Double(snapshot?.rows.count ?? 0)),
+            "discarded": .number(Double(snapshot?.discarded.count ?? 0)),
+            "freed_bytes": .number(Double(snapshot?.freedBytes ?? 0)),
+        ]
+        if settled == nil { report["error"] = .string("Task Manager did not list the discarded pages before the deadline") }
+        return .object(report)
+    }
+
     /// The agent pane drew the worked turn and shows its composer.
     private func readinessIsComplete(_ readiness: JSONValue) -> Bool {
         guard case .object(let report) = readiness else { return false }
@@ -201,6 +250,8 @@ final class CaptureSceneRegistry {
         // A literal name: cmux-ci capture finds scenes by `CaptureSceneDefinition(name: "…")`.
         CaptureSceneDefinition(name: "home-chief-long-draft",
                                description: "The home-chief scene with a long draft that grows the field up into the first-run panel; the panel drops what does not fit and nothing it shows runs under the field."),
+        CaptureSceneDefinition(name: "task-manager",
+                               description: "The Task Manager with taskManagerMemorySaved on: the app's processes, then two pages Memory Saver discarded (one saved about 182 MB, one with no measurement) and the Memory Saver freed footer."),
     ]
 }
 #endif

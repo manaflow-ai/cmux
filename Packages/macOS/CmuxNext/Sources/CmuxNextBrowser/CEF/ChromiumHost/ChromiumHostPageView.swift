@@ -1,8 +1,11 @@
+#if DEBUG || CMUX_BENCH_HOOKS
+// The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 public import AppKit
+import CmuxNextCompat
 import QuartzCore
 
 /// A page of a Chromium host app in a cmux pane (prototype behind
-/// `browserHost.helperPrototype`; plans/cmux-next/cef-helper-app-DESIGN.md).
+/// `browserHost.helper`; plans/cmux-next/cef-helper-app-DESIGN.md).
 ///
 /// Pixels: the host's Core Animation context, shown with the same
 /// `CALayerHost` an in-process hosted page uses
@@ -16,12 +19,17 @@ public final class ChromiumHostPageView: NSView {
     var sink: ((ChromiumHostFrame) -> Void)?
     /// The view's size or screen place changed.
     var onGeometry: ((ChromiumHostGeometry) -> Void)?
+    /// The view left its window (its pane closed, or it moved out of every window).
+    var onLeftWindow: (() -> Void)?
     /// The shown context, 0 while none.
     private(set) var contextID: UInt32 = 0
     private let root = CALayer()
     private var remote: CALayer?
     private var tracking: NSTrackingArea?
     private var lastGeometry: ChromiumHostGeometry?
+    /// The window's moves and screen changes: they move the page on screen
+    /// without changing this view's frame, and the host's window must follow.
+    private var windowObservations: [MainActorObservation] = []
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
@@ -66,8 +74,27 @@ public final class ChromiumHostPageView: NSView {
         reportGeometry()
     }
 
+    public override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        reportGeometry()
+    }
+
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        windowObservations = window.map { window in
+            [NSWindow.didMoveNotification, NSWindow.didChangeScreenNotification].map { name in
+                MainActorObservation(name, object: window) { [weak self] in self?.reportGeometry() }
+            }
+        } ?? []
+        if window == nil {
+            onLeftWindow?()
+        } else {
+            reportGeometry()
+        }
+    }
+
+    public override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
         reportGeometry()
     }
 
@@ -208,3 +235,4 @@ nonisolated struct ChromiumHostGeometry: Equatable, Sendable {
         ChromiumHostFrame(.geometry, v: [width, height, screenX, screenY, scaleMilli])
     }
 }
+#endif

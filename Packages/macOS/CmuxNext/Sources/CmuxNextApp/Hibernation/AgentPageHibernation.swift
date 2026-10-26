@@ -5,7 +5,9 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextFeatures
 import CmuxNextHibernation
+import CmuxNextMemory
 import CmuxNextSettings
 import CmuxNextWakeups
 import os
@@ -24,6 +26,13 @@ import os
 /// least ``minimumHidden`` even under critical pressure, so the composer's last keystrokes reach
 /// acpmux. Events only, no polling: a page hides or shows (`TabContentCache`'s presentation
 /// changes), the setting or the pressure changes, and one deadline for the next page to come due.
+///
+/// Live hidden pages are also held to the Mac's budget (``liveHiddenLimit``,
+/// `SubsystemBudget.liveHiddenAgentPages`, behind `memoryDiscardAgentPagesOverBudget`): past it the
+/// least recently shown pages that may go are let go at once, before their timeout, each hidden at
+/// least ``minimumHidden``. Every live hidden page counts, the ones that stay too (a busy chat), as
+/// Chrome's `FrameEvictionManager` counts every saved frame and culls the least recently used
+/// unlocked ones (`components/viz/client/frame_eviction_manager.cc`, `CullUnlockedFrames`).
 @MainActor
 final class AgentPageHibernation {
     static let minimumHidden: Double = 10
@@ -54,9 +63,18 @@ final class AgentPageHibernation {
     /// The clock (tests set it).
     var now: () -> ContinuousClock.Instant = { .now }
     private(set) var releasedCount = 0
+    /// A page was let go (the App counts it in the memory histograms).
+    var onRelease: () -> Void = {}
     /// A page is due later and the timer for it runs (tests).
     var hasDeadline: Bool { deadline.isScheduled }
+    /// How soon the armed deadline comes due, in seconds; nil when none is armed (tests tell the
+    /// budget's short deadline from the timeout's).
+    private(set) var deadlineDelay: Double?
     private var turnObservation: Task<Void, Never>?
+    /// The most hidden pages kept live; nil: only the timeout lets pages go.
+    var liveHiddenLimit: Int? {
+        didSet { if liveHiddenLimit != oldValue { replan() } }
+    }
 
     init(tabs: @escaping () -> AgentTabStore?) {
         store = tabs
@@ -76,6 +94,9 @@ final class AgentPageHibernation {
         // A run without the watch (showcase, the mock pane) has no turns to wait for.
         turnsWatched = { AgentTurnStateFeed.shared == nil || AgentTurnStateStore.shared.watching }
         displace = { [weak services] key in services?.cache.presenter(of: key)?.surfaceWasDisplaced(key) }
+        if services.features.isEnabled(.memoryDiscardAgentPagesOverBudget) {
+            liveHiddenLimit = SubsystemBudget.forThisMac(gpuResidentAvailable: false).liveHiddenAgentPages
+        }
         let cache = services.cache
         cache.presentationChanges.subscribe("agent-page-hibernation") { [weak self, weak cache] in
             guard let cache else { return }
@@ -134,23 +155,28 @@ final class AgentPageHibernation {
         store()?.launchImages.drop(key)
     }
 
-    /// Releases every page that is due and arms one deadline for the next.
+    /// Releases every page that is due (past the timeout, or the oldest past ``liveHiddenLimit``)
+    /// and arms one deadline for the next.
     func replan() {
         guard let tabs = store() else { return }
         hiddenAt = hiddenAt.filter { tabs.existingView($0.key) != nil }
         shown = shown.filter { tabs.existingView($0) != nil }
         guard let threshold = HibernationPlanner.threshold(setting, pressure: pressure).map({ max($0, Self.minimumHidden) }) else {
+            deadlineDelay = nil
             deadline.cancel()
             return
         }
         let current = now()
         var next: Double?
-        for (key, at) in hiddenAt where !releasing.contains(key) && keepsPage(key, onScreen: false) == nil {
+        // The hidden pages still live: not on their way out.
+        var live = hiddenAt.filter { !releasing.contains($0.key) }
+        for (key, at) in live where keepsPage(key, onScreen: false) == nil {
             let remaining = threshold - (current - at).seconds
             if remaining > 0 {
                 next = min(next ?? remaining, remaining)
             } else if keepsPage(key) == nil {
                 release(key)
+                live[key] = nil
             } else {
                 // Still in its window: a hide comes before the pane swaps its content, and
                 // the swap sends no event of its own. Look again, backing off the longer it
@@ -159,11 +185,41 @@ final class AgentPageHibernation {
                 next = min(next ?? again, again)
             }
         }
+        if let again = releaseOverLimit(live, at: current) { next = min(next ?? again, again) }
+        deadlineDelay = next
         if let next {
             deadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { @MainActor [weak self] in self?.replan() }
         } else {
             deadline.cancel()
         }
+    }
+
+    /// Lets the least recently shown pages of `live` that may go, go until at most
+    /// ``liveHiddenLimit`` stay. A page hidden less than ``minimumHidden`` waits, and one still in
+    /// its window is looked at again as in the timeout.
+    /// - Returns: While still over the limit, how soon to look again (seconds); else nil.
+    private func releaseOverLimit(_ live: [String: ContinuousClock.Instant], at current: ContinuousClock.Instant) -> Double? {
+        guard let limit = liveHiddenLimit else { return nil }
+        var excess = live.count - limit
+        guard excess > 0 else { return nil }
+        var next: Double?
+        for (key, at) in live.sorted(by: { ($0.value, $0.key) < ($1.value, $1.key) }) where keepsPage(key, onScreen: false) == nil {
+            guard excess > 0 else { break }
+            let young = Self.minimumHidden - (current - at).seconds
+            if young > 0 {
+                // Oldest first: every page after this one is younger still.
+                return min(next ?? young, young)
+            }
+            // A page still in its window counts as going: it goes once the pane takes it out.
+            excess -= 1
+            if keepsPage(key) == nil {
+                release(key)
+            } else {
+                let again = max(Self.onScreenRecheck, -young)
+                next = min(next ?? again, again)
+            }
+        }
+        return next
     }
 
     /// Why tab `key`'s hidden page stays, or nil when it can go. `onScreen: false` leaves out
@@ -228,6 +284,7 @@ final class AgentPageHibernation {
             tabs.stopCustomizationWhenUnused()
             hiddenAt[key] = nil
             releasedCount += 1
+            onRelease()
             logger.info("released agent page \(key, privacy: .public)")
         }
     }
@@ -245,8 +302,4 @@ final class AgentPageHibernation {
         }
         return frame.flatMap { $0 }
     }
-}
-
-private extension Duration {
-    var seconds: Double { Double(components.seconds) + Double(components.attoseconds) / 1e18 }
 }

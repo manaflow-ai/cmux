@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextSettingsWindow
 import CmuxNextTabs
@@ -43,6 +44,11 @@ final class InternalPageTabStore {
     @ObservationIgnored private var storeTabStores: [String: DaemonStore] = [:]
     /// Store page tabs a live tree has listed; gone from it, they closed.
     @ObservationIgnored private var seenLive: Set<String> = []
+    /// Page tab discards (`memoryDiscardInternalPages`; nil while off): when views go, on `cache`'s
+    /// lifecycle, and what each discarded tab keeps by provider key (InternalPageTabStore+Show).
+    @ObservationIgnored var discards: ContentDiscardScheduler?
+    @ObservationIgnored weak var cache: TabContentCache?
+    @ObservationIgnored let discardRecords = ContentDiscardRecords()
 
     /// Whether `daemon` keeps a page tab's route (`page-tab-route-v1`).
     func keepsRoutes(_ daemon: DaemonService) -> Bool {
@@ -129,12 +135,31 @@ final class InternalPageTabStore {
         if let view = views[key] { return view }
         guard tabsByPane.entries.contains(where: { $0.value.contains(key) }), let page = LocalPageTab.page(of: key),
               let provider = providers[page] else { return nil }
-        let content = provider.makeView(for: key, in: windows[key])
+        return makeView(key, tab: key, page: page, provider: provider, window: windows[key])
+    }
+
+    /// Makes and keeps tab `tab`'s view under provider key `key`. A tab whose view was discarded
+    /// gets its route back before the view is made, and its view state once the view can take it,
+    /// under its last picture until then.
+    private func makeView(_ key: String, tab: String, page: InternalPageID, provider: any InternalPageProvider,
+                          window: WindowController?) -> InternalPageView {
+        let gone = discardRecords.discarded.removeValue(forKey: key)
+        if let route = gone?.route { provider.restore(route, for: key) }
+        if let gone { provider.willRemakeView(for: key, with: gone.state) }
+        let content = provider.makeView(for: key, in: window)
         let view = InternalPageView(key: key, page: page, content: content, topBar: provider.makeTopBar(for: key))
         view.navigate = navigate
         views[key] = view
+        if let state = gone?.state {
+            view.rebuilt(under: discardedPicture(of: tab)) { [weak provider] content in
+                await provider?.restoreViewState(state, for: key, content: content)
+            }
+        }
         return view
     }
+
+    /// Takes the view kept under provider key `key` out of the store (a discard, InternalPageTabStore+Show).
+    func takeView(_ key: String) -> InternalPageView? { views.removeValue(forKey: key) }
 
     /// `key`'s view: an app-only page tab's, or a store page tab's by its id.
     /// The provider key of store page tab `id`, nil for any other tab.
@@ -179,11 +204,7 @@ final class InternalPageTabStore {
         track(tab.id, key: key, in: store, window: window)
         // A pane lists it: the tree has it.
         seenLive.insert(tab.id)
-        let content = provider.makeView(for: key, in: windows[key])
-        let view = InternalPageView(key: key, page: page, content: content, topBar: provider.makeTopBar(for: key))
-        view.navigate = navigate
-        views[key] = view
-        return view
+        return makeView(key, tab: tab.id, page: page, provider: provider, window: windows[key])
     }
 
     /// Opens `page` as a store tab after `pane`'s selected tab. The tab and
@@ -340,6 +361,7 @@ final class InternalPageTabStore {
 
     private func forget(_ key: String) {
         views.removeValue(forKey: key)?.removeFromSuperview()
+        discardRecords.forget(key)
         windows[key] = nil
         if let page = LocalPageTab.page(of: key) { providers[page]?.tabClosed(key) }
     }

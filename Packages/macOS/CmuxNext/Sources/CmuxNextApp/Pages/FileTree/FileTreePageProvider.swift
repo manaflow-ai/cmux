@@ -13,6 +13,9 @@ final class FileTreePageProvider: PageProvider {
     private let folder: URL?
     private let link: AgentPaneGitLink?
     private let open: @MainActor (URL) -> String?
+    /// What the tab's previous page showed before it was discarded (its `cmux.files.viewState`
+    /// answer): the next `root` answer carries it once as `viewState`.
+    var viewState: CmuxNextSettings.JSONValue?
 
     init(folder: URL?, link: AgentPaneGitLink?, open: @escaping @MainActor (URL) -> String?) {
         self.folder = folder
@@ -24,7 +27,12 @@ final class FileTreePageProvider: PageProvider {
         guard let folder else { throw PageError(code: "cmux.files.no_folder", message: FileTreeStrings.noFolder, retryable: false) }
         switch op {
         case "cmux.files.root":
-            return ["folder": .string(folder.path), "name": .string(folder.lastPathComponent)]
+            var root: [String: CmuxNextSettings.JSONValue] = ["folder": .string(folder.path), "name": .string(folder.lastPathComponent)]
+            if let viewState {
+                self.viewState = nil
+                root["viewState"] = viewState
+            }
+            return .object(root)
         case "cmux.files.list":
             return try await list(Self.resolve(params["path"]?.stringValue, in: folder))
         case "cmux.files.open":

@@ -18,7 +18,6 @@ extension AgentPaneView {
         // session no longer matches this view after a tab switch, so a queued palette run cannot
         // toggle or open a panel in a replacement chat.
         let value = "menu:\(command)|\(model.sessionId ?? "")"
-        let script = "window.cmuxAcpmuxBridge?.command?.(\(JSONValue.string(value).compactText));"
-        deliver([.command(value)], scripts: [script])
+        deliver([.command(value)])
     }
 }

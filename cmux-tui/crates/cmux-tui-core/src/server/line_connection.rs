@@ -60,8 +60,9 @@ pub(super) fn serve_line_connection(
     };
     let peer_key = stream.peer_process_key();
     let peer_token = stream.peer_token();
+    let peer_uid = stream.peer_uid();
     let client = mux.control_clients.register(transport, writer.clone());
-    origin_gate::set_peer_identity_at_accept(&mux, client, peer_key, peer_token);
+    origin_gate::set_peer_identity_at_accept(&mux, client, peer_key, peer_token, peer_uid);
     if !admission.registered(&mux, client) {
         // Refused before its first frame (the remote entry's revocation
         // limits): nothing is read or dispatched.
@@ -88,6 +89,8 @@ pub(super) fn serve_line_connection(
                 break;
             }
         };
+        // The line's arrival, for its request span (server/request_spans.rs).
+        let arrived = Instant::now();
         if read == 0 {
             break;
         }
@@ -115,13 +118,14 @@ pub(super) fn serve_line_connection(
                 };
                 match hello.observe(&mux, client, &line, peer) {
                     Some(reply) => writer.send_control(&reply).is_ok(),
-                    None => handle_connection_frame(
+                    None => handle_connection_frame_at(
                         &mux,
                         client,
                         transport,
                         &line,
                         &writer,
                         &surface_scheduler,
+                        arrived,
                     ),
                 }
             }

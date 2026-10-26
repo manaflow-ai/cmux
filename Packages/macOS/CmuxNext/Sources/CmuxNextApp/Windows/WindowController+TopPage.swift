@@ -13,6 +13,8 @@ extension WindowController {
         if root.content === view { return true }
         parkContentForPage()
         root.show(view)
+        // A page built again after a discard shows as the person left it.
+        topPages.didShow(route)
         // Pages draw in the room theme (the window's own scope).
         themeScope.show(nil)
         root.titlebar.title = topPages.title(for: route)
@@ -63,9 +65,16 @@ extension WindowController {
 
     /// Every content swap, a top page or a workspace: the titlebar's Back and
     /// Forward re-read the shown page's history. The sidebar never shows Back
-    /// (Lawrence 2026-10-09); Go Back leaves a page for its workspace.
+    /// (Lawrence 2026-10-09); Go Back leaves a page for its workspace. The
+    /// top pages hear which page is hidden from now on, and when a page a paint
+    /// hold kept on screen leaves the window (their discard deadlines).
     func followContentChanges() {
-        root.onContentChange = { [weak self] in self?.services.locationTrail.pageHistoryDidChange() }
+        root.onContentChange = { [weak self] in
+            guard let self else { return }
+            services.locationTrail.pageHistoryDidChange()
+            topPages.contentDidChange(shown: root.content)
+        }
+        root.onContentWithdrawn = { [weak self] in self?.topPages.contentDidLeaveWindow() }
     }
 
     /// The top page this window shows, if any.

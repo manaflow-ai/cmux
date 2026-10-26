@@ -316,6 +316,23 @@ fn server_stats_report_lock_writer_and_connection_metrics() {
 }
 
 #[test]
+fn trace_control_refuses_a_remote_client_before_anything_runs() {
+    let mux = test_mux();
+    let websocket_client = mux.control_clients.register(ClientTransport::WebSocket, test_writer());
+    for command in [
+        Command::TraceStart(serde_json::from_value(json!({"keys": true})).unwrap()),
+        Command::TraceStop,
+        Command::TraceStatus,
+    ] {
+        let error = handle_command(&mux, websocket_client, command, &test_writer())
+            .expect_err("a remote client must not start, stop or read a trace");
+        assert!(error.to_string().contains("trusted local connection"), "{error}");
+    }
+    // Refused before the daemon's tracer was asked anything.
+    assert!(cmux_trace::status().is_none());
+}
+
+#[test]
 fn shutting_down_a_writer_clone_unblocks_the_reader() {
     let socket = TestSocket::new("shutdown");
     let listener = transport::listen(&socket.path).unwrap();
@@ -564,6 +581,8 @@ fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
     ] {
         state.requests.push_back(PendingSurfaceRequest {
             request: Request { id: Some(json!(id)), cmd },
+            arrival: RequestArrival::now(),
+            cause: crate::event_cause::EventCause::Program,
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
         });
@@ -602,6 +621,8 @@ fn guarded_browser_pointer_input_overtakes_an_unrelated_clear_barrier() {
         state.active_clear_surfaces.insert(1);
         state.requests.push_back(PendingSurfaceRequest {
             request: Request { id: Some(json!(1)), cmd },
+            arrival: RequestArrival::now(),
+            cause: crate::event_cause::EventCause::Program,
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
         });

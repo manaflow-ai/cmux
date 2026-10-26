@@ -39,11 +39,12 @@ final class DividerHandleView: NSView {
     /// (`applyPresentation`): its hidden state and cursor clip follow from them and the frame, so
     /// equal ones skip the work.
     var placedClips: [CGRect?]?
-    /// The pointer crossed this handle's tracking area. The screen that owns
-    /// the handles decides hover from the pointer and the current frames
-    /// (`ScreenContentView.refreshDividerHover`); the handle keeps no hover
-    /// of its own, because a layout change can move it under a still pointer.
-    var onPointerChange: (() -> Void)?
+    /// The pointer crossed this handle's tracking area (the enter or exit). The
+    /// screen that owns the handles decides hover from that event's point and
+    /// the current frames (`ScreenContentView.refreshDividerHover`); the handle
+    /// keeps no hover of its own, because a layout change can move it under a
+    /// still pointer.
+    var onPointerChange: ((NSEvent) -> Void)?
 
     private let line = CALayer()
     private(set) var isHovered = false { didSet { if isHovered != oldValue { applyColors() } } }
@@ -182,8 +183,8 @@ final class DividerHandleView: NSView {
     /// Set only by the owning screen's hover pass.
     func setHovered(_ hovered: Bool) { isHovered = hovered }
 
-    override func mouseEntered(with event: NSEvent) { onPointerChange?() }
-    override func mouseExited(with event: NSEvent) { onPointerChange?() }
+    override func mouseEntered(with event: NSEvent) { onPointerChange?(event) }
+    override func mouseExited(with event: NSEvent) { onPointerChange?(event) }
 
     /// Leaving the view tree mid-drag: the mouse-up will never arrive here,
     /// so the drag state ends with the view (the screen ends the gesture).
@@ -192,6 +193,8 @@ final class DividerHandleView: NSView {
         if newSuperview == nil {
             isDragging = false
             isHovered = false
+            // Its render-server springs end now, so their landings run (`ScreenContentView.springDivider`).
+            if let layer { for keyPath in ["position", "bounds.size"] { RenderSpring.stop(layer, keyPath) } }
         }
     }
 

@@ -86,6 +86,7 @@ pub(super) fn write(path: &Path, engine: &Engine) -> anyhow::Result<()> {
     let mut out = options.open(&tmp)?;
     let mut bytes = serde_json::to_vec_pretty(&Value::Object(file))?;
     bytes.push(b'\n');
+    crate::request_path::note(crate::request_path::BlockingKind::FsWrite);
     out.write_all(&bytes)?;
     out.sync_all()?;
     drop(out);

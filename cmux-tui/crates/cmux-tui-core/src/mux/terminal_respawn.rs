@@ -218,6 +218,7 @@ impl Mux {
     /// mark it respawning and start the respawn worker. Never fails the exit
     /// commit; a refused respawn leaves the tab dead.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn schedule_terminal_respawn(
         &self,
         terminal_id: &str,
@@ -233,6 +234,7 @@ impl Mux {
     /// respawn worker, or end a terminal that used up its attempts. Runs
     /// with no lock held.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn start_terminal_respawn(
         &self,
         terminal_id: &str,
@@ -290,6 +292,7 @@ impl Mux {
     }
 
     #[cfg(any(unix, windows))]
+    #[track_caller]
     fn plan_terminal_respawn(
         &self,
         terminal_id: &str,
@@ -313,6 +316,7 @@ impl Mux {
     /// dead runtime of a terminal that respawns: the tabs read adopting from
     /// the commit on.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn plan_terminal_respawn_locked(
         &self,
         registry: &WorkspaceRegistry,
@@ -386,6 +390,7 @@ impl Mux {
     /// The respawn worker: respawn, then pre-fill; on failure or a refused
     /// respawn the tab shows the terminal ended.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     fn run_terminal_respawn(self: &Arc<Self>, plan: RespawnPlan) {
         let terminal_id = plan.terminal_id.clone();
         let public_id = plan.public_id.clone();
@@ -447,6 +452,7 @@ impl Mux {
     /// Reopen the row, launch the new host and put it in the tabs. `None`
     /// when a close or another end won, or the owner is shutting down.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     fn respawn_terminal(
         self: &Arc<Self>,
         mut plan: RespawnPlan,
@@ -576,6 +582,7 @@ impl Mux {
     /// incarnation in one registry + state critical section. False when a
     /// close won.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     fn install_respawned_runtime(
         &self,
         plan: &RespawnPlan,

@@ -21,6 +21,11 @@ pub trait Stream: Read + Write + Send + Sync {
     fn peer_token(&self) -> Option<cmux_link::app_caller::PeerToken> {
         None
     }
+    /// The uid the kernel reports for the peer of a local socket
+    /// (SO_PEERCRED / getpeereid). `None` where unknown.
+    fn peer_uid(&self) -> Option<u32> {
+        None
+    }
 }
 
 pub struct Listener {
@@ -120,6 +125,10 @@ mod imp {
 
         fn peer_token(&self) -> Option<cmux_link::app_caller::PeerToken> {
             cmux_link::app_caller::peer_token(std::os::fd::AsRawFd::as_raw_fd(self))
+        }
+
+        fn peer_uid(&self) -> Option<u32> {
+            crate::platform::unix_peer_uid(self).ok()
         }
     }
 }

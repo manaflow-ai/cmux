@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextMacScreen
+import CmuxNextPages
 import CmuxNextRemote
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -18,10 +19,14 @@ import Observation
 /// from the daemon replay when shown. Previews of destroyed surfaces stay in a 32 MB image LRU.
 final class TabContentCache {
     private let daemon: DaemonService
+    /// Given to every terminal session this cache makes (``TerminalModifierWatch``).
+    let terminalModifiers: TerminalModifierWatch?
     var terminals: [String: TerminalEntry] = [:]
     var browsers: [String: BrowserEntry] = [:] { didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged() } } }
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
     var presenters: [ObjectIdentifier: WeakPresenter] = [:]
+    /// Windows off screen now (`WindowOcclusionChecker`): the pages they show get a hidden clock.
+    var offScreenWindows: Set<ObjectIdentifier> = []
     /// Every tab's content phase and visibility generation (plans/cmux-next/tab-lifecycle.md):
     /// the only source of show and hide for terminal surfaces and pages (`TabContentCache+Lifecycle`).
     var lifecycle = ContentLifecycle<String>()
@@ -32,8 +37,9 @@ final class TabContentCache {
     /// Set while a smaller warm budget evicts: surfaces close at once, with no last picture.
     var evictsAtOnce = false
     var onRelease: ((String) -> Void)?
-    /// Hibernates hidden pages (time, memory pressure) and restores them.
-    var hibernation: BrowserHibernation?
+    var hibernation: BrowserHibernation? // hibernates hidden browser pages (time, memory pressure) and restores them
+    weak var pageDiscards: InternalPageTabStore? // takes page tabs' lifecycle effects (memoryDiscardInternalPages; nil while off)
+    var pageLifecycle: PageLifecycle? // page tabs' freeze and discard, from each reveal and conceal (pageLifecycle; nil while off)
     /// Hibernated tabs, observed by the tab strips.
     let dormantTabs = DormantTabs()
     let previews = PreviewImageCache()
@@ -48,12 +54,10 @@ final class TabContentCache {
     let pageThumbnails = PreviewImageCache(capacityBytes: 16 << 20)
     var pageThumbnailVersions: [String: Int] = [:]
     var pageCapturesInFlight: Set<String> = []
-    /// How long a leave capture may take before its thumbnail is dropped
-    /// (the capture runs on the main thread). Tests that do not test this
-    /// deadline use the shared 30 s test configuration.
+    /// How long a leave capture may take before its thumbnail is dropped (the capture runs on the
+    /// main thread). Tests that do not test this deadline use the shared 30 s test configuration.
     var pageCaptureDeadline: Duration = .seconds(2)
-    /// Pages revealed since their last hide: the next hide captures their
-    /// thumbnail (`TabContentCache+Lifecycle`).
+    /// Pages revealed since their last hide: the next hide captures their thumbnail (`TabContentCache+Lifecycle`).
     var shownPages: Set<String> = []
     /// Over the Chromium engine's stores, so both engines share them (``BrowserSharedStores``).
     let webKit: WebKitEngine
@@ -85,11 +89,16 @@ final class TabContentCache {
     /// No Chromium page is being created any more (ChromiumWarmup's spare window).
     var onPagesSettled: (@MainActor () -> Void)?
     private var framedStandIns: Set<String> = [] // stand-in tabs whose page waited for their first frame
+    /// Each tab's visibility node, weakly (`node(for:)`).
+    private var tabNodes: [String: WeakTabNode] = [:]
+    /// `tabNodes` drops its released nodes when it reaches this many entries.
+    private var tabNodesPruneAt = 64
+    /// The parent of tab nodes that no pane has selected: hidden, so they are.
+    private let unselectedTabs = VisibilityNode(root: "tabs.unselected", own: .hidden)
     /// Runs work after the current pass's frame committed (`AfterFrameCommit`); tests pass their own.
     private let afterFrame: (@escaping @MainActor () -> Void) -> Void
     /// Restored browser tabs start as `DeferredBrowserTab` (nothing loads)
-    /// until the user reloads one: set after cmux quit unexpectedly twice in
-    /// a row (`LaunchRecovery.restartedSafely`).
+    /// until the user reloads one: set after cmux quit unexpectedly twice in a row (`LaunchRecovery.restartedSafely`).
     var defersRestoredPages = false
     /// Tabs whose deferred page the user started.
     var startedDeferred: Set<String> = []
@@ -109,8 +118,7 @@ final class TabContentCache {
     var profileBadgeMenu: ((String) -> NSMenu?)?
     /// The omnibar and tab-strip machine chip of tab `key` for a URL.
     var machineBadge: ((String, URL?) -> (text: String, help: String)?)?
-    /// The tab with durable id `key` on any machine (`browserTabs` only
-    /// knows the local daemon).
+    /// The tab with durable id `key` on any machine (`browserTabs` only knows the local daemon).
     var findTab: ((String) -> TabModel?)?
     /// A CEF page finished its asynchronous creation; panes showing `key` re-show.
     var onBrowserReady: ((String) -> Void)?
@@ -121,15 +129,13 @@ final class TabContentCache {
     /// page window is key, so `ShellWindow` never gets the key).
     weak var keyRouter: KeyRouter?
     /// A page's chrome hands the keyboard back to page `key` (find bar
-    /// closed, address bar editing ended); the App routes it through the
-    /// window's focus coordinator.
+    /// closed, address bar editing ended); the App routes it through the window's focus coordinator.
     var onPageFocusRequest: ((String) -> Void)?
     /// A provisional split's terminal tab got its daemon surface on a daemon (``awaitConfirm(_:of:daemon:)``).
     var onTerminalConfirmed: ((TabModel, DaemonService) -> Void)?
     /// Every new page's chrome gets this (the page info bubble's registry router).
     var onBrowserEntryCreated: ((BrowserEntry) -> Void)?
-    /// The Extensions (puzzle) menu handler of Chromium tab `key` (the App's
-    /// action registry, `ExtensionMenuRouter`).
+    /// The Extensions (puzzle) menu handler of Chromium tab `key` (the App's action registry, `ExtensionMenuRouter`).
     var makeExtensionMenuHandler: ((String) -> (any ExtensionMenuHandling)?)?
     /// Page `key`'s docked DevTools opened (and takes the keyboard) or
     /// closed; the App routes it through the window's focus coordinator.
@@ -143,12 +149,14 @@ final class TabContentCache {
     ///   - afterFrame: runs work once the current pass's frame committed (a stand-in's page follows the key's
     ///     frame); tests pass one that collects the work or runs it at once.
     ///   - resizes: The app's grid sender (`AppServices.resizes`); tests get their own.
-    init(daemon: DaemonService, cef: CEFEngine = CEFEngine(stores: .inMemory(), signInCallbacks: CEFSignInCallbacks()), fileInput: any WebFileInputAnswering,
+    ///   - terminalModifiers: The terminals' one modifier watch on the app's input tap; tests without a tap pass none.
+    init(daemon: DaemonService, cef: CEFEngine, fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
-         resizes: ResizeCoordinator = ResizeCoordinator()) {
+         resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil) {
         self.daemon = daemon
+        self.terminalModifiers = terminalModifiers
         self.cef = cef
-        webKit = WebKitEngine(fileInput: fileInput, stores: cef.stores)
+        webKit = WebKitEngine(fileInput: fileInput, stores: cef.stores, waitDeadlines: cef.waitDeadlines)
         self.afterFrame = afterFrame
         self.resizes = resizes
         browserTabs = BrowserTabService(daemon: daemon, cef: cef)
@@ -190,7 +198,7 @@ final class TabContentCache {
         let gate = ProvisionalTab.isProvisional(surface: tab.surface) ? TerminalTargetGate() : nil
         let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, gate: gate, creatingInput: gate.flatMap { gate in daemon.creatingInput(tab.terminalID) { gate.isResolved } },
                                   burstTrace: pageRequests.services?.burstTrace, policyBlocked: daemon.policyBlock.check,
-                                  endpoint: { try await daemon.endpoint() })
+                                  hangWatch: daemon.hangWatch, endpoint: { try await daemon.endpoint() })
         let session = makeSession(io: io, tab: tab, daemon: daemon)
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: tab.surface, gate: gate)
@@ -205,8 +213,7 @@ final class TabContentCache {
         return entry
     }
 
-    /// Tab ids whose Ghostty surface has focus (first responder in the key
-    /// window), for `debug.focus`.
+    /// Tab ids whose Ghostty surface has focus (first responder in the key window), for `debug.focus`.
     var focusedTerminalTabs: [String] {
         terminals.filter { $0.value.session.model.isFocused }.map(\.key).sorted()
     }
@@ -352,8 +359,7 @@ final class TabContentCache {
         swapPage(key, with: webKit.makeWebKitTab(id: old.id, profile: profile, initialURL: url, zoom: old.state.zoom))
     }
 
-    /// A WebKit page for a Chromium record, with the fallback recorded and
-    /// the one-time notice shown when this is the first.
+    /// A WebKit page for a Chromium record, with the fallback recorded and the one-time notice shown when this is the first.
     private func fallBack(_ tab: TabModel, url: URL?, reason: CEFUnavailableReason) -> BrowserEntry {
         let fallbacks = browserTabs.fallbacks
         fallbacks.record(reason, source: .recordedTab, machine: browserTabs.daemon(for: tab).machineID, surface: tab.surface)
@@ -406,6 +412,7 @@ final class TabContentCache {
         if agentDrivenTabs.contains(key) { page.markAgentDriven() } else if page.isAgentDriven { agentDrivenTabs.insert(key) }
         pageRequests.proxiedTabs.adopt(store: (page as? CEFTab)?.machineStore, key: key)
         browsers[key] = entry
+        hibernation?.pageDidMount(key, page)
         pageInstalls.bump()
         // Pages are kept by hibernation, never by the terminal warm set.
         ledger.setRetained(key, false)
@@ -418,6 +425,7 @@ final class TabContentCache {
     /// (yet) or `tab` has one: `tab` then makes its own.
     func moveBrowser(_ key: String, to tab: TabModel) -> Bool {
         guard !pendingBrowsers.contains(key), browsers[tab.id] == nil, let entry = browsers.removeValue(forKey: key) else { return false }
+        if let node = tabNodes.removeValue(forKey: key), tabNodes[tab.id]?.node == nil { tabNodes[tab.id] = node } // the page's node goes with it
         release(key, displacing: false)
         mount(entry, as: tab.id)
         goneTabs.track(tab.id, in: browserTabs.daemon(for: tab).store) { [weak self] in self?.release($0) }
@@ -425,8 +433,7 @@ final class TabContentCache {
         return true
     }
 
-    /// Swaps `tab`'s page for `page` (an adopted popup that arrived after
-    /// the tab's placeholder page was created).
+    /// Swaps `tab`'s page for `page` (an adopted popup that arrived after the tab's placeholder page was created).
     func replacePage(of tab: TabModel, with page: any BrowserTab) {
         let key = tab.id
         browserTabs.untrack(key)
@@ -438,8 +445,7 @@ final class TabContentCache {
     /// Replaces `key`'s page (hibernation, restore): the old page closes,
     /// the record write-back follows the new one, and panes showing `key`
     /// re-show with the new view. A page woken from hibernation passes the
-    /// state it slept on (`asleep`): its omnibar shows that address from the
-    /// first frame, not the new page's blank one.
+    /// state it slept on (`asleep`): its omnibar shows that address from the first frame, not the new page's blank one.
     func swapPage(_ key: String, with page: any BrowserTab, asleep: BrowserTabState? = nil) {
         browserTabs.untrack(key)
         browsers.removeValue(forKey: key)?.close()
@@ -462,7 +468,7 @@ final class TabContentCache {
         if let owner = ledger.remove(key), displacing { presenters[owner]?.value?.surfaceWasDisplaced(key) }
         applyLifecycle(lifecycle.send(.removed(key)))
         pendingMounts[key] = nil; framedStandIns.remove(key); pendingBrowsers.remove(key)
-        hibernation?.forget(key)
+        hibernation?.forget(key); pageLifecycle?.remove(key)
         agentMarks.forget(key)
         pageRequests.services?.remoteViewPages.forget(key)
         terminals.removeValue(forKey: key)?.close()
@@ -475,15 +481,49 @@ final class TabContentCache {
         shownPages.remove(key)
         presentationChanges.notify(changed: [key])
     }
+
+    // MARK: Visibility
+
+    /// Tab `key`'s node in the visibility tree (p06-scheduler.md B): visible while the tab is selected
+    /// in a visible pane (`PaneController.selectTabNode`), else hidden. Keyed by tab, as its surface
+    /// is, so a tab moved to another pane keeps its node, and a closed tab's content going
+    /// (`release`) leaves it.
+    ///
+    /// The cache holds nodes weakly: a node lives while the pane that selects its tab holds it, or a
+    /// follower does. Hold the node for as long as you subscribe to it. A tab that nothing holds gets
+    /// a new hidden node, which is its true state: no pane selects it.
+    func node(for key: String) -> VisibilityNode {
+        if let node = tabNodes[key]?.node { return node }
+        let node = VisibilityNode("tab:\(key)", own: .hidden, parent: unselectedTabs)
+        tabNodes[key] = WeakTabNode(node: node)
+        if tabNodes.count >= tabNodesPruneAt {
+            tabNodes = tabNodes.filter { $0.value.node != nil }
+            tabNodesPruneAt = max(64, tabNodes.count * 2)
+        }
+        return node
+    }
+
+    private struct WeakTabNode {
+        weak var node: VisibilityNode?
+    }
 }
 
 /// A pane that shows cached content.
 @MainActor
 protocol SurfacePresenter: AnyObject {
     /// `key`'s view now belongs to another presenter, or its surface was
-    /// destroyed. Drop the view if it is still installed here; do not
-    /// withdraw or pause it.
+    /// destroyed. Drop the view if it is still installed here; do not withdraw or pause it.
     func surfaceWasDisplaced(_ key: String)
+    /// The window it presents in, if any.
+    var presentingWindow: NSWindow? { get }
+}
+
+extension SurfacePresenter {
+    var presentingWindow: NSWindow? { nil }
+}
+
+extension PaneController {
+    var presentingWindow: NSWindow? { view.window }
 }
 
 struct WeakPresenter {

@@ -12,11 +12,14 @@ import java.util.Objects;
 
 /** Immutable settings-changed event. Protocol v12; streams: subscribe. */
 public final class SettingsChangedEvent implements WireValue, DeltaStreamEvent, ProtocolEvent, SubscribeEvent {
+    /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+    private final Field<EventCause> cause;
     private final List<String> keys;
     private final SettingsChangedEventOrigin origin;
     private final UInt64 revision;
 
     private SettingsChangedEvent(Builder builder) {
+        this.cause = builder.cause;
         if (!builder.keysSet) throw new IllegalArgumentException("keys is required");
         this.keys = List.copyOf(Wire.nonNull(builder.keys, "keys"));
         if (!builder.originSet) throw new IllegalArgumentException("origin is required");
@@ -27,6 +30,7 @@ public final class SettingsChangedEvent implements WireValue, DeltaStreamEvent, 
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<EventCause> cause() { return cause; }
     public List<String> keys() { return keys; }
     public SettingsChangedEventOrigin origin() { return origin; }
     public UInt64 revision() { return revision; }
@@ -36,6 +40,10 @@ public final class SettingsChangedEvent implements WireValue, DeltaStreamEvent, 
         Map<String, Object> object = Wire.object(value, "SettingsChangedEvent");
         Builder builder = builder();
         ProtocolSupport.literal(Wire.required(object, "event"), "settings-changed", "SettingsChangedEvent.event");
+        Object rawCause = Wire.optional(object, "cause");
+        if (!Wire.isMissing(rawCause)) {
+            builder.cause(EventCause.fromWire(rawCause));
+        }
         Object rawKeys = Wire.required(object, "keys");
         builder.keys(Wire.array(rawKeys, "SettingsChangedEvent.keys", item -> Wire.string(item, "SettingsChangedEvent.keys item")));
         Object rawOrigin = Wire.required(object, "origin");
@@ -49,6 +57,7 @@ public final class SettingsChangedEvent implements WireValue, DeltaStreamEvent, 
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         object.put("event", "settings-changed");
+        Wire.put(object, "cause", cause);
         Wire.put(object, "keys", keys);
         Wire.put(object, "origin", origin);
         Wire.put(object, "revision", revision);
@@ -58,16 +67,17 @@ public final class SettingsChangedEvent implements WireValue, DeltaStreamEvent, 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof SettingsChangedEvent that)) return false;
-        return Objects.equals(keys, that.keys) && Objects.equals(origin, that.origin) && Objects.equals(revision, that.revision);
+        return Objects.equals(cause, that.cause) && Objects.equals(keys, that.keys) && Objects.equals(origin, that.origin) && Objects.equals(revision, that.revision);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(keys, origin, revision); }
+    public int hashCode() { return Objects.hash(cause, keys, origin, revision); }
 
     @Override
     public String toString() { return "SettingsChangedEvent" + toWire(); }
 
     public static final class Builder {
+        private Field<EventCause> cause = Field.omitted();
         private List<String> keys;
         private boolean keysSet;
         private SettingsChangedEventOrigin origin;
@@ -75,6 +85,10 @@ public final class SettingsChangedEvent implements WireValue, DeltaStreamEvent, 
         private UInt64 revision;
         private boolean revisionSet;
 
+        public Builder cause(EventCause value) {
+            this.cause = Field.of(value);
+            return this;
+        }
         public Builder keys(List<String> value) {
             this.keys = value;
             this.keysSet = true;

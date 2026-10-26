@@ -1,0 +1,82 @@
+{
+  "description": "Server modules that decode their own commands before the server's Command enum sees the line (p05-ipc queue Q2). check-spec-inventory.py reads the names and the authority; check-sdk-schema.py reads the request fields. enum: the module's #[serde(tag = \"cmd\")] enum, each variant named with #[serde(rename = \"...\")]; a module that only matches literals has none, and no envelope or enum_handler. envelope: the struct that flattens the enum; its other fields (minus the reply id) every variant accepts. enum_handler: the function that dispatches the enum. literals: commands the module matches by name, with their request struct and handler; `module::Type` names a struct in server/<module>.rs. The module must decode that struct for the command: with variant `Enum::Variant`, the literal's match arm builds that variant and the variant holds the struct; without, the handler calls from_value::<Type>. refused_envelope_fields: envelope fields a command's handler refuses before decoding. authority: the profile of every command; local-admin needs the non-Unix refusal in enum_handler and in every literal handler.",
+  "modules": {
+    "apps": {
+      "enum": "Command",
+      "envelope": "Request",
+      "enum_handler": "try_handle",
+      "literals": {
+        "cancel-request": {
+          "request": "CancelRequest",
+          "handler": "cancel_request"
+        }
+      },
+      "refused_envelope_fields": {
+        "apps-agent-inventory-changed": ["origin"]
+      },
+      "authority": "local-admin"
+    },
+    "agent_session_attach": {
+      "literals": {
+        "agent-session-attach": {
+          "request": "PageParams",
+          "handler": "try_handle",
+          "variant": "AgentSessionCommand::Attach"
+        },
+        "agent-session-events": {
+          "request": "PageParams",
+          "handler": "try_handle",
+          "variant": "AgentSessionCommand::Events"
+        },
+        "agent-session-prompt": {
+          "request": "PromptParams",
+          "handler": "try_handle",
+          "variant": "AgentSessionCommand::Prompt"
+        },
+        "agent-session-cancel": {
+          "request": "SurfaceParams",
+          "handler": "try_handle",
+          "variant": "AgentSessionCommand::Cancel"
+        },
+        "agent-session-permission": {
+          "request": "PermissionParams",
+          "handler": "try_handle",
+          "variant": "AgentSessionCommand::Permission"
+        },
+        "agent-session-detach": {
+          "request": "SurfaceParams",
+          "handler": "try_handle",
+          "variant": "AgentSessionCommand::Detach"
+        },
+        "agent-session-children": {
+          "request": "SurfaceParams",
+          "handler": "try_handle",
+          "variant": "AgentSessionCommand::Children"
+        },
+        "agent-session-media": {
+          "request": "MediaParams",
+          "handler": "try_handle",
+          "variant": "AgentSessionCommand::Media"
+        },
+        "agent-session-start": {
+          "request": "agent_session_start::StartParams",
+          "handler": "start"
+        },
+        "agent-session-trust": {
+          "request": "agent_session_trust::TrustParams",
+          "handler": "trust"
+        }
+      },
+      "authority": "local-admin"
+    },
+    "agent_session_observe": {
+      "literals": {
+        "agent-session-observe": {
+          "request": "agent_session_attach::PageParams",
+          "handler": "try_handle"
+        }
+      },
+      "authority": "local-admin"
+    }
+  }
+}

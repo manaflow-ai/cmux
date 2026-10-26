@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextSettings
 public import Foundation
 
@@ -151,7 +152,7 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
 
     /// Nil unless `ghView` is gh's answer with an https url and a number.
     public init?(ghView: Data) {
-        guard let object = try? JSONSerialization.jsonObject(with: ghView) as? [String: Any],
+        guard let object = try? JSONSerialization.blockingJSONObject(with: ghView) as? [String: Any],
               let url = object["url"] as? String, url.hasPrefix("https://"), !url.contains(where: \.isWhitespace),
               let number = object["number"] as? Int else { return nil }
         let state = (object["state"] as? String)?.lowercased() ?? "open"

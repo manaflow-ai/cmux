@@ -12,23 +12,25 @@ struct ScreenDividers {
     /// are now, recomputed whenever either changes (a tracking event, a page
     /// catcher panel's event, every presentation pass including strip and
     /// row scrolls, key-window changes). The topmost visible handle under the
-    /// pointer is hovered; every other one is not.
-    func refreshHover() {
-        let hovered = hoveredHandle()
+    /// pointer is hovered; every other one is not. `event`: the handle enter or
+    /// exit being handled, whose own point is the pointer.
+    func refreshHover(at event: NSEvent? = nil) {
+        let hovered = hoveredHandle(at: event)
         for view in screen.dividerViews.values { view.setHovered(view === hovered) }
     }
 
-    private func hoveredHandle() -> DividerHandleView? {
+    private func hoveredHandle(at event: NSEvent?) -> DividerHandleView? {
         // During a drag only the dragged handle shows (its line is the drag's).
         if let drag = screen.activeDrag { return screen.dividerViews[drag.kind] }
         guard let window = screen.window, !screen.isHiddenOrHasHiddenAncestor,
-              let point = screen.context.hoverPointer(window).map({ screen.convert($0, from: nil) }),
-              screen.bounds.intersection(screen.visibleRect).contains(point) else { return nil }
+              let windowPoint = screen.context.hoverPointer(window, event) else { return nil }
+        let point = screen.convert(windowPoint, from: nil)
+        guard screen.bounds.intersection(screen.visibleRect).contains(point) else { return nil }
         let hit = screen.subviews.reversed().lazy.compactMap { $0 as? DividerHandleView }.first {
             // Where it shows its cursor: not the part under a dock or past its area's window.
             !$0.isHidden && $0.alphaValue > 0.01 && screen.convert($0.cursorRectInBounds, from: $0).contains(point)
         }
-        guard let hit, screen.context.hoverReachesWindow(window) else { return nil }
+        guard let hit, screen.context.hoverReachesWindow(window, windowPoint) else { return nil }
         return hit
     }
 
@@ -61,7 +63,7 @@ struct ScreenDividers {
     /// `rect` less what a zooming or unzooming pane shows over it: the dividers are under that pane
     /// (`ScreenContentView.rank`), so its Chromium page gets no hole and no click catcher there.
     private func uncovered(_ rect: CGRect) -> CGRect {
-        guard let pane = screen.zoomMotion.pane, let host = screen.context.hosts[pane], host.superview === screen, !rect.isNull else { return rect }
+        guard let pane = screen.zoomMotion.pane, let host = screen.context.hosts[pane], screen.holds(host), !rect.isNull else { return rect }
         let cover = host.frame
         if cover.insetBy(dx: -0.5, dy: -0.5).contains(rect) { return .null }
         return rect.remainder(outside: cover)
