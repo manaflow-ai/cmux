@@ -359,15 +359,15 @@ nonisolated struct HostFilesCase {
         default: paired = .mutated(mutator.mutate(stored, using: &rng))
         }
 
-        let entry: FuzzJSON
-        let names: Bool
-        switch rng.below(6) {
-        case 0: (entry, names) = (.object(["id": .string(phone)]), true)
-        case 1: (entry, names) = (.object(["id": .string(phone.uppercased())]), true)
-        case 2: (entry, names) = (.object(["name": .string(name)]), true)
-        case 3: (entry, names) = (.object(["id": .string("other-" + phone)]), false)
-        case 4: (entry, names) = (.object([:]), false)
-        default: (entry, names) = (.object(["id": .string(phone), "identityKey": .string(identity.lowercased() + "0")]), false)
+        let entryKind = rng.below(6)
+        let names = entryKind < 3
+        let entry: FuzzJSON = switch entryKind {
+        case 0: .object(["id": .string(phone)])
+        case 1: .object(["id": .string(phone.uppercased())])
+        case 2: .object(["name": .string(name)])
+        case 3: .object(["id": .string("other-" + phone)])
+        case 4: .object([:])
+        default: .object(["id": .string(phone), "identityKey": .string(identity.lowercased() + "0")])
         }
         let seedBytes = try FuzzJSON.object(["devices": .array([entry])]).data()
         if rng.oneIn(4) {
