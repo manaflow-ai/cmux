@@ -61,8 +61,10 @@ extension PageWebView {
         scriptTarget.evaluate(script)
     }
 
-    /// Tells a Chromium page whether it shows (a hidden one stops drawing), and the census.
+    /// Tells a Chromium page whether it shows (a hidden one stops drawing), and the census; a page
+    /// opened hidden starts its document at the first show (PageWebView+FirstShow.swift).
     func setEngineVisible(_ visible: Bool) {
+        if visible { startAtFirstShow() }
         chromiumSession?.page.setVisible(visible)
         #if DEBUG || CMUX_BENCH_HOOKS
         noteCensusVisibility(visible)

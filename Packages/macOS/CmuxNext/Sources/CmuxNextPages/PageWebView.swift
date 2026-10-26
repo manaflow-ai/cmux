@@ -180,6 +180,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var now: () -> Date = { Date() }
     var crashReloads = PageCrashReloads()
     let claimState = PageClaimState()
+    /// The document start a page opened hidden waits with until its first show (PageWebView+FirstShow.swift).
+    var firstShowStart: PageFirstShowStart?
     /// The picture and state kept from the page's last hide (PageWebView+Snapshot.swift).
     let hideState = PageHideState()
     #if DEBUG || CMUX_BENCH_HOOKS
@@ -286,7 +288,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
          surface: SurfaceKind?, dynamicResources: (any PageDynamicResourceSource)?, pooled: Bool, load: Bool,
          openRequested: TimeInterval? = nil, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
          openPanel: MadeAheadOpenPanel? = PageWebView.openPanel, registry: PageRegistry = .processWide,
-         processGroups: WebProcessGroups? = nil, trace: any PageTraceSink = TraceRuntime.shared) {
+         processGroups: WebProcessGroups? = nil, startsAtFirstShow: Bool = false,
+         trace: any PageTraceSink = TraceRuntime.shared) {
         let constructionStart = openRequested ?? ProcessInfo.processInfo.systemUptime
         self.trace = trace
         self.descriptor = descriptor
@@ -380,15 +383,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         self.route = route.map { $0.hasPrefix("#") ? $0 : "#" + $0 }
         installDocumentStartTheme()
         guard load else { return }
-        traceOpenRequested(.newView, constructedSince: constructionStart)
-        if engineDecision.engine == .cef, let hosting = chromium {
-            startChromium(hosting: hosting)
-        } else {
-            #if DEBUG || CMUX_BENCH_HOOKS
-            traceMark(.navigationStart)
-            #endif
-            webView.load(URLRequest(url: descriptor.url(route: route)))
-        }
+        let start = PageFirstShowStart(chromium: chromium, requested: constructionStart)
+        // A view is in no window while it is made: one opened to show waits only for its pane's
+        // attach in this turn; one opened hidden makes no renderer until it shows.
+        if startsAtFirstShow { firstShowStart = start } else { startDocument(start) }
     }
 
     /// The current document painted its first frame (``PagePaintProbe``, either engine).
@@ -499,8 +497,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         let fragment = route.hasPrefix("#") ? route : "#" + route
         self.route = fragment
         guard loaded else {
-            // Chromium mode before its page exists: the page loads `route` when it starts.
-            if engineDecision.engine == .cef, chromiumSession == nil { return }
+            // Not started yet (Chromium's page on its way, or the first show): it loads `route` when it starts.
+            if firstShowStart != nil || (engineDecision.engine == .cef && chromiumSession == nil) { return }
             loadDocument(descriptor.url(route: fragment))
             return
         }
@@ -521,7 +519,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// Reloads the page document (its subscriptions end with the old document).
     public func reload() {
-        reloadPage()
+        if firstShowStart == nil { reloadPage() } // a page not started yet loads fresh at its first show
     }
 
     /// Gives the page the keyboard focus.

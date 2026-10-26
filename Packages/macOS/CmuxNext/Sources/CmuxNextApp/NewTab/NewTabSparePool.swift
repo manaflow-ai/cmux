@@ -79,6 +79,9 @@ final class NewTabSparePool {
     private let memoryPressure: MemoryPressureEvents
     private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
     private var usedThisSession = false
+    /// No spare before a New Tab page first showed this session (feature `pageRendererAtFirstShow`,
+    /// Chrome's `PreloadMode::kPreloadOnMakeVisible`): Home idle then runs no renderer for a page nobody opened.
+    private let preloadOnMakeVisible: Bool
     /// Set by `start(holdingWarm: true)` until ``startWarming()``: no spare is made meanwhile.
     private var warmHeld = false
     private var windowObservers: [any NSObjectProtocol] = []
@@ -93,9 +96,11 @@ final class NewTabSparePool {
     /// - Parameters:
     ///   - input: The app's input tap.
     ///   - clock: The warm and fit deadlines' clock (tests: a manual one).
+    ///   - preloadOnMakeVisible: The first spare waits for the first New Tab page of the session.
     init(services: AppServices, memoryPressure: MemoryPressureEvents, input: any InputObserving,
-         clock: any Clock<Duration> = ContinuousClock()) {
+         clock: any Clock<Duration> = ContinuousClock(), preloadOnMakeVisible: Bool = false) {
         self.services = services
+        self.preloadOnMakeVisible = preloadOnMakeVisible
         self.memoryPressure = memoryPressure
         self.input = input
         warmTimer = DemandTimer(owner: "NewTabSparePool.warm", clock: clock)
@@ -307,7 +312,8 @@ final class NewTabSparePool {
 
     /// Arms the quiet-input deadline; each key or click pushes it back.
     private func scheduleWarm() {
-        guard !warmHeld, services.agentTabs.canHostChat, slot.shouldWarm || unparked != nil, target != nil else { return }
+        guard !warmHeld, services.agentTabs.canHostChat, slot.shouldWarm || unparked != nil, target != nil,
+              usedThisSession || !preloadOnMakeVisible || unparked != nil else { return }
         watchMemoryPressure()
         if inputSubscription == nil {
             inputSubscription = input.observe(types: Self.warmDelayingInput) { [weak self] _ in self?.armWarmTimer() }

@@ -5,6 +5,7 @@ extension PageWebView {
     /// The tab closed: cancels subscriptions and stops the bridge.
     public func close() {
         _ = claimState.end()
+        firstShowStart = nil // a page closed before it showed never starts
         router.close()
         bridge.uninstall()
         endChromium()

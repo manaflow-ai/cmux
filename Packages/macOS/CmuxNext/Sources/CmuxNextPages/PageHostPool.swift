@@ -10,8 +10,15 @@ public final class PageHostPool {
     public struct Policy: Sendable {
         public var idleInput: Duration = .milliseconds(750)
         public var maximumHosts = 2
+        /// No spare before a pooled page first showed this session (feature `pageRendererAtFirstShow`):
+        /// Chrome's `PreloadMode::kPreloadOnMakeVisible`, which preloads the next top-chrome WebUI only
+        /// once one was made visible (chrome/browser/ui/webui/top_chrome/webui_contents_preload_manager.cc).
+        /// A session that never opens Settings, History or Cloud then runs no renderer for them.
+        public var preloadOnMakeVisible: Bool
 
-        public init() {}
+        public init(preloadOnMakeVisible: Bool = false) {
+            self.preloadOnMakeVisible = preloadOnMakeVisible
+        }
     }
 
     /// One claim, retained for the claim benchmark and debug socket report.
@@ -34,6 +41,8 @@ public final class PageHostPool {
     var spareReady = false
     var claimed: [ObjectIdentifier: WeakHost] = [:]
     var building = false
+    /// A pooled page the spare could serve was made visible this session (``Policy/preloadOnMakeVisible``).
+    var madeVisible = false
     var activityMark: UInt64 = 0
     /// The app's memory pressure events; a warning or critical level drops the spare.
     let memoryPressure: MemoryPressureEvents
@@ -87,6 +96,7 @@ public final class PageHostPool {
         // Spares are WebKit views: a page that shows in Chromium is made fresh (PageWebView+Chromium).
         let decision = PageWebView.engineDecision(for: descriptor, options: options)
         guard decision.engine == .webKit else { return nil }
+        madeVisible = true
         isLikely = true
         if target == nil, let window { follow(window) }
         guard let host = spare, spareReady, host.isPooled else {

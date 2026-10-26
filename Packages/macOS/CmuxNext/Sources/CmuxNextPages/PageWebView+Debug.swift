@@ -34,6 +34,8 @@ extension PageWebView {
         """
         // Whether a first click in an inactive window reaches this page (the view's own answer).
         let firstMouse = JSONValue.bool(webView.acceptsFirstMouse(for: nil))
+        // Opened hidden and not shown yet: no document and no renderer (PageWebView+FirstShow.swift).
+        if awaitsFirstShow { return ["error": "page not shown yet", "awaits_first_show": true, "accepts_first_mouse": firstMouse] }
         guard let text = await callPageFunction(script) as? String,
               case .object(var members)? = try? JSONValue.parse(Data(text.utf8)) else {
             return ["error": "page not loaded", "accepts_first_mouse": firstMouse]
