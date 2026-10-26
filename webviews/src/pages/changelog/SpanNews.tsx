@@ -66,9 +66,7 @@ export function SpanNews({ view, ctx }: { view: ReleaseView; ctx: PartsContext }
   const lead = clips.length === 0 ? leadItems(view) : view.hero && !clips.includes(view.hero) ? [view.hero] : [];
   const cards = newsItems(view).filter((item) => !lead.includes(item) && !clips.includes(item));
   const security = view.groups.filter((g) => g.category === "security");
-  const fixed = (view.groups.find((g) => g.category === "fixed")?.items ?? []).filter(
-    (item) => !clips.includes(item),
-  );
+  const fixed = (view.groups.find((g) => g.category === "fixed")?.items ?? []).filter((item) => !clips.includes(item));
   // When fixes are all the update's news, their list is open: one closed line would hide all of it.
   const onlyFixes = clips.length === 0 && lead.length === 0 && cards.length === 0 && security.length === 0;
   return (
