@@ -22,6 +22,9 @@ public struct CloudMachineRequest: Equatable, Sendable {
     public var idempotencyKey = UUID().uuidString
     /// The create was sent at least once with ``idempotencyKey``.
     public var wasSent = false
+    /// The team the first send went to (`X-Cmux-Team-Id`): the key is scoped per team, so every
+    /// retry, and the bootstrap and idle-pause calls on the machine, go to this team.
+    public var team: String?
     /// The loaded bootstrap (``loadScript(work:)``), started by the create itself once the machine
     /// exists, so the creation's Retry starts it too.
     public var script: CloudMachineBootstrap?

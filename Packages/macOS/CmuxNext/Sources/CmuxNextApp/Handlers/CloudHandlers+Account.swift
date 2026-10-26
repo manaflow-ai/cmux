@@ -162,7 +162,7 @@ extension CloudHandlers {
                 let session = try await cloud.createMachine(name: nil, creation: creation, startedByPerson: startedByPerson, askedBy: askedBy, request: creation.request)
                 // The bootstrap belongs to the create, so a Retry after a failed create starts it too.
                 if let script = creation.request.script {
-                    creation.noteBootstrap(await script.start(name: creation.request.name, on: CloudMachineBootstrap.Machine(api: cloud.api, machineID: session.machineID)))
+                    creation.noteBootstrap(await script.start(name: creation.request.name, on: CloudMachineBootstrap.Machine(api: cloud.api.pinningTeam(creation.request.team), machineID: session.machineID)))
                 }
                 return session
             },

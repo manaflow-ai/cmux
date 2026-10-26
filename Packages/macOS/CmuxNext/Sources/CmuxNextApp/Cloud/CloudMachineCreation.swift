@@ -35,8 +35,12 @@ final class CloudMachineCreation: Identifiable {
     /// the same idempotency key.
     private(set) var request: CloudMachineRequest
 
-    /// The create went to the server once: a Retry may find the machine it made.
-    func markRequestSent() { request.wasSent = true }
+    /// The create went to the server once, to `team`: a Retry may find the machine it made, and
+    /// goes to that same team.
+    func markRequestSent(team: String?) {
+        if !request.wasSent { request.team = team }
+        request.wasSent = true
+    }
 
     init(windowID: String?, session: CloudMachineSession? = nil, request: CloudMachineRequest = CloudMachineRequest(),
          clock: ContinuousClock = ContinuousClock()) {

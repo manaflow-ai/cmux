@@ -454,15 +454,17 @@ final class CloudService {
                                                       gate: { [weak self, weak creation] in creation?.request.wasSent == true ? .allowed : self?.createGate ?? .allowed },
                                                       confirm: { [weak self] in await self?.confirmCreate?($0) ?? false },
                                                       create: { [api, weak creation] in
-                                                          creation?.markRequestSent()
-                                                          return try await Self.createWithKey(api, name: name, request: request, idlePause: idlePause, onSent: onSent)
+                                                          // The first send's team, for every later call about this machine.
+                                                          let team = creation?.request.wasSent == true ? creation?.request.team : await api.currentTeam()
+                                                          creation?.markRequestSent(team: team)
+                                                          return try await Self.createWithKey(api.pinningTeam(team), name: name, request: request, idlePause: idlePause, onSent: onSent)
                                                       })
         logger.info("created machine \(machine.id, privacy: .public)")
         // The machine exists either way: a failed write leaves its idle pause as the server says,
         // and the answer's `persistent` reads false, so the caller can run `cloud set-idle-pause`.
         if let idlePause, machine.idlePauseMinutes != idlePause {
             do {
-                try await api.setIdlePause(machine.id, minutes: idlePause)
+                try await api.pinningTeam(creation?.request.team ?? request.team).setIdlePause(machine.id, minutes: idlePause)
                 machine.idlePauseMinutes = idlePause
                 // A refresh may have listed the machine meanwhile: its session holds the record, and a
                 // list read before the PUT must not put the old value back.
@@ -487,10 +489,9 @@ final class CloudService {
     /// ends with its machine and its bootstrap.
     static func createWithKey(_ api: CloudAPIClient, name: String?, request: CloudMachineRequest, idlePause: Int?,
                               onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
-        // The team is the first try's: the server scopes a key per team, so a team switched in the
-        // app meanwhile must not make the same key a new machine in the other team.
-        let pinned = api.pinningTeam(await api.currentTeam())
-        let send = { try await pinned.createMachine(displayName: name, memoryMb: request.memoryMb, idlePauseMinutes: idlePause,
+        // `api` is pinned to the first send's team: the server scopes a key per team, so a team
+        // switched in the app meanwhile must not make the same key a new machine in the other team.
+        let send = { try await api.createMachine(displayName: name, memoryMb: request.memoryMb, idlePauseMinutes: idlePause,
                                                     idempotencyKey: request.idempotencyKey, onSent: onSent) }
         for _ in 0..<inProgressRetries {
             do {
