@@ -456,10 +456,9 @@
 .acpmux-minimap__gap {
   flex: none;
 }
-/* A tick's list item (its place among every prompt for assistive tech): a plain 10 px row around
-   its tick, so the list's rows stay where they were. */
+/* A tick's list item (its place among every prompt for assistive tech): a plain block around its
+   tick, so it takes the tick's 10 px and the list's rows stay where they were. */
 .acpmux-minimap__entry {
   flex: none;
   display: block;
-  height: 10px;
 }
