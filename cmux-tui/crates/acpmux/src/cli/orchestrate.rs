@@ -139,15 +139,15 @@ pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) ->
         let status = s.get("status").and_then(Value::as_str).unwrap_or("").to_owned();
         let pending = s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0);
         let failed = failed_turn(s);
-        let reply = match (opts.print || json_out, failed) {
+        let reply = match (opts.print || json_out, failed.is_some()) {
             (false, _) => String::new(),
             // A failed turn's own output, never the reply of the turn before it.
-            (true, Some(_)) => match s.pointer("/lastTurn/turnId").and_then(Value::as_str) {
+            (true, true) => match s.pointer("/lastTurn/turnId").and_then(Value::as_str) {
                 Some(turn) => turn_reply(&client, &id, turn).await.ok().flatten(),
                 None => None,
             }
             .unwrap_or_default(),
-            (true, None) => {
+            (true, false) => {
                 last_replies(&client, &id, 1).await.unwrap_or_default().pop().unwrap_or_default()
             }
         };

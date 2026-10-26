@@ -107,7 +107,8 @@ fn send_prompt_file_says_send_reads_stdin_and_which_command_takes_the_flag() {
     let _shutdown = Shutdown(&dir);
     fs::write(dir.join("p/brief.md"), "do it\n").unwrap();
     let listing = || {
-        let mut names: Vec<_> = fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect();
+        let mut names: Vec<_> =
+            fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect();
         names.sort();
         names
     };

@@ -77,7 +77,8 @@ pub(crate) fn explain(
     };
     let try_command = try_command.unwrap_or_else(|| format!("{program} {name} --help"));
     let flag = format!("--{long}");
-    let message = format!("{name} takes no {flag}: {takers} takes it. {instead}. Try: {try_command}");
+    let message =
+        format!("{name} takes no {flag}: {takers} takes it. {instead}. Try: {try_command}");
     let data = json!({
         "reason": "usage.unknown_flag",
         "flag": flag,
@@ -150,7 +151,8 @@ mod tests {
 
     fn refusal(args: &[&str]) -> Option<AppError> {
         let mut cli = crate::cli::command::Cli::command();
-        let argv: Vec<OsString> = std::iter::once("acpmux").chain(args.iter().copied()).map(Into::into).collect();
+        let argv: Vec<OsString> =
+            std::iter::once("acpmux").chain(args.iter().copied()).map(Into::into).collect();
         let e = cli.try_get_matches_from_mut(argv.clone()).err()?;
         let at = argv.iter().skip(1).position(|a| a != "--json").map(|i| i + 1)?;
         explain(&e, &cli, &argv, at, "acpmux")
@@ -162,7 +164,11 @@ mod tests {
         let data = e.data.clone().unwrap();
         assert_eq!(data["try"], "acpmux send --no-wait lane - < 'my brief.md'", "{data}");
         assert_eq!(data["takenBy"], json!(["new"]), "{data}");
-        assert!(e.message.starts_with("send takes no --prompt-file: `new` (also "), "{}", e.message);
+        assert!(
+            e.message.starts_with("send takes no --prompt-file: `new` (also "),
+            "{}",
+            e.message
+        );
         assert!(e.message.contains("`run`") && e.message.contains("`exec`"), "{}", e.message);
         assert!(e.message.ends_with("Try: acpmux send --no-wait lane - < 'my brief.md'"));
         // A value flag before it keeps its value; no session yet names the place for one.

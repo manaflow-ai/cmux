@@ -41,7 +41,8 @@ fn a_failed_turn_reads_as_failed_with_its_error_and_its_retry() {
     let done = json!({"status": "ready", "lastTurn": {"status": "completed"}});
     assert_eq!(failed_turn(&done), None);
     // A turn runs again (the retry fired): it is no longer the failed one.
-    let running = json!({"status": "running", "turn": {"turnId": "t2"}, "lastTurn": {"status": "failed"}});
+    let running =
+        json!({"status": "running", "turn": {"turnId": "t2"}, "lastTurn": {"status": "failed"}});
     assert_eq!(failed_turn(&running), None);
 
     let now = 1_000_000;
@@ -62,7 +63,10 @@ fn a_failed_turn_reads_as_failed_with_its_error_and_its_retry() {
     assert_eq!(wait_state(&row), "ready: turn failed");
     assert_eq!(
         failure_lines(&row, now),
-        ["error: bad request", "no automatic retry waits; `acpmux retry lane` sends the turn again"]
+        [
+            "error: bad request",
+            "no automatic retry waits; `acpmux retry lane` sends the turn again"
+        ]
     );
     assert!(failure_lines(&json!({"name": "lane", "status": "ready"}), now).is_empty());
 }
