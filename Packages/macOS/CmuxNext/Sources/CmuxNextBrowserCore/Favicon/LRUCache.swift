@@ -72,6 +72,11 @@ public nonisolated struct LRUCache<Key: Hashable, Value> {
         return values.removeValue(forKey: order.removeFirst())
     }
 
+    /// Calls `body` with every entry, in no particular order, without marking any used.
+    public func forEach(_ body: (Key, Value) throws -> Void) rethrows {
+        for (key, value) in values { try body(key, value) }
+    }
+
     public mutating func removeAll(where shouldRemove: (Key) -> Bool) {
         order.removeAll(where: shouldRemove)
         values = values.filter { !shouldRemove($0.key) }

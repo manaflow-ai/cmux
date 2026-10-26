@@ -21,10 +21,10 @@ public protocol BrowserFaviconLoading: AnyObject {
 /// Decoded icons are redrawn at most ``maximumPixels`` square, so a cached
 /// icon costs at most 16 KiB however large the file was.
 ///
-/// Registered (``registerMemoryConsumer(with:)``, `memoryBrowserCaches`), the per-profile caches are
-/// one memory consumer, "browser-favicons": the memory limit scales how many icons each profile keeps
-/// (``entriesPerProfile`` at 100 %, none at 0 %), as Chrome's caches follow
-/// `base/memory_coordinator/memory_consumer.h`.
+/// Its ``MemoryConsumer`` calls scale how many icons each profile keeps (``entriesPerProfile`` at
+/// 100 %, none at 0 %), as Chrome's caches follow `base/memory_coordinator/memory_consumer.h`. It does
+/// not register itself: `TabFaviconStore` holds the same decoded images for the tab strips, so that
+/// store registers "browser-favicons" for both caches and drives these calls (`memoryBrowserCaches`).
 public final class BrowserFaviconLoader: BrowserFaviconLoading {
     public static let shared = BrowserFaviconLoader()
     /// Largest favicon body read (large touch icons are well under this).
@@ -50,9 +50,8 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
     /// The decoded bytes and the count of every kept icon, updated on every keep and drop.
     private var keptBytes = 0
     private var keptCount = 0
-    /// The limit the memory coordinator gave last (100 % until it registers).
+    /// The limit `TabFaviconStore` passed on last (100 % until the consumer registers).
     private(set) var memoryLimit = MemoryLimit.default
-    private var memoryRegistration: MemoryConsumerRegistration?
     private var inFlight: [Key: Task<NSImage?, Never>] = [:]
 
     /// A loader that fetches nothing until ``useResolver(_:)``.
@@ -82,6 +81,11 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
     /// The cached icon, without fetching (nil when not loaded yet).
     public func cachedFavicon(at url: URL, profile: BrowserProfileID) -> NSImage? {
         caches[profile]?.value(for: url)?.image
+    }
+
+    /// Whether `profile` keeps an icon for `url`, without marking it used.
+    public func keepsFavicon(at url: URL, profile: BrowserProfileID) -> Bool {
+        caches[profile]?.peek(url) != nil
     }
 
     public func favicon(at url: URL, profile: BrowserProfileID) async -> NSImage? {
@@ -177,30 +181,6 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
 }
 
 extension BrowserFaviconLoader: MemoryConsumer {
-    /// Decoded icons, memory only and lossless; a dropped one is fetched over the network again, so
-    /// only critical pressure (or a Memory Saver share) shrinks it. Up to 1 MiB per profile.
-    static let memoryTraits = MemoryConsumerTraits(
-        estimatedUsage: .medium,
-        dataAccess: .none,
-        retention: .lossless,
-        recreateCost: .expensive,
-        releaseCPUCost: .low,
-        isStateful: true,
-        supportsMemoryLimit: true
-    )
-
-    /// The consumer's name in the memory report.
-    static let memoryConsumerName = "browser-favicons"
-
-    /// Registers the caches with the app's memory coordinator (once; a later call replaces the
-    /// registration).
-    ///
-    /// - Parameter registry: The memory coordinator.
-    public func registerMemoryConsumer(with registry: any MemoryConsumerRegistry) {
-        memoryRegistration = MemoryConsumerRegistration(
-            name: Self.memoryConsumerName, traits: Self.memoryTraits, consumer: self, registry: registry)
-    }
-
     /// Lowers or raises each profile's cap to `limit` of ``entriesPerProfile``. Frees nothing: a new
     /// icon past the cap pushes the least recently used out.
     public func updateMemoryLimit(_ limit: MemoryLimit) {

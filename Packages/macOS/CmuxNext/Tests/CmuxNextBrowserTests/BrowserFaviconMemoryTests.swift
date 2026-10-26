@@ -1,15 +1,16 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextCompat
+@testable import CmuxNextFavicons
 import CmuxNextRemoteFetch
 import Foundation
-import Synchronization
 import Testing
 
-/// p07-memory-055: the favicon loader's per-profile LRU caches are one memory consumer
-/// ("browser-favicons"). The limit scales how many icons each profile keeps: a new limit frees
-/// nothing, a release frees down to it least recently used first, at 0 % nothing is kept, and an
-/// icon dropped by a release is fetched again on the next ask.
+/// p07-memory-055: the tab strips' `TabFaviconStore` and the favicon loader's per-profile LRU caches
+/// hold the same icons and are one memory consumer ("browser-favicons"). The limit scales how many
+/// icons each loader profile keeps: a new limit frees nothing, a release frees both caches down to it
+/// least recently used first, at 0 % the loader keeps nothing, and an icon dropped by a release is
+/// fetched again on the next ask.
 @MainActor @Suite struct BrowserFaviconMemoryTests {
     /// A registry that hands each new consumer `limit` at once, as the coordinator does.
     @MainActor private final class FakeRegistry: MemoryConsumerRegistry {
@@ -63,23 +64,16 @@ import Testing
         return loader
     }
 
-    @Test func itRegistersOnceAndTakesTheCurrentLimit() throws {
-        let registry = FakeRegistry()
-        registry.limit = MemoryLimit(percent: 50)
+    @Test func aLimitScalesEachProfilesCap() throws {
         let loader = try Self.filled(0)
-        loader.registerMemoryConsumer(with: registry)
+        loader.updateMemoryLimit(MemoryLimit(percent: 50))
 
-        #expect(registry.entries.count == 1)
-        #expect(registry.entries.first?.name == "browser-favicons")
-        #expect(registry.entries.first?.traits.isManaged == true)
         #expect(loader.entriesPerProfileLimit == BrowserFaviconLoader.entriesPerProfile / 2)
     }
 
     @Test func atTheCriticalLimitNoIconIsKept() throws {
-        let registry = FakeRegistry()
-        registry.limit = .criticalThreshold
         let loader = BrowserFaviconLoader()
-        loader.registerMemoryConsumer(with: registry)
+        loader.updateMemoryLimit(.criticalThreshold)
         let url = try Self.url(0)
 
         #expect(loader.store(try Self.png(), at: url, profile: .default) != nil, "the caller still gets the icon")
@@ -149,6 +143,59 @@ import Testing
 
         #expect(await loader.favicon(at: url, profile: .default) != nil)
         #expect(transport.requestCount == 2, "a released icon is fetched again")
+    }
+
+    /// The tab strips' store and the loader hold the same images: one registration, one release that
+    /// drops both, each image counted once, and a released icon fetched again on the strip's next read.
+    @Test func theStripStoreAndTheLoaderAreOneConsumer() async throws {
+        let registry = FakeRegistry()
+        let transport = IconTransport(body: try Self.png())
+        let loader = BrowserFaviconLoader(resolver: PublicResolver(), transport: transport)
+        let store = TabFaviconStore(loader: loader)
+        store.registerMemoryConsumer(with: registry, loaderCache: loader)
+        #expect(registry.entries.count == 1)
+        #expect(registry.entries.first?.name == "browser-favicons")
+        #expect(registry.entries.first?.traits.isManaged == true)
+
+        let url = try Self.url(0)
+        #expect(store.image(for: url.absoluteString, profile: .default) == nil, "the first read starts the fetch")
+        await store.settle()
+        #expect(store.image(for: url.absoluteString, profile: .default) != nil)
+        #expect(loader.keepsFavicon(at: url, profile: .default))
+        let iconBytes = try Self.iconBytes()
+        #expect(store.memoryUsage == MemoryUsage(footprintBytes: iconBytes, entries: 1), "an image both hold counts once")
+
+        let revision = store.revision
+        #expect(store.releaseMemory(within: Self.slice(0)) == .done)
+        #expect(store.cachedImage(for: url.absoluteString, profile: .default) == nil)
+        #expect(!loader.keepsFavicon(at: url, profile: .default))
+        #expect(store.memoryUsage == MemoryUsage(footprintBytes: 0, entries: 0))
+        #expect(store.revision > revision, "readers outside a strip re-read")
+
+        #expect(store.image(for: url.absoluteString, profile: .default) == nil)
+        await store.settle()
+        #expect(store.image(for: url.absoluteString, profile: .default) != nil)
+        #expect(transport.requestCount == 2, "a released icon is fetched again")
+    }
+
+    /// At the critical limit the loader keeps nothing, but an icon a strip shows stays in the store:
+    /// dropping it as it lands would make the strip fetch it on every read.
+    @Test func atTheCriticalLimitAShownIconIsKeptAndFetchedOnce() async throws {
+        let registry = FakeRegistry()
+        registry.limit = .criticalThreshold
+        let transport = IconTransport(body: try Self.png())
+        let loader = BrowserFaviconLoader(resolver: PublicResolver(), transport: transport)
+        let store = TabFaviconStore(loader: loader)
+        store.registerMemoryConsumer(with: registry, loaderCache: loader)
+        let url = try Self.url(0)
+
+        _ = store.image(for: url.absoluteString, profile: .default)
+        await store.settle()
+        #expect(store.image(for: url.absoluteString, profile: .default) != nil)
+        #expect(!loader.keepsFavicon(at: url, profile: .default))
+        let shown = try #require(store.cachedImage(for: url.absoluteString, profile: .default)).cgImage
+        #expect(store.memoryUsage == MemoryUsage(footprintBytes: shown.width * shown.height * 4, entries: 1))
+        #expect(transport.requestCount == 1)
     }
 
     @Test func theLRUHoldsNothingAtLimitZeroAndTrimsOnlyWhenAsked() {

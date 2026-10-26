@@ -10,6 +10,7 @@
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextFavicons
 import CmuxNextFeatures
 import CmuxNextHibernation
 import CmuxNextHome
@@ -63,11 +64,11 @@ struct AppMemoryConsumers {
         registerTerminalLastFrames()  // CmuxNextTerminal
     }
 
-    /// `memoryBrowserCaches` (default off): the favicon loader's per-profile caches are one lossless
-    /// consumer whose limit scales how many icons each profile keeps (p07-memory-055).
+    /// `memoryBrowserCaches` (default off): the tab strips' favicon store and the favicon loader's
+    /// per-profile caches hold the same icons, so they are one lossless consumer (p07-memory-055).
     private func registerBrowserCaches() {
         guard services.features.isEnabled(.memoryBrowserCaches) else { return }
-        BrowserFaviconLoader.shared.registerMemoryConsumer(with: services.memoryCoordinator)
+        services.favicons.registerMemoryConsumer(with: services.memoryCoordinator, loaderCache: BrowserFaviconLoader.shared)
     }
 
     /// `memoryTerminalLastFrames` (default off): evicted terminals' last frames are one lossless
