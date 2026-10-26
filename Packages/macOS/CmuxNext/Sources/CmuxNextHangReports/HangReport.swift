@@ -1,7 +1,7 @@
 public import Foundation
 
-/// One opt-in hang report, wire schema 3 (plans/cmux-next/hang-reports-DESIGN.md section 4, plus
-/// ``launches``).
+/// One opt-in hang report, wire schema 2 (plans/cmux-next/hang-reports-DESIGN.md section 4), or
+/// schema 3 with ``launches`` once the server accepts it (``WireSchema``).
 ///
 /// Every field is a closed set: enums, bucket labels, version numbers, durations, counts and
 /// ``HangReportFrame`` values whose names passed ``ImageClassifier``. ``HangReportBuilder`` is the only
@@ -12,12 +12,24 @@ public import Foundation
 /// let body = try HangReport.encoder.encode(report)
 /// ```
 public nonisolated struct HangReport: Codable, Sendable, Equatable {
-    /// The wire schema this type writes. 2 has the same fields as 1; it marks a report built with
-    /// review 1 and 2's privacy fixes (Data-volume and `..` image paths are `other`, no redirects,
-    /// per-Mac consent), and the server refuses schema 1, so a report an older NIGHTLY queued is
-    /// refused (and dropped from its outbox) once the endpoint opens. 3 adds ``launches``, the
-    /// launch histograms by temperature and the completion reason counts.
-    public static let schemaVersion = 3
+    /// The wire schemas a report can be written in.
+    public enum WireSchema: Int, Sendable, CaseIterable {
+        /// What the server accepts today (web/services/hangReports/wireSchema.ts): the same fields
+        /// as 1, built with review 1 and 2's privacy fixes (Data-volume and `..` image paths are
+        /// `other`, no redirects, per-Mac consent). The server refuses schema 1, so a report an
+        /// older NIGHTLY queued is refused (and dropped from its outbox) once the endpoint opens.
+        case v2 = 2
+        /// Schema 2 plus ``HangReport/launches``. The server refuses unknown keys and other schema
+        /// numbers, so a build writes it only after the server accepts it (p09-observability-064
+        /// deployed, behind p09-observability-063's server-version flag; task p08-startup-115).
+        case v3 = 3
+
+        /// Whether a report in this schema carries ``HangReport/launches``.
+        public var carriesLaunches: Bool { self == .v3 }
+    }
+
+    /// The wire schema a report is written in by default (``WireSchema/v2``).
+    public static let schemaVersion = WireSchema.v2.rawValue
     /// The most hangs and stalls one report carries.
     public static let maxHangs = 20
     /// The most CPU exceptions one report carries.
@@ -110,8 +122,8 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     /// Allowlisted signpost interval histograms.
     public var intervals: [IntervalHistogram] = []
     /// The launches since the last report (`launchFirstFrame`, `launchStartupComplete`,
-    /// `launchLiveContent` by temperature, and `completionReasons`); nil, and so absent from the
-    /// JSON, when no launch was recorded.
+    /// `launchLiveContent` by temperature, and `completionReasons`); schema 3 only. Nil, and so
+    /// absent from the JSON, in schema 2 and when no launch was recorded.
     public var launches: LaunchAggregate?
 
     /// Makes the value from its parts.

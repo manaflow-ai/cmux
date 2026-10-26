@@ -4,7 +4,8 @@ import Testing
 
 /// Launch milestones by temperature and completion reasons (p08-startup-009): bucketed, split by
 /// temperature, interrupted launches left out of the durations, saved with the pending aggregate,
-/// off records nothing, and a report's JSON holds them and passes the leak scan.
+/// off records nothing, a schema-3 report's JSON holds them and passes the leak scan, and a
+/// schema-2 report (what the server accepts today) never carries them.
 struct LaunchHistogramTests {
     private static func warm() -> LaunchAggregate.Record {
         LaunchAggregate.Record(temperature: .warm, interrupted: false, firstFrame: .milliseconds(240),
@@ -121,8 +122,8 @@ struct LaunchHistogramTests {
         collector.noteLaunch(Self.warm())
         collector.noteLaunch(Self.cold())
         collector.noteLaunch(Self.interrupted())
-        let report = HangReportFixtures.builder().build(context: HangReportFixtures.context(), watchdog: collector.drain(),
-                                                        metricKit: [])
+        let report = HangReportFixtures.builder(wireSchema: .v3).build(context: HangReportFixtures.context(),
+                                                                       watchdog: collector.drain(), metricKit: [])
         #expect(report.schema == 3)
         #expect(!report.hasNoFindings)
         let body = try HangReport.encoder.encode(report)
@@ -136,8 +137,43 @@ struct LaunchHistogramTests {
         #expect(decoded == report)
     }
 
+    @Test func aSchemaTwoReportCarriesNoLaunches() throws {
+        var watchdog = StallAggregate()
+        watchdog.record(launch: Self.warm())
+        watchdog.count(durationMs: 300)
+        let report = HangReportFixtures.builder().build(context: HangReportFixtures.context(), watchdog: watchdog, metricKit: [])
+        #expect(HangReport.schemaVersion == 2)
+        #expect(report.schema == 2)
+        #expect(report.launches == nil)
+        let json = try #require(try JSONSerialization.jsonObject(with: HangReport.encoder.encode(report)) as? [String: Any])
+        #expect(json["launches"] == nil)
+        #expect(json["schema"] as? Int == 2)
+    }
+
+    /// Personal terms that are parts of the launch vocabulary ("Luke" in `lukewarm`, "pane" in
+    /// `visiblePaneTimedOut`, "fail" in `failsafe`) must not refuse every report that holds them.
+    @Test func everyTemperatureAndReasonPassesTheLeakScanForNamesInsideThem() throws {
+        var watchdog = StallAggregate()
+        for temperature in LaunchTemperature.allCases {
+            for reason in LaunchCompletionReason.allCases {
+                watchdog.record(launch: LaunchAggregate.Record(temperature: temperature, interrupted: false,
+                                                               firstFrame: .milliseconds(200), liveContent: .milliseconds(300),
+                                                               startupComplete: .milliseconds(400), reason: reason))
+            }
+        }
+        let report = HangReportFixtures.builder(wireSchema: .v3).build(context: HangReportFixtures.context(),
+                                                                       watchdog: watchdog, metricKit: [])
+        let launches = try #require(report.launches)
+        #expect(launches.launchFirstFrame.count == LaunchTemperature.allCases.count)
+        #expect(launches.completionReasons.count == LaunchCompletionReason.allCases.count)
+        let terms = ["Luke", "pane", "fail", "Safe", "Wind", "Time", "Loaded", "Visible", "Daemon", "Undetermined"]
+        #expect(PrivacyLeakScanner(forbiddenTerms: terms).findings(in: try HangReport.encoder.encode(report)).isEmpty)
+        // A term outside the vocabulary is still found.
+        #expect(!PrivacyLeakScanner(forbiddenTerms: ["Liddell"]).findings(in: Data(#"{"a":"liddell"}"#.utf8)).isEmpty)
+    }
+
     @Test func aReportWithoutLaunchesHasNoLaunchesKey() throws {
-        let report = HangReportFixtures.builder().build(context: HangReportFixtures.context(), watchdog: StallAggregate(),
+        let report = HangReportFixtures.builder(wireSchema: .v3).build(context: HangReportFixtures.context(), watchdog: StallAggregate(),
                                                         metricKit: [])
         #expect(report.launches == nil)
         #expect(report.hasNoFindings)

@@ -42,12 +42,16 @@ public nonisolated struct HangReportBuilder: Sendable {
     public let classifier: ImageClassifier
     /// Finds the loaded image of an address or UUID.
     public let resolver: any ImageResolving
+    /// The schema every report is written in; ``HangReportService`` sends only queued reports in it.
+    public let wireSchema: HangReport.WireSchema
     private let reader = CallStackTreeReader()
 
-    /// Makes the value from its parts.
-    public init(classifier: ImageClassifier, resolver: any ImageResolving) {
+    /// - Parameter wireSchema: ``HangReport/WireSchema/v2`` (the default) until the server accepts
+    ///   schema 3; a schema-2 server answers 400 to a report with `launches`, and that drops it.
+    public init(classifier: ImageClassifier, resolver: any ImageResolving, wireSchema: HangReport.WireSchema = .v2) {
         self.classifier = classifier
         self.resolver = resolver
+        self.wireSchema = wireSchema
     }
 
     /// The report of `watchdog`'s findings and the MetricKit deliveries since the last report.
@@ -66,7 +70,8 @@ public nonisolated struct HangReportBuilder: Sendable {
         report.stallHistogram = watchdog.histogram
         report.metrics = Self.metrics(metricKit.map(\.metrics))
         report.intervals = Self.intervals(metricKit.flatMap(\.signposts))
-        report.launches = Self.launches(watchdog.launches)
+        report.schema = wireSchema.rawValue
+        report.launches = wireSchema.carriesLaunches ? Self.launches(watchdog.launches) : nil
         return report
     }
 

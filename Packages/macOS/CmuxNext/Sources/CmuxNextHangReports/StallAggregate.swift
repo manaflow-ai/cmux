@@ -39,7 +39,10 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
     }
 
     /// Whether nothing was recorded.
-    public var isEmpty: Bool { counts.allSatisfy { $0 == 0 } && stalls.isEmpty && hangs.isEmpty && launches.isEmpty }
+    public var isEmpty: Bool { isEmptyWithoutLaunches && launches.isEmpty }
+
+    /// Whether no stall or hang was recorded (launches aside: a schema-2 report does not carry them).
+    public var isEmptyWithoutLaunches: Bool { counts.allSatisfy { $0 == 0 } && stalls.isEmpty && hangs.isEmpty }
 
     /// Counts one launch at its `startup_complete`.
     public mutating func record(launch: LaunchAggregate.Record) {

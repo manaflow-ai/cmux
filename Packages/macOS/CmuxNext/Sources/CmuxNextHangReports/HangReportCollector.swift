@@ -71,6 +71,8 @@ public final class HangReportCollector: Sendable {
 
     /// One launch at its `startup_complete` (main thread, once per launch). Off, it is one atomic
     /// load; on, the lock over a few small array merges. An interrupted launch adds only its reason.
+    /// The app calls it from task p08-startup-115; a report carries the launches only in
+    /// ``HangReport/WireSchema/v3``.
     public func noteLaunch(_ launch: LaunchAggregate.Record) {
         guard isEnabled else { return }
         aggregate.withLock { $0.record(launch: launch) }
