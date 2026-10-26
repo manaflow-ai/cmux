@@ -145,12 +145,15 @@ jobs:
           CMUX_RELEASE_RECEIPTS_DIR: ${{ runner.temp }}/receipts
         run: |
           set -euo pipefail
+          # First: the key moves to an unexported shell variable, so no child process inherits it.
+          key="$FREESTYLE_KEY_SECRET"
+          unset FREESTYLE_KEY_SECRET
           umask 077
           key_file="$(mktemp "$RUNNER_TEMP/freestyle-key.XXXXXX")"
           trap 'rm -f "$key_file"' EXIT
-          printf '%s' "$FREESTYLE_KEY_SECRET" > "$key_file"
+          printf '%s' "$key" > "$key_file"
+          unset key
           chmod 600 "$key_file"
-          unset FREESTYLE_KEY_SECRET
           mkdir -p "$OUT_DIR"
           FREESTYLE_API_KEY_FILE="$key_file" bun ../images/cmux-vm/promote.ts --channel "$CHANNEL" --snapshot "$SNAPSHOT" --var "$SNAPSHOT_VAR" 2>&1 | tee "$OUT_DIR/promote.log"
 
@@ -161,15 +164,18 @@ jobs:
           FREESTYLE_KEY_SECRET: ${{ secrets.FREESTYLE_API_KEY }}
         run: |
           set -euo pipefail
+          key="$FREESTYLE_KEY_SECRET"
+          unset FREESTYLE_KEY_SECRET
           diff_file="$OUT_DIR/promote-$CHANNEL-$SNAPSHOT.diff"
           git -C .. diff -- images/cmux-vm/channels/dev.json backend/apps/api/wrangler.jsonc > "$diff_file"
-          # The artifact is not masked like the log: refuse to upload one that holds the key.
-          if [ -n "$FREESTYLE_KEY_SECRET" ] && grep -qF -f <(printf '%s\n' "$FREESTYLE_KEY_SECRET") "$diff_file"; then
+          # The artifact is not masked like the log: refuse to upload one that holds the key
+          # (grep reads the pattern from a pipe the builtin printf writes, never from argv or env).
+          if [ -n "$key" ] && grep -qF -f <(printf '%s\n' "$key") "$diff_file"; then
             echo "::error title=Promote diff::the diff contains the Freestyle key; not uploading it"
             rm -f "$diff_file"
             exit 1
           fi
-          unset FREESTYLE_KEY_SECRET
+          unset key
           echo "file=$diff_file" >> "$GITHUB_OUTPUT"
           echo "lines=$(wc -l < "$diff_file" | tr -d ' ')" >> "$GITHUB_OUTPUT"
 
@@ -217,6 +223,9 @@ jobs:
           FREESTYLE_KEY_SECRET: ${{ secrets.FREESTYLE_API_KEY }}
         run: |
           set -euo pipefail
+          # First: the key moves to an unexported shell variable, so no child process inherits it.
+          key="$FREESTYLE_KEY_SECRET"
+          unset FREESTYLE_KEY_SECRET
           tip="$RUNNER_TEMP/branch-tip"
           rm -rf "$tip" && mkdir -p "$tip/images/cmux-vm/channels" "$tip/backend/apps/api"
           git -C .. fetch --quiet --no-tags --depth=1 origin refs/heads/feat-cmux-next
@@ -232,8 +241,8 @@ jobs:
           umask 077
           key_file="$(mktemp "$RUNNER_TEMP/freestyle-key.XXXXXX")"
           trap 'rm -f "$key_file"' EXIT
-          printf '%s' "$FREESTYLE_KEY_SECRET" > "$key_file"
+          printf '%s' "$key" > "$key_file"
+          unset key
           chmod 600 "$key_file"
-          unset FREESTYLE_KEY_SECRET
           FREESTYLE_API_KEY_FILE="$key_file" bun ../images/cmux-vm/cleanup.ts --snapshot "$DELETE_SNAPSHOT" --also-root "$tip" 2>&1 | tee "$RUNNER_TEMP/delete.out"
           { echo "## delete_snapshot $DELETE_SNAPSHOT"; echo; sed 's/^/    /' "$RUNNER_TEMP/delete.out"; } >> "$GITHUB_STEP_SUMMARY"

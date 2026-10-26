@@ -84,6 +84,12 @@ describe("cloud-vm-image-promote.yml trust boundary", () => {
     for (const s of job.steps) {
       for (const [k, v] of Object.entries(s.env ?? {})) if (v.includes("secrets.")) expect(k).toBe("FREESTYLE_KEY_SECRET");
       expect(s.env ?? {}).not.toHaveProperty("FREESTYLE_API_KEY");
+      // Before any external command runs, the key leaves the environment (an unexported shell variable).
+      if (s.env?.FREESTYLE_KEY_SECRET) {
+        const lines = s.run!.split("\n").filter((l) => l.trim() && !l.trim().startsWith("#"));
+        expect(lines.slice(0, 3)).toEqual(["set -euo pipefail", 'key="$FREESTYLE_KEY_SECRET"', "unset FREESTYLE_KEY_SECRET"]);
+        expect(s.run!.split("FREESTYLE_KEY_SECRET").length).toBe(3);
+      }
       if (s.env?.FREESTYLE_KEY_SECRET && s.run?.includes("bun ")) {
         const run = s.run;
         expect(run.indexOf("unset FREESTYLE_KEY_SECRET")).toBeGreaterThan(-1);
@@ -145,6 +151,17 @@ describe("key handling in the run scripts", () => {
         `#!/usr/bin/env bash\n{ echo "argv $*"; env | grep -c 's3cr3t-key' || true; echo "file $FREESTYLE_API_KEY_FILE"; stat -c %a "$FREESTYLE_API_KEY_FILE" 2>/dev/null || stat -f %Lp "$FREESTYLE_API_KEY_FILE"; cat "$FREESTYLE_API_KEY_FILE"; echo; } > "${record}"\n`,
       );
       chmodSync(path.join(bin, "bun"), 0o755);
+      // Every other external command the step runs records it if the key is in its environment, then runs the real one.
+      const leaks = path.join(dir, "leaks");
+      for (const cmd of ["mktemp", "chmod", "git", "mkdir", "rm", "tee", "tr", "sed", "cat"]) {
+        const real = (await runChild("bash", ["-c", `command -v ${cmd}`])).stdout.trim();
+        writeFileSync(path.join(bin, cmd), `#!/usr/bin/env bash\ncase "$(/usr/bin/env)" in *s3cr3t-key*) echo ${cmd} >> "${leaks}";; esac\nexec ${real} "$@"\n`);
+        chmodSync(path.join(bin, cmd), 0o755);
+      }
+      // The shims do catch a leak.
+      await runChild(path.join(bin, "tr"), ["a", "b"], { env: { PATH: process.env.PATH, FREESTYLE_KEY_SECRET: "s3cr3t-key" } });
+      expect(readFileSync(leaks, "utf8")).toBe("tr\n");
+      rmSync(leaks);
       mkdirSync(path.join(dir, "web"));
       // The delete step fetches the branch tip from origin: a local bare clone of a seed repo with the reference files.
       const gitEnv = { PATH: process.env.PATH, HOME: dir, GIT_CONFIG_NOSYSTEM: "1" };
@@ -183,6 +200,7 @@ describe("key handling in the run scripts", () => {
         expect(existsSync(path.join(dir, "branch-tip/backend/apps/api/wrangler.jsonc"))).toBe(true);
       }
       expect(inEnv).toBe("0");
+      expect(existsSync(leaks) ? readFileSync(leaks, "utf8") : "").toBe("");
       expect(file!.startsWith(`file ${dir}/freestyle-key.`)).toBe(true);
       expect(mode).toBe("600");
       expect(key).toBe("s3cr3t-key");
