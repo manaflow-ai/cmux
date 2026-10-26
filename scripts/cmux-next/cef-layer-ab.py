@@ -2,8 +2,7 @@
 """Chromium page window vs layer hosting (fork API 26), A/B in a real window (plans/cmux-next/cef-layer-hosting-DESIGN.md).
 
 Runs the existing benches twice on one tagged build: once with `browserResize.layerHosting` off (the page is a child
-window over its pane) and once on with `browserResize.layerHostingEveryWindow` (the page's pixels in the cmux window's
-layer tree on every fork from API 26, not only on a Track A fork). Before each mode's benches,
+window over its pane) and once on (the page's pixels in the cmux window's layer tree). Before each mode's benches,
 cef-layer-verify.py --checks hosted --tunables build launches the build the way the benches do, sets the tunable in
 the build's own debug-tunables.json (the path the app reports, which every bench launch reads) and checks that the
 mode is real: the page is Chromium (no `unavailable`, no `fallback`), fork_api >= 26 in mode on, and
@@ -33,7 +32,6 @@ import argparse, json, os, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 KEY = "browserResize.layerHosting"
-EVERY_WINDOW_KEY = "browserResize.layerHostingEveryWindow"  # set by cef-layer-verify.py's mode on
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -130,8 +128,7 @@ if tunables_file:
     try:
         with open(tunables_file) as f:
             data = json.load(f)
-        for key in (KEY, EVERY_WINDOW_KEY):
-            data.setdefault("values", {}).pop(key, None)
+        data.setdefault("values", {}).pop(KEY, None)
         with open(tunables_file, "w") as f:
             json.dump(data, f, indent=2, sort_keys=True)
     except (OSError, ValueError):

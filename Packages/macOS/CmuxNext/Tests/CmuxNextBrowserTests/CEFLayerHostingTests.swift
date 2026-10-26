@@ -17,8 +17,6 @@ import Testing
         private(set) var syncs: [(browser: Int32, timeoutMs: Int32)] = []
         /// Whether `cmux_browser_set_resize_sync` takes the value (false: a closed browser's id).
         var syncAccepts = true
-        /// The fork has Track A (`CEFLayerHosting.trackAForkAPI`): a pane's page hosts by default.
-        var hostsByDefault = true
         var fork: CEFLayerHosting.Fork {
             CEFLayerHosting.Fork(setLayerHosting: { [self] browser, enabled in
                 calls.append((browser, enabled))
@@ -26,7 +24,7 @@ import Testing
             }, setResizeSync: { [self] browser, timeout in
                 syncs.append((browser, timeout))
                 return syncAccepts
-            }, hostsByDefault: hostsByDefault)
+            })
         }
     }
 

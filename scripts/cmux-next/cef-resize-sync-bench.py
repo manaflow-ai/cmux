@@ -43,7 +43,6 @@ from new_tab_bench_report import perf_result, write_all  # noqa: E402
 from sidebar_drag_bench_report import measured_build  # noqa: E402
 
 HOSTING_KEY = "browserResize.layerHosting"
-EVERY_WINDOW_KEY = "browserResize.layerHostingEveryWindow"  # set by cef-layer-verify.py's mode on
 DEADLINE_KEY = "browserResize.syncDeadline"
 MODES = {"off": ("off", None), "on": ("on", None), "on0": ("on", 0.0)}
 
@@ -181,7 +180,7 @@ def main(argv=None):
                                              "rows": rows or {"error": "no report"}}
     if tunables_file:
         data = load(tunables_file) or {}
-        for key in (HOSTING_KEY, EVERY_WINDOW_KEY, DEADLINE_KEY):
+        for key in (HOSTING_KEY, DEADLINE_KEY):
             data.setdefault("values", {}).pop(key, None)
         try:
             with open(tunables_file, "w") as f:

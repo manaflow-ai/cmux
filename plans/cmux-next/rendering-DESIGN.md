@@ -53,7 +53,7 @@ section 3, "Recorded decision"). Until then, the per-frame live resize of F4 is 
 
 | cmux | Chrome |
 |---|---|
-| Track A: a fork pin with API 27 or later and fence resize; page visibility from the embedder; layer hosting on by default (`CEFHostedPageView`, `CEFLayerHosting`) with the transparent input window of API 26 and 27; show and hide in the transaction of the switch. The default hosts a pane's page only on a Track A fork (`CEFLayerHosting.trackAForkAPI`); DevTools and popup windows keep their own window (per-widget fallback, `CEFLayerHosting.Widget`) until task 056. | `ui/accelerated_widget_mac/display_ca_layer_tree.h`: GPU output through a `CALayerHost` on the `CAContext` of the GPU process (`GotCALayerFrame`). |
+| Track A: a fork pin with API 27 or later and fence resize; page visibility from the embedder; layer hosting on by default (`CEFHostedPageView`, `CEFLayerHosting`) with the transparent input window of API 26 and 27; show and hide in the transaction of the switch. The default (feature `cefLayerHosting`, off) hosts a pane's page only where the app makes every Track A call (`CEFLayerHosting.TrackA`); DevTools and popup windows keep their own window (per-widget fallback, `CEFLayerHosting.Widget`) until task 056. | `ui/accelerated_widget_mac/display_ca_layer_tree.h`: GPU output through a `CALayerHost` on the `CAContext` of the GPU process (`GotCALayerFrame`). |
 | Track B: the fork attaches the `RenderWidgetHostViewCocoa` of the page as a child of `CEFHostView`. Pixels, input, IME, cursor, drag, popups and accessibility then come from the Cocoa view of Chromium. The page window never orders in. | `content/app_shim_remote_cocoa/render_widget_host_ns_view_bridge.h`: "the NSView used for input and display"; `render_widget_host_view_mac.h` `MigrateNSViewBridge`. |
 | Resize never blocks main: the fence port (`-[CAContext setFencePort:]`) makes the render server wait. No pin bump can add the post-commit wait again (task 041). | `ui/accelerated_widget_mac/ca_transaction_observer.h`: `CATransactionCoordinator` pumps the UI thread up to 500 ms before and 50 ms after the commit. cmux does not copy this wait. |
 | All child-window fallback code goes into one file, `CmuxNextBrowser/CEF/ChildWindowPageFallback.swift`. | Chrome has no child-window pages. |
@@ -123,11 +123,11 @@ No CI gates (Lawrence 2026-10-23). Agents run these tools on the fleet.
    memory (its swap-chain IOSurfaces) and its own BeginFrame source.
    - GPU memory for each hosted page (IOSurface and GPU bytes, `bench_memory.py`): not measured.
    - BeginFrame cost for each visible page (wakeups, `bench_idle.py`): not measured.
-   - Task p03-rendering-050 owns both measurements. Its code is in: `browserResize.layerHosting` is on by default,
-     but the default hosts a pane's page only on a fork with Track A (`CEFLayerHosting.trackAForkAPI`, API 33: the
-     resize fence and embedder visibility), and no pin has that fork yet (the pin is API 24). Pin rule: the CEF pin
-     must not move to a Track A fork until these two rows hold the numbers, measured on that fork with
-     `cef-layer-verify.py --mode default` passing, hosting off against the default (light, and 10 visible pages).
+   - Task p03-rendering-050 owns both measurements. Its code is in behind the feature `cefLayerHosting`, off on every
+     channel, and the feature hosts no page until the app makes the fence (task 043) and embedder visibility (task
+     058) calls. The measurements need a fleet GUI host: hosting off against `browserResize.layerHosting` on (API 26
+     or 27 fork, light and 10 visible pages). Not run yet; the feature's defaults stay off until these two rows hold
+     the numbers.
    - Limits: a hidden page stops BeginFrames through embedder visibility (task 058) and
      `WindowOcclusionFamily`; its frame goes into `HiddenFrameLRU` (task 099; pages use it from task 054). So the
      cost grows with visible pages, not with open pages.

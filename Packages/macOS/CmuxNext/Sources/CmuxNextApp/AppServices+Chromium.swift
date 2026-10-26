@@ -58,12 +58,14 @@ extension AppServices {
     /// The slot `cache` holds.
     func makeChromiumSlot() -> ChromiumEngineSlot {
         let pumpInput = features.isEnabled(.cefPumpInputPolicy) ? CEFPumpInputSeams(mainWork: mainWork) : nil
+        let layerHosting = features.isEnabled(.cefLayerHosting)
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source,
                                   make: { [signInCallbacks, contextMenus, inputTap, crashKeys, pointerFrames = dragFrameInput,
                                            chromiumFeatures = features.enabledChromiumFeatures] stores, deadlines, source in
                                       CEFEngine(source: source, stores: stores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared,
                                                 contextMenus: contextMenus, waitDeadlines: deadlines, input: inputTap, crashKeys: crashKeys,
-                                                pumpInput: pumpInput, pointerFrames: pointerFrames, chromiumFeatures: chromiumFeatures)
+                                                pumpInput: pumpInput, pointerFrames: pointerFrames, chromiumFeatures: chromiumFeatures,
+                                                layerHostingByDefault: layerHosting)
                                   },
                                   engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: crashReporting.reporter,
                                                                                   routes: { [weak self] in self?.routeChromiumRequests($0) }),

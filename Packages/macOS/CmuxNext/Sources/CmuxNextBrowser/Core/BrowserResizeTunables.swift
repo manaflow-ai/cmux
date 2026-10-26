@@ -17,26 +17,15 @@ public nonisolated struct BrowserResizeTunables {
         help: "While a Chromium page lays out at a new window or pane size, the gap beside its last frame shows the page's own background color. Off shows Chromium's white and the pane ground.",
         default: true, code: "BrowserResizeTunables.pageBackdrop")
 
-    /// On (the default): a pane's Chromium page draws in the cmux window's
-    /// layer tree where the fork has Track A (`CEFLayerHosting.trackAForkAPI`:
-    /// the resize fence and page visibility from the embedder); the page window
-    /// stays as a transparent input target. Older forks, DevTools and popup
-    /// windows keep the page's own child window (the per-widget fallback,
-    /// `CEFLayerHosting.Widget`) unless `layerHostingEveryWindow` is on. Off: no
-    /// page is hosted. Applies to pages shown after the change.
+    /// Off (the default): the feature `cefLayerHosting` decides
+    /// (`CEFLayerHosting.hosting(override:fork:widget:)`). On: every page
+    /// window's pixels live in the cmux window's layer tree (fork API 26,
+    /// `ChromiumHostPageView`), DevTools and popups too; the page window stays
+    /// as a transparent input target. Applies to pages shown after the change.
     public static let layerHosting = Tunable<Bool>.toggle(
         "browserResize.layerHosting", section, "Host Chromium pages in the window's layers",
-        help: "A Chromium page draws inside the cmux window's own layer tree, so it moves, clips and shows with the panes in one frame. Its page window stays on top only to take input. Pane pages only, on a Chromium fork with the resize fence and embedder visibility; DevTools and popups keep their own window. Off hosts no page. Applies when a page is shown next.",
-        default: true, code: "BrowserResizeTunables.layerHosting")
-
-    /// Off (the default): `layerHosting` hosts only a pane's page on a Track A
-    /// fork. On (the layer hosting benches and checks, `cef-layer-ab.py`): with
-    /// `layerHosting` on, every page window hosts from fork API 26, DevTools and
-    /// popup windows too. Applies to pages shown after the change.
-    public static let layerHostingEveryWindow = Tunable<Bool>.toggle(
-        "browserResize.layerHostingEveryWindow", section, "Host every Chromium page window",
-        help: "With layer hosting on, also host DevTools, popup windows and pages on a Chromium fork from API 26 that lacks the resize fence or embedder visibility. For benches and checks. Applies when a page is shown next.",
-        default: false, code: "BrowserResizeTunables.layerHostingEveryWindow")
+        help: "A Chromium page draws inside the cmux window's own layer tree, so it moves, clips and shows with the panes in one frame. Its page window stays on top only to take input. Needs Chromium fork API 26; applies when a page is shown next.",
+        default: false, code: "BrowserResizeTunables.layerHosting")
 
     /// While a page is layer hosted (`layerHosting`), how long a resize of
     /// its pane may hold the window's frame for Chromium's frame at the new
@@ -61,5 +50,5 @@ public nonisolated struct BrowserResizeTunables {
         help: "While the window is resized, how long each Chromium page may hold a frame to draw at the new size, so it resizes with the window. Never more than half the shortest display frame. 0 never waits; the page then shows its last frame until it draws.",
         default: 0.016, range: 0...0.1, step: 0.001, unit: .seconds, code: "BrowserResizeTunables.liveResizeDeadline")
 
-    public static var all: [TunableDescriptor] { [pageBackdrop.descriptor, layerHosting.descriptor, layerHostingEveryWindow.descriptor, syncDeadline.descriptor, liveResizeDeadline.descriptor] }
+    public static var all: [TunableDescriptor] { [pageBackdrop.descriptor, layerHosting.descriptor, syncDeadline.descriptor, liveResizeDeadline.descriptor] }
 }

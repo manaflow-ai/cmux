@@ -31,7 +31,7 @@ import Testing
         let hosting = CEFLayerHosting(isEnabled: { true }, schedule: { $0() },
                                       makePage: { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow, makeLayerHost: { _ in CALayer() }) })
         hosting.view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
-        hosting.pageWindowCreated(browser: 3, fork: CEFLayerHosting.Fork(setLayerHosting: { _, enabled in enabled ? 7 : 0 }, hostsByDefault: true))
+        hosting.pageWindowCreated(browser: 3, fork: CEFLayerHosting.Fork(setLayerHosting: { _, enabled in enabled ? 7 : 0 }))
         #expect(hosting.page != nil)
         signpost.began(pane, to: "page", kind: .page, inputAgeMilliseconds: -1)
         let show = try #require(signpost.pageShow(pane, key: "page"))
