@@ -39,6 +39,7 @@ import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
 import { postNative } from "./native";
 import { forgetTail, keptTail, KEPT_EVENTS, readHostTail, rememberReadAhead, rememberTail } from "./tailCache";
+import { type PeerCopy, PEER_COPY_READ_MS, peerBack, peerCopyTail, peerDown, sameGeneration } from "./peerCopy";
 import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { HandoffClient } from "./handoff/client";
 import { PermissionGroupClient } from "./permissions/client";
@@ -1239,6 +1240,36 @@ export class AcpmuxDirectClient {
   /// any attach answered. The pane's host reads it in the first-paint report and shows such a chat
   /// in one frame instead of fading it in (tailCache.ts, AgentPaneView+Loading.swift).
   private drewKeptTail = false;
+  /// The selected peer chat was drawn from the Mac's copy of it (peerCopy.ts): set from the draw
+  /// until an attach reads the chat, and kept, `offline`, while its machine does not answer.
+  private peerCopy?: PeerCopy;
+  /// Every live record that came while an attach over rows drawn from a kept tail or the Mac's copy
+  /// was out. Those above the rows apply as they come; if the attach says the rows are not this
+  /// session's history (recreated, or a machine back on an older log), these alone are kept with
+  /// its page (`attach`). One per seq (a reconnect's replay takes its place): at most one entry
+  /// for each record the session streamed meanwhile, as the transcript holds.
+  private copyLive?: Map<number, EventRecord>;
+  /// The chat whose row said its machine is back while its copy's attach or read was out: read
+  /// from the machine once that ends offline (`reattachIfBack`). One flag, no timer.
+  private copyBack?: string;
+  /// The read `drawPeerCopy` has out, so a row change meanwhile waits for it; `changed` says its
+  /// row changed meanwhile: a read that turns out to be of another session than the row names now
+  /// is read once more. Each read has its own, so one read never clears another's.
+  private peerCopyReading?: { sessionId: string; changed: boolean };
+  /// The session (`createdAt`) the rows on screen are of, when known: from the tail drawn or the
+  /// attach that answered. A copy drawn in their place of another session resets the session.
+  private rowsGeneration?: number;
+  /// The machine the rows on screen are of, when known (the tail's row, or the attach's).
+  private rowsPeer?: string;
+  /// Counts the attaches of the copy on screen: one that a newer one (a reconnect's) took over
+  /// leaves the copy to it when it fails.
+  private copyAttaches = 0;
+  /// The attach out now, of which session: a row that says its machine is back while it is out
+  /// (no copy drawn yet) is kept for after it, as for a copy's attach (`copyBack`).
+  private attachOut?: { sessionId: string };
+  /// The `createdAt` of the session the rows drawn before the attach are of (`drawKeptTail`, from
+  /// the tail's summary), undefined when they do not say.
+  private drawnGeneration?: number;
   readonly handoff = new HandoffClient(
     (method, params) => this.request(method, params, 15000),
     () => this.emit(),
@@ -1458,6 +1489,12 @@ export class AcpmuxDirectClient {
   private async open(): Promise<void> {
     if (this.opening || this.closed) return;
     this.opening = true;
+    // A reconnect owns the attach of the copy on screen from its start: a row that says its machine
+    // is back meanwhile waits for it (`copyBack`), never a second attach over the same copy.
+    if (this.peerCopy && this.peerCopy.sessionId === this.selectedSessionId) this.peerCopy.attaching = true;
+    // Any attach of the copy already out (a select's, a recovery's) leaves it to this one when it
+    // fails, copy drawn yet or not.
+    this.copyAttaches += 1;
     // A chat another tab read already is held by the app host: ask for its tail now, while the
     // socket connects and acpmux lists the chats, so drawing it below costs this open no round
     // trip of its own (tailCache.ts). A page that read the chat itself has the newer tail.
@@ -1589,22 +1626,30 @@ export class AcpmuxDirectClient {
       );
       if (this.selectedSessionId) this.markSeen(this.selectedSessionId);
       // A reconnect to the same session keeps its transcript; the attach page holds only the newest events.
-      const resumeAfter = this.lastSeq;
       const sessionId = this.selectedSessionId;
       const generation = this.selectionGeneration;
+      // A reconnect while the chat shows the Mac's copy attaches it as a kept tail, from the copy's
+      // newest seq, as when its machine comes back: never a gap read from records past a hole.
+      const heldCopy = sessionId && this.peerCopy?.sessionId === sessionId ? this.peerCopy : undefined;
+      if (heldCopy) {
+        heldCopy.attaching = true;
+        heldCopy.offline = false;
+      }
+      const resumeAfter = heldCopy ? 0 : this.lastSeq;
       if (sessionId) {
         // The chat as it was last read, drawn on the frame this open lands with its attach still
         // in flight: from this page when it read the chat before, else from the app host, which is
         // what makes a chat opened in a NEW TAB instant too (tailCache.ts). Only on a cold page: a
         // reconnect already holds the chat's own events, which are newer than any tail.
-        let keptThrough = 0;
-        if (resumeAfter === 0 && this.events.length === 0) {
+        let keptThrough = heldCopy?.lastSeq ?? 0;
+        if (!heldCopy && resumeAfter === 0 && this.events.length === 0) {
           await readHostTail(sessionId).catch(() => undefined);
           // A switch that landed while the host answered chose another chat: its own select draws
           // that one, and these rows belong to the chat this open was for.
           if (generation === this.selectionGeneration && this.selectedSessionId === sessionId) {
             keptThrough = this.drawKeptTail(sessionId);
           }
+          if (keptThrough === 0) keptThrough = await this.drawPeerCopy(sessionId, generation);
           if (keptThrough > 0) {
             // Where the caller decides, not where the tail is read: a tail that drew no row is a
             // cold open, and the host must not be told rows are on screen that are not.
@@ -1613,15 +1658,25 @@ export class AcpmuxDirectClient {
             this.releaseSnapshots(hold);
           }
         }
-        let page: EventRecord[];
+        let page: EventRecord[] = [];
         try {
           page = await this.attach(sessionId, generation, keptThrough);
         } catch (error) {
+          // A peer chat whose machine is down keeps what it drew, marked as the Mac's copy, and
+          // reads the machine when its row says it is back (`sessionChanged`): the page stays open.
+          const kept = await this.keepPeerCopy(sessionId, generation, error);
           // The chat could not be read: a tail drawn from the host must not stay on screen as if
           // this page had read the chat, here as in `select` — and the pane has to be told, or it
           // keeps drawing the snapshot that carried those rows.
-          if (keptThrough > 0 && generation === this.selectionGeneration && this.selectedSessionId === sessionId) {
+          if (
+            !kept &&
+            keptThrough > 0 &&
+            generation === this.selectionGeneration &&
+            this.selectedSessionId === sessionId
+          ) {
             forgetTail(sessionId);
+            this.peerCopy = undefined;
+            this.copyLive = undefined;
             this.events = [];
             this.queue = [];
             // Those rows are off screen again, so the frame the host shows is the failure, not a
@@ -1630,7 +1685,7 @@ export class AcpmuxDirectClient {
             this.rebuild();
             this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
           }
-          throw error;
+          if (!kept) throw error;
         }
         const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
         if (resumeAfter > 0 && oldest > resumeAfter + 1)
@@ -1682,6 +1737,11 @@ export class AcpmuxDirectClient {
     this.olderRetryAt = 0;
     // Nothing is drawn, so nothing drawn came from a kept tail: the next open says for itself.
     this.drewKeptTail = false;
+    this.peerCopy = undefined;
+    this.copyLive = undefined;
+    this.drawnGeneration = undefined;
+    this.rowsGeneration = undefined;
+    this.rowsPeer = undefined;
     // A page still in flight belongs to the session before; it is dropped when it lands.
     this.loadingOlder = undefined;
     this.rows.clear();
@@ -1759,7 +1819,9 @@ export class AcpmuxDirectClient {
       sessionId,
       {
         events,
-        summary: this.summary,
+        // The machine its rows are of, which the attach's detail does not name (`keptPeer`): a
+        // tail drawn later is told from another machine's journal by it (`attach`).
+        summary: this.rowsPeer ? { ...this.summary, peer: this.rowsPeer } : this.summary,
         turnOpener: this.turnOpener,
         // Only a whole transcript is exhausted: a tail cut at KEPT_EVENTS has older events to read.
         historyExhausted: this.historyExhausted && events.length === this.events.length,
@@ -1781,9 +1843,177 @@ export class AcpmuxDirectClient {
   /// running or idle comes from there, and nothing waits for an answer until the attach says what
   /// acpmux holds (an ask answered meanwhile must not come back as a card). A running chat still
   /// shows the kept turn's clock for the attach's round trip, which the attach then corrects.
-  private drawKeptTail(sessionId: string): number {
-    const kept = keptTail(sessionId);
+  /// Draws peer chat `sessionId` from the Mac's copy of it (`_acpmux/peer_snapshot`, peerCopy.ts)
+  /// and answers its newest seq, 0 when it draws nothing: a chat on this machine, a daemon with no
+  /// copy or no such method, one that does not answer within ``PEER_COPY_READ_MS``, or a copy of
+  /// another generation than the session listed now.
+  private async drawPeerCopy(sessionId: string, generation: number, again = true): Promise<number> {
+    // A selection that moved on reads nothing, and never takes the read marker of the chat shown.
+    if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return 0;
+    const listed = this.sessions.find((session) => session.sessionId === sessionId);
+    if (typeof listed?.peer !== "string" || !listed.peer) return 0;
+    // A row that says the machine is back while this read is out is kept for after it (`copyBack`),
+    // and one that changes at all, for a read of another session (`changed`).
+    const reading = { sessionId, changed: false };
+    this.peerCopyReading = reading;
+    const reply = await Promise.race([
+      this.typed("_acpmux/peer_snapshot", { sessionId }).catch(() => undefined),
+      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), PEER_COPY_READ_MS)),
+    ]);
+    if (this.peerCopyReading === reading) this.peerCopyReading = undefined;
+    const changed = reading.changed;
+    if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return 0;
+    // Read of the session before a row change: the session listed now is read once more.
+    const redo = () => (changed && again ? this.drawPeerCopy(sessionId, generation, false) : 0);
+    // A reply of this session only (its own id or `HOST/id`).
+    const named = reply as { sessionId?: unknown; qualifiedSessionId?: unknown } | undefined;
+    if (named?.sessionId !== sessionId && named?.qualifiedSessionId !== sessionId) return redo();
+    const read = peerCopyTail(reply, sessionId);
+    // The session as listed now, not when the read was asked (its row may have changed meanwhile).
+    if (!read || !this.copyOfRow(read.copy)) return redo();
+    const current = this.sessions.find((session) => session.sessionId === sessionId);
+    // Rows of another session than this copy's on screen (the row changed while it was read):
+    // everything of that session goes first, its queue and unsent prompts too, as for a switch.
+    const held = this.peerCopy?.sessionId === sessionId ? this.peerCopy : undefined;
+    // Rows not proven of this copy's machine and session count as another's.
+    const otherRows = held
+      ? held.peer !== read.copy.peer || !sameGeneration(held.generation, read.copy.generation)
+      : this.events.length > 0 &&
+        (this.rowsPeer !== read.copy.peer || !sameGeneration(this.rowsGeneration, read.copy.generation));
+    if (otherRows) this.resetSessionState();
+    // Drawn from the reply itself, never from a cache another read filled meanwhile.
+    const drawn = this.drawKeptTail(sessionId, read.tail);
+    // Its attach follows at once (`attaching`), so no row change starts another meanwhile.
+    if (drawn > 0) this.peerCopy = { ...read.copy, offline: current?.stale === true, attaching: true };
+    return drawn;
+  }
+
+  /// Whether `copy` is of the session its row names now: the same machine and the same generation
+  /// (its `createdAt`). A session moved to another machine, or recreated, is another chat.
+  private copyOfRow(copy: PeerCopy | undefined): copy is PeerCopy {
+    const row = copy && this.sessions.find((session) => session.sessionId === copy.sessionId);
+    return !!row && row.peer === copy.peer && sameGeneration(copy.generation, row.createdAt);
+  }
+
+  /// After an attach of `sessionId` failed: when its machine is down (or the socket to the daemon
+  /// dropped, which reconnects), a peer chat shows the Mac's copy, marked `offline`, and the pane
+  /// is told: the copy already drawn, else the copy read now in place of a tail drawn from a cache
+  /// (the daemon's is what it confirmed). Live records that came during the attempt go: the copy
+  /// is what was confirmed, and the next attach continues from its newest seq, never from a record
+  /// past a hole. Answers whether it shows the copy.
+  private async keepPeerCopy(sessionId: string, generation: number, error: unknown): Promise<boolean> {
+    const selected = () => generation === this.selectionGeneration && this.selectedSessionId === sessionId;
+    if (!selected() || !(peerDown(error) || this.socket?.readyState !== WebSocket.OPEN)) return false;
+    // Only a copy of the session listed now: one the machine recreated (or another machine took)
+    // while the attach was out is not this chat, so it goes and the copy of the session listed now
+    // is read, if the Mac has one.
+    // Everything of the old session goes with it, its queue and unsent prompts too, as in
+    // `redrawPeerCopy`: rows of a copy not of the row now, or of a tail or attach of another
+    // session than the row names.
+    const rowNow = this.sessions.find((session) => session.sessionId === sessionId);
+    const held = this.peerCopy?.sessionId === sessionId ? this.peerCopy : undefined;
+    const otherRows = held
+      ? !this.copyOfRow(held)
+      : (this.rowsGeneration !== undefined && !sameGeneration(this.rowsGeneration, rowNow?.createdAt)) ||
+        (this.rowsPeer !== undefined && this.rowsPeer !== rowNow?.peer);
+    if (otherRows) this.resetSessionState();
+    if (this.peerCopy?.sessionId !== sessionId && (await this.drawPeerCopy(sessionId, generation)) === 0) return false;
+    const copy = this.peerCopy;
+    if (!selected() || copy?.sessionId !== sessionId || !this.copyOfRow(copy)) return false;
+    copy.offline = true;
+    copy.attaching = false;
+    this.copyLive = undefined;
+    if (this.events.some((event) => event.seq > copy.lastSeq)) {
+      this.events = this.events.filter((event) => event.seq <= copy.lastSeq);
+      this.rebuild();
+    }
+    this.emit("peer offline");
+    this.reattachIfBack(sessionId);
+    return true;
+  }
+
+  /// After a copy was marked offline: its row said the machine was back while the copy's attach
+  /// or read was out (`copyBack`), so it is read from the machine again now. Once per such row
+  /// change, never a loop: an attach that fails again waits for the next one.
+  private reattachIfBack(sessionId: string): void {
+    if (this.copyBack !== sessionId) return;
+    this.copyBack = undefined;
+    void this.reattachPeerCopy(sessionId);
+  }
+
+  /// The machine of the chat shown from the Mac's copy answers again: the chat attaches as on open,
+  /// with the rows drawn as its kept tail (a page that joins them continues them, each seq once; one
+  /// that does not, or a recreated session, replaces them). Down again, the copy stays offline; any
+  /// other failure takes the copy off screen, as a failed open does. One attach of the copy at a
+  /// time (`attaching`, set by the open's attach too).
+  private async reattachPeerCopy(sessionId: string): Promise<void> {
+    const copy = this.peerCopy;
+    if (!copy?.offline || copy.attaching || copy.sessionId !== sessionId) return;
+    this.copyBack = undefined;
+    copy.offline = false;
+    copy.attaching = true;
+    const generation = this.selectionGeneration;
+    const mine = ++this.copyAttaches;
+    try {
+      await this.attach(sessionId, generation, copy.lastSeq);
+    } catch (error) {
+      // A reconnect's attach took the copy over meanwhile: its outcome decides.
+      if (mine !== this.copyAttaches) return;
+      if (await this.keepPeerCopy(sessionId, generation, error)) return;
+      if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+      this.dropPeerCopy(sessionId);
+    }
+  }
+
+  /// The session of a chat shown offline from the Mac's copy was recreated while its machine stays
+  /// down: the old copy goes, and the Mac's copy of the new session is drawn, offline, when it has
+  /// one; else the chat is off screen as after a failed open, and opens again once the machine is.
+  private async redrawPeerCopy(sessionId: string): Promise<void> {
+    const generation = this.selectionGeneration;
+    // Everything of the old session goes, its queue and prompts not yet sent too, as for a switch.
+    this.resetSessionState();
+    const drawn = await this.drawPeerCopy(sessionId, generation);
+    const copy = this.peerCopy as PeerCopy | undefined;
+    if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+    if (drawn === 0 || copy?.sessionId !== sessionId) {
+      this.dropPeerCopy(sessionId);
+      // A machine that came back meanwhile opens the chat itself.
+      const row = this.sessions.find((session) => session.sessionId === sessionId);
+      if (this.copyBack === sessionId && peerBack(row)) {
+        this.copyBack = undefined;
+        // Owned like any attach of the copy: a reconnect's takes it over; down again, the
+        // Mac's copy is drawn if it has one.
+        const mine = ++this.copyAttaches;
+        void this.attach(sessionId, generation, 0).catch(async (error: unknown) => {
+          if (mine === this.copyAttaches) await this.keepPeerCopy(sessionId, generation, error);
+        });
+      }
+      return;
+    }
+    copy.offline = true;
+    copy.attaching = false;
+    this.emit("peer offline");
+    this.reattachIfBack(sessionId);
+  }
+
+  /// The rows drawn from the Mac's copy are not the chat (its machine failed another way, or the
+  /// session was recreated while it is offline): as after a failed open or select, they go, and no
+  /// tail of the chat is drawn again as if it had been read.
+  private dropPeerCopy(sessionId: string): void {
+    forgetTail(sessionId);
+    // Everything of it goes, its cursors too: a recreated session's attach later starts its seqs
+    // over, and none of them may read as already held.
+    this.resetSessionState();
+    this.rebuild();
+    this.emit("failed");
+  }
+
+  private drawKeptTail(sessionId: string, kept = keptTail(sessionId)): number {
     if (!kept) return 0;
+    this.drawnGeneration = typeof kept.summary?.createdAt === "number" ? kept.summary.createdAt : undefined;
+    this.rowsGeneration = this.drawnGeneration;
+    const keptPeer = (kept.summary as { peer?: unknown } | undefined)?.peer;
+    this.rowsPeer = typeof keptPeer === "string" ? keptPeer : undefined;
     const listed = this.sessions.find((session) => session.sessionId === sessionId);
     this.events = [...kept.events];
     this.turnOpener = kept.turnOpener;
@@ -1810,6 +2040,9 @@ export class AcpmuxDirectClient {
     }
     // The replayed `queued` records carry each prompt's whole text; acpmux's list gives the order.
     this.queue = mergeQueue(this.queue, listed?.queue ?? kept.queue, this.queueAuthors);
+    // From the frame the rows are drawn, not from the attach: a live record of the chat that comes
+    // before it is asked (while the chat left detaches) is held too (`copyLive`).
+    if (this.lastSeq > 0) this.copyLive = new Map();
     return this.lastSeq;
   }
 
@@ -2436,8 +2669,16 @@ export class AcpmuxDirectClient {
     sessionId: string,
     generation = this.selectionGeneration,
     keptThrough = 0,
+    again = true,
   ): Promise<EventRecord[]> {
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
+    // Rows drawn before it (a kept tail, the Mac's copy): what comes live from their draw
+    // (`drawKeptTail`) until this attach answers is held until it says whether they are this
+    // session's.
+    if (keptThrough > 0 || this.peerCopy?.sessionId === sessionId) this.copyLive ??= new Map();
+    // The machine the row names when the attach is asked: a reply that comes after the session
+    // moved to another is that machine's journal, not the one the row names now.
+    const askedOf = this.sessions.find((session) => session.sessionId === sessionId)?.peer;
     const visible = pageShown();
     const attaching = this.typed("_acpmux/attach", {
       sessionId,
@@ -2459,16 +2700,29 @@ export class AcpmuxDirectClient {
       eventStream: true,
       visible,
     });
+    const out = { sessionId };
+    this.attachOut = out;
+    const settled = () => {
+      if (this.attachOut === out) this.attachOut = undefined;
+    };
     this.attaching = attaching.then(
       () => {
+        settled();
         if (generation === this.selectionGeneration && this.selectedSessionId === sessionId)
           this.shownToAcpmux = { sessionId, visible };
       },
-      () => undefined,
+      () => settled(),
     );
     const result = await attaching;
     this.syncView();
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
+    // The row names a newer session than the reply's (recreated while it was out): the reply is of
+    // the session before, so the session listed now is attached instead, once.
+    const listedNow = this.sessions.find((session) => session.sessionId === sessionId)?.createdAt;
+    const replyOf = result?.session?.createdAt;
+    const movedTo = this.sessions.find((session) => session.sessionId === sessionId)?.peer;
+    const recreated = typeof listedNow === "number" && typeof replyOf === "number" && listedNow > replyOf;
+    if (again && (recreated || movedTo !== askedOf)) return this.attach(sessionId, generation, keptThrough, false);
     this.presence.attached(sessionId, result);
     const page = records(result?.events);
     const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
@@ -2477,8 +2731,51 @@ export class AcpmuxDirectClient {
     // chat holds the page alone, as one read for the first time does. Keeping both would leave a
     // hole in the middle of the transcript that no older page can fill. Everything the dropped
     // tail stood behind goes with it: where its history started, its fork point, its usage.
-    if (keptThrough > 0 && oldest > keptThrough + 1) {
-      this.events = this.events.filter((event) => event.seq >= oldest);
+    // The session was recreated since the rows drawn were kept (another `createdAt` than the tail's
+    // or the Mac's copy's): none of them is this session's, so the page alone is the chat
+    // (peerCopy.ts), with the live records that came while it was asked, which were the new
+    // session's. A peer chat's rows that do not say their session are not taken for it either. A
+    // machine back on an older log (its `lastSeq` below the rows', same `createdAt`) is the same:
+    // the newer rows are no longer its history.
+    const copy = this.peerCopy?.sessionId === sessionId ? this.peerCopy : undefined;
+    const held = [...(this.copyLive?.values() ?? [])];
+    this.copyLive = undefined;
+    // How far the machine's log went when it read the page (`pageThrough`, acpmux 5/8 and later);
+    // an older one says only `lastSeq`, read after its page.
+    const through = result?.pageThrough ?? result?.lastSeq;
+    const hostLast = typeof through === "number" ? through : undefined;
+    const createdAt = result?.session?.createdAt;
+    const drawnThrough = copy?.lastSeq ?? keptThrough;
+    const row = this.sessions.find((s) => s.sessionId === sessionId);
+    const peerChat = typeof row?.peer === "string";
+    const drawnOf = copy ? copy.generation : this.drawnGeneration;
+    // A copy of another machine than the row names now (the session moved while this attach was
+    // out) is not this machine's journal either.
+    // Rows not proven of the machine the row names are another journal as well: for a peer chat a
+    // tail of another machine or of none known, for a chat on this Mac a tail of a machine.
+    const otherMachine = (peerChat || this.rowsPeer !== undefined) && this.rowsPeer !== row?.peer;
+    const otherSession =
+      drawnThrough > 0 &&
+      ((copy !== undefined ? copy.peer !== row?.peer : otherMachine) ||
+        (peerChat || copy !== undefined
+          ? !sameGeneration(drawnOf, createdAt)
+          : typeof drawnOf === "number" && typeof createdAt === "number" && drawnOf !== createdAt));
+    const replaced =
+      otherSession || (drawnThrough > 0 && peerChat && hostLast !== undefined && hostLast < drawnThrough);
+    this.drawnGeneration = undefined;
+    // Rows of another session: everything of it goes, its queue and unsent prompts too, as for a
+    // switch; the live records held for this attach are the new session's and stay.
+    if (otherSession) this.resetSessionState();
+    this.rowsGeneration = typeof createdAt === "number" ? createdAt : undefined;
+    this.rowsPeer = typeof row?.peer === "string" ? row.peer : undefined;
+    if (replaced) {
+      // A record can come live twice (a reconnect replays it): each seq once, in order.
+      this.events = held.sort((a, b) => a.seq - b.seq);
+      this.lastSeq = this.events.at(-1)?.seq ?? 0;
+      this.firstSeq = this.events[0]?.seq;
+    }
+    if (replaced || (keptThrough > 0 && oldest > keptThrough + 1)) {
+      if (!replaced) this.events = this.events.filter((event) => event.seq >= oldest);
       this.turnOpener = undefined;
       this.historyExhausted = false;
       this.usageFromSeq = Infinity;
@@ -2539,6 +2836,9 @@ export class AcpmuxDirectClient {
     // acpmux holds nothing older than the page: the pane offers no more history.
     if (result?.hasMore === false) this.historyExhausted = true;
     this.attachedGeneration = generation;
+    // The machine answered: these rows are its chat now, not the Mac's copy.
+    this.peerCopy = undefined;
+    if (this.copyBack === sessionId) this.copyBack = undefined;
     if (Array.isArray(detail.pending)) {
       const groupedIds = new Set(
         this.permissions.state.supported
@@ -2632,6 +2932,28 @@ export class AcpmuxDirectClient {
       this.learnChatThread();
       // A change that doesn't carry the queue keeps the one already mapped.
       if (session.queue) this.queue = mergeQueue(this.queue, session.queue, this.queueAuthors);
+      // The machine of a chat shown from the Mac's copy is back: read the chat from it now (an
+      // attach of a recreated session replaces the copy). A row naming another session while the
+      // machine is still down leaves no copy of the old one on screen as if it were this chat. An
+      // attach of the copy that is out decides for itself (`attach`, `keepPeerCopy`).
+      // Back while that attach (or a read of the copy) is out, it is read again once it fails
+      // (`reattachIfBack`). A session moved to another machine is another chat, as a recreated one.
+      const copy = this.peerCopy?.sessionId === session.sessionId ? this.peerCopy : undefined;
+      const id = session.sessionId;
+      const back = peerBack(session);
+      const reading = this.peerCopyReading?.sessionId === id ? this.peerCopyReading : undefined;
+      if (copy?.attaching || reading || (!copy && this.attachOut?.sessionId === id)) {
+        if (reading) reading.changed = true;
+        if (back) this.copyBack = id;
+      } else if (copy?.offline && copy.peer !== session.peer) {
+        // Read from the new machine (once back) only after the old one's rows are off screen.
+        if (back) this.copyBack = id;
+        void this.redrawPeerCopy(id);
+      } else if (copy?.offline && !sameGeneration(copy.generation, session.createdAt)) {
+        // A recreated session: the old one's rows go first, then the machine (once back) is read.
+        if (back) this.copyBack = id;
+        void this.redrawPeerCopy(id);
+      } else if (copy?.offline && back) void this.reattachPeerCopy(id);
     }
     if (this.offerChildIds().includes(session.sessionId) || this.isStartedChild(session))
       this.childChanged(session.sessionId);
@@ -2677,7 +2999,10 @@ export class AcpmuxDirectClient {
   }
 
   private apply(event: EventRecord): void {
-    if (!event?.seq || event.sessionId !== this.selectedSessionId || event.seq <= this.lastSeq) return;
+    if (!event?.seq || event.sessionId !== this.selectedSessionId) return;
+    // Held until the attach says whether the copy drawn is this session's history (`copyLive`).
+    this.copyLive?.set(event.seq, event);
+    if (event.seq <= this.lastSeq) return;
     this.events.push(event);
     this.lastSeq = event.seq;
     this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
@@ -3915,6 +4240,15 @@ export class AcpmuxDirectClient {
       origin: this.origin,
       ...(this.listedSessions ? { listedSessions: true as const } : {}),
       ...(this.drewKeptTail ? { drewKeptTail: true as const } : {}),
+      ...(this.peerCopy
+        ? {
+            peerCopy: {
+              peer: this.peerCopy.peer,
+              capturedAt: this.peerCopy.capturedAt,
+              offline: this.peerCopy.offline,
+            },
+          }
+        : {}),
       ...(this.chatRead() ? { chatRead: true as const } : {}),
       ...(this.extensions.includes("acp.trust.set") ? { answersTrust: true } : {}),
       ...(this.extensions.includes(MCP_RECONNECT_METHOD) ? { reconnectsMcp: true } : {}),
@@ -4943,23 +5277,34 @@ export class AcpmuxDirectClient {
       ]);
       if (generation === this.selectionGeneration && this.selectedSessionId === sessionId)
         keptThrough = this.drawKeptTail(sessionId);
+      // A peer chat no tab read: the Mac's own copy of it, so a machine that is paused or offline
+      // still opens on its history (peerCopy.ts).
+      if (keptThrough === 0) keptThrough = await this.drawPeerCopy(sessionId, generation);
     }
     if (keptThrough > 0) {
       this.drewKeptTail = true;
       this.emit("selected");
       this.releaseSnapshots(hold);
     }
+    let mine = this.copyAttaches;
     try {
       // A refused detach of the chat being left (acpmux no longer resolves it) never stops the
       // chat being opened.
       if (previousSessionId)
         await this.typed("_acpmux/detach", { sessionId: previousSessionId }).catch(() => undefined);
+      mine = this.copyAttaches;
       await this.attach(sessionId, generation, keptThrough);
     } catch (error) {
+      // A reconnect's attach took the chat over meanwhile: its outcome decides.
+      if (mine !== this.copyAttaches) return sessionId;
+      // A peer chat whose machine is down keeps what it drew, marked as the Mac's copy.
+      if (await this.keepPeerCopy(sessionId, generation, error)) return sessionId;
       // The chat could not be read: a tail drawn from this page's own memory must not stay on
       // screen as if it were the chat, so the pane drops it and says it could not read the chat.
       if (keptThrough > 0 && generation === this.selectionGeneration && this.selectedSessionId === sessionId) {
         forgetTail(sessionId);
+        this.peerCopy = undefined;
+        this.copyLive = undefined;
         this.events = [];
         this.queue = [];
         this.drewKeptTail = false;
