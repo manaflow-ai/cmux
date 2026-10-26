@@ -24,8 +24,7 @@ pub(super) fn negotiate(
             )
         })?;
     if response["type"] == "refused" {
-        return Err(resolve::Failure::Resource(json!({"code":"session.busy",
-            "message":"session is busy","details":{},"retryable":true})));
+        return Err(resolve::Failure::Refused);
     }
     // A daemon that is not ready can refuse every frame with the normal v2
     // resource error. Preserve that error; it is not an unsupported hello.

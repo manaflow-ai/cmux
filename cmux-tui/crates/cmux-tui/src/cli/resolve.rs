@@ -30,6 +30,8 @@ pub(super) enum Failure {
         exit: i32,
     },
     Transport(String),
+    /// The daemon refused the connection before any request ran.
+    Refused,
     /// The request belongs to the app, not the daemon: run this app action
     /// (by id) on this target instead (a browser tab's page zoom).
     AppAction {
@@ -49,6 +51,10 @@ impl Failure {
             Self::Local { error, exit } => print_local_error(&error, output, exit),
             Self::Transport(message) => {
                 eprintln!("{message}");
+                3
+            }
+            Self::Refused => {
+                eprintln!("cmux: session is busy");
                 3
             }
         }

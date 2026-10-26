@@ -116,9 +116,7 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
     if let Err(failure) = super::tab_capabilities::negotiate(&mut reader) {
         let reason = match &failure {
             super::resolve::Failure::Transport(message) => retry::Failure::from_read_error(message),
-            super::resolve::Failure::Resource(error) if error["code"] == "session.busy" => {
-                retry::Failure::Dropped
-            }
+            super::resolve::Failure::Refused => retry::Failure::Dropped,
             _ => retry::Failure::Other,
         };
         if tries.may_retry_before_send(reason) {
@@ -130,6 +128,9 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
                     localize_operation_error(&plan, &mut error);
                 }
                 print_operation_error(&error, global.output)
+            }
+            super::resolve::Failure::Refused => {
+                transport_failure(global.output, "session.busy", hints::session_busy(), true)
             }
             failure => failure.report(global.output),
         };
