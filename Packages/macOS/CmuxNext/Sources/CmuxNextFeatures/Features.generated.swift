@@ -341,7 +341,7 @@ nonisolated extension Feature {
         owner: "Performance Lead",
         description: "Energy Saver turns on as the energy.saver setting asks (Low Power Mode, low battery or a hot Mac on battery by default) and makes cmux draw fewer frames and wake less often.",
         kind: .labs,
-        process: .app,
+        process: .both,
         chromiumFeature: nil,
         defaults: FeatureDefaults(dev: false, nightly: false, release: false),
         expires: nil,

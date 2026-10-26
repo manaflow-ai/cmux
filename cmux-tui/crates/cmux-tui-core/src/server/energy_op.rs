@@ -6,7 +6,7 @@
 //! `energy.saver` setting, and sends `energy.set` on each edge, after the
 //! turn that changed it. That is an override of the daemon's own reading
 //! (p14-energy-137 reads the power source, so the daemon follows AC and
-//! battery after the app quits); `saver: null` clears it, and so does the
+//! battery after the app quits, mux/power_source.rs); `saver: null` clears it, and so does the
 //! end of the control connection that set it, so a quit or crashed app (or
 //! one whose link dropped) leaves no override behind. Chrome splits the
 //! same way: `BatterySaverModeManager` owns the state and each child process
@@ -95,7 +95,8 @@ pub struct EnergyStatus {
     /// The app's override, `None` while it holds none.
     #[serde(rename = "override")]
     pub app_override: Option<bool>,
-    /// The daemon's own reading (off until p14-energy-137 reads the power source).
+    /// The daemon's own reading (mux/power_source.rs; off where the daemon
+    /// reads no power source, and while the `energySaver` feature is off).
     pub reading: bool,
 }
 
@@ -172,9 +173,8 @@ impl DaemonEnergy {
         })
     }
 
-    /// Sets the daemon's own reading (p14-energy-137). Returns whether the
-    /// mode changed.
-    #[cfg_attr(not(test), expect(dead_code, reason = "written by p14-energy-137"))]
+    /// Sets the daemon's own reading (mux/power_source.rs). Returns whether
+    /// the mode changed.
     pub(crate) fn set_reading(&self, saver: bool) -> bool {
         self.store(|state| Some((state & !u64::from(READING)) | u64::from(saver)))
     }

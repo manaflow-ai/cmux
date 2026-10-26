@@ -12,6 +12,8 @@
 //!   tell when it changes.
 //! - [`MaintenanceClock`]: one thread per process that runs periodic
 //!   maintenance on a 5-minute wall-clock grid with a leeway the kernel sees.
+//! - [`PowerSource`]: the power source that thread follows on macOS, so the
+//!   daemon reads AC, battery and the charge itself (p14-energy-137).
 //!
 //! The grid is [`Ticks`]: `CLOCK_UPTIME_RAW` on macOS (the origin of the app's
 //! queue and of Chromium's `TimeTicks`), `CLOCK_MONOTONIC` on other Unix
@@ -20,11 +22,13 @@
 
 mod energy;
 mod maintenance;
+mod power;
 
 use std::time::Duration;
 
 pub use energy::{EnergyMode, EnergyWatch};
 pub use maintenance::{JobSpec, MaintenanceClock, Placement, RegisterError};
+pub use power::{LOW_BATTERY_THRESHOLD_PERCENT, PowerReading, PowerSource};
 
 /// Chromium's `kDefaultLeeway` on macOS: the leeway and grid of a flexible
 /// delay below 1 s (`base/task/task_features.cc`).
