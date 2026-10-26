@@ -121,12 +121,13 @@ enum StatusNotificationImage {
         let scale: CGFloat = 2
         let pixels = Int(side * scale)
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
-              let context = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: space,
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+              let context = CGContext.bitmapOwningPixels(width: pixels, height: pixels, space: space,
+                                                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         context.scaleBy(x: scale, y: scale)
         let tile = CGRect(x: 0, y: 0, width: side, height: side)
-        context.addPath(CGPath(roundedRect: tile, cornerWidth: side * 0.22, cornerHeight: side * 0.22, transform: nil))
+        let rounded = CGMutablePath()
+        rounded.addRoundedRect(in: tile, cornerWidth: side * 0.22, cornerHeight: side * 0.22)
+        context.addPath(rounded)
         context.setFillColor(tokens.surfaceBackground.withAlpha(1).nsColor.cgColor)
         context.fillPath()
         let glyph = side * 0.5
@@ -134,7 +135,7 @@ enum StatusNotificationImage {
         let mark = ThemeScope.app.perform {
             set.image(state: reason.indicator, kind: kind, pointSize: glyph, scale: scale, appearance: ThemeScope.app.appearance)
         }
-        if let mark = mark?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+        if let mark = mark?.bestCGImage {
             context.draw(mark, in: CGRect(x: (side - glyph) / 2, y: (side - glyph) / 2, width: glyph, height: glyph))
         }
         guard let image = context.makeImage() else { return nil }

@@ -92,11 +92,16 @@ private func percentile(_ sorted: [Double], _ p: Double) -> Double {
 /// The calling thread's CPU time (user + system), ns; nil when `thread_info` fails.
 /// `debug.main_cpu` runs on the main thread, so this is the main thread's time.
 private func currentThreadCPUNanos() -> UInt64? {
-    let thread = pthread_mach_thread_np(pthread_self())  // no port reference to release, unlike mach_thread_self()
+    // SAFETY: pthread_self() is the calling thread, live for this call. `count` is thread_basic_info's size in
+    // integer_t words, the capacity the rebound view covers; thread_info writes at most `count` words into
+    // `info`, a local live for the call.
+    let thread = unsafe pthread_mach_thread_np(pthread_self())  // no port reference to release, unlike mach_thread_self()
     var info = thread_basic_info()
     var count = mach_msg_type_number_t(MemoryLayout<thread_basic_info>.size / MemoryLayout<natural_t>.size)
-    let result = withUnsafeMutablePointer(to: &info) {
-        $0.withMemoryRebound(to: integer_t.self, capacity: Int(clamping: count)) { thread_info(thread, thread_flavor_t(THREAD_BASIC_INFO), $0, &count) }
+    let result = unsafe withUnsafeMutablePointer(to: &info) {
+        unsafe $0.withMemoryRebound(to: integer_t.self, capacity: Int(clamping: count)) {
+            unsafe thread_info(thread, thread_flavor_t(THREAD_BASIC_INFO), $0, &count)
+        }
     }
     guard result == KERN_SUCCESS else { return nil }
     let user = UInt64(clamping: info.user_time.seconds) * 1_000_000_000 + UInt64(clamping: info.user_time.microseconds) * 1_000

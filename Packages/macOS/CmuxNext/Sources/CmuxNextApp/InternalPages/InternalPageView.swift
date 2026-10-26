@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextPages
@@ -225,7 +226,7 @@ final class InternalPageView: NSView {
         guard let page = content as? PageWebView, page.hasPainted else { return nil }
         return try? await ControlDeadline.shared.run(method: "pages.discard.picture", deadline: .now + .seconds(2)) { @MainActor in
             if let frame = await page.hideFrame() { return frame }
-            return await page.snapshot()?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+            return await page.snapshot()?.bestCGImage
         }
     }
 

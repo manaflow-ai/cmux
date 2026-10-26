@@ -33,15 +33,11 @@ final class SignalRelay {
     }
 
     /// Installs the no-op handler for each signal. Call again after anything
-    /// that resets signal actions (Chromium's start).
+    /// that resets signal actions (Chromium's start). signal(3) installs it
+    /// with SA_RESTART and an empty mask, the action this needs, with no
+    /// sigaction struct passed by pointer.
     func catchSignals() {
-        for signal in signals {
-            var action = sigaction()
-            action.__sigaction_u.__sa_handler = relayedSignalHandler
-            action.sa_flags = SA_RESTART
-            sigemptyset(&action.sa_mask)
-            sigaction(signal, &action, nil)
-        }
+        for signal in signals { _ = Darwin.signal(signal, relayedSignalHandler) }
     }
 
     /// Stops relaying and gives each signal its default action back.
