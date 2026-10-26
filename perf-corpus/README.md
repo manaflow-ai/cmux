@@ -37,6 +37,7 @@ All six are `planned`: their sources and checkpoint digests are `null` until the
 | `layout` | `snapshot` (the layout export of task 111) and the number of `workspaces`. |
 | `input` | `{"events": [...]}` inline, or `{"blob": ref}` with the same events as NDJSON. |
 | `pty` | Terminal output tracks for `pty_replay.py` (task 112): `surface`, `source`, `speed`, `loop`. |
+| `config` | Optional: cmux-next.json settings the replay launches the bench app with, as dotted keys (`"sidebar.numbering": "workspacesOnly"`). Each key must be a setting in `schemas/defaults/cmux-next.json`, and its value must have the default's type. |
 | `web_archive` | `null`, or the WPR archive `wprgo` (blob) and the `spki` of its certificate (task 113). |
 | `agents` | ACP transcripts for the acpmux fake agent (task 114): `surface`, `agent`, `transcript`. |
 | `checkpoints` | `t_ms`, `name` and the `debug.focus` and `debug.surfaces` digests. Two replays must give equal digests. |

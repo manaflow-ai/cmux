@@ -28,7 +28,6 @@ def load(name, path):
 bh = load("corpus_browse_heavy_under_test", CORPUS / "browse_heavy.py")
 cm = bh.manifest_module()
 io_ = bh.session_io()
-wpr = bh.wpr()
 
 
 def committed():
@@ -50,7 +49,7 @@ class CommittedFiles(unittest.TestCase):
 
     def test_the_manifest_validates_and_fits_in_git(self):
         self.assertEqual(cm.validate_paths([REPO_ROOT / bh.MANIFEST_PATH], REPO_ROOT), [])
-        for made in [*bh.outputs(REPO_ROOT, committed()), bh.PAGES_PATH]:
+        for made in bh.outputs(REPO_ROOT, committed()):
             self.assertLessEqual((REPO_ROOT / made).stat().st_size, cm.MAX_GIT_BYTES, made)
 
     def test_a_lab_recording_is_kept(self):
@@ -62,14 +61,14 @@ class CommittedFiles(unittest.TestCase):
         made = json.loads(bh.outputs(REPO_ROOT, current)[bh.MANIFEST_PATH])
         self.assertEqual(made["status"], "recorded")
         self.assertNotIn("planned", made)
-        self.assertEqual(made["web_archive"], current["web_archive"])
+        self.assertIsNone(made["web_archive"], "no player step loads archive pages into the tabs yet")
         self.assertEqual((made["checkpoints"][0]["focus"], made["checkpoints"][0]["surfaces"]), (digest, digest))
         self.assertIsNone(made["checkpoints"][1]["focus"])
 
     def test_check_fails_on_a_changed_manifest(self):
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)
-            for path in [bh.MANIFEST_PATH, bh.LAYOUT_PATH, bh.PAGES_PATH]:
+            for path in [bh.MANIFEST_PATH, bh.LAYOUT_PATH, cm.SETTINGS_PATH]:
                 (root / path).parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy(REPO_ROOT / path, root / path)
             manifest = root / bh.MANIFEST_PATH
@@ -117,41 +116,79 @@ class InputTrack(unittest.TestCase):
     def actions(self, action):
         return [e for e in self.events if e["kind"] == "action" and e["payload"]["id"] == action]
 
+    def digits(self):
+        return [bh.DIGIT_KEYS.index(e["payload"]["key_code"]) + 1 for e in self.events
+                if e["kind"] == "key" and e["payload"]["modifiers"] == ["cmd"] and e["payload"]["class"] == "digit"]
+
+    def setting(self, key):
+        """The value the replay launches with: the manifest's config (play.py sets it), else the app default."""
+        return self.manifest.get("config", {}).get(key, cm.load_settings(REPO_ROOT)[key])
+
+    def test_the_replay_config_is_the_scripts(self):
+        self.assertEqual(self.manifest["config"], bh.CONFIG)
+
     def test_every_round_visits_every_workspace_with_cmd_digits(self):
-        digits = [e["payload"]["key_code"] for e in self.events
-                  if e["kind"] == "key" and e["payload"]["modifiers"] == ["cmd"] and e["payload"]["class"] == "digit"]
-        self.assertEqual(digits, [bh.DIGIT_KEYS[w] for order in bh.VISIT_ORDER for w in order])
+        """Under the numbering the replay launches with, the Nth Cmd-digit of the track shows the Nth visit's
+        workspace (SidebarNavigationSettings: allItems counts Home and the App Store first)."""
+        numbering = self.setting("sidebar.numbering")
+        self.assertEqual([bh.digit_workspace(digit, numbering) for digit in self.digits()],
+                         [w for order in bh.VISIT_ORDER for w in order])
         for order in bh.VISIT_ORDER:
             self.assertEqual(sorted(order), list(range(6)))
             self.assertEqual(order[-1], 0, "each round ends on w0, the next round's start")
 
+    def test_the_app_default_numbering_would_miss_workspaces(self):
+        """Why the config sets numbering: under the default, Cmd-1 and Cmd-2 show Home and the App Store and no
+        digit of the track reaches w4 or w5."""
+        default = cm.load_settings(REPO_ROOT)["sidebar.numbering"]
+        self.assertEqual(default, "allItems")
+        self.assertEqual(bh.digit_workspace(1, default), None)
+        self.assertEqual(bh.digit_workspace(3, default), 0)
+        reached = {bh.digit_workspace(digit, default) for digit in self.digits()}
+        self.assertNotIn(5, reached)
+        self.assertEqual(self.setting("sidebar.numbering"), "workspacesOnly")
+
     def test_tab_switches_by_key_and_by_click(self):
-        ctrl_tabs = [e for e in self.events if e["kind"] == "key" and e["payload"].get("key_code") == bh.KEY_TAB
-                     and e["payload"]["modifiers"] == ["ctrl"]]
-        self.assertEqual(len(ctrl_tabs), 2 * 6 * bh.ROUNDS)
+        tabs = [e["payload"]["modifiers"] for e in self.events
+                if e["kind"] == "key" and e["payload"].get("key_code") == bh.KEY_TAB]
+        self.assertEqual(tabs.count(["ctrl"]), 6 * bh.ROUNDS)
+        self.assertEqual(tabs.count(["ctrl", "shift"]), 6 * bh.ROUNDS)
+        self.assertEqual(len(tabs), 2 * 6 * bh.ROUNDS)
         webkit = [e for e in self.actions("tab.focus") if tab_kind(self.snapshot, e["payload"]["args"]["target"]) == "webkit"]
         self.assertEqual(len(webkit), bh.ROUNDS)
 
-    def test_every_hibernated_tab_is_a_hidden_chromium_tab_woken_by_its_visit(self):
-        """Replays the track's tab state: hibernateTab only hits a Chromium tab that is not selected and not shown,
-        and the round's tab.focus of that tab (the wake) comes before any Ctrl-Tab could reach it."""
+    def test_every_hibernated_tab_sleeps_until_its_visit_wakes_it(self):
+        """Replays the track's tab state under the replay's numbering and awake-neighbor radius: hibernateTab only
+        hits a hidden Chromium tab, and until the round's tab.focus of that tab (the wake) no tab its pane shows is
+        within the radius of it, so the neighbor policy never restores it first (BrowserHibernation, NeighborTabs:
+        the neighbors wrap)."""
+        numbering, radius = self.setting("sidebar.numbering"), self.setting(bh.NEIGHBOR_RADIUS_KEY)
+        self.assertGreaterEqual(radius, 1, "the story checks the default neighbor policy, not a disabled one")
         selected, shown, hibernated, woken = [0] * 6, 0, {}, 0
+
+        def asleep(workspace, when):
+            if workspace in hibernated:
+                count = len(bh.PANES[workspace][0])
+                self.assertGreater(bh.ring_distance(hibernated[workspace], selected[workspace], count), radius,
+                                   f"w{workspace} tab {hibernated[workspace]} is an awake neighbor at {when}")
+
         for event in self.events:
             payload = event["payload"]
             if event["kind"] == "key" and payload["class"] == "digit":
-                shown = bh.DIGIT_KEYS.index(payload["key_code"])
+                shown = bh.digit_workspace(bh.DIGIT_KEYS.index(payload["key_code"]) + 1, numbering)
+                self.assertIsNotNone(shown, f"Cmd-digit at {event['t_ms']} shows a top item")
             elif event["kind"] == "key" and payload.get("key_code") == bh.KEY_TAB:
-                selected[shown] = (selected[shown] + 1) % len(bh.PANES[shown][0])
-                self.assertNotIn(selected[shown], [t for w, t in hibernated.items() if w == shown],
-                                 f"Ctrl-Tab woke a hibernated tab at {event['t_ms']}")
+                step = -1 if "shift" in payload["modifiers"] else 1
+                selected[shown] = (selected[shown] + step) % len(bh.PANES[shown][0])
+                asleep(shown, event["t_ms"])
             elif event["kind"] == "action" and payload["id"] in ("hibernateTab", "tab.focus"):
                 workspace, pane, tab = (int(part[1:]) for part in payload["args"]["target"][1:].split("."))
                 if payload["id"] == "hibernateTab":
                     self.assertNotEqual(workspace, shown)
                     self.assertEqual((pane, tab_kind(self.snapshot, payload["args"]["target"])), (0, "chromium"))
-                    self.assertNotEqual(tab, selected[workspace])
                     self.assertNotIn(workspace, hibernated)
                     hibernated[workspace] = tab
+                    asleep(workspace, event["t_ms"])
                 else:
                     self.assertEqual(workspace, shown)
                     if pane == 0:
@@ -159,32 +196,51 @@ class InputTrack(unittest.TestCase):
                             del hibernated[workspace]
                             woken += 1
                         selected[workspace] = tab
+                        asleep(workspace, event["t_ms"])
         self.assertEqual(hibernated, {})
         self.assertEqual(woken, 5 * bh.ROUNDS)
         self.assertEqual(len(self.actions("hibernateTab")), 5 * bh.ROUNDS)
 
+    def test_a_radius_with_no_sleeping_tab_is_refused(self):
+        track = bh._Track(bh.random.Random(bh.SEED), neighbor_radius=2)
+        with self.assertRaises(ValueError):
+            track.hibernate(0, 0)
+
     def test_omnibar_typing_ends_with_escape_never_return(self):
-        """No key could navigate outside the archive or run text: no Return anywhere, and each Cmd-L query ends
-        with ESCAPES presses of Escape before the next shortcut."""
+        """No key could load a page or run text: no Return anywhere, and each Cmd-L query ends with ESCAPES presses
+        of Escape before the next shortcut. No key arrows a row, and a Delete never empties the text, so the popup
+        is open (its what-you-typed row) at the first Escape and the escapes take the same steps on every run."""
         self.assertFalse([e for e in self.events if e["kind"] == "key" and e["payload"].get("key_code") == bh.KEY_RETURN])
-        omnibar, typed, sessions = False, 0, 0
+        self.assertEqual(bh.ESCAPES, 3)
+        omnibar, sessions = False, 0
         for event in self.events:
             payload = event["payload"]
             if event["kind"] != "key":
                 self.assertFalse(omnibar, f"an {event['kind']} event at {event['t_ms']} while the omnibar is open")
                 continue
             if payload.get("key_code") == bh.KEY_L and payload["modifiers"] == ["cmd"]:
-                omnibar, typed, escapes, sessions = True, 0, 0, sessions + 1
+                omnibar, text, escapes, sessions = True, "", 0, sessions + 1
             elif payload.get("key_code") == bh.KEY_ESCAPE:
                 self.assertTrue(omnibar)
+                self.assertTrue(text.strip(), f"empty omnibar text at the Escape at {event['t_ms']}")
                 escapes += 1
                 omnibar = escapes < bh.ESCAPES
+            elif payload.get("key_code") == bh.KEY_DELETE:
+                self.assertTrue(omnibar)
+                text = text[:-1]
+                self.assertTrue(text.strip(), f"a Delete at {event['t_ms']} empties the omnibar")
             elif "key_code" not in payload:
                 self.assertTrue(omnibar, f"typing at {event['t_ms']} outside the omnibar")
-                typed += 1
-            elif payload["modifiers"]:
-                self.assertFalse(omnibar, f"a shortcut at {event['t_ms']} while the omnibar is open")
+                text += " " if payload["class"] == "space" else "a"
+            else:
+                self.assertFalse(omnibar, f"key {payload['key_code']} at {event['t_ms']} while the omnibar is open")
         self.assertEqual(sessions, len(bh.OMNIBAR_WORKSPACES) * bh.ROUNDS)
+
+    def test_the_omnibar_sends_no_suggest_request(self):
+        """Remote suggestions are on by default (a URLSession fetch that Web Page Replay never sees); the replay
+        turns them off, so the popup's rows come from local state only."""
+        self.assertIs(cm.load_settings(REPO_ROOT)["browser.omnibar.remoteSuggestions"], True)
+        self.assertIs(self.setting("browser.omnibar.remoteSuggestions"), False)
 
     def test_typing_is_about_7_keys_per_second(self):
         typed = [e["t_ms"] for e in self.events if e["kind"] == "key" and "key_code" not in e["payload"]]
@@ -216,24 +272,6 @@ class InputTrack(unittest.TestCase):
         self.assertIn(r"corpus\.browse_heavy\.wake_to_frame", names)
         self.assertIn(r"corpus\.browse_heavy\.tab_switch_to_frame", names)
         self.assertIn(r"corpus\.browse_heavy\.omnibar_key_to_frame", names)
-
-
-class Pages(unittest.TestCase):
-    def test_one_public_page_per_chromium_tab(self):
-        self.assertEqual(bh.pages_problems(REPO_ROOT), [])
-        urls = wpr.read_urls((REPO_ROOT / bh.PAGES_PATH).read_text(encoding="utf-8"))
-        self.assertEqual(len(urls), len(bh.chromium_tabs()))
-
-    def test_a_short_or_private_list_is_refused(self):
-        with tempfile.TemporaryDirectory() as scratch:
-            root = Path(scratch)
-            (root / bh.PAGES_PATH).parent.mkdir(parents=True)
-            (root / bh.PAGES_PATH).write_text("https://example.org/\nhttp://wiki.local/\n", encoding="utf-8")
-            problems = bh.pages_problems(root)
-            self.assertTrue(any("2 pages for 30 Chromium tabs" in p for p in problems), problems)
-            self.assertTrue(any("wiki.local" in p for p in problems), problems)
-            (root / bh.PAGES_PATH).write_text("https://example.org/\nhttps://example.org/\n", encoding="utf-8")
-            self.assertTrue(any("more than once" in p for p in bh.pages_problems(root)))
 
 
 if __name__ == "__main__":
