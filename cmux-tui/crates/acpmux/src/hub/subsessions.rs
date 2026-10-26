@@ -660,6 +660,8 @@ impl Hub {
                 person: false,
                 who: &who,
                 local: true,
+                // A child's name is made unique before this (`unique_name`).
+                name: None,
             })
             .await?;
         let mut cwd = folder.clone();

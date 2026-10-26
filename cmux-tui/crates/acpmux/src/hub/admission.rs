@@ -176,17 +176,24 @@ fn registry_path() -> Option<PathBuf> {
 /// holds the id of the session it made once that is inserted (`claim`), so a
 /// create whose session already runs is counted once, as that session.
 #[derive(Default)]
-pub(crate) struct Admitting(StdMutex<Vec<Arc<OnceLock<String>>>>);
+pub(crate) struct Admitting(StdMutex<Vec<Arc<Making>>>, tokio::sync::Notify);
+
+/// One admitted create: the name it asked for, and the id of the session it made.
+#[derive(Default)]
+pub(crate) struct Making {
+    name: Option<String>,
+    made: OnceLock<String>,
+}
 
 /// One admitted create, counted until it is dropped (its create ended, made or not).
 pub(crate) struct Admitted<'a> {
     admitting: &'a Admitting,
-    made: Arc<OnceLock<String>>,
+    made: Arc<Making>,
 }
 
 tokio::task_local! {
     /// The admitted create this task runs (`Admitted::run`).
-    static MAKING: Arc<OnceLock<String>>;
+    static MAKING: Arc<Making>;
 }
 
 impl Admitted<'_> {
@@ -201,7 +208,7 @@ impl Admitted<'_> {
 /// (if any) made it. Called under the sessions lock, so the count never sees
 /// the session and its admission apart.
 pub(super) fn claim(id: &str) {
-    let _ = MAKING.try_with(|made| made.set(id.to_owned()));
+    let _ = MAKING.try_with(|making| making.made.set(id.to_owned()));
 }
 
 /// A session counts as live when its harness runs: a live status, or (any
@@ -216,15 +223,21 @@ fn is_live(status: SessionStatus, hosted: bool) -> bool {
 
 /// The live sessions `live` plus the admitted creates whose session is not one of
 /// them: a create is counted once, as its session once that runs.
-fn counted(live: &std::collections::HashSet<&str>, open: &[Arc<OnceLock<String>>]) -> usize {
+fn counted(live: &std::collections::HashSet<&str>, open: &[Arc<Making>]) -> usize {
     live.len()
-        + open.iter().filter(|m| m.get().is_none_or(|id| !live.contains(id.as_str()))).count()
+        + open.iter().filter(|m| m.made.get().is_none_or(|id| !live.contains(id.as_str()))).count()
 }
+
+/// How long a refused create waits for another create of its name to end.
+const NAME_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
 
 impl Drop for Admitted<'_> {
     fn drop(&mut self) {
         let mut open = self.admitting.0.lock().unwrap_or_else(|e| e.into_inner());
         open.retain(|m| !Arc::ptr_eq(m, &self.made));
+        drop(open);
+        // A create refused while this one held its name waits for it (`admit_new`).
+        self.admitting.1.notify_waiters();
     }
 }
 
@@ -233,7 +246,7 @@ impl Hub {
     /// agent host), plus the admitted creates whose session is not (yet) one of them.
     fn live_sessions(
         &self,
-        open: &[Arc<OnceLock<String>>],
+        open: &[Arc<Making>],
         hosted: &std::collections::HashSet<String>,
     ) -> usize {
         let sessions: Vec<Arc<Session>> =
@@ -244,6 +257,12 @@ impl Hub {
             .map(|s| s.id.as_str())
             .collect();
         counted(&live, open)
+    }
+
+    /// Whether a session named `name` is in the list.
+    fn session_named(&self, name: &str) -> bool {
+        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        sessions.values().any(|s| s.meta().name == name)
     }
 
     /// Whether a new session may start here (module docs). Hold the returned
@@ -271,52 +290,75 @@ impl Hub {
         });
         let (flag, registry, source, machine, hosted) =
             read.await.map_err(|e| RpcError::internal(e.to_string()))?;
-        // Counted and reserved under one lock: no file I/O while it is held.
-        let admitting = self.admitting.0.lock().unwrap_or_else(|e| e.into_inner());
-        let live = self.live_sessions(&admitting, &hosted);
-        let (refusal, uncapped) = check(&Inputs {
-            flag: flag.as_deref(),
-            registry: registry.as_ref(),
-            source: &source,
-            machine: machine.as_deref(),
-            live,
-        });
-        let admitted = |mut open: std::sync::MutexGuard<'_, Vec<Arc<OnceLock<String>>>>| {
-            let made = Arc::new(OnceLock::new());
-            open.push(made.clone());
-            Admitted { admitting: &self.admitting, made }
+        let holds = |open: &[Arc<Making>], name: &String| {
+            open.iter().any(|m| m.name.as_ref() == Some(name))
         };
-        // Outside the fleet (no registry) that is every create: only a fleet host's gap is logged.
-        match uncapped {
-            Some(why) if why == NO_REGISTRY => {
-                tracing::debug!("session admitted with no lane cap: {why}")
+        // Counted and reserved under one lock, in a scope of its own so no
+        // await below holds it: no file I/O while it is held.
+        let (refusal, live, mut held) = {
+            let admitting = self.admitting.0.lock().unwrap_or_else(|e| e.into_inner());
+            let live = self.live_sessions(&admitting, &hosted);
+            let (refusal, uncapped) = check(&Inputs {
+                flag: flag.as_deref(),
+                registry: registry.as_ref(),
+                source: &source,
+                machine: machine.as_deref(),
+                live,
+            });
+            let admitted = |mut open: std::sync::MutexGuard<'_, Vec<Arc<Making>>>| {
+                let made = Arc::new(Making { name: ask.name.clone(), made: OnceLock::new() });
+                open.push(made.clone());
+                Admitted { admitting: &self.admitting, made }
+            };
+            // Outside the fleet (no registry) that is every create: only a fleet host's gap is logged.
+            match uncapped {
+                Some(why) if why == NO_REGISTRY => {
+                    tracing::debug!("session admitted with no lane cap: {why}")
+                }
+                Some(why) => tracing::info!("session admitted with no lane cap: {why}"),
+                None => {}
             }
-            Some(why) => tracing::info!("session admitted with no lane cap: {why}"),
-            None => {}
-        }
-        let Some(refusal) = refusal else { return Ok(admitted(admitting)) };
+            let Some(refusal) = refusal else { return Ok(admitted(admitting)) };
+            let (who, why) = (ask.who, refusal.why());
+            if ask.force {
+                tracing::warn!(
+                    caller = who,
+                    why,
+                    live,
+                    "session/new admitted by force-admit past {refusal:?}"
+                );
+                return Ok(admitted(admitting));
+            }
+            // The person's own new chat (cmux NEXT, or the person's key): the cap
+            // is for agents, and the app has no override to pass.
+            if ask.person {
+                tracing::info!(
+                    caller = who,
+                    why,
+                    live,
+                    "session/new admitted for the person past {refusal:?}"
+                );
+                return Ok(admitted(admitting));
+            }
+            let held = ask.name.as_ref().is_some_and(|n| holds(&admitting, n));
+            (refusal, live, held)
+        };
         let (who, why) = (ask.who, refusal.why());
-        if ask.force {
-            tracing::warn!(
-                caller = who,
-                why,
-                live,
-                "session/new admitted by force-admit past {refusal:?}"
-            );
-            return Ok(admitted(admitting));
+        // A create of a name another create already holds (or made) lost the
+        // race for that name, not for room: it says the name is taken, as the
+        // create would, so `new --reuse` takes the session that won.
+        if let Some(name) = &ask.name {
+            while held {
+                let wake = self.admitting.1.notified();
+                held = holds(&self.admitting.0.lock().unwrap_or_else(|e| e.into_inner()), name);
+                if held && tokio::time::timeout(NAME_WAIT, wake).await.is_err() {
+                    break;
+                }
+            }
+            if self.session_named(name) {
+                return Err(RpcError::invalid_params(format!("session name {name:?} is taken")));
+            }
         }
-        // The person's own new chat (cmux NEXT, or the person's key): the cap
-        // is for agents, and the app has no override to pass.
-        if ask.person {
-            tracing::info!(
-                caller = who,
-                why,
-                live,
-                "session/new admitted for the person past {refusal:?}"
-            );
-            return Ok(admitted(admitting));
-        }
-        drop(admitting);
         tracing::info!(caller = who, why, live, "session/new refused: {refusal:?}");
         Err(refusal.error(ask.local, ask.can_force))
     }
@@ -335,6 +377,9 @@ pub(crate) struct Ask<'a> {
     pub person: bool,
     /// The caller session or the connection, for the log.
     pub who: &'a str,
+    /// The name the create asks for, if any: a refusal while another create
+    /// holds it says the name is taken instead.
+    pub name: Option<String>,
     /// The refusal may name this host and its paths (not a Web client, here or
     /// through a peer).
     pub local: bool,
@@ -357,9 +402,9 @@ mod tests {
     #[test]
     fn a_create_whose_session_runs_counts_once() {
         let (starting, made, gone) =
-            (Arc::new(OnceLock::new()), Arc::new(OnceLock::new()), Arc::new(OnceLock::new()));
-        made.set("child".to_owned()).unwrap();
-        gone.set("ended".to_owned()).unwrap();
+            (Arc::new(Making::default()), Arc::new(Making::default()), Arc::new(Making::default()));
+        made.made.set("child".to_owned()).unwrap();
+        gone.made.set("ended".to_owned()).unwrap();
         let live: std::collections::HashSet<&str> = ["parent", "child"].into();
         // parent, child (once, not again for its create), the create still starting,
         // and the create whose session is not live (yet, or any more).
@@ -370,13 +415,13 @@ mod tests {
     #[tokio::test]
     async fn the_session_a_create_inserts_is_claimed_by_its_own_admission() {
         let admitting = Admitting::default();
-        let made = Arc::new(OnceLock::new());
+        let made = Arc::new(Making::default());
         admitting.0.lock().unwrap().push(made.clone());
         let admitted = Admitted { admitting: &admitting, made: made.clone() };
         claim("outside");
-        assert_eq!(made.get(), None, "a session inserted outside the create is not its");
+        assert_eq!(made.made.get(), None, "a session inserted outside the create is not its");
         admitted.run(async { claim("mine") }).await;
-        assert_eq!(made.get().map(String::as_str), Some("mine"));
+        assert_eq!(made.made.get().map(String::as_str), Some("mine"));
         drop(admitted);
         assert!(admitting.0.lock().unwrap().is_empty(), "a dropped admission is no longer counted");
     }

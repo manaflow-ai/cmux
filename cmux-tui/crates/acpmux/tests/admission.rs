@@ -358,3 +358,32 @@ fn concurrent_creates_at_the_cap_do_not_all_pass() {
     let all: Vec<String> = outs.iter().map(text).collect();
     assert_eq!((made, refused), (2, 4), "two made, four refused: {all:#?}");
 }
+
+#[test]
+fn reuse_launches_of_one_name_at_the_cap_all_get_the_one_session() {
+    // Room for one: the create that wins the name takes it, and every other
+    // `new --reuse` of that name reuses the winner instead of being refused.
+    let daemon = Daemon::start("reuse", Some(1), false);
+    let children: Vec<_> = (0..4)
+        .map(|_| {
+            daemon
+                .cmd()
+                .args(["--json", "new", "-d", "--reuse", "-n", "worker"])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap()
+        })
+        .collect();
+    let outs: Vec<Output> = children.into_iter().map(|c| c.wait_with_output().unwrap()).collect();
+    let all: Vec<String> = outs.iter().map(text).collect();
+    assert!(outs.iter().all(|o| o.status.success()), "every --reuse gets worker: {all:#?}");
+    let ids: std::collections::HashSet<String> = outs
+        .iter()
+        .map(|o| {
+            let v: Value = serde_json::from_slice(&o.stdout).unwrap_or(Value::Null);
+            v["sessionId"].as_str().unwrap_or_default().to_owned()
+        })
+        .collect();
+    assert_eq!(ids.len(), 1, "one session: {all:#?}");
+}

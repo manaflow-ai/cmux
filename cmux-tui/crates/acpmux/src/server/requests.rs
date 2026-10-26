@@ -44,7 +44,13 @@ pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::
     // A Web client, here or through a peer, learns no host name or path.
     let web =
         super::remote_guard::control_of(conn.origin, conn.auth, params) == crate::hub::Control::Web;
-    crate::hub::admission::Ask { force, can_force, person, who, local: !web }
+    // The create's name, as `session/new` and `session/fork` read it.
+    let name = mux_meta(params)
+        .and_then(|m| m.get("name"))
+        .or_else(|| params.get("name"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    crate::hub::admission::Ask { force, can_force, person, who, local: !web, name }
 }
 
 /// `_meta.acpmux.forceAdmit` is true.
