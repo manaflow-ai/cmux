@@ -11,24 +11,37 @@ export function HostError({
   onRetry,
   hint,
   action,
+  restarting,
+  onRestart,
 }: {
   message: string;
   retrying?: boolean;
   onRetry?(): void;
   hint?: string | null;
   action?: string;
+  restarting?: boolean;
+  onRestart?(): void;
 }) {
   const t = useT();
-  const shownHint = hint === undefined ? t("host.retrying") : hint;
+  const shownHint = hint === undefined ? t(onRestart ? "host.restartHint" : "host.retrying") : hint;
   return (
     <div className="acpmux-host-error" role="alert">
       <div className="acpmux-host-error-card">
         <p className="acpmux-host-error-message selectable">{message}</p>
         {shownHint && <p className="acpmux-host-error-hint">{shownHint}</p>}
-        {onRetry && (
-          <button type="button" onClick={onRetry} disabled={retrying}>
-            {action ?? t(retrying ? "host.retryQueued" : "host.retry")}
-          </button>
+        {(onRestart || onRetry) && (
+          <div className="acpmux-host-error-actions">
+            {onRestart && (
+              <button type="button" onClick={onRestart} disabled={restarting}>
+                {t(restarting ? "host.restarting" : "host.restart")}
+              </button>
+            )}
+            {onRetry && (
+              <button type="button" onClick={onRetry} disabled={retrying || restarting} data-secondary={onRestart ? "" : undefined}>
+                {action ?? t(retrying ? "host.retryQueued" : "host.retry")}
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>

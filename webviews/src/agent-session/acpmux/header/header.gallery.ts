@@ -51,8 +51,18 @@ export default agentPaneEntry({
       snapshot: chat(finished, { connection: "disconnected" }),
     },
     reconnecting: {
-      note: "Retrying after a failure; the failure is the tooltip.",
-      snapshot: chat(finished, { connection: "connecting: connection refused by the local daemon" }),
+      note: "The daemon is starting or the socket is being adopted: a quiet neutral Reconnecting… line uses the shared spinner.",
+      snapshot: chat(finished, {
+        connection: "connected",
+        connectionState: { phase: "reconnecting" },
+      }),
+    },
+    "retry-wait": {
+      note: "The connected daemon is waiting on an automatic turn retry from acpmux 25232.",
+      snapshot: chat(finished, {
+        connection: "connected",
+        summary: { sessionId: "gallery-session", harness: "claude", retry: { attempt: 1, of: 4, nextAt: 1, promptId: "prompt-1", turnId: "turn-1", reason: "transport" } },
+      }),
     },
     "tab-row": {
       note: "The header shares the pane's tab row: the Environment line sits below the row at the configured edge.",
@@ -65,10 +75,13 @@ export default agentPaneEntry({
       play: inTabRow,
     },
     failed: {
-      note: "A long failure detail must not move the header tools.",
+      note: "A terminal refusal keeps an honest failure and the next command in its tooltip.",
       snapshot: chat(finished, {
-        connection:
-          "error: the agent process exited with status 1 before it answered the initialize request; see the agent log",
+        connection: "connecting",
+        connectionState: {
+          phase: "terminal",
+          message: "Automatic reconnects are exhausted. Choose Retry to try again.",
+        },
       }),
     },
   },

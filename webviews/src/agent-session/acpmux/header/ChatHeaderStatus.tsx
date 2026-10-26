@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Spinner } from "../conversation/icons";
 import { Icon } from "../icons/Icon";
 
 /** The slot stays in place; the problem label cannot resize it or move the header tools. Right's
@@ -7,14 +8,16 @@ export function ChatHeaderStatus({
   status,
   detail,
   children,
+  kind,
 }: {
   status: string;
   detail?: string;
+  kind?: "reconnecting" | "problem";
   children?: ReactNode;
 }) {
   return (
     <div className="acpmux-header-status-slot">
-      {status ? <StatusLabel status={status} detail={detail} /> : children}
+      {status ? <StatusLabel status={status} detail={detail} kind={kind} /> : children}
     </div>
   );
 }
@@ -26,22 +29,34 @@ export function ChatHeaderInlineStatus({
   status,
   detail,
   children,
+  kind,
 }: {
   status: string;
   detail?: string;
+  kind?: "reconnecting" | "problem";
   children?: ReactNode;
 }) {
-  return status ? <StatusLabel status={status} detail={detail} inline /> : (children ?? null);
+  return status ? <StatusLabel status={status} detail={detail} kind={kind} inline /> : (children ?? null);
 }
 
-function StatusLabel({ status, detail, inline }: { status: string; detail?: string; inline?: boolean }) {
+function StatusLabel({
+  status,
+  detail,
+  kind,
+  inline,
+}: {
+  status: string;
+  detail?: string;
+  kind?: "reconnecting" | "problem";
+  inline?: boolean;
+}) {
   return (
     <output
       className={inline ? "acpmux-status acpmux-status--inline" : "acpmux-status"}
       /* tooltip-allow: the warning's detail, shown nowhere else */ title={detail}
       aria-label={detail}
     >
-      <Icon name="status.warning" size={13} />
+      {kind === "reconnecting" ? <Spinner size={13} loading /> : <Icon name="status.warning" size={13} />}
       <span>{status}</span>
     </output>
   );

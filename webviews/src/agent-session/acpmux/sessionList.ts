@@ -2,6 +2,7 @@
 // by project. It follows the acpmux TUI sidebar (crates/acpmux/src/tui/render),
 // so a session reads the same in the terminal and in the pane.
 import { type Translate, translate } from "./i18n";
+import { retrySummary, type AcpmuxRetrySummary } from "./model";
 
 /** A session as the sidebar sees it, cut from acpmux's session summary. */
 export type AcpmuxSessionEntry = {
@@ -59,6 +60,8 @@ export type AcpmuxSessionEntry = {
   lane?: SessionLane;
   /** Prompts waiting behind its running turn, when any. */
   queued?: number;
+  /** Waiting automatic continuation (acpmux 25232), when supplied by the daemon. */
+  retry?: AcpmuxRetrySummary;
   /** Its parent already runs as many sub-sessions as `maxRunning` allows: its first prompt waits
    *  for a run slot (acpmux `waitsForSlot`), so it has not started. */
   waitsForSlot?: true;
@@ -223,6 +226,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     shortName: text(session.shortName),
     lane: LANES.includes(session.lane?.state) ? session.lane.state : undefined,
     queued: Number(session.queued) > 0 ? Number(session.queued) : undefined,
+    ...(retrySummary(session.retry) ? { retry: retrySummary(session.retry) } : {}),
     ...(session.waitsForSlot === true && { waitsForSlot: true as const }),
     doing: doingLine(session),
     doingTool: session.lane?.state === "working" ? text(session.turn?.activity) : undefined,

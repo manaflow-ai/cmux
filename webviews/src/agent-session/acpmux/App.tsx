@@ -50,6 +50,8 @@ import {
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
 import { postNative } from "./native";
 import { NativeError } from "./nativeError";
+import { isTerminalConnectionFailure } from "./connectionState";
+import { AcpmuxRestartGate, offersAcpmuxRestart } from "./hostRetry";
 import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
 import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabChat, type NewTabHost } from "./NewTabPage";
@@ -561,6 +563,7 @@ function emptySnapshot(): AcpmuxSnapshot {
     rows: [],
     sessions: [],
     connection: "connecting",
+    connectionState: { phase: "connecting" },
     isWorking: false,
     queue: [],
     catalog: [],
@@ -603,7 +606,14 @@ function cachedSnapshot(): AcpmuxSnapshot {
       acpmuxPerf.markAgent("snapshotPaint");
       // `connection`, `drewKeptTail` and `chatRead` are facts about a live client, and this one is
       // restored: no client has drawn anything yet, so this document's first paint is its own to report.
-      return { ...emptySnapshot(), ...value, connection: "connecting", drewKeptTail: undefined, chatRead: undefined };
+      return {
+        ...emptySnapshot(),
+        ...value,
+        connection: "connecting",
+        connectionState: { phase: "connecting" },
+        drewKeptTail: undefined,
+        chatRead: undefined,
+      };
     }
   } catch {
     // A corrupt or unavailable session store must never block the pane.
@@ -6317,6 +6327,10 @@ function AcpmuxPane() {
   const [retryQueued, setRetryQueued] = useState(false);
   /// Asks the host again now, after the user fixed what `hostError` says.
   const retryHost = useRef<(() => void) | undefined>(undefined);
+  const cancelRetry = useRef<(() => void) | undefined>(undefined);
+  const [acpmuxRestartOffered, setAcpmuxRestartOffered] = useState(false);
+  const [restartingAcpmux, setRestartingAcpmux] = useState(false);
+  const [restartGate] = useState(() => new AcpmuxRestartGate());
   // The host covers the pane with its loading state until this document first draws what it is:
   // the handshake's answer, or the host error when there is none (a failed start must show, not
   // stay behind the loading state). The frames before (no hero yet, "Connecting") stay hidden.
@@ -6743,7 +6757,11 @@ function AcpmuxPane() {
       else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
     };
     const connectHost = async () => {
-      if (connecting) return;
+      if (connecting || !restartGate.mayAsk()) return;
+      setSnapshot((current) => ({
+        ...current,
+        connectionState: { phase: reconnect ? "reconnecting" : "connecting" },
+      }));
       connecting = true;
       try {
         acpmuxPerf.markAgent("handshakeStart");
@@ -6910,8 +6928,12 @@ function AcpmuxPane() {
                 next.sessionId === previous.sessionId &&
                 previous.handoff?.record
               )
-                return { ...next, handoff: { ...next.handoff, record: previous.handoff.record } };
-              return next;
+                return {
+                  ...next,
+                  connectionState: next.connectionState ?? { phase: "connected" },
+                  handoff: { ...next.handoff, record: previous.handoff.record },
+                };
+              return { ...next, connectionState: next.connectionState ?? { phase: "connected" } };
             });
           },
           () => {
@@ -6922,6 +6944,7 @@ function AcpmuxPane() {
             harnessSwitch.disconnect(switchPort);
             setStartModeSource(undefined);
             directClient.current = undefined;
+            setSnapshot((current) => ({ ...current, connectionState: { phase: "reconnecting" } }));
             delete window.cmuxAcpmuxActions;
             retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
             retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
@@ -6951,6 +6974,7 @@ function AcpmuxPane() {
         };
         // Only a connected client clears the error, so a stale endpoint doesn't flicker it away.
         setHostError(undefined);
+        setAcpmuxRestartOffered(false);
         catalogClientId.current += 1;
         setCatalogSource({ id: catalogClientId.current, client });
         // A refreshed harness list or live model list re-reads the catalog (no polling).
@@ -7573,13 +7597,25 @@ function AcpmuxPane() {
       } catch (error) {
         if (!cancelled) {
           acpWire.lifecycle("handshake failed", { message: String(error) });
-          setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));
-          setHostError(errorMessage(error) || String(error));
+          const terminal = isTerminalConnectionFailure(error);
+          setSnapshot((current) => ({
+            ...current,
+            connection: terminal ? `error: ${errorMessage(error) || String(error)}` : current.connection,
+            connectionState: terminal
+              ? { phase: "terminal", message: errorMessage(error) || String(error) }
+              : { phase: reconnect ? "reconnecting" : "connecting" },
+          }));
+          // Transient startup, adoption and socket loss stay quiet; only a definite refusal keeps
+          // the honest error card (and its next action).
+          setHostError(terminal ? errorMessage(error) || String(error) : undefined);
+          setAcpmuxRestartOffered(offersAcpmuxRestart(error));
           // A refused chat of another machine still names that machine on its chip (cx-k21v).
           setMachineName((current) => refusedMachine(error) ?? current);
-          // Back off so a host without a daemon is not asked four times a second.
-          retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
-          retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
+          if (!terminal && restartGate.mayAsk()) {
+            // Back off so a host without a daemon is not asked four times a second.
+            retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
+            retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
+          }
         }
       } finally {
         connecting = false;
@@ -7587,20 +7623,27 @@ function AcpmuxPane() {
           retryPending = false;
           setRetryQueued(false);
           // The attempt in flight may have connected; then there is nothing left to retry.
-          if (!cancelled && !directClient.current) retryNow();
+          if (!cancelled && !directClient.current && restartGate.mayAsk()) retryNow();
         }
       }
     };
     // The user asked: try now, and let the host start a daemon even after one was lost.
     const retryNow = () => {
+      if (!restartGate.mayAsk()) return;
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
       retryTimer = undefined;
       reconnect = false;
       retryDelay = 250;
       void connectHost();
     };
+    cancelRetry.current = () => {
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+      retryTimer = undefined;
+      retryPending = false;
+      setRetryQueued(false);
+    };
     retryHost.current = () => {
-      if (cancelled) return;
+      if (cancelled || !restartGate.mayAsk()) return;
       if (!connecting) return retryNow();
       // An attempt is in flight (perhaps a reconnect that may not start the daemon): run the
       // user's full attempt once it ends.
@@ -7614,6 +7657,7 @@ function AcpmuxPane() {
       harnessSwitch.disconnect();
       setStartModeSource(undefined);
       retryHost.current = undefined;
+      cancelRetry.current = undefined;
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
       directClient.current?.close();
       directClient.current = undefined;
@@ -7623,7 +7667,7 @@ function AcpmuxPane() {
     };
     // These are stable for the pane's life (state, provider client, a memoized bridge callback, and
     // the early New Tab flag, one object from a useState initializer).
-  }, [harnessSwitch, queryClient, toggleInspector, earlyNewTab]);
+  }, [harnessSwitch, queryClient, toggleInspector, earlyNewTab, restartGate]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
     | React.ComponentType<{ snapshot: AcpmuxSnapshot; permissionAccess?: ComposerPermissionAccess }>
     | undefined;
@@ -9077,7 +9121,23 @@ function AcpmuxPane() {
   );
   const hostErrorCard = (
     <Notice id="host-error" tier="error" when={hostError}>
-      <HostError message={hostError ?? ""} retrying={retryQueued} onRetry={() => retryHost.current?.()} />
+      <HostError
+        message={hostError ?? ""}
+        retrying={retryQueued}
+        onRetry={() => retryHost.current?.()}
+        restarting={restartingAcpmux}
+        onRestart={
+          acpmuxRestartOffered
+            ? () =>
+                void restartGate.run(() => callNative("acpmux.restart"), {
+                  cancelRetries: () => cancelRetry.current?.(),
+                  changed: setRestartingAcpmux,
+                  connected: () => !!directClient.current,
+                  ask: () => retryHost.current?.(),
+                })
+            : undefined
+        }
+      />
     </Notice>
   );
   // The floating chat's compact bar shows whether the chat is working or waiting on the user, and
@@ -9425,12 +9485,12 @@ function AcpmuxPane() {
                 style={inTabRow ? tabRowStyle(tabRow) : undefined}
               >
                 <header className="acpmux-header" data-tab-row={inTabRow ? "" : undefined}>
-                  <ChatHeaderStatus status={header.status} detail={header.detail}>
+                  <ChatHeaderStatus status={header.status} detail={header.detail} kind={header.kind}>
                     {!inTabRow && environmentSurface.header && environmentLine(environmentSurface.compact)}
                   </ChatHeaderStatus>
                   <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
                     {inTabRow && (
-                      <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
+                      <ChatHeaderInlineStatus status={header.status} detail={header.detail} kind={header.kind}>
                         {environmentSurface.header && environmentLine(environmentSurface.compact)}
                       </ChatHeaderInlineStatus>
                     )}

@@ -24,6 +24,7 @@ import type {
   PromptDeliveryHop,
   StartSource,
 } from "./model";
+import { retrySummary } from "./model";
 import { continuesTurn } from "./turnStart";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
@@ -1057,6 +1058,8 @@ export class AcpmuxDirectClient {
   /// The chat `liveTakeOver` asks about: the choice is shown only on that chat.
   private liveTakeOverFor?: string;
   private summary: Record<string, any> | undefined;
+  /// A producer terminal event: automatic continuation attempts are exhausted.
+  private retryExhausted = false;
   /// The event seq the summary's config options are current as of: attach's `lastSeq` (its session
   /// names the options it runs now), then each newer config update. A replayed update before it is
   /// history and never takes the current options back (a chat moved from Low to High).
@@ -3045,6 +3048,10 @@ export class AcpmuxDirectClient {
 
   private reduceEvent(event: EventRecord): void {
     const msg = event.msg ?? {};
+    if (event.kind === "auto_resume_exhausted") {
+      this.retryExhausted = true;
+      return;
+    }
     const update = sessionUpdate(event);
     if (update?.sessionUpdate === USAGE_KIND) {
       const used = Number(update.used);
@@ -3306,6 +3313,7 @@ export class AcpmuxDirectClient {
       } else if (event.kind === "turn_heard") {
         this.silentTurn = false;
       } else if (event.kind === "turn_started") {
+        this.retryExhausted = false;
         this.turnOpen = true;
         this.silentTurn = false;
         this.turnTokens = event.seq >= this.usageFromSeq ? 0 : undefined;
@@ -3817,9 +3825,13 @@ export class AcpmuxDirectClient {
             configOptions: summary.configOptions,
             tools: chatTools(summary.tools),
             toolsMutable: summary.toolsMutable === true,
+            retry: retrySummary(summary.retry) ?? null,
           }
         : undefined,
       connection,
+      connectionState: this.retryExhausted
+        ? { phase: "terminal", message: translate("notice.resumeFailed") }
+        : { phase: "connected" },
       origin: this.origin,
       ...(this.listedSessions ? { listedSessions: true as const } : {}),
       ...(this.drewKeptTail ? { drewKeptTail: true as const } : {}),

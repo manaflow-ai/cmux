@@ -528,6 +528,42 @@ export type AcpmuxWorkflowWire = {
  * (`notListedAtOpen`), or it left the list while the pane showed it (`leftListWhileShown`). */
 export type MissingSessionReason = "notListedAtOpen" | "leftListWhileShown";
 
+export type AcpmuxRetryReason = "capacity" | "transport" | "agent_exited";
+
+/** acpmux 25232's waiting automatic continuation, when that producer is available. */
+export type AcpmuxRetrySummary = {
+  attempt: number;
+  of: number;
+  nextAt: number;
+  promptId: string;
+  turnId: string;
+  reason: AcpmuxRetryReason;
+};
+
+/** Native lifecycle evidence for the pane connection. Presentation must use this receipt, not text. */
+export type AcpmuxConnectionState =
+  | { phase: "connecting" | "reconnecting" }
+  | { phase: "connected" }
+  | { phase: "terminal"; message: string };
+
+export function retrySummary(value: unknown): AcpmuxRetrySummary | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const item = value as Record<string, unknown>;
+  const reason = item.reason;
+  if (reason !== "capacity" && reason !== "transport" && reason !== "agent_exited") return undefined;
+  const numbers = [item.attempt, item.of, item.nextAt];
+  if (!numbers.every((number) => typeof number === "number" && Number.isFinite(number) && number >= 0)) return undefined;
+  if (typeof item.promptId !== "string" || typeof item.turnId !== "string") return undefined;
+  return {
+    attempt: numbers[0] as number,
+    of: numbers[1] as number,
+    nextAt: numbers[2] as number,
+    promptId: item.promptId,
+    turnId: item.turnId,
+    reason,
+  };
+}
+
 export type AcpmuxSnapshot = {
   type: "snapshot";
   protocolVersion: number;
@@ -613,8 +649,11 @@ export type AcpmuxSnapshot = {
     /// The chat's tools (acpmux `tools`, cx-thur3) and whether `_acpmux/set_tools` can change them.
     tools?: ChatTool[];
     toolsMutable?: boolean;
+    /** Waiting automatic continuation (acpmux 25232); absent on older daemons. */
+    retry?: AcpmuxRetrySummary | null;
   };
   connection: string;
+  connectionState?: AcpmuxConnectionState;
   /// The origin acpmux names for this connection in `initialize` (`_meta.acpmux.origin`):
   /// `remote` gets its Web rules (no Codex or opencode, remoteEditing.ts); `unknown` is an older
   /// acpmux that names none. Unset in a snapshot no client built (fixtures).
@@ -1484,26 +1523,27 @@ import { messageOpened } from "./conversation/incomingOpened";
 export function paneHeader(
   snapshot: AcpmuxSnapshot,
   t: Translate = translate,
-): { title: string; status: string; detail?: string } {
+): { title: string; status: string; detail?: string; kind?: "reconnecting" | "problem" } {
   const harness = snapshot.summary?.harness;
   const title = harness
     ? agentName(harness, snapshot.catalog?.find((entry) => entry.id === harness)?.name)
     : t("header.agentChat");
-  // Initial connecting and normal turn events are quiet. The client includes the failure
-  // after `connecting:` while retrying, and keeps it until a successful connection.
-  const connection = snapshot.connection;
-  const retrying = connection.startsWith("connecting:") || connection === "reconnecting";
-  const failed = /^(error|failed)(:|$)/i.test(connection) || connection === "fork failed";
-  const status =
-    connection === "disconnected"
-      ? t("header.disconnected")
-      : retrying
-        ? t("header.reconnecting")
-        : failed
-          ? t("header.failed")
-          : "";
+  const lifecycle = snapshot.connectionState;
+  const retrying =
+    lifecycle?.phase === "connecting" ||
+    lifecycle?.phase === "reconnecting" ||
+    snapshot.summary?.retry != null;
+  const failed = lifecycle?.phase === "terminal";
+  const status = snapshot.connection === "disconnected" && !retrying
+    ? t("header.disconnected")
+    : retrying && !failed
+      ? t("header.reconnecting")
+      : failed
+        ? t("header.failed")
+        : "";
   if (!status) return { title, status };
-  const reason = connection.includes(":") ? connection.slice(connection.indexOf(":") + 1).trim() : undefined;
+  if (retrying && !failed) return { title, status, kind: "reconnecting" };
+  const reason = lifecycle?.phase === "terminal" ? lifecycle.message : undefined;
   let rowError: string | undefined;
   if (failed && !reason) {
     for (let index = snapshot.rows.length - 1; index >= 0; index--) {
@@ -1511,7 +1551,7 @@ export function paneHeader(
       if (rowError) break;
     }
   }
-  return { title, status, detail: reason || rowError || status };
+  return { title, status, kind: "problem", detail: reason || rowError || status };
 }
 
 /** Where acpmux's start model or effort comes from: `saved` (acpmux defaults or the person's
