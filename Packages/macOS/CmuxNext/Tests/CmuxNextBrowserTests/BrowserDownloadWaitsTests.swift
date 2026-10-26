@@ -39,15 +39,35 @@ import Testing
     @Test func oneNewDownloadGoesToOneWait() async {
         let waits = BrowserDownloadWaits()
         let item = download("a.zip")
-        async let first = waits.ended(id: nil, tab: "tab_a", items: [], within: .milliseconds(400))
-        async let second = waits.ended(id: nil, tab: "tab_a", items: [], within: .milliseconds(400))
+        // Main-actor tasks run in order: both waits register before the download starts.
+        let first = Task { @MainActor in await waits.ended(id: nil, tab: "tab_a", items: [], within: .milliseconds(400)) }
+        let second = Task { @MainActor in await waits.ended(id: nil, tab: "tab_a", items: [], within: .milliseconds(400)) }
         Task { @MainActor in
             waits.started(item, tab: "tab_a")
             item.complete(.finished)
         }
 
-        let answers = await [first, second]
+        let answers = [await first.value, await second.value]
         let ended = answers.filter { if case .ended = $0 { true } else { false } }.count
         #expect(ended == 1, "\(ended) waits got the one download")
+    }
+
+    /// A wait by id that gives up does not release a download another wait follows.
+    @Test func aByIDWaitThatTimesOutLeavesAnotherWaitsDownloadClaimed() async {
+        let waits = BrowserDownloadWaits()
+        let item = download("big.iso")
+        waits.started(item, tab: "tab_a")
+        let follower = Task { @MainActor in await waits.ended(id: nil, tab: "tab_a", items: [item], within: .seconds(5)) }
+        await Task.yield()
+
+        let byID = await waits.ended(id: item.id.uuidString, tab: nil, items: [item], within: .milliseconds(50))
+        let third = await waits.ended(id: nil, tab: "tab_a", items: [item], within: .milliseconds(100))
+        item.complete(.finished)
+        let followed = await follower.value
+
+        guard case .timedOut = byID else { Issue.record("the by-id wait answered \(byID)"); return }
+        guard case .timedOut = third else { Issue.record("a third wait took the download another wait follows: \(third)"); return }
+        guard case .ended(let ended) = followed else { Issue.record("the follower answered \(followed)"); return }
+        #expect(ended === item)
     }
 }
