@@ -1,0 +1,183 @@
+{
+  "schema": 1,
+  "owner": "p07-memory-074",
+  "fork_repo": "manaflow-ai/cef",
+  "train_branch": "cp/p07-memory-074",
+  "train_base": "cp/p01-process-178",
+  "api": 32,
+  "pinned": {
+    "tag": "cef-154.0.28-cmux.28",
+    "api": 24,
+    "fork_ref": "596a6969eb435f459125f66076699593f074cbff"
+  },
+  "exports": [
+    {
+      "id": "keychain-item",
+      "program": "PL-cef",
+      "api": 25,
+      "fork_commit": "2572bb1a046beac45c018cc5b7f5c42ea6bf2650",
+      "summary": "cmux_set_keychain_item: the app's own Safe Storage keychain item; undecryptable cookies stay on disk"
+    },
+    {
+      "id": "layer-hosting",
+      "program": "p03-rendering (F1)",
+      "api": 26,
+      "fork_commit": "c382c63b27d8637b75c30a57fcb47872604eb732",
+      "summary": "cmux_browser_set_layer_hosting: page pixels in the app's layer tree through a CAContext id"
+    },
+    {
+      "id": "resize-sync",
+      "program": "p03-rendering",
+      "api": 27,
+      "fork_commit": "e07a2f786e11e77446d9838a91a55fea52efaeaa",
+      "summary": "cmux_browser_set_resize_sync: a page resize holds the app's commit only up to the app's deadline"
+    },
+    {
+      "id": "cmux34-capture",
+      "program": "PL-cef-layer",
+      "api": 28,
+      "fork_commit": null,
+      "summary": "cmux.34 page capture; no commit on the fork remote (the API 31 line says it lacks 28)"
+    },
+    {
+      "id": "renderer-paths",
+      "program": "PL-cef (consumers p07-memory-046, p13-webui)",
+      "api": 29,
+      "fork_commit": null,
+      "summary": "renderer paths of cmux.35: document-start scripts, page channels, eval without DevTools, SetPageFrozen, native click, --cmux-process-reuse-per-renderer-devtools; CEFForkFeatures.rendererPathsForkAPI checks 29; no commit on the fork remote"
+    },
+    {
+      "id": "p01-process-helper-app",
+      "program": "p01-process (F2)",
+      "api": 30,
+      "fork_commit": "c8953bc613cdb3dc82708d3647a12fe9d5d3c72e",
+      "summary": "helper-app browser process: detached hosting, embedder key state, user-input task queue, wheel phases, text input watch, AX token, drag source"
+    },
+    {
+      "id": "p01-process-170",
+      "program": "p01-process (F2)",
+      "api": 31,
+      "fork_commit": "1251eb0d49a42c910d93b0ef3178dfad198255f8",
+      "summary": "IME of a detached page and its composition bounds"
+    },
+    {
+      "id": "p01-process-171",
+      "program": "p01-process (F2)",
+      "api": 31,
+      "fork_commit": "f56699949a4a4f22a369daec34400d192a61a143",
+      "summary": "<select> popups as data"
+    },
+    {
+      "id": "p01-process-172",
+      "program": "p01-process (F2)",
+      "api": 31,
+      "fork_commit": "609cb24803cfcf1b70575371d0cf3e9d4eef96b2",
+      "summary": "suggestions as data and drops of a detached page"
+    },
+    {
+      "id": "p01-process-173",
+      "program": "p01-process (F2)",
+      "api": 31,
+      "fork_commit": "30f6adc616c20fe8434f120f3e7759b0fcd2af92",
+      "summary": "hosted widgets through CAContext ids"
+    },
+    {
+      "id": "p01-process-175",
+      "program": "p01-process (F2)",
+      "api": 31,
+      "fork_commit": "0d336d1c43d4700cb2d31ba00d84abda2efeb657",
+      "summary": "iCloud Keychain passkeys through the embedder"
+    },
+    {
+      "id": "p01-process-176",
+      "program": "p01-process (F2)",
+      "api": 31,
+      "fork_commit": "2bda2fe84ad9c167d17be1e901bf4b2cec078b81",
+      "summary": "blocked widgets: no Chromium window of a detached page orders in"
+    },
+    {
+      "id": "p01-process-227",
+      "program": "p01-process (F2)",
+      "api": 31,
+      "fork_commit": "574e051d14e57d87f00f6061dcea91b0252eff8b",
+      "summary": "embedder UI as data: picture-in-picture, locks, visibility, display and page state"
+    },
+    {
+      "id": "p07-memory-111",
+      "program": "p07-memory",
+      "api": 31,
+      "fork_commit": "e603be8e20eee4b3eb6ed247b8bcb2aa20800401",
+      "summary": "shared-renderer memory caps (--cmux-shared-renderer-memory-limit, Chrome's PMF cap from the embedder)"
+    },
+    {
+      "id": "p03-rendering-042",
+      "program": "p03-rendering",
+      "api": 32,
+      "fork_commit": "741a509ac5e77612eb5ca0e9715941915be2298f",
+      "summary": "cmux_browser_set_resize_fence: resize fence in display frames; no CATransactionCoordinator wait for an embedded page"
+    },
+    {
+      "id": "p13-webui-011",
+      "program": "p13-webui (consumer p07-memory-049)",
+      "api": null,
+      "fork_commit": "17a7f8ff5400a8753b9764f07f79f2db8d96f062",
+      "summary": "cmux-page process groups and --cmux-page-scheme-process-per-site (spike 091 included); its gate takes the train's number"
+    },
+    {
+      "id": "p13-webui-017",
+      "program": "p13-webui",
+      "api": null,
+      "fork_commit": "dfdbea5afd6b5d187b34b5a1ddcf11bb8dfa8863",
+      "summary": "renderer-less placeholder window tab"
+    },
+    {
+      "id": "p13-webui-018",
+      "program": "p13-webui",
+      "api": null,
+      "fork_commit": "f844f729011a47deab5a04dae84274c89ca6e2b8",
+      "summary": "cmux_tab_discard: in-place discard of a hidden page"
+    },
+    {
+      "id": "p13-webui-020",
+      "program": "p13-webui",
+      "api": null,
+      "fork_commit": "5d16aa91a981d61999d4b986a72cffaeac661d37",
+      "summary": "spare renderer only after a browser tab navigated"
+    },
+    {
+      "id": "p13-webui-077",
+      "program": "p13-webui",
+      "api": null,
+      "fork_commit": "d110ee57e8daf680ad742571aa71dc6b6cb0824a",
+      "summary": "page surface copy without DevTools"
+    },
+    {
+      "id": "p14-energy-037",
+      "program": "p14-energy",
+      "api": null,
+      "fork_commit": "361b930f5db4c5e27e105a87f755247b2d65e3fe",
+      "summary": "the external pump's time slice is at most 2 ms"
+    },
+    {
+      "id": "p07-memory-051",
+      "program": "p07-memory",
+      "api": null,
+      "fork_commit": null,
+      "summary": "cmux_memory_pressure_vote through MultiSourceMemoryPressureMonitor::CreateVoter"
+    },
+    {
+      "id": "p07-memory-101",
+      "program": "p07-memory",
+      "api": null,
+      "fork_commit": null,
+      "summary": "cmux_flush_back_forward_cache for hidden tabs"
+    },
+    {
+      "id": "p07-memory-069",
+      "program": "p07-memory",
+      "api": null,
+      "fork_commit": null,
+      "summary": "PartitionAlloc purge at memory pressure"
+    }
+  ]
+}

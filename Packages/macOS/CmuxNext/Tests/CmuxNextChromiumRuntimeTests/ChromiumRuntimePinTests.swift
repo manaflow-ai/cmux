@@ -49,6 +49,20 @@ struct ChromiumRuntimePinTests {
         #expect(try ChromiumRuntimePin.decode(Data(text.utf8)).teamID == nil)
     }
 
+    @Test func readsTheForkAPIWhenThePackNamesIt() throws {
+        #expect(try ChromiumRuntimePin.decode(Data(Self.valid.utf8)).forkAPI == nil)
+        let text = Self.valid.replacingOccurrences(of: "\"size\": 1000", with: "\"size\": 1000, \"fork_api\": 32")
+        let pin = try ChromiumRuntimePin.decode(Data(text.utf8))
+        #expect(pin.forkAPI == 32)
+        let encoded = try JSONEncoder().encode(pin)
+        #expect(try ChromiumRuntimePin.decode(encoded) == pin)
+    }
+
+    @Test func refusesAForkAPIBelowOne() throws {
+        let text = Self.valid.replacingOccurrences(of: "\"size\": 1000", with: "\"size\": 1000, \"fork_api\": 0")
+        #expect(throws: ChromiumRuntimePin.Invalid.forkAPI) { try ChromiumRuntimePin.decode(Data(text.utf8)) }
+    }
+
     @Test func bundledReadsTheResourcesFolder() throws {
         let folder = try TemporaryFolder()
         #expect(ChromiumRuntimePin.bundled(in: folder.url) == nil)

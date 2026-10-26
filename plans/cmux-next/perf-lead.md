@@ -191,6 +191,36 @@ push), and writes its before/after table into this file's section 5.
 
 Batch 2 (after batch 1 lands): issues 8, 9, 11, 15-20.
 
+### One shared CEF fork train and pin (chrome-parity p07-memory 074)
+
+Every program's fork export ships in one manaflow-ai/cef build and one pin, as Chrome ships every
+feature of a milestone from one branch with one version number (chrome/VERSION). No program bumps
+`scripts/cmux-next/cef-manifest.json` alone.
+
+- The ledger is `scripts/cmux-next/cef-fork-train.json`: each export with its program, the fork API
+  number its cmux gate checks (null until the train numbers it) and its fork commit. The train branch
+  is `cp/p07-memory-074` on manaflow-ai/cef, started 2026-10-26 at the p01-process 178 train
+  (746f1220, API 31). Each program's train task merges its exports into it: p01-process 178 (176, 227),
+  p03-rendering 041/042 (API 32 resize fence), p13-webui 086 (011, 017, 018, 020, 077),
+  p14-energy 136 (037 and the rest of its bundle), and the p07 fork work (051 voter, 101 BFCache
+  flush, 069 PartitionAlloc purge; 046 rides on the API 29 renderer paths, 049 on p13-webui 011).
+- `scripts/cmux-next/cef-fork-train.py status --fork-repo <cef clone>` shows each export merged,
+  ready (pushed, not merged), pending (no fork commit) or deferred; `ready` is the build gate: every
+  export that is not deferred is merged and the train's `CMUX_CEF_API_VERSION` is the ledger's. A
+  deferred export may not keep a number at or below the train's, so no gate reads the build as
+  having it. `check` also refuses an app gate (`...ForkAPI = N` newer than the pin) that no export claims.
+- Hole at 2026-10-26: API 28 (cmux.34 capture) and 29 (cmux.35 renderer paths, the gate of
+  `CEFForkFeatures.rendererPathsForkAPI` and of p07-memory 046) have no commit on the fork remote.
+  The API 31 line lacks them, so with a pin of that line alone `CEFForkFeatures.rendererPaths`
+  would read the renderer paths as present on a fork without them. Before the cut, push them to the train or move their gates past its number.
+- The cut: one `cmux-ci build cef` of the train (arm64, x86_64, debug assets), one GitHub release,
+  then `cef-fork-train.py pin --tag <tag> --sums SHA256SUMS --chromium <version> --fork-repo <clone>`
+  writes the manifest and the pin commit message (fork API, features per program, checksums). The
+  one outside step is the R2 upload: a person with R2 write access runs
+  `scripts/cmux-next/publish-cef-r2.sh <tag> --manifest scripts/cmux-next/cef-manifest.json`, and
+  its r2 fields go in the same pin commit. `check-manifest` refuses any other bump. The runtime pack
+  pin (`cef-runtime.json`) names the build's `fork_api`.
+
 ## 5. Results log
 
 | Date | Workstream | sha range on feat-cmux-next | Row | Before | After |

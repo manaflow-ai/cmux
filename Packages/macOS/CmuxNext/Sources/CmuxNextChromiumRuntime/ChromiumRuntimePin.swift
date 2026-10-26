@@ -13,7 +13,7 @@ public import Foundation
 /// {"schema": 1, "key": "0123456789abcdef", "cef": "154.0.28",
 ///  "chromium": "154.0.8037.58", "shim_abi": "…", "sha256": "…",
 ///  "size": 107000000, "url": "https://files-next.cmux.com/cef-runtime/…",
-///  "team_id": "ABCDE12345", "folder": "cmux NIGHTLY Chromium"}
+///  "team_id": "ABCDE12345", "folder": "cmux NIGHTLY Chromium", "fork_api": 32}
 /// ```
 public struct ChromiumRuntimePin: Codable, Sendable, Equatable {
     /// The file name of the pin in the app's resources.
@@ -42,16 +42,23 @@ public struct ChromiumRuntimePin: Codable, Sendable, Equatable {
     /// The runtime folder's name inside the pack, for example
     /// `cmux NIGHTLY Chromium` (a plain folder, never an `.app`).
     public var folder: String
+    /// The fork API of the pack's Chromium (`cmux_cef_api_version()`; the
+    /// `cmux_cef_api_version` of `scripts/cmux-next/cef-manifest.json`), nil in
+    /// pins written before packs named it. Every program's fork export ships in
+    /// one shared build (`scripts/cmux-next/cef-fork-train.json`), so a pack at
+    /// API N has every export numbered N or lower.
+    public var forkAPI: Int?
 
     enum CodingKeys: String, CodingKey {
         case schema, key, cef, chromium, sha256, size, url, folder
         case shimABI = "shim_abi"
         case teamID = "team_id"
+        case forkAPI = "fork_api"
     }
 
     /// Creates a pin; ``validated()`` checks it.
     public init(schema: Int = 1, key: String, cef: String, chromium: String, shimABI: String, sha256: String,
-                size: Int64, url: URL, teamID: String?, folder: String) {
+                size: Int64, url: URL, teamID: String?, folder: String, forkAPI: Int? = nil) {
         self.schema = schema
         self.key = key
         self.cef = cef
@@ -62,6 +69,7 @@ public struct ChromiumRuntimePin: Codable, Sendable, Equatable {
         self.url = url
         self.teamID = teamID
         self.folder = folder
+        self.forkAPI = forkAPI
     }
 
     /// Why a pin cannot be used.
@@ -73,6 +81,7 @@ public struct ChromiumRuntimePin: Codable, Sendable, Equatable {
         case url
         case folder
         case teamID
+        case forkAPI
     }
 
     /// Decodes and validates a pin.
@@ -107,6 +116,7 @@ public struct ChromiumRuntimePin: Codable, Sendable, Equatable {
         if let teamID, teamID.isEmpty || !teamID.allSatisfy({ $0.isASCII && ($0.isUppercase || $0.isNumber) }) {
             throw .teamID
         }
+        if let forkAPI, forkAPI < 1 { throw .forkAPI }
         return self
     }
 

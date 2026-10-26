@@ -56,6 +56,7 @@ asset="$work/out/cef-runtime-$key.tar.xz"
 [[ "$(field "$pin" folder)" == "cmux TEST Chromium" ]] || fail "pin folder"
 [[ -z "$(field "$pin" team_id)" ]] || fail "an unsigned pack has no team"
 [[ "$(field "$pin" schema)" == 1 && -n "$(field "$pin" shim_abi)" && -n "$(field "$pin" cef)" ]] || fail "pin fields"
+[[ "$(field "$pin" fork_api)" == "$(field "$here/../cef-manifest.json" cmux_cef_api_version)" ]] || fail "pin fork_api $(field "$pin" fork_api)"
 cmp -s "$pin" "$app/Contents/Resources/cef-runtime.json" || fail "the app's pin differs"
 # A file, not a here-string: grep reads it directly.
 tar -tf "$asset" > "$work/entries"
