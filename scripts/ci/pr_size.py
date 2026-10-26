@@ -9,11 +9,12 @@ line in the pull request body starting `Size:` followed by a reason overrides
 the warning: the check prints the reason and passes clean.
 
 It never exits non-zero for a size: the check is advisory and is not a required
-check. Input is the pull request's files as `additions<TAB>deletions<TAB>path`
-lines (the workflow reads them from one paginated pulls/N/files call) and the
-pull_request event payload for the body.
+check. Input is the pull request's files, one JSON object per line with
+`filename`, `additions` and `deletions` (the workflow reads them from one
+paginated pulls/N/files call; JSON keeps a file name with a tab or newline in
+one record), and the pull_request event payload for the body.
 
-    pr_size.py --files FILES.tsv --event "$GITHUB_EVENT_PATH"
+    pr_size.py --files FILES.jsonl --event "$GITHUB_EVENT_PATH"
 """
 
 from __future__ import annotations
@@ -82,11 +83,12 @@ class Result:
 
 def parse_files(text: str) -> list[tuple[str, int]]:
     rows = []
-    for line in text.splitlines():
+    # Split on newline only: jq escapes newlines inside names, but not U+2028.
+    for line in text.split("\n"):
         if not line.strip():
             continue
-        additions, deletions, path = line.split("\t", 2)
-        rows.append((path, int(additions) + int(deletions)))
+        row = json.loads(line)
+        rows.append((row["filename"], int(row["additions"]) + int(row["deletions"])))
     return rows
 
 
@@ -104,6 +106,11 @@ def measure(rows: list[tuple[str, int]], body: str | None, limit: int, globs: tu
 
 def escape_command(text: str) -> str:
     return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def code(path: str) -> str:
+    """A path as markdown inline code, on one line."""
+    return "`" + path.replace("`", "'").replace("\r", " ").replace("\n", " ") + "`"
 
 
 def report(result: Result) -> tuple[str, str]:
@@ -126,13 +133,13 @@ def report(result: Result) -> tuple[str, str]:
         lines += [SPLIT_HINT, ""]
     if largest:
         lines += ["| counted lines | file |", "| ---: | --- |"]
-        lines += [f"| {count} | `{path}` |" for path, count, _ in largest]
+        lines += [f"| {count} | {code(path).replace('|', '&#124;')} |" for path, count, _ in largest]
         lines.append("")
     skipped = [f for f in result.files if f[2] is not None]
     if skipped:
         lines += [f"<details><summary>{len(skipped)} allowlisted files not counted "
                   "(scripts/ci/pr_size_exclusions.json)</summary>", ""]
-        lines += [f"- `{path}` ({count}, `{glob}`)" for path, count, glob in skipped[:100]]
+        lines += [f"- {code(path)} ({count}, `{glob}`)" for path, count, glob in skipped[:100]]
         lines += ["", "</details>", ""]
     return command, "\n".join(lines)
 

@@ -57,6 +57,13 @@ jobs:
             echo "::notice title=PR size::the base predates the size check; skipped"
             exit 0
           fi
-          gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
-            --jq '.[] | "\(.additions)\t\(.deletions)\t\(.filename)"' > "$RUNNER_TEMP/files.tsv"
-          python3 scripts/ci/pr_size.py --files "$RUNNER_TEMP/files.tsv" --event "$GITHUB_EVENT_PATH"
+          # Advisory: an API error (rate limit, outage) warns and passes, never fails.
+          if ! gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
+            --jq '.[] | {filename, additions, deletions} | @json' > "$RUNNER_TEMP/files.jsonl"; then
+            echo "::warning title=PR size::could not read the pull request's files; size not measured"
+            exit 0
+          fi
+          python3 scripts/ci/pr_size.py --files "$RUNNER_TEMP/files.jsonl" --event "$GITHUB_EVENT_PATH" || {
+            echo "::warning title=PR size::the size script failed; size not measured"
+            exit 0
+          }

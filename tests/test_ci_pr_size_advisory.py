@@ -79,7 +79,7 @@ class ExclusionAllowlistTests(unittest.TestCase):
             "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartSession.swift",
             "cmux-tui/crates/acpmux/src/hub/lane_reports.rs",
             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartSessionTests.swift",
-            "docs/mdm/managed-preferences.md",
+            "docs/mdm/vendors.md",
             ".github/workflows/pr-size-advisory.yml",
         ):
             self.assertIsNone(pr_size.excluded_by(path, GLOBS), path)
@@ -89,8 +89,34 @@ class ExclusionAllowlistTests(unittest.TestCase):
             "schemas/settings/settings-schema.json",
             "web/data/next-docs/cli-reference.generated.json",
             "cmux-tui/Cargo.lock",
+            "docs/mdm/managed-preferences.md",
+            "schemas/defaults/cmux-next.json",
+            "web/data/cmux-shortcuts.generated.json",
         ):
             self.assertIsNotNone(pr_size.excluded_by(path, GLOBS), path)
+
+
+    def test_every_committed_generator_output_is_excluded(self) -> None:
+        # scripts/cmux-next/generated_outputs.py is the repo's list of committed
+        # generated files (fnmatch, `*` crosses `/`); none of them may count.
+        import fnmatch
+
+        spec = importlib.util.spec_from_file_location("generated_outputs", ROOT / "scripts/cmux-next/generated_outputs.py")
+        assert spec and spec.loader
+        outputs = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(outputs)
+        patterns = [pattern for group, _, _ in outputs.OUTPUTS for pattern in group]
+        self.assertTrue(patterns)
+        counted = sorted(
+            path for path in tracked()
+            if any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns)
+            and pr_size.excluded_by(path, GLOBS) is None
+        )
+        self.assertEqual(counted, [], "generated outputs the size check would count; add their globs")
+
+
+def jsonl(*rows: tuple[int, int, str]) -> str:
+    return "".join(json.dumps({"filename": f, "additions": a, "deletions": d}) + "\n" for a, d, f in rows)
 
 
 class MeasureTests(unittest.TestCase):
@@ -116,14 +142,14 @@ class MeasureTests(unittest.TestCase):
             return code, stdout.getvalue() + summary.read_text(encoding="utf-8")
 
     def test_over_the_limit_warns_with_a_split_hint_and_exits_zero(self) -> None:
-        code, out = self.run_main("700\t200\tsrc/a.swift\n", "A change")
+        code, out = self.run_main(jsonl((700, 200, "src/a.swift")), "A change")
         self.assertEqual(code, 0)
         self.assertIn("::warning title=PR size over 800 lines::", out)
         self.assertIn("How to split", out)
         self.assertIn("tests", out)
 
     def test_size_line_overrides_and_prints_the_reason(self) -> None:
-        code, out = self.run_main("700\t200\tsrc/a.swift\n", "Intro\n\nSize: one atomic rename across the tree\n")
+        code, out = self.run_main(jsonl((700, 200, "src/a.swift")), "Intro\n\nSize: one atomic rename across the tree\n")
         self.assertEqual(code, 0)
         self.assertNotIn("::warning", out)
         self.assertIn("Size: one atomic rename across the tree", out)
@@ -134,12 +160,20 @@ class MeasureTests(unittest.TestCase):
         self.assertEqual(pr_size.override_reason("x\r\n  Size: reason here\r\n"), "reason here")
 
     def test_allowlisted_lines_do_not_count(self) -> None:
-        files = "300\t0\tsrc/a.swift\n2000\t0\tApp/Resources/Foo.xcstrings\n500\t0\tbun.lock\n"
+        files = jsonl((300, 0, "src/a.swift"), (2000, 0, "App/Resources/Foo.xcstrings"), (500, 0, "bun.lock"))
         code, out = self.run_main(files, None)
         self.assertEqual(code, 0)
         self.assertNotIn("::warning", out)
         self.assertIn("300 counted lines", out)
         self.assertIn("2500 more in allowlisted", out)
+
+    def test_odd_file_names_stay_one_record(self) -> None:
+        files = jsonl((10, 0, "src/a\nb.py"), (5, 0, "src/c\td.py"), (1, 0, "src/e\u2028f.py"), (2, 0, "x`|y.md"))
+        rows = pr_size.parse_files(files)
+        self.assertEqual([p for p, _ in rows], ["src/a\nb.py", "src/c\td.py", "src/e\u2028f.py", "x`|y.md"])
+        code, out = self.run_main(files, None)
+        self.assertEqual(code, 0)
+        self.assertIn("18 counted lines", out)
 
     def test_exactly_the_limit_passes(self) -> None:
         result = pr_size.measure([("a.py", 800)], None, LIMIT, GLOBS)
