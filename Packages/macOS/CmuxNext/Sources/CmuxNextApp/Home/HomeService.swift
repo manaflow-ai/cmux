@@ -104,10 +104,10 @@ final class HomeService {
     /// (`markdown-viewer/ondine.min.js`); one renderer (one JavaScriptCore context) for every pane.
     /// nil when the bundle lacks the script: fences stay text.
     @ObservationIgnored private(set) lazy var diagrams: OndineMermaidRenderer? = OndineMermaidRenderer.bundled()
-    @ObservationIgnored let homeSource = DaemonHomeSource(me: HomeCoreMapping.participant(HomeService.localUser))
+    @ObservationIgnored let homeSource: DaemonHomeSource
     /// Cloud conversations through the daemon's proxy (home-cloud-proxy.md),
     /// merged with the local ones into the one store.
-    @ObservationIgnored let cloudSource = CloudHomeSource(me: HomeCoreMapping.participant(HomeService.localUser))
+    @ObservationIgnored let cloudSource: CloudHomeSource
     /// Message requests from people the user is not connected to (home-messaging-invites DESIGN 2.3).
     @ObservationIgnored private(set) lazy var requests = HomeMessageRequests(source: cloudSource)
     @ObservationIgnored private(set) lazy var homeRouter = HomeSourceRouter(local: homeSource, cloud: cloudSource)
@@ -170,6 +170,8 @@ final class HomeService {
 
     init(services: AppServices, chiefHome: ChiefHome? = nil) {
         self.services = services
+        homeSource = DaemonHomeSource(me: HomeCoreMapping.participant(HomeService.localUser), work: services.work)
+        cloudSource = CloudHomeSource(me: HomeCoreMapping.participant(HomeService.localUser), work: services.work)
         chief = ChiefConversationOwner(home: chiefHome ?? ChiefHome.resolve(tag: services.environment.tag))
         // MessagesLab's flight recorder (HomeTunables): DEV on, NIGHTLY opt-in, Release and RC never.
         HomeFlightRecording.install(available: DevTools.isEnabled,
@@ -218,7 +220,7 @@ final class HomeService {
             if self?.settleNotice != text { self?.settleNotice = text }
         }
         watchReplies()
-        chief.start()
+        chief.start(work: services.work)
         let chief = chief
         startCloud()
         // task-owner: lives as long as the service; event-driven (Observation)

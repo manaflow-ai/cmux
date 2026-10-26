@@ -39,6 +39,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     var parkSerial: UInt64 = 0
     /// What each workspace this window unmounted showed (`releaseParked`), until it mounts again.
     var unmountedViews: [String: WorkspaceViewRecord] = [:]
+    /// Times this window's workspace switches (`switch.workspace`): ``DebugWorkspaceSwitch/timer`` unless a test passes its own.
+    var workspaceSwitchTimer = DebugWorkspaceSwitch.timer
     /// This window in the visibility tree, under the app's node: occlusion, miniaturize, a hidden
     /// app and sleeping displays feed it (`WindowVisibilitySource`, p06-scheduler-022). The parent
     /// of every mounted workspace's node.
@@ -82,6 +84,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         sidebar.container.sidebarView.onSearch = { [weak registry = services.registry] _ in
             _ = registry?.perform("palette.open", invocation: ActionInvocation(arguments: ["scope": .string("search")], origin: .user))
         }
+        // The Energy Saver card's "Turn Off for Now" runs the palette's action (p14-energy-025).
+        sidebar.container.sidebarView.onTurnOffEnergySaver = { [weak registry = services.registry] in
+            _ = registry?.perform("energy.saver.turnOffForNow", invocation: ActionInvocation(origin: .user))
+        }
         root = WindowRootView(sidebar: sidebar.container, signals: services.appearance)
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
@@ -97,6 +103,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             defer: false
         )
         window.keyRouter = services.keyRouter
+        window.turnMeter = services.mainWork.budget.turns
         window.title = Strings.appName
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
@@ -122,6 +129,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         focus.window = window
         focus.crashKeys = services.crashKeys
         focus.keyInput = services.keyRouter.keyInput
+        focus.inputDispatch = services.inputDispatch
         focus.send(.appActive(NSApp.isActive))
         startShortcutHints()
         observeWorkspace()
@@ -438,7 +446,9 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
 
     weak var keyRouter: KeyRouter?
     weak var focus: FocusCoordinator?
-    private(set) lazy var overlayLayer = WindowOverlayLayer(window: self)
+    /// The app's main run-loop turn meter: a layout depth counts only in the turn that began its pass.
+    weak var turnMeter: MainTurnMeter?
+    private(set) lazy var overlayLayer = WindowOverlayLayer(window: self) { [weak self] in self?.turnMeter?.turnNumber ?? 0 }
 
     /// Zoom without AppKit's blocking animation (``WindowZoom``): every entrypoint comes here.
     private var zoomState = WindowZoom()
@@ -509,8 +519,9 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     }
 
     /// Inside `layoutIfNeeded` (views defer cross-window work to its end).
-    /// The overlay layer's depth resets itself on the next event cycle if an
-    /// exception AppKit caught skipped the end of a pass.
+    /// The overlay layer counts a depth only in the turn that began the pass:
+    /// after an exception AppKit caught skipped the end of a pass, the next
+    /// turn's first pass is the outermost one again.
     var isInLayoutPass: Bool { overlayLayer.layoutDepth > 0 }
 
     private var pendingAfterLayout: [() -> Void] = []

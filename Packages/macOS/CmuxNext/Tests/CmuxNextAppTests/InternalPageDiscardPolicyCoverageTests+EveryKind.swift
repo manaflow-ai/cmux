@@ -2,6 +2,7 @@
 import CmuxNextDesign
 import CmuxNextHibernation
 import CmuxNextMemory
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -81,7 +82,7 @@ extension InternalPageDiscardPolicyCoverageTests {
 
         #if DEBUG || CMUX_BENCH_HOOKS
         @MainActor @Test func theHomeFixtureIsNeverDiscarded() {
-            let fixture = DebugHomeNativeFixture(openPanel: MadeAheadOpenPanel(), mainWork: linklessMainWork())
+            let fixture = DebugHomeNativeFixture(openPanel: MadeAheadOpenPanel(), mainWork: linklessMainWork(), work: BackgroundWork(label: "test.home-fixture"))
             #expect(fixture.discardPolicy(for: LocalPageTab.makeKey(.homeNativeFixture)) == .never)
         }
         #endif

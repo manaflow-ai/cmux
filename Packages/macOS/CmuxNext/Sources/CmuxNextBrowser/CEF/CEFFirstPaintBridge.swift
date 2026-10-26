@@ -69,10 +69,12 @@ final class CEFFirstPaintBridge {
     /// The main frame's document painted content (a lifecycle event, or from fork API 29 the
     /// first paint channel, `BrowserFirstPaintScript`).
     func painted() {
+        if let tab { tab.runtime.chatStage(.firstContentfulPaint, pane: tab.host.key.pane.rawValue) }
         #if DEBUG || CMUX_BENCH_HOOKS
         ChatOpenTrace.shared.mark(.firstContentfulPaint, chromiumPane: tab?.host.key.pane.rawValue)
         if let tab { tab.runtime.benchMarks.firstPaint(tab.id.rawValue) }
         #endif
+        if let tab { tab.runtime.firstPagePainted(shown: tab.isShownInVisibleWindow) }
         tab?.documentDidSettle()
         tab?.firstContentFrame.contentShown()
     }

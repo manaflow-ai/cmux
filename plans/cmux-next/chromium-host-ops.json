@@ -1135,6 +1135,49 @@
       "reason": "The external message pump does not exist in host mode (CefRunMessageLoop runs in the host, task 034): a no-op."
     },
     {
+      "name": "cmux_shim_set_schedule_delayed",
+      "class": "local",
+      "args": [
+        {
+          "name": "schedule_delayed",
+          "type": "cmux_shim_schedule_delayed_fn",
+          "function_pointer": true
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFRuntime.swift"
+      ],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Function-pointer arg for the external message pump, which does not exist in host mode (CefRunMessageLoop runs in the host, task 034): the remote shim returns 0, and CEFRuntime calls it only in process (p14-energy-046)."
+    },
+    {
+      "name": "cmux_shim_set_energy_saver",
+      "class": "local",
+      "args": [
+        {
+          "name": "enabled",
+          "type": "int"
+        },
+        {
+          "name": "exempt_scheme",
+          "type": "const char*"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFEnergySaver.swift"
+      ],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The Chromium Host takes Energy Saver as its own versioned wire message (p14-energy-045), not a generated op: the remote shim returns 0, so debug.energy reports it unsupported in host mode until then (p14-energy-030)."
+    },
+    {
       "name": "cmux_shim_create_window",
       "class": "mint",
       "args": [
@@ -3658,6 +3701,25 @@
       "reason": "Out buffer of renderer ids (task 018); the hover card can show the previous value until the reply."
     },
     {
+      "name": "cmux_shim_renderer_pid",
+      "class": "local",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFTab+Processes.swift"
+      ],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "A tab's renderer pid for energy attribution (debug.energy tabs, busy watchdog records; p14-energy-124). Attribution is in-process only: in host mode the renderers are the host's children, which the app does not sample, so the remote shim returns 0. Host mode is task p14-energy-124a (an async op answered with the host shim's pid, and the host's children sampled)."
+    },
+    {
       "name": "cmux_shim_set_context_proxy",
       "class": "post",
       "args": [
@@ -4552,7 +4614,7 @@
   ],
   "host_mode_rewrites": [
     {
-      "site": "CmuxNextBrowser/CEF/CEFRuntime.swift: CEFRuntime.loadLibrary(_:signatureChecker:)",
+      "site": "CmuxNextBrowser/CEF/CEFLibraryLoader.swift: CEFLibraryLoader.load(_:)",
       "exports": [
         "cmux_shim_load"
       ],

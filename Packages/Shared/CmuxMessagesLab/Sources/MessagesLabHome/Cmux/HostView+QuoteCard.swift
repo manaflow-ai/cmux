@@ -31,7 +31,10 @@ extension HostView {
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.15
             card.animator().alphaValue = 0
-        }, completionHandler: { card.removeFromSuperview() })
+        }, completionHandler: {
+            // task-owner: one main-actor hop to take out the faded card (the completion is @Sendable); nothing to cancel
+            Task { @MainActor in card.removeFromSuperview() }
+        })
     }
 
     /// The card sits just above the field, as wide as it.

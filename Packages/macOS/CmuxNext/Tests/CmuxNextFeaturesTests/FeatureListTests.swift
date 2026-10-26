@@ -63,6 +63,23 @@ struct FeatureListTests {
         #expect(list.resolution(of: Self.labs) == Feature.Resolution(isEnabled: false, source: .policy))
     }
 
+    /// CEF's `--enable-features` gets the Chromium name of each enabled `chromium` feature, and nothing for
+    /// an off one or one of another process (p14-energy-046: `cefTimerSlack` is `TimerSlackMac`).
+    @Test func enabledChromiumFeaturesNameOnlyTheOnesThatAreOn() {
+        func chromium(_ index: Int, _ name: String, _ chromiumName: String) -> Feature {
+            Feature(index: index, name: name, owner: "PL-test", description: "A test feature.", kind: .perfPath,
+                    process: .chromium, chromiumFeature: chromiumName, defaults: FeatureDefaults(all: false),
+                    expires: nil, params: [], stories: [], sticky: false, runtimeMutable: false)
+        }
+        let slack = chromium(3, "slackThing", "TimerSlackMac")
+        let align = chromium(4, "alignThing", "AlignWakeUps")
+        let registry = FeatureRegistry([Self.perf, Self.kill, Self.labs, slack, align])
+        let overrides = FeatureOverrides(environment: [FeatureOverrides.enableVariable: "slackThing,labsThing"])
+        let list = FeatureList(registry: registry, channel: .release, overrides: overrides)
+        #expect(list.enabledChromiumFeatures == ["TimerSlackMac"])
+        #expect(FeatureList(registry: registry, channel: .release).enabledChromiumFeatures.isEmpty)
+    }
+
     @Test func aLocalOverrideIsIgnoredInRelease() {
         let local = RecordingLocalOverrides(["labsThing": true, "killThing": false])
         let list = FeatureList(registry: Self.registry, channel: .release, local: local)
@@ -213,6 +230,13 @@ struct FeatureListTests {
         #expect(slot.earlyReads.isEmpty)
         #expect(slot.install(FeatureList(registry: Self.registry, channel: .dev, overrides: FeatureOverrides(environmentDisabled: ["perfThing"]))).isEmpty)
         #expect(!slot.isEnabled(Self.perf))
+    }
+
+    /// A duration param reads as its declared default; another name or another type reads as nil.
+    @Test func aDurationParamReadsItsDefault() {
+        #expect(Feature.intentPrewarmHover.durationParam("dwell") == .milliseconds(200))
+        #expect(Feature.intentPrewarmHover.durationParam("missing") == nil)
+        #expect(Self.perf.durationParam("dwell") == nil)
     }
 
     /// Readers on other threads race install: when a reader answered the

@@ -54,6 +54,47 @@ struct EnergyPolicyDriverTests {
         #expect(!source.policy.isSaver)
     }
 
+    /// With the feature off the setting decides nothing: the inputs alone publish, and Low Power Mode
+    /// reaches the page consumers as the fallback, never as the saver.
+    @Test func theFeatureOffCarriesLowPowerModeAsTheFallback() {
+        let source = EnergyPolicySource()
+        let driver = EnergyPolicyDriver(source: source, isEnabled: false)
+        driver.update(inputs: EnergyInputs(lowPowerMode: true))
+        #expect(source.policy == EnergyPolicy(lowPowerFallback: true), "the fallback waited for the setting")
+        #expect(source.policy.pageSaver && !source.policy.isSaver)
+        driver.update(setting: .off)
+        #expect(source.policy.pageSaver, "energy.saver off dropped the fallback while the feature is off")
+        driver.update(inputs: EnergyInputs())
+        #expect(source.policy == .normal)
+    }
+
+    /// With the feature on, Low Power Mode works only through the saver: `energy.saver` off keeps
+    /// pages at full speed, `auto` turns the saver on for it.
+    @Test func theFeatureOnHasNoFallback() {
+        let source = EnergyPolicySource()
+        let driver = EnergyPolicyDriver(source: source, isEnabled: true)
+        driver.update(setting: .off)
+        driver.update(inputs: EnergyInputs(lowPowerMode: true))
+        #expect(!source.policy.pageSaver && !source.policy.lowPowerFallback)
+        driver.update(setting: .auto)
+        #expect(source.policy == EnergyPolicy(saverReason: .lowPowerMode))
+        #expect(source.policy.pageSaver)
+    }
+
+    /// A Mac on battery moving between fair and serious publishes one saver edge, not one per move.
+    @Test func aFlappingThermalStatePublishesOneSaverEdge() {
+        let source = EnergyPolicySource()
+        let driver = EnergyPolicyDriver(source: source, isEnabled: true)
+        let heard = Heard()
+        let observation = source.observe { policy in MainActor.assumeIsolated { heard.policies.append(policy) } }
+        driver.update(setting: .auto)
+        for thermal in [ProcessInfo.ThermalState.fair, .serious, .fair, .serious, .fair, .critical, .fair] {
+            driver.update(inputs: EnergyInputs(onBattery: true, hasBattery: true, batteryPercent: 80, thermal: thermal))
+        }
+        #expect(heard.policies == [EnergyPolicy(onBattery: true), EnergyPolicy(saverReason: .thermal, onBattery: true)])
+        observation.cancel()
+    }
+
     /// debug.energy reports the feature and "Turn Off for Now" from the driver's resolver, the one that
     /// decides the policy.
     @Test func reportsTheResolversFeatureAndSessionOverride() {
@@ -78,6 +119,23 @@ struct EnergyPolicyDriverTests {
         driver.update(setting: .off)
         #expect(heard.policies == [EnergyPolicy(saverReason: .battery, onBattery: true), EnergyPolicy(onBattery: true)])
         observation.cancel()
+    }
+
+    /// "Turn Off for Now" and "Turn On Again" (p14-energy-025) publish at once, and a later input with
+    /// no battery -> AC edge keeps the hold.
+    @Test func turnOffForNowPublishesAtOnceAndTurnOnNowEndsIt() {
+        let source = EnergyPolicySource()
+        let driver = EnergyPolicyDriver(source: source, isEnabled: true)
+        driver.update(setting: .auto)
+        driver.update(inputs: Self.lowBattery)
+        driver.turnOffForNow()
+        #expect(driver.isOffForSession)
+        #expect(source.policy == EnergyPolicy(onBattery: true))
+        driver.update(inputs: EnergyInputs(onBattery: true, hasBattery: true, batteryPercent: 8))
+        #expect(source.policy == EnergyPolicy(onBattery: true), "still on battery: the hold stays")
+        driver.turnOnNow()
+        #expect(!driver.isOffForSession)
+        #expect(source.policy == EnergyPolicy(saverReason: .battery, onBattery: true))
     }
 
     @MainActor

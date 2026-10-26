@@ -164,6 +164,7 @@ public nonisolated enum ActionCatalog {
         PaletteKeyActionCatalog.self,
         ImportActionCatalog.self,
         HangReportsActionCatalog.self,
+        EnergyActionCatalog.self,
     ]
 
     private static func makeAll() -> [ActionDescriptor] {

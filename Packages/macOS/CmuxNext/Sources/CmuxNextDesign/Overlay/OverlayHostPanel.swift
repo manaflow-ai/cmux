@@ -1,10 +1,12 @@
 public import AppKit
+public import CmuxNextInput
+public import CmuxNextWakeups
 
 /// The one overlay child window of a main window (`WindowOverlayHost`):
 /// transparent and borderless, the size of its parent, ordered above every
 /// page window. It ignores the mouse except over interactive overlays, and
 /// becomes key only while a modal overlay shows.
-public final class OverlayHostPanel: NSPanel {
+public final class OverlayHostPanel: NSPanel, HoverFrameInputHosting {
     /// The layout overlay planes (focus rings, drop zones) live here, below the presented overlays.
     public let planeContainer = NSView()
     /// Presented overlays, above the planes, one container per layer (bottom to top).
@@ -28,6 +30,8 @@ public final class OverlayHostPanel: NSPanel {
     /// A mouse event that reached the panel; true when the host handled it
     /// (passed it on to the parent window).
     var onMouseEvent: ((NSEvent) -> Bool)?
+    /// Its parent's frame-aligned hover input (``WindowOverlayHost/hoverFrames``): its views hover once per frame.
+    public internal(set) var hoverFrameInput: FrameInputCoalescers?
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)

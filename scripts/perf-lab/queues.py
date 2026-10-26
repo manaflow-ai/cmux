@@ -289,12 +289,15 @@ SIGNPOST_CALLS = (
 SIGNPOST_RECEIVER = r"(?:\bSignposter(?:\.[a-z]\w*)?|\b\w*[sS]ignposter|\bposter|\btrace|\bruntime)\??\s*"
 
 # An emit: a call above on a signpost receiver with the case first (`.begin(.x`, `.begin(SignpostName.x`,
-# across lines), the os_signpost static name (`SignpostName.x.staticName`), or a typed binding a call
-# takes later (`let name: SignpostName = .x`). A `case .x:` in a switch over the catalog is not an emit.
+# across lines), the os_signpost static name (`SignpostName.x.staticName`), a typed binding a call
+# takes later (`let name: SignpostName = .x`), or the name an emitter is made with, its `signpost:`
+# argument (`SwitchFrameTimer(owner: "debug.workspace_switch", signpost: SignpostName.switchWorkspace)`
+# begins and ends that interval on every switch). A `case .x:` in a switch over the catalog is not an emit.
 SIGNPOST_EMIT = re.compile(
     SIGNPOST_RECEIVER + r"\.(?:%s)\(\s*(?:SignpostName)?\.(\w+)\b" % "|".join(SIGNPOST_CALLS)
     + r"|\bSignpostName\.(\w+)\.staticName\b"
-    + r"|:\s*SignpostName\??\s*=\s*(?:SignpostName)?\.(\w+)\b")
+    + r"|:\s*SignpostName\??\s*=\s*(?:SignpostName)?\.(\w+)\b"
+    + r"|\bsignpost:\s*(?:SignpostName)?\.(\w+)\b")
 
 
 def signpost_cases(root: str = ROOT) -> list[str]:

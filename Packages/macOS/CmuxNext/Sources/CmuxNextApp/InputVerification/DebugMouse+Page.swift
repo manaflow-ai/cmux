@@ -45,7 +45,7 @@ extension DebugMouse {
     /// when no page is under the point.
     ///
     /// Not on the path: `NSApp.sendEvent`, `NSWindow.sendEvent` and every other local event monitor (the
-    /// Chromium swipe's `CEFSwipeNavigation`, `HoverCardCoordinator`, `NewTabSparePool`'s input note). A
+    /// Chromium swipe's `CEFSwipeNavigation`, `HoverCardCoordinator`, `NewTabPreload`'s input note). A
     /// synthesized scroll has no window AppKit can route it to, and a queued event would answer after the
     /// reply, so this calls the layout and the view directly, as the plain `scroll` action does. A bench that
     /// uses it measures the layout's routing and pan, not those monitors' per-event work.

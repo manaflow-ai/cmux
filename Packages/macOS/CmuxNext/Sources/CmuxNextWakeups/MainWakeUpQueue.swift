@@ -82,7 +82,7 @@ public final class MainWakeUpQueue: Sendable {
     /// reads it inside this one; the source calls observers outside its lock), so locks are always taken
     /// in the same order.
     private let state: Mutex<State>
-    private let energy: EnergyPolicySource
+    public let energy: EnergyPolicySource  // the policy it aligns to; an owner handed the queue follows it (CEFEnergySaver)
     /// Where each fire and each owner that runs in it are counted.
     let ledger: WakeupLedger
     private let uptime: @Sendable () -> UInt64
@@ -368,7 +368,7 @@ final class MainRunLoopWakeUpTimer: MainWakeUpTimer {
     init(fire: @escaping MainWakeUpQueue.Action) {
         // wakeup-allow: deadline MainWakeUpQueue, the one main-thread deadline timer (parked between arms)
         timer = CFRunLoopTimerCreateWithHandler(
-            kCFAllocatorDefault, CFAbsoluteTimeGetCurrent() + Self.parkedInterval, Self.parkedInterval, 0, 0
+            kCFAllocatorDefault, Self.fireDate(after: Self.parkedInterval), Self.parkedInterval, 0, 0
         ) { _ in
             CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) {
                 // main-proof: the block is queued on CFRunLoopGetMain(), whose blocks run on the main thread.
@@ -386,10 +386,15 @@ final class MainRunLoopWakeUpTimer: MainWakeUpTimer {
         let delay = date > now ? Double(date - now) / 1e9 : 0
         CFRunLoopTimerSetTolerance(timer, Double(tolerance) / 1e9)
         // wakeup-allow: deadline MainWakeUpQueue, the earliest pending main-thread deadline
-        CFRunLoopTimerSetNextFireDate(timer, CFAbsoluteTimeGetCurrent() + delay)
+        CFRunLoopTimerSetNextFireDate(timer, Self.fireDate(after: delay))
     }
 
     func park() {
-        CFRunLoopTimerSetNextFireDate(timer, CFAbsoluteTimeGetCurrent() + Self.parkedInterval)
+        CFRunLoopTimerSetNextFireDate(timer, Self.fireDate(after: Self.parkedInterval))
+    }
+
+    /// `delay` s from now as a fire date: CF keeps only the delay, on uptime (CFRunLoop.c, message_pump_apple.mm).
+    private static func fireDate(after delay: CFTimeInterval) -> CFAbsoluteTime {
+        CFAbsoluteTimeGetCurrent() + delay // wall-clock: CFRunLoopTimer fire dates are CFAbsoluteTime
     }
 }

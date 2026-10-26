@@ -47,7 +47,7 @@ import Testing
         var iterator = reports.makeAsyncIterator()
         let seen = try #require(await iterator.next())
         #expect(seen.queue.hasPrefix("test.work.\(lane)."), "ran on \(seen.queue)")
-        if lane == .files { #expect(seen.queue == "test.work.files.\(priority)") }
+        if lane == .files { #expect(seen.queue.hasPrefix("test.work.files.\(priority)."), "ran on \(seen.queue)") }
         #expect(!seen.queue.contains("cooperative"))
         #expect(seen.qos == priority.qos.qosClass.rawValue)
     }
@@ -82,11 +82,12 @@ import Testing
         let work = BackgroundWork(cpuWidth: 3, label: "test.cpu")
         let arrived = OSAllocatedUnfairLock(initialState: 0)
         let all = DispatchSemaphore(value: 0)
-        // Each item waits until all three run: it passes only when the lane runs three at once.
+        // Each item waits until all three run: it passes only when the lane runs three at once. User-visible,
+        // as best effort runs at most two at once (LaneScheduler.bestEffortCap, task 115).
         try await withThrowingTaskGroup(of: Void.self) { group in
             for _ in 0..<3 {
                 group.addTask {
-                    try await work.run(.bestEffort, mayBlock: .cpu) {
+                    try await work.run(.userVisible, mayBlock: .cpu) {
                         if arrived.withLock({ $0 += 1; return $0 }) == 3 { for _ in 0..<3 { all.signal() } }
                         all.wait()
                     }
@@ -97,10 +98,10 @@ import Testing
     }
 
     @Test func aWaiterAbovePriorityBoostsTheItemPastBlockedLowerWork() async throws {
-        let work = BackgroundWork(label: "test.boost")
+        let work = BackgroundWork(filesWidths: .serial, label: "test.boost")
         let release = DispatchSemaphore(value: 0)
         let blocked = Started()
-        // The best-effort slot of the files lane is held.
+        // The one best-effort slot of the files lane is held.
         work.post(.bestEffort, mayBlock: .files) {
             blocked.signal()
             release.wait()
@@ -112,7 +113,7 @@ import Testing
         let seen = try await Task(priority: .high) { () async throws -> Seen in
             try await work.run(.bestEffort, mayBlock: .files) { Seen.here() }
         }.value
-        #expect(seen.queue == "test.boost.files.userBlocking")
+        #expect(seen.queue.hasPrefix("test.boost.files.userBlocking."), "ran on \(seen.queue)")
         #expect(seen.qos == QOS_CLASS_USER_INITIATED)
         release.signal()
     }
@@ -136,7 +137,8 @@ import Testing
 
     @Test func aCancelledQueuedItemNeverRuns() async throws {
         let queued = Started()
-        let work = BackgroundWork(label: "test.cancel", onQueued: { _, _ in queued.signal() })
+        // One slot per priority, so the item behind the held one queues.
+        let work = BackgroundWork(filesWidths: .serial, label: "test.cancel", onQueued: { _, _ in queued.signal() })
         let release = DispatchSemaphore(value: 0)
         let blocked = Started()
         work.post(.bestEffort, mayBlock: .files) {
@@ -160,7 +162,8 @@ import Testing
     }
 
     @Test func shutdownWaitsForBlockShutdownItemsAndDropsTheRest() async throws {
-        let work = BackgroundWork(label: "test.shutdown")
+        // One slot per priority, so the items behind the held one queue.
+        let work = BackgroundWork(filesWidths: .serial, label: "test.shutdown")
         let release = DispatchSemaphore(value: 0)
         let blocked = Started()
         let log = OSAllocatedUnfairLock<[String]>(initialState: [])
@@ -207,7 +210,7 @@ import Testing
         var iterator = reports.makeAsyncIterator()
         let seen = try #require(await iterator.next())
         #expect(seen.queue.hasPrefix("test.fence.\(lane)."), "ran on \(seen.queue)")
-        if lane == .files { #expect(seen.queue == "test.fence.files.\(priority)") }
+        if lane == .files { #expect(seen.queue.hasPrefix("test.fence.files.\(priority)."), "ran on \(seen.queue)") }
         #expect(seen.qos == priority.qos.qosClass.rawValue)
     }
 
@@ -224,7 +227,7 @@ import Testing
         }
         var iterator = reports.makeAsyncIterator()
         let seen = try #require(await iterator.next())
-        if lane == .files { #expect(seen.queue == "test.fenceawait.files.\(priority)") }
+        if lane == .files { #expect(seen.queue.hasPrefix("test.fenceawait.files.\(priority)."), "ran on \(seen.queue)") }
         #expect(seen.qos == priority.qos.qosClass.rawValue)
         work.endBestEffortFence()
     }
@@ -237,13 +240,14 @@ import Testing
         work.post(priority, mayBlock: .files) { report.yield(Seen.here()) }
         var iterator = reports.makeAsyncIterator()
         let seen = try #require(await iterator.next())
-        #expect(seen.queue == "test.fenceabove.files.\(priority)")
+        #expect(seen.queue.hasPrefix("test.fenceabove.files.\(priority)."), "ran on \(seen.queue)")
         #expect(seen.qos == priority.qos.qosClass.rawValue)
     }
 
     @Test func fencesNestAndHeldItemsRunInPostOrder() async throws {
         let queued = Started()
-        let work = BackgroundWork(label: "test.fencenest", onQueued: { _, _ in queued.signal() })
+        // One slot per priority: held items of one priority then start one after another, in post order.
+        let work = BackgroundWork(filesWidths: .serial, label: "test.fencenest", onQueued: { _, _ in queued.signal() })
         let log = OSAllocatedUnfairLock<[String]>(initialState: [])
         let finished = Started()
         work.beginBestEffortFence()
@@ -285,10 +289,10 @@ import Testing
     /// `stopReportingRuns()`; items submitted after it do not report.
     @Test func onRanReportsEachItemUntilRunsStopBeingReported() async throws {
         let reports = OSAllocatedUnfairLock<[(BlockingLane, WorkPriority, UInt64, UInt64)]>(initialState: [])
-        let work = BackgroundWork(label: "test.onran", onRan: { lane, priority, start, end in
+        let work = BackgroundWork(filesWidths: .serial, label: "test.onran", onRan: { lane, priority, start, end in
             reports.withLock { $0.append((lane, priority, start, end)) }
         })
-        // One serial queue (files, user-visible): an item's report runs before the next item's body.
+        // One user-visible files slot: an item's report runs before the next item's body.
         let ran = Started()
         work.post(.userVisible, mayBlock: .files) {}
         work.post(.userVisible, mayBlock: .files) { ran.signal() }

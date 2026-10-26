@@ -124,7 +124,7 @@ struct ProcessLaunchPart3Tests {
 
     @MainActor
     @Test func aServerHelperFixReturnsItsOutputAndALaunchFailure() async throws {
-        let runner = ProcessFixRunner(limit: .seconds(20))
+        let runner = ProcessFixRunner(limit: .seconds(20), tolerance: WakeLeeway.window(delay: .seconds(20)).tolerance)
         let result = try await runner.run(URL(fileURLWithPath: "/bin/sh"), ["-c", "echo fixed; exit 2"])
         #expect(result == FixRunResult(status: 2, output: "fixed\n"))
         await #expect(throws: (any Error).self) {
@@ -138,7 +138,7 @@ struct ProcessLaunchPart3Tests {
         let root = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root) }
         let pidFile = root.appending(path: "pid")
-        let runner = ProcessFixRunner(limit: .seconds(1))
+        let runner = ProcessFixRunner(limit: .seconds(1), tolerance: WakeLeeway.window(delay: .seconds(1)).tolerance)
         await #expect(throws: ServerHelperTimedOut()) {
             _ = try await runner.run(URL(fileURLWithPath: "/bin/sh"), ["-c", "echo $$ > \"$0\"; exec /bin/sleep 30", pidFile.path])
         }

@@ -83,7 +83,7 @@ final class FocusEffectApplier: FocusEffectApplying {
 
     private func moveResponder(_ resolved: FocusState.Resolved, state: FocusState) {
         guard let window = controller.window else { return }
-        // The parked New Tab spare follows the focused pane's size (NewTabSparePool).
+        // The parked New Tab spare follows the focused pane's size (NewTabPreload).
         controller.services.newTabSpares.paneLayoutDidChange(in: window)
         switch resolved {
         case .terminal(let pane, let tab):

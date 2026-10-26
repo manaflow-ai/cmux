@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextDesign
 @testable import CmuxNextPopups
 import Foundation
 import Testing
@@ -202,6 +203,30 @@ import CmuxNextWakeups
         #expect(window.addressBar.isEditing, "Cmd-L puts the keyboard in the popup's omnibar")
         let editor = try #require(window.firstResponder as? NSTextView)
         #expect(editor.selectedRange() == NSRange(location: 0, length: (editor.string as NSString).length), "the whole address is selected")
+    }
+
+    /// p06-scheduler-221: the fork re-adds the popup's page window above every child, the overlay
+    /// host's panel (omnibar suggestions, toasts) included. No per-event check puts the panel back, so
+    /// the popup's `addChildWindow` does it in the same call, as the main window's does.
+    @Test func aPageAddedToThePopupGoesBelowItsOverlayPanel() {
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin")))
+        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 100, y: 100, width: 480, height: 600), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        window.orderFrontRegardless()
+        let host = WindowOverlayHost.host(for: window)
+        host.setPlanesWantPanel(true)
+        let page = NSWindow(contentRect: CGRect(x: 100, y: 100, width: 480, height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
+        page.isReleasedWhenClosed = false
+        defer {
+            window.removeChildWindow(page)
+            page.orderOut(nil)
+            window.close()
+        }
+        #expect(host.isPanelAttached)
+
+        window.addChildWindow(page, ordered: .above)
+
+        #expect(page.parent === window)
+        #expect(host.isAbovePages, "the popup's page covers its overlays")
     }
 
     @Test func aSignInWindowTakesCmdL() {

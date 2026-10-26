@@ -5,18 +5,26 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 17590,
-            "T2": 20520
+            "T1": 19300,
+            "T2": 31440
           },
           "stories": {
             "T1": [
               "activation",
               "activation-stress",
+              "agent-engine",
+              "agent-engine-webkit",
+              "agent-stream",
+              "agent-stream-webkit",
+              "app-split",
               "blocking-hangs",
               "chat-anim",
               "command-pan",
               "daemon-ops",
+              "drag-lag",
+              "fullscreen-transition",
               "home-idle",
+              "home-perf",
               "launch-cold",
               "launch-cold-realistic",
               "launch-warm-realistic",
@@ -37,18 +45,24 @@
               "pane-stress",
               "perf-gate",
               "sidebar",
+              "sidebar-doc",
+              "sidebar-drag",
               "sidebar-mirror-rebuild",
               "sidebar-rows-live",
               "sidebar-scroll-release",
               "sidebar-stress",
+              "split-latency",
               "switch",
               "tab-switch",
               "tab-switch-repeat",
               "tab-switch-stages",
+              "terminal-resize",
               "typing",
-              "typing-stress"
+              "typing-stress",
+              "window-live-resize"
             ],
             "T2": [
+              "acpmux-overhead",
               "action-sweep-light-1",
               "action-sweep-light-2",
               "action-sweep-light-3",
@@ -65,12 +79,27 @@
               "action-sweep-stress-6",
               "action-sweep-stress-7",
               "action-sweep-stress-8",
+              "app-perf",
               "automation-typing",
+              "cef-resize-sync",
+              "cef-resize-sync-stress",
+              "cli-storm",
+              "cli-storm-stress",
+              "column-resize-live",
               "command-pan-stress",
+              "daemon-spawn",
+              "devtools-resize-live",
               "launch-after-reboot",
+              "layout-loop-stress",
               "new-surfaces-stress",
+              "pane-scale",
               "perceived-speed",
+              "script-storm",
+              "script-storm-stress",
               "sidebar-churn-typing",
+              "sidebar-drag-live",
+              "sidebar-drag-stress",
+              "terminal-resize-stress",
               "typing-flood-stress"
             ]
           }
@@ -86,10 +115,11 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 20520
+            "T2": 31440
           },
           "stories": {
             "T2": [
+              "acpmux-overhead",
               "action-sweep-light-1",
               "action-sweep-light-2",
               "action-sweep-light-3",
@@ -106,12 +136,27 @@
               "action-sweep-stress-6",
               "action-sweep-stress-7",
               "action-sweep-stress-8",
+              "app-perf",
               "automation-typing",
+              "cef-resize-sync",
+              "cef-resize-sync-stress",
+              "cli-storm",
+              "cli-storm-stress",
+              "column-resize-live",
               "command-pan-stress",
+              "daemon-spawn",
+              "devtools-resize-live",
               "launch-after-reboot",
+              "layout-loop-stress",
               "new-surfaces-stress",
+              "pane-scale",
               "perceived-speed",
+              "script-storm",
+              "script-storm-stress",
               "sidebar-churn-typing",
+              "sidebar-drag-live",
+              "sidebar-drag-stress",
+              "terminal-resize-stress",
               "typing-flood-stress"
             ]
           }
@@ -127,7 +172,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 8920
+            "T1": 9610
           },
           "stories": {
             "T0": [
@@ -135,9 +180,12 @@
             ],
             "T1": [
               "activation-stress",
+              "agent-engine-webkit",
+              "app-split",
               "blocking-hangs",
               "command-pan",
               "daemon-ops",
+              "home-perf",
               "launch-cold-realistic",
               "motion",
               "new-browser-tab-webkit",
@@ -146,8 +194,11 @@
               "open-panel",
               "palette-open-webkit",
               "pane-stress",
+              "sidebar-doc",
+              "sidebar-drag",
               "sidebar-rows-live",
               "sidebar-scroll-release",
+              "split-latency",
               "switch",
               "tab-switch",
               "tab-switch-repeat",
@@ -159,7 +210,7 @@
           "index": 1,
           "seconds": {
             "T0": 150,
-            "T1": 8670
+            "T1": 9690
           },
           "stories": {
             "T0": [
@@ -168,7 +219,12 @@
             ],
             "T1": [
               "activation",
+              "agent-engine",
+              "agent-stream",
+              "agent-stream-webkit",
               "chat-anim",
+              "drag-lag",
+              "fullscreen-transition",
               "home-idle",
               "launch-cold",
               "launch-warm-realistic",
@@ -185,7 +241,9 @@
               "sidebar-mirror-rebuild",
               "sidebar-stress",
               "tab-switch-stages",
-              "typing"
+              "terminal-resize",
+              "typing",
+              "window-live-resize"
             ]
           }
         }

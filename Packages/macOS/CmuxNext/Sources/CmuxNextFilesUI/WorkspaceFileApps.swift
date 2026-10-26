@@ -1,6 +1,7 @@
 public import CmuxNextFiles
 public import Foundation
 import AppKit
+import CmuxNextCompat
 import UniformTypeIdentifiers
 
 /// ``FileAppsProviding`` over LaunchServices (`NSWorkspace`): every app the system reports for
@@ -15,14 +16,7 @@ public struct WorkspaceFileApps: FileAppsProviding {
     }
 
     public func open(_ files: [URL], withApplicationAt app: URL) async -> Bool {
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.activates = true
-        do {
-            _ = try await NSWorkspace.shared.open(files, withApplicationAt: app, configuration: configuration)
-            return true
-        } catch {
-            return false
-        }
+        await NSWorkspace.shared.openedInBackground(files, withApplicationAt: app)
     }
 
     /// The type LaunchServices matches apps against for `name`.

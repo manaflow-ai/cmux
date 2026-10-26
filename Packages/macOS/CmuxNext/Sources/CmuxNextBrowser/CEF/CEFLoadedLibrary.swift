@@ -1,6 +1,6 @@
 import Foundation
 
-/// The shim and framework, mapped by `CEFRuntime.loadLibrary`.
+/// The shim and framework, mapped by `CEFLibraryLoader`.
 nonisolated struct CEFLoadedLibrary: Sendable {
     var shim: CEFShimLibrary
     /// The shim's ABI identity (`CEFShimABI`), checked when it loaded.

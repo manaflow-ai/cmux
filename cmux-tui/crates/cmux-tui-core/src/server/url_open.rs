@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
+use super::terminal_io_wire::{UrlOpenClaimParams, UrlOpenResultParams, UrlOpenSubscribeParams};
 use super::{AsyncReply, Command, MessageWriter, Mux, Response, send_response};
 use crate::resource::TerminalPublicId;
 
@@ -151,12 +152,14 @@ pub(super) fn handle(
 ) -> anyhow::Result<Value> {
     let opens = &mux.control_clients.url_opens;
     match cmd {
-        Command::UrlOpenSubscribe { terminal_ids } => {
+        Command::UrlOpenSubscribe(UrlOpenSubscribeParams { terminal_ids }) => {
             opens.subscribe(client, terminal_ids, writer.clone())?;
             Ok(json!({"url_open_ready": true}))
         }
-        Command::UrlOpenClaim { request_id } => Ok(json!({"claimed": opens.claim(&request_id)})),
-        Command::UrlOpenResult { request_id, opened } => {
+        Command::UrlOpenClaim(UrlOpenClaimParams { request_id }) => {
+            Ok(json!({"claimed": opens.claim(&request_id)}))
+        }
+        Command::UrlOpenResult(UrlOpenResultParams { request_id, opened }) => {
             Ok(json!({"accepted": opens.complete(&request_id, opened)}))
         }
         _ => anyhow::bail!("not a URL opener command"),

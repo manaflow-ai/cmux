@@ -33,8 +33,18 @@ skipped with the numbers.
 
 Run it on the GUI host (cmux-lawrence-2 through `nx-remote --needs gui`),
 never on a laptop. The tagged app must not be running; the bench launches it
-in a clean environment without activation (bench_idle.py), quits it, and
-ends its daemon's terminals at the end.
+through bench_launch.BenchApp (the bench env, no activation, a fresh saved
+session, the GUI-session check), quits it, and ends its daemon's terminals
+at the end (tag_teardown.py).
+
+Percentiles are scripts/perf-lab/perf_stats.py's (linear interpolation):
+op latency p50/p95/p99/max. With --story (scripts/perf-lab/stories.d; engine
+none for grid and nested, chromium for mixed) each complete checkpoint (not
+skipped, every create landed, `target` panes shown) of a run that ended
+normally is written into --out as cmux-perf-result/v1 (BenchApp.record):
+pane_scale.<shape>.<N>.create.{rtt,visible} and .<phase>.{op,frame_interval}
+(ms, raw samples; status has no op), .idle.app_cpu (percent), .idle.app_wakeups
+(per_s) and .app_footprint (bytes). A --story run that writes none exits 1.
 
 Usage:
   scripts/cmux-next/bench_pane_scale.py --tag TAG [--app PATH]
@@ -42,6 +52,7 @@ Usage:
       [--depth 4] [--tabs 1] [--browser-every 8] [--max-browsers 4]
       [--settle 10] [--idle 20] [--ops 40] [--phases focus,resize,window,churn,tabs,status]
       [--pty-margin 64] [--label NAME] [--out DIR] [--keep-running]
+      [--story pane-scale]
 
 Writes <out>/<sha>-pane-scale-<label>.json (default
 artifacts/cmux-next-bench); scripts/cmux-next/pane_scale_report.py turns one
@@ -52,19 +63,18 @@ from __future__ import annotations
 import argparse
 import ctypes
 import json
-import math
 import os
-import shutil
-import signal
 import statistics
 import subprocess
 import sys
-import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench_idle import Client, classify, process_table, usage, wait_for_socket  # noqa: E402
-from daemon_teardown import end_terminals  # noqa: E402
+import split_pane_bench_report as sp_report  # noqa: E402
+from bench_frames import split_raw_frames  # noqa: E402
+from bench_idle import classify, usage, wait_for_socket  # noqa: E402
+from bench_launch import BenchApp  # noqa: E402
+from bench_story import story_problem  # noqa: E402
 
 
 class _ThreadInfo(ctypes.Structure):
@@ -75,19 +85,22 @@ class _ThreadInfo(ctypes.Structure):
                 ("maxpriority", ctypes.c_int32), ("name", ctypes.c_char * 64)]
 
 
-_libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
+def _libproc():
+    """libproc, loaded at the first thread read: the module's pure parts import on Linux too."""
+    return ctypes.CDLL("/usr/lib/libproc.dylib")
 
 
 def thread_times(pid):
     """{thread handle: (name, cpu_ns)} for every thread of `pid`, read from
     outside (proc_pidinfo PROC_PIDLISTTHREADS / PROC_PIDTHREADINFO), so the
     probe adds no wakeup to the app."""
+    libproc = _libproc()
     handles = (ctypes.c_uint64 * 4096)()
-    size = _libproc.proc_pidinfo(pid, 6, ctypes.c_uint64(0), handles, ctypes.sizeof(handles))
+    size = libproc.proc_pidinfo(pid, 6, ctypes.c_uint64(0), handles, ctypes.sizeof(handles))
     out = {}
     for handle in handles[:max(0, size) // 8]:
         info = _ThreadInfo()
-        if _libproc.proc_pidinfo(pid, 5, ctypes.c_uint64(handle), ctypes.byref(info), ctypes.sizeof(info)) <= 0:
+        if libproc.proc_pidinfo(pid, 5, ctypes.c_uint64(handle), ctypes.byref(info), ctypes.sizeof(info)) <= 0:
             continue
         out[handle] = (info.name.decode(errors="replace") or "(unnamed)", info.user_time + info.system_time)
     return out
@@ -123,10 +136,9 @@ def ptys_in_use():
 
 
 def pct(values, p):
-    if not values:
-        return None
-    ordered = sorted(values)
-    return round(ordered[min(len(ordered) - 1, int(round((len(ordered) - 1) * p)))], 2)
+    """perf_stats.pct (the lab's linear interpolation) rounded to 0.01; None when there is no value."""
+    value = sp_report.perf_stats.pct(values, p)
+    return None if value is None else round(value, 2)
 
 
 class Bench:
@@ -142,6 +154,7 @@ class Bench:
         self.terminals_created = 0
         self.browsers_created = 0
         self.refusals = []
+        self.raw_phases = {}  # phase -> {op, frame_interval} raw samples of the last phases() call, for result-v1
 
     # -- topology -----------------------------------------------------------
 
@@ -330,7 +343,6 @@ class Bench:
             for action, args in ops:
                 if action == "wait":
                     time.sleep(args["seconds"])  # test script: the measured window while the tickers print
-                    latencies.append(0.0)
                     continue
                 if action == "window_frame":
                     start = time.monotonic()
@@ -353,7 +365,8 @@ class Bench:
             return latencies
 
         measured, latencies = self.window(body=settled_body)
-        frames = self.debug("debug.frames", {"action": "stop"})
+        frames, raw_frames = split_raw_frames(self.debug("debug.frames", {"action": "stop", "raw": True}))
+        self.raw_phases[name] = {"op": list(latencies), "frame_interval": raw_frames["intervals_ms"]}
         hangs = self.debug("debug.hangs", {"limit": 3})
         layout_after = self.debug("debug.layout_counters")
         passes = (self.debug("debug.layers") or {}).get("layout_passes")
@@ -361,7 +374,7 @@ class Bench:
             "ops": len(ops),
             # wall_s includes a 1 s settle after the last op; busy_s ends at the last op.
             "busy_s": round(busy["s"], 2) if busy["s"] is not None else None,
-            "latency_ms": {"p50": pct(latencies, 0.5), "p99": pct(latencies, 0.99),
+            "latency_ms": {"p50": pct(latencies, 0.5), "p95": pct(latencies, 0.95), "p99": pct(latencies, 0.99),
                            "max": round(max(latencies), 2) if latencies else None,
                            "mean": round(statistics.fmean(latencies), 2) if latencies else None},
         })
@@ -396,6 +409,7 @@ class Bench:
         return measured
 
     def phases(self, panes):
+        self.raw_phases = {}
         n = self.args.ops
         plan = {
             "focus": [("focusNextPane", {})] * n,
@@ -461,7 +475,20 @@ def diff_counters(before, after, ops):
     return out
 
 
-def main():
+def record(bench_app, story, shape, checkpoints, raw_by_target, log=print):
+    """Each complete checkpoint's series as result-v1 under `story`; {metric: path or `not recorded: why`}."""
+    engine = sp_report.pane_scale_engine(shape)
+    written = {}
+    for checkpoint in checkpoints:
+        if not sp_report.pane_scale_complete(checkpoint):
+            log(f"pane-scale: N={checkpoint.get('target')} is not complete: no result-v1")
+            continue
+        series = sp_report.pane_scale_series(shape, checkpoint, raw_by_target.get(checkpoint["target"]) or {})
+        written.update(sp_report.record_all(bench_app, story, engine, series, log=log))
+    return written
+
+
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--tag", required=True)
     parser.add_argument("--app")
@@ -486,36 +513,41 @@ def main():
     parser.add_argument("--keep-running", action="store_true")
     parser.add_argument("--sample-seconds", type=int, default=0,
                         help="after each idle window, /usr/bin/sample the app for N seconds into the out dir")
-    args = parser.parse_args()
+    parser.add_argument("--story", help="write complete checkpoints as cmux-perf-result/v1 under this story")
+    parser.add_argument("--session", choices=["light"], default="light", help="result-v1 session (the story runner's)")
+    args = parser.parse_args(argv)
+    if args.story:
+        problem = story_problem(args.story, sp_report.pane_scale_engine(args.shape))
+        if problem:
+            parser.error(problem)
+        if args.sample_seconds:
+            parser.error("--story does not go with --sample-seconds: /usr/bin/sample suspends the app it measures")
 
     sha = subprocess.run(["git", "-C", args.repo_root, "rev-parse", "--short=12", "HEAD"],
                          capture_output=True, text=True).stdout.strip() or "unknown"
     tag = args.tag
     bundle = args.app or os.path.expanduser(
         f"~/Library/Developer/Xcode/DerivedData/cmux-{tag}/Build/Products/Debug/cmux DEV {tag}.app")
-    binary = os.path.join(bundle, "Contents/MacOS/cmux DEV")
-    if not os.path.exists(binary):
+    if not os.path.isdir(bundle):
         raise SystemExit(f"pane-scale: no app at {bundle}")
-    if any(cmd.startswith(binary) for _, _, cmd in process_table()):
-        raise SystemExit(f"pane-scale: {bundle} is already running; quit it first")
-    # Start from an empty session: restored tabs would change every checkpoint.
-    shutil.rmtree(os.path.expanduser(f"~/Library/Application Support/cmux/tags/{tag}/tui"), ignore_errors=True)
-    scratch = tempfile.mkdtemp(prefix=f"pane-scale-{tag}-")
-    env = {
-        "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-        "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-        "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
-    }
-    app = subprocess.Popen([binary], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    print(f"pane-scale: launched pid {app.pid}", flush=True)
+    out_dir = args.out or os.path.join(args.repo_root, "artifacts/cmux-next-bench")
+    os.makedirs(out_dir, exist_ok=True)
+    # BenchApp refuses a running app of the tag (tag-in-use) and starts from an empty saved session (restored tabs
+    # would change every checkpoint); the test window goes to the last screen with the scratch config.
+    bench_app = BenchApp(bundle, out=out_dir, config={}, window=None, screen="last",
+                         log_name=f"{sha}-pane-scale-{args.label}-app.log", perf_session=args.session)
+    raw_by_target = {}  # checkpoint target -> its raw samples (sp_report.pane_scale_series)
+    finished = False
     report = {
         "tag": tag, "sha": sha, "label": args.label, "app": bundle, "shape": args.shape, "rows": args.rows,
         "depth": args.depth, "tabs": args.tabs, "host": os.uname().nodename,
         "ptmx_max": sysctl_int("kern.tty.ptmx_max"), "checkpoints": [],
     }
     try:
-        control = wait_for_socket(f"/tmp/cmux-debug-{tag}.sock", limit_s=120)
+        bench_app.launch(timeout=120)
+        app = bench_app.process
+        print(f"pane-scale: launched pid {app.pid}", flush=True)
+        control = wait_for_socket(bench_app.socket, limit_s=120)
         identity = control.call("system.identify").get("result", {})
         app_pid = identity.get("pid", app.pid)
         bench = Bench(args, control, app_pid, bundle)
@@ -591,36 +623,31 @@ def main():
                 print(f"   {name:<7} p50 {ph['latency_ms']['p50']} p99 {ph['latency_ms']['p99']} ms, "
                       f"app {app_row.get('cpu_percent')}% CPU, hangs {ph.get('hangs', {}).get('total_ms')} ms, "
                       f"frames p99 {ph.get('frames', {}).get('p99_ms')} ms, layout {ph.get('layout')}", flush=True)
+            raw_by_target[target] = {"create_rtt": rtts, "create_visible": visibles, "phases": bench.raw_phases}
             report["checkpoints"].append(checkpoint)
             if created and created[-1]["error"]:
                 break
         report["create_log"] = create_log
         report["refusals"] = bench.refusals[:50]
+        finished = "app_exit" not in report
     finally:
         if not args.keep_running:
-            try:
-                Client(f"/tmp/cmux-debug-{tag}.sock", timeout=10).call("debug.quit", {"fixture_quit": "end-sessions"})
-            except (OSError, ValueError):
-                pass
-            try:
-                app.wait(timeout=30)
-            except subprocess.TimeoutExpired:
-                app.send_signal(signal.SIGTERM)
-                try:
-                    app.wait(timeout=15)
-                except subprocess.TimeoutExpired:
-                    app.kill()
-            try:
-                report["teardown"] = end_terminals(os.path.join(bundle, "Contents/Resources/bin/cmux-tui"), tag)
-            except Exception as error:  # noqa: BLE001 - teardown is best effort; report it
-                print(f"pane-scale: daemon teardown: {error}", file=sys.stderr)
-    out_dir = args.out or os.path.join(args.repo_root, "artifacts/cmux-next-bench")
-    os.makedirs(out_dir, exist_ok=True)
+            bench_app.stop()  # debug.quit (end sessions), then the tag's daemons and terminals (tag_teardown.py)
+            report["teardown"] = "bench_launch"
+    code = 0
+    if args.story:
+        report["results"] = (record(bench_app, args.story, args.shape, report["checkpoints"], raw_by_target)
+                             if finished else "none: the app exited during the run")
+        if not finished or not sp_report.any_written(report["results"]):
+            print(f"pane-scale: RESULT-V1 FAIL: no series was written ({report['results'] or 'no complete checkpoint'})",
+                  flush=True)
+            code = 1
     out = os.path.join(out_dir, f"{sha}-pane-scale-{args.label}.json")
     with open(out, "w") as handle:
         json.dump(report, handle, indent=2)
     print(f"pane-scale: wrote {out}")
+    return code
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
