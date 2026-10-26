@@ -184,8 +184,9 @@ pub(crate) fn wait_for_native_child_status_with_reap_result(
     child: &mut (dyn cmux_pty::Child + Send + Sync),
 ) -> (TerminalExit, bool) {
     let child: &mut dyn cmux_pty::Child = child;
-    if let Some(child) = child.downcast_mut::<std::process::Child>() {
-        return match child.wait() {
+    #[cfg(unix)]
+    if let Some(child) = child.downcast_mut::<cmux_pty::NativePtyChild>() {
+        return match child.wait_native() {
             Ok(status) => (TerminalExit::from_exit_status(&status), true),
             Err(error) => (TerminalExit::unknown(format!("wait failed: {error}")), false),
         };

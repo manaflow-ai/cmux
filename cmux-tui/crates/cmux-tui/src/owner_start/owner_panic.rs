@@ -12,8 +12,6 @@
 //! telemetry choice. The line format and hook live in `cmux-panic-log`,
 //! which the acpmux daemon uses too.
 
-use std::path::PathBuf;
-
 /// Debug builds only: `thread` makes a worker thread panic once the hook is
 /// installed (tests/owner_panic.rs). Its line carries `"test": true`.
 #[cfg(debug_assertions)]
@@ -21,27 +19,9 @@ const TEST_PANIC_ENV: &str = "CMUX_TUI_TEST_OWNER_PANIC";
 #[cfg(debug_assertions)]
 const TEST_PANIC_THREAD: &str = "owner-panic-test";
 
-/// The log for `session`: the state root (the parent of the sessions
-/// directory). A session name that needs escaping gets a hash suffix, so two
-/// names never share a log.
-pub(super) fn log_path(session: &str) -> Option<PathBuf> {
-    let sessions = cmux_tui_core::platform::workspace_state_dir()?;
-    let root = sessions.parent().map(PathBuf::from).unwrap_or(sessions);
-    let safe: String = session
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') { c } else { '-' })
-        .collect();
-    let name = if safe == session {
-        safe
-    } else {
-        // FNV-1a: stable across builds, no dependency.
-        let hash = session.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
-            (hash ^ u64::from(byte)).wrapping_mul(0x100_0000_01b3)
-        });
-        format!("{safe}-{:08x}", hash as u32)
-    };
-    Some(root.join(format!("owner-panics-{name}.jsonl")))
-}
+/// The log for `session` (the rule lives in core, so `oracle-state` reports
+/// the same path).
+pub(super) use cmux_tui_core::diagnostics::owner_panic_log_path as log_path;
 
 /// Install the owner's panic hook. Call once, in the headless owner only.
 pub(super) fn install(session: &str) {

@@ -4,32 +4,35 @@ import IOKit.ps
 import Testing
 
 /// The energy monitor holds Low Power Mode, the power source, the battery's charge and the thermal
-/// state as one value, registers no power-source notification on a Mac without a battery, and
-/// reads the charge only on battery.
+/// state as one value, registers no power-source notification on a Mac without a battery, reads
+/// the power source once per change (one IOKit snapshot) and reports the charge only on battery.
 @MainActor
 struct EnergyMonitorTests {
     /// A power source a test drives: what it reads, and the change handler the monitor registered.
     @MainActor final class FakePower {
-        var onBattery = false
-        var battery = BatteryLevel()
+        var reading = PowerSourceReading()
         var listens = 0
-        var batteryReads = 0
+        var reads = 0
+        var stops = 0
         var changed: (@MainActor () -> Void)?
 
         var input: PowerSourceInput {
-            PowerSourceInput(onBattery: { self.onBattery }, battery: {
-                self.batteryReads += 1
-                return self.battery
-            }) { handler in
+            PowerSourceInput(read: {
+                self.reads += 1
+                return self.reading
+            }, listen: { handler in
                 self.listens += 1
                 self.changed = handler
-            }
+            }, stop: {
+                self.stops += 1
+                self.changed = nil
+            })
         }
 
         /// The Mac moves to `onBattery` with `percent` left, and IOKit says so.
         func change(onBattery: Bool, percent: Int?) {
-            self.onBattery = onBattery
-            battery.percent = percent
+            reading.onBattery = onBattery
+            reading.batteryPercent = percent
             changed?()
         }
     }
@@ -38,11 +41,8 @@ struct EnergyMonitorTests {
         var inputs: [EnergyInputs] = []
     }
 
-    static func laptop(percent: Int?) -> BatteryLevel {
-        var battery = BatteryLevel()
-        battery.hasBattery = true
-        battery.percent = percent
-        return battery
+    static func laptop(percent: Int?, onBattery: Bool = false) -> PowerSourceReading {
+        PowerSourceReading(onBattery: onBattery, hasBattery: true, batteryPercent: percent)
     }
 
     static func monitor(_ power: FakePower, lowPowerMode: LowPowerMode = LowPowerMode(enabled: false),
@@ -55,22 +55,48 @@ struct EnergyMonitorTests {
         let monitor = Self.monitor(power)
         monitor.start()
         #expect(power.listens == 0)
+        #expect(power.reads == 1)
         #expect(monitor.inputs == EnergyInputs())
         #expect(!monitor.inputs.hasBattery)
     }
 
     @Test func nothingReadsThePowerSourceBeforeStart() {
         let power = FakePower()
-        power.battery = Self.laptop(percent: 50)
-        power.onBattery = true
+        power.reading = Self.laptop(percent: 50, onBattery: true)
         let monitor = Self.monitor(power)
-        #expect(power.batteryReads == 0 && power.listens == 0)
+        #expect(power.reads == 0 && power.listens == 0)
         #expect(!monitor.inputs.onBattery)
+    }
+
+    /// Start used to make two or three IOKit calls (the battery, the source, the battery again on
+    /// battery); each change two. One snapshot answers both now.
+    @Test func startAndEachChangeReadThePowerSourceOnce() {
+        let power = FakePower()
+        power.reading = Self.laptop(percent: 70, onBattery: true)
+        let monitor = Self.monitor(power)
+        monitor.start()
+        #expect(power.reads == 1)
+        #expect(monitor.inputs == EnergyInputs(onBattery: true, hasBattery: true, batteryPercent: 70))
+        power.change(onBattery: true, percent: 69)
+        #expect(power.reads == 2)
+    }
+
+    @Test func stopEndsTheNotificationAndStartListensAgain() {
+        let power = FakePower()
+        power.reading = Self.laptop(percent: 70)
+        let monitor = Self.monitor(power)
+        monitor.stop()
+        #expect(power.stops == 0, "a monitor never started has nothing to stop")
+        monitor.start()
+        monitor.stop()
+        #expect(power.stops == 1 && power.changed == nil)
+        monitor.start()
+        #expect(power.listens == 2)
     }
 
     @Test func aLaptopReportsItsSourceAndChargeOnBatteryOnly() {
         let power = FakePower()
-        power.battery = Self.laptop(percent: 80)
+        power.reading = Self.laptop(percent: 80)
         let monitor = Self.monitor(power)
         let seen = Seen()
         let registration = monitor.observe { seen.inputs.append($0) }
@@ -80,10 +106,8 @@ struct EnergyMonitorTests {
         #expect(monitor.inputs == EnergyInputs(hasBattery: true))
         power.change(onBattery: true, percent: 55)
         #expect(monitor.inputs == EnergyInputs(onBattery: true, hasBattery: true, batteryPercent: 55))
-        let readsOnBattery = power.batteryReads
         power.change(onBattery: false, percent: 54)
-        #expect(power.batteryReads == readsOnBattery, "the charge was read on AC")
-        #expect(monitor.inputs == EnergyInputs(hasBattery: true))
+        #expect(monitor.inputs == EnergyInputs(hasBattery: true), "the charge was reported on AC")
         #expect(seen.inputs == [EnergyInputs(hasBattery: true), EnergyInputs(onBattery: true, hasBattery: true, batteryPercent: 55),
                                 EnergyInputs(hasBattery: true)])
         _ = registration
@@ -91,8 +115,7 @@ struct EnergyMonitorTests {
 
     @Test func anUnchangedReadingTellsNobody() {
         let power = FakePower()
-        power.battery = Self.laptop(percent: 40)
-        power.onBattery = true
+        power.reading = Self.laptop(percent: 40, onBattery: true)
         let monitor = Self.monitor(power)
         monitor.start()
         let seen = Seen()

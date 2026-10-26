@@ -139,7 +139,15 @@ public extension PageDescriptor {
         csp: PageCSP(connect: ["cmux-page://cmux.diff"], script: ["'wasm-unsafe-eval'"]),
         entry: diffEntry, dynamicPrefixes: ["__patch"],
         // Push (cmux.diff.git.push) acts on one click: not on a click that only brings the window forward.
-        acceptsFirstMouse: false)
+        acceptsFirstMouse: false,
+        // DiffPageProvider (CmuxNextDiff) and its Git, Revert, Stores and Open extensions.
+        opTables: [PageOpTable(
+            namespace: "cmux.diff.",
+            read: ["config", "languages", "events", "recents", "protocolHandshake", "sessionOpen", "sessionClose", "branchList",
+                   "fileContents", "git.status", "git.diff", "git.fingerprint", "prefs.get", "viewed.list", "prefs"],
+            act: ["chooseFolder", "open", "openFile", "prefs.set", "viewed.set", "viewed.clear"],
+            hostPower: ["branchChange", "git.commit", "git.push", "git.stage", "git.unstage", "git.stageHunk", "git.unstageHunk",
+                        "git.discard", "git.discardHunk", "git.undoDiscard"])])
 
     /// The markdown page (diff-host.md S6): the strict CSP (Vega uses vega-interpreter, code
     /// highlighting Shiki's JavaScript engine) plus `'wasm-unsafe-eval'` for Ondine, the Mermaid
@@ -148,7 +156,13 @@ public extension PageDescriptor {
         id: "cmux.markdown", resource: diffResource, processGroup: .solo, namespaces: ["cmux.markdown."],
         nativeOps: [PageNativeOp.clipboardWrite],
         commands: PageNativeOp.commands.union(MarkdownPageCommand.all), csp: PageCSP(script: ["'wasm-unsafe-eval'"], inlineScript: false), entry: markdownEntry,
-        dynamicPrefixes: [MarkdownPageResource.asset, MarkdownPageResource.library, MarkdownPageResource.remoteImage])
+        dynamicPrefixes: [MarkdownPageResource.asset, MarkdownPageResource.library, MarkdownPageResource.remoteImage],
+        opTables: [PageOpTable(
+            namespace: "cmux.markdown.",
+            read: ["config", "open", "history", "recents", "resolveLinks", "listFiles", "contextTable", "changes", "look"],
+            act: ["edited", "setPreference", "loadRemoteImages", "chooseFile", "openLink"],
+            // Table widths and comments are written into the file's extended attributes.
+            hostPower: ["save", "setTableWidths", "deleteComment"])])
 
     /// The code editor page (diff-host.md "Editor page", Monaco): the strict CSP plus
     /// `'wasm-unsafe-eval'` for Shiki's Oniguruma engine; no `connect-src` and no `'unsafe-eval'`.
@@ -159,5 +173,7 @@ public extension PageDescriptor {
         id: "cmux.editor", resource: diffResource, processGroup: .solo, namespaces: ["cmux.editor."],
         nativeOps: [PageNativeOp.clipboardWrite, PageNativeOp.actionRun], actions: ["commandPalette"],
         commands: PageNativeOp.commands.union(EditorPageCommand.all),
-        csp: PageCSP(script: ["'wasm-unsafe-eval'"]), entry: editorEntry)
+        csp: PageCSP(script: ["'wasm-unsafe-eval'"]), entry: editorEntry,
+        opTables: [PageOpTable(namespace: "cmux.editor.", read: ["config", "open", "recents", "keySequence", "changes", "look"],
+                               act: ["edited", "setPreference", "chooseFile", "openLink"], hostPower: ["save"])])
 }

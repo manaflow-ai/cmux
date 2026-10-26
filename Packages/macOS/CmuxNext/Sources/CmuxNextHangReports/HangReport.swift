@@ -19,13 +19,17 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         /// `other`, no redirects, per-Mac consent). The server refuses schema 1, so a report an
         /// older NIGHTLY queued is refused (and dropped from its outbox) once the endpoint opens.
         case v2 = 2
-        /// Schema 2 plus ``HangReport/launches``. The server refuses unknown keys and other schema
-        /// numbers, so a build writes it only after the server accepts it (p09-observability-064
-        /// deployed, behind p09-observability-063's server-version flag; task p08-startup-115).
+        /// Schema 2 plus ``HangReport/launches`` and the input latency fields. The server refuses
+        /// unknown keys and other schema numbers, so a build writes it only after the server
+        /// accepts it (p09-observability-064 deployed, behind p09-observability-063's
+        /// server-version flag; tasks p08-startup-115, p04-input-103 and p04-input-104).
         case v3 = 3
 
         /// Whether a report in this schema carries ``HangReport/launches``.
         public var carriesLaunches: Bool { self == .v3 }
+        /// Whether a report in this schema carries ``HangReport/inputLatency`` and
+        /// ``HangReport/scrollJank``.
+        public var carriesInputLatency: Bool { self == .v3 }
     }
 
     /// The wire schema a report is written in by default (``WireSchema/v2``).
@@ -125,6 +129,14 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     /// `launchLiveContent` by temperature, and `completionReasons`); schema 3 only. Nil, and so
     /// absent from the JSON, in schema 2 and when no launch was recorded.
     public var launches: LaunchAggregate?
+    /// The upper edges of the ``inputLatency`` buckets, in milliseconds; schema 3 only. The three
+    /// input fields are present together, or absent when the report carries no input latency.
+    public var inputLatencyBucketEdgesMs: [Double]?
+    /// Input latency since the last report, per kind, target, entrypoint, presentation source and
+    /// display; schema 3 only.
+    public var inputLatency: [InputLatencyRow]?
+    /// Chrome's scroll jank counts since the last report; schema 3 only.
+    public var scrollJank: ScrollJank?
 
     /// Makes the value from its parts.
     public init(reportId: String, installId: String, day: String, app: App, os: OS, hardware: HardwareClass,
@@ -138,10 +150,26 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         self.counts = counts
     }
 
-    /// Whether the report says nothing about performance (no hang, stall, metric, interval or launch).
+    /// Whether the report says nothing about performance (no hang, stall, metric, interval, launch
+    /// or input latency).
     public var hasNoFindings: Bool {
         hangs.isEmpty && cpuExceptions.isEmpty && stallHistogram.allSatisfy { $0.count == 0 } && metrics.isEmpty
-            && intervals.isEmpty && (launches?.isEmpty ?? true)
+            && intervals.isEmpty && (launches?.isEmpty ?? true) && !hasInputLatency
+    }
+
+    /// Whether the report carries input latency rows or scroll jank counts.
+    public var hasInputLatency: Bool {
+        !(inputLatency ?? []).isEmpty || !(scrollJank?.isEmpty ?? true)
+    }
+
+    /// The wire names: camelCase for the schema 2 fields and `launches`; the input latency fields
+    /// use the snake_case names `debug.input` and the trace tools share (p04-input.md, DC12).
+    private enum CodingKeys: String, CodingKey {
+        case schema, reportId, installId, day, app, os, hardware, counts, hangs, cpuExceptions, stallHistogram
+        case metrics, intervals, launches
+        case inputLatencyBucketEdgesMs = "input_latency_bucket_edges_ms"
+        case inputLatency = "input_latency"
+        case scrollJank = "scroll_jank"
     }
 
     /// The wire encoder: sorted keys, so the same report always has the same bytes.

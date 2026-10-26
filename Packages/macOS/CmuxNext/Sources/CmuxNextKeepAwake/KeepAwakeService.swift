@@ -19,6 +19,12 @@ public final class KeepAwakeService {
     /// The setting and agent-work observation; app lifetime, cancelled never.
     private var observation: Task<Void, Never>?
 
+    /// A service with nothing asking (the app's is ``shared``; tests make their own).
+    public init() {}
+
+    /// Whether the idle-sleep hold is taken now.
+    public var isHolding: Bool { activity != nil }
+
     /// Follows the setting and local agent work. Call once the settings
     /// controller exists; a second call does nothing. The power source comes
     /// from the App (``setOnBattery(_:)``).
