@@ -633,4 +633,332 @@ mod api_compat {
             assert_eq!(&*compat.translate("m", 1, 0, b"{}").unwrap(), b"{}");
         }
     }
+
+    /// Wire id rules (p05-ipc-012). Each rule has a fixture the check
+    /// refuses and one it accepts, on both schema files.
+    mod wire {
+        use std::collections::BTreeMap;
+
+        use cmux_api_compat::wire::{
+            RESOURCE_OPERATIONS, SDK_SCHEMA, WireIds, WireLedgers, WireRule, check_all,
+            ids_from_resource_operations, ids_from_sdk_schema,
+        };
+        use serde_json::{Value, json};
+
+        /// A v12 IR with the `tabs` family (0x02) and two commands and one
+        /// event in it.
+        fn sdk() -> Value {
+            json!({
+                "families": {"tabs": {"id": 2}, "events": {"id": "0xC0"}},
+                "types": {"Size": {"kind": "object", "fields": {
+                    "cols": {"type": {"kind": "scalar", "name": "uint16"}, "presence": "required"}}}},
+                "commands": {
+                    "new-tab": {"method_id": 0x0201, "priority": "control",
+                                "request": {"kind": "object", "fields": {}}},
+                    "resize-attached-view": {
+                        "method_id": "0x0202", "priority": "input",
+                        "payload": "binary", "layout_version": 1,
+                        "request": {"kind": "ref", "name": "Size"}}
+                },
+                "events": {"tab-moved": {"event_id": 0xC001, "priority": "control",
+                                         "payload": {"kind": "object", "fields": {}}}}
+            })
+        }
+
+        /// A v2 operations file with the `agent` family (0x60).
+        fn operations() -> Value {
+            json!({
+                "families": {"agent": {"id": 0x60}},
+                "types": {}, "generics": {},
+                "operations": {"agent.list": {"method_id": 0x6001, "priority": "control",
+                                              "params": {}, "result": {"kind": "array"}}},
+                "local_operations": {"sidebar_plugin.install": {"method_id": 0x6002,
+                                                                "params": {}}}
+            })
+        }
+
+        fn files(sdk: &Value, operations: &Value) -> BTreeMap<String, WireIds> {
+            BTreeMap::from([
+                (SDK_SCHEMA.to_owned(), ids_from_sdk_schema(sdk).unwrap()),
+                (RESOURCE_OPERATIONS.to_owned(), ids_from_resource_operations(operations).unwrap()),
+            ])
+        }
+
+        /// The ledger file after `--write` recorded the base fixtures.
+        fn recorded() -> WireLedgers {
+            let ledgers = check_all(&WireLedgers::default(), &files(&sdk(), &operations())).ledgers;
+            ledgers.validate().unwrap();
+            ledgers
+        }
+
+        fn rules(compat: &WireLedgers, sdk: &Value, operations: &Value) -> Vec<(String, WireRule)> {
+            check_all(compat, &files(sdk, operations))
+                .problems
+                .into_iter()
+                .map(|(file, p)| (format!("{file}:{}", p.name), p.rule))
+                .collect()
+        }
+
+        fn sdk_rule(name: &str, rule: WireRule) -> Vec<(String, WireRule)> {
+            vec![(format!("{SDK_SCHEMA}:{name}"), rule)]
+        }
+
+        fn ops_rule(name: &str, rule: WireRule) -> Vec<(String, WireRule)> {
+            vec![(format!("{RESOURCE_OPERATIONS}:{name}"), rule)]
+        }
+
+        #[test]
+        fn api_compat_wire_first_record_and_unchanged_schema_pass() {
+            let compat = WireLedgers::default();
+            let report = check_all(&compat, &files(&sdk(), &operations()));
+            assert!(report.problems.is_empty(), "{:?}", report.problems);
+            assert!(report.is_stale(&compat), "new ids must be written to the ledger");
+            let ledger = &report.ledgers.files[SDK_SCHEMA];
+            assert_eq!(ledger.methods["resize-attached-view"].id, 0x0202);
+            assert_eq!(ledger.families["events"].id, 0xC0);
+            assert_eq!(report.ledgers.files[RESOURCE_OPERATIONS].methods.len(), 2);
+
+            let compat = recorded();
+            let again = check_all(&compat, &files(&sdk(), &operations()));
+            assert!(again.problems.is_empty() && !again.is_stale(&compat));
+        }
+
+        #[test]
+        fn api_compat_wire_ledger_survives_a_json_round_trip() {
+            let compat = recorded();
+            let bytes = serde_json::to_vec(&compat).unwrap();
+            assert_eq!(WireLedgers::from_json(&bytes).unwrap(), compat);
+        }
+
+        #[test]
+        fn api_compat_wire_reused_id_is_refused() {
+            let compat = recorded();
+            // A new command takes the id of an existing one.
+            let mut bad = sdk();
+            bad["commands"]["close-tab"] = json!({"method_id": 0x0201, "priority": "control"});
+            assert_eq!(
+                rules(&compat, &bad, &operations()),
+                sdk_rule("close-tab", WireRule::ReusedId),
+                "only the new name is blamed, never the recorded owner"
+            );
+            // Two new commands share one fresh id: the second is refused.
+            let mut bad = sdk();
+            bad["commands"]["a-tab"] = json!({"method_id": 0x0209, "priority": "control"});
+            bad["commands"]["b-tab"] = json!({"method_id": 0x0209, "priority": "control"});
+            assert_eq!(rules(&compat, &bad, &operations()), sdk_rule("b-tab", WireRule::ReusedId));
+            // A new event takes the id of a tombstoned event.
+            let mut tomb = compat.clone();
+            let ledger = tomb.files.get_mut(SDK_SCHEMA).unwrap();
+            ledger.events.get_mut("tab-moved").unwrap().removed = Some("merged".into());
+            let mut gone = sdk();
+            gone["events"] = json!({"tab-reordered": {"event_id": 0xC001}});
+            assert_eq!(
+                rules(&tomb, &gone, &operations()),
+                sdk_rule("tab-reordered", WireRule::ReusedId)
+            );
+            // A v2 operation takes a v2 id already given out.
+            let mut ops = operations();
+            ops["operations"]["agent.get"] = json!({"method_id": 0x6002});
+            let found = rules(&compat, &sdk(), &ops);
+            assert!(
+                found.contains(&(format!("{RESOURCE_OPERATIONS}:agent.get"), WireRule::ReusedId))
+            );
+            // A fresh id passes.
+            let mut good = sdk();
+            good["commands"]["close-tab"] = json!({"method_id": 0x0203, "priority": "control"});
+            assert_eq!(rules(&compat, &good, &operations()), vec![]);
+        }
+
+        #[test]
+        fn api_compat_wire_renumbered_id_is_refused() {
+            let compat = recorded();
+            let mut bad = sdk();
+            bad["commands"]["new-tab"]["method_id"] = json!(0x0205);
+            assert_eq!(
+                rules(&compat, &bad, &operations()),
+                sdk_rule("new-tab", WireRule::Renumbered)
+            );
+            let mut bad = sdk();
+            bad["events"]["tab-moved"]["event_id"] = json!(0xC002);
+            assert_eq!(
+                rules(&compat, &bad, &operations()),
+                sdk_rule("tab-moved", WireRule::Renumbered)
+            );
+            let mut ops = operations();
+            ops["operations"]["agent.list"]["method_id"] = json!(0x6003);
+            assert_eq!(rules(&compat, &sdk(), &ops), ops_rule("agent.list", WireRule::Renumbered));
+            // Same ids written in hex instead of decimal pass.
+            let mut good = sdk();
+            good["commands"]["new-tab"]["method_id"] = json!("0x0201");
+            assert_eq!(rules(&compat, &good, &operations()), vec![]);
+        }
+
+        #[test]
+        fn api_compat_wire_removal_needs_a_tombstone() {
+            let compat = recorded();
+            let mut bad = sdk();
+            bad["commands"].as_object_mut().unwrap().remove("new-tab");
+            assert_eq!(
+                rules(&compat, &bad, &operations()),
+                sdk_rule("new-tab", WireRule::RemovedWithoutTombstone)
+            );
+            let mut ops = operations();
+            ops["local_operations"] = json!({});
+            assert_eq!(
+                rules(&compat, &sdk(), &ops),
+                ops_rule("sidebar_plugin.install", WireRule::RemovedWithoutTombstone)
+            );
+            // With a tombstone the removal passes, and the name stays retired.
+            let mut tomb = compat;
+            let ledger = tomb.files.get_mut(SDK_SCHEMA).unwrap();
+            ledger.methods.get_mut("new-tab").unwrap().removed =
+                Some("replaced by tab.create".into());
+            tomb.validate().unwrap();
+            assert_eq!(rules(&tomb, &bad, &operations()), vec![]);
+            assert_eq!(
+                rules(&tomb, &sdk(), &operations()),
+                sdk_rule("new-tab", WireRule::Resurrected)
+            );
+            // An empty reason is not a tombstone.
+            let ledger = tomb.files.get_mut(SDK_SCHEMA).unwrap();
+            ledger.methods.get_mut("new-tab").unwrap().removed = Some(" ".into());
+            assert!(tomb.validate().is_err());
+        }
+
+        #[test]
+        fn api_compat_wire_family_renumber_is_refused() {
+            let compat = recorded();
+            // Moving a family moves its ids too: every member is renumbered.
+            let mut bad = sdk();
+            bad["families"]["tabs"]["id"] = json!(3);
+            bad["commands"]["new-tab"]["method_id"] = json!(0x0301);
+            bad["commands"]["resize-attached-view"]["method_id"] = json!(0x0302);
+            let found = rules(&compat, &bad, &operations());
+            assert_eq!(found[0], (format!("{SDK_SCHEMA}:tabs"), WireRule::Renumbered), "{found:?}");
+            assert_eq!(found.len(), 3, "{found:?}");
+            // Giving a new family the byte of an existing one is a reuse.
+            let mut bad = sdk();
+            bad["families"]["panes"] = json!({"id": 2});
+            assert_eq!(rules(&compat, &bad, &operations()), sdk_rule("panes", WireRule::ReusedId));
+            // Dropping a family needs a tombstone.
+            let mut ops = operations();
+            ops["families"] = json!({});
+            assert_eq!(
+                rules(&compat, &sdk(), &ops),
+                ops_rule("agent", WireRule::RemovedWithoutTombstone)
+            );
+            // Appending a family passes.
+            let mut good = sdk();
+            good["families"]["panes"] = json!({"id": 4});
+            assert_eq!(rules(&compat, &good, &operations()), vec![]);
+        }
+
+        #[test]
+        fn api_compat_wire_priority_change_needs_a_reason() {
+            let compat = recorded();
+            let mut bad = sdk();
+            bad["commands"]["new-tab"]["priority"] = json!("bulk");
+            assert_eq!(
+                rules(&compat, &bad, &operations()),
+                sdk_rule("new-tab", WireRule::PriorityWithoutReason)
+            );
+            let mut ops = operations();
+            ops["operations"]["agent.list"]["priority"] = json!("background");
+            assert_eq!(
+                rules(&compat, &sdk(), &ops),
+                ops_rule("agent.list", WireRule::PriorityWithoutReason)
+            );
+            // With a reason it passes and the ledger records both.
+            let mut good = sdk();
+            good["commands"]["new-tab"]["priority"] = json!("bulk");
+            good["commands"]["new-tab"]["priority_changed_reason"] =
+                json!("new-tab replies after the shell spawns");
+            let report = check_all(&compat, &files(&good, &operations()));
+            assert!(report.problems.is_empty(), "{:?}", report.problems);
+            let next = report.ledgers;
+            let record = &next.files[SDK_SCHEMA].methods["new-tab"];
+            assert_eq!(record.priority.as_deref(), Some("bulk"));
+            // A second change cannot ride on the first change's reason.
+            good["commands"]["new-tab"]["priority"] = json!("input");
+            assert_eq!(
+                rules(&next, &good, &operations()),
+                sdk_rule("new-tab", WireRule::PriorityWithoutReason)
+            );
+            good["commands"]["new-tab"]["priority_changed_reason"] =
+                json!("typed from the palette");
+            assert_eq!(rules(&next, &good, &operations()), vec![]);
+        }
+
+        #[test]
+        fn api_compat_wire_binary_layout_change_needs_a_version_bump() {
+            let compat = recorded();
+            // Editing the referenced type changes the layout.
+            let mut bad = sdk();
+            bad["types"]["Size"]["fields"]["rows"] =
+                json!({"type": {"kind": "scalar", "name": "uint16"}, "presence": "required"});
+            assert_eq!(
+                rules(&compat, &bad, &operations()),
+                sdk_rule("resize-attached-view", WireRule::LayoutWithoutVersionBump)
+            );
+            // Lowering the version is refused even with the same fields.
+            let mut bad = sdk();
+            bad["commands"]["resize-attached-view"]["layout_version"] = json!(0);
+            assert_eq!(
+                rules(&compat, &bad, &operations()),
+                sdk_rule("resize-attached-view", WireRule::LayoutWithoutVersionBump)
+            );
+            // A binary payload without a version cannot be read.
+            let mut bad = sdk();
+            bad["commands"]["resize-attached-view"]
+                .as_object_mut()
+                .unwrap()
+                .remove("layout_version");
+            assert!(ids_from_sdk_schema(&bad).is_err());
+            // A v2 operation that turns binary later records its first layout,
+            // and then needs a bump as well.
+            let mut ops = operations();
+            ops["operations"]["agent.list"]["payload"] =
+                json!({"kind": "binary", "layout_version": 1});
+            let report = check_all(&compat, &files(&sdk(), &ops));
+            assert!(report.problems.is_empty(), "{:?}", report.problems);
+            let next = report.ledgers;
+            ops["operations"]["agent.list"]["result"] = json!({"kind": "map"});
+            assert_eq!(
+                rules(&next, &sdk(), &ops),
+                ops_rule("agent.list", WireRule::LayoutWithoutVersionBump)
+            );
+            // The same change with a bump passes; a description edit needs none.
+            let mut good = sdk();
+            good["types"]["Size"]["fields"]["rows"] =
+                json!({"type": {"kind": "scalar", "name": "uint16"}, "presence": "required"});
+            good["commands"]["resize-attached-view"]["layout_version"] = json!(2);
+            assert_eq!(rules(&compat, &good, &operations()), vec![]);
+            let mut docs = sdk();
+            docs["types"]["Size"]["description"] = json!("columns of the attached view");
+            assert_eq!(rules(&compat, &docs, &operations()), vec![]);
+        }
+
+        #[test]
+        fn api_compat_wire_ledger_refuses_one_id_for_two_names() {
+            let mut compat = recorded();
+            let ledger = compat.files.get_mut(SDK_SCHEMA).unwrap();
+            let id = ledger.methods["new-tab"].clone();
+            ledger.methods.insert("open-tab".into(), id);
+            assert!(compat.validate().is_err());
+        }
+
+        #[test]
+        fn api_compat_wire_real_spec_files_match_the_ledger() {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../spec");
+            let read = |name: &str| -> Value {
+                serde_json::from_slice(&std::fs::read(root.join(name)).unwrap()).unwrap()
+            };
+            let compat =
+                WireLedgers::from_json(&std::fs::read(root.join("api-compat.wire.json")).unwrap())
+                    .unwrap();
+            let report = check_all(&compat, &files(&read(SDK_SCHEMA), &read(RESOURCE_OPERATIONS)));
+            assert!(report.problems.is_empty(), "{:?}", report.problems);
+            assert!(!report.is_stale(&compat), "run api-compat-check --write");
+        }
+    }
 }
