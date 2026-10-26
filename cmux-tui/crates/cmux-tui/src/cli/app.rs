@@ -194,8 +194,15 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("cloud", Some("exec")) => {
             let has_command = rest.iter().enumerate().any(|(index, argument)| {
                 argument.starts_with("--command=")
+                    || argument.strip_prefix("--arg=").is_some_and(|value| {
+                        value.starts_with("command=") && value.len() > "command=".len()
+                    })
                     || (argument == "--command"
                         && rest.get(index + 1).is_some_and(|value| !value.starts_with('-')))
+                    || (argument == "--arg"
+                        && rest.get(index + 1).is_some_and(|value| {
+                            value.starts_with("command=") && value.len() > "command=".len()
+                        }))
             });
             if rest.iter().any(|argument| argument == "--") || !has_command {
                 return Err(UsageError::new(

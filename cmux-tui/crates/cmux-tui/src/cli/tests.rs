@@ -209,8 +209,12 @@ mod remote_cli_docs {
     fn cloud_exec_without_command_returns_actionable_usage() {
         let args = strings(&["cloud", "exec", "--target", "machine:builder"]);
         assert!(super::super::app::parse(&args).is_err());
+        let args =
+            strings(&["cloud", "exec", "--target", "machine:builder", "--arg", "command=uname -a"]);
+        assert!(super::super::app::parse(&args).is_ok());
         assert!(super::super::CLOUD_HELP.contains("cloud <action>"));
         assert!(super::super::AGENT_HELP.contains("agent open-tab"));
+        assert!(super::super::AGENT_HELP.contains("agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--focus]"));
     }
 }
 

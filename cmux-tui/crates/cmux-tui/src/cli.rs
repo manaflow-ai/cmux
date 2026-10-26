@@ -1070,7 +1070,7 @@ USAGE
 
 const AGENT_HELP: &str = "\
 USAGE
-  cmux agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP]
+  cmux agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--focus]
   cmux agent open-tab <session id> [--target PANE_OR_TAB] [--host HOST] [--focus]
   cmux agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
   cmux agent message --reply-to <message-id> [--from <name>] [--] <text...|->
@@ -1119,6 +1119,38 @@ CLI actions (the live action catalog is authoritative):
 
 Run `cmux action list --category cloud --json` for the current catalog and
 `cmux action describe <action> --json` for an action's arguments.
+";
+
+const CLOUD_HELP_JA: &str = "\
+使い方
+  cmux cloud <アクション> [--target machine:MACHINE_ID] [--<引数> VALUE]...
+
+CLI アクション（現在の一覧はアクションカタログを参照）:
+  new-workspace             new-machine
+  fork-machine              snapshot-machine
+  restore-machine           promote-machine-to-template
+  machine-status            machine-ports
+  hand-off-machine          move
+  bring-back                ssh
+  exec                      setup-github
+  files-list                file-read
+  file-write                file-mkdir
+  file-remove               file-stat
+  prepare-scp               tunnel-attach
+  tunnel-detach             tunnel-rotate-key
+  network-list              firewall-list
+  firewall-get              firewall-create
+  firewall-delete            domain-list
+  publication-list           list-machines
+  new-terminal-on-machine    rename-machine
+  kill-machine               pause-machine
+  resume-machine             resize-machine
+  set-idle-pause             delete-snapshot
+  diagnostics               sign-in
+  sign-out                  open-mobile-pairing
+
+現在のカタログは `cmux action list --category cloud --json`、引数は
+`cmux action describe <action> --json` で確認できます。
 ";
 
 const SIDEBAR_HELP: &str = "\
