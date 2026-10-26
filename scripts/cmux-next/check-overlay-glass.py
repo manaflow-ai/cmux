@@ -60,6 +60,7 @@ Usage: scripts/cmux-next/check-overlay-glass.py [repo-root]
 
 from __future__ import annotations
 
+import bisect
 import os
 import re
 import sys
@@ -167,7 +168,7 @@ ALLOWED: dict[str, dict[str, str]] = {
 # A native host of a menu, picker, popover, popup or the palette.
 POPUP_HOST = re.compile(
     r"\bclass\s+\w*(Menu|Picker|Popover|Popup|Palette)\w*\s*:\s*\w*(Panel|Window)\b"
-    r"|\bNativePopupHost\(panel:|\badoptPopupStyle\(card:|\bNSPopover\(\)"
+    r"|\bNativePopupHost\(\s*panel:|\badoptPopupStyle\(\s*card:|\bNSPopover\(\s*\)"
 )
 GLASS_SURFACE = re.compile(r"\bGlass\.make(Overlay|Menu)Panel\(")
 
@@ -221,7 +222,7 @@ TYPE_DECL = re.compile(
 BLOCK_TOKEN = re.compile(TYPE_DECL.pattern + r"|(?P<open>\{)|(?P<close>\})")
 POPUP_CLASS = re.compile(r"\bclass\s+(?P<name>\w*(?:Menu|Picker|Popover|Popup|Palette)\w*)\s*:\s*\w*(?:Panel|Window)\b")
 RAW_OPEN = re.compile(r'(#+)"')
-HOSTED_PANEL = re.compile(r"\bNativePopupHost\(panel:\s*(?P<name>[A-Za-z_]\w*)\(")
+HOSTED_PANEL = re.compile(r"\bNativePopupHost\(\s*panel:\s*(?P<name>[A-Za-z_][\w.]*)\(")
 
 
 def skip_interpolation(text: str, index: int, out: list[str]) -> int:
@@ -401,7 +402,7 @@ def host_has_glass(lines: list[str], blocks: Blocks, index: int, column: int) ->
     if declared:
         return glass_in(lines, blocks, blocks.resolve(index, column, declared.group("name")))
     # The call's argument may wrap onto the next lines.
-    hosted = HOSTED_PANEL.match(" ".join([line[column:], *lines[index + 1 : index + 3]]))
+    hosted = HOSTED_PANEL.match("\n".join([line[column:], *lines[index + 1 : index + 4]]))
     panel = blocks.resolve(index, column, hosted.group("name")) if hosted else set()
     if panel and glass_in(lines, blocks, panel):
         return True
@@ -424,7 +425,15 @@ def scan_popup_hosts(root: str) -> list[str]:
             path = os.path.join(directory, name)
             rel = os.path.relpath(path, root).replace(os.sep, "/")
             lines = code_lines(path)
-            hits = [(index, hit.start()) for index, line in enumerate(lines) for hit in POPUP_HOST.finditer(line)]
+            # A host call may wrap after its `(`: match the whole file, then find each hit's line.
+            text = "\n".join(lines)
+            starts = [0]
+            for line in lines[:-1]:
+                starts.append(starts[-1] + len(line) + 1)
+            hits = []
+            for hit in POPUP_HOST.finditer(text):
+                index = bisect.bisect_right(starts, hit.start()) - 1
+                hits.append((index, hit.start() - starts[index]))
             if not hits:
                 continue
             blocks = Blocks(lines)

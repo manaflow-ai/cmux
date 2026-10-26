@@ -128,7 +128,8 @@ test("the scan flags an opaque popup root and a root that never clears html", ()
     put("colornone/styles.css", "html { background-color: none; }\n");
     put(
       "child/styles.css",
-      "html { background: transparent; }\nhtml[data-surface]>body { background: #fff; }\nbody.popup { background: #fff; }\n",
+      "html { background: transparent; }\nhtml[data-surface]>body { background: #fff; }\nbody.popup { background: #fff; }\n" +
+        ":is(body, #root) { background: #fff; }\n",
     );
     // One page's two stylesheets: the second clears html for both, the first paints body.
     put("split/base.css", "html[data-surface] body { background: #fff; }\n");
@@ -165,6 +166,7 @@ test("the scan flags an opaque popup root and a root that never clears html", ()
       "colornone/styles.css: the popup document never paints html transparent (the page base paints the host's surface)",
       "child/styles.css:2: html[data-surface]>body { background: #fff }",
       "child/styles.css:3: body.popup { background: #fff }",
+      "child/styles.css:4: :is(body, #root) { background: #fff }",
       "split/base.css:1: html[data-surface] body { background: #fff }",
     ]);
   } finally {

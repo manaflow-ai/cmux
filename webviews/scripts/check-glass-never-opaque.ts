@@ -334,6 +334,14 @@ function rootTarget(selector: string): "html" | "root" | null {
   for (const part of splitTopLevel(selector, /,/)) {
     const compounds = splitTopLevel(part.trim(), /[\s>+~]/).filter(Boolean);
     const last = compounds.at(-1) ?? "";
+    // :is(body, #root) and :where(...) match what their own list matches.
+    const listed = /^:(?:is|where|matches)\((.*)\)$/.exec(last);
+    if (listed) {
+      const inner = rootTarget(listed[1] ?? "");
+      if (inner === "html" && compounds.length === 1) return "html";
+      if (inner) target = "root";
+      continue;
+    }
     if (!ROOT_COMPOUND.test(last)) continue;
     if (compounds.length === 1 && /^(?:html|:root)/.test(last)) return "html";
     target = "root";

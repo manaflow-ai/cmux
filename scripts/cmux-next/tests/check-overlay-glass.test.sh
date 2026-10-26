@@ -75,6 +75,19 @@ expect_pass nested-panel-glass 'final class DemoPicker {
     final class DemoMenuPanel: NSPanel { let card = Glass.makeOverlayPanel(content: rows) }
     let popup = NativePopupHost(panel: DemoMenuPanel())
 }'
+# A host call that wraps after its `(` is still a host.
+expect_fail wrapped-native-call popup-host 'final class DemoPicker {
+    let popup = NativePopupHost(
+        panel: NativePopupPanel(identifier: "cmux.demo"))
+    let card = NSVisualEffectView()
+}'
+expect_fail wrapped-adopt-call popup-host '        popup.panel.adoptPopupStyle(
+            card: NSVisualEffectView())'
+# A panel named by its path in the file is that nested panel.
+expect_pass qualified-nested-panel 'enum Panels { final class RowsPanel: NSPanel { let card = Glass.makeOverlayPanel(content: rows) } }
+final class DemoPicker {
+    let popup = NativePopupHost(panel: Panels.RowsPanel())
+}'
 expect_fail host-call-sibling-glass popup-host 'final class BadPicker {
     private let popup = NativePopupHost(panel: NativePopupPanel(identifier: "cmux.bad"))
     func show() { popup.panel.adoptPopupStyle(card: NSVisualEffectView()) }
