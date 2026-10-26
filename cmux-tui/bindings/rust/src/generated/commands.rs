@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2b7eb48372c3df8cc72e67889a80d49f239b8b46a4d55c94efb165fb7882cb97.
+// cmux-tui mux protocol 12, IR 70760e20832505feed3b37cccc0a0439e8a693f12cc37771bb7948681485a692.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -749,6 +749,24 @@ pub struct BrowserReloadRequest {
 pub type BrowserReloadResult = T::EmptyResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct BrowserRuntimeStartRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub url: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct BrowserRuntimeStatusRequest {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrowserRuntimeStopRequest {
+    pub runtime: u64,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BrowserWheelRequest {
     pub delta_y_px: f64,
@@ -832,6 +850,19 @@ pub struct ClientFocusRequest {
 pub struct ClientFocusResult {
     pub pane: Nullable<T::Id>,
     pub tab: Nullable<u64>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ClientHelloRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub install_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub page: Optional<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub proof: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
 }
 
 #[rustfmt::skip]
@@ -2542,6 +2573,67 @@ pub struct ListWorkspacesRequest {
 
 #[rustfmt::skip]
 pub type ListWorkspacesResult = T::Tree;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoopbackCloseRequest {
+    pub stream: u64,
+}
+
+#[rustfmt::skip]
+pub type LoopbackCloseResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoopbackCreditRequest {
+    pub bytes: u64,
+    pub stream: u64,
+}
+
+#[rustfmt::skip]
+pub type LoopbackCreditResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoopbackDataRequest {
+    pub data: String,
+    pub stream: u64,
+}
+
+#[rustfmt::skip]
+pub type LoopbackDataResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoopbackOpenRequest {
+    pub host: String,
+    pub port: u16,
+    pub stream: u64,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub window: Optional<u64>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoopbackShutdownRequest {
+    pub stream: u64,
+}
+
+#[rustfmt::skip]
+pub type LoopbackShutdownResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct LoopbackStatusRequest {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineCatalogPublishRequest {
+    pub expected_machine_id: String,
+    pub machines: Vec<T::MachineCatalogEntry>,
+    pub sequence: u64,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -4842,6 +4934,18 @@ impl CmuxClient {
         self.execute(&BROWSER_RELOAD_METADATA, &request)
     }
 
+    pub fn browser_runtime_start(&mut self, request: BrowserRuntimeStartRequest) -> Result<T::BrowserRuntimeStartResult> {
+        self.execute(&BROWSER_RUNTIME_START_METADATA, &request)
+    }
+
+    pub fn browser_runtime_status(&mut self, request: BrowserRuntimeStatusRequest) -> Result<T::BrowserRuntimeStatusResult> {
+        self.execute(&BROWSER_RUNTIME_STATUS_METADATA, &request)
+    }
+
+    pub fn browser_runtime_stop(&mut self, request: BrowserRuntimeStopRequest) -> Result<T::BrowserRuntimeStopResult> {
+        self.execute(&BROWSER_RUNTIME_STOP_METADATA, &request)
+    }
+
     pub fn browser_wheel(&mut self, request: BrowserWheelRequest) -> Result<BrowserWheelResult> {
         self.execute(&BROWSER_WHEEL_METADATA, &request)
     }
@@ -4872,6 +4976,10 @@ impl CmuxClient {
 
     pub fn client_focus(&mut self, request: ClientFocusRequest) -> Result<ClientFocusResult> {
         self.execute(&CLIENT_FOCUS_METADATA, &request)
+    }
+
+    pub fn client_hello(&mut self, request: ClientHelloRequest) -> Result<T::ClientHelloResult> {
+        self.execute(&CLIENT_HELLO_METADATA, &request)
     }
 
     pub fn close_pane(&mut self, request: ClosePaneRequest) -> Result<ClosePaneResult> {
@@ -5418,6 +5526,34 @@ impl CmuxClient {
 
     pub fn list_workspaces(&mut self, request: ListWorkspacesRequest) -> Result<ListWorkspacesResult> {
         self.execute(&LIST_WORKSPACES_METADATA, &request)
+    }
+
+    pub fn loopback_close(&mut self, request: LoopbackCloseRequest) -> Result<LoopbackCloseResult> {
+        self.execute(&LOOPBACK_CLOSE_METADATA, &request)
+    }
+
+    pub fn loopback_credit(&mut self, request: LoopbackCreditRequest) -> Result<LoopbackCreditResult> {
+        self.execute(&LOOPBACK_CREDIT_METADATA, &request)
+    }
+
+    pub fn loopback_data(&mut self, request: LoopbackDataRequest) -> Result<LoopbackDataResult> {
+        self.execute(&LOOPBACK_DATA_METADATA, &request)
+    }
+
+    pub fn loopback_open(&mut self, request: LoopbackOpenRequest) -> Result<T::LoopbackOpenResult> {
+        self.execute(&LOOPBACK_OPEN_METADATA, &request)
+    }
+
+    pub fn loopback_shutdown(&mut self, request: LoopbackShutdownRequest) -> Result<LoopbackShutdownResult> {
+        self.execute(&LOOPBACK_SHUTDOWN_METADATA, &request)
+    }
+
+    pub fn loopback_status(&mut self, request: LoopbackStatusRequest) -> Result<T::LoopbackStatusResult> {
+        self.execute(&LOOPBACK_STATUS_METADATA, &request)
+    }
+
+    pub fn machine_catalog_publish(&mut self, request: MachineCatalogPublishRequest) -> Result<T::MachineCatalogPublishResult> {
+        self.execute(&MACHINE_CATALOG_PUBLISH_METADATA, &request)
     }
 
     pub fn machine_listening_tcp(&mut self, request: MachineListeningTcpRequest) -> Result<T::MachineListeningTcpResult> {

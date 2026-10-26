@@ -53,6 +53,10 @@ public final class Events {
     public static final EventMetadata HISTORY_CHANGED = new EventMetadata("history-changed", 12, "history-v1", List.of("subscribe"), true);
     public static final EventMetadata KEYBINDINGS_CHANGED = new EventMetadata("keybindings-changed", 12, "keybindings-v1", List.of("subscribe"), true);
     public static final EventMetadata LAYOUT_CHANGED = new EventMetadata("layout-changed", 6, null, List.of("subscribe"), true);
+    public static final EventMetadata LOOPBACK_CLOSED = new EventMetadata("loopback-closed", 12, "loopback-forward-v1", List.of("control"), true);
+    public static final EventMetadata LOOPBACK_CREDIT = new EventMetadata("loopback-credit", 12, "loopback-forward-v1", List.of("control"), true);
+    public static final EventMetadata LOOPBACK_DATA = new EventMetadata("loopback-data", 12, "loopback-forward-v1", List.of("control"), true);
+    public static final EventMetadata LOOPBACK_EOF = new EventMetadata("loopback-eof", 12, "loopback-forward-v1", List.of("control"), true);
     public static final EventMetadata MACHINE_USAGE_CHANGED = new EventMetadata("machine-usage-changed", 12, "machine-usage-v1", List.of("subscribe"), true);
     public static final EventMetadata NOTIFICATION = new EventMetadata("notification", 6, null, List.of("subscribe", "attach-byte", "attach-browser"), true);
     public static final EventMetadata OUTPUT = new EventMetadata("output", 5, null, List.of("attach-byte"), true);
@@ -144,6 +148,10 @@ public final class Events {
         values.put("history-changed", HISTORY_CHANGED);
         values.put("keybindings-changed", KEYBINDINGS_CHANGED);
         values.put("layout-changed", LAYOUT_CHANGED);
+        values.put("loopback-closed", LOOPBACK_CLOSED);
+        values.put("loopback-credit", LOOPBACK_CREDIT);
+        values.put("loopback-data", LOOPBACK_DATA);
+        values.put("loopback-eof", LOOPBACK_EOF);
         values.put("machine-usage-changed", MACHINE_USAGE_CHANGED);
         values.put("notification", NOTIFICATION);
         values.put("output", OUTPUT);

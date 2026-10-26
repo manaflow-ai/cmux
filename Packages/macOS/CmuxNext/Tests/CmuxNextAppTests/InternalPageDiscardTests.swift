@@ -273,7 +273,7 @@ import Testing
         rig.advance(3_600)
         rig.discards.replan()
         await rig.discards.settled()
-        #expect(rig.cache.pageDiscards == nil)
+        #expect(rig.cache.contentOwners.isEmpty)
         #expect(rig.pages.discards == nil)
         #expect(!rig.discards.hasDeadline)
         #expect(rig.pages.existingView(rig.key) != nil)

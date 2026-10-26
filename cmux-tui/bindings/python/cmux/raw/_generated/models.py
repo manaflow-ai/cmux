@@ -151,6 +151,18 @@ class HostSizeMode(str, Enum):
     LATEST = 'latest'
     PRIORITY = 'priority'
 
+class MachineCatalogOrigin(str, Enum):
+    CLOUD = 'cloud'
+    SSH = 'ssh'
+    SERVER = 'server'
+
+class MachineCatalogStatus(str, Enum):
+    RUNNING = 'running'
+    CONNECTING = 'connecting'
+    UNAVAILABLE = 'unavailable'
+    SLEEPING = 'sleeping'
+    STOPPED = 'stopped'
+
 class NameSource(str, Enum):
     USER = 'user'
     AUTO = 'auto'
@@ -718,6 +730,36 @@ class BrowserProviderUnregisterResult:
 
 
 @dataclass(frozen=True)
+class BrowserRuntimeRow:
+    __cmux_schema_path__: ClassVar[str] = 'types/BrowserRuntimeRow'
+    port: int
+    runtime: int
+
+
+@dataclass(frozen=True)
+class BrowserRuntimeStartResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/BrowserRuntimeStartResult'
+    installed: str
+    port: int
+    runtime: int
+    secret: str
+
+
+@dataclass(frozen=True)
+class BrowserRuntimeStatusResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/BrowserRuntimeStatusResult'
+    installed: Union[str, None]
+    platform: str
+    runtimes: List[BrowserRuntimeRow]
+
+
+@dataclass(frozen=True)
+class BrowserRuntimeStopResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/BrowserRuntimeStopResult'
+    stopped: Literal[True]
+
+
+@dataclass(frozen=True)
 class CellPixelFailure:
     __cmux_schema_path__: ClassVar[str] = 'types/CellPixelFailure'
     surface: Id
@@ -739,6 +781,27 @@ class CellPixelSurface:
     surface: Id
     height_px: int
     width_px: int
+
+
+@dataclass(frozen=True)
+class ClientHelloPageOperations:
+    __cmux_schema_path__: ClassVar[str] = 'types/ClientHelloPageOperations'
+    confirm: List[str]
+    gesture: List[str]
+    read: List[str]
+
+
+@dataclass(frozen=True)
+class ClientHelloResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/ClientHelloResult'
+    connection_id: str
+    user_origin_allowed: bool
+    install_id: Union[str, MissingType] = field(default=MISSING)
+    nonce: Union[str, MissingType] = field(default=MISSING)
+    page: Union[str, MissingType] = field(default=MISSING)
+    page_events: Union[List[str], MissingType] = field(default=MISSING)
+    page_operations: Union[ClientHelloPageOperations, MissingType] = field(default=MISSING)
+    verified: Union[Literal[True], MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1315,6 +1378,74 @@ class LivePane:
     tabs: List[Tab]
     focused_at: Union[int, MissingType] = field(default=MISSING)
     short_id: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class LoopbackAuditRecord:
+    __cmux_schema_path__: ClassVar[str] = 'types/LoopbackAuditRecord'
+    client: int
+    at_ms: int
+    bytes_from_target: int
+    bytes_to_target: int
+    duration_ms: int
+    host: str
+    outcome: str
+    port: int
+    stream: int
+
+
+@dataclass(frozen=True)
+class LoopbackLimits:
+    __cmux_schema_path__: ClassVar[str] = 'types/LoopbackLimits'
+    daemon_window: int
+    frame_bytes: int
+    per_client: int
+    total: int
+
+
+@dataclass(frozen=True)
+class LoopbackOpenResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/LoopbackOpenResult'
+    address: str
+    stream: int
+    window: int
+
+
+@dataclass(frozen=True)
+class LoopbackStatusResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/LoopbackStatusResult'
+    audit: List[LoopbackAuditRecord]
+    client_streams: int
+    enabled: bool
+    limits: LoopbackLimits
+    open_streams: int
+    opened: int
+    refused: int
+
+
+@dataclass(frozen=True)
+class MachineCatalogEntry:
+    __cmux_schema_path__: ClassVar[str] = 'types/MachineCatalogEntry'
+    id: str
+    name: str
+    origin: MachineCatalogOrigin
+    status: MachineCatalogStatus
+    capabilities: Union[List[str], MissingType] = field(default=MISSING)
+    platform: Union[MachineCatalogPlatform, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class MachineCatalogPlatform:
+    __cmux_schema_path__: ClassVar[str] = 'types/MachineCatalogPlatform'
+    arch: Union[str, None, MissingType] = field(default=MISSING)
+    os: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class MachineCatalogPublishResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/MachineCatalogPublishResult'
+    replayed: bool
+    sequence: int
 
 
 @dataclass(frozen=True)
@@ -2961,6 +3092,24 @@ class BrowserReloadRequest:
 
 
 @dataclass(frozen=True)
+class BrowserRuntimeStartRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/browser-runtime-start/request'
+    url: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class BrowserRuntimeStatusRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/browser-runtime-status/request'
+    pass
+
+
+@dataclass(frozen=True)
+class BrowserRuntimeStopRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/browser-runtime-stop/request'
+    runtime: int
+
+
+@dataclass(frozen=True)
 class BrowserWheelRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/browser-wheel/request'
     surface: Id
@@ -3025,6 +3174,15 @@ class ClientFocusResult:
     __cmux_schema_path__: ClassVar[str] = 'commands/client-focus/result'
     pane: Union[Id, None]
     tab: Union[int, None]
+
+
+@dataclass(frozen=True)
+class ClientHelloRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/client-hello/request'
+    install_id: Union[str, MissingType] = field(default=MISSING)
+    page: Union[str, None, MissingType] = field(default=MISSING)
+    proof: Union[str, MissingType] = field(default=MISSING)
+    role: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4275,6 +4433,55 @@ class ListWorkspaceGroupsRequest:
 class ListWorkspacesRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/list-workspaces/request'
     pass
+
+
+@dataclass(frozen=True)
+class LoopbackCloseRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/loopback-close/request'
+    stream: int
+
+
+@dataclass(frozen=True)
+class LoopbackCreditRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/loopback-credit/request'
+    bytes_data: int = field(metadata={'wire_name': 'bytes'})
+    stream: int
+
+
+@dataclass(frozen=True)
+class LoopbackDataRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/loopback-data/request'
+    data: str
+    stream: int
+
+
+@dataclass(frozen=True)
+class LoopbackOpenRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/loopback-open/request'
+    host: str
+    port: int
+    stream: int
+    window: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class LoopbackShutdownRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/loopback-shutdown/request'
+    stream: int
+
+
+@dataclass(frozen=True)
+class LoopbackStatusRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/loopback-status/request'
+    pass
+
+
+@dataclass(frozen=True)
+class MachineCatalogPublishRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/machine-catalog-publish/request'
+    expected_machine_id: str
+    machines: List[MachineCatalogEntry]
+    sequence: int
 
 
 @dataclass(frozen=True)
@@ -6128,6 +6335,41 @@ class LayoutChangedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class LoopbackClosedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/loopback-closed/payload'
+    event: Literal['loopback-closed']
+    stream: int
+    error: Union[str, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class LoopbackCreditEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/loopback-credit/payload'
+    bytes_data: int = field(metadata={'wire_name': 'bytes'})
+    event: Literal['loopback-credit']
+    stream: int
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class LoopbackDataEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/loopback-data/payload'
+    data: str
+    event: Literal['loopback-data']
+    stream: int
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class LoopbackEofEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/loopback-eof/payload'
+    event: Literal['loopback-eof']
+    stream: int
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class MachineUsageChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/machine-usage-changed/payload'
     event: Literal['machine-usage-changed']
@@ -6671,7 +6913,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, LoopbackClosedEvent, LoopbackCreditEvent, LoopbackDataEvent, LoopbackEofEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -6702,6 +6944,8 @@ __all__ = [
     'HomeChiefState',
     'HomeInboxKind',
     'HostSizeMode',
+    'MachineCatalogOrigin',
+    'MachineCatalogStatus',
     'NameSource',
     'NotificationLevel',
     'NotificationSource',
@@ -6761,9 +7005,15 @@ __all__ = [
     'BrowserProviderSnapshot',
     'BrowserProviderTarget',
     'BrowserProviderUnregisterResult',
+    'BrowserRuntimeRow',
+    'BrowserRuntimeStartResult',
+    'BrowserRuntimeStatusResult',
+    'BrowserRuntimeStopResult',
     'CellPixelFailure',
     'CellPixelResize',
     'CellPixelSurface',
+    'ClientHelloPageOperations',
+    'ClientHelloResult',
     'ClientInfo',
     'ClientSize',
     'CloseTerminalResult',
@@ -6822,6 +7072,13 @@ __all__ = [
     'ListAgentsResult',
     'ListTerminalsResult',
     'LivePane',
+    'LoopbackAuditRecord',
+    'LoopbackLimits',
+    'LoopbackOpenResult',
+    'LoopbackStatusResult',
+    'MachineCatalogEntry',
+    'MachineCatalogPlatform',
+    'MachineCatalogPublishResult',
     'MachineListeningTcpResult',
     'MachinePlatform',
     'MachineUsage',
@@ -6995,6 +7252,9 @@ __all__ = [
     'BrowserMouseGuardedRequest',
     'BrowserNavigateRequest',
     'BrowserReloadRequest',
+    'BrowserRuntimeStartRequest',
+    'BrowserRuntimeStatusRequest',
+    'BrowserRuntimeStopRequest',
     'BrowserWheelRequest',
     'BrowserWheelGuardedRequest',
     'CancelRequestRequest',
@@ -7004,6 +7264,7 @@ __all__ = [
     'ClearWindowTitleRequest',
     'ClientFocusRequest',
     'ClientFocusResult',
+    'ClientHelloRequest',
     'ClosePaneRequest',
     'CloseProviderManagedWorkspaceRequest',
     'CloseScreenRequest',
@@ -7159,6 +7420,13 @@ __all__ = [
     'ListTerminalsRequest',
     'ListWorkspaceGroupsRequest',
     'ListWorkspacesRequest',
+    'LoopbackCloseRequest',
+    'LoopbackCreditRequest',
+    'LoopbackDataRequest',
+    'LoopbackOpenRequest',
+    'LoopbackShutdownRequest',
+    'LoopbackStatusRequest',
+    'MachineCatalogPublishRequest',
     'MachineListeningTcpRequest',
     'MachineUsageRequest',
     'MarkWorkspacesProviderManagedRequest',
@@ -7357,6 +7625,10 @@ __all__ = [
     'HistoryChangedEvent',
     'KeybindingsChangedEvent',
     'LayoutChangedEvent',
+    'LoopbackClosedEvent',
+    'LoopbackCreditEvent',
+    'LoopbackDataEvent',
+    'LoopbackEofEvent',
     'MachineUsageChangedEvent',
     'NotificationEvent',
     'OutputEvent',

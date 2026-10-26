@@ -58,6 +58,9 @@ public final class Commands {
     public static final CommandMetadata BROWSER_MOUSE_GUARDED = new CommandMetadata("browser-mouse-guarded", Authority.FRONTEND, 10, "browser-pointer-frame-guard-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_NAVIGATE = new CommandMetadata("browser-navigate", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_RELOAD = new CommandMetadata("browser-reload", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata BROWSER_RUNTIME_START = new CommandMetadata("browser-runtime-start", Authority.LOCAL_ADMIN, 12, "browser-runtime-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata BROWSER_RUNTIME_STATUS = new CommandMetadata("browser-runtime-status", Authority.LOCAL_ADMIN, 12, "browser-runtime-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata BROWSER_RUNTIME_STOP = new CommandMetadata("browser-runtime-stop", Authority.LOCAL_ADMIN, 12, "browser-runtime-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_WHEEL = new CommandMetadata("browser-wheel", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_WHEEL_GUARDED = new CommandMetadata("browser-wheel-guarded", Authority.FRONTEND, 10, "browser-pointer-frame-guard-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CANCEL_REQUEST = new CommandMetadata("cancel-request", Authority.LOCAL_ADMIN, 12, "cancel-request-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -65,6 +68,7 @@ public final class Commands {
     public static final CommandMetadata CLEAR_HISTORY = new CommandMetadata("clear-history", Authority.CONTROL, 9, "clear-history-v1", StreamKind.NONE, Map.ofEntries(Map.entry("fallback_key", 9L)), Map.ofEntries(Map.entry("fallback_key", "clear-history-key-v1")));
     public static final CommandMetadata CLEAR_WINDOW_TITLE = new CommandMetadata("clear-window-title", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLIENT_FOCUS = new CommandMetadata("client-focus", Authority.CONTROL, 12, "client-focus-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLIENT_HELLO = new CommandMetadata("client-hello", Authority.LOCAL_ADMIN, 12, "origin-claim-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOSE_PANE = new CommandMetadata("close-pane", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("end_terminals", 12L)), Map.ofEntries(Map.entry("end_terminals", "batch-close-v1")));
     public static final CommandMetadata CLOSE_PROVIDER_MANAGED_WORKSPACE = new CommandMetadata("close-provider-managed-workspace", Authority.PROVIDER_AUTHORITY, 9, "provider-managed-workspace-authority-v2", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOSE_SCREEN = new CommandMetadata("close-screen", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("end_terminals", 12L)), Map.ofEntries(Map.entry("end_terminals", "batch-close-v1")));
@@ -181,6 +185,13 @@ public final class Commands {
     public static final CommandMetadata LIST_TERMINALS = new CommandMetadata("list-terminals", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_WORKSPACE_GROUPS = new CommandMetadata("list-workspace-groups", Authority.CONTROL, 12, "workspace-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_WORKSPACES = new CommandMetadata("list-workspaces", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata LOOPBACK_CLOSE = new CommandMetadata("loopback-close", Authority.LOCAL_ADMIN, 12, "loopback-forward-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata LOOPBACK_CREDIT = new CommandMetadata("loopback-credit", Authority.LOCAL_ADMIN, 12, "loopback-forward-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata LOOPBACK_DATA = new CommandMetadata("loopback-data", Authority.LOCAL_ADMIN, 12, "loopback-forward-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata LOOPBACK_OPEN = new CommandMetadata("loopback-open", Authority.LOCAL_ADMIN, 12, "loopback-forward-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata LOOPBACK_SHUTDOWN = new CommandMetadata("loopback-shutdown", Authority.LOCAL_ADMIN, 12, "loopback-forward-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata LOOPBACK_STATUS = new CommandMetadata("loopback-status", Authority.LOCAL_ADMIN, 12, "loopback-forward-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata MACHINE_CATALOG_PUBLISH = new CommandMetadata("machine-catalog-publish", Authority.LOCAL_ADMIN, 12, "machine-catalog-publish-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MACHINE_LISTENING_TCP = new CommandMetadata("machine-listening-tcp", Authority.CONTROL, 12, "machine-listening-tcp-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MACHINE_USAGE = new CommandMetadata("machine-usage", Authority.CONTROL, 12, "machine-usage-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MARK_WORKSPACES_PROVIDER_MANAGED = new CommandMetadata("mark-workspaces-provider-managed", Authority.PROVIDER_AUTHORITY, 9, "provider-managed-workspace-authority-v2", StreamKind.NONE, Map.of(), Map.of());
@@ -381,6 +392,9 @@ public final class Commands {
         values.put("browser-mouse-guarded", BROWSER_MOUSE_GUARDED);
         values.put("browser-navigate", BROWSER_NAVIGATE);
         values.put("browser-reload", BROWSER_RELOAD);
+        values.put("browser-runtime-start", BROWSER_RUNTIME_START);
+        values.put("browser-runtime-status", BROWSER_RUNTIME_STATUS);
+        values.put("browser-runtime-stop", BROWSER_RUNTIME_STOP);
         values.put("browser-wheel", BROWSER_WHEEL);
         values.put("browser-wheel-guarded", BROWSER_WHEEL_GUARDED);
         values.put("cancel-request", CANCEL_REQUEST);
@@ -388,6 +402,7 @@ public final class Commands {
         values.put("clear-history", CLEAR_HISTORY);
         values.put("clear-window-title", CLEAR_WINDOW_TITLE);
         values.put("client-focus", CLIENT_FOCUS);
+        values.put("client-hello", CLIENT_HELLO);
         values.put("close-pane", CLOSE_PANE);
         values.put("close-provider-managed-workspace", CLOSE_PROVIDER_MANAGED_WORKSPACE);
         values.put("close-screen", CLOSE_SCREEN);
@@ -504,6 +519,13 @@ public final class Commands {
         values.put("list-terminals", LIST_TERMINALS);
         values.put("list-workspace-groups", LIST_WORKSPACE_GROUPS);
         values.put("list-workspaces", LIST_WORKSPACES);
+        values.put("loopback-close", LOOPBACK_CLOSE);
+        values.put("loopback-credit", LOOPBACK_CREDIT);
+        values.put("loopback-data", LOOPBACK_DATA);
+        values.put("loopback-open", LOOPBACK_OPEN);
+        values.put("loopback-shutdown", LOOPBACK_SHUTDOWN);
+        values.put("loopback-status", LOOPBACK_STATUS);
+        values.put("machine-catalog-publish", MACHINE_CATALOG_PUBLISH);
         values.put("machine-listening-tcp", MACHINE_LISTENING_TCP);
         values.put("machine-usage", MACHINE_USAGE);
         values.put("mark-workspaces-provider-managed", MARK_WORKSPACES_PROVIDER_MANAGED);

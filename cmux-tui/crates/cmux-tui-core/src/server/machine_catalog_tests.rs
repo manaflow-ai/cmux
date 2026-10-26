@@ -136,6 +136,30 @@ fn cmux_next_machine_catalog_refuses_stale_replacements_and_local_impersonation(
     );
 }
 
+/// The owner fence is typed like spec/sdk-schema.json says: a required
+/// string. A missing, null or non-string owner is refused before the
+/// publication is read, and nothing is published.
+#[test]
+fn cmux_next_machine_catalog_owner_fence_must_be_a_string() {
+    let mux = mux();
+    let publisher = Publisher::new(&mux, ClientTransport::Unix, true);
+    let before = dispatch(&mux, ResourceOperation::MachineList, None).unwrap();
+    for owner in [None, Some(Value::Null), Some(json!(7)), Some(json!([mux.machine_public_id]))] {
+        let mut frame =
+            json!({"id":1,"cmd":"machine-catalog-publish","sequence":1,"machines":[remote()]});
+        if let Some(owner) = owner {
+            frame["expected_machine_id"] = owner;
+        }
+        assert_eq!(
+            publisher.frame(&mux, frame.clone())["error_code"],
+            "machine_catalog.bad_request",
+            "{frame}"
+        );
+    }
+    assert_eq!(dispatch(&mux, ResourceOperation::MachineList, None).unwrap(), before);
+    assert_eq!(publisher.send(&mux, 1, json!([remote()]))["ok"], true);
+}
+
 #[test]
 fn cmux_next_machine_catalog_is_exclusive_and_expires_on_disconnect() {
     let mux = mux();
