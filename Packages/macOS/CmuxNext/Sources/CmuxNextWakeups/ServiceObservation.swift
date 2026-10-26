@@ -28,9 +28,9 @@ import Observation
 /// 3. A value whose type is `Equatable` is applied only when it differs from the last value
 ///    applied (as `ObservationStream` emits). Wrap it in `ObservationTrigger` to apply every
 ///    evaluation.
-/// 4. Releasing the token or calling ``cancel()`` stops every later evaluation and apply. A
-///    tracking armed at that moment stays registered until the next change of a value it read,
-///    which then does nothing (Observation has no way to remove one).
+/// 4. Releasing the token or calling ``cancel()`` stops every later evaluation and apply, and
+///    fires the cancel signal every tracking also reads, so the registrar drops an armed tracking
+///    at once (Observation has no other way to remove one).
 ///
 /// A changed value must change on the main actor: a will-set from another thread reaches the
 /// main actor one hop later (``MainDelivery``), and the frame then reads the stored value.
@@ -49,11 +49,19 @@ public final class ServiceObservation<Value> {
     private var last: Value?
     /// A change came since the last evaluation.
     private var dirty = false
+    /// Written to fire the armed tracking, so the registrar drops it.
+    private let signal = VisibleObservationCancelSignal()
+    /// A tracking is registered and has not fired.
+    private var armed = false
     private var cancelled = false
     /// Built in init (lazy because its callback captures self).
     private lazy var client: FrameClient = makeClient()
     private let work: MainWorkScheduler
     private let taskOwner: MainTaskOwner
+
+    /// Tracking callbacks received, the cancel signal's included (tests prove a cancelled
+    /// observation's tracking is gone).
+    package private(set) var trackingCallbacks = 0
 
     /// Starts following `read`; applies its current value before it returns.
     ///
@@ -73,16 +81,21 @@ public final class ServiceObservation<Value> {
         self.read = read
         self.apply = apply
         isEqual = Self.equality()
-        taskOwner = work.budget.board.owner(owner)
+        taskOwner = work.taskOwner(owner)
         let value = track()
         if isEqual != nil { last = value }
         apply(value)
     }
 
-    // Nothing to clean up here: the frame client holds this observer weakly, so an active client
-    // ticks once more, finds it gone and goes idle; a generic main-actor class needs a
-    // nonisolated deinit (the Release optimizer crashes on its isolated one, #23050).
-    nonisolated deinit {}
+    // The frame client holds this observer weakly, so an active client ticks once more, finds it
+    // gone and goes idle; only an armed tracking outlives it. A generic main-actor class needs a
+    // nonisolated deinit (the Release optimizer crashes on its isolated one, #23050), so the
+    // signal write hops when released off main.
+    nonisolated deinit {
+        guard armed else { return }
+        let signal = self.signal
+        MainDelivery().run { signal.epoch &+= 1 }
+    }
 
     /// Stops the observation: no later evaluation or apply. Idempotent.
     public func cancel() {
@@ -90,6 +103,10 @@ public final class ServiceObservation<Value> {
         cancelled = true
         dirty = false
         last = nil
+        if armed {
+            armed = false
+            signal.epoch &+= 1
+        }
         client.deactivate()
     }
 
@@ -98,21 +115,32 @@ public final class ServiceObservation<Value> {
 
     /// Evaluates `read` with a fresh one-shot tracking.
     private func track() -> Value {
-        withObservationTracking {
-            read()
+        armed = true
+        let signal = self.signal, observed = self.read, causes = work.causes
+        return withObservationTracking {
+            _ = signal.epoch
+            return observed()
         } onChange: { @Sendable [weak self] in
-            MainDelivery().run { [weak self] in self?.trackedValueWillChange() }
+            MainDelivery().run { [weak self] in
+                guard let self else {
+                    causes.noteReleasedTrackingFire()
+                    return
+                }
+                self.trackedValueWillChange()
+            }
         }
     }
 
-    private func trackedValueWillChange() {
+    private func trackedValueWillChange() { // perf-hot: 0.01ms frame-tick (each observed will-set)
+        trackingCallbacks += 1
+        armed = false
         guard !cancelled else { return }
         dirty = true
         client.activate()
     }
 
     /// The frame's one task: re-reads and applies. True while a change came during it.
-    private func flush() -> Bool {
+    private func flush() -> Bool { // perf-hot: 0.05ms frame-tick (one task per dirty observer)
         guard !cancelled, dirty else { return false }
         dirty = false
         let value = track()

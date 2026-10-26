@@ -110,6 +110,53 @@ import Testing
         #expect(applies == 1)
     }
 
+    /// Released while armed and clean: the deinit's cancel signal fires the tracking at once, so
+    /// the registrar drops it and no later change reaches it.
+    @Test func aTokenReleasedWhileArmedDropsItsTracking() {
+        let fixture = Fixture()
+        let model = Model()
+        var applies = 0
+        var token: ServiceObservation<Int>? = ServiceObservation(.automation, owner: "test.armed", on: fixture.work) {
+            model.count
+        } apply: { _ in applies += 1 }
+        _ = token
+        token = nil
+        #expect(fixture.work.causes.releasedTrackingFires == 1, "the release left the tracking armed")
+        for value in 1...10 { model.count = value }
+        #expect(fixture.work.causes.releasedTrackingFires == 1, "a released token's tracking stayed registered")
+        fixture.frame()
+        #expect(applies == 1)
+    }
+
+    /// Released off the main thread: the deinit's signal write reaches main one hop later.
+    @Test func aTokenReleasedOffTheMainThreadDropsItsTrackingOneHopLater() async {
+        let fixture = Fixture()
+        let model = Model()
+        let retained = Unmanaged.passRetained(
+            ServiceObservation(.background, owner: "test.offmain", on: fixture.work) { model.count } apply: { _ in })
+        await withCheckedContinuation { (released: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global(qos: .utility).async {
+                retained.release()
+                // Queued behind the deinit's hop on the main queue.
+                MainDelivery().run { released.resume() }
+            }
+        }
+        #expect(fixture.work.causes.releasedTrackingFires == 1, "the off-main release left the tracking armed")
+        model.count = 1
+        #expect(fixture.work.causes.releasedTrackingFires == 1)
+    }
+
+    @Test func cancelDropsTheArmedTracking() {
+        let fixture = Fixture()
+        let model = Model()
+        let token = ServiceObservation(.visible, owner: "test.cancelArmed", on: fixture.work) { model.count } apply: { _ in }
+        token.cancel()
+        let afterCancel = token.trackingCallbacks
+        #expect(afterCancel == 1, "cancel fires the armed tracking once")
+        for value in 1...10 { model.count = value }
+        #expect(token.trackingCallbacks == afterCancel, "a cancelled token's tracking stayed registered")
+    }
+
     @Test func eachFlushRunsAsATaskOfItsClassAndOwner() {
         let fixture = Fixture()
         let model = Model()
