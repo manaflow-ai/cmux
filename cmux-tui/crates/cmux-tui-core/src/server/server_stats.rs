@@ -16,9 +16,10 @@ const SLOW_REQUESTS: &str = "slow_requests";
 /// The optional section that reports request latency by class and the
 /// dispatch queue (`request_latency_us`, `dispatch_queue_us`).
 const REQUESTS: &str = "requests";
-/// The optional section that reports request latency by method
-/// (`ipc.methods`, request_spans.rs).
-const IPC: &str = "ipc";
+/// The optional section that reports request latency, handler time and lock
+/// wait by method (`ipc_methods`, request_spans.rs). It is not `ipc`: that
+/// section counts the IPC layer itself (streams, frames, parses, syscalls).
+const IPC_METHODS: &str = "ipc_methods";
 
 /// Read every counter; sections outside `include` stay absent so older SDK
 /// decoders, which refuse unknown result fields, keep working.
@@ -40,7 +41,8 @@ pub(super) fn server_stats(mux: &Mux, include: Option<&[String]>) -> ServerStats
         slow_requests: wants(SLOW_REQUESTS).then(|| mux.request_watchdog.snapshot()),
         request_latency_us,
         dispatch_queue_us,
-        ipc: wants(IPC).then(|| mux.request_stats().methods().snapshot(RequestMethod::of_slot)),
+        ipc_methods: wants(IPC_METHODS)
+            .then(|| mux.request_stats().methods().snapshot(RequestMethod::of_slot)),
     }
 }
 

@@ -31,7 +31,8 @@ public final class DaemonService {
     /// sidebar document; ``DaemonConnectionConfiguration/echoesPlacementShift``).
     let echoesPlacementShift: Bool
     /// Where this machine's daemon connections count their wire traffic (``DaemonWireStats``,
-    /// `debug.daemon.wire`): the app's recorder in Debug and bench builds, else nil.
+    /// `debug.daemon.wire`): the app's recorder in Debug and bench builds and opted-in release
+    /// builds, else nil.
     let wireStats: DaemonWireStats?
     public let store: DaemonStore
     /// Set while an administrator turned this machine's feature off: no endpoint, no re-attach.
@@ -90,7 +91,7 @@ public final class DaemonService {
     ///     root and passed by init; a remote machine's service gets the same one (one main thread, one
     ///     budget). The service keeps only the batcher it builds on it (a test passes one it ticks by hand).
     ///   - wireStats: Where its connections count their wire traffic; the app's composition root passes
-    ///     its recorder (nil in a release build, which counts nothing).
+    ///     its recorder (nil in a release build without field data opt-in, which counts nothing).
     ///   - hangWatch: The app's ``HangWatch`` from its composition root, for every connection and terminal
     ///     attachment this service opens; nil (tests) watches nothing.
     ///   - crashKeys: The app's crash keys, for the local daemon's service only: its store names its connection

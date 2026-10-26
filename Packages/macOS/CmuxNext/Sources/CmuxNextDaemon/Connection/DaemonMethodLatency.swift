@@ -8,6 +8,10 @@ import CmuxNextCompat
 /// fixed bucket arrays (base/metrics/histogram_macros.h, `UMA_HISTOGRAM_CUSTOM_MICROSECONDS_TIMES`;
 /// mojo/core/channel.cc).
 ///
+/// A request that never gets its reply is counted too, so the slowest requests are not missing from
+/// the distribution: one that timed out counts in the histogram at its deadline (its time was at
+/// least that) and in `timedOut`; one whose connection closed first counts in `abandoned` only.
+///
 /// Every histogram lives in one fixed allocation made at init: recording is a dictionary lookup of
 /// the method name, three relaxed atomic adds and, for a new maximum, a compare-exchange. It takes no
 /// lock and allocates nothing.
@@ -18,8 +22,11 @@ final class DaemonMethodLatency: Sendable {
     /// Powers of two kept: samples of 2^30 µs (about 18 minutes) or more count in the last bucket.
     static let octaves = 30
     static let bucketCount = octaves * subBuckets
-    /// Per method: its buckets, then its largest sample.
-    private static let methodWords = bucketCount + 1
+    /// Per method: its buckets, its largest sample, its timed-out and its abandoned requests.
+    private static let maxWord = bucketCount
+    private static let timedOutWord = bucketCount + 1
+    private static let abandonedWord = bucketCount + 2
+    private static let methodWords = bucketCount + 3
 
     /// The methods by slot; the last slot counts every `cmd` the table does not name.
     let methods: [DaemonWireStats.Method]
@@ -78,7 +85,7 @@ final class DaemonMethodLatency: Sendable {
     func record(slot: Int, micros: UInt64) {
         guard slot >= 0, slot < methods.count else { return }
         word(slot, Self.bucket(forMicros: micros)).add(1, ordering: .relaxed)
-        let maximum = word(slot, Self.bucketCount)
+        let maximum = word(slot, Self.maxWord)
         var seen = maximum.load(ordering: .relaxed)
         while micros > seen {
             let (exchanged, original) = maximum.compareExchange(expected: seen, desired: micros, ordering: .relaxed)
@@ -87,13 +94,31 @@ final class DaemonMethodLatency: Sendable {
         }
     }
 
-    /// Every method with a sample, in table order (allocates; read off the hot path).
+    /// Counts one request that got no reply within its deadline, `micros` after it was sent: a
+    /// sample at the deadline and one `timedOut`. Its late reply, if any, is not timed.
+    func recordTimeout(slot: Int, micros: UInt64) {
+        guard slot >= 0, slot < methods.count else { return }
+        record(slot: slot, micros: micros)
+        word(slot, Self.timedOutWord).add(1, ordering: .relaxed)
+    }
+
+    /// Counts one request whose connection closed before its reply.
+    func recordAbandoned(slot: Int) {
+        guard slot >= 0, slot < methods.count else { return }
+        word(slot, Self.abandonedWord).add(1, ordering: .relaxed)
+    }
+
+    /// Every method with a sample or an unanswered request, in table order (allocates; read off the
+    /// hot path).
     func snapshot() -> [DaemonWireStats.MethodLatency] {
         zip(methods.indices, methods).compactMap { slot, method in
             let counts = (0..<Self.bucketCount).map { word(slot, $0).load(ordering: .relaxed) }
             let count = counts.reduce(0, &+)
-            guard count > 0 else { return nil }
+            let timedOut = word(slot, Self.timedOutWord).load(ordering: .relaxed)
+            let abandoned = word(slot, Self.abandonedWord).load(ordering: .relaxed)
+            guard count > 0 || abandoned > 0 else { return nil }
             func percentile(_ fraction: Double) -> UInt64 {
+                guard count > 0 else { return 0 }
                 let rank = max(1, UInt64(exactly: (Double(count) * fraction).rounded(.up)) ?? count)
                 var seen: UInt64 = 0
                 for (index, inBucket) in counts.enumerated() {
@@ -105,7 +130,8 @@ final class DaemonMethodLatency: Sendable {
             return DaemonWireStats.MethodLatency(
                 method: method.name, id: method.id, count: count,
                 p50Micros: percentile(0.50), p95Micros: percentile(0.95), p99Micros: percentile(0.99),
-                maxMicros: word(slot, Self.bucketCount).load(ordering: .relaxed))
+                maxMicros: word(slot, Self.maxWord).load(ordering: .relaxed),
+                timedOut: timedOut, abandoned: abandoned)
         }
     }
 

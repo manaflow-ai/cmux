@@ -132,7 +132,8 @@ final class AppServices {
     #endif
     /// The main-thread blocking detector's handle (threading-model.md): the Debug menu, `debug.blocking` (the Nightly sink to come).
     let blocking = BlockingDetector.forProcess()
-    /// The local daemon's wire counters (`debug.daemon.wire`); nil in a release build.
+    /// The local daemon's wire counters (`debug.daemon.wire`); nil in a release build without
+    /// the opt-in feature `ipcMethodLatencyFieldData`.
     let wireStats: DaemonWireStats?
     /// The observers' per-owner counts (`debug.observations`): each observer kind interns its owner here when it is
     /// built. It is the main-thread scheduler's one ledger, so every `VisibleObservation` records into it too.
@@ -263,10 +264,19 @@ final class AppServices {
     }()
     private(set) lazy var phoneFeedback = PhoneChiefFeedback(home: home)
     /// Every declared feature's value (`schemas/features/features.d`, Chrome's `base::FeatureList`):
-    /// built once, on first read, from this build's channel and the launch environment
-    /// (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`). Tests set their own before the first read.
-    lazy var features = FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind),
-                                    overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment))
+    /// the composition root's (``launchFeatures(_:)``, built before the daemon connects), else built
+    /// once, on first read, the same way. Tests set their own before the first read.
+    lazy var features = injectedFeatures ?? Self.launchFeatures(environment)
+    /// The list `init` was given, which ``features`` starts as.
+    private let injectedFeatures: FeatureList?
+
+    /// Every declared feature's value for this launch: this build's channel and the launch
+    /// environment (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`). The composition root builds it
+    /// once, before anything that reads a feature.
+    static func launchFeatures(_ environment: AppEnvironment) -> FeatureList {
+        FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind),
+                    overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment))
+    }
     /// The Task Manager page and Kill Process (`TaskManagerPageService`).
     private(set) lazy var taskManager = TaskManagerPageService(services: self)
     /// The Todo page: a workspace's checklist (`workspace-checklist-v1`).
@@ -522,7 +532,8 @@ final class AppServices {
          wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch,
          energyMonitor: EnergyMonitor = EnergyMonitor(), inputTap: InputEventTap = InputEventTap(),
          launchImageHold: LaunchImageHold = LaunchImageHold(), launchStartup: StartupScheduler? = nil,
-         crashKeys: CrashKeySlots? = nil) {
+         crashKeys: CrashKeySlots? = nil, features: FeatureList? = nil) {
+        injectedFeatures = features
         let work = work ?? BackgroundWork(hangs: hangWatch)
         self.work = work
         self.energyMonitor = energyMonitor

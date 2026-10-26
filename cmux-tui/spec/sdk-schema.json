@@ -5770,26 +5770,6 @@
     "Latency histograms are in microseconds; batch_size counts events."
    ]
   },
-  "ServerStatsIpc": {
-   "kind": "object",
-   "fields": {
-    "methods": {
-     "type": {
-      "kind": "array",
-      "items": {
-       "kind": "ref",
-       "name": "ServerStatsMethodLatency"
-      }
-     },
-     "presence": "required",
-     "nullable": false
-    }
-   },
-   "additional_properties": false,
-   "constraints": [
-    "methods lists every method that ran since daemon start, ordered by id."
-   ]
-  },
   "ServerStatsMethodLatency": {
    "kind": "object",
    "fields": {
@@ -5802,6 +5782,14 @@
      "nullable": false
     },
     "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint16"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "trace_id": {
      "type": {
       "kind": "scalar",
       "name": "uint16"
@@ -5845,8 +5833,9 @@
    "additional_properties": false,
    "constraints": [
     "method is the cmd tag, the cmux.protocol/2 operation, or route:<class> for a line a feature route answers.",
-    "id is the method id of the daemon.request trace slice; class is its request_latency_us class.",
-    "latency_us is arrival to reply queued, handler_us handler start to reply queued, lock_wait_us the handling thread's lock waits in between."
+    "id is the schema method_id (family << 8 | ordinal), the key of the app's debug.daemon.wire methods rows; null for a route line or a method the schema gives no id.",
+    "trace_id is the method id of the daemon.request trace slice, a row of this build's command table; class is its request_latency_us class.",
+    "latency_us is arrival to reply queued, handler_us handler start to reply queued, lock_wait_us the lock waits of the threads that handled it in between."
    ]
   },
   "ServerStatsPercentiles": {
@@ -6326,10 +6315,13 @@
      "presence": "optional",
      "nullable": false
     },
-    "ipc": {
+    "ipc_methods": {
      "type": {
-      "kind": "ref",
-      "name": "ServerStatsIpc"
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsMethodLatency"
+      }
      },
      "presence": "optional",
      "nullable": false
@@ -6345,7 +6337,7 @@
     "request_path_io is present only when the request names it in include.",
     "slow_requests is present only when the request names it in include.",
     "request_latency_us and dispatch_queue_us are present only when the request names requests in include; dispatch_queue_us is microseconds from a request's parse to its handler's start.",
-    "ipc is present only when the request names it in include."
+    "ipc_methods is present only when the request names it in include; its rows are ordered by id, the rows without one last."
    ]
   },
   "ServerStatsResourceProjection": {
@@ -19904,7 +19896,7 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll.",
-    "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc); unknown names are ignored."
+    "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc_methods); unknown names are ignored."
    ],
    "method_id": 266,
    "priority": "background",

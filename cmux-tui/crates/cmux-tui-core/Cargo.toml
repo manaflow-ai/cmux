@@ -30,6 +30,8 @@ cmux-holder.workspace = true
 cmux-process.workspace = true
 cmux-flow-trace.workspace = true
 cmux-threads.workspace = true
+# The schema's method ids (`server-stats` `ipc_methods`, request_spans.rs).
+cmux-ipc.workspace = true
 cmux-trace.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-conversation.workspace = true

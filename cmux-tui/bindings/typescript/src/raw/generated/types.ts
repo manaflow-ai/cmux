@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 57eb402651a526576df3d48227be527d812151a80f7a65b6d9bf8753fd527433. */
+/* cmux-tui mux protocol 12, IR 9949cfe5bfe55bab728b30cbc244c8b44abed8bbf94b2422b7add5413ffb50c5. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1278,10 +1278,6 @@ export type ServerStatsHistogram = {
   "p99": bigint;
 };
 
-export type ServerStatsIpc = {
-  "methods": Array<ServerStatsMethodLatency>;
-};
-
 export type ServerStatsJournalWriter = {
   "batch_size": ServerStatsHistogram;
   "batches": bigint;
@@ -1333,10 +1329,11 @@ export type ServerStatsLockWaits = {
 export type ServerStatsMethodLatency = {
   "class": string;
   "handler_us": ServerStatsPercentiles;
-  "id": number;
+  "id": (number) | null;
   "latency_us": ServerStatsPercentiles;
   "lock_wait_us": ServerStatsPercentiles;
   "method": string;
+  "trace_id": number;
 };
 
 export type ServerStatsPercentiles = {
@@ -1413,7 +1410,7 @@ export type ServerStatsResourceProjection = {
 export type ServerStatsResult = {
   "connections": ServerStatsConnections;
   "dispatch_queue_us"?: ServerStatsHistogram;
-  "ipc"?: ServerStatsIpc;
+  "ipc_methods"?: Array<ServerStatsMethodLatency>;
   "journal_writer": (ServerStatsJournalWriter) | null;
   "registry_lock": ServerStatsRegistryLock;
   "request_latency_us"?: ServerStatsRequestLatency;

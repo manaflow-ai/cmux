@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 57eb402651a526576df3d48227be527d812151a80f7a65b6d9bf8753fd527433.
+// cmux-tui mux protocol 12, IR 9949cfe5bfe55bab728b30cbc244c8b44abed8bbf94b2422b7add5413ffb50c5.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -2093,12 +2093,6 @@ pub struct ServerStatsHistogram {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ServerStatsIpc {
-    pub methods: Vec<ServerStatsMethodLatency>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsJournalWriter {
     pub batch_size: ServerStatsHistogram,
     pub batches: u64,
@@ -2163,10 +2157,11 @@ pub struct ServerStatsLockWaits {
 pub struct ServerStatsMethodLatency {
     pub class: String,
     pub handler_us: ServerStatsPercentiles,
-    pub id: u16,
+    pub id: Nullable<u16>,
     pub latency_us: ServerStatsPercentiles,
     pub lock_wait_us: ServerStatsPercentiles,
     pub method: String,
+    pub trace_id: u16,
 }
 
 #[rustfmt::skip]
@@ -2261,7 +2256,7 @@ pub struct ServerStatsResult {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub dispatch_queue_us: Option<ServerStatsHistogram>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub ipc: Option<ServerStatsIpc>,
+    pub ipc_methods: Option<Vec<ServerStatsMethodLatency>>,
     pub journal_writer: Nullable<ServerStatsJournalWriter>,
     pub registry_lock: ServerStatsRegistryLock,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]

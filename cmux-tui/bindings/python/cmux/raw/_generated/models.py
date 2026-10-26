@@ -1840,12 +1840,6 @@ class ServerStatsHistogram:
 
 
 @dataclass(frozen=True)
-class ServerStatsIpc:
-    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsIpc'
-    methods: List[ServerStatsMethodLatency]
-
-
-@dataclass(frozen=True)
 class ServerStatsJournalWriter:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsJournalWriter'
     batch_size: ServerStatsHistogram
@@ -1910,10 +1904,11 @@ class ServerStatsMethodLatency:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsMethodLatency'
     class_: str = field(metadata={'wire_name': 'class'})
     handler_us: ServerStatsPercentiles
-    id: int
+    id: Union[int, None]
     latency_us: ServerStatsPercentiles
     lock_wait_us: ServerStatsPercentiles
     method: str
+    trace_id: int
 
 
 @dataclass(frozen=True)
@@ -2008,7 +2003,7 @@ class ServerStatsResult:
     schema: int
     uptime_ms: int
     dispatch_queue_us: Union[ServerStatsHistogram, MissingType] = field(default=MISSING)
-    ipc: Union[ServerStatsIpc, MissingType] = field(default=MISSING)
+    ipc_methods: Union[List[ServerStatsMethodLatency], MissingType] = field(default=MISSING)
     request_latency_us: Union[ServerStatsRequestLatency, MissingType] = field(default=MISSING)
     request_path_io: Union[ServerStatsRequestPathIo, MissingType] = field(default=MISSING)
     resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
@@ -7145,7 +7140,6 @@ __all__ = [
     'SendExpectAgent',
     'ServerStatsConnections',
     'ServerStatsHistogram',
-    'ServerStatsIpc',
     'ServerStatsJournalWriter',
     'ServerStatsLockHolder',
     'ServerStatsLockSite',

@@ -610,7 +610,9 @@ pub(super) fn start(
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
+    let reply = reply.hand_to_worker();
     let spawned = std::thread::Builder::new().name("mux-cloud-request".into()).spawn(move || {
+        let reply = reply.start();
         let _permit = permit;
         let result =
             handle_command_with_cancellation(&worker_mux, client, cmd, &worker_writer, None);

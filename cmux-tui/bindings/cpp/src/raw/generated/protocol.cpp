@@ -10622,31 +10622,6 @@ Result<ServerStatsHistogram> Codec<ServerStatsHistogram>::decode(const Json& val
     return result;
 }
 
-Result<Json> Codec<ServerStatsIpc>::encode(const ServerStatsIpc& value) {
-    (void)value;
-    Json::Object object;
-    auto encoded_methods = encode_value(value.methods);
-    if (!encoded_methods) return std::move(encoded_methods).error();
-    object.emplace("methods", std::move(encoded_methods).value());
-    return Json(std::move(object));
-}
-
-Result<ServerStatsIpc> Codec<ServerStatsIpc>::decode(const Json& value) {
-    auto source = value.as_object();
-    if (!source) return std::move(source).error();
-    ServerStatsIpc result{};
-    const Json* field_methods = value.find("methods");
-    if (!field_methods) {
-        return make_error(ErrorCode::decode, "missing required field 'methods'");
-    }
-    if (field_methods) {
-        auto decoded = decode_value<std::vector<ServerStatsMethodLatency>>(*field_methods);
-        if (!decoded) return std::move(decoded).error();
-        result.methods = std::move(decoded).value();
-    }
-    return result;
-}
-
 Result<Json> Codec<ServerStatsJournalWriter>::encode(const ServerStatsJournalWriter& value) {
     (void)value;
     Json::Object object;
@@ -11101,9 +11076,13 @@ Result<Json> Codec<ServerStatsMethodLatency>::encode(const ServerStatsMethodLate
     auto encoded_handler_us = encode_value(value.handler_us);
     if (!encoded_handler_us) return std::move(encoded_handler_us).error();
     object.emplace("handler_us", std::move(encoded_handler_us).value());
-    auto encoded_id = encode_value(value.id);
-    if (!encoded_id) return std::move(encoded_id).error();
-    object.emplace("id", std::move(encoded_id).value());
+    if (value.id) {
+        auto encoded = encode_value(*value.id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("id", std::move(encoded).value());
+    } else {
+        object.emplace("id", Json(nullptr));
+    }
     auto encoded_latency_us = encode_value(value.latency_us);
     if (!encoded_latency_us) return std::move(encoded_latency_us).error();
     object.emplace("latency_us", std::move(encoded_latency_us).value());
@@ -11113,6 +11092,9 @@ Result<Json> Codec<ServerStatsMethodLatency>::encode(const ServerStatsMethodLate
     auto encoded_method = encode_value(value.method);
     if (!encoded_method) return std::move(encoded_method).error();
     object.emplace("method", std::move(encoded_method).value());
+    auto encoded_trace_id = encode_value(value.trace_id);
+    if (!encoded_trace_id) return std::move(encoded_trace_id).error();
+    object.emplace("trace_id", std::move(encoded_trace_id).value());
     return Json(std::move(object));
 }
 
@@ -11143,9 +11125,13 @@ Result<ServerStatsMethodLatency> Codec<ServerStatsMethodLatency>::decode(const J
         return make_error(ErrorCode::decode, "missing required field 'id'");
     }
     if (field_id) {
-        auto decoded = decode_value<std::uint16_t>(*field_id);
-        if (!decoded) return std::move(decoded).error();
-        result.id = std::move(decoded).value();
+        if (field_id->is_null()) {
+            result.id.reset();
+        } else {
+            auto decoded = decode_value<std::uint16_t>(*field_id);
+            if (!decoded) return std::move(decoded).error();
+            result.id = std::move(decoded).value();
+        }
     }
     const Json* field_latency_us = value.find("latency_us");
     if (!field_latency_us) {
@@ -11173,6 +11159,15 @@ Result<ServerStatsMethodLatency> Codec<ServerStatsMethodLatency>::decode(const J
         auto decoded = decode_value<std::string>(*field_method);
         if (!decoded) return std::move(decoded).error();
         result.method = std::move(decoded).value();
+    }
+    const Json* field_trace_id = value.find("trace_id");
+    if (!field_trace_id) {
+        return make_error(ErrorCode::decode, "missing required field 'trace_id'");
+    }
+    if (field_trace_id) {
+        auto decoded = decode_value<std::uint16_t>(*field_trace_id);
+        if (!decoded) return std::move(decoded).error();
+        result.trace_id = std::move(decoded).value();
     }
     return result;
 }
@@ -11916,10 +11911,10 @@ Result<Json> Codec<ServerStatsResult>::encode(const ServerStatsResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("dispatch_queue_us", std::move(encoded).value());
     }
-    if (value.ipc) {
-        auto encoded = encode_value(*value.ipc);
+    if (value.ipc_methods) {
+        auto encoded = encode_value(*value.ipc_methods);
         if (!encoded) return std::move(encoded).error();
-        object.emplace("ipc", std::move(encoded).value());
+        object.emplace("ipc_methods", std::move(encoded).value());
     }
     if (value.journal_writer) {
         auto encoded = encode_value(*value.journal_writer);
@@ -11984,11 +11979,11 @@ Result<ServerStatsResult> Codec<ServerStatsResult>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         result.dispatch_queue_us = std::move(decoded).value();
     }
-    const Json* field_ipc = value.find("ipc");
-    if (field_ipc) {
-        auto decoded = decode_value<ServerStatsIpc>(*field_ipc);
+    const Json* field_ipc_methods = value.find("ipc_methods");
+    if (field_ipc_methods) {
+        auto decoded = decode_value<std::vector<ServerStatsMethodLatency>>(*field_ipc_methods);
         if (!decoded) return std::move(decoded).error();
-        result.ipc = std::move(decoded).value();
+        result.ipc_methods = std::move(decoded).value();
     }
     const Json* field_journal_writer = value.find("journal_writer");
     if (!field_journal_writer) {

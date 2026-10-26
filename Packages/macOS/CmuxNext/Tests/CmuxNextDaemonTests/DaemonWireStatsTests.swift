@@ -234,15 +234,50 @@ struct DaemonWireStatsTests {
         #expect(methods.last?.count == 1)
     }
 
-    /// The buckets are the daemon's (cmux-tui `LogLinearHistogram`): values under 4 have their own
-    /// bucket, then four per power of two; a bucket's upper bound is the largest value it holds, and
-    /// the last bucket takes everything from 2^30 µs.
-    @Test func bucketsAreTheDaemons() {
-        #expect((0..<4).map { DaemonMethodLatency.bucket(forMicros: UInt64($0)) } == [0, 1, 2, 3])
-        // The daemon's bucket_index(1000) is 39 and bucket_upper_bound(39) is 1023.
-        #expect(DaemonMethodLatency.bucket(forMicros: 1000) == 39)
-        #expect(DaemonMethodLatency.upperBound(ofBucket: 39) == 1023)
-        #expect(DaemonMethodLatency.upperBound(ofBucket: 8) == 4)
+    /// A request with no reply by its deadline counts at the deadline and in `timedOut` (its late
+    /// reply is not timed again); one whose connection closes first counts in `abandoned` and in no
+    /// percentile. The clock moves 1.5 ms per read: the timeout's sample is its send and its deadline.
+    @Test func unansweredRequestsCountAsTimedOutOrAbandoned() async throws {
+        let cmd = FakeWireDaemon.unanswered
+        let stats = DaemonWireStats(methods: [.init(id: 0x0102, name: cmd)], clock: Self.steppingClock(stepNanos: 1_500_000))
+        let daemon = try FakeWireDaemon(outputBytesPerAttach: 0)
+        defer { daemon.stop() }
+        let transport = try LineTransport(path: daemon.path, role: .control, stats: stats)
+        transport.start(onEvent: { _, _, _ in }, onClose: { _ in })
+        let line = { (id: UInt64) in Data("{\"id\":\(id),\"cmd\":\"\(cmd)\"}".utf8) }
+        await #expect(throws: DaemonError.self) {
+            _ = try await transport.request(cmd: cmd, timeout: .milliseconds(20), line)
+        }
+        try transport.sendNoReply(cmd: cmd, line)
+        transport.close()
+
+        let row = try #require(stats.snapshot().methods.first)
+        #expect(row.method == cmd)
+        #expect(row.id == 0x0102)
+        #expect(row.count == 1, "the timed-out request, at its deadline; the abandoned one is in no percentile")
+        #expect(row.maxMicros == 1500)
+        #expect(row.timedOut == 1)
+        #expect(row.abandoned == 1, "the expired request is not abandoned again when the connection closes")
+    }
+
+    /// The buckets are the daemon's (cmux-tui `LogLinearHistogram`): every row of the shared vector
+    /// (cmux-tui/spec/fixtures/ipc-method-latency/buckets.json, which the daemon's server_stats ipc
+    /// tests check against the Rust histogram) lands in its bucket with its upper bound, and the
+    /// last bucket takes everything from 2^30 µs.
+    @Test func bucketsAreTheDaemons() throws {
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<6 { root.deleteLastPathComponent() }
+        let data = try Data(contentsOf: root.appendingPathComponent("cmux-tui/spec/fixtures/ipc-method-latency/buckets.json"))
+        let fixture = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let rows = try #require(fixture["buckets"] as? [[String: Any]])
+        #expect(rows.count > 100)
+        for row in rows {
+            let micros = try #require((row["micros"] as? NSNumber)?.uint64Value)
+            let bucket = try #require((row["bucket"] as? NSNumber)?.intValue)
+            let bound = try #require((row["upper_bound"] as? NSNumber)?.uint64Value)
+            #expect(DaemonMethodLatency.bucket(forMicros: micros) == bucket, "\(micros)")
+            #expect(DaemonMethodLatency.upperBound(ofBucket: bucket) == bound, "\(micros)")
+        }
         for micros: UInt64 in [4, 5, 7, 8, 100, 1499, 1500, 65_535, 1 << 20, (1 << 29) + 5] {
             let bucket = DaemonMethodLatency.bucket(forMicros: micros)
             let bound = DaemonMethodLatency.upperBound(ofBucket: bucket)
@@ -253,9 +288,10 @@ struct DaemonWireStatsTests {
         #expect(DaemonMethodLatency.bucket(forMicros: 1 << 40) == DaemonMethodLatency.bucketCount - 1)
     }
 
-    /// A bench's exact percentiles (nearest rank over the raw samples) and the histogram's share a
-    /// bucket, for the skewed samples of the daemon's `server_stats_ipc` test.
-    @Test func percentilesAgreeWithTheSamplesWithinOneBucket() throws {
+    /// A row's percentiles use the bench's nearest rank (`ceil(n * q)`, the daemon's too): each is
+    /// the upper bound of the bucket of the exact sample of that rank, for the skewed samples of the
+    /// daemon's `server_stats_ipc_methods` test.
+    @Test func percentilesUseTheNearestRank() throws {
         let latency = DaemonMethodLatency(methods: [.init(id: 1, name: "ping")])
         var samples: [UInt64] = (0..<UInt64(1000)).map { (i: UInt64) -> UInt64 in 20 + (i * i * i) / 12_500 + (i * 37) % 101 }
         for micros in samples { latency.record(slot: 0, micros: micros) }
@@ -268,10 +304,39 @@ struct DaemonWireStatsTests {
         #expect(row.maxMicros == samples.last)
         for (fraction, reported) in [(0.50, row.p50Micros), (0.95, row.p95Micros), (0.99, row.p99Micros)] {
             let truth = exact(fraction)
-            #expect(DaemonMethodLatency.bucket(forMicros: reported) == DaemonMethodLatency.bucket(forMicros: truth),
+            #expect(reported == DaemonMethodLatency.upperBound(ofBucket: DaemonMethodLatency.bucket(forMicros: truth)),
                     "p\(fraction): reported \(reported), exact \(truth)")
-            #expect(reported >= truth)
         }
+    }
+
+    /// Timing requests on a live transport allocates nothing on the sending thread: after warm-up,
+    /// submitting a request costs as many allocations with a recorder (its stamp kept in the
+    /// pending entry) as without one. Each arm keeps its fewest over 20 requests, so a one-off
+    /// allocation elsewhere in the write path does not count.
+    @Test func timingRequestsOnATransportAllocatesNothing() async throws {
+        let control = WireMallocProbe.allocations { _ = ContiguousArray(repeating: 1, count: 64).count }
+        try #require((control ?? 0) > 0, "malloc_logger saw no allocation on this thread: the probe cannot measure here")
+        let daemon = try FakeWireDaemon(outputBytesPerAttach: 0)
+        defer { daemon.stop() }
+        var fewest: [Int] = []
+        for stats in [nil, DaemonWireStats(methods: [.init(id: 0x0101, name: IdentifyRequest.command)])] {
+            let transport = try LineTransport(path: daemon.path, role: .control, stats: stats)
+            transport.start(onEvent: { _, _, _ in }, onClose: { _ in })
+            defer { transport.close() }
+            let line = { (id: UInt64) in Data("{\"id\":\(id),\"cmd\":\"identify\"}".utf8) }
+            for _ in 0..<20 { _ = try await transport.request(cmd: IdentifyRequest.command, timeout: .seconds(5), line) }
+            var counts: [Int] = []
+            for _ in 0..<20 {
+                let counted = WireMallocProbe.allocations {
+                    _ = transport.submit(.discard(cmd: IdentifyRequest.command, onError: nil), line)
+                }
+                counts.append(try #require(counted))
+                // Its reply comes before this one's (one connection, FIFO), so nothing is pending after.
+                _ = try await transport.request(cmd: IdentifyRequest.command, timeout: .seconds(5), line)
+            }
+            fewest.append(try #require(counts.min()))
+        }
+        #expect(fewest[1] == fewest[0], "with a recorder \(fewest[1]) allocations per request, without \(fewest[0])")
     }
 
     /// Timing a request and its reply allocates nothing.
@@ -317,11 +382,13 @@ struct DaemonWireStatsTests {
 
 /// A Unix socket served by this test process that speaks just enough raw protocol v12 for control,
 /// page relay and byte-mode terminal attach connections: `identify` (after one line that is not
-/// JSON; it offers `origin-claim-v1`), `client-hello` with a connection id, `ok:true` for every
-/// other request, and after each `attach-surface` reply an optional `colors-changed`, then
+/// JSON; it offers `origin-claim-v1`), `client-hello` with a connection id, nothing for
+/// ``unanswered``, `ok:true` for every other request, and after each `attach-surface` reply an optional `colors-changed`, then
 /// `outputBytesPerAttach` bytes of `output` events in 64 KiB chunks.
 private final class FakeWireDaemon: Sendable {
     static let chunkBytes = 64 << 10
+    /// A command the fake never answers.
+    static let unanswered = "never-reply"
 
     let path: String
     private let listener: Int32
@@ -397,6 +464,8 @@ private final class FakeWireDaemon: Sendable {
 
     private static func answer(_ command: String, id: Int, request: [String: Any], to client: Int32, script: Script) -> Bool {
         switch command {
+        case unanswered:
+            return true
         case IdentifyRequest.command:
             let identity: [String: Any] = ["app": "cmux-tui", "protocol": 12, "generation": "gen-wire",
                                            "capabilities": [DaemonClientRole.originClaimCapability]]

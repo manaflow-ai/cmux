@@ -27,9 +27,7 @@ pub use owner_panic_log::owner_panic_log_path;
 mod slow_requests;
 pub use slow_requests::{SlowRequest, SlowRequestFrame, SlowRequestsSnapshot};
 mod method_latency;
-pub use method_latency::{
-    IpcStatsSnapshot, MethodLatencySnapshot, MethodLatencyStats, MethodName, MethodSample,
-};
+pub use method_latency::{MethodLatencySnapshot, MethodLatencyStats, MethodName, MethodSample};
 mod requests;
 pub use requests::{REQUEST_CLASSES, RequestLatencySnapshot, RequestStats, RequestStatsSnapshot};
 mod write_path;
@@ -609,9 +607,9 @@ pub struct ServerStatsSnapshot {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dispatch_queue_us: Option<HistogramSnapshot>,
     /// Request latency, handler time and lock wait by method; present only
-    /// when the request names `ipc` in `include`.
+    /// when the request names `ipc_methods` in `include`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ipc: Option<IpcStatsSnapshot>,
+    pub ipc_methods: Option<Vec<MethodLatencySnapshot>>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;

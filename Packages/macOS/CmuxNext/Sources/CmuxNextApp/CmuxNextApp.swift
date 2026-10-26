@@ -5,6 +5,7 @@ import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextInput
 import CmuxNextIPC
 import CmuxNextLaunch
@@ -76,8 +77,12 @@ public struct CmuxNextApp {
         // video wallpapers list the windows above theirs on its system lane, never on main.
         BrowserFaviconLoader.shared.useResolver(SystemRemoteResolver(runner: work))
         BackdropVideoPlayers.shared.lanes = work
-        // `debug.daemon.wire`'s counters, each schema method timed; nil in a release build.
-        let wireStats = DaemonWireStats.forBuild(methods: MethodTable.schema.methods.map { .init(id: $0.id.rawValue, name: $0.name) })
+        // The launch's feature values, once, before the first feature read (the daemon connect's).
+        let features = AppServices.launchFeatures(environment)
+        // `debug.daemon.wire`'s counters, each schema method timed; nil in a release build unless the
+        // person opted in to field data.
+        let wireStats = DaemonWireStats.forBuild(fieldData: features.isEnabled(.ipcMethodLatencyFieldData),
+                                                 methods: MethodTable.schema.methods.map { .init(id: $0.id.rawValue, name: $0.name) })
         // The daemon connect overlaps AppKit's start (off the main thread).
         let prestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
@@ -98,7 +103,7 @@ public struct CmuxNextApp {
         WindowOverlayHost.appInputTap = inputTap
         TooltipPresenter.shared.inputTap = inputTap
         let order = LaunchOrder(fence: fence, input: inputTap) { DebugTimings.markLaunch($0) }
-        let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats,
+        let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats, features: features,
                                    startupTrace: startupTrace, order: order, inputTap: inputTap,
                                    launchReads: (work, launchImages, relaunchWake))
         // Every main run-loop turn is timed and split on the main-thread scheduler's meter (MainTurnMeter).

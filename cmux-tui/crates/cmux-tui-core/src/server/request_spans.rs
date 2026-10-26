@@ -32,6 +32,7 @@ use std::io;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use cmux_ipc::{MethodId, MethodTables};
 use cmux_trace::{trace_async_begin, trace_async_end, trace_instant, trace_scope};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -94,24 +95,31 @@ impl RequestMethod {
         }
     }
 
-    /// The method in `slot`: [`Self::slot`] read back (a scan of the
-    /// operations; `server-stats` reads it, never a request).
+    /// The method in `slot`: [`Self::slot`] read back, with its schema id
+    /// (a scan of the operations; `server-stats` reads it, never a request).
     pub(super) fn of_slot(slot: usize) -> MethodName {
         let routes = COMMANDS.len() + ResourceOperation::ALL.len();
-        let (method, name) = if let Some(row) = COMMANDS.get(slot) {
+        let schema = MethodTables::schema();
+        let (method, name, id) = if let Some(row) = COMMANDS.get(slot) {
             let id = u16::try_from(slot).unwrap_or(u16::MAX);
-            (Self { id, class: row.class }, row.wire.to_owned())
+            (Self { id, class: row.class }, row.wire.to_owned(), schema.v12_id(row.wire))
         } else if let Some(&operation) = ResourceOperation::ALL
             .iter()
             .find(|operation| **operation as usize == slot - COMMANDS.len())
         {
-            (Self::of_resource(operation), operation.wire_name().to_owned())
+            let name = operation.wire_name();
+            (Self::of_resource(operation), name.to_owned(), schema.v2_id(name))
         } else {
             let class = MethodClass::ALL[(slot - routes).min(MethodClass::ALL.len() - 1)];
             let route = Self { id: Self::ROUTED_BASE + class as u16, class };
-            (route, format!("route:{}", class.as_str()))
+            (route, format!("route:{}", class.as_str()), None)
         };
-        MethodName { id: method.id, method: name, class: method.class.as_str() }
+        MethodName {
+            method: name,
+            id: id.map(MethodId::raw),
+            trace_id: method.id,
+            class: method.class.as_str(),
+        }
     }
 
     pub(super) fn of_command(cmd: &Command) -> Self {
@@ -303,7 +311,8 @@ impl<'a> RequestSpan<'a> {
             method: self.method,
             arrived: self.arrival.arrived,
             dispatched: self.dispatched,
-            lock_wait: self.lock_wait(),
+            lock_waited: Duration::ZERO,
+            counting: Some(ThreadLockWait::since(self.lock_wait_from)),
             id,
             recorded: false,
         }
@@ -350,14 +359,83 @@ pub(super) struct AsyncReply {
     method: RequestMethod,
     arrived: Instant,
     dispatched: Instant,
-    /// The dispatching thread's lock wait until it handed the reply over;
-    /// the worker's own waits are not counted.
-    lock_wait: Duration,
+    /// The lock wait of the threads that handled the request before the one
+    /// handling it now.
+    lock_waited: Duration,
+    /// The thread handling the request now and its lock wait total when it
+    /// took the request; `None` between [`Self::hand_to_worker`] and
+    /// [`WorkerReply::start`].
+    counting: Option<ThreadLockWait>,
     id: u64,
     recorded: bool,
 }
 
+/// A thread's lock wait total ([`cmux_threads::thread_lock_wait_nanos`]) when
+/// it took a request; only that thread can read its change.
+struct ThreadLockWait {
+    thread: std::thread::ThreadId,
+    from: u64,
+}
+
+impl ThreadLockWait {
+    /// The calling thread, counting from its total `from`.
+    fn since(from: u64) -> Self {
+        Self { thread: std::thread::current().id(), from }
+    }
+
+    /// The calling thread, counting from now.
+    fn here() -> Self {
+        Self::since(cmux_threads::thread_lock_wait_nanos())
+    }
+
+    /// The lock wait since `from`, when the calling thread is the one that
+    /// took the request; `None` on any other thread.
+    fn waited_here(&self) -> Option<Duration> {
+        (std::thread::current().id() == self.thread).then(|| {
+            Duration::from_nanos(cmux_threads::thread_lock_wait_nanos().saturating_sub(self.from))
+        })
+    }
+}
+
+/// An [`AsyncReply`] on its way to the worker that answers it: the
+/// dispatching thread's lock wait is counted, and [`Self::start`] on the
+/// worker counts the worker's from then on. Only [`Self::start`] can reply.
+#[must_use = "start it on the worker thread, which then replies"]
+pub(super) struct WorkerReply(AsyncReply);
+
+impl WorkerReply {
+    /// The worker took the request: its lock waits count from now.
+    pub(super) fn start(self) -> AsyncReply {
+        let Self(mut reply) = self;
+        reply.counting = Some(ThreadLockWait::here());
+        reply
+    }
+}
+
 impl AsyncReply {
+    /// Hands the request to a worker thread. Call it on the thread that has
+    /// handled the request so far, just before the hand-off, so the waits of
+    /// both threads add up (each thread counts its own, as Chrome's per-task
+    /// `ThreadTicks`, base/task/common/task_annotator.cc).
+    pub(super) fn hand_to_worker(mut self) -> WorkerReply {
+        self.settle_lock_wait();
+        self.counting = None;
+        WorkerReply(self)
+    }
+
+    /// Adds the calling thread's lock wait since it took the request, then
+    /// counts it from now. A thread that did not take the request (a hand-off
+    /// without [`Self::hand_to_worker`]) adds nothing.
+    fn settle_lock_wait(&mut self) -> Duration {
+        if let Some(counting) = self.counting.take()
+            && let Some(waited) = counting.waited_here()
+        {
+            self.lock_waited = self.lock_waited.saturating_add(waited);
+            self.counting = Some(ThreadLockWait::here());
+        }
+        self.lock_waited
+    }
+
     /// Sends the worker's reply with `send`.
     pub(super) fn reply(mut self, send: impl FnOnce() -> bool) -> bool {
         trace_instant!(daemon, "daemon.request.async.handled", self.id);
@@ -372,13 +450,14 @@ impl AsyncReply {
         let latency = now.saturating_duration_since(self.arrived);
         if !self.recorded {
             self.recorded = true;
+            let lock_wait = self.settle_lock_wait();
             record_request(
                 &self.stats,
                 self.method,
                 MethodSample {
                     latency,
                     handler: now.saturating_duration_since(self.dispatched),
-                    lock_wait: self.lock_wait,
+                    lock_wait,
                 },
             );
         }

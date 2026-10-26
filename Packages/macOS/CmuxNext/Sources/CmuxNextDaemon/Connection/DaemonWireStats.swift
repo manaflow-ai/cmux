@@ -9,7 +9,8 @@ public import CmuxNextTrace
 ///
 /// The app's composition root makes one in Debug and bench builds and puts it on the local daemon's
 /// endpoints (``DaemonEndpoint/wireStats``), so every connection opened to that daemon counts into
-/// it; a release build makes none, and its transports record nothing. Each transport takes a
+/// it; a release build makes one only when the person opted in to field data
+/// (``forBuild(fieldData:methods:)``), else none, and its transports record nothing. Each transport takes a
 /// ``Recorder`` on one stripe of the counters (round robin), and every count is one relaxed atomic
 /// add on a word of that stripe: a reader thread records with no lock and no allocation, and the
 /// reader threads of different connections write different cache lines. A snapshot sums the
@@ -26,7 +27,9 @@ public final class DaemonWireStats: Sendable {
     public struct Method: Sendable, Equatable {
         /// The name of the requests that count here, every `cmd` the table does not list.
         public static let otherName = "other"
-        /// The schema's method id (`family << 8 | ordinal`); nil for ``otherName``.
+        /// The schema's method id (`family << 8 | ordinal`, sdk-schema.json `method_id`); nil for
+        /// ``otherName``. The daemon's `server-stats` `ipc_methods` rows carry the same id, so the
+        /// two ends of one method join on it.
         public let id: UInt16?
         /// The request's `cmd` or v2 `operation`.
         public let name: String
@@ -38,7 +41,8 @@ public final class DaemonWireStats: Sendable {
     }
 
     /// One method's send-to-reply distribution, in microseconds. Percentiles are bucket upper
-    /// bounds (``DaemonMethodLatency``).
+    /// bounds (``DaemonMethodLatency``). `count` includes the timed-out requests, each at its
+    /// deadline; `abandoned` requests are in no percentile.
     public struct MethodLatency: Sendable, Equatable {
         public var method: String
         public var id: UInt16?
@@ -47,6 +51,10 @@ public final class DaemonWireStats: Sendable {
         public var p95Micros: UInt64
         public var p99Micros: UInt64
         public var maxMicros: UInt64
+        /// Requests that got no reply within their deadline.
+        public var timedOut: UInt64
+        /// Requests whose connection closed before their reply.
+        public var abandoned: UInt64
     }
 
     /// When a request was sent and the method it counts in; its reply records the time since.
@@ -205,8 +213,22 @@ public final class DaemonWireStats: Sendable {
 
         /// The reply of the request stamped `sent` was routed now.
         func replied(_ sent: RequestStamp) {
+            stats.methodLatency.record(slot: sent.slot, micros: micros(since: sent))
+        }
+
+        /// The request stamped `sent` reached its deadline with no reply; a late reply is not timed.
+        func timedOut(_ sent: RequestStamp) {
+            stats.methodLatency.recordTimeout(slot: sent.slot, micros: micros(since: sent))
+        }
+
+        /// The connection of the request stamped `sent` closed before its reply.
+        func abandoned(_ sent: RequestStamp) {
+            stats.methodLatency.recordAbandoned(slot: sent.slot)
+        }
+
+        private func micros(since sent: RequestStamp) -> UInt64 {
             let now = stats.clock.nowNanos()
-            stats.methodLatency.record(slot: sent.slot, micros: (now - min(sent.sentNanos, now)) / 1000)
+            return (now - min(sent.sentNanos, now)) / 1000
         }
     }
 
@@ -235,14 +257,15 @@ public final class DaemonWireStats: Sendable {
     /// Stamps requests and their replies.
     let clock: TraceClock
 
-    /// The app's recorder in Debug and bench builds, which `debug.daemon.wire` reads; nil in a
-    /// release build, where nothing reads it, so its transports record nothing.
-    /// `methods` lists the daemon methods to time; it is not evaluated in a release build.
-    public static func forBuild(methods: @autoclosure () -> [Method] = []) -> DaemonWireStats? {
+    /// The app's recorder: always in Debug and bench builds, where `debug.daemon.wire` reads it, and
+    /// in a release build only when the person opted in to field data (the default-off feature
+    /// `ipcMethodLatencyFieldData`); otherwise nil, and its transports record nothing.
+    /// `methods` lists the daemon methods to time; it is not evaluated when there is no recorder.
+    public static func forBuild(fieldData: Bool, methods: @autoclosure () -> [Method] = []) -> DaemonWireStats? {
         #if DEBUG || CMUX_BENCH_HOOKS
         DaemonWireStats(methods: methods())
         #else
-        nil
+        fieldData ? DaemonWireStats(methods: methods()) : nil
         #endif
     }
 

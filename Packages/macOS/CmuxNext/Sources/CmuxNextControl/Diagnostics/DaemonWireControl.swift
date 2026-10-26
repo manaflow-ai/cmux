@@ -5,7 +5,7 @@ internal import CmuxNextSettings
 /// `debug.daemon.wire`: the app side of the daemon wire since launch (``DaemonWireStats``): bytes and
 /// lines each way, inbound lines by kind, JSON decodes per line, terminal output bytes the app copied,
 /// connections and bridge spawns by role, and each method's send-to-reply time (`methods`, the app
-/// end of the daemon's `server-stats` `ipc`), for the p05-ipc benches (Debug and bench builds).
+/// end of the daemon's `server-stats` `ipc_methods`), for the p05-ipc benches (Debug and bench builds).
 /// `{"reset": true}` zeroes the traffic counters and the method histograms after the report;
 /// connection counts never reset.
 /// It reads atomics only, so it runs off the main thread (socket threading policy) and answers while
@@ -58,13 +58,18 @@ public struct DaemonWireControl: Sendable {
         ])
     }
 
-    /// One method's row: `method`, `id` (the schema id, null for `other`) and `send_to_reply_us`
-    /// with `count`, `p50`, `p95`, `p99` and `max`, the keys of the daemon's `ipc` rows.
+    /// One method's row: `method`; `id`, the schema `method_id` (null for `other`), which the
+    /// daemon's `server-stats` `ipc_methods` rows carry too, so the two reports join on `id`;
+    /// `send_to_reply_us` with `count`, `p50`, `p95`, `p99` and `max` (the daemon's percentile keys;
+    /// a timed-out request counts at its deadline); `timed_out`; and `abandoned`, the requests whose
+    /// connection closed before their reply.
     static func methodRow(_ latency: DaemonWireStats.MethodLatency) -> JSONValue {
         func number(_ value: UInt64) -> JSONValue { .number(Double(value)) }
         return .object([
             "method": .string(latency.method),
             "id": latency.id.map { JSONValue.number(Double($0)) } ?? .null,
+            "timed_out": number(latency.timedOut),
+            "abandoned": number(latency.abandoned),
             "send_to_reply_us": .object([
                 "count": number(latency.count),
                 "p50": number(latency.p50Micros),

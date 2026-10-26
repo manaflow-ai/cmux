@@ -126,6 +126,20 @@ private func dense<Entry: Hashable & Sendable>(
         #expect(table.methods.allSatisfy { table.method($0.id) == $0 })
     }
 
+    /// The app's `debug.daemon.wire` rows take their `id` from `MethodTable.schema.methods` (the
+    /// composition root's list), and the daemon's `server-stats` `ipc_methods` rows take theirs from
+    /// sdk-schema.json `method_id` (cmux-tui-core `server_stats_ipc_methods_id_is_the_schema_method_id`):
+    /// for `identify` and `ping` the two are the same join key.
+    @Test func schemaMethodIDsAreTheDaemonsIPCMethodIDs() throws {
+        let commands = try #require(try Self.load("sdk-schema.json")["commands"] as? [String: Any])
+        for name in ["identify", "ping"] {
+            let node = try #require(commands[name] as? [String: Any])
+            let schemaID = try #require(node["method_id"] as? Int)
+            let appID = try #require(MethodTable.schema.methods.first { $0.name == name }?.id.rawValue)
+            #expect(Int(appID) == schemaID, "\(name)")
+        }
+    }
+
     @Test func idsSplitIntoFamilyAndOrdinal() {
         let id = MethodID(rawValue: 0x6203)
         #expect(id.family == 0x62 && id.ordinal == 0x03)
