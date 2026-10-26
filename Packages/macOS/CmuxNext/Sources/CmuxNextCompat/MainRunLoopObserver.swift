@@ -46,6 +46,15 @@ public import Foundation
 public nonisolated final class MainRunLoopObserver {
     private let observer: CFRunLoopObserver
 
+    /// The highest order an observer of this type gets: after every system observer of the stage
+    /// (the Core Animation commit at 2000000, AppKit's autorelease pool at `Int32.max`). An order of
+    /// `.max` asked for runs here, so the main run-loop turn's end still comes after it.
+    public static let lastOrder: CFIndex = .max - 1
+    /// The order of the main run-loop turn's end (`MainTurnMeter`), kept for it alone: CFRunLoop runs
+    /// observers of one order in the order they were added, so a shared `.max` would put every
+    /// later `.max` observer after the turn's end and outside the turn.
+    static let turnEndOrder: CFIndex = .max
+
     /// Adds an observer of `activities` to the main run loop in `mode`, from any thread.
     ///
     /// It does not wake the main run loop: the first call comes at a matching stage of a pass
@@ -58,7 +67,8 @@ public nonisolated final class MainRunLoopObserver {
     ///     then removes the observer. Default true.
     ///   - order: Where `handler` runs among the observers of the same stage, lowest first.
     ///     `.max` runs after every other observer of the stage, Core Animation's commit (and
-    ///     with it AppKit's display cycle) included. Default 0.
+    ///     with it AppKit's display cycle) included; it is ``lastOrder``, before only the turn
+    ///     meter's end. Default 0.
     ///   - mode: The run loop mode to observe (default `.commonModes`, which includes the
     ///     default mode and the event-tracking mode of menus and drags).
     ///   - handler: Main-actor work with the stage that called it.
@@ -69,7 +79,14 @@ public nonisolated final class MainRunLoopObserver {
         mode: CFRunLoopMode = .commonModes,
         _ handler: @escaping @MainActor (CFRunLoopActivity) -> Void
     ) {
-        observer = Self.addMainObserver(activities: activities, repeats: repeats, order: order, mode: mode, handler)
+        observer = Self.addMainObserver(activities: activities, repeats: repeats, order: min(order, Self.lastOrder), mode: mode, handler)
+    }
+
+    /// The main run-loop turn's end: an observer of `activities` that runs after every other
+    /// observer of the stage, ``lastOrder`` ones included (``turnEndOrder``). Only the turn meter
+    /// adds one.
+    package init(endingTurn activities: CFRunLoopActivity, mode: CFRunLoopMode, _ handler: @escaping @MainActor (CFRunLoopActivity) -> Void) {
+        observer = Self.addMainObserver(activities: activities, repeats: true, order: Self.turnEndOrder, mode: mode, handler)
     }
 
     /// Calls `body` once on the main actor, at the main run loop's next stage in `activities`,
@@ -102,7 +119,7 @@ public nonisolated final class MainRunLoopObserver {
         mode: CFRunLoopMode = .commonModes,
         _ body: @escaping @MainActor () -> Void
     ) {
-        _ = addMainObserver(activities: activities, repeats: false, order: order, mode: mode) { _ in body() }
+        _ = addMainObserver(activities: activities, repeats: false, order: min(order, lastOrder), mode: mode) { _ in body() }
     }
 
     /// Whether the observer still calls its handler (false after ``invalidate()``, or after

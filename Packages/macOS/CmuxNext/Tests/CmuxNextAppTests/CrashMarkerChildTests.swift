@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextBrowser
+import CmuxNextInput
 import Darwin
 import Foundation
 import Testing
@@ -174,7 +175,7 @@ enum CrashChild {
         let missing = FileManager.default.temporaryDirectory.appending(path: "cmux-no-cef-\(UUID().uuidString)")
         let engine = CEFEngine(layout: CEFRuntimeLayout(frameworksDirectory: missing, mainBundle: missing,
                                                         helperApp: missing.appending(path: "None Helper.app")),
-                               stores: .inMemory(), signInCallbacks: CEFSignInCallbacks())
+                               stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap())
         AppRunMarker.keepSignalHandlers(marker, across: engine, reporter: nil)
         for signal in [SIGSEGV, SIGBUS, SIGILL, SIGABRT, SIGTRAP, SIGFPE, SIGSYS] { _ = Darwin.signal(signal, SIG_DFL) }
         await engine.warmStart(reason: "test")

@@ -1,3 +1,5 @@
+public import CmuxNextInputCore
+public import CmuxNextTrace
 public import Foundation
 
 /// Builds a ``HangReport`` by allow-list: it copies only the fields of hang-reports-DESIGN.md
@@ -5,7 +7,8 @@ public import Foundation
 ///
 /// ```swift
 /// let builder = HangReportBuilder(classifier: classifier, resolver: DyldImageResolver())
-/// let report = builder.build(context: context, watchdog: aggregate, metricKit: deliveries)
+/// let report = builder.build(context: context, watchdog: aggregate, metricKit: deliveries,
+///                            inputLatency: await source.take())
 /// ```
 public nonisolated struct HangReportBuilder: Sendable {
     /// The envelope of one report: who, when and what was open.
@@ -42,16 +45,23 @@ public nonisolated struct HangReportBuilder: Sendable {
     public let classifier: ImageClassifier
     /// Finds the loaded image of an address or UUID.
     public let resolver: any ImageResolving
+    /// The schema every report is written in; ``HangReportService`` sends only queued reports in it.
+    public let wireSchema: HangReport.WireSchema
     private let reader = CallStackTreeReader()
 
-    /// Makes the value from its parts.
-    public init(classifier: ImageClassifier, resolver: any ImageResolving) {
+    /// - Parameter wireSchema: ``HangReport/WireSchema/v2`` (the default) until the server accepts
+    ///   schema 3; a schema-2 server answers 400 to a report with `launches`, and that drops it.
+    public init(classifier: ImageClassifier, resolver: any ImageResolving, wireSchema: HangReport.WireSchema = .v2) {
         self.classifier = classifier
         self.resolver = resolver
+        self.wireSchema = wireSchema
     }
 
-    /// The report of `watchdog`'s findings and the MetricKit deliveries since the last report.
-    public func build(context: Context, watchdog: StallAggregate, metricKit: [MetricKitInput]) -> HangReport {
+    /// The report of `watchdog`'s findings, the MetricKit deliveries and the input latency since
+    /// the last report. `inputLatency` (the field ledger's counts, ``HangReportInputLatencySource``)
+    /// goes in only when ``wireSchema`` carries it.
+    public func build(context: Context, watchdog: StallAggregate, metricKit: [MetricKitInput],
+                      inputLatency: InputLatencySnapshot? = nil) -> HangReport {
         var report = HangReport(reportId: context.reportId, installId: context.installId, day: Self.safeDay(context.day),
                                 app: Self.safeApp(context.app), os: HangReport.OS(version: Self.safeVersion(context.os.version)),
                                 hardware: context.hardware, counts: context.counts)
@@ -66,7 +76,25 @@ public nonisolated struct HangReportBuilder: Sendable {
         report.stallHistogram = watchdog.histogram
         report.metrics = Self.metrics(metricKit.map(\.metrics))
         report.intervals = Self.intervals(metricKit.flatMap(\.signposts))
+        report.schema = wireSchema.rawValue
+        report.launches = wireSchema.carriesLaunches ? Self.launches(watchdog.launches) : nil
+        if let inputLatency, wireSchema.carriesInputLatency { Self.addInputLatency(inputLatency, to: &report) }
         return report
+    }
+
+    /// The launches, rebuilt through ``LaunchAggregate/merge(_:)`` (closed-set temperatures and
+    /// reasons, bounded counts and buckets, at most one histogram per temperature), so a pending
+    /// file edited on disk sends nothing else; nil when no launch was recorded.
+    static func launches(_ recorded: LaunchAggregate) -> LaunchAggregate? {
+        var launches = LaunchAggregate()
+        launches.merge(recorded)
+        return launches.isEmpty ? nil : launches
+    }
+
+    /// The events a report's `blackbox[]` may carry: the merged rings' records through the upload decoder, so
+    /// no key-timing, per-key PTY or flow record leaves the Mac (``TraceBlackBoxUpload``, p09-observability-128).
+    public func blackbox(_ records: [TraceBlackBoxUpload.Record]) -> [TraceBlackBoxUpload.Record] {
+        TraceBlackBoxUpload().events(records)
     }
 
     /// Frames of a watchdog sample (return addresses, innermost first).

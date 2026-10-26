@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The New Tab weather widget's reading (`tabs.newTabWidgets.weather`): the current conditions and
@@ -88,7 +89,7 @@ nonisolated extension AgentPaneNewTabWeather {
             struct Result: Decodable { var name: String; var latitude: Double; var longitude: Double }
             var results: [Result]?
         }
-        guard let first = (try? JSONDecoder().decode(Answer.self, from: data))?.results?.first else { return nil }
+        guard let first = (try? JSONDecoder().blockingDecode(Answer.self, from: data))?.results?.first else { return nil }
         return (first.name, first.latitude, first.longitude)
     }
 
@@ -108,7 +109,7 @@ nonisolated extension AgentPaneNewTabWeather {
             var current: Current
             var daily: Daily
         }
-        guard let answer = try? JSONDecoder().decode(Answer.self, from: data),
+        guard let answer = try? JSONDecoder().blockingDecode(Answer.self, from: data),
               let high = answer.daily.high.first, let low = answer.daily.low.first else { return nil }
         return Self(place: place, temperature: answer.current.temperature, high: high, low: low,
                     code: answer.current.code, unit: unit, readAt: date)

@@ -9,9 +9,14 @@ import Foundation
 @MainActor
 final class AgentActivityPageProvider: PageProvider {
     /// The page's op prefix.
-    static let prefix = "cmux.agentActivity."
+    nonisolated static let prefix = "cmux.agentActivity."
     /// The state stream.
     static let stateStream = "cmux.agentActivity.state"
+    /// The page's requests (``AgentActivityRequests/reply(to:params:)``) and its stream. `perform`
+    /// stops, pauses and resumes live computer-use sessions; the rest read or move the page's own view.
+    nonisolated static let ops = PageOpTable(namespace: prefix,
+                                             read: ["ready", "select", "filter", "scrub", "layout", "follow", "frame", "state"],
+                                             act: ["perform"])
 
     private let requests: AgentActivityRequests
     private var listeners: [UUID: @MainActor (JSONValue) -> Void] = [:]

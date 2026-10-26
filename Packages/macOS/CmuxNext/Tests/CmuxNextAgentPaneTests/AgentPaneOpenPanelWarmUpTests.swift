@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextPages
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -21,12 +22,8 @@ import Testing
         // The pane's own panel, as the app passes its one (AppServices.openPanel): no other suite's warm-up shares it.
         let shared = MadeAheadOpenPanel()
 
-        let directory = FileManager.default.temporaryDirectory.appending(path: "panel-warm-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appending(path: "index.html")
-        try Data("<html><body></body></html>".utf8).write(to: file)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), openPanel: shared))
+        let file = try #require(AgentPageTestRoot.page)
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), webUI: .agentPaneTestHost(), openPanel: shared, gestures: .testing()))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled, .resizable],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

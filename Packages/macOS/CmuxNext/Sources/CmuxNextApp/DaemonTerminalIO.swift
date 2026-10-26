@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextTerminal
+import CmuxNextTrace
 import CmuxNextWakeups
 import Foundation
 import os
@@ -63,9 +64,11 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// `burstTrace`: where the grids this view sends, their echoes and its first output after each echo
     /// go while the burst bench records (`debug.burst`).
     /// `resizes`: the app's grid sender (``ResizeCoordinator``), from its composition root.
+    /// `hangWatch`: watches each line the attachment's reader handles (`DaemonService.hangWatch`).
     init(target: Target, resizes: ResizeCoordinator, visible: Bool = true, gate: TerminalTargetGate? = nil,
          creatingInput: CreatingTerminalInput? = nil,
          burstTrace: BurstTrace? = nil, policyBlocked: @escaping @Sendable () -> Bool = { false },
+         hangWatch: (any HangWatchScoping)? = nil,
          endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
         self.resizes = resizes
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
@@ -89,7 +92,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
                                                     snapshotVersion: Self.attachSnapshotVersion,
                                                     localHistory: Self.attachLocalHistory,
                                                     images: Self.attachImages,
-                                                    device: await Self.sizingDevice.value)
+                                                    device: await Self.sizingDevice.value,
+                                                    hangs: hangWatch)
             },
             onFailure: { error in
                 logger.error("attach \(surface) failed: \(String(describing: error), privacy: .public)")
@@ -275,6 +279,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         case .replay(let replay): replayEvent(replay)
         case .snapshot(let frame): .snapshot(frame.data, phase: snapshotPhase(frame))
         case .output(let data): .output(data)
+        case .inputEcho(let flow): .inputEcho(flow: flow)
         case .exited: .exited
         case .status(let status): .status(Self.connection(status))
         case .sizing(let notice): .sizedFor(notice.map(Self.sizedFor))

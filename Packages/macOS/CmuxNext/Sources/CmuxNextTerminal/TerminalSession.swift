@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextTerminalFind
+public import CmuxNextTrace
 import CmuxNextWakeups
 import GhosttyNextKit
 
@@ -111,7 +112,14 @@ public final class TerminalSession {
 
     let io: any TerminalIO
     private let ioMode: ghostty_surface_io_mode_e
+    /// Passed to each surface view this session makes, the first and every swapped-in one.
+    private let hangWatch: (any HangWatchScoping)?
+    /// Passed to each surface view this session makes: their secure keyboard entry requests.
+    private let secureInput: TerminalSecureInput
+    /// Passed to each surface view this session makes: the terminals' one modifier watch.
+    private let modifiers: TerminalModifierWatch?
     private let input: TerminalInputSink
+    private let echoStages: TerminalEchoStages
     private var eventsTask: Task<Void, Never>?
     private var writerTask: Task<Void, Never>?
     /// Tasks an owner ties to this session's lifetime: ``close()`` cancels them.
@@ -137,17 +145,33 @@ public final class TerminalSession {
     /// Kitty images the owner left out of its image replays (its cap).
     private(set) var skippedImages = 0
 
-    public init(io: any TerminalIO, ownsGeometry: Bool = true) {
+    /// - Parameters:
+    ///   - echoStages: Where its surfaces' key-to-echo stages go (``TerminalEchoStages``).
+    ///   - hangWatch: watches each output chunk's parse on the surface's output lane; the app's
+    ///     composition root passes its ``HangWatch``. nil watches nothing.
+    ///   - secureInput: The process's secure keyboard entry, which its surfaces turn on for Ghostty.
+    ///   - modifiers: The terminals' one modifier watch (``TerminalModifierWatch``): Command pressed or
+    ///     released over a surface without focus reaches it. The App passes its one; nil reaches none.
+    public init(io: any TerminalIO, ownsGeometry: Bool = true,
+                echoStages: TerminalEchoStages = GhosttyRuntime.shared.echoStages,
+                hangWatch: (any HangWatchScoping)? = nil,
+                secureInput: TerminalSecureInput = GhosttyRuntime.shared.secureInput,
+                modifiers: TerminalModifierWatch? = nil) {
         self.io = io
         self.ownsGeometry = ownsGeometry
+        self.echoStages = echoStages
+        self.hangWatch = hangWatch
+        self.secureInput = secureInput
+        self.modifiers = modifiers
         ioMode = io.answersTerminalQueries ? GHOSTTY_SURFACE_IO_MANUAL_MIRROR : GHOSTTY_SURFACE_IO_MANUAL
 
         // concurrency-allow: carries only user input and resizes, produced at human rate
         let (outgoing, continuation) = AsyncStream<TerminalOutgoing>.makeStream(bufferingPolicy: .unbounded)
-        input = TerminalInputSink(continuation: continuation)
+        input = TerminalInputSink(continuation: continuation, typingSurface: TypingLatencyProbe.shared.makeSurfaceKey())
 
         view = TerminalHostView()
-        surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil)
+        surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil, echoStages: echoStages, hangWatch: hangWatch,
+                                          secureInput: secureInput, modifiers: modifiers)
         surfaceView.bridge.takeUnretainedValue().installLinkFilter(nil)
         surfaceView.session = self
         surfaceView.ownsGeometry = ownsGeometry
@@ -330,13 +354,7 @@ public final class TerminalSession {
         Task.detached(priority: .high) { [weak session] in
             var lane: TerminalOutputLane?
             for await event in events {
-                if case .output(let data) = event, let lane {
-                    TypingLatencyProbe.shared.mark(.outputReceived)
-                    ExpectedActivity.shared.note(.terminalOutput)
-                    await lane.waitForCapacity()
-                    lane.processOutput(data)
-                    continue
-                }
+                if let lane, await lane.takeOffMain(event) { continue }
                 guard let session else { return }
                 lane = await session.handle(event)
             }
@@ -381,15 +399,16 @@ public final class TerminalSession {
             frameHold.contentQueued()
             TerminalTimings.contentApplied()
         case .output(let data):
-            TypingLatencyProbe.shared.mark(.outputReceived)
             ExpectedActivity.shared.note(.terminalOutput)
             guard let lane = surfaceView.lane else { return }
+            lane.outputReceived()
             await lane.waitForCapacity()
             // The surface may have been swapped while waiting (a replay).
             surfaceView.lane?.processOutput(data)
             surfaceHasContent = true
             frameHold.contentQueued()
             TerminalTimings.contentApplied()
+        case .inputEcho(let flow): surfaceView.lane?.echoReceived(flow)
         case .resize(let columns, let rows):
             guard columns > 0, rows > 0 else { return }
             await applyCanonicalGrid(TerminalGridSize(columns: columns, rows: rows))
@@ -436,7 +455,8 @@ public final class TerminalSession {
         let old = surfaceView
         old.clipboardRequests.cancelPendingWrite()
         let wasFirstResponder = old.isFirstResponder
-        let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self)
+        let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self, echoStages: echoStages, hangWatch: hangWatch,
+                                        secureInput: secureInput, modifiers: modifiers)
         swappedSurfaces += 1
         #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceSurfaceSwapped(fresh) }

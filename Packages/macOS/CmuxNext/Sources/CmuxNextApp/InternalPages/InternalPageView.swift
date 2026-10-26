@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextPages
 
@@ -85,6 +86,90 @@ final class InternalPageView: NSView {
     }
 
     override var acceptsFirstResponder: Bool { false }
+
+    // MARK: Rebuilt after a discard
+
+    /// The page's last picture over its rebuilt content until the document painted its restored
+    /// state, so a discarded tab shows in its first frame (Chrome shows a discarded tab's last
+    /// frame while it reloads, `TabLoader`). Nil once it did, or for native content (it draws at once).
+    private(set) var picture: NSView?
+    /// Runs once the view has a size (a restored scroll position needs the document laid out).
+    private var afterLayout: (() -> Void)?
+    /// The rebuilt content's state going back (``rebuilt(under:restore:)``), until the page drew it.
+    private(set) var restoring: Task<Void, Never>?
+
+    /// This view replaces one a discard let go: `image` covers a page until it paints, then
+    /// `restore` puts its state back once it can take it (a page once its new document painted,
+    /// native content once it has a size), and the cover goes once the page drew that state.
+    func rebuilt(under image: CGImage?, restore: @escaping @MainActor (NSView) async -> Void) {
+        guard let page = content as? PageWebView else {
+            return whenLaidOut { [weak self] in self?.startRestoring(restore) }
+        }
+        if let image, !page.hasPainted { cover(with: image) }
+        page.whenPainted { [weak self, weak page] in
+            guard let page else { return }
+            self?.startRestoring { content in
+                await restore(content)
+                // The restored state reached the screen: the page's next frame, then the cover goes.
+                await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in page.afterNextFrame { done.resume() } }
+            }
+        }
+    }
+
+    private func startRestoring(_ body: @escaping @MainActor (NSView) async -> Void) {
+        let content = content
+        // task-owner: restoring; one state put back on this view, then its cover goes
+        restoring = Task { @MainActor [weak self] in
+            await body(content)
+            self?.removeCover()
+        }
+    }
+
+    private func cover(with image: CGImage) {
+        guard picture == nil else { return }
+        let cover = NSView()
+        cover.wantsLayer = true
+        cover.layer?.contents = image
+        cover.layer?.contentsGravity = .resizeAspectFill
+        cover.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(cover, positioned: .above, relativeTo: content)
+        NSLayoutConstraint.activate([
+            cover.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            cover.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            cover.topAnchor.constraint(equalTo: content.topAnchor),
+            cover.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+        ])
+        picture = cover
+    }
+
+    private func removeCover() {
+        picture?.removeFromSuperview()
+        picture = nil
+    }
+
+    /// A picture of the page as it draws now, taken when the tab hides (a hidden page cannot be
+    /// pictured); nil for native content (it draws again at once), a page that has not painted, or
+    /// an engine that does not answer within 2 s.
+    func lastPicture() async -> CGImage? {
+        guard let page = content as? PageWebView, page.hasPainted else { return nil }
+        return try? await ControlDeadline.shared.run(method: "pages.discard.picture", deadline: .now + .seconds(2)) { @MainActor in
+            await page.snapshot()?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        }
+    }
+
+    /// Runs `body` at the next layout with a size: now when the view has one.
+    private func whenLaidOut(_ body: @escaping () -> Void) {
+        guard bounds.isEmpty else { return body() }
+        afterLayout = body
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        guard !bounds.isEmpty, let body = afterLayout else { return }
+        afterLayout = nil
+        body()
+    }
 
     /// Runs Go Back (true) or Go Forward (false): the mouse side buttons and a
     /// swipe over the page (history.md 4.2b). Set by the page's host.

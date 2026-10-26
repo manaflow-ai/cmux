@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextUpdater
@@ -35,6 +36,25 @@ final class ChangelogPageTab: InternalPageProvider {
 
     func tabClosed(_ key: String) {
         pages.removeValue(forKey: key)?.close()
+    }
+
+    // MARK: Discard (`memoryDiscardInternalPages`; What's New is this page)
+
+    /// Ten minutes hidden: read-only notes, so a rebuilt page on the same place shows the same.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// The release span or version the page shows now (its own links move it).
+    func saveViewState(for key: String, content: NSView) async -> ContentViewState {
+        await (content as? PageWebView)?.discardViewState() ?? ContentViewState()
+    }
+
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {
+        (content as? PageWebView)?.restoreDiscardViewState(state)
+    }
+
+    /// The tab's page went (the tab store closed it); the next view makes its own.
+    func viewDiscarded(_ key: String) {
+        pages.removeValue(forKey: key)
     }
 
     /// The page's provider, registered once. The app registers it at launch:
@@ -88,7 +108,7 @@ extension PageFactory {
         let provider = changelogNotes(media: services.updater.releaseMedia)
         let native = AppPageNativeProvider(services: services, page: .changelog)
         let routes = [PageRoute(prefix: "cmux.changelog.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
-        let page = PageWebView(descriptor: .changelog, routes: routes, route: route)
+        let page = services.webUI.open(PageOpenRequest(descriptor: .changelog, routes: routes, route: route))
         native.anchor = { [weak page] in page }
         provider.anchor = { [weak page] in page }
         return page

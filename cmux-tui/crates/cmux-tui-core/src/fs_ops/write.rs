@@ -145,6 +145,7 @@ impl PendingWrite {
     /// Fsyncs, checks the mode once more, renames over the target and
     /// fsyncs the directory. Returns the new entry.
     pub fn commit(mut self) -> Result<Entry, FsError> {
+        crate::request_path::note(crate::request_path::BlockingKind::FsWrite);
         self.file.sync_all()?;
         let dir = self.dir.as_fd();
         self.mode.admits(current(dir, &self.name)?.as_ref())?;
@@ -201,6 +202,7 @@ pub fn append(roots: &Roots, path: &str, expected: &str, bytes: &[u8]) -> Result
         return Err(FsError::NoSpace);
     }
     let mut file = File::from(fd);
+    crate::request_path::note(crate::request_path::BlockingKind::FsWrite);
     if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
         let _ = file.set_len(meta.size);
         return Err(error.into());

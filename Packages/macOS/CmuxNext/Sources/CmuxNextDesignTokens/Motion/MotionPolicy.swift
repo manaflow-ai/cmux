@@ -29,11 +29,14 @@ public nonisolated struct MotionPolicy: Sendable, Equatable {
     /// The category this policy decides for (``MotionGate``); nil decides
     /// with the master switch only (reports, the debug window).
     public var category: MotionCategory?
+    /// Looping indicators ask the render server for only the frames they need (30 a second for a
+    /// spinner), not the display's full rate (feature `frameRateClasses`). Never a timing change.
+    public var pacesLoops: Bool
 
     public init(speed: MotionSpeed, reduceMotion: Bool, bounce: MotionBounce = .none,
                 enabledKinds: Set<MotionKind> = [], liveResize: Bool = false,
                 animationsEnabled: Bool = true, disabledCategories: Set<MotionCategory> = [],
-                category: MotionCategory? = nil) {
+                category: MotionCategory? = nil, pacesLoops: Bool = false) {
         self.speed = speed
         self.reduceMotion = reduceMotion
         self.bounce = bounce
@@ -42,6 +45,7 @@ public nonisolated struct MotionPolicy: Sendable, Equatable {
         self.animationsEnabled = animationsEnabled
         self.disabledCategories = disabledCategories
         self.category = category
+        self.pacesLoops = pacesLoops
     }
 
     /// This policy deciding for `category`.

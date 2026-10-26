@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// One installed Chromium extension of a profile, as `cmux_ext_list` (fork
@@ -67,7 +68,7 @@ public nonisolated struct BrowserExtensionInfo: Hashable, Sendable, Identifiable
     /// Sorted by name, as chrome://extensions shows them.
     public static func decodeList(_ json: String) -> [BrowserExtensionInfo] {
         guard let data = json.data(using: .utf8),
-              let items = try? JSONDecoder().decode([Wire].self, from: data) else {
+              let items = try? JSONDecoder().blockingDecode([Wire].self, from: data) else {
             return []
         }
         return items.map { item in

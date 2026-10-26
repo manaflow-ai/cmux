@@ -7,8 +7,8 @@ use crate::panic_free::JsonFields;
 use anyhow::Context;
 
 use super::PROTOCOL_VERSION;
+use super::capabilities::identify_capabilities_for;
 use super::daemon_build::{stamped_build_commit, stamped_ghostty_commit};
-use super::identify_capabilities;
 use crate::platform;
 
 use super::ClientIdentityWire;
@@ -34,8 +34,23 @@ pub(super) fn server_stats(
     Ok(serde_json::to_value(server_stats::server_stats(mux, include.as_deref()))?)
 }
 
+/// `trace-start`, `trace-stop` and `trace-status` (server/trace_control.rs):
+/// owner only, refused before `call` reads a parameter.
+pub(super) fn trace_control(
+    mux: &Arc<Mux>,
+    client: u64,
+    call: impl FnOnce() -> anyhow::Result<super::trace_control::Call>,
+) -> anyhow::Result<Value> {
+    use super::trace_control::{TraceControlRefused, run_live};
+    if !mux.control_clients.is_unix(client) {
+        return Err(TraceControlRefused::NotLocal.into());
+    }
+    Ok(run_live(mux, call()?)?)
+}
+
 pub(super) fn identify(
     mux: &Arc<Mux>,
+    client: u64,
     machine_metadata: bool,
     revisions: bool,
 ) -> anyhow::Result<Value> {
@@ -50,7 +65,7 @@ pub(super) fn identify(
         "cli_path": cli_path,
         "ghostty_commit": stamped_ghostty_commit(),
         "protocol": PROTOCOL_VERSION,
-        "capabilities": identify_capabilities(mux),
+        "capabilities": identify_capabilities_for(mux, client),
         "session": mux.session,
         "pid": std::process::id(),
         "session_id": registry_id,
@@ -288,7 +303,7 @@ pub(super) fn machine_listening_tcp_json() -> anyhow::Result<Value> {
         let candidates: &[(&str, &[&str])] = &[("ss", &["-H", "-ltnp"]), ("netstat", &["-ltn"])];
         let mut failures = Vec::new();
         for &(program, arguments) in candidates {
-            let output = match std::process::Command::new(program).args(arguments).output() {
+            let output = match cmux_process::Command::new(program).args(arguments).output() {
                 Ok(output) => output,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
                 Err(error) => {

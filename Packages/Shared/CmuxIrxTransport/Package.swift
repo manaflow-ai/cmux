@@ -19,6 +19,7 @@ let package = Package(
         // Grant claims/verifier and terminal-envelope codecs are consumed as
         // stable data contracts; none of the legacy runtime machinery is used.
         .package(path: "../CmuxIrohTransport"),
+        .package(path: "../CmuxFuzzSupport"),
         .package(
             url: "https://github.com/manaflow-ai/iroh-ffi.git",
             exact: "1.2.0-cmux.1.ios17"
@@ -48,6 +49,7 @@ let package = Package(
                 "CMUXMobileCore",
                 "CmuxIrohTransport",
                 .product(name: "IrohLib", package: "iroh-ffi"),
+                .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
             ],
             resources: [
                 .copy("V2/Fixtures"),

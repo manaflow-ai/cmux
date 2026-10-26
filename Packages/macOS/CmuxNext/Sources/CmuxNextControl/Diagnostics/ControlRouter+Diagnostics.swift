@@ -1,8 +1,9 @@
 public import CmuxNextSettings
 
-/// `debug.hangs` (stalls, each naming the scheduled task its sample caught, and the tasks that ran
-/// past their class budget) and `debug.queue`: answered off the main actor (they read
-/// lock-protected counters), so they work while the main thread is stalled.
+/// `debug.hangs` (stalls, each naming the scheduled task its sample caught, the tasks that ran
+/// past their class budget, and other threads' hang-watch scopes past their deadline) and
+/// `debug.queue`: answered off the main actor (they read lock-protected counters), so they work
+/// while the main thread is stalled.
 extension ControlRouter {
     func diagnosticMethods() -> [ControlMethod] {
         [
@@ -17,14 +18,23 @@ extension ControlRouter {
                 let records = watchdog.log.records(after: after).suffix(max(0, limit))
                 let longFrames = watchdog.longFrameStats
                 let gaps = watchdog.gapStats
+                let stalls = watchdog.stallCounts
                 // Scheduled tasks past their class budget (DEBUG and bench launches), newest last.
                 let overBudget = watchdog.overBudget.records(after: call.params["over_budget_after"]?.intValue.map { UInt64(clamping: $0) } ?? 0)
                     .suffix(max(0, limit))
                 let overBudgetCount = watchdog.overBudget.summary.count
+                // Hang-watch scopes on other threads past their deadline (MainThreadWatchdog.threadHangs).
+                let threadHangs = watchdog.threadHangs.records(after: call.params["thread_hangs_after"]?.intValue.map { UInt64(clamping: $0) } ?? 0)
+                    .suffix(max(0, limit))
+                let threadHangCount = watchdog.threadHangs.summary.count
+                let turnHistogram = watchdog.turnHistogramJSON
                 if call.params["clear"]?.boolValue == true {
                     watchdog.log.clear()
                     watchdog.overBudget.clear()
+                    watchdog.threadHangs.clear()
                     watchdog.resetLongFrames()
+                    watchdog.resetStallCounts()
+                    watchdog.resetTurnHistograms()
                 }
                 return [
                     "installed": .bool(watchdog.isRunning),
@@ -37,11 +47,18 @@ extension ControlRouter {
                     "long_frame_max_ms": .number(longFrames.max.fractionalMilliseconds),
                     "frames_over_8_3ms": JSONValue(gaps.over120HzFrame),
                     "max_gap_ms": .number(gaps.max.fractionalMilliseconds),
+                    // Work gaps >= 100 ms and >= 250 ms since launch or `clear` (StallCounts; the Nightly readout).
+                    "count100": JSONValue(stalls.count100),
+                    "count250": JSONValue(stalls.count250),
                     // Cumulative main run-loop wakes (idle benches diff two reads; never cleared).
                     "main_wakes": JSONValue(Int(clamping: watchdog.mainRunLoopWakes)),
+                    // Main-turn and input-queueing histograms at Chrome's resolution (MainTurnHistogram), since launch or `clear`.
+                    "turn_histogram": turnHistogram,
                     "records": .array(records.map(\.json)),
                     "over_budget_count": JSONValue(overBudgetCount),
                     "over_budget": .array(overBudget.map(\.json)),
+                    "thread_hang_count": JSONValue(threadHangCount),
+                    "thread_hangs": .array(threadHangs.map(\.json)),
                 ]
             },
             .snapshot("debug.queue") { [weak self] call in

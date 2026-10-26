@@ -1,7 +1,8 @@
 import Darwin
 import Foundation
 
-/// The C ABI of `libcmux_cef_shim.dylib`, resolved with `dlsym`.
+/// The C ABI of `libcmux_cef_shim.dylib`, resolved with `dlsym`; in host mode
+/// the same ABI of the remote shim (``CEFRemoteShim``), checked the same way.
 ///
 /// Mirrors `Sources/CmuxNextBrowser/CEF/Shim/cmux_cef_shim.h`; the shim must
 /// have the same ABI identity (`CEFShimABI`). The shim
@@ -57,6 +58,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let doWork: @convention(c) () -> Void
 
     let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
+    /// The same window whose first tab has no renderer and never navigates (the spare window's
+    /// placeholder, fork `CMUX_EXTRA_INFO_NO_RENDERER`); 0 when `placeholderSupported` is 0.
+    let createPlaceholderWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?) -> Int32
+    /// 1 when the fork makes renderer-less placeholders (`cmux_tab_renderer_state`, p13-webui-017).
+    let placeholderSupported: @convention(c) () -> Int32
     let tabAdd: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, Int32) -> Int32
     let tabDuplicate: @convention(c) (Int32, Int32, Int32) -> Int32
     let tabActivate: @convention(c) (Int32) -> Int32
@@ -244,6 +250,10 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// and the file `/` serves (NULL = index.html).
     let pageSchemeAddFirstPartyDynamic: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
                                                         UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
+    /// The renderer group of a first-party page (p13-webui-011): id, group name (`privileged`); 1 set,
+    /// 0 an unknown id or group. Call before `CefInitialize` ends. Optional: a fork before page groups
+    /// has no such export (nil) and still loads, with no page in a group.
+    let pageSchemeSetGroup: (@convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32)?
     /// Answers a PAGE_RESOURCE request: token, status, MIME, body, length; 1 when it was waiting.
     let pageResourceRespond: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafeRawPointer?, Int) -> Int32
 
@@ -285,7 +295,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         guard let handle = dlopen(url.path, RTLD_NOW | RTLD_LOCAL) else {
             throw .open(String(cString: dlerror()))
         }
-        let library = try CEFShimLibrary(Resolver { dlsym(handle, $0) })
+        let library = try CEFShimLibrary(Resolver(symbol: { dlsym(handle, $0) }))
         try checkABI(expected: expected, found: library.abiIDFn().map { String(cString: $0) })
         return library
     }
@@ -293,6 +303,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// Each function by symbol name: `dlsym` on the opened shim, or a test's stand-ins (`resolving`).
     private struct Resolver {
         let symbol: (String) -> UnsafeMutableRawPointer?
+        /// Host mode: the optional exports the Chromium Host's shim defines (its hello). Nil takes
+        /// every optional export `symbol` finds.
+        var hostExports: Set<String>?
 
         func callAsFunction<T>(_ name: String) throws(LoadError) -> T {
             guard let symbol = symbol(name) else { throw .missingSymbol(name) }
@@ -301,13 +314,23 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
 
         /// A function only newer shims export: nil when this one has none.
         func optional<T>(_ name: String) -> T? {
-            symbol(name).map { unsafeBitCast($0, to: T.self) }
+            guard hostExports?.contains(name) ?? true else { return nil }
+            return symbol(name).map { unsafeBitCast($0, to: T.self) }
         }
     }
 
     /// The functions `symbol` gives by name, with no shim loaded (a test's spy shim).
     static func resolving(_ symbol: @escaping (String) -> UnsafeMutableRawPointer?) throws(LoadError) -> CEFShimLibrary {
         try CEFShimLibrary(Resolver(symbol: symbol))
+    }
+
+    /// Host mode's functions (``CEFRemoteShim``): every required export from `symbol`, an optional
+    /// one only when the host's shim defines it (`hostExports`, from the host's hello). The remote
+    /// shim exports all of them, so without this `CEFForkFeatures` would see the remote dylib and
+    /// not the host's fork.
+    static func resolving(_ symbol: @escaping (String) -> UnsafeMutableRawPointer?,
+                          hostExports: Set<String>) throws(LoadError) -> CEFShimLibrary {
+        try CEFShimLibrary(Resolver(symbol: symbol, hostExports: hostExports))
     }
 
     private init(_ r: Resolver) throws(LoadError) {
@@ -328,6 +351,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         createWindow = try r("cmux_shim_create_window")
+        createPlaceholderWindow = try r("cmux_shim_create_placeholder_window")
+        placeholderSupported = try r("cmux_shim_placeholder_supported")
         tabAdd = try r("cmux_shim_tab_add")
         tabDuplicate = try r("cmux_shim_tab_duplicate")
         tabActivate = try r("cmux_shim_tab_activate")
@@ -439,6 +464,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         pageSchemeAdd = try r("cmux_shim_page_scheme_add")
         pageSchemeAddFirstParty = try r("cmux_shim_page_scheme_add_first_party")
         pageSchemeAddFirstPartyDynamic = try r("cmux_shim_page_scheme_add_first_party_dynamic")
+        pageSchemeSetGroup = r.optional("cmux_shim_page_scheme_set_group")
         pageResourceRespond = try r("cmux_shim_page_resource_respond")
         setNewTabPageURL = try r("cmux_shim_set_new_tab_page_url")
         addNativeMessagingDir = try r("cmux_shim_add_native_messaging_dir")
@@ -451,20 +477,5 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         devToolsInspectedBounds = try r("cmux_shim_devtools_inspected_bounds")
         sidePanelState = try r("cmux_shim_side_panel_state")
         sidePanelPress = try r("cmux_shim_side_panel_press")
-    }
-
-    /// Returns a string the shim allocated itself (`cmux_shim_ssl_status`)
-    /// and frees it.
-    func takeOwnedString(_ pointer: UnsafeMutablePointer<CChar>?) -> String? {
-        guard let pointer else { return nil }
-        defer { freeOwned(pointer) }
-        return String(cString: pointer)
-    }
-
-    /// Returns a fork string as Swift and frees it.
-    func takeString(_ pointer: UnsafeMutablePointer<CChar>?) -> String? {
-        guard let pointer else { return nil }
-        defer { free(pointer) }
-        return String(cString: pointer)
     }
 }

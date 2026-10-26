@@ -50,7 +50,7 @@ import Testing
         defer { load(nil) }
         load(style)
         let model = TabStripModel(tabs: (0..<2).map { TabItem(id: TabID("tab\($0)"), title: "Tab \($0)") }, selectedID: TabID("tab0"))
-        let strip = TabStripView(model: model)
+        let strip = TabStripView.testing(model: model)
         strip.dragsWindowFromEmptySpace = false
         let window = window(CGSize(width: 700, height: 200))
         defer { window.close() }

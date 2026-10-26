@@ -7,19 +7,22 @@ public extension PageDescriptor {
     /// only its own `cmux.agent.*` ops; the app actions it may run are checked by
     /// ``AgentPaneModel`` (`cmux.agent.action.run`), so it lists no shared native op.
     /// It opens no connection of its own (the host's native transport, AgentPaneTransport, carries
-    /// acpmux; the Debug dev loop loads a Vite page in the legacy host, which sends no header), shows
-    /// loopback previews and render cards (AgentPaneRenderFrame) in frames, and runs only its own script files, no inline script
+    /// acpmux; a Debug dev server adds its own HMR origin, ``PageDevServer``), shows
+    /// loopback previews and render cards (AgentPaneRenderFrame) in frames, plays its granted media
+    /// (`media-src 'self'`), and runs only its own script files, no inline script
     /// (plus WebAssembly compilation, `'wasm-unsafe-eval'`, for Ondine's Mermaid diagrams). The page's
-    /// meta CSP says the same (build-agent-pane-web.sh; AgentPageCSPAlignmentTests); the host runs the
-    /// user's registry.js through evaluateJavaScript, which the CSP does not govern.
+    /// meta CSP says the same (build-agent-pane-web.sh); the host runs the
+    /// user's registry.js through evaluateJavaScript, which the CSP does not govern. Its libraries,
+    /// media and render frame are generated resources (``AgentPageResources``).
     static let agent = PageDescriptor(
-        id: "cmux.agent", resource: "agent-pane", namespaces: [AgentPageOps.namespace],
+        id: "cmux.agent", resource: "agent-pane", processGroup: .agent, namespaces: [AgentPageOps.namespace],
         csp: PageCSP(connect: ["'none'"],
                      frame: [AgentPaneRenderFrame.source, "http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
-                     script: ["'wasm-unsafe-eval'"], inlineScript: false),
+                     media: ["'self'"], script: ["'wasm-unsafe-eval'"], inlineScript: false),
+        dynamicPrefixes: AgentPageResources.prefixes,
         // Permission cards (Allow once, Allow for chat), tool cards, Push, Apply and Remove act on one click and
         // appear when the agent decides: a click meant only to bring the window forward must not answer them.
-        acceptsFirstMouse: false)
+        acceptsFirstMouse: false, opTables: [AgentPageOps.table])
 }
 
 /// The `cmux.agent.*` ops: one per method of the old `agentSession` bridge, with the same params.
@@ -50,6 +53,13 @@ public nonisolated struct AgentPageOps {
 
     /// Every op the agent page may call.
     public static let all: [String] = methods.keys.sorted().map { namespace + $0 }
+
+    /// The page's declared ops (``PageOpTable``): every op and the host events stream, all of which
+    /// act; the host-power names (`shell.`, `git.push`, ...) and the index and file writes below are
+    /// host power.
+    public static let table = PageOpTable(
+        namespace: namespace, act: Set(methods.keys).union(["host.events"]),
+        hostPower: ["git.stage", "git.unstage", "git.stageHunk", "git.unstageHunk", "turn.undo", "pane.saveLog", "image.save"])
 
     /// The old bridge method for `op`, or nil for an op the page does not have.
     static func method(for op: String) -> String? {
@@ -122,6 +132,8 @@ public final class AgentPageProvider: PageProvider {
     /// The debug UI pointer report from an app-owned page. The native picker
     /// owns the crop and composer delivery; the page only supplies metadata.
     public var onUiPointerReport: @MainActor (JSONValue) -> Void = { _ in }
+    /// Where the handshake's launch marks go (the App's `debug.timings`; tests read their own).
+    var launchTimings = AgentPaneLaunchTimings.shared
 
     public init(prepare: @escaping Prepare) {
         self.prepare = prepare
@@ -363,6 +375,10 @@ public final class AgentPageProvider: PageProvider {
         let request = AgentPaneRequest(body: ["method": method, "params": params.foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }
         guard let model = prepare(request) else { throw PageError.closed }
+        // The launch marks bench-startup.py reads (`agent_pane.handshake_end` is its agent-ready mark).
+        guard request == .ready else { return try Self.value(of: await model.respond(to: request)) }
+        launchTimings.mark("agent_pane.handshake_start")
+        defer { launchTimings.mark("agent_pane.handshake_end") }
         return try Self.value(of: await model.respond(to: request))
     }
 

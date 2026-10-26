@@ -1,7 +1,7 @@
 public import Darwin
 
 /// Spawns a process, like `posix_spawn`, as a checked blocking call
-/// (``assertBlockingAllowed(_:fileID:line:)``): a spawn on the main thread stalls it. Spawn from an actor
+/// (``blockingCall(_:fileID:line:_:)``): a spawn on the main thread stalls it. Spawn from an actor
 /// or a `@concurrent` function.
 ///
 /// - Parameters:
@@ -21,6 +21,5 @@ public func blockingPosixSpawn(_ pid: UnsafeMutablePointer<pid_t>?, _ path: Unsa
                                _ argv: UnsafePointer<UnsafeMutablePointer<CChar>?>,
                                _ envp: UnsafePointer<UnsafeMutablePointer<CChar>?>?,
                                fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    assertBlockingAllowed(.processSpawn, fileID: fileID, line: line)
-    return posix_spawn(pid, path, fileActions, attributes, argv, envp)
+    return blockingCall(.processSpawn, fileID: fileID, line: line) { posix_spawn(pid, path, fileActions, attributes, argv, envp) }
 }

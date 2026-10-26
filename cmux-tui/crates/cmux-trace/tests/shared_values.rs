@@ -28,12 +28,14 @@ fn category_bits_match_the_shared_table() {
         (category::CONTROL, 17),
         (category::GHOSTTY, 18),
         (category::RESIZE, 19),
+        (category::WEBUI, 20),
+        (category::LOG, 21),
     ];
     for (mask, bit) in bits {
         assert_eq!(mask, 1u64 << bit, "category bit {bit}");
     }
     assert_eq!(category::BLACKBOX, 0x1ff, "the black box records bits 0-8");
-    assert_eq!(category::ALL, (1 << 20) - 1, "every category is in ALL");
+    assert_eq!(category::ALL, (1 << 22) - 1, "every category is in ALL");
     assert_eq!(category::BLACKBOX & category::RECORDING, 0);
 }
 

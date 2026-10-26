@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
 import CmuxNextTerminalGeometry
+import CmuxNextTrace
 import CmuxNextWakeups
 import GhosttyNextKit
 import IOSurface
@@ -25,6 +26,10 @@ public final class TerminalSurfaceView: NSView {
     let bridge: Unmanaged<SurfaceBridge>
     /// Serial lane for output and other process_output-ordered calls.
     private(set) var lane: TerminalOutputLane?
+    /// Watches each output chunk's parse on ``lane`` (``TerminalOutputLane``); nil watches nothing.
+    private let hangWatch: (any HangWatchScoping)?
+    /// Where Ghostty's secure keyboard entry requests for this view go (``TerminalSecureInput``).
+    let secureInput: TerminalSecureInput
     weak var session: TerminalSession?
 
     /// Which grid the surface renders and reports (``TerminalGridPolicy``):
@@ -111,17 +116,24 @@ public final class TerminalSurfaceView: NSView {
     /// Ghostty's clipboard reads and confirmations (``TerminalClipboardRequests``).
     private(set) lazy var clipboardRequests = TerminalClipboardRequests(view: self)
     /// Cmd-hover and Cmd-click on links beyond Ghostty's own (``TerminalLinkPointer``).
-    private(set) lazy var linkPointer = TerminalLinkPointer(view: self)
+    private(set) lazy var linkPointer = TerminalLinkPointer(view: self, modifiers: modifierWatch)
+    /// The terminals' one modifier watch (``TerminalModifierWatch``), from the session.
+    let modifierWatch: TerminalModifierWatch?
 
     // MARK: Lifecycle
 
-    init(io mode: ghostty_surface_io_mode_e, input: TerminalInputSink, session: TerminalSession?) {
+    init(io mode: ghostty_surface_io_mode_e, input: TerminalInputSink, session: TerminalSession?,
+         echoStages: TerminalEchoStages, hangWatch: (any HangWatchScoping)? = nil, secureInput: TerminalSecureInput,
+         modifiers: TerminalModifierWatch? = nil) {
         let bridge = SurfaceBridge(input: input)
         self.bridge = Unmanaged.passRetained(bridge)
         self.session = session
+        self.hangWatch = hangWatch
+        self.secureInput = secureInput
+        modifierWatch = modifiers
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         bridge.view = self
-        createSurface(mode: mode)
+        createSurface(mode: mode, echoStages: echoStages)
     }
 
     @available(*, unavailable)
@@ -134,7 +146,7 @@ public final class TerminalSurfaceView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             for observer in windowObservers { NotificationCenter.default.removeObserver(observer) }
-            TerminalSecureInput.release(self)
+            secureInput.release(ObjectIdentifier(self))
             if let surface {
                 lane?.close()
                 ghostty_surface_free(surface)
@@ -147,7 +159,7 @@ public final class TerminalSurfaceView: NSView {
     /// `ghostty_surface_new` with embedder-owned IO (ghostty.h:548-559,
     /// :627-629). `GHOSTTY_SURFACE_IO_MANUAL_MIRROR` for the daemon,
     /// `GHOSTTY_SURFACE_IO_MANUAL` for a bare PTY.
-    private func createSurface(mode: ghostty_surface_io_mode_e) {
+    private func createSurface(mode: ghostty_surface_io_mode_e, echoStages: TerminalEchoStages) {
         let started = ContinuousClock.now
         let signpost = TerminalTimings.signposter.beginInterval("createSurface")
         defer {
@@ -177,8 +189,13 @@ public final class TerminalSurfaceView: NSView {
         TerminalFontScale(self).installCallback()
         // Light/dark themes (default Apple System Colors) follow the app.
         GhosttyRuntime.shared.registerColorScheme(of: self)
-        lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output")
-        if TypingLatencyProbe.isEnabled, let layer { TypingFrameProbe.install(on: layer) }
+        let echoStage = echoStages.makeStage()
+        lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output", echoStage: echoStage,
+                                  keyFlows: bridge.takeUnretainedValue().typingSurface, hangs: hangWatch)
+        if let layer {
+            echoStage?.attach(to: layer)
+            TypingFrameProbe.install(on: layer, gate: echoStages.contentsGate, keyFlows: bridge.takeUnretainedValue().typingSurface)
+        }
         registerForDraggedTypes([.fileURL, .URL, .string])
         updateContentScale()
         updateSurfaceSize(forceReport: true)
@@ -419,9 +436,9 @@ public final class TerminalSurfaceView: NSView {
     /// A rough app-side memory cost of this surface for the resource hover
     /// card: its drawable (three BGRA buffers) plus the GPU cell buffers
     /// (about 64 bytes per cell). Ghostty does not report its own
-    /// allocations (font atlas, parser state), so this is a lower bound.
-    public var memoryEstimateBytes: UInt64 {
-        guard let surface else { return 0 }
+    /// allocations (font atlas, parser state), so this is a lower bound. Nil before attach or after free.
+    public var memoryEstimateBytes: UInt64? {
+        guard let surface else { return nil }
         let size = ghostty_surface_size(surface)
         let pixels = UInt64(size.width_px) * UInt64(size.height_px)
         let cells = UInt64(size.columns) * UInt64(size.rows)

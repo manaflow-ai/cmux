@@ -86,7 +86,7 @@ import Testing
         defer { Motion.reduceMotionOverride = nil }
         try #require(Motion.panes.animatesFades, "animation speed is off on this host")
         let tabs = (0..<8).map { CmuxNextTabs.TabItem(id: CmuxNextTabs.TabID("tab\($0)"), title: "Tab \($0)") }
-        let strip = TabStripView(model: TabStripModel(tabs: tabs, selectedID: CmuxNextTabs.TabID("tab0")))
+        let strip = TabStripView.testing(model: TabStripModel(tabs: tabs, selectedID: CmuxNextTabs.TabID("tab0")))
         let window = Self.window(width: 1600, height: 40)
         window.contentView = strip
         strip.frame = NSRect(x: 0, y: 0, width: 1600, height: TabStripView.preferredHeight)

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHistory
 import Foundation
@@ -40,7 +41,8 @@ final class AgentHistory {
             let fold = folds[machine] ?? AgentSessionFold(machine: machine)
             let cursor = generations[machine].map { (generation: $0, sequence: fold.cursor) }
             do {
-                let result = try await SessionJournalRead.shared.read(socketPath: endpoint.socketPath, kinds: AgentSessionFold.journalKinds,
+                let result = try await SessionJournalRead.shared.read(socketPath: endpoint.socketPath, wireStats: endpoint.wireStats,
+                                                               kinds: AgentSessionFold.journalKinds,
                                                                cursor: fold.cursor > 0 ? cursor : nil)
                 apply(result, machine: machine)
             } catch {
@@ -58,7 +60,7 @@ final class AgentHistory {
             fold = AgentSessionFold(machine: machine)
         }
         let decoder = JSONDecoder()
-        fold.apply(result.records.compactMap { try? decoder.decode(AgentJournalRecord.self, from: $0) })
+        fold.apply(result.records.compactMap { try? decoder.blockingDecode(AgentJournalRecord.self, from: $0) })
         folds[machine] = fold
         if let generation = result.generation { generations[machine] = generation }
     }

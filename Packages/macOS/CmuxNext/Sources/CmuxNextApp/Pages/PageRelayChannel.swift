@@ -24,7 +24,7 @@ import os
 /// main connection as before, with a logged warning that they are not narrowed.
 @MainActor
 final class PageRelayChannel {
-    private static let logger = Logger(subsystem: "dev.cmux.next", category: "page-relay")
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page-relay")
     private struct Key: Hashable {
         let service: ObjectIdentifier
         let page: String?

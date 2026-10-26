@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -21,8 +22,7 @@ nonisolated enum CEFDevToolsResult {
     static func screenshot(_ json: String) throws(BrowserTabError) -> CGImage {
         guard let object = parse(json), let base64 = object["data"] as? String,
               let data = Data(base64Encoded: base64),
-              let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+              let image = blockingImageDecode(data) else {
             throw .snapshotUnavailable
         }
         return image
@@ -61,6 +61,6 @@ nonisolated enum CEFDevToolsResult {
 
     private static func parse(_ json: String) -> [String: Any]? {
         guard let data = json.data(using: .utf8) else { return nil }
-        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        return (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any]
     }
 }

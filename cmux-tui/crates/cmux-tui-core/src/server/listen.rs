@@ -303,7 +303,7 @@ impl SocketStartLock {
             let Some(retry_delay) = socket_start_lock_retry_delay(Instant::now(), deadline) else {
                 return Err(socket_start_lock_timeout());
             };
-            std::thread::sleep(retry_delay);
+            crate::request_path::sleep(retry_delay);
             if Instant::now() >= deadline {
                 return Err(socket_start_lock_timeout());
             }

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import CmuxNextCompat
 public import Darwin
 public import Foundation
 import os
@@ -356,7 +357,7 @@ public final class ComputerUseHelperV2 {
         // Its own Logger: the file-level one is main-actor isolated.
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use-v2")
         for await line in lines {
-            guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
+            guard let object = (try? JSONSerialization.blockingJSONObject(with: line)) as? [String: Any],
                   let type = object["type"] as? String, type != "result" else { continue }
             let text = String(decoding: line.prefix(512), as: UTF8.self)
             logger.notice("cmux Computer Use helper v2 control pid=\(pid, privacy: .public) \(text, privacy: .public)")
@@ -369,7 +370,7 @@ public final class ComputerUseHelperV2 {
         await withTaskGroup(of: String?.self) { group in
             group.addTask {
                 for await line in child.lines {
-                    if let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
+                    if let object = (try? JSONSerialization.blockingJSONObject(with: line)) as? [String: Any],
                        object["type"] as? String == "ready" { return object["socket"] as? String }
                 }
                 return nil

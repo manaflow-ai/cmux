@@ -16,6 +16,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CMUXMobileCore"),
+        .package(path: "../CmuxFuzzSupport"),
         .package(
             url: "https://github.com/manaflow-ai/iroh-ffi.git",
             exact: "1.2.0-cmux.1.ios17"
@@ -43,6 +44,7 @@ let package = Package(
                 "CmuxIrohTransport",
                 "CMUXMobileCore",
                 .product(name: "IrohLib", package: "iroh-ffi"),
+                .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
@@ -13,7 +14,7 @@ enum WorkingURL {
         guard let text else { return nil }
         let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
         let range = NSRange(text.startIndex..., in: text)
-        let links = detector?.matches(in: text, range: range).compactMap(\.url) ?? []
+        let links = detector?.blockingRegexMatches(in: text, range: range).compactMap(\.url) ?? []
         for url in links.reversed() {
             guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""), let host = url.host()?.lowercased(),
                   localHosts.contains(host) || host.hasSuffix(".localhost"),

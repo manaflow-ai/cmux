@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
+public import CmuxNextInput
 import Observation
 
 /// The workspace content area: renders every screen of a `LayoutModel`,
@@ -17,6 +18,9 @@ public final class LayoutRootView: NSView {
     var screenViews: [ScreenID: ScreenContentView] = [:]
     var screenFrames: [ScreenID: AnimatedFrame] = [:]
     let highlight = DropHighlightView()
+    /// The root's render-server motion variants (screen switches, the drop highlight) and the
+    /// `motion.renderServer` switch (`LayoutRootView+Motion.swift`).
+    var motionBackends: MotionBackends<LayoutRootView>
     /// Non-interactive overlays (rings, dims, drop highlight). See
     /// `OverlayPlane`: the window may lift it above content child windows.
     public private(set) lazy var overlayPlane = OverlayPlane(home: self)
@@ -27,7 +31,12 @@ public final class LayoutRootView: NSView {
     var reportedLayoutMotion = false
     let driver = DisplayLinkDriver()
     private var observationTask: Task<Void, Never>?
-    private var eventMonitor: Any?
+    /// The app's one input tap (nil: nothing routes the app's events to this root; tests call the
+    /// routing directly).
+    let inputTap: InputEventTap?
+    /// The scroll, magnify and button intercept (``InputEventTap/InterceptOrder/layout``), held while
+    /// the root is live (`setLive`).
+    private var inputIntercept: InputSubscription?
     /// Key-window observers of the current window (`observeKeyWindow()`).
     var keyWindowObservers: [any NSObjectProtocol] = []
     private var lastSnapshot: Snapshot?
@@ -132,12 +141,19 @@ public final class LayoutRootView: NSView {
     /// tests inject a manual clock.
     /// `scrollFocusSignals` feeds focus-follows-mouse (`layout.focusFollowsMouse`);
     /// tests inject fixed values.
+    /// `input` is the app's one input tap: while the root is live, its scroll, magnify and button
+    /// routing is an intercept there. The App passes its tap; nil only where no event dispatches.
     public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider,
                 scrollbarClock: any Clock<Duration> = ContinuousClock(),
-                scrollFocusSignals: ScrollFocusSignals = ScrollFocusSignals()) {
+                scrollFocusSignals: ScrollFocusSignals = ScrollFocusSignals(),
+                rendersMotionOnServer: @escaping () -> Bool = { LayoutTunables.motionRenderServer.value },
+                input: InputEventTap? = nil) {
         self.model = model
+        inputTap = input
         self.scrollFocusSignals = scrollFocusSignals
-        self.context = LayoutViewContext(model: model, provider: contentProvider, scrollbarClock: scrollbarClock)
+        self.context = LayoutViewContext(model: model, provider: contentProvider, scrollbarClock: scrollbarClock,
+                                         rendersMotionOnServer: rendersMotionOnServer)
+        self.motionBackends = MotionBackends(LayoutRootView.renderServerMotions, renderServer: rendersMotionOnServer)
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = true
@@ -175,7 +191,7 @@ public final class LayoutRootView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             observationTask?.cancel()
-            if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
+            inputIntercept?.cancel()
             for token in keyWindowObservers { NotificationCenter.default.removeObserver(token) }
             driver.detach()
         }
@@ -341,6 +357,10 @@ public final class LayoutRootView: NSView {
                 screenViews[screen.id] = view
                 screenFrames[screen.id] = AnimatedFrame(bounds, alpha: isActive ? 1 : 0)
             }
+            // One change turn per screen: every motion this change starts on it (layout, chrome, scroll,
+            // center and reveal) starts before its render-server kinds take theirs and it lays out once.
+            view.beginMotionTurn()
+            var screenNeedsFrames = false
             let old = before[screen.id]
             // A zoomed pane shows full size over its canvas (canvas-layout.md).
             let canvas = screen.zoomed ? nil : snapshot.canvases[screen.id]
@@ -356,7 +376,7 @@ public final class LayoutRootView: NSView {
                 // content held wider than the pane and pinned to its edge (Leo 2026-10-21).
                 if view.update(layout: screen.layout, zoomed: screen.zoomed, canvas: canvas,
                                animated: (animated || reflows) && !view.isHidden) {
-                    needsFrames = true
+                    screenNeedsFrames = true
                 }
                 // The focus ring of a split's new pane appears with the pane; the focus flash still
                 // runs, so the pane after a close or a link's new pane shows where focus went.
@@ -383,17 +403,18 @@ public final class LayoutRootView: NSView {
                 if view.syncScroll(focused: focused, source: source, mode: snapshot.centerMode,
                                    animated: previous != nil && canAnimate && context.animatesPaneLayout, reveals: !snapshot.gestureActive,
                                    showsScrollbarOnSnap: previous != nil && window != nil && driver.isAttached) {
-                    needsFrames = true
+                    screenNeedsFrames = true
                 }
             }
             if let request = snapshot.centerRequest, request != previous?.centerRequest, screen.layout.contains(request.pane),
                view.center(request.pane, animated: animated) {
-                needsFrames = true
+                screenNeedsFrames = true
             }
             if let request = snapshot.revealRequest, request != appliedReveal, screen.layout.contains(request.pane) {
                 appliedReveal = request
-                if view.center(request.pane, animated: animated, reveal: true) { needsFrames = true }
+                if view.center(request.pane, animated: animated, reveal: true) { screenNeedsFrames = true }
             }
+            if view.endMotionTurn(needsFrames: screenNeedsFrames) { needsFrames = true }
         }
 
         for (id, view) in leaving {
@@ -405,9 +426,10 @@ public final class LayoutRootView: NSView {
 
         // Screen switch.
         if previous?.activeScreen != snapshot.activeScreen {
-            if switchScreens(from: previous?.activeScreen, to: snapshot.activeScreen, order: snapshot.screens.map(\.id), animated: animated) {
-                needsFrames = true
-            }
+            let switching = switchScreens(from: previous?.activeScreen, to: snapshot.activeScreen, order: snapshot.screens.map(\.id),
+                                          animated: animated)
+            if endMotionTurn(needsFrames: switching) { needsFrames = true }
+            applyScreenFrames()
         }
 
         updateVisibility()
@@ -471,7 +493,11 @@ public final class LayoutRootView: NSView {
         if !moving { reportInteractiveRects() }
     }
 
+    /// `updateVisibility()` calls (`debug.layout_counters` `update_visibility`): a spring wants <= 2 (p03-rendering DC2).
+    public private(set) var visibilityUpdates: UInt64 = 0
+
     func updateVisibility() {
+        visibilityUpdates &+= 1
         var visible: Set<PaneID> = []
         var keepAlive: Set<PaneID> = []
         if isLive, let active = model.activeScreenID, let view = screenViews[active] {
@@ -565,10 +591,8 @@ public final class LayoutRootView: NSView {
     private func setLive(_ live: Bool) {
         guard live != isLive else { return }
         isLive = live
-        if let eventMonitor {
-            NSEvent.removeMonitor(eventMonitor)
-            self.eventMonitor = nil
-        }
+        inputIntercept?.cancel()
+        inputIntercept = nil
         driver.detach()
         if !live { for view in screenViews.values { view.settleMotion() } }
         if !live, let planeHost {
@@ -584,9 +608,7 @@ public final class LayoutRootView: NSView {
             }
             driver.attach(to: self)
             if screenViews.values.contains(where: \.hasMotion) || screenFrames.values.contains(where: { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }) { driver.start() }
-            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
-                self?.handleMonitored(event) ?? event
-            }
+            inputIntercept = subscribeInput()
         }
         updateVisibility()
         // The layout changes it saw while parked: one overlay sync now.

@@ -8,6 +8,6 @@ struct DaemonRequestExecutor: Sendable {
         let response = try await transport.request(cmd: R.command, timeout: timeout) { id in
             try WireCoding.encodeRequest(request, id: id)
         }
-        return try WireCoding.decodeResponse(R.Response.self, from: response.line)
+        return try WireCoding.decodeResponse(R.Response.self, from: response)
     }
 }

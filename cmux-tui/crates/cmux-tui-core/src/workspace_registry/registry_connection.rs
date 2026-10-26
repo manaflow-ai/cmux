@@ -13,10 +13,16 @@
 //! below re-enters it. Every access is a shared `&Connection`; transactions
 //! use `unchecked_transaction`, and SQLite refuses a nested `BEGIN` at run
 //! time where `&mut Connection` used to refuse it at compile time.
+//!
+//! On a request thread (`crate::request_path`) the first acquisition notes
+//! `sqlite` at the code that asked for the connection; in a recording scope
+//! its release notes `lock_hold_over_1ms` there when the hold lasted that
+//! long.
 
 use std::cell::Cell;
+use std::panic::Location;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use parking_lot::{
     ArcReentrantMutexGuard, RawMutex, RawThreadId, ReentrantMutex, ReentrantMutexGuard,
@@ -24,6 +30,7 @@ use parking_lot::{
 use rusqlite::Connection;
 
 use crate::lock_rank::{HeldRank, LockRank};
+use crate::request_path::BlockingKind;
 
 const CONNECTION_LOCK_NAME: &str = "registry.connection";
 
@@ -34,6 +41,8 @@ const CONNECTION_LOCK_NAME: &str = "registry.connection";
 pub(crate) struct RegistryConnectionGuard<'a> {
     guard: ReentrantMutexGuard<'a, Connection>,
     _rank: HeldRank,
+    /// Dropped after the lock, so a note never prints under it.
+    _request_path: RequestPathHold,
 }
 
 impl std::ops::Deref for RegistryConnectionGuard<'_> {
@@ -50,6 +59,53 @@ impl std::ops::Deref for RegistryConnectionGuard<'_> {
 pub(crate) struct RegistryConnectionPin {
     _guard: ArcReentrantMutexGuard<RawMutex, RawThreadId, Connection>,
     _rank: HeldRank,
+    _request_path: RequestPathHold,
+}
+
+/// Holds this long or longer are noted as `lock_hold_over_1ms`.
+const LONG_HOLD: Duration = Duration::from_millis(1);
+
+/// A connection hold as a request thread sees it: a first acquisition notes
+/// `sqlite` at `site` before it waits; a re-entry notes nothing (it cannot
+/// block). In a recording scope (`record`, `panic:<kinds>`) the hold starts
+/// its clock once the lock is taken, so its release can note a long hold
+/// (not a long wait) at the same site; other modes take no clock.
+struct RequestPathHold {
+    since: Option<(Instant, &'static Location<'static>)>,
+}
+
+impl RequestPathHold {
+    const NONE: Self = Self { since: None };
+
+    /// Note the acquisition `sqlite` at `site`; the site to time, or `None`
+    /// for a re-entry or a scope that does not record.
+    fn note_acquire(
+        reentry: bool,
+        site: &'static Location<'static>,
+    ) -> Option<&'static Location<'static>> {
+        if reentry {
+            return None;
+        }
+        (crate::request_path::note_at(BlockingKind::Sqlite, site)
+            == crate::request_path::Noted::Recorded)
+            .then_some(site)
+    }
+
+    /// The hold of a lock just taken for `site`.
+    fn held(site: Option<&'static Location<'static>>) -> Self {
+        Self { since: site.map(|site| (Instant::now(), site)) }
+    }
+}
+
+impl Drop for RequestPathHold {
+    fn drop(&mut self) {
+        if let Some((since, site)) = self.since
+            && since.elapsed() >= LONG_HOLD
+            && !std::thread::panicking()
+        {
+            crate::request_path::note_at(BlockingKind::LockHoldOver1ms, site);
+        }
+    }
 }
 
 /// Test hooks inside a journal writer commit (they pause the writer at a
@@ -90,14 +146,14 @@ thread_local! {
 /// every flush of the registry WAL to disk takes N ms longer, as on a busy
 /// disk, so a test can see that no reply and no first output waits for one
 /// (new-terminal-100x, PL-daemon).
-pub(crate) fn slow_durable_commit_delay() -> Option<std::time::Duration> {
-    static DELAY: std::sync::OnceLock<Option<std::time::Duration>> = std::sync::OnceLock::new();
+pub(crate) fn slow_durable_commit_delay() -> Option<Duration> {
+    static DELAY: std::sync::OnceLock<Option<Duration>> = std::sync::OnceLock::new();
     *DELAY.get_or_init(|| {
         std::env::var("CMUX_TUI_DEBUG_SLOW_DURABLE_COMMIT_MS")
             .ok()
             .and_then(|value| value.parse::<u64>().ok())
             .filter(|ms| *ms > 0)
-            .map(std::time::Duration::from_millis)
+            .map(Duration::from_millis)
     })
 }
 
@@ -199,9 +255,24 @@ impl RegistryConnection {
     /// unless it pinned this lock before taking state.
     #[track_caller]
     pub(crate) fn get(&self) -> RegistryConnectionGuard<'_> {
+        self.get_at(Location::caller())
+    }
+
+    /// [`Self::get`] for a site captured before a closure (closures are not
+    /// `#[track_caller]`): `let site = Location::caller();` in the
+    /// `#[track_caller]` method, then `get_at(site)` inside the closure.
+    #[track_caller]
+    pub(crate) fn get_at(&self, site: &'static Location<'static>) -> RegistryConnectionGuard<'_> {
         self.debug_assert_lock_order();
         self.check_rank();
-        RegistryConnectionGuard { guard: self.connection.lock(), _rank: record_rank() }
+        let site =
+            RequestPathHold::note_acquire(self.connection.is_owned_by_current_thread(), site);
+        let guard = self.connection.lock();
+        RegistryConnectionGuard {
+            guard,
+            _rank: record_rank(),
+            _request_path: RequestPathHold::held(site),
+        }
     }
 
     /// Hold the connection lock for a request flow before it takes the
@@ -211,7 +282,16 @@ impl RegistryConnection {
     pub(crate) fn pin(&self) -> RegistryConnectionPin {
         self.debug_assert_lock_order();
         self.check_rank();
-        RegistryConnectionPin { _guard: self.connection.lock_arc(), _rank: record_rank() }
+        let site = RequestPathHold::note_acquire(
+            self.connection.is_owned_by_current_thread(),
+            Location::caller(),
+        );
+        let guard = self.connection.lock_arc();
+        RegistryConnectionPin {
+            _guard: guard,
+            _rank: record_rank(),
+            _request_path: RequestPathHold::held(site),
+        }
     }
 
     /// Check the lock rank before a blocking acquisition that is not a
@@ -259,13 +339,22 @@ impl RegistryConnection {
     pub(crate) fn get_until(&self, deadline: Instant) -> Option<RegistryConnectionGuard<'_>> {
         self.check_rank();
         let guard = self.connection.try_lock_until(deadline)?;
-        Some(RegistryConnectionGuard { guard, _rank: record_rank() })
+        // The journal writer: never a request thread.
+        Some(RegistryConnectionGuard {
+            guard,
+            _rank: record_rank(),
+            _request_path: RequestPathHold::NONE,
+        })
     }
 
     #[cfg(test)]
     pub(crate) fn try_get(&self) -> Option<RegistryConnectionGuard<'_>> {
         let guard = self.connection.try_lock()?;
-        Some(RegistryConnectionGuard { guard, _rank: record_rank() })
+        Some(RegistryConnectionGuard {
+            guard,
+            _rank: record_rank(),
+            _request_path: RequestPathHold::NONE,
+        })
     }
 }
 

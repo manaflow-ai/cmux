@@ -580,7 +580,8 @@ control-socket admission. Counters accumulate since daemon start. The command
 reads atomics and never touches SQLite or the journal, so it is safe to poll.
 
 Params: `{include?: array<string>|null}`. `include` names optional result
-sections: `resource_projection` and `write_path`; unknown names are ignored.
+sections: `resource_projection`, `write_path`, `slow_requests` and `requests`;
+unknown names are ignored.
 An optional section is absent unless requested, because SDK decoders refuse
 unknown result fields.
 
@@ -618,7 +619,24 @@ object{
     effect_intents:uint64, effect_intent_failures:uint64,
     effect_intent_batches:uint64, request_effect_commits:uint64,
     writer_registry_locks:uint64
-  }
+  },
+  slow_requests?:object{
+    threshold_ms:uint64, total:uint64, unwatched:uint64, expected_waits:uint64,
+    spawn_failures:uint64, watchdog_wakeups:uint64,
+    recent:array<object{
+      method:string, client:uint64, started_ms:uint64, busy_ms:uint64,
+      duration_ms:uint64|null,
+      stack:array<object{image:string|null,image_id:string|null,offset:uint64,
+        symbol:string|null}>,
+      stack_truncated:boolean, stack_error:string|null
+    }>
+  },
+  request_latency_us?:object{
+    topology:histogram, terminal_io:histogram, create:histogram,
+    query:histogram, browser:histogram, agent:histogram, cloud:histogram,
+    other:histogram
+  },
+  dispatch_queue_us?:histogram
 }
 histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
 ```
@@ -660,6 +678,76 @@ journal writer thread. It is always `0`: a request thread holds the registry
 lock (and may hold state) while it waits for its writer receipt, so the
 writer never takes either.
 
+`slow_requests` lists requests that ran past `threshold_ms` (250), each
+recorded once. Every frame a connection reads is watched from its arrival
+until its handler returns, and a `cmd` request the connection's scheduler
+runs on another thread is watched there. `method` is the request's `cmd`
+tag, its v2 `operation`, or `frame:<handler>` for a frame its connection
+handler answers itself (`frame:fs`, `frame:agent-inventory`, ...; plain
+`frame` before a handler is picked). `client` is its connection,
+`started_ms` its start in milliseconds since daemon start, `busy_ms` how long
+it had run when it was recorded, and `duration_ms` how long it ran in total
+(`null` while it still runs). A request that ends past the threshold before
+the watchdog looked is still recorded. `total` counts every recorded request
+and `recent` keeps the newest 128, oldest first. `unwatched` counts requests
+that started while all 256 watch slots were taken. `expected_waits` counts
+requests that block by design (`wait-for` waits up to its `timeout_ms`); they
+are not recorded. `spawn_failures` counts failed starts of the watchdog
+thread; each later request tries again, and while it is nonzero slow
+requests may be missing. `watchdog_wakeups` counts wakes of the
+`mux-request-watchdog` thread: it has no periodic timer, so the count stays
+still while the daemon is idle, and it wakes only on a 250 ms grid, so the
+count grows by at most four a second (plus one) under any request pattern.
+With `CMUX_TUI_DEBUG_SPANS` set, each recorded request also appends a
+`slow-request` line with the method as its mark.
+`requests` adds `request_latency_us` and `dispatch_queue_us`, over every
+control connection's request lines (Chrome's per-task queue and run timing):
+`cmd` commands, `cmux.protocol/2` resource requests, the feature routes
+(`agent-*`, `apps-*`, `script-*`, `fs.*`, loopback and browser-runtime
+lines) and lines answered with a refusal or a bad-request error.
+`request_latency_us.<class>` is the time from a request line's arrival at its
+connection's reader (when its read returns) to its reply entering the
+connection's outbound queue, by the request's method class (the daemon's
+`MethodClass`; a resource operation's class follows its namespace, and its
+creates and splits are `create`). A request a worker answers later
+(`url-open`, `chief-inspect`, the cloud commands) counts when the worker's
+reply is queued. The time a reply then waits for the writer thread's socket
+write is not counted. `dispatch_queue_us` is the time from a request's parse
+to its handler's start: the wait in the connection's request queue (0 for a
+line answered inline).
+
+In a trace, each request is the slice `daemon.request`: arg0 is the method
+id (a command's row in the command table, `0x4000` plus a resource
+operation's index, or `0x8000` plus the class of a feature-route line) and
+arg1 the FNV-1a hash of the request id's compact JSON. The slice has the
+instants `daemon.request.parsed`, `daemon.request.dispatched`,
+`daemon.request.handled` (the reply is built) and
+`daemon.request.reply.queued`; a resource or feature-route line, which sends
+its own reply, has no `handled`. A worker's reply is the async slice
+`daemon.request.async` (arg0 the method id), with the instants
+`daemon.request.async.handled` and `daemon.request.async.reply.queued`.
+
+`stack` is the stack of the thread that ran the request, captured when the
+watchdog first saw it running past the threshold (macOS suspends the thread,
+Linux interrupts it with SIGURG; under a millisecond). Frames are innermost
+first: the interrupted pc, then return addresses along the frame pointers,
+at most 32. `image` is the file name of the image that holds the frame,
+`image_id` that image's build id (the Mach-O LC_UUID as `dwarfdump --uuid`
+prints it, or the ELF NT_GNU_BUILD_ID in lowercase hex; null when it has
+none), which picks the matching build's symbols, `offset` the address minus
+the image's load address, for offline symbolication (`addr2line -f -e IMAGE
+OFFSET`; for a Mach-O image `atos -o IMAGE -l 0x100000000
+0x100000000+OFFSET`), and `symbol` the nearest exported symbol, mangled, or
+null. `stack_truncated` is true when `stack` holds only the interrupted pc
+because the daemon was built without frame pointers (a Linux build without
+`-C force-frame-pointers=yes`); a thread stopped inside code linked in
+without frame pointers (a libc, the precompiled std) can still lose or add
+a frame there. `stack` is empty when `stack_error` names
+why: `run-ended` (the request ended before the watchdog stopped its thread,
+including one first seen after it ended), `unsupported` (no capture on this
+OS), `suspend-failed`, `thread-state-failed`, `signal-failed` or `timeout`
+(the thread did not answer the signal in 50 ms).
+
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at
 most 25%. `site` values are `file:line` of the code that acquired the registry
@@ -674,6 +762,126 @@ CLI mapping: `cmux daemon stats [--session <name>] [--socket <path>]`; plain
 stdout renders the object as nested `key: value` lines; `--json` prints the
 exact result object. Against a server without `server-stats-v1` the CLI exits
 1 with `server.stats_unsupported`.
+
+### oracle-state
+
+| Field | Value |
+| --- | --- |
+| name | `oracle-state` |
+| status | implemented in debug builds and `--features oracle` builds only |
+| since | protocol 12, no capability |
+
+The correctness oracle's daemon facet
+(`plans/cmux-next/chrome-parity/p15-oracle.md`, task 021). A release daemon
+has no such command and answers `bad request: unknown variant`, which the
+oracle reads as a build without it. Trusted local connections only.
+
+The facet is `session.snapshot`, `settings.snapshot` and the journal head of
+the snapshot's cut. This command returns that cut from the same snapshot
+builder as `session.snapshot` and adds only what the public reads lack.
+
+Params: none.
+
+Result:
+
+```text
+object{
+  journal_head:uint64,
+  session:ResourceSnapshot,
+  switches:map<string,string>,
+  terminalAttach:object{attached:uint64,detached:uint64,dead:uint64},
+  liveObjects:map<string,uint64>,
+  panicLog:object{path:string|null,bytes:uint64}
+}
+```
+
+`journal_head` is the session journal head read under the same registry and
+state lock as `session`: every journal record at or below it is in `session`,
+and no later one is. `session` is the asking connection's `session.snapshot`
+result, `clients` included (the connections are read just after the cut).
+`terminalAttach` and `liveObjects`, except `subscriptions`, are counted from
+the same locked state as `session`; `subscriptions` is read just after it.
+`switches` maps each daemon refactor switch to the arm this daemon runs,
+`old` or `new`, frozen at the first read. The one switch so far is
+`terminal-holder` (`new` when `CMUX_TUI_TERMINAL_HOST_MODEL=holder`); the
+`CMUX_TUI_SWITCHES` parse of p15-oracle task 020 replaces that source.
+`terminalAttach` counts the terminal catalog: `dead`
+terminals have no process, `attached` ones are shown in at least one pane
+tab, `detached` ones are live with no placement. `liveObjects` counts runtime
+objects: `browsers`, `panes`, `screens`, `subscriptions` (live event
+subscriptions), `terminals` (the terminal catalog), `views` (pane tab
+placements) and `workspaces`. `panicLog` is the owner's panic log
+(`owner-panics-<session>.jsonl` at the state root) and its length in bytes;
+`path` is null when there is no state root. Every map has sorted keys.
+
+Errors: `oracle state requires a trusted local connection`, `bad request: ...`.
+
+### trace-start, trace-stop, trace-status
+
+| Field | Value |
+| --- | --- |
+| name | `trace-start`, `trace-stop`, `trace-status` |
+| status | implemented |
+| since | protocol 12 |
+
+Start, stop or report a trace recording (plans/cmux-next/trace.md, "Release
+trace ring v1") in the daemon and every child it reaches: the holder when its
+link granted `TRACE_CONTROL`, every live terminal host whose record advertises
+`supports_trace_control` (terminal-host.md, `TraceControl`), and acpmux when it
+runs (`_acpmux/trace`; acpmux is never started for a trace). Owner only: any
+client that is not on the trusted local socket gets `trace control requires a
+trusted local connection` before a parameter is read. One call runs at a time:
+a second call while one runs gets `another trace control call is running`, so a
+stop never passes a start that is still reaching the children.
+
+Params of `trace-start`: `{categories?: array<string>|null, keys?: bool}`.
+`categories` are category names (`frame`, `daemon`, ...); omitted, every
+recording category. `key` records per-key records and needs `keys: true`.
+No parameter is a path or a command: the daemon records into `trace/` under its
+state root, a terminal host into `trace/` beside its discovery record, the
+holder into a holder-lifetime directory beside its socket in this user's
+private holder socket directory, acpmux into `$ACPMUX_HOME/trace`. A session
+with no state root (`--ephemeral`) refuses a start: it never records into a
+shared temporary directory. Every ring directory is the user's own (0700) and a
+ring file is created new, never through a symlink. A start the daemon refuses
+(one runs) is not forwarded. Children past the 128 MiB total cap of recording
+rings are not asked; the cap counts a ring only for a process that maps one
+(acpmux only when it runs, the holder only when it was sent the start).
+
+The holder sends no answer, so its entry says what was sent: `recording` (with
+its ring's `recording_bytes`) after a start, `idle` after a stop, and for a
+status `traced` (`reason: "holder_traced"`). A holder that refused its last
+start or stop is `error` with `reason: "holder_trace_failed"` and its message;
+one without the capability is `untraced` (`holder_untraced`); with no holder
+link open it is `not_linked` (`holder_not_linked`), and a holder that links
+while the recording runs gets the start then.
+
+Result:
+
+```text
+object{
+  op:"start"|"stop"|"status",
+  recording:bool,
+  categories?:array<string>, keys?:bool,
+  processes:array<object{
+    role:"daemon"|"holder"|"terminal-host"|"acpmux",
+    pid:uint32|null,
+    state:"recording"|"idle"|"traced"|"not_linked"|"untraced"|"unanswered"|"error",
+    recording_path?:string|null, recording_bytes?:uint64, records_dropped?:uint64,
+    reason?:"holder_traced"|"holder_trace_failed"|"holder_untraced"|"holder_not_linked"
+      |"host_untraced"|"over_total_cap",
+    error?:string
+  }>,
+  bytes_by_role:object<string,uint64>,
+  total_bytes:uint64,
+  total_cap_bytes:uint64
+}
+```
+
+Errors: `trace control requires a trusted local connection`, `another trace
+control call is running`, `this session has no state root to record into (it is
+ephemeral)`, `unknown trace category ...`, `the key category records per-key
+records: ask for it with keys: true`.
 
 ### browser-host-provider
 
@@ -1449,6 +1657,7 @@ Params:
 | `expect_foreground` | `string` | default null | `send-expect-foreground-v1`; needs `surface`; write only while the foreground executable is this one |
 | `expect_agent` | `{session: string}` | default null | `send-expect-agent-v1`; needs `surface`; write only while the terminal's agent is `idle` in `session` |
 | `submit` | `boolean` | default false | `send-expect-agent-v1`; needs `surface`; Return after the payload, in the same request |
+| `flow` | `uint64` | default null | Trace recordings: the key press's flow id. The PTY owner's first read after the bytes reached the PTY, and that read's `output` event, carry it once; it changes nothing else |
 
 With `send-expect-foreground-v1`, `expect_foreground` names the executable the caller saw in the
 foreground (`process-info`'s `foreground_executable`, compared byte for byte). Right before the write the
@@ -9661,6 +9870,35 @@ an automatic new-key run. An unexecuted reservation can resume only when fresh
 preparation still matches its exact persisted argv. Worker admission shares
 the bounded inventory budget; concurrent job preparation may refuse busy.
 
+`agent-cli-update-job-resolve-v1` adds `agent-cli-update-job-resolve` with the
+same params and admission. It reads the original key's creation journal and
+answers `{state}`: `not_found`, `prepared`, `pending`, `indeterminate`,
+`failed` (with `code`) or `created` (with the job `receipt`). It never
+prepares, reconciles or starts a job, so a client that lost a job reply reads
+its state here instead of sending the job again. No state authorizes execution.
+
+### Update intent ledger
+
+`agent-cli-intents-v1` adds `agent-cli-intents-record`, `-list`, `-settle`
+and `-attach`. The app records each update intent `{key, root_key, machine,
+session, cli, profiles}` before it contacts an owner, attaches the job
+receipt once the owner answers, and settles the intent when the update ends,
+so a restarted app resumes or blocks the same update. An intent is
+non-secret identity, never an execution grant: it holds no argv or
+credentials. Admission is the update job's (a proved main-app Unix connection
+without an agent binding, else `agent_cli_intents.not_trusted`), and every
+request names this daemon's `expected_machine_id` and `expected_session_id`
+(`agent_cli_intents.owner_mismatch` otherwise). Rows are per actor, at most
+256, and expire after seven days. Record and settle take 1-64 entries and
+answer `{intents, changed}`; list answers `{intents}`; attach answers
+`{intent, changed}` and refuses a receipt that differs from one already
+attached. A malformed request is `agent_cli_intents.bad_request` and a
+refused change `agent_cli_intents.refused`. Record, settle, attach and
+`agent-cli-update-job` answer only after their SQLite commit
+(`reply_after_journal`), so an app that crashes after a reply finds the row
+it was told about. spec/sdk-schema.json types the params and results of all
+six agent CLI commands.
+
 `agent-update-v1` (advertised with `agent-session-attach-v1`) lets a trusted
 local (Unix) client, the app's Update Everything on this Mac or through the
 SSH or Cloud carrier, update this machine's agent CLIs and move its chats
@@ -10110,3 +10348,110 @@ read itself (its 60-second timeout or the terminal's end), or a newer read
 from the same terminal replaces it, the frontend receives
 `terminal-clipboard-read-cancelled` and the request id stops being accepted.
 These operations are exposed only in the SDKs' private `raw` namespace.
+
+## App supervisor (apps-v1)
+
+`identify` advertises `apps-v1` and `cancel-request-v1` when the daemon has an
+app host (plans/cmux-next/app-platform.md section 13.2). `cancel-request` needs
+`cancel-request-v1`. `apps-agent-inventory-changed`, `inventory_watch` on
+`apps-provider-register` and its `inventory_demand` answer need
+`agent-cli-app-invalidation-v1`: an `apps-v1` daemon without it refuses the
+command as an unknown variant and ignores `inventory_watch`. A registration that
+lists the `agent_cli` family needs `agent-cli-app-provider-v1`. Every other
+command needs `apps-v1`. `server/apps.rs` serves
+these commands before the daemon's `Command` enum sees the line; `sdk-schema.json`
+lists their fields, results and framed-IPC attributes (family `apps`, `0x12`).
+All of them are `local-admin`: a WebSocket or remote connection gets
+`apps.local`, and a daemon without an app host gets `apps.unavailable`. Errors
+use the normal envelope plus `retryable` and, when the owner gives them,
+`error_details`. Request decoding errors are `bad-request`.
+
+Every request except `apps-agent-inventory-changed` and `cancel-request` takes
+an optional `origin` (`user`, `cli`, `mcp`, `script` or `remote`; absent is
+`cli`). Origin `user` needs the verified cmux app connection (Gate A2,
+`origin.forbidden`) that is not bound to an agent (`apps.origin_forbidden`).
+The first apps command subscribes the connection to `apps-changed` and
+`apps-host` events; mount events go to the mounting connection only.
+
+### apps-list
+
+`{}` answers `{revision, apps:[AppRecord]}`: every catalog app and every
+installed app. `AppRecord` is `{id, version, tier, installed, enabled, hidden,
+hidden_access:{cli,mcp,automations}, source, grants, scope_classes, sandboxed,
+hide_only, available, bundle_dir, commands, manifest}`.
+
+### apps-set
+
+`{idempotency_key, app, installed?, enabled?, hidden?, hidden_access?,
+sandboxed?, grant?:{scope, granted}}` is one validated commit of the install
+mirror and answers the app's `AppRecord` with the commit's `revision`. Every
+change needs the verified cmux app connection, whatever `origin` says. A replay
+of a key changes nothing. `apps.json` is written before the change applies
+(`apps.persist` when the write fails). The caller receives `request-settled`
+for every request, rejects and no-ops included.
+
+### apps-store
+
+`{op, args?}` runs one App Store op (`cmux.apps.*`, page-router.md) and answers
+its result. `apps.set`, `apps.install`, `apps.uninstall`, `apps.hidden.set`,
+`apps.grant.set` and `apps.grant.revoke` change apps and need the verified cmux
+app connection.
+
+### apps-mount / apps-unmount / apps-dispatch
+
+`apps-mount {app, interface, mount_id, context?}` mounts an app interface for
+this connection; `apps-unmount {mount_id}` ends it; `apps-dispatch {mount_id,
+node, event, payload?}` sends a UI event to it. A `gesture` member of `payload`
+is dropped; origin `user` gets a fresh gesture token. An unknown mount is
+`apps.mount.unknown`. Each answers `{}`. Closing the connection unmounts its
+mounts.
+
+### apps-run
+
+`{app, op, args?, idempotency_key?, gesture?}` runs one catalog op on the app's
+host or server and answers `{value}`. A keyed run runs once: a retry with the
+same key gets the stored answer. `gesture` is a palette or keybinding token
+(origin `user` only). `cancel-request` with this request's `id` cancels it.
+
+### apps-terminal-links
+
+`{}` answers `{links:[{channel, app, id, target, socket}]}`: every open terminal
+connector link and its local socket (`null` when it has none).
+
+### apps-logs
+
+`{app, follow?}` answers `{lines:[{level, message, ts_ms}]}`, the app's log
+ring. `follow:true` also streams `apps-log` events to this connection.
+
+### apps-link-changed
+
+`{}` tells every app server that reads the `cmux link` registration that it
+changed and answers `{servers}`. Only the verified cmux app connection that is
+not bound to an agent.
+
+### apps-provider-register
+
+`{families, inventory_watch?}`: the Mac app serves the listed provider
+families (app-op-routing.md). Only the verified cmux app connection that is not
+bound to an agent (`apps.provider.forbidden`). A family another live connection
+holds is `apps.provider.taken`. Answers `{families}`, plus
+`inventory_demand:{sequence, enabled}` with `inventory_watch:true`, which needs
+the `agent_cli` family.
+
+### apps-agent-inventory-changed
+
+`{demand_sequence}` and no other member: the current verified `agent_cli`
+provider invalidates the agent inventory. Answers `{}`. A stale sequence is
+`apps.provider.stale_demand`.
+
+### apps-provider-result
+
+`{request_id, ok, body?}` answers one provider call. Only the connection the
+call went to may answer (`apps.provider.unknown`). Answers `{}`.
+
+### cancel-request
+
+`{target}` cancels this connection's own `apps-run` request or script cell
+whose `id` is `target` (it answers `cmux.op.cancelled`). An unknown, answered
+or another connection's request changes nothing. Answers `{}`. Local
+connections only.

@@ -1,5 +1,7 @@
 public import AppKit
-import CmuxNextWakeups
+import CmuxNextCompat
+public import CmuxNextInput
+public import CmuxNextWakeups
 public import CmuxNextDesignTokens
 
 /// The app's one tooltip (Leo, 2026-10-12: no stock macOS bubble). A view sets `themedToolTip`
@@ -41,7 +43,17 @@ public final class TooltipPresenter {
     /// Trackers the pointer is inside (entered, not exited); the deepest one with text shows.
     private var inside: [TooltipTracker] = []
     private weak var current: TooltipTracker?
-    private var monitor: Any?
+    /// The tap subscription for the clicks, keys and scrolls that put the tooltip away: held only
+    /// while a tooltip shows or waits (``watch()``).
+    private var dismissals: InputSubscription?
+    /// The app going inactive puts the tooltip away (the tap carries no AppKit-defined event): held
+    /// with ``dismissals``.
+    private var resignActive: EventSubscription?
+    /// The app's input tap, set once by the App's composition root (tests set their own).
+    public var inputTap: InputEventTap?
+    /// The app's one fan-out of app-wide notices (`AppServices.appEvents`), set once by the App's
+    /// composition root (tests make their own on their own center); its own on the default center until then.
+    public lazy var appEvents = AppEvents(center: .default)
 
     /// The text and shortcut on screen, nil while hidden (tests and debug).
     public private(set) var shown: (text: String, shortcut: String?)?
@@ -217,22 +229,39 @@ public final class TooltipPresenter {
         return NSPoint(x: x.rounded(), y: y.rounded())
     }
 
+    /// Watches for the clicks, keys and scrolls that put the tooltip away while one shows or waits (an
+    /// observer of the tap: it never stops the event), and for the app going inactive.
     private func watch() {
-        guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown, .scrollWheel, .appKitDefined]
-        ) { [weak self] event in
-            if event.type == .scrollWheel {
-                self?.scrolled()
-            } else if event.type != .appKitDefined || event.subtype == .applicationDeactivated {
+        if resignActive == nil {
+            resignActive = appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "TooltipPresenter") { [weak self] in
                 self?.dismiss()
             }
-            return event
+        }
+        guard dismissals == nil, let tap = requiredInputTap(inputTap, owner: "TooltipPresenter") else { return }
+        dismissals = tap.subscribe(class: [.button, .key, .scroll], while: { [weak self] in self?.isActive == true }) { [weak self] event in
+            self?.inputEvent(event.type)
+        }
+    }
+
+    /// A tooltip shows, waits, or ends its warm group at the next click or key; or a scroll is under way.
+    private var isActive: Bool {
+        shown != nil || candidate != nil || scrolling || !inside.isEmpty || intent.isWarm
+    }
+
+    /// A click, key press or scroll seen by the tap while watching (button and key ups pass by).
+    func inputEvent(_ type: NSEvent.EventType) {
+        switch type {
+        case .scrollWheel: scrolled()
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown: dismiss()
+        default: break
         }
     }
 
     private func unwatch() {
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil
+        dismissals = nil
+        resignActive = nil
     }
+
+    /// The tap subscription or the inactive-app observer is held (tests).
+    var isWatching: Bool { dismissals != nil || resignActive != nil }
 }

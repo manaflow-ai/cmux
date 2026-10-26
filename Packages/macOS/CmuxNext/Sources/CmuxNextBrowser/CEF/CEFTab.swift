@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 public import CmuxNextDesign
 public import Foundation
 public import Observation
@@ -17,7 +18,12 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     public var state: BrowserTabState { machine.state }
     public internal(set) var favicon: NSImage?
-    public internal(set) var pendingPrompts: [BrowserPrompt] = []
+    public internal(set) var pendingPrompts: [BrowserPrompt] = [] {
+        didSet { if pendingPrompts.count > oldValue.count { pageWaiters.notePromptsAdded(pendingPrompts) } }
+    }
+    /// Keyed waits on this page's phase and prompts (``BrowserPageWaiting``), resumed by the setters of
+    /// `machine` and `pendingPrompts`.
+    @ObservationIgnored let pageWaiters: PageWaiters
     public internal(set) var extensionActions: [CEFExtensionAction] = []
     public internal(set) var openExtensionPopup: String?
     @ObservationIgnored public var extensionActionAnchor: ((String) -> CGRect?)?
@@ -59,7 +65,12 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// change reaches the page (`CEFTab+ColorScheme`).
     @ObservationIgnored var colorScheme: BrowserColorScheme = .system
 
-    var machine = BrowserTabStateMachine()
+    var machine = BrowserTabStateMachine() {
+        didSet { if machine.state.phase != oldValue.state.phase { pageWaiters.notePhase(machine.state.phase) } }
+    }
+    /// The page plays unmuted media (`BrowserAudibleReporting`): `state.media?.isAudible`, kept
+    /// apart so its observers wake on the flip only, not on each load tick or title.
+    public internal(set) var isAudible = false
     /// Title changes reach `machine` at most 4 a second (`TitleCoalescer`, idle power).
     @ObservationIgnored var titleCoalescer = TitleCoalescer()
     @ObservationIgnored let titleTimer = DemandTimer(owner: "CEFTab.title")
@@ -129,7 +140,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     /// The file URLs of a PAGE_DRAG_ENTER event's JSON array of absolute paths.
     nonisolated static func dragPaths(_ json: String) -> [URL] {
-        guard let paths = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String] else { return [] }
+        guard let paths = try? JSONSerialization.blockingJSONObject(with: Data(json.utf8)) as? [String] else { return [] }
         return paths.filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: $0) }
     }
     /// URL of the last main-frame load that committed (Chromium's current
@@ -191,6 +202,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         self.profileID = profile
         self.host = host
         self.runtime = runtime
+        pageWaiters = PageWaiters(deadlines: runtime.waitDeadlines)
         let layout = CEFDevToolsLayout.remembered
         devToolsController = CEFDevToolsController(layout: layout)
         devTools = BrowserDevToolsState(dock: layout.dock)
@@ -219,6 +231,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     func attach(browser: Int32) {
         browserID = browser
         isCreationPending = false
+        // A spare's renderer-less placeholder never loads or shows: no page to set up, no DevTools call.
+        if isRendererlessPlaceholder { return }
         CEFAgentURLGuard.applyShimGuard(self)
         if let url = loadAfterAttach {
             loadAfterAttach = nil
@@ -234,7 +248,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         leaveAutomaticDownloadsToCmux(browser)
         applyDeviceEmulation()
         agentRelay.browserAttached()
-        if host.freezesPlaceholder, host.placeholder === self { freezeNeverShownPage(browser) }
+        if host.quietsPlaceholder, host.placeholder === self { freezeNeverShownPage(browser) }
         let zoom = machine.state.zoom
         if zoom != 1 { runtime.shim?.setZoomLevel(browser, CEFZoom.level(forFactor: zoom)) }
         // Focus asked for while the page was being created applies only if
@@ -279,6 +293,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         agentRelay.browserEnded()
         findRequests.cancel()
         dismissPrompts()
+        pageWaiters.pageEnded()
         host.removed(self)
         if !isClosed {
             isClosed = true
@@ -307,6 +322,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // no live page ever heard.
         sentColorScheme = nil
         machine.apply(.processExited(exit))
+        noteAudible()
         // After the sad tab, not before it: no first paint or load end is
         // coming for the document that was loading, so the page area stops
         // standing in for it (`CEFTab+LoadingBackground`) -- but settling
@@ -463,6 +479,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         titleTimer.cancel()
         faviconTask?.cancel()
         dismissPrompts()
+        pageWaiters.pageEnded()
         if let browserID {
             runtime.shim?.close(browserID)
         } else {

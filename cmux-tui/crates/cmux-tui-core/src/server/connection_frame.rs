@@ -7,9 +7,8 @@ mod machine_catalog;
 
 use super::*;
 
-/// One frame of a connection. `transport` is the connection's own value
-/// (not a registry lookup), so a remote-entry connection always takes the
-/// remote path, also after its registry record is gone.
+/// [`handle_connection_frame_at`] for a line that arrives now (tests).
+#[cfg(test)]
 pub(super) fn handle_connection_frame(
     mux: &Arc<Mux>,
     client: u64,
@@ -18,6 +17,37 @@ pub(super) fn handle_connection_frame(
     writer: &MessageWriter,
     scheduler: &Arc<ConnectionSurfaceScheduler>,
 ) -> bool {
+    handle_connection_frame_at(mux, client, transport, message, writer, scheduler, Instant::now())
+}
+
+/// One frame of a connection, read at `arrived` (the reader stamps it as
+/// its read returns; a line already buffered behind an inline request is
+/// stamped when the reader reaches it). `transport` is the connection's own
+/// value (not a registry lookup), so a remote-entry connection always takes
+/// the remote path, also after its registry record is gone.
+pub(super) fn handle_connection_frame_at(
+    mux: &Arc<Mux>,
+    client: u64,
+    transport: ClientTransport,
+    message: &str,
+    writer: &MessageWriter,
+    scheduler: &Arc<ConnectionSurfaceScheduler>,
+    arrived: Instant,
+) -> bool {
+    // Every handler this frame reaches runs on the reader's request path
+    // (`crate::request_path`): its blocking work is counted at its caller.
+    let _request_path = crate::request_path::RequestPathScope::enter(mux.request_path_stats());
+    // Every frame is watched on this thread until its handler returns: past
+    // 250 ms it lands in server-stats `slow_requests` (request_watchdog.rs),
+    // named by the handler it is in. A `Command` handed to the scheduler is
+    // watched again where it runs.
+    let watched = mux.request_watchdog.begin(client, WatchedMethod::frame(FrameStage::Route));
+    let watch = |method: WatchedMethod| {
+        if let Some(scope) = &watched {
+            scope.set_method(method);
+        }
+    };
+    let stage = |stage: FrameStage| watch(WatchedMethod::frame(stage));
     // Keep an idle shutdown requester connected until owner cleanup closes
     // the transport, so lifecycle clients receive authoritative completion.
     // A pipelined message after the acknowledgement must not reach parsing or
@@ -26,7 +56,14 @@ pub(super) fn handle_connection_frame(
         return false;
     }
     if matches!(transport, ClientTransport::Remote) || mux.is_remote_client(client) {
-        return remote_relay::handle_frame(mux, client, message, writer);
+        return remote_relay::handle_watched_frame(
+            mux,
+            client,
+            message,
+            writer,
+            arrived,
+            watched.as_ref(),
+        );
     }
     // Before the acknowledgement the handoff can still fail (for example
     // while `end_terminals` awaits every host) and this daemon keeps
@@ -41,14 +78,29 @@ pub(super) fn handle_connection_frame(
     // any parse (server/api_revision_wire.rs); borrowed unchanged otherwise.
     let upgraded = writer.api_revision.upgrade_request(message);
     let message: &str = &upgraded;
+    let stats = mux.request_stats();
     if let Some(request) = crate::resource_router::parse_resource_line(message) {
+        match &request {
+            Ok(envelope) => watch(WatchedMethod::resource(envelope.operation)),
+            Err(_) => stage(FrameStage::PageRouter),
+        }
+        let arrival = RequestArrival::parsed_now(arrived);
+        let mut span = match &request {
+            Ok(envelope) => RequestSpan::open_method(
+                stats,
+                RequestMethod::of_resource(envelope.operation),
+                request_id_hash(Some(&envelope.id)),
+                arrival,
+            ),
+            Err(_) => RequestHead::parse(message).open(stats, arrival),
+        };
         // A v2 line the catalog parse refuses may name a routed namespace
         // operation (page-router-v1): the same JSON parse decides, so every
         // spelling of the line gets one answer.
         if request.is_err()
             && let Some(keep_open) = page_router::try_handle(mux, client, message, writer)
         {
-            return keep_open;
+            return span.answered(keep_open);
         }
         // Debug timing marks of a resource create, from the arrival of its
         // line to its reply (`CMUX_TUI_DEBUG_SPANS`; cx-b4sjc).
@@ -61,7 +113,7 @@ pub(super) fn handle_connection_frame(
             _ => None,
         });
         let traced = trace_label
-            .and_then(|label| crate::debug_spans::Trace::start(label, Instant::now()))
+            .and_then(|label| crate::debug_spans::Trace::start(label, arrived))
             .is_some_and(|trace| {
                 crate::debug_spans::install(Some(trace));
                 true
@@ -71,94 +123,169 @@ pub(super) fn handle_connection_frame(
             crate::debug_spans::mark("reply.sent");
             crate::debug_spans::finish(crate::debug_spans::take());
         }
-        return keep_open;
+        return span.answered(keep_open);
     }
-    if let Some(keep_open) = loopback_forward::try_handle(mux, client, message, writer) {
-        return keep_open;
+    // A line whose `cmd` names no `Command` belongs to a feature route: its
+    // span covers the route. A `Command` line opens its span at its handler.
+    let head = RequestHead::parse(message);
+    let mut routed =
+        (!head.is_command()).then(|| head.open(stats, RequestArrival::parsed_now(arrived)));
+    if let Some(keep_open) = route_line(mux, client, message, writer, &stage) {
+        return match routed.as_mut() {
+            Some(span) => span.answered(keep_open),
+            None => keep_open,
+        };
     }
-    #[cfg(unix)]
-    if let Some(keep_open) = browser_runtime::try_handle(mux, client, message, writer) {
-        return keep_open;
-    }
-    #[cfg(unix)]
-    if let Some(keep_open) = agent_session_attach::try_handle(mux, client, message, writer)
-        .or_else(|| agent_transfer::try_handle(mux, client, message, writer))
-        .or_else(|| agent_inventory::try_handle(mux, client, message, writer))
-        .or_else(|| agent_cli_job::try_handle(mux, client, message, writer))
-        .or_else(|| agent_cli_intents::try_handle(mux, client, message, writer))
-        .or_else(|| agent_inventory::watch::try_handle(mux, client, message, writer))
-    {
-        return keep_open;
-    }
-    #[cfg(unix)]
-    if let Some(keep_open) = machine_catalog::try_handle(mux, client, message, writer) {
-        return keep_open;
-    }
-    #[cfg(unix)]
-    if let Some(keep_open) = apps::try_handle(mux, client, message, writer) {
-        return keep_open;
-    }
-    #[cfg(unix)]
-    if let Some(keep_open) = scripts::try_handle(mux, client, message, writer) {
-        return keep_open;
-    }
-    #[cfg(unix)]
-    if let Some(keep_open) = fs_wire::try_handle(mux, client, message, writer) {
-        return keep_open;
-    }
+    stage(FrameStage::Route);
     let request = match serde_json::from_str::<Request>(message) {
         Ok(request) => request,
-        Err(error) => return send_bad_request(writer, message, &error),
+        Err(error) => {
+            let mut span =
+                routed.unwrap_or_else(|| head.open(stats, RequestArrival::parsed_now(arrived)));
+            return span.reply(|| send_bad_request(writer, message, &error));
+        }
     };
+    watch(WatchedMethod::command(&request.cmd));
+    // Only a `cmd` the table names parses as a `Command`
+    // (command_names_tests), so no route span is open here.
+    drop(routed);
+    let arrival = RequestArrival::parsed_now(arrived);
     let mut pending = Some(request);
-    match scheduler.dispatch(mux.clone(), client, &mut pending, message.len(), writer.clone()) {
+    match scheduler.dispatch_at(
+        mux.clone(),
+        client,
+        &mut pending,
+        arrival,
+        message.len(),
+        writer.clone(),
+    ) {
         Some(keep_open) => keep_open,
         None => match pending.take() {
-            Some(request) => handle_request(mux, client, request, writer),
+            Some(request) => {
+                if let Some(scope) = &watched {
+                    scope.command(&request.cmd);
+                }
+                handle_request_with_cancellation(mux, client, request, arrival, writer, None)
+            }
             None => true,
         },
     }
 }
 
+/// The feature routes that answer a line before the `Command` parse.
+/// `stage` names each route on the frame's request watch as it is tried.
+fn route_line(
+    mux: &Arc<Mux>,
+    client: u64,
+    message: &str,
+    writer: &MessageWriter,
+    stage: &dyn Fn(FrameStage),
+) -> Option<bool> {
+    #[cfg(any(debug_assertions, feature = "oracle"))]
+    if let Some(keep_open) = oracle_state_command::try_handle(mux, client, message, writer) {
+        return Some(keep_open);
+    }
+    stage(FrameStage::LoopbackForward);
+    if let Some(keep_open) = loopback_forward::try_handle(mux, client, message, writer) {
+        return Some(keep_open);
+    }
+    #[cfg(unix)]
+    {
+        stage(FrameStage::BrowserRuntime);
+        browser_runtime::try_handle(mux, client, message, writer)
+            .or_else(|| {
+                stage(FrameStage::AgentSession);
+                agent_session_attach::try_handle(mux, client, message, writer)
+            })
+            .or_else(|| {
+                stage(FrameStage::AgentTransfer);
+                agent_transfer::try_handle(mux, client, message, writer)
+            })
+            .or_else(|| {
+                stage(FrameStage::AgentInventory);
+                agent_inventory::try_handle(mux, client, message, writer)
+            })
+            .or_else(|| {
+                stage(FrameStage::AgentCliJob);
+                agent_cli_job::try_handle(mux, client, message, writer)
+            })
+            .or_else(|| {
+                stage(FrameStage::AgentCliIntents);
+                agent_cli_intents::try_handle(mux, client, message, writer)
+            })
+            .or_else(|| {
+                stage(FrameStage::AgentInventoryWatch);
+                agent_inventory::watch::try_handle(mux, client, message, writer)
+            })
+            .or_else(|| {
+                stage(FrameStage::MachineCatalog);
+                machine_catalog::try_handle(mux, client, message, writer)
+            })
+            .or_else(|| {
+                stage(FrameStage::Apps);
+                apps::try_handle(mux, client, message, writer)
+            })
+            .or_else(|| {
+                stage(FrameStage::Scripts);
+                scripts::try_handle(mux, client, message, writer)
+            })
+            .or_else(|| {
+                stage(FrameStage::Fs);
+                fs_wire::try_handle(mux, client, message, writer)
+            })
+    }
+    #[cfg(not(unix))]
+    None
+}
+
+/// A request made in process (tests): it arrives as its handler starts.
+#[cfg(test)]
 pub(super) fn handle_request(
     mux: &Arc<Mux>,
     client: u64,
     request: Request,
     writer: &MessageWriter,
 ) -> bool {
-    handle_request_with_cancellation(mux, client, request, writer, None)
+    handle_request_with_cancellation(mux, client, request, RequestArrival::now(), writer, None)
 }
 
 pub(super) fn handle_request_with_cancellation(
     mux: &Arc<Mux>,
     client: u64,
     request: Request,
+    arrival: RequestArrival,
     writer: &MessageWriter,
     cancellation: Option<&ConnectionCancellation>,
 ) -> bool {
     let Request { id, cmd } = request;
+    let mut span = RequestSpan::open(mux.request_stats(), &cmd, id.as_ref(), arrival);
     if let Command::UrlOpen { terminal_id, url } = cmd {
-        return url_open::start(mux, client, id, terminal_id, url, writer);
+        return url_open::start(mux, client, id, terminal_id, url, span.start_async(), writer);
     }
     if let Command::ChiefInspect(params) = cmd {
-        return chief_inspect::start(mux, client, id, params, writer);
+        return chief_inspect::start(mux, client, id, params, span.start_async(), writer);
     }
     if cloud_conversations::is_network(&cmd) {
-        return cloud_conversations::start(mux, client, id, cmd, writer);
+        return cloud_conversations::start(mux, client, id, cmd, span.start_async(), writer);
     }
     if let Some(target) = cloud_conversations::subscribe_target(mux, &cmd) {
-        return cloud_conversations::subscribe_then_announce(mux, client, id, cmd, target, writer);
+        return cloud_conversations::subscribe_then_announce(
+            mux, client, id, cmd, target, &mut span, writer,
+        );
     }
     if matches!(&cmd, Command::ShutdownDaemon { .. } | Command::ReloadConfig)
         && !mux.server_lifecycle_ready()
     {
-        return send_request_error(writer, id, "server lifecycle is not ready");
+        return span.reply(|| send_request_error(writer, id, "server lifecycle is not ready"));
     }
     if let Command::VtState { surface } = &cmd {
-        return match send_vt_state_command_response(mux, id.clone(), *surface, writer) {
-            Ok(()) => true,
-            Err(error) => send_request_error(writer, id, &error.to_string()),
-        };
+        let reply = vt_state_command_reply(mux, id.as_ref(), *surface, writer);
+        return span.reply(|| {
+            match reply.and_then(|text| Ok(writer.send_serialized_control(text)?)) {
+                Ok(()) => true,
+                Err(error) => send_request_error(writer, id, &error.to_string()),
+            }
+        });
     }
 
     let detach_self = match &cmd {
@@ -203,7 +330,9 @@ pub(super) fn handle_request_with_cancellation(
     let (response, reason) = remote_relay::redact_response(mux, client, response, reason);
     let details = details.filter(|_| !mux.is_remote_client(client));
     let response_ok = response.ok;
-    let sent = responses::send_response_with_details(writer, response, reason, retryable, details);
+    let sent = span.reply(|| {
+        responses::send_response_with_details(writer, response, reason, retryable, details)
+    });
     // The reply is out; the request's registry commits (already in the WAL)
     // go to disk now, in one flush that none of them waited for.
     mux.request_registry_flush();
@@ -226,12 +355,13 @@ pub(super) fn handle_request_with_cancellation(
     sent
 }
 
-fn send_vt_state_command_response(
+/// The `vt-state` reply of `surface`, serialized and not yet queued.
+fn vt_state_command_reply(
     mux: &Mux,
-    id: Option<Value>,
+    id: Option<&Value>,
     surface: SurfaceId,
     writer: &MessageWriter,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Arc<BudgetedText>> {
     // Reserve the entire wire-frame allowance before copying a replay or
     // starting its base64 encoder. The writer allocates only for actual
     // output and releases unused logical quota before the response is queued.
@@ -246,15 +376,14 @@ fn send_vt_state_command_response(
 
     write_vt_state_command_json(
         &mut output,
-        id.as_ref(),
+        id,
         cols,
         rows,
         &replay.self_contained_bytes(),
         &replay.kitty_image_aliases,
         replay.kitty_state,
     )?;
-    writer.send_serialized_control(output.finish())?;
-    Ok(())
+    Ok(output.finish())
 }
 
 pub(super) fn write_vt_state_command_json(

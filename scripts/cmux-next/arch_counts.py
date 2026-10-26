@@ -2651,11 +2651,14 @@ class TypeTable:
                 if known:
                     return True
                 continue  # a finished search found nothing stateful from here
-            if name in SYS_STATEFUL:
+            # A type the referencing file declares shadows the system type of its name (Swift resolves the
+            # innermost declaration: `Feature.Process` inside `Feature`, never Foundation's `Process`).
+            shadowing = [d for d in self._decls_for(name) if where and d.path == where] if name in SYS_STATEFUL else []
+            if name in SYS_STATEFUL and not shadowing:
                 return True
-            if not lookup_name(name):
+            if not shadowing and not lookup_name(name):
                 continue
-            for decl in self.resolve(name, where):
+            for decl in shadowing or self.resolve(name, where):
                 if decl.own_state:
                     return True
                 stack.extend((link, decl.path or None) for link in decl.links())
@@ -2742,6 +2745,42 @@ _PACKAGE_CALL = re.compile(r"\bPackage\s*\(")
 _AFTER_BUILD = re.compile(r"\bpackage\s*\.|\.\s*(?:targets|dependencies)\b(?!\s*:)")
 _STRING = re.compile(r'^"((?:[^"\\]|\\.)*)"$')
 _IDENT = re.compile(r"^\w+$")
+# The Linux-only manifest gate: only the Linux package and tier builds set CMUX_SWIFTPM_TARGET_LINUX, so no
+# Apple build (the app, the fleet compile) runs its body. scripts/check-package-resolved-policy.py drops the
+# same exact form (LINUX_TARGET_GATE_RE); a block counts only when its closing brace stands alone at the
+# gate's indentation, so any other form is read as usual.
+_LINUX_TARGET_GATE = re.compile(
+    r'^[ \t]*if[ \t]+ProcessInfo\.processInfo\.environment\["CMUX_SWIFTPM_TARGET_LINUX"\]'
+    r'[ \t]*==[ \t]*"1"[ \t]*\{[ \t]*$',
+    re.MULTILINE,
+)
+
+
+def without_linux_target_blocks(raw: str) -> str:
+    """RAW with each Linux-only gate block blanked to spaces (same length, newlines kept).
+
+    The layer gate reads the Apple manifest; the Linux mode of Packages/macOS/CmuxNext/Package.swift
+    (linux-tier.json) is a subset of it that no Apple build evaluates. Braces are matched with strings
+    and comments blanked.
+    """
+    code, bare = strip(raw, keep_strings=True), strip(raw)
+    out, position = [], 0
+    for gate in _LINUX_TARGET_GATE.finditer(code):
+        if gate.start() < position:
+            continue
+        depth, end = 1, gate.end()
+        while end < len(bare) and depth:
+            depth += {"{": 1, "}": -1}.get(bare[end], 0)
+            end += 1
+        indent = gate.group(0)[: len(gate.group(0)) - len(gate.group(0).lstrip())]
+        line_start = bare.rfind("\n", 0, end - 1) + 1
+        if depth or bare[line_start:end] != indent + "}" or bare[end:end + 1] not in ("", "\n"):
+            continue
+        out.append(raw[position:gate.start()])
+        out.append(_blank(raw[gate.start():end]))
+        position = end
+    out.append(raw[position:])
+    return "".join(out)
 
 
 def _skip_string(text: str, i: int) -> int:
@@ -2893,8 +2932,10 @@ def parse_manifest(raw: str) -> Manifest:
     Everything else that could add a target or an edge is recorded in `unreadable`: a constructor
     whose `name:` is not a string literal (a helper `func`), a `Package(targets:)` entry that is not a
     constructor or a top-level `let X: Target`, and any line that reads or changes the built manifest
-    (`package.`, `.targets`, `.dependencies`).
+    (`package.`, `.targets`, `.dependencies`). A Linux-only gate block is not read
+    (without_linux_target_blocks).
     """
+    raw = without_linux_target_blocks(raw)
     code = strip(raw, keep_strings=True)
     bare = strip(raw)
     dep_vars: dict[str, str] = {}
@@ -4037,7 +4078,7 @@ class TypeLookup:
         followed here: TypeTable asks decls() for each name its search reaches, and a search stops at the
         first declaration with state of its own, so only the files a search really needs are read.
         """
-        todo = {n for n in names if lookup_name(n)} - self.searched
+        todo = {n for n in names if lookup_name(n) or n in SYS_STATEFUL} - self.searched
         if not todo:
             return
         self.searched |= todo
@@ -4048,7 +4089,8 @@ class TypeLookup:
                     self.shared[d.name].append(d)
 
     def decls(self, rev: str, name: str) -> list[Decl]:
-        if lookup_name(name) and name not in self.searched:
+        # A system type's name too: a repo declaration of it shadows it in its file (TypeTable._search).
+        if (lookup_name(name) or name in SYS_STATEFUL) and name not in self.searched:
             self.ensure({name})
         return self.shared.get(name, []) + self.overlay_index[rev].get(name, [])
 

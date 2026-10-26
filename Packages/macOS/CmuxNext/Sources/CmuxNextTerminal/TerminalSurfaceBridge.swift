@@ -32,6 +32,10 @@ nonisolated final class SurfaceBridge: @unchecked Sendable {
         }
     }
 
+    /// The session's surfaces to the typing probe (``TypingLatencyProbe``): the key router opens a press
+    /// on it, and Ghostty's writes, the output lane and the frame mark by it.
+    var typingSurface: TypingLatencyProbe.SurfaceKey { input.typingSurface }
+
     static func from(_ raw: UnsafeMutableRawPointer?) -> SurfaceBridge? {
         guard let raw else { return nil }
         return Unmanaged<SurfaceBridge>.fromOpaque(raw).takeUnretainedValue()
@@ -57,9 +61,13 @@ nonisolated enum TerminalOutgoing: Sendable {
 /// in, so input order survives a surface swap.
 nonisolated struct TerminalInputSink: Sendable {
     private let continuation: AsyncStream<TerminalOutgoing>.Continuation
+    /// The session's surfaces to the typing probe (``TypingLatencyProbe``): the same across a surface
+    /// swap, like the input order.
+    let typingSurface: TypingLatencyProbe.SurfaceKey
 
-    init(continuation: AsyncStream<TerminalOutgoing>.Continuation) {
+    init(continuation: AsyncStream<TerminalOutgoing>.Continuation, typingSurface: TypingLatencyProbe.SurfaceKey) {
         self.continuation = continuation
+        self.typingSurface = typingSurface
     }
 
     func send(_ data: Data) {
@@ -95,6 +103,6 @@ nonisolated struct TerminalInputSink: Sendable {
 /// to the session's ordered writer.
 nonisolated func ghosttyIOWrite(_ userdata: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<CChar>?, _ length: UInt) {
     guard let bridge = SurfaceBridge.from(userdata), let bytes, length > 0 else { return }
-    TypingLatencyProbe.shared.mark(.ioWrite)
+    TypingLatencyProbe.shared.inputWritten(on: bridge.input.typingSurface)
     bridge.input.send(Data(bytes: bytes, count: Int(length)))
 }

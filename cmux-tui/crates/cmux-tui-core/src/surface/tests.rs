@@ -9,6 +9,8 @@ mod clear_history_tests;
 #[cfg(unix)]
 mod clipboard_read;
 mod colors;
+#[cfg(unix)]
+mod echo_flow;
 mod hosted;
 mod input;
 mod lifecycle;
