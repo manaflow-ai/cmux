@@ -232,7 +232,17 @@ function uniqueHarnesses(
   // profile's models would start the wrong one, so they stay behind its Account row.
   const result = groups.map((group): HarnessChoice => {
     const first = group[0]!;
-    const lead = group.find((entry) => entry.id === running) ?? group.find((entry) => !signedOut(entry.id)) ?? first;
+    // Prefer a usable signed-in profile when the running/canonical profile's model probe failed.
+    // The rail folds those profiles into one tab, so selecting an unavailable lead would hide the
+    // available sibling's models (and leave a seemingly empty harness tab).
+    const usable = (entry: HarnessChoice) =>
+      !signedOut(entry.id) && !entry.unavailable && !probeFailed.has(entry.id);
+    const lead =
+      group.find((entry) => entry.id === running && usable(entry)) ??
+      group.find(usable) ??
+      group.find((entry) => entry.id === running) ??
+      group.find((entry) => !signedOut(entry.id)) ??
+      first;
     // A profile runs its harness's releases, so the harness's curated top models order them.
     const top = lead.top ?? group.find((entry) => entry.top)?.top;
     // The tab and the chip draw the harness's mark while the chat runs a profile whose id names no
