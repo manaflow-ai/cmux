@@ -73,6 +73,25 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
+    /// How long one drain-queue job (a drain pass, or the replay to a new sink) may run before the hang watch the
+    /// composition root sets with ``watchDrain(_:)`` reports it: it resolves stacks and calls the sink, no wait.
+    public static let drainHangDeadline: Duration = .seconds(10)
+
+    /// Runs each drain-queue job through `watch`, so the drain queue is a hang-watched lane. Compat sits below
+    /// the hang watch (CmuxNextTrace) and cannot import it, so the composition root passes a closure that runs
+    /// the job inside one scope of its lane (p09-observability.md, layer rule 8). The last call wins; nil runs
+    /// the jobs unwatched again.
+    ///
+    /// ```swift
+    /// let lane = HangWatchedLane("blocking.drain", deadline: BlockingDetector.drainHangDeadline, on: hangWatch)
+    /// blocking.watchDrain { job in lane.run(job) }
+    /// ```
+    public func watchDrain(_ watch: BlockingDrainWatch?) {
+        #if DEBUG || CMUX_BLOCKING_CHECKS
+        table.watchDrain(watch)
+        #endif
+    }
+
     /// The call sites that blocked the main thread, a shared pool thread or a `.cpu` lane item, or waited on a sync
     /// primitive in a lane item, and reached the drain queue, in the order they first did, with their current counts.
     public var sites: [BlockingSite] {
@@ -116,3 +135,7 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 }
+
+/// Runs one job of the blocking detector's drain queue: call `job` exactly once, synchronously, on the calling
+/// thread (``BlockingDetector/watchDrain(_:)``).
+public typealias BlockingDrainWatch = @Sendable (_ job: () -> Void) -> Void
