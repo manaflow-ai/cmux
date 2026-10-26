@@ -224,8 +224,13 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// condition on in the same commit, and a condition on without the export fails the compile and link.
 /// - GHOSTTY_GPU_RESIDENT: `ghostty_surface_set_gpu_resident` (ghostty-next cp/p07-memory-036, not in
 ///   723c4ab93): `GhosttyGPUResidency`, so `terminalGPURelease` and the larger warm set.
+/// - GHOSTTY_ENERGY_SAVER: `ghostty_app_set_energy_saver` (ghostty-next cp/p14-energy-114, not in
+///   723c4ab93): `GhosttyRuntime.followEnergySaver(on:)` sends the saver's edges to libghostty.
 let ghosttyNextKitHasGPUResident = false
-let ghosttyNextKitCapabilities: [SwiftSetting] = ghosttyNextKitHasGPUResident ? [.define("GHOSTTY_GPU_RESIDENT")] : []
+let ghosttyNextKitHasEnergySaver = false
+let ghosttyNextKitCapabilities: [SwiftSetting] =
+    (ghosttyNextKitHasGPUResident ? [.define("GHOSTTY_GPU_RESIDENT")] : [])
+    + (ghosttyNextKitHasEnergySaver ? [.define("GHOSTTY_ENERGY_SAVER")] : [])
 
 /// The app's ONE Rust static library, CCmuxAppFFI (cmux-tui/crates/cmux-app-ffi):
 /// the remote desktop core C ABI (module CCmuxRdFFI), the sidebar layout

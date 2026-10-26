@@ -133,8 +133,9 @@ impl Default for DaemonEnergy {
 }
 
 impl DaemonEnergy {
-    /// The mode every periodic owner of this process watches.
-    #[cfg_attr(not(test), expect(dead_code, reason = "read by p14-energy-034 and 137"))]
+    /// The mode every periodic owner of this process watches, and that the
+    /// daemon relays to acpmux (`mux/acpmux_energy.rs`).
+    #[cfg_attr(not(any(test, unix)), expect(dead_code, reason = "relayed to acpmux on unix"))]
     pub(crate) fn mode(&self) -> &Arc<EnergyMode> {
         &self.mode
     }

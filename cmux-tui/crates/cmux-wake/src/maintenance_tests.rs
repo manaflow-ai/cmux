@@ -93,11 +93,23 @@ fn spec(name: &'static str, period: u64, skippable_in_saver: bool) -> JobSpec {
 }
 
 fn add(schedule: &mut Schedule, runs: &Runs, clock: &FakeClock, job: JobSpec) {
+    add_placed(schedule, runs, clock, job, Placement::default(), base());
+}
+
+fn add_placed(
+    schedule: &mut Schedule,
+    runs: &Runs,
+    clock: &FakeClock,
+    job: JobSpec,
+    placement: Placement,
+    now: SystemTime,
+) {
     let (runs, clock) = (Arc::clone(runs), clock.clone());
     schedule.register(
         job,
+        placement,
         Box::new(move || runs.lock().unwrap().push((job.name, clock.now()))),
-        base(),
+        now,
     );
 }
 
@@ -184,7 +196,7 @@ fn a_registration_arms_the_first_timed_wait() {
         step_back: None,
         commands: VecDeque::from([(
             base() + secs(10),
-            Command::Register(spec("late.300", 300, false), job),
+            Command::Register(spec("late.300", 300, false), Placement::default(), job),
         )]),
     };
     drive(Schedule::default(), waiter, &clock, &EnergyMode::new(false));
@@ -250,8 +262,79 @@ fn periods_round_up_to_the_five_minute_grid() {
     assert_eq!(schedule.period_secs(spec("x", 1, false)), 300);
     assert_eq!(schedule.period_secs(spec("x", 450, false)), 600);
     assert_eq!(schedule.period_secs(spec("x", 86_400, false)), 86_400);
-    assert_eq!(next_multiple(base() + secs(1), 600), base() + secs(600));
-    assert_eq!(next_multiple(base(), 600), base() + secs(600), "strictly after");
+    assert_eq!(next_on_grid(base() + secs(1), 600, 0), base() + secs(600));
+    assert_eq!(next_on_grid(base(), 600, 0), base() + secs(600), "strictly after");
+}
+
+/// Installs with other phases ask a server at other instants of the period,
+/// each still on a 300 s boundary; jobs of one install share their wakes.
+#[test]
+fn a_phase_spreads_installs_across_the_period_on_grid_boundaries() {
+    const SIX_HOURS: u64 = 6 * 3600;
+    let start = base();
+    let mut firsts = std::collections::BTreeSet::new();
+    for phase in 0..72u64 {
+        let next = next_on_grid(start, SIX_HOURS, phase);
+        let since = next.duration_since(UNIX_EPOCH).unwrap().as_secs();
+        assert_eq!(since % GRID.as_secs(), 0, "phase {phase} wakes on a 300 s boundary");
+        assert_eq!(since % SIX_HOURS, phase * GRID.as_secs(), "phase {phase}");
+        assert!(next > start && next <= start + secs(SIX_HOURS));
+        firsts.insert(next);
+    }
+    assert_eq!(firsts.len(), 72, "72 phases, 72 instants in the period");
+    assert_eq!(next_on_grid(start, SIX_HOURS, 72 + 5), next_on_grid(start, SIX_HOURS, 5));
+
+    // One install (phase 7): a 6 h and a 24 h job share the 24 h job's wakes.
+    let clock = FakeClock::new(start);
+    let runs = Runs::default();
+    let mut schedule = Schedule::default();
+    let placement = Placement { phase: 7, ran_at_registration: false };
+    add_placed(&mut schedule, &runs, &clock, spec("catalog", SIX_HOURS, true), placement, start);
+    add_placed(&mut schedule, &runs, &clock, spec("sweep", 86_400, false), placement, start);
+    let sweep = schedule.entries[1].next;
+    let catalog = schedule.entries[0].next;
+    assert_eq!(sweep.duration_since(catalog).unwrap().as_secs() % SIX_HOURS, 0);
+}
+
+/// A job its owner ran at registration does not run on the grid seconds
+/// later: a daemon that starts 10 s before its boundary waits for the next.
+#[test]
+fn a_job_run_at_registration_first_runs_on_the_grid_half_a_period_later() {
+    const SIX_HOURS: u64 = 6 * 3600;
+    let boundary = next_on_grid(base(), SIX_HOURS, 0);
+    let start = boundary - secs(10);
+    let clock = FakeClock::new(start);
+    let runs = Runs::default();
+    let mut schedule = Schedule::default();
+    let ran = Placement { phase: 0, ran_at_registration: true };
+    add_placed(&mut schedule, &runs, &clock, spec("catalog", SIX_HOURS, true), ran, start);
+    add_placed(&mut schedule, &runs, &clock, spec("lease", 300, false), ran, start);
+    add_placed(
+        &mut schedule,
+        &runs,
+        &clock,
+        spec("plain", 300, false),
+        Placement::default(),
+        start,
+    );
+
+    assert_eq!(schedule.entries[0].next, boundary + secs(SIX_HOURS), "not the boundary 10 s on");
+    assert_eq!(schedule.entries[1].next, boundary + secs(300), "at least one grid step");
+    assert_eq!(schedule.entries[2].next, boundary, "a job not run at start keeps its boundary");
+    assert_eq!(schedule.run_due(boundary), ["plain"]);
+
+    // A saver edge before the first grid run keeps the gap too.
+    let mut schedule = Schedule::default();
+    add_placed(&mut schedule, &runs, &clock, spec("catalog", SIX_HOURS, true), ran, start);
+    schedule.set_saver(true);
+    schedule.set_saver(false);
+    assert_eq!(schedule.entries[0].next, boundary + secs(SIX_HOURS));
+
+    // Half a period, not a whole one: a start 4 h before the boundary runs at it.
+    let early = boundary - secs(4 * 3600);
+    let mut schedule = Schedule::default();
+    add_placed(&mut schedule, &runs, &clock, spec("catalog", SIX_HOURS, true), ran, early);
+    assert_eq!(schedule.entries[0].next, boundary);
 }
 
 #[test]
@@ -259,7 +342,8 @@ fn a_panicking_job_does_not_stop_the_others() {
     let clock = FakeClock::new(base());
     let runs = Runs::default();
     let mut schedule = Schedule::default();
-    schedule.register(spec("bad.job", 300, false), Box::new(|| panic!("job failed")), base());
+    let bad = spec("bad.job", 300, false);
+    schedule.register(bad, Placement::default(), Box::new(|| panic!("job failed")), base());
     add(&mut schedule, &runs, &clock, spec("good.job", 300, false));
     assert_eq!(schedule.run_due(base() + secs(300)), ["bad.job", "good.job"]);
     assert_eq!(runs.lock().unwrap().len(), 1);
