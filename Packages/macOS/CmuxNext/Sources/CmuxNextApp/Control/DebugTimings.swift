@@ -47,7 +47,8 @@ enum DebugTimings {
     /// The process start and the page-ins every launch mark reads (the system's).
     private nonisolated static let launchClock = LaunchClock()
     /// When the kernel started this process (PROC_PIDTBSDINFO), on the wall clock and the trace clock; now
-    /// when the kernel does not answer.
+    /// when the kernel does not answer. The launch's one clock pairing: every mark's date reaches the trace
+    /// clock through it (``LaunchMarks/uptimeNanos(of:pairedWith:)``).
     private nonisolated static let processStart: LaunchClock.Instant = launchClock.processStart() ?? launchClock.now()
     private nonisolated static let processStartDate = Date(timeIntervalSince1970: Double(processStart.wallNanos) / 1e9)
 
@@ -60,7 +61,7 @@ enum DebugTimings {
     /// sends the bench `launch.temperature.<name>` and `launch.pageins_run_loop_start`.
     nonisolated static func markLaunch(_ name: String, at date: Date = Date()) {
         let reading = LaunchSlices.Reading(mark: name, clock: launchClock)
-        let endNanos = reading.milestone == nil ? 0 : LaunchMarks.uptimeNanos(of: date, clock: launchClock)
+        let endNanos = reading.milestone == nil ? 0 : LaunchMarks.uptimeNanos(of: date, pairedWith: processStart)
         let (ms, trace, step) = launchMarks.withLock { state -> (Double?, StartupTrace?, LaunchSlices.Step) in
             guard let ms = state.marks.record(name, at: date, processStart: processStartDate) else {
                 return (nil, state.marks.trace, LaunchSlices.Step())
@@ -70,7 +71,7 @@ enum DebugTimings {
         guard let ms else { return }
         step.publish(into: .shared)
         LaunchMarkSink.shared.write(name: name, ms: ms)
-        LaunchMarks.forward(name, at: date, to: trace, clock: launchClock)
+        LaunchMarks.forward(name, at: date, to: trace, pairedWith: processStart)
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("launch.\(name)", at: date)
         #endif
@@ -83,7 +84,7 @@ enum DebugTimings {
     /// The startup trace `CMUX_TRACE_STARTUP` asks for, attached before the first mark (`main`).
     nonisolated static func makeStartupTrace() -> StartupTrace? {
         guard let trace = StartupTrace.fromEnvironment(processStartNanos: processStart.uptimeNanos) else { return nil }
-        launchMarks.withLock { $0.marks.attach(trace, processStart: processStartDate) }
+        launchMarks.withLock { $0.marks.attach(trace, processStart: processStart) }
         return trace
     }
 

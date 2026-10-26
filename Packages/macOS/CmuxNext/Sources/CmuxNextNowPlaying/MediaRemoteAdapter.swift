@@ -52,8 +52,6 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
     private let launcher = ProcessLauncher(label: "com.cmuxterm.next.now-playing", priority: .userVisible)
     public let script: URL
     public let framework: URL
-    /// Times each stream's run, so an exit soon after its start counts as quick.
-    private let clock: TraceClock
     private static let perl = URL(fileURLWithPath: "/usr/bin/perl")
     private var process: Process?
     /// The write end of the stream's stdin: open while cmux lives, so the watch shell waits.
@@ -61,11 +59,9 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
     private var onUpdate: (@MainActor (SystemNowPlayingFeed.Update) -> Void)?
     /// Bumped by each launch, so a late line or exit of an earlier stream is ignored.
     private var run = 0
-    /// Exits in a row that came soon after their start.
-    private var quickExits = 0
+    /// Times each stream's run and counts the quick exits in a row.
+    private var restarts: AdapterRestarts
     private let restart = DemandTimer(owner: "now-playing.adapter-restart")
-    static let quickExit: TimeInterval = 10
-    static let maximumQuickExits = 4
     static let streamArguments = ["stream", "--micros", "--debounce=150"]
 
     /// Runs `"$0" "$@"` (the adapter) and ends it when stdin reaches end of file, which happens
@@ -91,7 +87,7 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
     public init(script: URL, framework: URL, clock: TraceClock = TraceClock()) {
         self.script = script
         self.framework = framework
-        self.clock = clock
+        restarts = AdapterRestarts(clock: clock)
     }
 
     /// The adapter cmux bundles: the script in Resources/MediaRemoteAdapter and
@@ -110,7 +106,7 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
 
     public func start(onUpdate: @escaping @MainActor (SystemNowPlayingFeed.Update) -> Void) {
         self.onUpdate = onUpdate
-        quickExits = 0
+        restarts.reset()
         launch()
     }
 
@@ -170,10 +166,11 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
                 for update in updates { onUpdate(update) }
             }
         }
-        let clock = self.clock, started = clock.nowNanos()
+        restarts.started()
+        let clock = restarts.clock
         stream.terminationHandler = { [weak self] _ in
-            let seconds = Double(clock.nowNanos() &- started) / 1e9
-            Task { @MainActor [weak self] in self?.exited(run: current, after: seconds) }
+            let endedNanos = clock.nowNanos()
+            Task { @MainActor [weak self] in self?.exited(run: current, atNanos: endedNanos) }
         }
         process = stream
         lifeline = stdin
@@ -190,15 +187,13 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
     }
 
     /// Starts the stream again after a growing wait, unless it keeps exiting at once.
-    private func exited(run exited: Int, after seconds: TimeInterval) {
+    private func exited(run exited: Int, atNanos endedNanos: UInt64) {
         guard run == exited, process != nil else { return }
         process = nil
         try? lifeline?.fileHandleForWriting.close()
         lifeline = nil
-        guard onUpdate != nil else { return }
-        quickExits = seconds < Self.quickExit ? quickExits + 1 : 0
-        guard quickExits <= Self.maximumQuickExits else { return }
-        restart.schedule(after: .seconds(1 << min(quickExits, 6))) { @MainActor [weak self] in self?.launch() }
+        guard onUpdate != nil, let wait = restarts.exited(atNanos: endedNanos) else { return }
+        restart.schedule(after: wait) { @MainActor [weak self] in self?.launch() }
     }
 }
 

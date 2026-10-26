@@ -30,9 +30,10 @@ import PackageDescription
 //     the key.frame and input.frame histograms, p09-observability tasks 054 and 111)
 //   CmuxNextSignpostsC -> libSystem only (C: os_signpost macros for the key and stall signposts, no heap allocation;
 //     p09-observability task 007)
-//   CmuxNextLaunch -> Compat, Signposts, Wakeups, Design, InputCore (launch-only types: the launch image hold, and the
+//   CmuxNextLaunch -> Compat, Signposts, Trace, Wakeups, Design, InputCore (launch-only types: the launch image hold, and the
 //     startup trace, temperature and saved window picture to come; the App only wires them;
-//     plans/cmux-next/chrome-parity/p08-startup.md, task 073)
+//     plans/cmux-next/chrome-parity/p08-startup.md, task 073; Trace: LaunchMarks moves each mark's date onto the
+//     trace clock through the launch's one LaunchClock pairing)
 //   CmuxNextTrace -> Compat, swift-atomics (the process's TraceRuntime: category flags, Release trace rings, crash-key page,
 //     HangWatch slots and scopes; plans/cmux-next/chrome-parity/p09-observability.md)
 //   CmuxNextMetrics -> Compat, Trace (the field-histogram catalog HistogramID and Metrics.record)
@@ -1357,7 +1358,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // depends on CmuxNextApp.
         .target(
             name: "CmuxNextLaunch",
-            // Trace: LaunchMarks moves a mark's Date onto the trace clock through LaunchClock's paired read.
+            // Trace: LaunchMarks moves each mark's Date onto the trace clock through the launch's one LaunchClock pairing.
             dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextInputCore", "CmuxNextSignposts", "CmuxNextTrace",
                            "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
