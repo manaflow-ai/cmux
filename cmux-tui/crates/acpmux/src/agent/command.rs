@@ -174,6 +174,9 @@ pub(crate) fn harness_command(
             }
         }
     }
+    // The durable store is bound by acpmux's profile spawn path; never
+    // inherit a controller or shell value into another harness.
+    cmd.env_remove("CMUX_HARNESS_SESSION_STORE_DIR");
     cmd.args(crate::harness_limits::launch_args(program, args, session.map(|_| (cwd, &env))))
         .envs(env.iter());
     // The profile's PATH first, never instead of the login PATH (login_env::with_agent_path).

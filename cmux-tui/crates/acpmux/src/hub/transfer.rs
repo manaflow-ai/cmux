@@ -60,12 +60,14 @@ impl Hub {
         }
         out.flush()?;
         let native = crate::native::locate(&meta);
+        let harness = self.export_harness_state(&meta, &dir)?;
         let mut manifest = json!({
             "schema": "acpmux.bundle.v1",
             "id": meta.id,
             "eventCount": event_count,
             "lastSeq": meta.last_seq,
             "native": [],
+            "harness": harness,
         });
         if !native.is_empty() {
             std::fs::create_dir_all(dir.join("native"))?;
@@ -168,6 +170,10 @@ impl Hub {
                 return Err(RpcError::invalid_params(format!("import events: {e}")));
             }
         };
+        if let Err(e) = self.restore_harness_state(bundle, &meta) {
+            let _ = self.store.delete(&meta.id);
+            return Err(RpcError::invalid_params(format!("import durable journal: {e}")));
+        }
         let restored = match guarded {
             None => crate::native::restore(bundle, &meta).unwrap_or_default(),
             // A guarded chat keeps its agent session only with its file: a failed restore fails
@@ -207,6 +213,43 @@ impl Hub {
     /// Append every record of a bundle's `events/*.ndjson` to the store, in
     /// file order. Returns the highest sequence copied. Under a guard's `control`, the
     /// records of prompts still to run carry it (`transfer_guard.rs` `guarded_record`).
+    fn export_harness_state(&self, meta: &SessionMeta, dir: &Path) -> Result<Value> {
+        if meta.harness != "cmux-harness" { return Ok(Value::Null); }
+        let Some(store_dir) = self.store.session_dir(&meta.id) else {
+            return Err(anyhow::anyhow!("cmux-harness durable state requires a local session store"));
+        };
+        let source = store_dir.join("journal.ndjson");
+        if !source.is_file() { return Err(anyhow::anyhow!("durable journal is not a regular file")); }
+        let bytes = std::fs::read(&source).map_err(|e| anyhow::anyhow!("read durable journal: {e}"))?;
+        let target = dir.join("harness").join("journal.ndjson");
+        std::fs::create_dir_all(target.parent().unwrap())?;
+        std::fs::write(&target, &bytes)?;
+        Ok(json!({"path": "harness/journal.ndjson", "size": bytes.len(), "sha256": crate::sha256::sha256_hex(&bytes)}))
+    }
+
+    fn restore_harness_state(&self, bundle: &Path, meta: &SessionMeta) -> Result<()> {
+        if meta.harness != "cmux-harness" { return Ok(()); }
+        let manifest: Value = serde_json::from_str(&std::fs::read_to_string(bundle.join("manifest.json"))?)?;
+        let spec = manifest.get("harness").filter(|v| !v.is_null()).ok_or_else(|| anyhow::anyhow!("missing cmux-harness durable manifest"))?;
+        if spec.get("path").and_then(Value::as_str) != Some("harness/journal.ndjson") {
+            return Err(anyhow::anyhow!("invalid cmux-harness durable path"));
+        }
+        let source = bundle.join("harness").join("journal.ndjson");
+        let bytes = std::fs::read(&source)?;
+        let hash = crate::sha256::sha256_hex(&bytes);
+        if spec.get("size").and_then(Value::as_u64) != Some(bytes.len() as u64)
+            || spec.get("sha256").and_then(Value::as_str) != Some(hash.as_str()) {
+            return Err(anyhow::anyhow!("cmux-harness durable journal digest mismatch"));
+        }
+        let store_dir = self.store.session_dir(&meta.id).ok_or_else(|| anyhow::anyhow!("target has no local session store"))?;
+        if !store_dir.is_dir() { return Err(anyhow::anyhow!("target session store was not created")); }
+        let target = store_dir.join("journal.ndjson");
+        let tmp = store_dir.join("journal.ndjson.importing");
+        std::fs::write(&tmp, bytes)?;
+        std::fs::rename(tmp, target)?;
+        Ok(())
+    }
+
     fn copy_bundle_events(&self, bundle: &Path, id: &str, control: Option<Control>) -> Result<u64> {
         let events_path = bundle.join("events");
         if !events_path.exists() {

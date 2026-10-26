@@ -134,6 +134,21 @@ impl Hub {
         for (k, v) in &meta.session_env {
             p.env.insert(k.clone(), v.clone());
         }
+        // cmux-harness writes its durable journal into acpmux's session store.
+        // Bind this after profile and session env so a profile cannot redirect
+        // the journal into an arbitrary path; MemoryStore intentionally has no
+        // transferable directory and therefore leaves the bridge disabled.
+        if p.family.as_deref() == Some("cmux-harness") {
+            p.env.remove("CMUX_HARNESS_SESSION_STORE_DIR");
+            if let Some(dir) = self.store.session_dir(&meta.id)
+                .and_then(|dir| dir.parent().map(Path::to_path_buf))
+            {
+                p.env.insert(
+                    "CMUX_HARNESS_SESSION_STORE_DIR".to_owned(),
+                    dir.to_string_lossy().into_owned(),
+                );
+            }
+        }
         // The workspace picks the computer use display (agent_displays.rs);
         // `agent/command.rs` removes the key before the harness starts.
         crate::agent_displays::mark(&mut p.env, meta.workspace_id.as_deref());
