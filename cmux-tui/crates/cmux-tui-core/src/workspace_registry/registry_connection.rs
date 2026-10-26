@@ -14,10 +14,16 @@
 //! use `unchecked_transaction`, and SQLite refuses a nested `BEGIN` at run
 //! time where `&mut Connection` used to refuse it at compile time.
 //!
-//! On a request thread (`crate::request_path`) the first acquisition notes
-//! `sqlite` at the code that asked for the connection; in a recording scope
-//! its release notes `lock_hold_over_1ms` there when the hold lasted that
-//! long.
+//! Every first acquisition on a thread is the connection's checked scope
+//! (Chrome's `ScopedBlockingCall`, base/threading/scoped_blocking_call.h): it
+//! notes `sqlite` at the code that asked for the connection, which checks
+//! `cmux_threads::blocking` there (a thread that disallows blocking records
+//! the site, or panics in `CMUX_DAEMON_BLOCKING=panic`) and, on a request
+//! thread (`crate::request_path`), counts it; in a recording scope its
+//! release notes `lock_hold_over_1ms` there when the hold lasted that long.
+//! The lock itself is taken through a `cmux_threads::LockHolder`: a wait of
+//! 2 ms or more is recorded with the name of the thread that held it
+//! (`cmux_threads::lock_waits`).
 
 use std::cell::Cell;
 use std::panic::Location;
@@ -124,6 +130,8 @@ pub(crate) struct JournalCommitHooks {
 // path. Reentrancy can hide lock-order bugs; debug_assert_lock_order guards it.
 pub(crate) struct RegistryConnection {
     connection: Arc<ReentrantMutex<Connection>>,
+    /// The thread that last took `connection` (lock waits name it).
+    holder: cmux_threads::LockHolder,
     /// Which thread commits durable writes (`server-stats` `write_path`).
     write_path_stats: crate::diagnostics::WritePathStats,
     /// The journal writer, once it runs (see `registry_intent`).
@@ -228,6 +236,7 @@ impl RegistryConnection {
         });
         Arc::new(Self {
             connection: Arc::new(ReentrantMutex::new(connection)),
+            holder: cmux_threads::LockHolder::default(),
             write_path_stats: crate::diagnostics::WritePathStats::default(),
             intent_sink: std::sync::OnceLock::new(),
             unsettled: std::sync::Mutex::default(),
@@ -265,13 +274,22 @@ impl RegistryConnection {
     pub(crate) fn get_at(&self, site: &'static Location<'static>) -> RegistryConnectionGuard<'_> {
         self.debug_assert_lock_order();
         self.check_rank();
-        let site =
-            RequestPathHold::note_acquire(self.connection.is_owned_by_current_thread(), site);
-        let guard = self.connection.lock();
+        let reentry = self.connection.is_owned_by_current_thread();
+        let timed = RequestPathHold::note_acquire(reentry, site);
+        let guard = if reentry {
+            self.connection.lock()
+        } else {
+            self.holder.acquire(
+                CONNECTION_LOCK_NAME,
+                site,
+                || self.connection.try_lock(),
+                || self.connection.lock(),
+            )
+        };
         RegistryConnectionGuard {
             guard,
             _rank: record_rank(),
-            _request_path: RequestPathHold::held(site),
+            _request_path: RequestPathHold::held(timed),
         }
     }
 
@@ -282,15 +300,23 @@ impl RegistryConnection {
     pub(crate) fn pin(&self) -> RegistryConnectionPin {
         self.debug_assert_lock_order();
         self.check_rank();
-        let site = RequestPathHold::note_acquire(
-            self.connection.is_owned_by_current_thread(),
-            Location::caller(),
-        );
-        let guard = self.connection.lock_arc();
+        let site = Location::caller();
+        let reentry = self.connection.is_owned_by_current_thread();
+        let timed = RequestPathHold::note_acquire(reentry, site);
+        let guard = if reentry {
+            self.connection.lock_arc()
+        } else {
+            self.holder.acquire(
+                CONNECTION_LOCK_NAME,
+                site,
+                || self.connection.try_lock_arc(),
+                || self.connection.lock_arc(),
+            )
+        };
         RegistryConnectionPin {
             _guard: guard,
             _rank: record_rank(),
-            _request_path: RequestPathHold::held(site),
+            _request_path: RequestPathHold::held(timed),
         }
     }
 
@@ -312,6 +338,12 @@ impl RegistryConnection {
     /// the writer needs this lock to commit.
     pub(crate) fn is_held_by_current_thread(&self) -> bool {
         self.connection.is_owned_by_current_thread()
+    }
+
+    /// The name of the thread that last took the connection lock.
+    #[cfg(test)]
+    pub(crate) fn last_holder(&self) -> Option<String> {
+        self.holder.holder()
     }
 
     /// Request-side lock order checks: never on the journal writer thread
@@ -338,7 +370,12 @@ impl RegistryConnection {
     #[track_caller]
     pub(crate) fn get_until(&self, deadline: Instant) -> Option<RegistryConnectionGuard<'_>> {
         self.check_rank();
-        let guard = self.connection.try_lock_until(deadline)?;
+        let guard = self.holder.acquire_until(
+            CONNECTION_LOCK_NAME,
+            Location::caller(),
+            || self.connection.try_lock(),
+            || self.connection.try_lock_until(deadline),
+        )?;
         // The journal writer: never a request thread.
         Some(RegistryConnectionGuard {
             guard,
@@ -361,3 +398,7 @@ impl RegistryConnection {
 fn record_rank() -> HeldRank {
     HeldRank::record(LockRank::RegistryConnection, CONNECTION_LOCK_NAME)
 }
+
+#[cfg(test)]
+#[path = "registry_connection_blocking_tests.rs"]
+mod blocking_tests;

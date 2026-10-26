@@ -24,11 +24,12 @@ impl Mux {
     /// Run `operation` on the conversation store, opening
     /// `conversations.sqlite3` in the session state directory on first use
     /// (in memory for an in-memory session).
+    #[track_caller]
     pub(crate) fn with_conversations<T>(
         &self,
         operation: impl FnOnce(&mut ConversationStore) -> anyhow::Result<T>,
     ) -> anyhow::Result<T> {
-        let mut store = self.conversations.store.lock().unwrap();
+        let mut store = self.conversations.lock_store_for_sqlite().unwrap();
         if store.is_none() {
             let directory = self.session_state_directory();
             *store = Some(ConversationStore::open(directory.as_deref())?);
@@ -40,6 +41,7 @@ impl Mux {
     /// derives from its result, after the store lock is released. Writes
     /// and their events are serialized, so subscribers see each
     /// conversation's `rev` in commit order.
+    #[track_caller]
     pub(crate) fn conversation_write<T>(
         &self,
         write: impl FnOnce(&mut ConversationStore) -> anyhow::Result<T>,
@@ -51,6 +53,7 @@ impl Mux {
     /// [`Self::conversation_write`] for a write that commits several changes
     /// in one transaction: every event is published after the commit, in
     /// order.
+    #[track_caller]
     pub(crate) fn conversation_write_many<T>(
         &self,
         write: impl FnOnce(&mut ConversationStore) -> anyhow::Result<T>,
@@ -316,7 +319,7 @@ impl Mux {
             .remove(&client);
         // Its attachment uploads end with it (never opens the store).
         if let Some(store) =
-            self.conversations.store.lock().unwrap_or_else(PoisonError::into_inner).as_mut()
+            self.conversations.lock_store().unwrap_or_else(PoisonError::into_inner).as_mut()
         {
             store.attachments_client_closed(client);
         }

@@ -16,11 +16,15 @@
 //! [`blocking::snapshot`]) and [`checked`] has checked forms of the blocking
 //! std primitives.
 //!
+//! [`lock_wait`] times contended connection-lock acquisitions and records a
+//! wait over the 2 ms budget with the holder's thread name.
+//!
 //! Blocking work runs on [`work`] lanes by kind, priority and shutdown
 //! behavior (Chrome's base/task/thread_pool).
 
 pub mod blocking;
 pub mod checked;
+pub mod lock_wait;
 pub mod qos;
 pub mod registry;
 pub mod spawn;
@@ -34,6 +38,7 @@ pub use blocking::{
 pub use blocking::{
     OwnDescriptorToken, own_fd_read, own_fd_write, own_fd_write_all, register_own_descriptor,
 };
+pub use lock_wait::{LOCK_WAIT_BUDGET, LockHolder, LockWait, LockWaitSnapshot, lock_waits};
 pub use qos::{LiveQos, QosChange, ThreadQos, current, refused_changes, set_current, with_qos};
 pub use registry::{
     QosSlot, ThreadInfo, current_slot, deregister_current, register_current, snapshot,

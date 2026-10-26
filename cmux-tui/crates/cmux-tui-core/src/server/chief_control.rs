@@ -148,7 +148,7 @@ fn target(
     };
     let live = {
         let mut store =
-            mux.chiefs().store.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            mux.chiefs().lock_store().unwrap_or_else(std::sync::PoisonError::into_inner);
         if store.is_none() {
             let directory = mux.session_state_directory();
             *store = Some(

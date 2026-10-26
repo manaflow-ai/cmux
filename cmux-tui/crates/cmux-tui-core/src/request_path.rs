@@ -9,7 +9,10 @@
 //!
 //! - `sqlite`: the first acquisition of the registry connection
 //!   (`RegistryConnection::get`, `get_at`, `pin`); `lock_hold_over_1ms` at
-//!   its release, timed only while the setting records.
+//!   its release, timed only while the setting records. Also the Chief and
+//!   conversation store locks (`ChiefHost::lock_store`,
+//!   `ConversationHost::lock_store_for_sqlite`) and app storage ops
+//!   (`apps::storage::Storage`).
 //! - `journal_wait`: journal writer receipt and queue-space waits
 //!   (`journal_ingress`), registry intent receipts through the intent sink,
 //!   and earlier indeterminate receipts (`drain_unsettled`).
