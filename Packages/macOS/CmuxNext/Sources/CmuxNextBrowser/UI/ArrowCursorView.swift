@@ -105,7 +105,7 @@ public class ArrowCursorView: NSView {
     }
 
     /// Whether `window` is the top window at `location` (screen coordinates). The window server
-    /// answers synchronously (`SLSCopyWindowRoutingRecordsForScreenLocation`), which blocked the
+    /// answers synchronously (its window routing records for the location), which blocked the
     /// main thread for about half of every pointer move over a browser toolbar on a loaded Mac
     /// (sample of the live app, 2026-10-21): callers ask only when the cursor is not already the
     /// row's. The answer is never kept, since any window of any app can move over the toolbar.
