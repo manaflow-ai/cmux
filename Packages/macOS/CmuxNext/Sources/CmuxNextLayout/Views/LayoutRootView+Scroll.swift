@@ -116,7 +116,7 @@ extension LayoutRootView: ScrollGestureOwning {
     /// intercept path, which calls it for every real scroll.
     public func handleMonitoredScroll(_ event: NSEvent, from eventWindow: NSWindow?, at location: NSPoint) -> NSEvent? {
         if passesWithoutRouting(event, from: eventWindow) { return event }
-        guard let origin = Self.scrollOrigin(of: eventWindow, at: location, in: window) else { return event }
+        guard let origin = scrollOrigin(of: eventWindow, at: location) else { return event }
         return handleScrollEvent(event, at: origin.locationInWindow, fromPageWindow: origin.isPageWindow)
     }
 

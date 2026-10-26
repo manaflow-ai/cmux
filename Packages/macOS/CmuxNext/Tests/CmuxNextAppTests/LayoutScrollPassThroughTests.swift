@@ -40,10 +40,11 @@ struct LayoutScrollPassThroughTests {
         let w = Fixture.Window(modifier: modifier)
         let (page, point) = try Self.page(over: "top", of: w)
         defer { w.window.removeChildWindow(page); page.close() }
-        let before = w.root.context.routedScrolls
+        let before = (routes: w.root.routedScrolls, conversions: w.root.scrollPointConversions)
         #expect(Self.gesture(w.root, from: page, at: point, dy: -30) == 0, "a page's vertical scroll is the page's")
         #expect(Self.gesture(w.root, from: page, at: point, dx: -30) == 0, "a page's sideways scroll is the page's")
-        #expect(w.root.context.routedScrolls == before, "no event reached a conversion or a hit test")
+        #expect(w.root.routedScrolls == before.routes, "no event reached a hit test or a claim query")
+        #expect(w.root.scrollPointConversions == before.conversions, "no event's point was converted")
         #expect(!w.root.ownsCurrentScrollGesture)
     }
 
@@ -61,12 +62,14 @@ struct LayoutScrollPassThroughTests {
         w.settle()
         #expect(w.root.frame(of: "p2") == start, "the strip did not move")
         // The next gesture with Command at its touch is the layout's again.
-        let routed = w.root.context.routedScrolls
+        let routed = w.root.routedScrolls
+        let converted = w.root.scrollPointConversions
         #expect(Fixture.scroll(w.root, from: page, at: point, phase: .mayBegin, command: true))
         #expect(Fixture.scroll(w.root, from: page, at: point, dx: -20, phase: .began, command: true))
         for _ in 0..<3 { #expect(Fixture.scroll(w.root, from: page, at: point, dx: -20, phase: .changed)) }
         #expect(Fixture.scroll(w.root, from: page, at: point, phase: .ended))
-        #expect(w.root.context.routedScrolls == routed + 6, "every event of a layout gesture takes the full route")
+        #expect(w.root.routedScrolls == routed + 6, "every event of a layout gesture takes the full route")
+        #expect(w.root.scrollPointConversions == converted + 6, "and converts its point from the page")
         w.settle()
         #expect(try #require(w.root.frame(of: "p2")).minX < start.minX - 30, "Command + scroll from a page pans the strip")
     }
@@ -76,11 +79,13 @@ struct LayoutScrollPassThroughTests {
     @Test func aPlainGestureOverAPaneRoutesOnlyItsDecidingEvents() throws {
         let w = Fixture.Window(modifier: .command)
         let point = try w.center("p2")
-        let before = w.root.context.routedScrolls
+        let before = w.root.routedScrolls
+        let converted = w.root.scrollPointConversions
         let taken = Self.gesture(w.root, from: w.window, at: point, dx: -20)
         #expect(taken == 0, "a plain scroll over a pane is the pane's")
         // The touch, began, end and wheel notch decide; the three changes and the coast do not.
-        #expect(w.root.context.routedScrolls == before + 4)
+        #expect(w.root.routedScrolls == before + 4)
+        #expect(w.root.scrollPointConversions == converted, "the layout's own window needs no conversion")
     }
 
     /// Focus follows mouse needs the pane under the pointer: with it on, a page's plain scroll takes

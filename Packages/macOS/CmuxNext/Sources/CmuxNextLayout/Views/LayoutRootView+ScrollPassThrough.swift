@@ -55,6 +55,22 @@ extension LayoutRootView {
         return !layoutModifier && !model.focusFollowsMouse
     }
 
+    /// Scrolls this root's intercept sent through its full routing, with its pane hit tests and claim
+    /// queries (`debug.layout_counters` `scroll_routes`, cumulative per root: read a delta).
+    public var routedScrolls: UInt64 { context.routedScrolls }
+
+    /// Scroll points this root's intercept converted from a child window into its own
+    /// (`debug.layout_counters` `scroll_conversions`, cumulative per root: read a delta).
+    public var scrollPointConversions: UInt64 { context.scrollPointConversions }
+
+    /// ``scrollOrigin(of:at:in:)`` for this layout's window, counting each point it converts
+    /// (``scrollPointConversions``).
+    func scrollOrigin(of eventWindow: NSWindow?, at location: NSPoint) -> ScrollOrigin? {
+        let origin = Self.scrollOrigin(of: eventWindow, at: location, in: window)
+        if origin != nil, eventWindow !== window { context.scrollPointConversions &+= 1 }
+        return origin
+    }
+
     /// Where an intercepted scroll event came from, as the layout of one window routes it.
     struct ScrollOrigin: Equatable {
         /// The event's point in the layout's window.
