@@ -58,8 +58,8 @@ class SettingsExportsRegenerateOnPullRequests(unittest.TestCase):
         self.assertEqual(regenerate["if"], "needs.action-areas.outputs.settings == 'true'")
         self.assertIn("regenerate-settings-exports.sh", regenerate["run"])
         outputs = PR["jobs"]["action-exports"]["outputs"]
-        self.assertIn("steps.settings.outputs.exports", outputs["exports"])
-        self.assertEqual(outputs["settings-verified"], "${{ steps.settings.outcome == 'success' }}")
+        self.assertEqual(outputs["exports"], "${{ steps.require-exports.outcome == 'success' }}")
+        self.assertEqual(outputs["settings-verified"], "${{ steps.require-exports.outcome == 'success' && steps.settings.outcome == 'success' }}")
 
         work = Path(tempfile.mkdtemp())
         temp = work / "runner-temp"
@@ -75,6 +75,36 @@ class SettingsExportsRegenerateOnPullRequests(unittest.TestCase):
         self.assertIn("exports=true", output.read_text())
         for path in SETTINGS_EXPORTS:
             self.assertEqual((temp / "action-exports" / path).read_text(), "new\n", path)
+
+    def test_artifact_output_is_false_when_guard_blocks_upload(self):
+        outputs = PR["jobs"]["action-exports"]["outputs"]
+        self.assertEqual(outputs["exports"], "${{ steps.require-exports.outcome == 'success' }}")
+        self.assertEqual(outputs["verified"], "${{ steps.require-exports.outcome == 'success' && steps.regenerate.outcome == 'success' }}")
+        self.assertEqual(outputs["settings-verified"], "${{ steps.require-exports.outcome == 'success' && steps.settings.outcome == 'success' }}")
+
+    def test_the_mac_job_has_a_failing_guard_for_missing_or_empty_exports(self):
+        guard = step(PR, "action-exports", "Require generated exports")
+        self.assertEqual(guard["if"], "always()")
+        self.assertIn("settings exports were requested but the exporter produced no files", guard["run"])
+        self.assertIn("action exports were requested but the exporter produced no files", guard["run"])
+        self.assertIn("find", guard["run"])
+        self.assertIn("SETTINGS_OUTCOME", guard["run"])
+        self.assertIn("settings-exports.txt", guard["run"])
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "settings-exports.txt").write_text(
+                "::error::" + "schemas/settings-export/" + "settings-schema.sources.sha256 was not written by the settings export\n"
+            )
+            result = run_step(guard["run"], Path(tmp), {
+                "RUNNER_TEMP": tmp,
+                "ACTIONS_REQUESTED": "true",
+                "SETTINGS_REQUESTED": "true",
+                "ACTIONS_EXPORTS": "",
+                "SETTINGS_EXPORTS": "",
+                "SETTINGS_OUTCOME": "failure",
+            })
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("settings exports were requested but the exporter produced no files", result.stdout)
+        self.assertIn("schemas/settings-export/" + "settings-schema.sources.sha256", result.stdout)
 
     def test_the_repair_copies_them_in_and_rewrites_the_defaults_snapshot(self):
         download = step(PR, "repair", "Download the regenerated action exports")
