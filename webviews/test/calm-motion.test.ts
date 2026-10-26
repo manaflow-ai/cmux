@@ -61,6 +61,25 @@ await requireBrowserLane("calm-motion.test.ts", async () => {
     expect(fades).toEqual(["cv-enter-fade 0.12s", "cv-enter-fade 0.12s", "cv-enter-fade 0.12s", "cv-enter-fade 0.12s"]);
   });
 
+  test("a new message uses the subtle entrance and appears instantly under Reduce Motion", async () => {
+    const style = `:root{--agent-motion-in:180ms}${desktop}${conversation}`;
+    const normal = await page(style, `<div class="acpmux-row--message-enter">message</div>`, "no-preference");
+    const normalMotion = await normal.$eval(".acpmux-row--message-enter", (row) => ({
+      name: getComputedStyle(row).animationName,
+      duration: getComputedStyle(row).animationDuration,
+    }));
+    await normal.close();
+    expect(normalMotion).toEqual({ name: "cv-message-enter", duration: "0.18s" });
+
+    const reduced = await page(style, `<div class="acpmux-row--message-enter">message</div>`, "reduce");
+    const reducedMotion = await reduced.$eval(".acpmux-row--message-enter", (row) => ({
+      name: getComputedStyle(row).animationName,
+      duration: getComputedStyle(row).animationDuration,
+    }));
+    await reduced.close();
+    expect(reducedMotion).toEqual({ name: "none", duration: "0s" });
+  });
+
   test("the Jump to Latest pill rises in without growing", async () => {
     const p = await page(conversation, `<button class="acpmux-jump-latest">v</button>`, "no-preference");
     const hidden = await p.$eval(".acpmux-jump-latest", (pill) => getComputedStyle(pill).transform);
