@@ -1149,6 +1149,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-flow-trace",
  "cmux-process",
+ "cmux-trace",
  "libc",
 ]
 

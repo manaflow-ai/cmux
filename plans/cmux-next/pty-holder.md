@@ -124,8 +124,30 @@ the new daemon adopts the running (older) holder by the lower wire version
 (test: `holder_terminals.rs`
 `a_new_daemon_adopts_an_older_holder_by_its_wire_version` against the
 frozen version 3 fixture `cmux-holder-v3`). The terminal wire is
-`magic "CMHX"` (terminal-host-model-DESIGN.md section 4), versions 1-4; the
+`magic "CMHX"` (terminal-host-model-DESIGN.md section 4), versions 1-5; the
 `CMHL` v1 below is the earlier draft and is superseded for terminals.
+
+#### CMHX capability bits (wire version stays 5)
+
+New features are optional capability bits, not new versions
+(`cmux_holder::wire::capability`). HELLO may end with `wanted u32`; WELCOME
+may carry `granted u32` after its count (a subset of `wanted`). Each field is
+optional: an older daemon sends no `wanted` and is granted nothing, an older
+holder (the v3 fixture, every shipped v5 holder) sends no `granted`, and the
+daemon treats that as 0. The daemon sends a capability's frames only when
+that capability was granted. A holder answers a frame of an ungranted
+capability with ERROR UNKNOWN_KIND, as a holder older than the bit would.
+Bits are never reused.
+
+| Bit | Name | Adds |
+| --- | --- | --- |
+| 1 | TRACE_CONTROL | d->h on channel 0: TRACE_START (kind 22, `categories u64, records u32`, no path) and TRACE_STOP (kind 23, empty). The holder starts or stops its own `cmux-trace` recording in its own directory. When it refuses (no recording runs, or its ring is bigger than `records`), it sends ERROR with code TRACE_FAILED (11). A holder that did not grant the bit is `holder_untraced` in `trace.status` (no guess from its version or timing). The daemon keeps a running recording and sends it again to a holder whose link it publishes later (a holder restart). |
+| 2 | WRITE_FLOW | WRITE flag `FLAG_FLOW` (4): the last 8 bytes of the payload are the `flow u64` of the key press, not input. The input before them may be empty (a flow mark for input the daemon wrote on its custody master). The holder marks its next PTY read with that flow (`holder.pty.read`). An ungranted holder gets the plain WRITE, and no frame at all for an empty one. |
+
+The corpus of these exchanges is `cmux-holder/tests/capabilities.rs`
+(byte-exact HELLO, WELCOME, TRACE_START, TRACE_STOP and flow WRITEs). The
+v3 fixture's `tests/no_capabilities.rs` checks that a holder older than the
+bits gets none of the new frames.
 
 ### 2.1 Holder wire protocol v1 (frozen)
 
