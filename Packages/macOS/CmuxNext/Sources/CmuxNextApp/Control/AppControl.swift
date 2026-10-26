@@ -12,6 +12,7 @@ import CmuxNextFeatures
 import CmuxNextInput
 import CmuxNextInputDiagnostics
 import CmuxNextLaunch
+import CmuxNextMetrics
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -60,6 +61,8 @@ final class AppControl {
 
     private let input: any InputObserving  // the app's input tap: input explains CPU use to the busy watchdog
     private var inputSubscription: InputSubscription?
+    /// `idle.wakeups.*` (`AppServices.idleWakeups`): the same input ends its idle period at that input.
+    weak var idleWakeups: IdleWakeupSampler?
 
     /// - Parameter mainWork: The app's one main-thread scheduler: control requests are its
     ///   automation tasks, and the watchdog reads its board. `input` is the app's input tap.
@@ -84,12 +87,16 @@ final class AppControl {
         // over_budget). It perturbs what it measures, so it is off unless asked for.
         watchdog.attach(board: mainWork.budget.board, recordTaskBudgets: recordsTaskBudgets)
         watchdog.busy.setHelperSource { AppProcesses.chromiumHelpers() }
-        // Input explains CPU use to the busy watchdog (one atomic add per event).
-        inputSubscription = input.observe(types: Self.activityInput) { _ in ExpectedActivity.shared.note(.input) }
+        // Input explains CPU use to the busy watchdog (one atomic add per event) and, while the app is inactive,
+        // ends an idle-wakeups period at that input.
+        inputSubscription = input.observe(types: Self.activityInput) { [weak self] _ in
+            ExpectedActivity.shared.note(.input)
+            self?.idleWakeups?.inputArrived()
+        }
     }
 
-    /// The input that explains CPU use to the busy watchdog: key-downs, mouse-downs, left and right
-    /// drags, scrolls, moves and the magnify and swipe gestures (the old local monitor's mask).
+    /// The input that explains CPU use to the busy watchdog and ends an idle period: key-downs, mouse-downs,
+    /// left and right drags, scrolls, moves and the magnify and swipe gestures (the old local monitor's mask).
     static let activityInput: InputEventTypes = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .leftMouseDragged,
                                                  .rightMouseDragged, .scrollWheel, .mouseMoved, .magnify, .swipe]
 

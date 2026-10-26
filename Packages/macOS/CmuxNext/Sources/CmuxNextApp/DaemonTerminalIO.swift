@@ -49,6 +49,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
 
     let events: AsyncStream<TerminalIOEvent>
     private let driver: TerminalAttachDriver<TerminalAttachment>
+    /// The session's input lane drains here (``inputDrain()``), and each attach link's socket writer targets it.
+    private let inputQueue: DispatchQueue
     private let creatingInput: CreatingTerminalInput?
     /// The burst marks of grid echoes and first outputs (nil: none), in every build while a recording runs.
     private let burstTrace: BurstTrace?
@@ -80,6 +82,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
         let surface = target.attachment.surface.rawValue
         let firstAttach = NewTerminalTrace.FirstAttach(intent: createIntent)
+        // qos-allow: key echo path: a typed key goes to the attach socket on this queue and its frame waits for the echo
+        let inputQueue = DispatchQueue(label: "com.cmuxterm.next.terminal.attach-input", qos: .userInteractive)
         let driver = TerminalAttachDriver<TerminalAttachment>(
             initialSize: target.initialSize,
             visible: visible,
@@ -100,7 +104,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
                                                     localHistory: Self.attachLocalHistory,
                                                     images: Self.attachImages,
                                                     device: await Self.sizingDevice.value,
-                                                    hangs: hangWatch, createIntent: firstAttach.take())
+                                                    hangs: hangWatch, createIntent: firstAttach.take(),
+                                                    inputQueue: inputQueue)
             },
             onFailure: { error in
                 logger.error("attach \(surface) failed: \(String(describing: error), privacy: .public)")
@@ -120,6 +125,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             }
         )
         self.driver = driver
+        self.inputQueue = inputQueue
         self.creatingInput = creatingInput
         self.burstTrace = burstTrace
         self.surface = surface
@@ -166,6 +172,47 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     func write(_ data: Data) async {
         if let creatingInput, await creatingInput.write(data) { return }
         driver.input(data)
+    }
+
+    /// The session's input drains on the attach input queue, which the attach socket's writer targets: a key
+    /// is reduced and written to the socket there, one thread hop from the main thread.
+    func inputDrain() -> TerminalInputDrain {
+        Self.inputDrain(on: inputQueue, driver: driver, creating: creatingInput)
+    }
+
+    /// Hands every lane record to `driver` on `queue`. The driver reduces a key and appends it to the socket's
+    /// outbox in the lane's turn, and the socket writer, which targets `queue`, sends it on that serial queue
+    /// right after: one thread hop from the main thread to `write(2)`, as Chromium posts input once to the IO
+    /// thread that owns the IPC channel (ipc/ipc_channel_proxy.cc, `ChannelProxy::Send`).
+    ///
+    /// While the terminal is still being created its bytes go by id, one awaited send at a time; the lane holds
+    /// every later record meanwhile, and a chunk the daemon refused goes by the attachment on `queue` before the
+    /// lane resumes, so no record passes it.
+    static func inputDrain<Link: TerminalAttachLink>(on queue: DispatchQueue, driver: TerminalAttachDriver<Link>,
+                                                     creating: (any CreatingTerminalInputSending)?) -> TerminalInputDrain {
+        TerminalInputDrain(queue: queue) { record, resume in
+            switch record {
+            case .bytes(let data):
+                guard let creating, !creating.sendsByAttachment else {
+                    driver.input(data)
+                    return .next
+                }
+                Task {
+                    let sentByID = await creating.write(data)
+                    queue.async {
+                        if !sentByID { driver.input(data) }
+                        resume()
+                    }
+                }
+                return .hold
+            case .resize: break // never sent: `resizeOnMain` takes every grid
+            case .focusGained: driver.focused()
+            case .takeOverSize(let setLatest): driver.takeOver(setLatest: setLatest)
+            case .reconnect: driver.reconnect()
+            case .resync: driver.requestResync()
+            }
+            return .next
+        }
     }
 
     /// Focus takes geometry back after another client sized the terminal,

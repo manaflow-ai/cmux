@@ -68,6 +68,11 @@ public nonisolated protocol TerminalIO: Sendable {
     /// restore did not match the owner's check): a daemon IO asks for a full
     /// snapshot. Ordered with `write`.
     func resyncRequested() async
+
+    /// Where the session's input lane drains (``TerminalInputLane``): called once per session. An IO
+    /// whose sends do not block returns its own serial queue and a handler that takes each record
+    /// there, so a key reaches it in one thread hop. The default runs the async calls above in order.
+    func inputDrain() -> TerminalInputDrain
 }
 
 public extension TerminalIO {
@@ -78,6 +83,7 @@ public extension TerminalIO {
     func takeOverSize(setLatest: Bool) async {}
     func reconnectRequested() async {}
     func resyncRequested() async {}
+    func inputDrain() -> TerminalInputDrain { .awaiting(self) }
 }
 
 /// One event from a ``TerminalIO``.

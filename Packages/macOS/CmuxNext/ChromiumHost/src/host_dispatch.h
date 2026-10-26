@@ -31,6 +31,11 @@
 //                                              (host_text_input.h)
 //   kOpTextInputStats                           no fields: answered with the text
 //                                              input push counters (host_text_input.h)
+//   kOpBrowserAccessibilityToken                the generated case; for a browser cmux
+//                                              minted whose creation has not come, held
+//                                              and run once its AFTER_CREATED went out
+//                                              (task 049) and after the ack of the op whose
+//                                              call created it
 // Every preinit op comes before kOpInitialize (the remote shim queues them,
 // task 014); everything else after it.
 //
@@ -215,6 +220,10 @@ class HostContext {
   int ArmTextInputWatch(int chromium_id);
   // True while `client_id` is a minted id whose creation event has not come.
   bool AwaitsCreation(int32_t client_id) const;
+  // Holds a page accessibility request of a browser not created yet (true), to run after its
+  // creation event (RunHeldForCreation); false: run it now. A peer past the bound is bad.
+  bool HoldForCreation(control::Message& message);
+  void RunHeldForCreation(int32_t client_id);
   void ReplyResult(uint32_t token, int32_t result);
   void Watch(uint16_t op, const std::vector<control::Field>& key);
   void ForwardEvent(int kind, int browser_id, int request, int64_t a, int64_t b, const char* s1, const char* s2);
@@ -253,6 +262,10 @@ class HostContext {
   std::optional<std::string> dispatching_profile_;  // a create_window's profile_cache_path
   std::vector<HeldEvent> held_events_;
   std::vector<control::Message> held_replies_;
+  // While Dispatch forwards held_events_: still the op's dispatch, so a browser one of them
+  // creates runs its held requests (RunHeldForCreation) only after the op's ack.
+  bool replaying_held_events_ = false;
+  std::vector<int32_t> created_during_replay_;
 
   // Client ids (minted by cmux, task 019) and Chromium's ids. An id with no
   // entry is the same on both sides.
@@ -284,6 +297,9 @@ class HostContext {
   // minted id: the watch tokens Bind arms and answers. Bounded with
   // pending_binds_ (AwaitsCreation).
   std::unordered_map<int32_t, std::vector<uint32_t>> text_input_awaiting_;
+  // Page accessibility requests of minted ids whose creation has not come, by the minted id.
+  // Bounded with pending_binds_ and kMaxHeldPerBrowser (host_dispatch.mm).
+  std::unordered_map<int32_t, std::vector<control::Message>> held_for_creation_;
 };
 
 }  // namespace cmux_host

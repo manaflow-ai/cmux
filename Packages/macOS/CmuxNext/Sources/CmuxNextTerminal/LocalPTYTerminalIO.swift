@@ -131,7 +131,29 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         }
     }
 
+    /// The session's input drains on the write queue (``TerminalInputLane``): a key's bytes reach the
+    /// PTY's pending input in one hop from the thread that typed it.
+    public func inputDrain() -> TerminalInputDrain {
+        TerminalInputDrain(queue: writeQueue) { [self] record, _ in
+            switch record {
+            case .bytes(let data):
+                guard !closed.load(ordering: .acquiring) else { break }
+                input.append(data)
+                input.flush(to: masterFD, source: writeSource)
+            case .resize(let grid, let width, let height):
+                setSize(cols: grid.columns, rows: grid.rows, pixelWidth: width, pixelHeight: height)
+            case .focusGained, .takeOverSize, .reconnect, .resync:
+                break
+            }
+            return .next
+        }
+    }
+
     public func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async {
+        setSize(cols: cols, rows: rows, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
+    }
+
+    private func setSize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) {
         guard !closed.load(ordering: .acquiring) else { return }
         var size = winsize(
             ws_row: UInt16(clamping: rows),

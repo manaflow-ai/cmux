@@ -316,7 +316,7 @@ nonisolated struct ChromiumHostControlMessage: Equatable, Sendable {
     }
 
     private static func put<T: FixedWidthInteger>(_ out: inout [UInt8], _ value: T) {
-        withUnsafeBytes(of: value.littleEndian) { out.append(contentsOf: $0) }
+        out.appendLittleEndian(value)
     }
 }
 #endif

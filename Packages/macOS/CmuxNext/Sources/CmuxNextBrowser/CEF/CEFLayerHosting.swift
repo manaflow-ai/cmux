@@ -7,12 +7,16 @@ import IOSurface
 /// asks the fork for the page window's Core Animation context and shows it in
 /// a ``ChromiumHostPageView`` at the bottom of the host view.
 ///
-/// Whether it hosts (``hosting(override:fork:widget:)``): the developer's
-/// `BrowserResizeTunables.layerHosting` hosts every page window from fork API
-/// 26. Without it the default-off feature `cefLayerHosting` hosts a pane's page
-/// only where the app makes every Track A call for the fork (``TrackA``);
+/// Whether it hosts (``hosting(override:fork:widget:)``): the default-off
+/// feature `cefLayerHosting`, which reaches each page window as its fork's
+/// Track A calls (``Fork/trackA``, nil while the feature is off), hosts a
+/// pane's page only where the app makes every one of them (``TrackA``);
 /// DevTools and popup windows keep drawing in their own window (``Widget``)
-/// until task p03-rendering-056 hosts them.
+/// until task p03-rendering-056 hosts them. The Debug tunable
+/// `browserResize.layerHosting` is only that feature's local override,
+/// resolved at launch, never read here. The benches' arm, feature
+/// `cefLayerHostingEveryPage` (DEBUG and bench builds, ``Fork/hostsEveryPage``),
+/// hosts every page window, DevTools and popups too.
 ///
 /// The context belongs to the page window, not to a tab: every tab of a pane
 /// shares it, so a tab switch inside a hosted pane makes no fork call. A new
@@ -136,15 +140,15 @@ final class CEFLayerHosting {
     typealias Scheduler = (_ block: @escaping @MainActor @Sendable () -> Void) -> Void
 
     /// - Parameters:
-    ///   - isEnabled: the override that hosts every page window (``hosting(override:fork:widget:)``);
-    ///     the tunable by default.
+    ///   - isEnabled: hosts every page window whatever the features (``hosting(override:fork:widget:)``):
+    ///     tests force hosting with it; the app never does.
     ///   - schedule: runs a block at the end of this run-loop turn; tests run it when they choose.
     ///   - makePage: the hosted view for a frame; tests pass one whose layer host fails.
     ///   - resizeDeadlineMs: the upper bound of a hosted page's resize wait; the tunable by default.
     ///   - refreshIntervals: the shortest frame interval of each display, which cap the wait
     ///     (``CEFResizeSyncDeadline``); tests pass fixed rates.
     ///   - afterCommit: runs a block once this run-loop pass committed its frame; tests run it when they choose.
-    init(isEnabled: @escaping () -> Bool = { BrowserResizeTunables.layerHosting.value },
+    init(isEnabled: @escaping () -> Bool = { false },
          schedule: @escaping Scheduler = { CEFLayerHosting.atEndOfTurn($0) },
          makePage: @escaping (CGRect) -> ChromiumHostPageView = { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow) },
          resizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.syncDeadline.value * 1_000).rounded()) },

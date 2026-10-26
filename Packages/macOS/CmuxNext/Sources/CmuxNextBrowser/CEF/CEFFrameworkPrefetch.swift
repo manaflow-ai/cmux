@@ -272,21 +272,26 @@ nonisolated final class CEFFrameworkPrefetch: Sendable {
         var files = 0
         var outcome = Outcome.done
         let size = 1 << 20
-        let buffer = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 16384)
-        defer { buffer.deallocate() }
+        // SAFETY: this reader's own page-aligned scratch buffer of `size` bytes, freed once when the read ends;
+        // only pread writes it (`read(_:from:to:through:size:)`, never past `size`) and nothing reads it.
+        let buffer = unsafe UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 16384)
+        defer { unsafe buffer.deallocate() }
         reading: for url in urls where !state.withLock({ $0.done.contains(url) }) {
+            // SAFETY: open reads the NUL-terminated copy of the path Swift makes for the call.
             // concurrency-allow: a files-lane item or the library-load thread (Task.detached in CEFRuntime.start/preload), never the main thread
-            let descriptor = open(url.path, O_RDONLY | O_CLOEXEC)
+            let descriptor = unsafe open(url.path, O_RDONLY | O_CLOEXEC)
             guard descriptor >= 0 else {
                 state.withLock { _ = $0.done.insert(url) }
                 continue
             }
             defer { close(descriptor) }
             var info = stat()
-            let length = fstat(descriptor, &info) == 0 ? Int(info.st_size) : 0
+            // SAFETY: fstat writes one `stat` into `info` during the call.
+            let length = unsafe fstat(descriptor, &info) == 0 ? Int(info.st_size) : 0
             var step = nextStep(url, length: length, spent: bytes, budget: budget, stop: stop)
             while case .chunk(let offset) = step {
-                bytes += Self.read(descriptor, from: offset, to: min(offset + Self.chunkBytes, length), through: buffer, size: size)
+                // SAFETY: `buffer` holds `size` bytes (above).
+                bytes += unsafe Self.read(descriptor, from: offset, to: min(offset + Self.chunkBytes, length), through: buffer, size: size)
                 step = nextStep(url, length: length, spent: bytes, budget: budget, stop: stop)
             }
             switch step {
@@ -337,8 +342,9 @@ nonisolated final class CEFFrameworkPrefetch: Sendable {
                              size: Int) -> Int {
         var offset = start
         while offset < end {
+            // SAFETY: pread writes at most min(size, end - offset) <= size bytes into `buffer`, which holds `size`.
             // concurrency-allow: a files-lane item or the library-load thread, never the main thread
-            let count = pread(descriptor, buffer, min(size, end - offset), off_t(offset))
+            let count = unsafe pread(descriptor, buffer, min(size, end - offset), off_t(offset))
             if count < 0, errno == EINTR { continue }
             guard count > 0 else { break }
             offset += count

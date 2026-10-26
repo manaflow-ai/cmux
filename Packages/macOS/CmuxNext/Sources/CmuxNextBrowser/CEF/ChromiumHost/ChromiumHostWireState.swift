@@ -69,7 +69,8 @@ nonisolated final class ChromiumHostWireState: Sendable {
     /// the socket is full and disarms it once drained.
     private func flushLocked(_ wire: inout ChromiumHostWire) -> AfterFlush {
         let fd = wire.writeFD
-        switch wire.outbox.flush({ Self.write(fd, $0) }) {
+        // SAFETY: the outbox's view is valid for the call, and write only reads it during the call.
+        switch wire.outbox.flush({ unsafe Self.write(fd, $0) }) {
         case .drained:
             if wire.writableArmed {
                 wire.writable?.suspend()
@@ -141,7 +142,8 @@ nonisolated final class ChromiumHostWireState: Sendable {
     }
 
     private static func write(_ fd: Int32, _ bytes: UnsafeRawBufferPointer) -> ChromiumHostInputOutbox.WriteOutcome {
-        let written = Darwin.write(fd, bytes.baseAddress, bytes.count)
+        // SAFETY: write reads at most bytes.count bytes of the caller's view during the call.
+        let written = unsafe Darwin.write(fd, bytes.baseAddress, bytes.count)
         if written >= 0 { return .wrote(written) }
         switch errno {
         case EINTR: return .interrupted
@@ -199,7 +201,9 @@ nonisolated final class ChromiumHostWireState: Sendable {
         var chunk = [UInt8](repeating: 0, count: 64 * 1024)
         var open = true
         while open {
-            let count = chunk.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
+            let room = chunk.count
+            // SAFETY: read writes at most `room` bytes, the array's size, into its buffer during the call.
+            let count = unsafe Darwin.read(fd, &chunk, room)
             if count < 0, errno == EINTR { continue }
             guard count > 0 else { break }  // EOF: the host ended, or close() shut the socket down
             buffer.append(contentsOf: chunk[0..<count])

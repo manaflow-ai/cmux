@@ -56,6 +56,7 @@ final class HomeHeaderPanelBar: NSView {
     func set(_ items: [HomeHeaderPanelItem]) {
         guard items != self.items else { return }
         if items.map(\.id) != self.items.map(\.id) || zip(items, self.items).contains(where: { $0.symbol != $1.symbol || $0.onSymbol != $1.onSymbol }) {
+            needsLayout = true
             for button in buttons { button.removeFromSuperview() }
             buttons = items.map { item in
                 let button = HomeHeaderButton(symbol: item.symbol, onSymbol: item.onSymbol, label: item.label,
@@ -66,7 +67,6 @@ final class HomeHeaderPanelBar: NSView {
                 return button
             }
             invalidateIntrinsicContentSize()
-            superview?.needsLayout = true
         }
         self.items = items
         for (button, item) in zip(buttons, items) {
@@ -75,7 +75,6 @@ final class HomeHeaderPanelBar: NSView {
             button.themedToolTipShortcut = item.shortcut
             button.isOn = item.isOn
         }
-        needsLayout = true
     }
 
     override var intrinsicContentSize: NSSize {
