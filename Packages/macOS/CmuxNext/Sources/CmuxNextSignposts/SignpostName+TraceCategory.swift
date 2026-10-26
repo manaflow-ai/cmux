@@ -24,7 +24,7 @@ nonisolated extension SignpostName {
         case .frameTick, .frameCommit, .frameGPUDone, .framePresentEstimate, .frameSequence: .frame
         case .taskPost, .taskRun: .task
         case .hangThreadHung, .hangInProgress, .hangInvalidated: .hang
-        case .inputFrame: .input
+        case .inputFrame, .inputLatency: .input
         case .webviewINP, .webviewLoAF: .webview
         case .remoteInput, .remoteFrameDecoded, .remotePresent: .remote
         case .crashHelperExit, .crashWebContentEnd, .crashRendererUnresponsive, .crashChildExit,
