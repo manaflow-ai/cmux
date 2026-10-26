@@ -1,6 +1,8 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import CmuxNextControl
+import CmuxNextDesign
 import CmuxNextOracle
+import CmuxNextSettings
 
 /// The app's oracle facet providers (p15-oracle.md section 3A), registered as `debug.oracle.*` in DEV and
 /// bench builds only: a Release build compiles neither this conformance nor any provider in the list. The
@@ -14,6 +16,13 @@ extension AppServices: OracleHost {
                 guard let self, let monitor = input.monitor, let result = monitor.check() else { return nil }
                 return OracleInvariantsFacet.Reading(violations: result.violations.map(\.invariant.rawValue),
                                                      windowInvariants: WindowInvariants.problems(windows), checks: monitor.checks)
+            },
+            // The settings the controller applied (no file read) and Reduce Motion as the motion gates see it.
+            OracleSettingsFacet { [weak self] in
+                guard let applied = self?.settings?.applied else { return nil }
+                return OracleSettingsFacet.Reading(effectiveSha256: applied.effectiveSha256, nonDefaultKeys: applied.nonDefaultKeys(),
+                                                   motionEnabled: applied.motionCategories.enabled,
+                                                   motionSpeed: applied.animationSpeed.timeScale, reduceMotion: Motion.reduceMotion)
             },
         ])
     }
