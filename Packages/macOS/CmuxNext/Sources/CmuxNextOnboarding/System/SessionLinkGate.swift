@@ -22,22 +22,28 @@ public nonisolated struct SessionLinkSubject: Equatable, Sendable {
 
     /// `text` on one line: control, format (bidi overrides, zero-width) and line or paragraph
     /// separator characters dropped, white space runs made one space, at most `limit` characters
-    /// (then an ellipsis).
+    /// (then an ellipsis). Combining marks stack on one character, so the scalars are capped too
+    /// (four per character): the question never gets more than that to lay out.
     public static func clean(_ text: String, limit: Int) -> String {
         var out = ""
         var space = false
+        var scalars = 0
+        let cut = limit * 4
         for scalar in text.unicodeScalars {
+            guard scalars < cut else { break }
             switch scalar.properties.generalCategory {
             case .control, .format, .lineSeparator, .paragraphSeparator, .spaceSeparator,
                  .surrogate, .privateUse, .unassigned:
                 if scalar.properties.isWhitespace || scalar == "\n" || scalar == "\t" { space = !out.isEmpty }
                 continue
             default:
-                if space { out.unicodeScalars.append(" "); space = false }
+                if space { out.unicodeScalars.append(" "); space = false; scalars += 1 }
                 out.unicodeScalars.append(scalar)
+                scalars += 1
             }
         }
-        return out.count > limit ? String(out.prefix(limit - 1)) + "…" : out
+        let cutShort = scalars >= cut
+        return out.count > limit || cutShort ? String(out.prefix(limit - 1)) + "…" : out
     }
 
     /// This Mac, when it has no name to show.

@@ -90,6 +90,10 @@ import Testing
         #expect(subject.host == "peer box")
         #expect(SessionLinkSubject(id: "a", title: String(repeating: "x", count: 500), harness: nil, host: "h").title?.count == 80)
         #expect(SessionLinkSubject(id: "a", title: " \n ", harness: nil, host: "h").name == "a")
+        // One character with 100 000 combining accents is still a short line.
+        let stacked = SessionLinkSubject(id: "a", title: "A" + String(repeating: "\u{0301}", count: 100_000), harness: nil, host: "h")
+        #expect((stacked.title?.unicodeScalars.count ?? 0) <= 80 * 4 + 1)
+        #expect(stacked.title?.hasSuffix("…") == true)
     }
 
     @Test func theQuestionAlwaysShowsTheSessionID() {
