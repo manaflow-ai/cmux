@@ -132,6 +132,10 @@ const FILTER_ROWS = 9;
 const EFFORT_SLIDER_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"]);
 
 const rowValue = (model: Pick<QuickModel, "family" | "id">) => `${model.family}\u0000${model.id}`;
+/// The running model's row when several providers serve it: the running offer may be another
+/// provider's than the row lands, when the running one is unavailable.
+const runsOffers = (model: Pick<QuickModel, "id" | "offers">, current: string | undefined) =>
+  !!model.offers?.some((offer) => offer.id === current);
 
 /// What one rail tab's unfiltered list draws, in rows and separators (the group label is in every
 /// tab). The menu opens above its chip, so a taller or shorter tab moved the rail under the pointer;
@@ -158,7 +162,7 @@ export function tabExtent(
     separators += 1;
   }
   // The Provider row, after Effort, for a running model several providers serve.
-  if (chat && look === "row" && listed.some((model) => model.id === menu.current && model.offers)) {
+  if (chat && look === "row" && listed.some((model) => runsOffers(model, menu.current))) {
     rows += 1;
     if (menu.levels <= 1) separators += 1;
   }
@@ -329,7 +333,7 @@ export function QuickModelMenu({
   const providerLook = menu.providers ?? "row";
   // The running model's row when several providers serve it: the Provider row switches among them.
   const runningRow = onChatTab
-    ? (families ? shown?.models : models)?.find((model) => model.id === current && model.offers)
+    ? (families ? shown?.models : models)?.find((model) => runsOffers(model, current))
     : undefined;
   const runningProvider = runningRow?.offers?.find((offer) => offer.id === current)?.provider;
   const valueOf = (model: Pick<QuickModel, "family" | "id">) => (families ? rowValue(model) : model.id);
@@ -464,11 +468,11 @@ export function QuickModelMenu({
               family.id === families.current && model.id === current
                 ? { label, ...value, check: true }
                 : { label, ...value, shortcut: true },
-              ...(family.id === families.current && model.id === current && model.offers
+              ...(family.id === families.current && runsOffers(model, current)
                 ? [
                     {
                       label: t("picker.provider"),
-                      value: model.offers.find((offer) => offer.id === current)?.provider,
+                      value: model.offers?.find((offer) => offer.id === current)?.provider,
                       sub: true,
                     },
                   ]

@@ -114,11 +114,14 @@ function quickSections(
 ): { shown: ModelChoice[]; more: ModelChoice[] } {
   const { latest, older } = sectionsFor(entry);
   const latestIds = new Set(latest.map((choice) => choice.id));
-  const all = groupChoices([...latest, ...older].filter(usable), model);
+  // Filtered after grouping: a model stays when any provider's row of it is usable, and its offers
+  // keep the running one, so the Provider row still names it.
+  const all = groupChoices([...latest, ...older], model).filter(usable);
   // A model is a top one when any provider's row of it is.
   const top = all.filter((choice) => (choice.offers ?? [choice]).some((offer) => latestIds.has(offer.id)));
   const picks = [...top.filter((choice) => !isVariant(choice)), ...top.filter(isVariant)].slice(0, QUICK_ROWS);
-  const runs = all.find((choice) => choice.id === model);
+  // The running model's row, also when it lands another provider than the unavailable running one.
+  const runs = all.find((choice) => (choice.offers ?? [choice]).some((offer) => offer.id === model));
   const chosen = new Set(runs && !picks.includes(runs) ? [...picks.slice(0, QUICK_ROWS - 1), runs] : picks);
   return { shown: all.filter((choice) => chosen.has(choice)), more: all.filter((choice) => !chosen.has(choice)) };
 }
