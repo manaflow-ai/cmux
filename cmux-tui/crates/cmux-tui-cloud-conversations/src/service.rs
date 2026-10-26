@@ -956,7 +956,14 @@ impl CloudConversations {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .get(target)
-            .map(|subscription| (subscription.state.event(target), subscription.presence.clone()));
+            .map(|subscription| {
+                // Only a live socket's set: a socket that is going away has none to tell. A
+                // replay that races the socket's end is followed by its empty set (the
+                // socket's end clears this cache, then emits the empty set), so a client
+                // always ends on the right set.
+                let live = subscription.state.state == "live";
+                (subscription.state.event(target), subscription.presence.clone().filter(|_| live))
+            });
         if let Some((state, presence)) = events {
             self.inner.emit(state);
             if let Some(presence) = presence {

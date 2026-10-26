@@ -693,13 +693,16 @@ who views a subscribed Cloud conversation now (the owner's
 each subscribe), only to the person's connections that echoed
 `cloud-conversation-presence-v1`. Another conversation's set, a participant
 without an id or a boolean `viewing`, and a set of more than 256 participants
-or with an id over 256 bytes are dropped. Ephemeral: never stored or replayed.
+or with an id over 256 bytes are dropped. Ephemeral: never written to disk or
+to any log, and kept in memory only as the live socket's last set (below).
 When the daemon's own socket for the conversation ends after a non-empty set,
 the daemon sends an empty set, because the owner sends the set again only to
 the next socket. The daemon keeps the live socket's last set and sends it again
 right after each `cloud-conversation-subscribe` reply (after the
-`cloud-subscription-state` event), so a client that lost events and subscribes
-again gets the current set without waiting for a change.
+`cloud-subscription-state` event) while the socket is `live`, so a client that
+lost events and subscribes again gets the current set without waiting for a
+change. A socket that ends clears that set before it sends the empty one, so a
+replay that races the end is always followed by the empty set.
 
 ### terminal-registry-changed
 
