@@ -33,9 +33,11 @@ enum NativeSpinnerImage {
         indicator.appearance = NSAppearance(named: .aqua)
         // A windowless view caches at 1x; draw into a rep with the pixel
         // size explicitly so the mask is sharp on Retina.
-        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels, bitsPerSample: 8,
-                                         samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
-                                         bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+        // SAFETY: the planes pointer is nil, so AppKit allocates and owns the pixel buffer (bytesPerRow 0: a row size
+        // it picks); nothing is read or written through a pointer passed from here.
+        guard let rep = unsafe NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels, bitsPerSample: 8,
+                                                samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                                bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
         rep.size = NSSize(width: points, height: points)
         indicator.cacheDisplay(in: indicator.bounds, to: rep)
         guard let image = rep.cgImage.flatMap(normalized) else {
@@ -53,8 +55,9 @@ enum NativeSpinnerImage {
     private static func normalized(_ image: CGImage) -> CGImage? {
         let width = image.width, height = image.height
         // SAFETY (the bitmap below): `data` is the context's own alpha-only bitmap, read only after the draw.
-        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
-                                      space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue),
+        guard let context = CGContext.pixelOwningBitmap(width: width, height: height, bytesPerRow: width,
+                                                        space: CGColorSpaceCreateDeviceGray(),
+                                                        bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue),
               let data = unsafe context.data else { return nil }
         context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
         let count = height * context.bytesPerRow

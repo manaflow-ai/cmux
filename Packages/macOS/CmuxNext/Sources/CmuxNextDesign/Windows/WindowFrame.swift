@@ -121,9 +121,11 @@ public nonisolated struct WindowFrame: Sendable {
     var image: CGImage? {
         let data = Data(pixels) as CFData
         guard let provider = CGDataProvider(data: data) else { return nil }
-        return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
-                       space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-                       provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+        // SAFETY: the decode-array pointer is nil (the default decode), so Core Graphics reads no memory through it;
+        // the pixels come from `provider`, which the image retains.
+        return unsafe CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
+                              space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                              provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
     }
 
     public func write(to path: String) {
@@ -138,9 +140,10 @@ public nonisolated struct WindowFrame: Sendable {
         let gap = 4, full = frames.count * (first.width + gap) - gap
         let factor = min(1, 16_384 / Double(max(1, full)))
         let cell = Double(first.width + gap) * factor
-        guard let context = CGContext(data: nil, width: Int((Double(full) * factor).rounded(.up)), height: max(1, Int((Double(first.height) * factor).rounded(.up))),
-                                      bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        guard let context = CGContext.pixelOwningBitmap(width: Int((Double(full) * factor).rounded(.up)),
+                                                        height: max(1, Int((Double(first.height) * factor).rounded(.up))),
+                                                        space: CGColorSpaceCreateDeviceRGB(),
+                                                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return }
         context.interpolationQuality = .medium
         for (index, frame) in frames.enumerated() {

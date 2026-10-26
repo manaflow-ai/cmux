@@ -149,13 +149,12 @@ enum LabelText {
     /// as "short"). A line whose kept glyphs reach as far right keeps its rect (right-to-left
     /// text, where the trailing spaces sit on the left).
     private static func withoutTrailingSpaces(_ usedRect: CGRect, glyphs: NSRange) -> CGRect {
-        let characters = manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+        let characters = manager.characterRange(ofGlyphs: glyphs)
         let string = storage.string as NSString
         var end = NSMaxRange(characters)
         while end > characters.location, [0x20, 0x09, 0x0A, 0x0D, 0x2028, 0x2029].contains(string.character(at: end - 1)) { end -= 1 }
         guard end < NSMaxRange(characters), end > characters.location else { return usedRect }
-        let kept = manager.glyphRange(forCharacterRange: NSRange(location: characters.location, length: end - characters.location),
-                                      actualCharacterRange: nil)
+        let kept = manager.glyphRange(ofCharacters: NSRange(location: characters.location, length: end - characters.location))
         let right = manager.boundingRect(forGlyphRange: kept, in: container).maxX + padding
         guard right > usedRect.minX, right < usedRect.maxX else { return usedRect }
         return CGRect(x: usedRect.minX, y: usedRect.minY, width: right - usedRect.minX, height: usedRect.height)
@@ -166,14 +165,14 @@ enum LabelText {
     /// only part of the text and the cut falls on a line break; else nil.
     private static func ellipsized(_ text: NSAttributedString, shape: Shape, glyphs: NSRange) -> NSAttributedString? {
         guard shape.wraps, shape.truncatesLastVisibleLine else { return nil }
-        let shown = manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+        let shown = manager.characterRange(ofGlyphs: glyphs)
         let end = NSMaxRange(shown)
         guard end < text.length, end > 0 else { return nil }
         let characters = text.string as NSString
         let last = characters.character(at: end - 1)
         guard last == 0x0A || last == 0x0D || last == 0x2028 || last == 0x2029 else { return nil }
         let cut = NSMutableAttributedString(attributedString: text.attributedSubstring(from: NSRange(location: 0, length: end - 1)))
-        let attributes = end >= 2 ? text.attributes(at: end - 2, effectiveRange: nil) : text.attributes(at: 0, effectiveRange: nil)
+        let attributes = end >= 2 ? text.attributes(atCharacter: end - 2) : text.attributes(atCharacter: 0)
         cut.append(NSAttributedString(string: "\u{2026}", attributes: attributes))
         return cut
     }
@@ -181,7 +180,7 @@ enum LabelText {
     /// The baseline a field reports for a line: its tallest font's ascender, rounded to a whole
     /// point (where the line's glyphs sit).
     private static func reportedAscent(of glyphs: NSRange) -> CGFloat {
-        WholePointLines.metrics(of: lineHeights.fonts ?? storage, in: manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil))?.ascent ?? 0
+        WholePointLines.metrics(of: lineHeights.fonts ?? storage, in: manager.characterRange(ofGlyphs: glyphs))?.ascent ?? 0
     }
 
     /// Draws `text` (font and color set) laid out for `shape` in a top-down box of `size` (the
@@ -199,7 +198,7 @@ enum LabelText {
         }
         context.saveGState()
         defer { context.restoreGState() }
-        if manager.lineFragmentRect(forGlyphAt: NSMaxRange(range) - 1, effectiveRange: nil).minY > 0 {
+        if manager.lineFragmentRect(ofGlyphAt: NSMaxRange(range) - 1).minY > 0 {
             context.clip(to: CGRect(x: padding, y: 0, width: max(size.width - padding * 2, 0), height: size.height))
         }
         manager.drawGlyphs(forGlyphRange: range, at: .zero)
@@ -233,7 +232,7 @@ enum LabelText {
                            lineFragmentUsedRect: UnsafeMutablePointer<NSRect>, baselineOffset: UnsafeMutablePointer<CGFloat>,
                            in textContainer: NSTextContainer, forGlyphRange glyphRange: NSRange) -> Bool {
             guard let storage = layoutManager.textStorage else { return false }
-            let characters = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
+            let characters = layoutManager.characterRange(ofGlyphs: glyphRange)
             guard let metrics = Self.metrics(of: fonts ?? storage, in: characters) else { return false }
             let ascent = metrics.ascent, height = metrics.height
             // SAFETY: the layout manager lends the three values for this call (NSLayoutManagerDelegate); each is

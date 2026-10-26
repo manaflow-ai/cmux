@@ -31,9 +31,9 @@ extension CGImage {
     public nonisolated func resampled(width newWidth: Int, height newHeight: Int) -> CGImage? {
         guard newWidth > 0, newHeight > 0 else { return nil }
         if width == newWidth, height == newHeight { return self }
-        guard let context = CGContext(data: nil, width: newWidth, height: newHeight, bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: colorSpace ?? CGColorSpaceCreateDeviceRGB(),
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        guard let context = CGContext.pixelOwningBitmap(width: newWidth, height: newHeight,
+                                                        space: colorSpace ?? CGColorSpaceCreateDeviceRGB(),
+                                                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         context.interpolationQuality = .high
         context.draw(self, in: CGRect(x: 0, y: 0, width: newWidth, height: newHeight))
         return context.makeImage()

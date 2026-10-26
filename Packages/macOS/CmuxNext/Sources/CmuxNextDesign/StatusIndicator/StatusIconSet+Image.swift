@@ -24,9 +24,9 @@ extension StatusIconSet {
             colors = .current(loading: config.settings.color)
         }
         guard let color = colors?.color(for: plan.tint), let space = CGColorSpace(name: CGColorSpace.sRGB),
-              let context = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: pixels * 4,
-                                      space: space,
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+              let context = CGContext.pixelOwningBitmap(width: pixels, height: pixels, bytesPerRow: pixels * 4,
+                                                        space: space,
+                                                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         let rect = CGRect(x: 0, y: 0, width: pixels, height: pixels)
         context.clip(to: rect, mask: mask)
         context.setFillColor(color)
@@ -43,8 +43,9 @@ extension StatusIconSet {
 @MainActor
 enum StatusGlyphArt {
     static func mask(_ plan: StatusIndicatorPlan, pixels: Int, scale: CGFloat, config: StatusIndicatorConfig) -> CGImage? {
-        guard let context = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: pixels,
-                                      space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue) else { return nil }
+        guard let context = CGContext.pixelOwningBitmap(width: pixels, height: pixels, bytesPerRow: pixels,
+                                                        space: CGColorSpaceCreateDeviceGray(),
+                                                        bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue) else { return nil }
         let rect = CGRect(x: 0, y: 0, width: pixels, height: pixels)
         let thickness = config.settings.thickness * scale
         context.setFillColor(gray: 0, alpha: 1)

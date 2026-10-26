@@ -61,8 +61,9 @@ enum BrailleSpinnerImage {
         let origin = CGPoint(x: ((CGFloat(pixels) - bounds.width) / 2 - bounds.minX).rounded(),
                              y: ((CGFloat(pixels) - bounds.height) / 2 - bounds.minY).rounded())
         return frames.compactMap { frame in
-            guard let context = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: pixels,
-                                          space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue)
+            guard let context = CGContext.pixelOwningBitmap(width: pixels, height: pixels, bytesPerRow: pixels,
+                                                            space: CGColorSpaceCreateDeviceGray(),
+                                                            bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue)
             else { return nil }
             context.setShouldAntialias(true)
             context.textPosition = origin

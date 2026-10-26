@@ -125,7 +125,7 @@ public final class CmuxToastView: NSView {
         super.layout()
         // CoreGraphics refuses a corner wider than half the rect.
         let radius = min(Self.cornerRadius, min(bounds.width, bounds.height) / 2)
-        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        layer?.shadowPath = CGPath.roundedRect(bounds, cornerWidth: radius, cornerHeight: radius)
     }
 
     private func applyUndoKey() {

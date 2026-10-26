@@ -97,7 +97,7 @@ final class DragLiftView: NSView {
     }
 
     private func shadowPath(_ rect: CGRect) -> CGPath {
-        CGPath(roundedRect: rect, cornerWidth: SidebarStyle.rowCornerRadius, cornerHeight: SidebarStyle.rowCornerRadius, transform: nil)
+        CGPath.roundedRect(rect, cornerWidth: SidebarStyle.rowCornerRadius, cornerHeight: SidebarStyle.rowCornerRadius)
     }
 
     override func viewDidChangeEffectiveAppearance() {

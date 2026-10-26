@@ -10,9 +10,9 @@ public import CmuxNextDesignTokens
 enum StatusMarkArt {
     /// The mark in a square of `pixels`, as an alpha-only image.
     static func mask(_ mark: StatusMark, pixels: Int) -> CGImage? {
-        guard pixels > 0, let context = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: pixels,
-                                                  space: CGColorSpaceCreateDeviceGray(),
-                                                  bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue) else { return nil }
+        guard pixels > 0, let context = CGContext.pixelOwningBitmap(width: pixels, height: pixels, bytesPerRow: pixels,
+                                                                    space: CGColorSpaceCreateDeviceGray(),
+                                                                    bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue) else { return nil }
         context.setShouldAntialias(true)
         draw(mark, in: context, rect: CGRect(x: 0, y: 0, width: pixels, height: pixels))
         return context.makeImage()
@@ -59,10 +59,10 @@ enum StatusMarkArt {
         let w = rect.width
         switch container {
         case .circle:
-            return CGPath(ellipseIn: rect.insetBy(dx: w * 0.04, dy: w * 0.04), transform: nil)
+            return CGPath.ellipse(in: rect.insetBy(dx: w * 0.04, dy: w * 0.04))
         case .roundedSquare:
             let r = rect.insetBy(dx: w * 0.06, dy: w * 0.06)
-            return CGPath(roundedRect: r, cornerWidth: w * 0.22, cornerHeight: w * 0.22, transform: nil)
+            return CGPath.roundedRect(r, cornerWidth: w * 0.22, cornerHeight: w * 0.22)
         case .triangle:
             let path = CGMutablePath()
             path.addLines(between: [point(rect, 0.5, 0.92), point(rect, 0.06, 0.12), point(rect, 0.94, 0.12)])
@@ -162,7 +162,7 @@ enum StatusMarkArt {
             context.strokePath()
         case .hand:
             let palm = CGRect(x: box.minX + w * 0.2, y: box.minY + w * 0.04, width: w * 0.6, height: w * 0.52)
-            context.addPath(CGPath(roundedRect: palm, cornerWidth: w * 0.2, cornerHeight: w * 0.2, transform: nil))
+            context.addPath(CGPath.roundedRect(palm, cornerWidth: w * 0.2, cornerHeight: w * 0.2))
             context.fillPath()
             let finger = w * 0.13
             context.setLineWidth(finger)
@@ -184,7 +184,7 @@ enum StatusMarkArt {
             context.fillPath()
         case .bubble, .bubbleQuestion:
             let body = CGRect(x: box.minX, y: box.minY + w * 0.22, width: w, height: w * 0.74)
-            context.addPath(CGPath(roundedRect: body, cornerWidth: w * 0.26, cornerHeight: w * 0.26, transform: nil))
+            context.addPath(CGPath.roundedRect(body, cornerWidth: w * 0.26, cornerHeight: w * 0.26))
             context.addLines(between: [point(box, 0.22, 0.3), point(box, 0.14, 0.0), point(box, 0.5, 0.3)])
             context.fillPath()
             if figure == .bubbleQuestion {

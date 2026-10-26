@@ -3,7 +3,7 @@ import AppKit
 import Testing
 
 /// The safe wrappers that replaced raw pointer reads in CmuxNextDesign (p10-stability-074): a bitmap Swift owns and
-/// reads by checked index, and a typed associated-object slot.
+/// reads by checked index, a typed associated-object slot, and the path, bitmap-context and TextKit calls without pointers.
 struct MemorySafeDesignWrapperTests {
     @Test func drawnPixelsReadsTheDrawingTopRowFirst() throws {
         // A 4 x 2 RGBA bitmap with only its top-left pixel filled (CG draws y-up, so the top row is y = 1 there).
@@ -60,5 +60,56 @@ struct MemorySafeDesignWrapperTests {
         #expect(kept != nil)
         autoreleasepool { owner = nil }
         #expect(kept == nil)
+    }
+
+    @Test func pointerFreePathsCoverTheirShapes() {
+        let box = CGRect(x: 10, y: 20, width: 40, height: 30)
+        let rounded = CGPath.roundedRect(box, cornerWidth: 8, cornerHeight: 6)
+        #expect(rounded.boundingBox == box)
+        #expect(rounded.contains(CGPoint(x: box.midX, y: box.midY)))
+        #expect(rounded.contains(CGPoint(x: box.minX + 0.5, y: box.midY)))
+        #expect(!rounded.contains(CGPoint(x: box.minX + 0.5, y: box.minY + 0.5)))
+
+        let square = CGPath.rect(box)
+        #expect(square.boundingBox == box)
+        #expect(square.contains(CGPoint(x: box.minX + 0.5, y: box.minY + 0.5)))
+        #expect(!square.contains(CGPoint(x: box.maxX + 0.5, y: box.midY)))
+
+        let oval = CGPath.ellipse(in: box)
+        #expect(oval.boundingBox == box)
+        #expect(oval.contains(CGPoint(x: box.midX, y: box.midY)))
+        #expect(!oval.contains(CGPoint(x: box.minX + 1, y: box.minY + 1)))
+    }
+
+    @Test func pixelOwningBitmapDrawsAndRefusesAnEmptySize() throws {
+        let context = try #require(CGContext.pixelOwningBitmap(width: 3, height: 2, space: CGColorSpaceCreateDeviceRGB(),
+                                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 0, green: 0, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 3, height: 2))
+        let image = try #require(context.makeImage())
+        #expect(image.width == 3 && image.height == 2)
+        let alphaOnly = try #require(CGContext.pixelOwningBitmap(width: 4, height: 4, bytesPerRow: 4, space: CGColorSpaceCreateDeviceGray(),
+                                                                bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue))
+        #expect(alphaOnly.bytesPerRow == 4)
+        #expect(CGContext.pixelOwningBitmap(width: 0, height: 4, space: CGColorSpaceCreateDeviceRGB(),
+                                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) == nil)
+    }
+
+    @Test func layoutManagerRangesWithoutOutParameters() {
+        let font = NSFont.systemFont(ofSize: 13)
+        let storage = NSTextStorage(string: "hello world", attributes: [.font: font])
+        let manager = NSLayoutManager()
+        let container = NSTextContainer(size: CGSize(width: 1_000, height: 1_000))
+        manager.addTextContainer(container)
+        storage.addLayoutManager(manager)
+        manager.ensureLayout(for: container)
+
+        let word = NSRange(location: 0, length: 5)
+        let glyphs = manager.glyphRange(ofCharacters: word)
+        #expect(glyphs == word)
+        #expect(manager.characterRange(ofGlyphs: glyphs) == word)
+        #expect(manager.lineFragmentRect(ofGlyphAt: 0).height > 0)
+        let attributes = storage.attributes(atCharacter: 6)
+        #expect((attributes[.font] as? NSFont) == font)
     }
 }

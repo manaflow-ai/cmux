@@ -40,9 +40,9 @@ nonisolated enum GlyphMask {
         let scale = max(scale, 1)
         let (width, height) = pixels(size, scale: scale)
         guard width > 0, height > 0,
-              let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                  space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+              let ctx = CGContext.pixelOwningBitmap(width: width, height: height,
+                                                    space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         ctx.translateBy(x: 0, y: CGFloat(height))
         ctx.scaleBy(x: scale, y: -scale)
         // What AppKit enables for a label (a transparent layer's context leaves it off).
