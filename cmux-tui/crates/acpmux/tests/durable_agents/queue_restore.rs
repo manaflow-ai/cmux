@@ -160,11 +160,12 @@ async fn a_restored_dequeued_prompt_keeps_its_edits_across_a_second_crash() {
 /// there under a new turn id. The next daemon's restore (`queue.rs` `restore_queue`) dropped
 /// only what settled the old turn id, so it put the old `queued` copy back and the prompt ran a
 /// second time (#23118 review). The third daemon's startup waits (`hold_startup`), so a restored
-/// copy waits in the queue for the test to see.
+/// copy waits in the queue for the test to see. The agent outlives the first daemon, and the
+/// second adopts its gated turn: the gate opens so the resent prompt runs after that turn.
 #[tokio::test]
 async fn a_queued_prompt_sent_again_after_a_failed_log_load_runs_once() {
     let mut daemon = Daemon::new("qonce", "approve-all");
-    let (session, _gate, mut client) = gated_turn_without_host(&daemon).await;
+    let (session, gate, mut client) = gated_turn_without_host(&daemon).await;
     let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "run me once"}],
                         "_meta": {"acpmux": {"promptId": "q-once"}}});
     client.send("session/prompt", prompt.clone()).await;
@@ -178,6 +179,8 @@ async fn a_queued_prompt_sent_again_after_a_failed_log_load_runs_once() {
     // The second daemon's log load fails: the client sends the prompt again and it runs.
     daemon.env = vec![("ACPMUX_TEST_PANIC_IN_LOAD_LOGS".into(), "1".into())];
     daemon.start();
+    // The adopted turn ends; a prompt never runs ahead of it (`hub/log_load.rs`).
+    std::fs::write(&gate, b"go").unwrap();
     let mut rpc = daemon.rpc().await;
     let answered = rpc.call("session/prompt", prompt).await;
     assert_eq!(answered["stopReason"], "end_turn", "the prompt did not run: {answered:#}");

@@ -763,6 +763,9 @@ impl Hub {
             let hub = self.clone();
             tokio::spawn(async move {
                 hub.wait_startup().await;
+                // Both receivers' held messages, merged in the order they were held, before the
+                // first goes: a restart reads the chat logs one by one (`log_load.rs`).
+                hub.wait_logs().await;
                 hub.drain_pair(key).await;
             });
         }

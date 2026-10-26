@@ -27,6 +27,11 @@ pub struct Session {
     /// The log's records past the saved `lastSeq` are counted (`Hub::catch_up`).
     /// False from a deferred daemon start until the first append or the log load.
     pub(super) caught_up: AtomicBool,
+    /// Whether its log is read after a deferred daemon start (`log_load.rs`): once, by the
+    /// background pass or the first request for it, under this lock. `log_loaded` mirrors it
+    /// for reads that take no lock.
+    pub(super) log_load: StdMutex<bool>,
+    pub(super) log_loaded: AtomicBool,
     pub(super) turn_lock: Mutex<()>,
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     pub(super) queued: AtomicU64,
