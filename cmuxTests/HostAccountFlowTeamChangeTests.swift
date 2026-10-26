@@ -48,15 +48,11 @@ struct HostAccountFlowTeamChangeTests {
     }
 
     @Test func lateBillingResponseDoesNotApplyAfterTeamSwitch() async throws {
-        let planClient = BillingPlanClient(
-            session: BillingPlanCallbackURLProtocol.session(
-                body: """
-                {"authenticated":true,"billingAvailable":true,"planId":"pro",
-                 "subscriptionPlanId":"pro","isPro":true,"billingManagement":"stripe",
-                 "teamPlanId":"free","teamBillingManagement":"none"}
-                """,
-                holdResponse: true
-            )
+        // team-a's request is held and answers Pro; the switch refetches for
+        // team-b, which answers Max.
+        let planClient = BillingPlanCallbackURLProtocol.client(
+            bodies: [Self.proPlanBody, Self.maxPlanBody],
+            holdFirstResponse: true
         )
         let client = TeamChangeAuthClient()
         let flow = try await HostAccountFlow.makeForTeamChangeTests(
@@ -74,21 +70,20 @@ struct HostAccountFlowTeamChangeTests {
         try #require(started, "The billing request never reached the stub.")
 
         try await flow.selectTeam(id: "team-b")
+        try await waitUntil { flow.planTier == .max }
         BillingPlanCallbackURLProtocol.releaseResponse()
         await refresh.value
 
+        // team-a's late Pro answer must not replace team-b's Max answer.
         #expect(flow.confirmedTeamID == "team-b")
-        #expect(flow.billingPlanState == .unknown)
+        #expect(flow.billingPlanState.teamID == "team-b")
+        #expect(flow.planTier == .max)
+        #expect(flow.upgradeOffer == nil)
     }
 
-    @Test func previousTeamPlanDoesNotOfferAnUpgradeAfterTeamSwitch() async throws {
-        let planClient = BillingPlanClient(
-            session: BillingPlanCallbackURLProtocol.session(body: """
-            {"authenticated":true,"billingAvailable":true,"planId":"free",
-             "subscriptionPlanId":"free","isPro":false,"billingManagement":"none",
-             "teamPlanId":"free","teamBillingManagement":"none"}
-            """
-            )
+    @Test func teamSwitchLoadsTheNewTeamsPlanWithoutOfferingTheOldUpgrade() async throws {
+        let planClient = BillingPlanCallbackURLProtocol.client(
+            bodies: [Self.freePlanBody, Self.maxPlanBody]
         )
         let client = TeamChangeAuthClient()
         let flow = try await HostAccountFlow.makeForTeamChangeTests(
@@ -98,13 +93,16 @@ struct HostAccountFlowTeamChangeTests {
         await flow.refreshBillingPlan()
         #expect(flow.upgradeOffer == .pro)
 
-        // team-b may hold a Max plan. Until its own plan loads, the free
-        // answer for team-a must not offer Pro or report the team as Free.
+        // team-b holds a Max plan. team-a's Free answer must never offer Pro
+        // there, and the flow fetches team-b's plan without any surface
+        // asking for it.
         try await flow.selectTeam(id: "team-b")
-
         #expect(flow.confirmedTeamID == "team-b")
-        #expect(!flow.hasLoadedBillingPlan)
-        #expect(flow.planTier == nil)
+        #expect(flow.upgradeOffer != .pro)
+        #expect(flow.planTier != .free)
+
+        try await waitUntil { flow.planTier == .max }
+        #expect(flow.billingPlanState.teamID == "team-b")
         #expect(flow.upgradeOffer == nil)
     }
 
@@ -272,6 +270,22 @@ struct HostAccountFlowTeamChangeTests {
         #expect(flow.pendingTeamCreate == nil)
     }
 
+    private static let freePlanBody = """
+    {"authenticated":true,"billingAvailable":true,"planId":"free",
+     "subscriptionPlanId":"free","isPro":false,"billingManagement":"none",
+     "teamPlanId":"free","teamBillingManagement":"none"}
+    """
+    private static let proPlanBody = """
+    {"authenticated":true,"billingAvailable":true,"planId":"pro",
+     "subscriptionPlanId":"pro","isPro":true,"billingManagement":"stripe",
+     "teamPlanId":"free","teamBillingManagement":"none"}
+    """
+    private static let maxPlanBody = """
+    {"authenticated":true,"billingAvailable":true,"planId":"pro",
+     "subscriptionPlanId":"free","isPro":true,"billingManagement":"none",
+     "teamPlanId":"max","teamBillingManagement":"stripe"}
+    """
+
     private func makeFlow(client: TeamChangeAuthClient) async throws -> HostAccountFlow {
         try await HostAccountFlow.makeForTeamChangeTests(client: client)
     }
@@ -281,23 +295,36 @@ struct HostAccountFlowTeamChangeTests {
         while !(await condition()), ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
-        try #require(await condition(), "The fake client never held the request.")
+        try #require(await condition(), "The condition never became true.")
     }
 }
 
 private final class BillingPlanCallbackURLProtocol: URLProtocol, @unchecked Sendable {
-    // The suite creates one stub session at a time, and each response body is
-    // immutable for the lifetime of that session.
-    nonisolated(unsafe) private static var responseBody = Data()
-    nonisolated(unsafe) private static var holdResponse = false
+    // The suite is serialized and creates one stub client at a time. Each
+    // request takes the next body; the last body answers any further request.
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var responseBodies: [Data] = []
+    nonisolated(unsafe) private static var holdFirstResponse = false
+    nonisolated(unsafe) private static var requestCount = 0
     nonisolated(unsafe) private static var requestStarted = DispatchSemaphore(value: 0)
     nonisolated(unsafe) private static var responseRelease = DispatchSemaphore(value: 0)
 
-    static func session(body: String, holdResponse: Bool = false) -> URLSession {
-        responseBody = Data(body.utf8)
-        self.holdResponse = holdResponse
-        requestStarted = DispatchSemaphore(value: 0)
-        responseRelease = DispatchSemaphore(value: 0)
+    static func session(body: String) -> URLSession {
+        session(bodies: [body], holdFirstResponse: false)
+    }
+
+    static func client(bodies: [String], holdFirstResponse: Bool = false) -> BillingPlanClient {
+        BillingPlanClient(session: session(bodies: bodies, holdFirstResponse: holdFirstResponse))
+    }
+
+    private static func session(bodies: [String], holdFirstResponse: Bool) -> URLSession {
+        lock.withLock {
+            responseBodies = bodies.map { Data($0.utf8) }
+            self.holdFirstResponse = holdFirstResponse
+            requestCount = 0
+            requestStarted = DispatchSemaphore(value: 0)
+            responseRelease = DispatchSemaphore(value: 0)
+        }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [BillingPlanCallbackURLProtocol.self]
         return URLSession(configuration: configuration)
@@ -315,10 +342,30 @@ private final class BillingPlanCallbackURLProtocol: URLProtocol, @unchecked Send
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        if Self.holdResponse {
-            Self.requestStarted.signal()
-            _ = Self.responseRelease.wait(timeout: .now() + 10)
+        let (body, hold, started, release) = Self.lock.withLock {
+            let index = Self.requestCount
+            Self.requestCount += 1
+            return (
+                Self.responseBodies[min(index, Self.responseBodies.count - 1)],
+                Self.holdFirstResponse && index == 0,
+                Self.requestStarted,
+                Self.responseRelease
+            )
         }
+        guard hold else {
+            finish(with: body)
+            return
+        }
+        // Wait off the loading thread so a request started after this one
+        // (the team switch's refetch) is not queued behind it.
+        started.signal()
+        DispatchQueue.global().async {
+            _ = release.wait(timeout: .now() + 10)
+            self.finish(with: body)
+        }
+    }
+
+    private func finish(with body: Data) {
         let response = HTTPURLResponse(
             url: request.url!,
             statusCode: 200,
@@ -326,7 +373,7 @@ private final class BillingPlanCallbackURLProtocol: URLProtocol, @unchecked Send
             headerFields: ["Content-Type": "application/json"]
         )!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Self.responseBody)
+        client?.urlProtocol(self, didLoad: body)
         client?.urlProtocolDidFinishLoading(self)
     }
 
