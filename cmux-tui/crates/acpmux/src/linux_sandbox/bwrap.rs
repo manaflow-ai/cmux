@@ -646,6 +646,41 @@ mod tests {
         assert_eq!(probe(&fixture.0.join("absent-bwrap")), Err(Unavailable::NotInstalled));
     }
 
+    /// The child ends on completion or is killed at the 20-second deadline.
+    #[tokio::test]
+    async fn home_bind_survives_source_symlink_swap() {
+        if !real_probe() {
+            return;
+        }
+        let f = Fixture::new();
+        let p = f.create_paths();
+        let allowed = p.home.join("allowed");
+        let secret = p.home.join(".ssh");
+        fs::create_dir(&allowed).unwrap();
+        fs::create_dir(&secret).unwrap();
+        fs::write(allowed.join("marker"), "safe-before-swap").unwrap();
+        fs::write(secret.join("marker"), "denied-marker").unwrap();
+        let command =
+            strings(&["/bin/sh", "-c", "cat -- \"$1/marker\"", "swap", allowed.to_str().unwrap()]);
+        let (args, fds) = plan(&p, &[secret.clone()], &command).unwrap();
+        fs::rename(&allowed, f.0.join("held-allowed")).unwrap();
+        std::os::unix::fs::symlink(&secret, &allowed).unwrap();
+        let mut child = tokio::process::Command::new("/usr/bin/bwrap");
+        inherit_fds(&mut child, &fds);
+        child.args(args).kill_on_drop(true);
+        let output =
+            tokio::time::timeout(Duration::from_secs(20), child.output()).await.unwrap().unwrap();
+        assert!(
+            output.status.success(),
+            "{}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(!String::from_utf8_lossy(&output.stdout).contains("denied-marker"));
+        assert_eq!(output.stdout, b"safe-before-swap");
+        eprintln!("passed: HOME bind keeps its pinned source after a symlink swap");
+    }
+
     /// The child is killed on the 20-second deadline. Shell loops exhaust
     /// finite /proc snapshots and network tables; no background jobs are made.
     #[tokio::test]
