@@ -235,6 +235,15 @@ int cmux_shim_browser_set_embedder_visibility(int browser_id, int visibility) {
   return fork_api().browser_set_embedder_visibility(browser_id, visibility);
 }
 
+// The fork's call is Chromium's WasHidden / WasOccluded for the detached page
+// window (its widget's Hide and ShowInactive, its NSWindow's occluded state);
+// CefBrowserHost::WasHidden does nothing for a Chrome-style browser.
+int cmux_shim_browser_set_page_visibility(int browser_id, int visibility) {
+  if (visibility < CMUX_SHIM_PAGE_VISIBLE || visibility > CMUX_SHIM_PAGE_OCCLUDED) return 0;
+  if (!fork_api().browser_set_page_visibility) return 0;
+  return fork_api().browser_set_page_visibility(browser_id, visibility);
+}
+
 int cmux_shim_print(int browser_id) {
   CefRefPtr<CefBrowserHost> host = HostOf(browser_id);
   if (!host) return 0;
