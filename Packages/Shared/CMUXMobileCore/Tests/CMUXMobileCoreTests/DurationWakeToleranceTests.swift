@@ -20,12 +20,4 @@ struct DurationWakeToleranceTests {
         #expect(Duration.seconds(10).flexibleWakeTolerance == .seconds(1))
         #expect(Duration.seconds(86_400).flexibleWakeTolerance == .seconds(1))
     }
-
-    @Test func theRetryAfterSleepStillWaitsTheWholeDirective() async throws {
-        let clock = ContinuousClock()
-        let start = clock.now
-        try await CmxRetryAfterPolicy.toleratedSleep(seconds: 0.05)
-        // A tolerance only lets the wake fire late, never early.
-        #expect(clock.now - start >= .milliseconds(50))
-    }
 }

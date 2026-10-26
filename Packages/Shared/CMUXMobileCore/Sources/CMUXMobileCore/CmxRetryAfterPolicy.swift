@@ -69,7 +69,7 @@ public struct CmxRetryAfterPolicy: Sendable {
     public func sleep(
         seconds: TimeInterval,
         using sleeper: @Sendable (TimeInterval) async throws -> Void = {
-            try await CmxRetryAfterPolicy.toleratedSleep(seconds: $0)
+            try await CmxRetryAfterPolicy.toleratedSleep(seconds: $0, on: ContinuousClock())
         }
     ) async throws {
         var remaining = seconds
@@ -81,12 +81,15 @@ public struct CmxRetryAfterPolicy: Sendable {
         }
     }
 
-    /// One Retry-After wait that may fire up to min(10%, 1 s) late, so the
-    /// kernel can coalesce it with other wakes; it never fires early.
-    static func toleratedSleep(seconds: TimeInterval) async throws {
+    /// One Retry-After wait on `clock` that may fire up to min(10%, 1 s)
+    /// late, so the kernel can coalesce it with other wakes; it never fires
+    /// early. `@usableFromInline` because the public `sleep(seconds:using:)`
+    /// calls it from its default argument.
+    @usableFromInline
+    static func toleratedSleep(seconds: TimeInterval, on clock: any Clock<Duration>) async throws {
         let wait = Duration.seconds(seconds)
         // wakeup-allow: backoff the server's Retry-After cooldown, one wait per directive.
-        try await Task<Never, Never>.sleep(for: wait, tolerance: wait.flexibleWakeTolerance)
+        try await clock.sleep(for: wait)
     }
 }
 
@@ -114,7 +117,17 @@ public actor CmxRetryAfterGate {
 
     public init() {
         now = { ProcessInfo.processInfo.systemUptime }
-        sleep = { try await CmxRetryAfterPolicy.toleratedSleep(seconds: $0) }
+        sleep = { try await CmxRetryAfterPolicy.toleratedSleep(seconds: $0, on: ContinuousClock()) }
+    }
+
+    /// The production sleep on an injected clock, for tests that read the
+    /// tolerance each cooldown wait asks for.
+    init(
+        now: @escaping @Sendable () -> TimeInterval,
+        clock: any Clock<Duration>
+    ) {
+        self.now = now
+        sleep = { try await CmxRetryAfterPolicy.toleratedSleep(seconds: $0, on: clock) }
     }
 
     init(

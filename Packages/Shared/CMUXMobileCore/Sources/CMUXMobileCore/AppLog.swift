@@ -219,12 +219,11 @@ public actor AppLog {
         private var continuation: CheckedContinuation<Bool, Never>?
         private var result: Bool?
 
-        func wait(timeoutNanoseconds: UInt64) async -> Bool {
-            let timeout = Duration.nanoseconds(timeoutNanoseconds)
+        func wait(timeout: Duration, on clock: any Clock<Duration>) async -> Bool {
             let timeoutTask = Task.detached { [self] in
                 do {
                     // wakeup-allow: deadline the acknowledgement times out once; an earlier answer cancels it.
-                    try await Task.sleep(for: timeout, tolerance: timeout.flexibleWakeTolerance)
+                    try await clock.sleep(for: timeout)
                     resolve(false)
                 } catch {
                     // The waiter completed before the deadline.
@@ -633,14 +632,16 @@ public actor AppLog {
     private let supplementalAppLogURLs: @Sendable () -> [URL]
     private let flushSupplementalAppLog: @Sendable () async -> Bool
     private let supplementalAppLogSnapshot: @Sendable () async -> [Data]?
+    private let timeoutClock: any Clock<Duration>
 
-    private static let drainWaitTimeoutNanoseconds: UInt64 = 5_000_000_000
+    private static let drainWaitTimeout = Duration.seconds(5)
     private static let exportTimeoutNanoseconds: UInt64 = 10_000_000_000
     private static let ingressCapacity = 2_048
     private static let controlReserve = 16
 
     /// Create a log writing to the given locations. Passing `nil` for a URL
     /// disables that file (used by tests exercising one file at a time).
+    /// `timeoutClock` runs the drain and export deadlines.
     public init(
         appFileURL: URL?,
         networkFileURL: URL?,
@@ -651,7 +652,8 @@ public actor AppLog {
         now: @escaping @Sendable () -> Date = { Date() },
         supplementalAppLogURLs: @escaping @Sendable () -> [URL] = { [] },
         flushSupplementalAppLog: @escaping @Sendable () async -> Bool = { true },
-        supplementalAppLogSnapshot: @escaping @Sendable () async -> [Data]? = { nil }
+        supplementalAppLogSnapshot: @escaping @Sendable () async -> [Data]? = { nil },
+        timeoutClock: any Clock<Duration> = ContinuousClock()
     ) {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -659,6 +661,7 @@ public actor AppLog {
         self.supplementalAppLogURLs = supplementalAppLogURLs
         self.flushSupplementalAppLog = flushSupplementalAppLog
         self.supplementalAppLogSnapshot = supplementalAppLogSnapshot
+        self.timeoutClock = timeoutClock
         Self.removeStaleExportArchives()
         let started = formatter.string(from: now())
         if let appFileURL {
@@ -785,7 +788,7 @@ public actor AppLog {
         guard await flushSupplementalAppLog() else { return nil }
         let acknowledgement = Acknowledgement()
         ingress.enqueue(.barrier(acknowledgement))
-        guard await acknowledgement.wait(timeoutNanoseconds: Self.drainWaitTimeoutNanoseconds),
+        guard await acknowledgement.wait(timeout: Self.drainWaitTimeout, on: timeoutClock),
               !Task.isCancelled else {
             return nil
         }
@@ -799,10 +802,10 @@ public actor AppLog {
             completion.resolve(Self.writeExportArchive(inputs: inputs))
         }
         let exportTimeout = Duration.nanoseconds(Self.exportTimeoutNanoseconds)
-        let timeoutTask = Task.detached {
+        let timeoutTask = Task.detached { [timeoutClock] in
             do {
                 // wakeup-allow: deadline the export times out once; its completion cancels the wait.
-                try await Task.sleep(for: exportTimeout, tolerance: exportTimeout.flexibleWakeTolerance)
+                try await timeoutClock.sleep(for: exportTimeout)
                 completion.resolve(nil)
                 exportTask.cancel()
             } catch {
@@ -992,7 +995,7 @@ public actor AppLog {
     public func clear() async -> Bool {
         let acknowledgement = Acknowledgement()
         ingress.enqueue(.clear(acknowledgement))
-        let didClear = await acknowledgement.wait(timeoutNanoseconds: Self.drainWaitTimeoutNanoseconds)
+        let didClear = await acknowledgement.wait(timeout: Self.drainWaitTimeout, on: timeoutClock)
         if didClear {
             Self.removeStaleExportArchives()
         }
