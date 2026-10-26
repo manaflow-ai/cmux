@@ -9321,8 +9321,11 @@ or restrict ports: `server.loopback_forward` in cmux-tui.json is `true`,
 (deny wins; an invalid value turns forwarding off). These commands bypass the
 ordered surface queue so forwarded bytes never use its budget.
 spec/sdk-schema.json types the commands and the `loopback-*` events (family
-`loopback`): data, half close and close of a stream, and the data, EOF and
-close events of a stream, each share one priority, so they keep their order.
+`loopback`). Data and half close of a stream share bulk, so the half close
+follows the bytes; open and close (an abort that frees the stream's slot) are
+control. The data and EOF events share bulk. `loopback-closed` is control: with
+an error it aborts the stream and may arrive before data the daemon had queued,
+while a clean close follows the stream's last data and EOF.
 
 ### loopback-open
 

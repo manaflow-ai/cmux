@@ -5,18 +5,8 @@ use super::super::client_registry::machine_catalog::Publication;
 use super::super::{MessageWriter, Response, origin_gate, send_response};
 use crate::Mux;
 use crate::resource::MachinePublicId;
-use serde::Deserialize;
-use serde_json::{Map, Value};
+use serde_json::Value;
 use std::sync::Arc;
-
-/// The owner a `machine-catalog-publish` request names, checked before its
-/// publication. spec/sdk-schema.json gives the command these fields plus
-/// the publication's.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Owner {
-    expected_machine_id: String,
-}
 
 pub(super) fn try_handle(
     mux: &Arc<Mux>,
@@ -44,12 +34,12 @@ pub(super) fn try_handle(
         if message.len() > 128 * 1024 {
             return Err("machine_catalog.bad_request");
         }
-        let owner: Map<String, Value> =
-            fields.remove_entry("expected_machine_id").into_iter().collect();
-        let Owner { expected_machine_id } = serde_json::from_value(Value::Object(owner))
-            .map_err(|_| "machine_catalog.bad_request")?;
-        let expected = MachinePublicId::parse(expected_machine_id)
-            .map_err(|_| "machine_catalog.bad_request")?;
+        let expected = fields
+            .remove("expected_machine_id")
+            .and_then(|value| value.as_str().map(str::to_owned))
+            .ok_or("machine_catalog.bad_request")?;
+        let expected =
+            MachinePublicId::parse(expected).map_err(|_| "machine_catalog.bad_request")?;
         if expected != mux.machine_public_id {
             return Err("machine_catalog.owner_mismatch");
         }

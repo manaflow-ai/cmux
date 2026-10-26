@@ -35,36 +35,12 @@
 use crate::panic_free::JsonFields;
 use cmux_link::app_caller::PeerToken;
 use cmux_local_auth::frontend_proof::{self, NONCE_LEN};
-use serde::Deserializer;
 use zeroize::Zeroizing;
 
 use super::*;
 use crate::request_origin::{HelloRole, RequestOrigin, page_router_table, valid_install_id};
 
 const CLIENT_HELLO: &str = "client-hello";
-
-/// The members of a `client-hello` line, as spec/sdk-schema.json types
-/// them: step 1 reads `role`, `install_id` and `page`, step 2 `install_id`
-/// and `proof`. Each step checks the members it reads and refuses a bad one
-/// with its own error, so they stay raw JSON here; any other member is
-/// ignored.
-#[derive(Default, Deserialize)]
-struct HelloRequest {
-    #[serde(default)]
-    role: Option<Value>,
-    /// Kept when null: step 1 refuses a null install id.
-    #[serde(default, deserialize_with = "present")]
-    install_id: Option<Value>,
-    #[serde(default)]
-    page: Option<Value>,
-    #[serde(default)]
-    proof: Option<Value>,
-}
-
-/// A member that is present, null included.
-fn present<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Value>, D::Error> {
-    Value::deserialize(deserializer).map(Some)
-}
 
 enum Window {
     /// Step 1 may come; `identified` once the one allowed `identify` came.
@@ -212,20 +188,10 @@ impl HelloGate {
                     "client-hello needs a local Unix socket connection",
                     None,
                 )),
-                // Every member is optional raw JSON, so an object always decodes.
-                Window::Open { .. } => self.start(
-                    mux,
-                    client,
-                    HelloRequest::deserialize(&value).unwrap_or_default(),
-                    peer,
-                ),
-                Window::Challenged { install_id, nonce } => prove(
-                    mux,
-                    client,
-                    &HelloRequest::deserialize(&value).unwrap_or_default(),
-                    &install_id,
-                    &nonce,
-                ),
+                Window::Open { .. } => self.start(mux, client, &value, peer),
+                Window::Challenged { install_id, nonce } => {
+                    prove(mux, client, &value, &install_id, &nonce)
+                }
             },
             Some("identify") if matches!(window, Window::Open { identified: false }) => {
                 self.window = Window::Open { identified: true };
@@ -256,7 +222,7 @@ impl HelloGate {
         &mut self,
         mux: &Mux,
         client: u64,
-        request: HelloRequest,
+        value: &Value,
         peer: impl FnOnce() -> Peer,
     ) -> Result<Value, Refusal> {
         let bad = |field: &str| {
@@ -269,24 +235,23 @@ impl HelloGate {
             };
             ("client_hello.bad_request", message, Some(json!({"field": field})))
         };
-        let role = request
-            .role
-            .as_ref()
+        let role = value
+            .get("role")
             .and_then(Value::as_str)
             .and_then(HelloRole::declared)
             .ok_or_else(|| bad("role"))?;
-        let install_id = request.install_id;
-        if install_id.as_ref().is_some_and(|id| !id.as_str().is_some_and(valid_install_id)) {
+        let install_id = value.get("install_id");
+        if install_id.is_some_and(|id| !id.as_str().is_some_and(valid_install_id)) {
             return Err(bad("install_id"));
         }
         // The page this relay serves (page-router-v1): the host names it,
         // never the page; it picks the page's allow list.
-        let page = match request.page {
-            None => None,
+        let page = match value.get("page") {
+            None | Some(Value::Null) => None,
             Some(Value::String(page))
-                if role == HelloRole::PageRelay && page_router_table::valid_page_id(&page) =>
+                if role == HelloRole::PageRelay && page_router_table::valid_page_id(page) =>
             {
-                Some(page)
+                Some(page.clone())
             }
             Some(_) => return Err(bad("page")),
         };
@@ -311,9 +276,7 @@ impl HelloGate {
         }
         // Uniform nonce rule: role main with an install id always gets one,
         // known id or not and signed build or not (no oracle).
-        let (HelloRole::Main, Some(install_id)) =
-            (role, install_id.as_ref().and_then(Value::as_str))
-        else {
+        let (HelloRole::Main, Some(install_id)) = (role, install_id.and_then(Value::as_str)) else {
             return Ok(data);
         };
         let mut nonce = Zeroizing::new([0u8; NONCE_LEN]);
@@ -390,15 +353,13 @@ fn page_relay_subscribe_refusal(id: Option<Value>) -> Value {
 fn prove(
     mux: &Mux,
     client: u64,
-    request: &HelloRequest,
+    value: &Value,
     install_id: &str,
     nonce: &[u8; NONCE_LEN],
 ) -> Result<Value, Refusal> {
     const REFUSED: Refusal = ("client_hello.refused", "client-hello refused", None);
-    let (Some(claimed_id), Some(proof)) = (
-        request.install_id.as_ref().and_then(Value::as_str),
-        request.proof.as_ref().and_then(Value::as_str),
-    ) else {
+    let field = |name: &str| value.get(name).and_then(Value::as_str);
+    let (Some(claimed_id), Some(proof)) = (field("install_id"), field("proof")) else {
         return Err(REFUSED);
     };
     if !mux.control_clients.app_trust.install_key_proves(install_id, nonce, claimed_id, proof)

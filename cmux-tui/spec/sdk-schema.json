@@ -31382,7 +31382,7 @@
     "Local (Unix) connections that declared loopback-forward-v1 with set-client-info only; the remote relay refuses it."
    ],
    "method_id": 4868,
-   "priority": "bulk",
+   "priority": "control",
    "durability": "memory",
    "clients": [
     "macos",
@@ -36707,14 +36707,15 @@
       "presence": "optional",
       "nullable": false,
       "constraints": [
-       "Absent after a clean close; else closed-by-client, read-failed, write-failed, window-exceeded, bad-frame, data-after-shutdown, overflow, unknown-stream, client-gone or internal."
+       "Absent after a clean close; else closed-by-client, read-failed, write-failed, window-exceeded, bad-frame, data-after-shutdown, overflow, unknown-stream, client-gone or internal.",
+       "With an error the close aborts the stream: the daemon sends it on the control lane, so it may arrive before loopback-data it had already queued for the stream. A clean close follows the stream's last loopback-data and loopback-eof."
       ]
      }
     },
     "additional_properties": false
    },
    "event_id": 50947,
-   "priority": "bulk"
+   "priority": "control"
   }
  }
 }

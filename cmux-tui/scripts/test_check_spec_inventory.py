@@ -86,7 +86,7 @@ fn try_handle(cmd: &str) -> bool { cmd == "cancel-request" }
         table = {
             "connection_frame/machine_catalog": {
                 "literals": {
-                    "machine-catalog-publish": {"request": "Owner", "handler": "try_handle"}
+                    "machine-catalog-publish": {"handler": "try_handle"}
                 },
                 "authority": "local-admin",
             }

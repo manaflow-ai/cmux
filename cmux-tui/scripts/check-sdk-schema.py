@@ -77,24 +77,6 @@ RUNTIME_DECODED_REQUEST_FIELDS = {
     # workspace_registry/agent_cli_intents.rs `normalize_receipt` accepts only
     # the receipt agent-cli-update-job returned.
     ("agent-cli-intents-attach", "receipt"): ("Value", "ref<AgentCLIJobReceipt>"),
-    # server/client_hello.rs: each hello step checks the members it reads and
-    # refuses a bad one with its own error code (client_hello.bad_request
-    # {field} in step 1, client_hello.refused in step 2).
-    ("client-hello", "role"): ("Option<Value>", "string"),
-    ("client-hello", "install_id"): ("Option<Value>", "string"),
-    ("client-hello", "page"): ("Option<Value>", "string"),
-    ("client-hello", "proof"): ("Option<Value>", "string"),
-}
-
-# Decoded `Option<Value>` fields whose decoder refuses null, so the SDK field
-# is not nullable (a decoded bare `Value` is never nullable).
-RUNTIME_DECODED_NULL_REFUSED = {
-    # server/client_hello.rs: a null role or install id is
-    # client_hello.bad_request in step 1 (`present` keeps the null install id
-    # to refuse it), a null install id or proof client_hello.refused in step 2.
-    ("client-hello", "role"),
-    ("client-hello", "install_id"),
-    ("client-hello", "proof"),
 }
 
 sys.path.insert(0, str(BINDINGS))
@@ -350,8 +332,8 @@ def module_command_fields() -> dict[str, dict[str, RuntimeField]]:
         for name, literal in spec.get("literals", {}).items():
             if f'"{name}"' not in source:
                 fail(f"{label} no longer matches {name!r}")
-            requests = literal["request"]
-            fields: dict[str, RuntimeField] = {}
+            requests = literal.get("request", [])
+            fields = _module_literal_members(literal.get("fields", {}), f"{label} {name}")
             for request in [requests] if isinstance(requests, str) else requests:
                 request_source, request_type = _module_struct_source(source, request, label)
                 for key, field in _without_reply_id(
@@ -366,6 +348,20 @@ def module_command_fields() -> dict[str, dict[str, RuntimeField]]:
                 fail(f"module command {name!r} is served twice")
             commands[name] = fields
     return commands
+
+
+def _module_literal_members(members: Mapping[str, Any], label: str) -> dict[str, RuntimeField]:
+    """A literal's `fields`: members its handler reads from the raw JSON
+    line, each the Rust type it accepts (`Option<T>` when null is taken) and
+    its presence. The handler's tests back each refusal."""
+
+    fields: dict[str, RuntimeField] = {}
+    for name, member in members.items():
+        presence = member.get("presence")
+        if presence not in ("required", "optional") or not isinstance(member.get("type"), str):
+            fail(f"{label} field {name!r} needs a Rust type and a presence")
+        fields[name] = RuntimeField(member["type"], ("default",) if presence == "optional" else ())
+    return fields
 
 
 def _module_struct_source(source: str, request: str, label: str) -> tuple[str, str]:
@@ -635,9 +631,6 @@ def validate_runtime_request_fields(ir: SdkIR) -> None:
     """Reject request-field drift against the server's Deserialize contract."""
 
     runtime_commands = runtime_command_fields()
-    for key in RUNTIME_DECODED_NULL_REFUSED:
-        if key not in RUNTIME_DECODED_REQUEST_FIELDS:
-            fail(f"null-refused field {key} is not a decoded request field")
     for name, fields in handler_command_fields(set(ir.commands)).items():
         if name in runtime_commands:
             fail(f"{name} is both a Command variant and a handler module command")
@@ -699,7 +692,7 @@ def _compare_request_fields(
                     f"{rust_type} at runtime: {runtime_field.rust_type}"
                 )
             runtime_shape = decoded_shape
-            if rust_type == "Value" or (label, field_name) in RUNTIME_DECODED_NULL_REFUSED:
+            if rust_type == "Value":
                 # The decoder refuses the null a bare Value would take.
                 runtime_presence = (runtime_presence[0], False)
         schema_presence = (schema_field["presence"], bool(schema_field["nullable"]))

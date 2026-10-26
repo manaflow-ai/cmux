@@ -384,7 +384,7 @@ class LiveSchemaTests(unittest.TestCase):
             "connection_frame/machine_catalog": {
                 "literals": {
                     "machine-catalog-publish": {
-                        "request": ["Owner", "client_registry/machine_catalog.rs::Nope"],
+                        "request": ["client_registry/machine_catalog.rs::Nope"],
                         "handler": "try_handle",
                     }
                 },
@@ -393,6 +393,38 @@ class LiveSchemaTests(unittest.TestCase):
         }
         with patch.object(CHECKER, "module_commands", lambda: table):
             with self.assertRaisesRegex(CHECKER.SdkSchemaError, "cannot find Rust struct Nope"):
+                CHECKER.module_command_fields()
+
+    def test_module_literal_raw_members_need_a_type_and_presence(self) -> None:
+        def table(fields: dict[str, object]) -> dict[str, object]:
+            return {
+                "connection_frame/machine_catalog": {
+                    "literals": {
+                        "machine-catalog-publish": {
+                            "request": ["client_registry/machine_catalog.rs::Publication"],
+                            "fields": fields,
+                            "handler": "try_handle",
+                        }
+                    },
+                    "authority": "local-admin",
+                }
+            }
+
+        owner = {"expected_machine_id": {"type": "String", "presence": "required"}}
+        with patch.object(CHECKER, "module_commands", lambda: table(owner)):
+            fields = CHECKER.module_command_fields()["machine-catalog-publish"]
+        self.assertEqual(
+            CHECKER._runtime_field_presence(fields["expected_machine_id"]), ("required", False)
+        )
+        for bad, message in [
+            ({"expected_machine_id": {"type": "String"}}, "needs a Rust type and a presence"),
+            ({"sequence": {"type": "u64", "presence": "required"}}, "request field 'sequence' twice"),
+        ]:
+            with (
+                self.subTest(bad=bad),
+                patch.object(CHECKER, "module_commands", lambda: table(bad)),
+                self.assertRaisesRegex(CHECKER.SdkSchemaError, message),
+            ):
                 CHECKER.module_command_fields()
 
     def test_module_enum_parser_reads_every_variant_form(self) -> None:

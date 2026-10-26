@@ -192,33 +192,46 @@ COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
         "terminal-events", "terminal-history", "terminal-read-range", "read-scrollback",
         "list-terminal-commands", "get-frontend-browser-history", "conversation-history",
         "cloud-conversation-history", "conversation-attachment-read", "cloud-attachment-read",
-        "get-blob", "loopback-data", "loopback-shutdown", "loopback-close",
+        "get-blob", "loopback-data", "loopback-shutdown",
     ),
     "background": ("server-stats", "machine-usage", "terminal-resources"),
 }
 
-# Bulk writes: the bytes of a data stream and its end, like a Mojo data pipe
-# beside the message pipe (mojo/public/cpp/system/data_pipe.h). All of one
-# stream's writes share bulk, so they keep their order; the open that names
-# the stream is control and goes first.
+# Bulk writes: the bytes of a data stream and its half close, like a Mojo
+# data pipe beside the message pipe (mojo/public/cpp/system/data_pipe.h). They
+# share bulk, so the half close follows the queued bytes; the open that names
+# the stream is control and goes first. The abort, loopback-close, is control,
+# like closing a data pipe handle: it may pass the stream's queued bytes, and
+# it frees the slot a later open takes (RELEASES_SLOT).
 _LOOPBACK_STREAM = (
-    "Bytes or end of a loopback stream: loopback-data, -shutdown and -close share bulk; "
-    "loopback-open (control) precedes them and loopback-credit grants only the other direction."
+    "Bytes or half close of a loopback stream: loopback-data and -shutdown share bulk, so the "
+    "half close follows the bytes; loopback-open precedes them on control and neither frees "
+    "the stream's slot."
 )
 BULK_STREAM_WRITES: dict[str, str] = {
     "loopback-data": _LOOPBACK_STREAM,
     "loopback-shutdown": _LOOPBACK_STREAM,
-    "loopback-close": _LOOPBACK_STREAM,
+}
+
+# Writes that free a per-connection slot, and the command of their family
+# that takes one. Both stay control: on bulk, a later take could pass the
+# write that frees its slot (a client at MAX_STREAMS_PER_CLIENT sends close(A)
+# then open(B), server/loopback_forward.rs).
+RELEASES_SLOT: dict[str, str] = {
+    "loopback-close": "loopback-open",
 }
 
 # Events: what draws the person's terminal rides input (the key echo path,
 # IPC-5); the subscribe copy of output is bulk; usage and inventory refreshes
-# are background; loopback stream bytes and their end are bulk (one ordered
-# outbound stream per loopback stream, server/loopback_forward.rs), their
-# credit control; else control.
+# are background; loopback stream bytes and EOF are bulk (one ordered outbound
+# stream per loopback stream, server/loopback_forward.rs). Their credit and
+# loopback-closed are control: an error close is a stream terminal the daemon
+# sends on the control FIFO (ForwardStream::fail, unknown_stream, the overflow
+# text in bounded_outbound.rs), so it may pass the stream's queued bytes. Else
+# control.
 EVENT_PRIORITY: dict[str, tuple[str, ...]] = {
     "input": ("output", "render-delta", "render-state", "frame"),
-    "bulk": ("surface-output", "loopback-data", "loopback-eof", "loopback-closed"),
+    "bulk": ("surface-output", "loopback-data", "loopback-eof"),
     "background": ("machine-usage-changed", "activity-changed", "agent-inventory-changed"),
 }
 
@@ -625,6 +638,17 @@ class Assigner:
         for name in BULK_STREAM_WRITES:
             if name not in COMMAND_PRIORITY["bulk"]:
                 raise AssignError(f"BULK_STREAM_WRITES: {name!r} is not bulk")
+        for name, taker in RELEASES_SLOT.items():
+            for command in (name, taker):
+                if command not in commands:
+                    raise AssignError(f"RELEASES_SLOT: {command!r} is not a schema command")
+                entry = self.document["commands"][command]
+                if {priority_of(command, COMMAND_PRIORITY), entry.get("priority", "control")} != {
+                    "control"
+                }:
+                    raise AssignError(
+                        f"RELEASES_SLOT: {name!r} frees the slot {taker!r} takes; both stay control"
+                    )
 
 
 def ordered(entry: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:

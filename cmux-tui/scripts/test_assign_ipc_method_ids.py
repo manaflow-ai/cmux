@@ -71,15 +71,36 @@ class LiveSchemaTests(unittest.TestCase):
             if command["priority"] == "bulk" and name not in ASSIGN.BULK_STREAM_WRITES:
                 self.assertEqual(command["durability"], "read_only", name)
 
-    def test_writes_of_one_loopback_stream_share_bulk_after_a_control_open(self) -> None:
+    def test_loopback_bytes_and_half_close_share_bulk_and_the_abort_stays_control(self) -> None:
         commands = live()["commands"]
+        self.assertEqual(set(ASSIGN.BULK_STREAM_WRITES), {"loopback-data", "loopback-shutdown"})
         self.assertEqual(
             {commands[name]["priority"] for name in ASSIGN.BULK_STREAM_WRITES}, {"bulk"}
         )
-        self.assertEqual(commands["loopback-open"]["priority"], "control")
+        # The close frees the slot the open takes, so neither is bulk.
+        self.assertEqual(ASSIGN.RELEASES_SLOT, {"loopback-close": "loopback-open"})
+        for name in ("loopback-open", "loopback-close"):
+            self.assertEqual(commands[name]["priority"], "control", name)
         events = live()["events"]
-        for name in ("loopback-data", "loopback-eof", "loopback-closed"):
+        for name in ("loopback-data", "loopback-eof"):
             self.assertEqual(events[name]["priority"], "bulk", name)
+        # An error close is a stream terminal on the control FIFO
+        # (server/loopback_forward.rs ForwardStream::fail).
+        for name in ("loopback-credit", "loopback-closed"):
+            self.assertEqual(events[name]["priority"], "control", name)
+
+    def test_a_write_that_frees_a_slot_cannot_ride_bulk(self) -> None:
+        bulk = (*ASSIGN.COMMAND_PRIORITY["bulk"], "loopback-close")
+        with (
+            unittest.mock.patch.dict(ASSIGN.COMMAND_PRIORITY, {"bulk": bulk}),
+            unittest.mock.patch.dict(ASSIGN.BULK_STREAM_WRITES, {"loopback-close": "fixture"}),
+        ):
+            with self.assertRaisesRegex(ASSIGN.AssignError, "RELEASES_SLOT: 'loopback-close'"):
+                ASSIGN.Assigner(live()).check_tables()
+        document = live()
+        document["commands"]["loopback-close"]["priority"] = "bulk"
+        with self.assertRaisesRegex(ASSIGN.AssignError, "RELEASES_SLOT: 'loopback-close'"):
+            ASSIGN.Assigner(document).check_tables()
 
     def test_raw_swift_lines_count_as_macos_commands(self) -> None:
         names = ASSIGN.swift_line_commands()
