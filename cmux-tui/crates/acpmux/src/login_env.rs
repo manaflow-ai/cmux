@@ -473,6 +473,21 @@ pub fn imported_keys() -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// What the imported environment keeps (a memory consumer's bytes). Never
+/// released: agent spawns need it, and its secret values are on no disk.
+pub fn imported_bytes() -> u64 {
+    use crate::memory::{inline_bytes, string_bytes};
+    let st = STATE.read().unwrap_or_else(|e| e.into_inner());
+    let Some(imported) = st.imported.as_ref() else { return 0 };
+    let vars: u64 = imported.vars.iter().map(|(k, v)| string_bytes(k) + string_bytes(v)).sum();
+    let names: u64 = st.secret_names.iter().map(|n| string_bytes(n)).sum();
+    inline_bytes::<(String, String)>(imported.vars.len())
+        + vars
+        + imported.path.as_deref().map_or(0, string_bytes)
+        + inline_bytes::<String>(st.secret_names.len())
+        + names
+}
+
 /// Secret variable names the login shell sets whose values this process
 /// does not hold (the shell has not answered since a cached start).
 pub fn missing_secret_names() -> Vec<String> {

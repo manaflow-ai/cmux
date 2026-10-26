@@ -18,6 +18,7 @@ mod run;
 mod scheduler;
 mod state;
 mod terminal;
+mod tui_memory;
 pub use run::run;
 pub use state::*;
 mod collapse;
