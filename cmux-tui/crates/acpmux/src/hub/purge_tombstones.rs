@@ -11,67 +11,81 @@
 //! this daemon decides it: a purge it took on the link before that link's
 //! list is a tombstone the list cannot revive.
 //!
-//! What can never be hidden: a tombstone holds only until the next list, the
-//! end of the link (`Disconnected`; the next link's list is read after the
-//! purge, so a row in it was made again) or a lag (the notice that made it
-//! again may be one the peer dropped), and any other notice of that session
-//! lifts it. A session made again under the purged id after the peer started
-//! watching sends such a notice on this link, so the list loses only rows the
-//! peer no longer has, or one its notice puts back.
+//! What can never be hidden: only a purge that comes before its link's list
+//! is kept, and only until that list, so none outlives the list. A link that
+//! ends with no list (`Disconnected`; the next link's list is read after the
+//! purge, so a row in it was made again) drops its tombstones, and any other
+//! notice of that session lifts its tombstone. A session made again under the
+//! purged id after the peer started watching sends such a notice on this link
+//! (`server/change_kind.rs`), so the list loses only rows the peer no longer
+//! has, or one that notice puts back. A lag (`_acpmux/lagged`) changes
+//! nothing here: the list is still older than the purge, and a dropped notice
+//! leaves a row out of date on base too.
+//!
+//! Every change happens under the rows lock once the notice's instance was
+//! found current (`Hub::is_current`), so a removed or replaced peer's late
+//! notice never leaves an entry behind (`Hub::purge_peer_rows` forgets it).
 
-use crate::peer::PeerNotice;
-use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
-/// Each peer's purges since its last list, link end or lag, for the instance
-/// (`Peer::generation`) that sent them; an entry goes with its list. Lock
-/// order: `Hub::remote_sessions`, then this.
+/// Per peer, its current instance's link: whether that link's list came, and
+/// the sessions it purged before. One entry per peer name, gone with the peer.
+/// Lock order: `Hub::remote_sessions`, then this.
 #[derive(Default)]
-pub(crate) struct PurgeTombstones(Mutex<HashMap<String, (u64, HashSet<String>)>>);
+pub(crate) struct PurgeTombstones(Mutex<HashMap<String, Link>>);
+
+struct Link {
+    /// `Peer::generation`.
+    generation: u64,
+    listed: bool,
+    purged: HashSet<String>,
+}
 
 impl PurgeTombstones {
-    /// Records what notice `notice` of instance `generation` of peer `peer`
-    /// says about purges, before the hub applies it (`apply_peer_notice`).
-    pub(super) fn note(&self, peer: &str, generation: u64, notice: &PeerNotice) {
+    /// Runs `f` on instance `generation`'s link of peer `peer`. Generations only
+    /// grow: a newer instance starts over, an older one's is never touched.
+    fn with<T>(&self, peer: &str, generation: u64, f: impl FnOnce(&mut Link) -> T) -> Option<T> {
+        let fresh = || Link { generation, listed: false, purged: HashSet::new() };
         let mut map = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        match notice {
-            PeerNotice::Disconnected(_) => {
-                map.remove(peer);
-            }
-            PeerNotice::Notification { method, .. } if method == "_acpmux/lagged" => {
-                map.remove(peer);
-            }
-            PeerNotice::SessionChanged { session, kind, .. } => {
-                let Some(id) = session.get("sessionId").and_then(Value::as_str) else { return };
-                if kind == "purged" {
-                    // Generations only grow: a newer instance starts over, an older one's
-                    // notice is stale (`peer_notice_loop` drops those before this).
-                    let entry = map.entry(peer.to_owned()).or_insert((generation, HashSet::new()));
-                    if entry.0 < generation {
-                        *entry = (generation, HashSet::new());
-                    }
-                    if entry.0 == generation {
-                        entry.1.insert(id.to_owned());
-                    }
-                } else if let Some((g, ids)) = map.get_mut(peer)
-                    && *g == generation
-                {
-                    ids.remove(id);
-                }
-            }
-            _ => {}
+        let link = map.entry(peer.to_owned()).or_insert_with(fresh);
+        if link.generation < generation {
+            *link = fresh();
         }
+        (link.generation == generation).then(|| f(link))
     }
 
-    /// The sessions instance `generation` of peer `peer` purged before the
-    /// list now applied, which that list must leave out; none are kept after.
+    /// Instance `generation` of peer `peer` purged session `id`: its link's
+    /// list, if it has not come yet, leaves `id` out.
+    pub(super) fn purged(&self, peer: &str, generation: u64, id: &str) {
+        self.with(peer, generation, |link| {
+            if !link.listed {
+                link.purged.insert(id.to_owned());
+            }
+        });
+    }
+
+    /// Any other notice of session `id`: the peer has it now.
+    pub(super) fn changed(&self, peer: &str, generation: u64, id: &str) {
+        self.with(peer, generation, |link| link.purged.remove(id));
+    }
+
+    /// The link ended: the next one's list is read after every purge so far.
+    pub(super) fn link_ended(&self, peer: &str, generation: u64) {
+        self.with(peer, generation, |link| {
+            link.listed = false;
+            link.purged.clear();
+        });
+    }
+
+    /// The link's list is applied now: the sessions to leave out of it. None
+    /// are kept after it.
     pub(super) fn take(&self, peer: &str, generation: u64) -> HashSet<String> {
-        let mut map = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        match map.remove(peer) {
-            Some((g, ids)) if g == generation => ids,
-            _ => HashSet::new(),
-        }
+        self.with(peer, generation, |link| {
+            link.listed = true;
+            std::mem::take(&mut link.purged)
+        })
+        .unwrap_or_default()
     }
 
     /// Peer `peer` left (`Hub::purge_peer_rows`).
@@ -180,10 +194,32 @@ mod tests {
         hub.apply_peer_notice("builder", generation, list(&["x", "y"]));
         assert_eq!(rows(&hub, "builder"), ["x", "y"], "the next link's list");
 
-        // A reconnect or another machine under the name is a new instance.
+        // A purge after the link's list is not kept: no older list comes on that link.
+        hub.apply_peer_notice("builder", generation, list(&["y"]));
         hub.apply_peer_notice("builder", generation, changed("x", "purged"));
+        assert!(hub.purge_tombstones.0.lock().unwrap()["builder"].purged.is_empty());
+        hub.apply_peer_notice("builder", generation, list(&["x", "y"]));
+        assert_eq!(rows(&hub, "builder"), ["x", "y"], "a list after a purge that followed one");
+
+        // A reconnect or another machine under the name is a new instance: the old one's
+        // purge before its list holds for its list only.
+        hub.apply_peer_notice("builder", generation, PeerNotice::Disconnected("reset".into()));
+        hub.apply_peer_notice("builder", generation, changed("x", "purged"));
+        assert!(hub.purge_tombstones.0.lock().unwrap()["builder"].purged.contains("x"));
         let next = register(&hub, "builder");
         hub.apply_peer_notice("builder", next, list(&["x", "y"]));
         assert_eq!(rows(&hub, "builder"), ["x", "y"], "another instance's list");
+    }
+
+    /// A removed peer's purge that was queued before its removal keeps nothing.
+    #[test]
+    fn a_removed_peers_late_purge_keeps_nothing() {
+        let hub = hub();
+        let generation = register(&hub, "builder");
+        hub.apply_peer_notice("builder", generation, changed("x", "purged"));
+        hub.peers.lock().unwrap().remove("builder");
+        hub.purge_peer_rows("builder");
+        hub.apply_peer_notice("builder", generation, changed("z", "purged"));
+        assert!(hub.purge_tombstones.0.lock().unwrap().is_empty());
     }
 }

@@ -373,8 +373,6 @@ impl Hub {
         // drops its rows) must not add rows back or save them. So every path
         // that changes rows checks again under the rows lock.
         use crate::peer::PeerNotice;
-        // Before the notice applies: a list leaves out what was purged before it.
-        self.purge_tombstones.note(peer, generation, &notice);
         let peer = peer.to_owned();
         {
             match notice {
@@ -393,6 +391,7 @@ impl Hub {
                         if !self.is_current(&peer, generation) {
                             return;
                         }
+                        self.purge_tombstones.link_ended(&peer, generation);
                         map.values_mut()
                             .filter(|r| r.peer == peer)
                             .filter_map(|r| {
@@ -459,6 +458,8 @@ impl Hub {
                             if !self.is_current(&peer, generation) {
                                 return;
                             }
+                            // An older list of this link must not bring it back.
+                            self.purge_tombstones.purged(&peer, generation, &mux_id);
                             let key = map
                                 .iter()
                                 .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux_id)
@@ -491,6 +492,7 @@ impl Hub {
                         if !self.is_current(&peer, generation) {
                             return;
                         }
+                        self.purge_tombstones.changed(&peer, generation, &mux_id);
                         let old_id = map
                             .iter()
                             .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux_id)
