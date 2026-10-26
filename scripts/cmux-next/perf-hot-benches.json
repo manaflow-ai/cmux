@@ -6,6 +6,11 @@
       "bench": "scripts/cmux-next/chromium-host-bench.py (hop_us, ping_us)",
       "owner": "PL-cef-helper"
     },
+    "cef-host-control": {
+      "what": "one control op to the Chromium host (ChromiumHostControlChannel.send): encode, then one non-blocking sendmsg or an outbox push (the reader flushes waiting frames in batches, one sendmsg each)",
+      "bench": "CMUX_CHROMIUM_HOST_CONTROL_BENCH=1 swift test --filter ChromiumHostControlSendBench (send p50/p95/p99/max, direct write and outbox push; Debug: the channel is Debug-only), on macOS 26 and 27",
+      "owner": "PL-cef-helper"
+    },
     "key-dispatch": {
       "what": "every key-down: shortcut table, chord tracker, focus routing",
       "bench": "scripts/cmux-next/bench-typing.py",
