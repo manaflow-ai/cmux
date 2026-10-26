@@ -151,7 +151,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         // first one keeps its empty placeholder, a drop target).
         let listsAnyMachineRow = sections.contains { $0.machine != nil && !$0.nodes.isEmpty }
         var previousWasMachine = false
-        // After a block with no groups under it, what the next section adds: the row spacing under the block, or
+        // After a document section with no groups, what the next section adds: the row spacing under its block, or
         // nothing under its drop zone (or the drop's gap there), whose row already ends with it. nil: a section gap.
         var afterBlock: CGFloat?
         var shownEmptyMachine = false
@@ -171,7 +171,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             if let lastMachine, sectionIndex > lastMachine { chats.placeEarlier(&y) }
             // Group by Status lays every computer's rows out once, in place of their sections (`SidebarLayout+Status`).
             if o.grouping.byStatus && !filtering && section.machine != nil {
-                if !statusShown { rows += statusRows(sections, spaced: !firstSection, chats: &chats, options: o, metrics: m, y: &y) }
+                if !statusShown { rows += statusRows(sections, spacing: firstSection ? 0 : afterBlock ?? m.sectionSpacing, chats: &chats, options: o, metrics: m, y: &y) }
                 (statusShown, firstSection, previousWasMachine, afterBlock) = (true, false, false, nil)
                 continue
             }
@@ -244,7 +244,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             // below by exactly `gapShift`.
             let rowsUnderBlock = blockHeight > 0
                 && (!nodes.isEmpty || (emptyDropZone && docID.map(o.emptyDocSections.contains) == true))
-            afterBlock = blockHeight > 0 && nodes.isEmpty ? (rowsUnderBlock ? 0 : m.rowSpacing) : nil
+            // An untitled section emptied by a drag has a 0 pt block and its drop zone (or the gap) alone.
+            let endsInZone = isDocSection && nodes.isEmpty && (blockHeight == 0 || rowsUnderBlock)
+            afterBlock = endsInZone ? 0 : blockHeight > 0 && nodes.isEmpty ? m.rowSpacing : nil
             // Only a headerless computer joins the next one: rows after a headed section (a remote group,
             // the Chief's) never read as its members.
             previousWasMachine = section.machine != nil && flat
