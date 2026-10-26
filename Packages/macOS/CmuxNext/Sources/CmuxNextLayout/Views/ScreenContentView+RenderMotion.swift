@@ -104,7 +104,7 @@ extension ScreenContentView {
         context.userMotionStepped()
         for pane in Array(paneFrames.keys) {
             guard let host = context.hosts[pane], host.superview === self, var frame = paneFrames[pane] else { continue }
-            let move = renderMove(.pane(pane), frame) { shownRect($0, of: pane, strip: strip, scale: scale) }
+            let move = renderMove(.pane(pane), frame, model: host.frame) { shownRect($0, of: pane, strip: strip, scale: scale) }
             frame.snap()
             paneFrames[pane] = frame
             guard let move else { continue }
@@ -118,7 +118,7 @@ extension ScreenContentView {
         }
         for kind in Array(dividerFrames.keys) {
             guard let view = dividerViews[kind], var frame = dividerFrames[kind] else { continue }
-            let move = renderMove(.divider(kind), frame) { shownRect($0, of: kind, strip: strip, scale: scale) }
+            let move = renderMove(.divider(kind), frame, model: view.frame) { shownRect($0, of: kind, strip: strip, scale: scale) }
             frame.snap()
             dividerFrames[kind] = frame
             guard let move else { continue }
@@ -131,13 +131,15 @@ extension ScreenContentView {
 
     /// The move of one frame, each rect placed in the screen by `place`; nil when it has nothing to move.
     /// A frame the render server carries keeps its running springs, which carry what shows and its velocity:
-    /// a new rest adds one spring from the old rest (`RenderSpring`). Any other frame springs from what it
-    /// shows with its velocity (a new pane's sliver riding a moving edge has that edge's).
-    private func renderMove(_ item: ScreenRenderMotion.Item, _ frame: AnimatedFrame, place: (CGRect) -> CGRect) -> RenderMove? {
+    /// a new rest adds one spring from its view's frame (`model`, the layer's model value: the old rest where
+    /// the last presentation placed it, `RenderSpring`). Any other frame springs from what it shows with its
+    /// velocity (a new pane's sliver riding a moving edge has that edge's).
+    private func renderMove(_ item: ScreenRenderMotion.Item, _ frame: AnimatedFrame, model: CGRect,
+                            place: (CGRect) -> CGRect) -> RenderMove? {
         let to = place(frame.targetRect)
         if let track = renderMotion.tracks[item] {
             guard track.rest != frame.targetRect else { return nil }
-            return RenderMove(to: to, offset: FrameDelta(from: place(track.rest), to: to), velocity: .zero,
+            return RenderMove(to: to, offset: FrameDelta(from: model, to: to), velocity: .zero,
                               fromAlpha: frame.alpha.target, toAlpha: frame.alpha.target)
         }
         guard frame.isOffRest else { return nil }

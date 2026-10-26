@@ -25,6 +25,7 @@ struct SplitRenderMotionTests {
             try #require(split.window.screen != nil, "the window is on no screen: nothing animates")
             try split.freeze()
             let layoutsBefore = try split.host("a").clipLayouts
+            try split.content("a").sizes = []
             split.split()
             let screen = split.screen
             #expect(!screen.hasMotion, "a CPU spring is left to step")
