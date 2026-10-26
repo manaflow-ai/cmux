@@ -241,9 +241,9 @@ enum Fixture {
     static func gradientColor(_ r: CGFloat, _ g: CGFloat) -> UIColor { lightAppearance ? lightGradientColor(r, g) : p3(r, g, 247) }
     static func lightGradientColor(_ r: CGFloat, _ g: CGFloat) -> UIColor { p3(r + 22, g + 31, 246) }
     private static func gradient(_ color: (CGFloat, CGFloat) -> UIColor) -> CGGradient? {
-        CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.displayP3),
-                   colors: gradientStops.map { color($0.1, $0.2).cgColor } as CFArray,
-                   locations: gradientStops.map { $0.0 / 2082 })
+        CGGradient.checked(colorsSpace: CGColorSpace(name: CGColorSpace.displayP3),
+                           colors: gradientStops.map { color($0.1, $0.2).cgColor },
+                           locations: gradientStops.map { $0.0 / 2082 })
     }
     // optional, no force unwrap ; a nil gradient draws nothing.
     // cmux: both made once, in the palette.

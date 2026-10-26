@@ -62,7 +62,7 @@ enum ServerHandlers {
 
     /// A headless Add Server approval of pairing `code`; nil when approved, else why not.
     private static func approve(code: String, _ invocation: ActionInvocation, _ services: AppServices) async -> String? {
-        let source = CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth, work: services.work, chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
+        let source = CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth, work: services.work, mainWork: services.mainWork, chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
         return await ServerHeadlessApproval.run(source: source, code: code, words: invocation["words"]?.stringValue,
                                                 name: invocation["name"]?.stringValue, runChief: invocation["chief"]?.boolValue)
     }

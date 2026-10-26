@@ -195,6 +195,36 @@ static void TestWheel() {
         "deltas add up only within one phase");
 }
 
+// An input frame's event time (task p04-input-065).
+static void TestEventTime() {
+  using namespace cmux_host;
+  const uint64_t now = 5'000'000'000ULL;
+  Header key;
+  key.kind = kKey;
+  key.t0 = now - 1'500'000;  // the NSEvent came 1.5 ms ago
+  Check(EventTimeOf(key, now) == now - 1'500'000, "a key's event time is its t0, the NSEvent's timestamp");
+  Header mouse = key;
+  mouse.kind = kMouse;
+  Header wheel = key;
+  wheel.kind = kWheel;
+  Check(EventTimeOf(mouse, now) == key.t0 && EventTimeOf(wheel, now) == key.t0,
+        "so is a click's, a move's and a wheel's");
+  Check(EventTimeOf(key, key.t0) == key.t0, "a t0 of now is now");
+  Header future = key;
+  future.t0 = now + 1;
+  Check(EventTimeOf(future, now) == 0, "a t0 later than now is of another clock: Chromium stamps the send time");
+  Header none = key;
+  none.t0 = 0;
+  Check(EventTimeOf(none, now) == 0, "a frame with no event time gets the send time");
+  Header ping;
+  ping.kind = kPing;
+  ping.t0 = now - 10;
+  Header geometry = key;
+  geometry.kind = kGeometry;
+  Check(EventTimeOf(ping, now) == 0 && EventTimeOf(geometry, now) == 0,
+        "a ping's t0 (cmux's send time) and a geometry frame are not input events");
+}
+
 int main() {
   uint8_t golden[cmux_host::kHeaderSize];
   FromHex(kGolden, golden);
@@ -318,6 +348,7 @@ int main() {
   }
 
   TestWheel();
+  TestEventTime();
 
   if (failures) return 1;
   std::printf("chromium_host_wire_test: ok\n");

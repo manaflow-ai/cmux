@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFiles
 import CmuxNextFilesUI
+import CmuxNextWakeups
 
 /// The right sidebar's Files section (classic's file explorer): the focused
 /// terminal's folder as a tree. Click selects, double-click, Return and
@@ -25,11 +26,15 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     let table = FileExplorerTableView()
     private let scroll = NSScrollView()
     private var rows: [FileExplorerRow] = []
-    private var observation: Task<Void, Never>?
-    private var following: Task<Void, Never>?
+    /// This view in the visibility tree: the tree renders only while it is on screen, and once on show.
+    let visibility = ViewVisibility("fileExplorer")
+    var visibilityNode: VisibilityNode { visibility.node }
+    private var observation: VisibleObservation<([FileExplorerRow], URL?, String?)>?
+    private var following: ServiceObservation<URL?>?
 
     /// - Parameters:
     ///   - model: The tree (the handlers act on its selection).
+    ///   - mainWork: The app's main-thread scheduler its observations run on.
     ///   - rootFolder: The focused terminal's folder, nil when the focused tab has no local folder
     ///     (the tree keeps its root). Read in an observation, so a `cd` there moves the tree.
     ///   - perform: Runs an explorer action with `fileExplorerFocused` (``FileExplorerHandlers``).
@@ -39,7 +44,8 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     ///   - apps: The apps that open a file (`WorkspaceFileApps` in the app; none by default, a fake in tests).
     ///   - effects: What a rename typed in a row uses besides the file system.
     ///   - showError: Shows why a rename typed in a row failed.
-    init(model: FileExplorerModel, rootFolder: @escaping @MainActor @Sendable () -> URL?, perform: @escaping @MainActor (String) -> Void,
+    init(model: FileExplorerModel, mainWork: MainWorkScheduler, rootFolder: @escaping @MainActor @Sendable () -> URL?,
+         perform: @escaping @MainActor (String) -> Void,
          rowMenu: @escaping @MainActor (_ hasSelection: Bool) -> NSMenu?, openWith: FileExplorerOpenWithMenu? = nil,
          apps: any FileAppsProviding = UnwiredFileApps(),
          effects: any FileExplorerEffects = NullFileExplorerEffects(), showError: @escaping @MainActor (String) -> Void = { _ in }) {
@@ -53,31 +59,38 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         self.apps = apps
         super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
         build()
-        observation = Task { [weak self] in
-            guard let model = self?.model else { return }
-            for await _ in ObservationStream({ [model] in (model.rows, model.root, model.failure) }) {
-                self?.render()
-            }
+        observation = VisibleObservation(visibility.node, owner: "FileExplorerSection.render", on: mainWork) { [model] in
+            (model.rows, model.root, model.failure)
+        } apply: { [weak self] _ in
+            self?.render()
         }
         refresh()
         // The focused terminal's folder changes (a `cd`): the tree follows. A focus change the
         // observation cannot see comes through ``follow()`` (FileExplorerService.focusChanged).
-        following = Task { [weak self, rootFolder] in
-            for await folder in ObservationStream({ rootFolder() }) {
-                guard let self else { return }
-                if let folder { self.show(folder) }
-            }
+        // A service observation: it roots the model, which lists while the section is hidden too.
+        following = ServiceObservation(.visible, owner: "FileExplorerSection.follow", on: mainWork) { [rootFolder] in
+            rootFolder()
+        } apply: { [weak self] folder in
+            if let folder { self?.show(folder) }
         }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
-    nonisolated deinit {
-        observation?.cancel()
-        following?.cancel()
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        visibility.place(in: window)
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        visibilityNode.set(.hidden)
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        visibilityNode.set(.visible)
     }
 
     /// Roots the tree at the focused terminal's folder each time the section shows (home before
@@ -97,6 +110,7 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         guard relist || folder.standardizedFileURL != model.root else { return }
         let model = model
         // task-owner: one listing; a newer one supersedes it (the model's generation).
+        // main-hop-allow: setRoot is the model's main-actor async listing (DirectoryLister and git run @concurrent, off main); this task only starts it
         Task { await model.setRoot(folder) }
     }
 
@@ -178,6 +192,7 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         commands.undoManager = window?.undoManager
         let showError = showError
         // task-owner: one file change and a relisting; ends when the folder lists again.
+        // main-hop-allow: the person's file change, userBlocking (p06 rule 2): FileExplorerCommands is main-actor async over off-main file calls
         Task { @MainActor in
             do { try await change(commands) } catch {
                 showError((error as? FileExplorerError)?.reason ?? (error as? LocalizedError)?.errorDescription ?? error.localizedDescription)

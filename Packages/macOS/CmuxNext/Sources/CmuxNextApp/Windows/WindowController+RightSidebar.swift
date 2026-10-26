@@ -19,7 +19,11 @@ extension WindowController {
         rightSidebar.show(target)
         applyRightSidebar()
         (view.shownSection as? RightSidebarRefreshing)?.refresh()
-        if focus, let section = view.shownSection { window?.makeFirstResponder(Self.firstKeyView(in: section) ?? section) }
+        if focus, let section = view.shownSection {
+            // sync-layout: the panel unhides in the root's layout (`layoutRightPanel`); focus goes into it now.
+            root.layoutSubtreeIfNeeded()
+            window?.makeFirstResponder(Self.firstKeyView(in: section) ?? section)
+        }
         return true
     }
 

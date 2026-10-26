@@ -170,8 +170,9 @@ extension NSTextField {
             placeholderAttributedString = placeholder
             return
         }
+        guard cell.placeholderAttributedString != placeholder else { return }
         cell.placeholderAttributedString = placeholder
-        needsDisplay = true
+        needsDisplay = true // invalidate: another placeholder (the guard above).
     }
 
     /// Text, placeholder, fill and the active field editor's caret and selection in the active

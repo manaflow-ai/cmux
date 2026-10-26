@@ -56,6 +56,7 @@ public final class OverflowButton: NSButton {
         focusRingType = .none
         renderGlyph()
         // Hover follows the pointer and the button's frame (cx-3wu5).
+        // invalidate: `PointerHover` calls this only when hovering flips; the tint follows it.
         hover.followPointer(onChange: { [weak self] in self?.needsDisplay = true })
     }
 
@@ -108,8 +109,10 @@ public final class OverflowButton: NSButton {
     }
 
     private func changeHover(_ change: (inout ChromeHover.State) -> Void) {
+        let old = hover.state
         change(&hover.state)
-        needsDisplay = true
+        guard hover.state != old else { return }
+        needsDisplay = true // invalidate: pressed changed (the guard above); the tint follows it.
     }
 
     /// A press menu opens on mouse-down, pressed while it is open; otherwise NSButton tracks the

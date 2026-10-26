@@ -1,6 +1,6 @@
 import CmuxNextAgentActivity
 @testable import CmuxNextApp
-import CmuxNextPages
+@testable import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -44,5 +44,16 @@ import Testing
         }
         #expect(states.last?.objectValue?["filter"] == .string("mail"))
         subscription.cancel()
+    }
+
+    /// The page imports the shared React from the pages' `_shared` (p13-webui-072), so the launch
+    /// registration also maps it into a web update: page and React come from the same tree. Vacuous in a
+    /// test bundle built without the Activity page.
+    @Test func theLaunchRegistrationServesThePageFromTheActiveUpdate() async {
+        let overlay = WebBundleOverlay(bases: [])
+        guard let root = PageDescriptor.registerAgentActivityRoot(overlay: overlay) else { return }
+        let tree = URL(fileURLWithPath: "/Support/web-updates/trees/abc", isDirectory: true)
+        overlay.activate(tree)
+        #expect(await overlay.root(for: root).path == tree.path + "/" + WebBundleOverlay.agentActivityOutput)
     }
 }

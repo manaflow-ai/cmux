@@ -1,5 +1,6 @@
 import CmuxNextBookmarks
 import CmuxNextBrowserImport
+import CmuxNextWakeups
 import Foundation
 
 /// The onboarding import's way in (agreed with the onboarding agent):
@@ -7,14 +8,19 @@ import Foundation
 /// Bookmarks Bar, replaced in place when the same source is imported again.
 struct BookmarkImportSink: ImportedBookmarkSink {
     weak var service: BookmarkService?
+    /// The app's main-thread scheduler: each source's replace is one posted task on it.
+    let mainWork: MainWorkScheduler
 
     init(service: BookmarkService) {
         self.service = service
+        mainWork = service.services.mainWork
     }
 
+    /// `userBlocking`: the person's onboarding import waits for each source's folder.
     func replaceImportedBookmarks(_ bookmarks: [ImportedBookmark], source: ImportSourceRecord) async throws {
         let items = bookmarks.map { BookmarkImportItem(title: $0.title, url: $0.url, folderPath: $0.folderPath, created: $0.dateAdded) }
-        try await MainActor.run {
+        let service = service
+        try await mainWork.apply(.userBlocking, owner: "BookmarkImportSink.replace") { () throws -> Void in
             // The same "Imported from <Browser> (<profile>)" folder the bookmarks import makes.
             let title = BookmarkBrowserImport.folderTitle(browser: source.browser, profileName: source.profileName)
             try service?.replaceImport(items, title: title, sourceKey: source.sourceKey, profile: source.targetProfileID)
@@ -35,33 +41,28 @@ extension BookmarkService {
 
     /// Browser imports saved before bookmarks existed become bookmarks once
     /// (a marker file records it, so a folder the user deleted stays deleted).
-    func migrateLegacyImports() async {
-        guard let store = importStore, let directory else { return }
+    /// The marker and the store are read off main; each batch's replace is one
+    /// posted `visible` task: the bars show the folders it adds.
+    @concurrent nonisolated func migrateLegacyImports(store: ImportedDataStore, directory: URL, mainWork: MainWorkScheduler) async {
         let marker = directory.appending(path: "bookmarks-imports-migrated")
-        guard await !Self.exists(marker) else { return }
+        guard !FileManager.default.fileExists(atPath: marker.path) else { return }
+        let logger = logger
         for record in await store.sources() {
             for batch in await store.batches(profile: record.targetProfileID) where batch.source.sourceKey == record.sourceKey {
                 guard batch.kinds.contains(.bookmarks), !batch.bookmarks.isEmpty else { continue }
                 let items = batch.bookmarks.map {
                     BookmarkImportItem(title: $0.title, url: $0.url, folderPath: $0.folderPath, created: $0.dateAdded)
                 }
-                do {
-                    try replaceImport(items, title: record.displayName, sourceKey: record.sourceKey, profile: record.targetProfileID)
-                } catch {
-                    logger.error("migrate imported bookmarks \(record.sourceKey, privacy: .public): \(String(describing: error), privacy: .public)")
+                let (title, sourceKey, profile) = (record.displayName, record.sourceKey, record.targetProfileID)
+                await mainWork.apply(.visible, owner: "BookmarkService.migrateImports") { [weak self] () -> Void in
+                    do {
+                        try self?.replaceImport(items, title: title, sourceKey: sourceKey, profile: profile)
+                    } catch {
+                        logger.error("migrate imported bookmarks \(sourceKey, privacy: .public): \(String(describing: error), privacy: .public)")
+                    }
                 }
             }
         }
-        await Self.mark(marker, in: directory)
-    }
-
-    /// Whether the migration marker is there, off the main actor.
-    @concurrent nonisolated private static func exists(_ marker: URL) async -> Bool {
-        FileManager.default.fileExists(atPath: marker.path)
-    }
-
-    /// Writes the migration marker, off the main actor.
-    @concurrent nonisolated private static func mark(_ marker: URL, in directory: URL) async {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         FileManager.default.createFile(atPath: marker.path, contents: Data())
     }

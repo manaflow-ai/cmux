@@ -91,16 +91,16 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             guard rightPanel !== oldValue else { return }
             oldValue?.removeFromSuperview()
             if let rightPanel { addSubview(rightPanel, positioned: .below, relativeTo: titlebarBandBlocker) }
-            needsLayout = true
+            needsLayout = true // invalidate: another right panel (the guard above) to place.
         }
     }
     /// The right sidebar's on-screen width (0 while hidden): the main pane
-    /// is inset by it (`applyMainPane`).
+    /// is inset by it (`applyMainPane`, which marks the root for the window's
+    /// next layout pass; a resize drag lays out once per frame, not per move).
     var rightPanelWidth: CGFloat = 0 {
         didSet {
             guard rightPanelWidth != oldValue else { return }
             applyMainPane()
-            layoutSubtreeIfNeeded()
         }
     }
 
@@ -200,7 +200,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         titleHeight?.constant = minimal ? 0 : Metrics.titlebarHeight
         titlebar.isHidden = minimal
         sidebar.sidebarView.titlebarHeightOverride = minimal ? Metrics.tabStripHeight : Metrics.titlebarHeight
-        needsLayout = true
+        needsLayout = true // invalidate: init, or the token stream (it emits changed tokens only).
     }
 
     /// A view shown in the top row after the traffic lights while
@@ -209,12 +209,13 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// (`TitlebarAccessoryHosting`).
     var titlebarBadge: NSView? {
         didSet {
+            guard titlebarBadge !== oldValue else { return }
             oldValue?.removeFromSuperview()
             if let titlebarBadge {
                 titlebarBadge.translatesAutoresizingMaskIntoConstraints = true
                 addSubview(titlebarBadge, positioned: .above, relativeTo: nil)
             }
-            needsLayout = true
+            needsLayout = true // invalidate: another badge (the guard above) to place.
         }
     }
 
@@ -222,7 +223,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         didSet { if oldValue != showsTitlebarBadge { needsLayout = true } }
     }
     /// The host pressure indicator after the band and the badge (`layoutTitlebarAccessories`).
-    var hostPressureIndicator: NSView? { didSet { oldValue?.removeFromSuperview(); hostPressureIndicator.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
+    var hostPressureIndicator: NSView? { didSet { guard hostPressureIndicator !== oldValue else { return }; oldValue?.removeFromSuperview(); hostPressureIndicator.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
 
     var onHintGeometryChange: (() -> Void)?
     /// Called from layout when the band's presence changed, so strips under

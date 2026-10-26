@@ -211,6 +211,10 @@
         "daemon.request"
       ]
     },
+    "hang-scope": {
+      "what": "one hang scope opened and closed on a watched thread of the holder, terminal host or acpmux (cmux-threads hang.rs HangWatcher::scope and HangScope drop): a clock read, the slot's stores and the armed count",
+      "bench": "cargo test -p cmux-threads --release --lib -- hang_scope_bench --ignored --nocapture (ns per scope)"
+    },
     "resize-drag": {
       "what": "one divider, column-edge, row-edge, sidebar-edge or DevTools-divider drag event and each coalesced delivery it gets (feature pointerFrameDrags: at most a leading and a trailing delivery per frame, FrameInputCoalescer)",
       "bench": "scripts/cmux-next/divider-drag-reflow-live.py --tag TAG --out DIR with CMUX_ENABLE_FEATURES=pointerFrameDrags and without (frame intervals, drawn-grid lag), light and STRESS; swift test --filter 'DividerDragTests|SidebarResizeHandleTests' for deliveries per frame",

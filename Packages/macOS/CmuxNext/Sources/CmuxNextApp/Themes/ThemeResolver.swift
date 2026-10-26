@@ -31,7 +31,9 @@ final class ThemeResolver {
     init() {
         isDark = Self.systemIsDark()
         // KVO calls back on the changing thread: inline on main, a hop from anywhere else.
+        // raw-observer-allow: no notice reports a light/dark switch; KVO of NSApp's effectiveAppearance is the one source, as Chromium's NativeThemeMac observes it (ui/native_theme/native_theme_mac.mm)
         appearanceObservation = NSApp?.observe(\.effectiveAppearance, options: [.new]) { @Sendable [weak self] _, _ in
+            // main-hop-allow: AppKit changes the appearance on main, so the re-resolve runs inline in that turn, beside GhosttyRuntime's own color-scheme switch; only an off-main change hops
             MainDelivery().run { self?.appearanceDidChange() }
         }
         let runtime = GhosttyRuntime.shared

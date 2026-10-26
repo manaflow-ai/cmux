@@ -234,6 +234,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let certificateProceed: (Int32, String?, Int32, Int32) -> Int32
     /// Distinct renderer client ids hosting the tab's frames.
     let rendererClientIDs: (_ browser: Int32, _ capacity: Int32) -> [Int32]
+    /// Every browser's frames per renderer client id (``CEFRendererFrames``); nil when the list grew between
+    /// the sizing call and the read (a partial list would hide frames). Empty in host mode.
+    let rendererFrames: () -> [CEFRendererFrames.Entry]?
     /// The pid of the renderer hosting the tab's main frame (the fork's `cmux_cef_browser_renderer_pid`,
     /// p14-energy-124); 0 while none, on a fork without the call, and in host mode.
     let rendererPID: @convention(c) (Int32) -> Int32
@@ -258,6 +261,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// export and in host mode, whose return means only "sent" (the answer is a later REPLY).
     let tabDiscard: (@convention(c) (Int32) -> Int32)?
     let widgets: CEFShimWidgetOps
+    /// Drops into a detached page (task 050, fork API 31).
+    let dragTarget: CEFShimDragTargetOps
+    let textInput: CEFShimTextInputOps
     /// `cmux_shim_browser_attach_view(browser, parent_view)` (fork API 36, p03-rendering-044, Track B): moves the
     /// browser's `WebContentsViewCocoa` into `parent_view` (an NSView), below its other subviews; 1 attached, 0
     /// refused (an unknown browser, no page window yet, a fork below API 36). Nil without the export and in host

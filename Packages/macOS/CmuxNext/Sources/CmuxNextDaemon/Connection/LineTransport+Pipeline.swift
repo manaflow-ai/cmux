@@ -1,4 +1,3 @@
-import CmuxNextWakeups
 import Foundation
 import CmuxNextCompat
 
@@ -7,8 +6,8 @@ extension LineTransport {
     enum Waiter {
         case reply(cmd: String, ReplySlot)
         case discard(cmd: String, onError: (@Sendable (DaemonError) -> Void)?)
-        /// Its deadline passed; the late reply is dropped. The id stays in
-        /// `order` so an id-less error still maps to the right request.
+        /// Its deadline passed; the late reply is dropped. The id stays
+        /// pending so an id-less error still maps to the right request.
         case expired(cmd: String)
 
         var cmd: String {
@@ -25,6 +24,43 @@ extension LineTransport {
             case .discard: ok ? .droppedReply : .reply
             case .expired: .droppedReply
             }
+        }
+
+        /// Where an error reply goes: the waiting slot, or the discarded request's `onError`; nil when
+        /// nobody reads it, so the reader does not parse its error fields.
+        var failure: ((DaemonError) -> Void)? {
+            switch self {
+            case .reply(_, let slot): { slot.resolve(.failure($0)) }
+            case .discard(_, let onError): onError
+            case .expired: nil
+            }
+        }
+    }
+
+    /// An `ok:true` response line plus the number of events routed before it
+    /// on this transport. Every event with index <= `eventBarrier` was
+    /// emitted before the command's result, so a snapshot supersedes it.
+    struct Response: Sendable {
+        var line: Data
+        var eventBarrier: UInt64
+        /// The connection's recorder: decoding the line counts there
+        /// (`WireCoding.decodeResponse(_:from:)` given the response).
+        var recorder: DaemonWireStats.Recorder?
+    }
+
+    /// A request whose deadline passed: what its `timedOut` error and its timing need.
+    struct Expired {
+        var cmd: String
+        var slot: ReplySlot
+        var sent: DaemonWireStats.RequestStamp?
+        var timeout: Duration
+    }
+
+    static func closedError(_ reason: TransportCloseReason) -> DaemonError {
+        switch reason {
+        case .closedByClient: .connectionClosed(reason: "closed by client")
+        case .daemonShutdown: .daemonShutdown
+        case .lost(let detail): .connectionClosed(reason: detail)
         }
     }
 }
@@ -103,24 +139,17 @@ extension LineTransport {
     /// or error, in request order.
     func pipeline(_ lines: [PipelinedLine], timeout: Duration?) async -> [Result<Response, any Error>] {
         var slots: [ReplySlot] = []
-        var ids: [UInt64] = []
+        // One deadline for the group: its requests expire in one fire of the connection's timer.
+        let groupDeadline = timeout.map { self.deadline(after: $0) }
         for line in lines {
             let slot = ReplySlot()
             slots.append(slot)
-            let submitted = submit(.reply(cmd: line.cmd.wire, slot)) { id in
+            // A failed submit resolves the slot itself.
+            submit(.reply(cmd: line.cmd.wire, slot), deadline: groupDeadline) { id in
                 let data = try line.body(id)
                 // Each slot ends its own `daemon.request` slice, as ``request(cmd:timeout:_:)``'s does.
                 beginRequestSpan(line.cmd, id: id, slot: slot)
                 return data
-            }
-            // A failed submit resolved the slot already.
-            if case .success(let id) = submitted { ids.append(id) }
-        }
-        let timer = DemandTimer(owner: "LineTransport.deadline")
-        defer { timer.cancel() }
-        if let timeout, !ids.isEmpty {
-            timer.schedule(after: timeout) { [weak self, ids] in
-                for id in ids { self?.expire(id: id, after: timeout) }
             }
         }
         var results: [Result<Response, any Error>] = []

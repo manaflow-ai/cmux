@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+public import CmuxNextDesign
 public import CmuxNextWakeups
 import ImageIO
 import UniformTypeIdentifiers
@@ -108,15 +109,20 @@ public final class WindowPictureStore {
     let directory: URL?
     private let work: BackgroundWork
     private let encode: @Sendable (CGImage) -> Data?
+    /// The launch's read of the front window's picture (WindowPictureStore+LaunchRead.swift, p08-startup-058).
+    let launch: FrontRead
 
     /// - Parameters:
     ///   - directory: The saved pictures' folder; nil keeps none.
     ///   - work: The app's blocking-work lanes: composing, the encode and the writes run on its files lane.
     ///   - encode: Encodes a composed picture; default HEIC (tests record where it runs).
-    public init(directory: URL?, work: BackgroundWork, encode: @escaping @Sendable (CGImage) -> Data? = { WindowPictureStore.heic($0) }) {
+    ///   - reader: Reads the launch's files; default from disk (tests record where it runs, or hold it).
+    public init(directory: URL?, work: BackgroundWork, encode: @escaping @Sendable (CGImage) -> Data? = { WindowPictureStore.heic($0) },
+                reader: LaunchFileReader = LaunchFileReader()) {
         self.directory = directory
         self.work = work
         self.encode = encode
+        launch = FrontRead(directory: directory, work: work, reader: reader)
     }
 
     /// The pictures in `state`, the tag's state directory (beside its launch snapshot).

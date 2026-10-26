@@ -23,12 +23,16 @@ WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 cd "$ROOT/webviews"
 [ -d node_modules ] || bun install --frozen-lockfile >/dev/null
 # esbuild writes the CSS the page imports (the shared desktop layer, then styles.css) to app.css.
-bun x esbuild src/agent-activity/main.tsx --bundle --format=esm --platform=browser --target=es2022 --minify --outfile="$WORK/app.js"
+# React is not in app.js: the page imports the one shared React every web tree uses
+# (webviews/scripts/shared/shared-react.mjs) from cmux-page://cmux.shared/, which the pages build
+# writes into the same web tree (pages/_shared/); the bundler prints its URL.
+REACT_URL="$(bun scripts/agent-activity/bundle.mjs "$WORK")"
+case "$REACT_URL" in cmux-page://cmux.shared/react-*.js) ;; *) echo "error: no shared React URL ($REACT_URL)" >&2; exit 1 ;; esac
 [ -s "$WORK/app.css" ] || { echo "error: the Activity bundle has no CSS" >&2; exit 1; }
 cp "$WORK/app.css" "$WORK/styles.css"
-CSP="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src ws://127.0.0.1:* ws://localhost:*"
+CSP="default-src 'none'; script-src 'unsafe-inline' cmux-page://cmux.shared; style-src 'unsafe-inline'; img-src data:; connect-src ws://127.0.0.1:* ws://localhost:*"
 {
-  printf '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8" />\n<meta http-equiv="Content-Security-Policy" content="%s" />\n<meta name="viewport" content="width=device-width, initial-scale=1" />\n<title>Agent Activity</title>\n<style>\n' "$CSP"
+  printf '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8" />\n<meta http-equiv="Content-Security-Policy" content="%s" />\n<meta name="viewport" content="width=device-width, initial-scale=1" />\n<title>Agent Activity</title>\n<link rel="modulepreload" href="%s" />\n<style>\n' "$CSP" "$REACT_URL"
   cat "$WORK/styles.css"
   printf '\n</style>\n</head>\n<body>\n<main id="root"></main>\n<script type="module">\n'
   perl -0pe 's{</script}{<\\/script}ig; s{<!--}{<\\!--}g' "$WORK/app.js"

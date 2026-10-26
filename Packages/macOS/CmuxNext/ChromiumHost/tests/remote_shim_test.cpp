@@ -172,8 +172,10 @@ Seen seen;
 Message Hello(const char* wire) {
   TlvWriter w;
   w.Str(wire);
-  const char* exports[] = {"cmux_shim_tab_evaluate"};
-  w.StrList(exports, 1);
+  const char* exports[] = {"cmux_shim_tab_evaluate", "cmux_shim_browser_ime_set_composition",
+                           "cmux_shim_browser_ime_commit_text", "cmux_shim_browser_ime_finish_composing",
+                           "cmux_shim_browser_ime_cancel_composition"};
+  w.StrList(exports, sizeof exports / sizeof exports[0]);
   Message message;
   message.op = cmux_host::control::kOpHello;
   message.fields = w.Take();
@@ -720,6 +722,29 @@ int main() {
       CHECK(got[0].op == cmux_remote::kOpSetFocus && got[0].ctl_seq == 1 && got[0].after_input == 1);
       CHECK(got[1].op == cmux_remote::kOpReload && got[1].ctl_seq == 0 && got[1].after_input == 0);
       CHECK(got[2].op == cmux_remote::kOpTabActivate && got[2].ctl_seq == 2 && got[2].after_input == 3);
+    }
+  }
+
+  // The page's IME ops are ordered too (p04-input-064): a commit is applied after the key frame
+  // written before it, never ahead of it.
+  {
+    uint32_t ctl = 0;
+    const uint8_t text[] = {0xe5, 0x65, 0x2c, 0x67};  // "日本" as UTF-16LE
+    const uint8_t clause[] = {0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0xff, 1, 0, 0, 0};
+    CHECK(cmux_remote_shim_order_input(&ctl) == 4 && ctl == 2);
+    cmux_shim_browser_ime_set_composition(browser, text, sizeof text, clause, sizeof clause, 2, 2, -1, -1);
+    cmux_shim_browser_ime_commit_text(browser, text, sizeof text, -1, -1);
+    CHECK(cmux_remote_shim_order_input(&ctl) == 5 && ctl == 4);
+    cmux_shim_browser_ime_finish_composing(browser);
+    cmux_shim_browser_ime_cancel_composition(browser);
+    const std::vector<Message> got = host.Read(4);
+    CHECK(got.size() == 4);
+    if (got.size() == 4) {
+      CHECK(got[0].op == cmux_remote::kOpBrowserImeSetComposition && got[0].ctl_seq == 3 && got[0].after_input == 4);
+      CHECK(got[0].fields.size() == 7 && got[0].fields[1].bytes == std::string("\xe5\x65\x2c\x67", 4));
+      CHECK(got[1].op == cmux_remote::kOpBrowserImeCommitText && got[1].ctl_seq == 4 && got[1].after_input == 4);
+      CHECK(got[2].op == cmux_remote::kOpBrowserImeFinishComposing && got[2].ctl_seq == 5 && got[2].after_input == 5);
+      CHECK(got[3].op == cmux_remote::kOpBrowserImeCancelComposition && got[3].ctl_seq == 6 && got[3].after_input == 5);
     }
   }
 

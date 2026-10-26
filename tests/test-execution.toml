@@ -394,6 +394,11 @@ path = "tests/test_cmux_next_web_bundle_cache.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_web_bundle_key_shared.py"
+lane = "manual"
+reason = "web-bundle-key.py --shared regression checks run by the agent that changes them (no new CI tests, Lawrence 2026-10-23); build-web-bundles.sh runs --shared on every build."
+
+[[test]]
 path = "tests/test_nightly_builder.py"
 lane = "linux-guard"
 

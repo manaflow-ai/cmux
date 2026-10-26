@@ -391,7 +391,8 @@ final class TopHomePageView: NSView {
         split.composing = true
         list.setDraftRow(HomeNewMessageDraft.rowTitle)
         list.select(HomeSidebarView.draftRowID)
-        page.needsLayout = true
+        page.needsLayout = true // invalidate: the page shows now; it lays out at the column's size before it takes focus.
+        // sync-layout: the To: field takes focus below, at its frame in the shown page.
         page.layoutSubtreeIfNeeded()
         window?.makeFirstResponder(page.focusTarget)
     }
