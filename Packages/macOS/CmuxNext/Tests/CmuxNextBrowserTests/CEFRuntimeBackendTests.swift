@@ -31,6 +31,47 @@ import Testing
         #expect(RemoteSpy.detachCalls == 0)
     }
 
+    /// Task 034: host mode makes no ``CEFPumpTimer``, gives initialize no schedule callback (so the shim
+    /// sets no `external_message_pump`), never asks for the fork's delayed work and never calls
+    /// `cmux_shim_do_work`, quit's drain included (done check 3: no `CefDoMessageLoopWork` in the app).
+    @Test func hostModeMakesNoPumpTimerAndNeverPumps() async throws {
+        RemoteSpy.reset()
+        let wire = try Wire()
+        defer { wire.close() }
+        let runtime = Self.runtime(supervisor: FakeSupervisor(controlFD: wire.fd))
+        let timers = PumpTimerCounter()
+        runtime.makePumpTimer = { _ in timers.make() }
+
+        try await runtime.start(layout: nil, environment: [:], trigger: "test")
+
+        #expect(timers.made == 0, "host mode made a CEFPumpTimer")
+        #expect(runtime.pump == nil, "host mode started the message pump")
+        #expect(RemoteSpy.initializeScheduleCallbacks == [false], "host mode gave initialize a schedule callback")
+        #expect(RemoteSpy.scheduleDelayedCalls == 0, "host mode asked for the fork's delayed work")
+
+        await runtime.shutdown(timeout: .milliseconds(1))
+        #expect(RemoteSpy.doWorkCalls == 0, "host mode ran a pump pass")
+        #expect(timers.made == 0)
+    }
+
+    /// The control case: the in-process backend's pump makes its one timer through the same seam and
+    /// asks for the fork's delayed work.
+    @Test func theInProcessPumpMakesItsOneTimer() throws {
+        RemoteSpy.reset()
+        let shim = try CEFShimLibrary.resolving(RemoteSpy.symbol)
+        let runtime = CEFRuntime(shim: shim, storage: CEFProfileStorage(root: Self.scratch()))
+        let timers = PumpTimerCounter()
+        runtime.makePumpTimer = { _ in timers.make() }
+
+        runtime.startInProcessPump(shim)
+        runtime.startInProcessPump(shim)
+        defer { runtime.pump?.stop() }
+
+        #expect(timers.made == 1)
+        #expect(runtime.pump != nil)
+        #expect(RemoteSpy.scheduleDelayedCalls == 1)
+    }
+
     /// The attach points the remote shim's REPLY frames at the runtime's one reply table: the token
     /// read right after an async call resolves the call that awaits it, whether the REPLY comes
     /// before or after the await (task 018).
@@ -284,6 +325,24 @@ import Testing
     }
 }
 
+/// Counts the pump timers a runtime makes; each is a timer that never fires.
+@MainActor
+private final class PumpTimerCounter {
+    private(set) var made = 0
+
+    func make() -> any CEFPumpTimer {
+        made += 1
+        return SilentTimer()
+    }
+
+    private final class SilentTimer: CEFPumpTimer {
+        var onFire: (() -> Void)?
+        func arm(after _: TimeInterval, tolerance _: TimeInterval) {}
+        func disarm() {}
+        func invalidate() {}
+    }
+}
+
 /// A pipe whose read end stands in for the host's control socket.
 private struct Wire {
     let fd: Int32
@@ -324,7 +383,7 @@ private final class FakeSupervisor: ChromiumHostSupervising {
 /// The remote dylib's functions: the ABI id, attach (records the control descriptor and says hello
 /// at once with no optional exports, or keeps it pending), detach (runs a pending hello with 0, as
 /// the wire contract says), the fork API version, and recorders for prepare_application, initialize
-/// and the in-process load; every other function does nothing and returns 0.
+/// the in-process load, set_schedule_delayed and do_work; every other function does nothing and returns 0.
 private nonisolated enum RemoteSpy {
     static let abi = "remote-spy-abi"
     static let forkAPI: Int32 = 30
@@ -336,6 +395,10 @@ private nonisolated enum RemoteSpy {
     nonisolated(unsafe) static var attachedFDs: [Int32] = []
     nonisolated(unsafe) static var prepareApplicationCalls = 0
     nonisolated(unsafe) static var initializeFrameworkPaths: [String] = []
+    /// Whether each initialize got a schedule callback.
+    nonisolated(unsafe) static var initializeScheduleCallbacks: [Bool] = []
+    nonisolated(unsafe) static var scheduleDelayedCalls = 0
+    nonisolated(unsafe) static var doWorkCalls = 0
     /// False: attach keeps the hello pending (a host that hangs before it says hello).
     nonisolated(unsafe) static var helloOnAttach = true
     nonisolated(unsafe) static var initializeResult: Int32 = 1
@@ -354,6 +417,9 @@ private nonisolated enum RemoteSpy {
         attachedFDs = []
         prepareApplicationCalls = 0
         initializeFrameworkPaths = []
+        initializeScheduleCallbacks = []
+        scheduleDelayedCalls = 0
+        doWorkCalls = 0
         helloOnAttach = true
         initializeResult = 1
         detachCalls = 0
@@ -391,10 +457,16 @@ private nonisolated enum RemoteSpy {
             UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
             UnsafePointer<UnsafePointer<CChar>?>?,
             UnsafeMutableRawPointer?, CEFShimLibrary.ScheduleFn?, CEFShimLibrary.EventFn?, CEFShimLibrary.KeyFn?
-        ) -> Int32 = { framework, _, _, _, _, _, _, _, _, _, _, _, _ in
+        ) -> Int32 = { framework, _, _, _, _, _, _, _, _, _, schedule, _, _ in
             RemoteSpy.initializeFrameworkPaths.append(framework.map { String(cString: $0) } ?? "nil")
+            RemoteSpy.initializeScheduleCallbacks.append(schedule != nil)
             return RemoteSpy.initializeResult
         }
+        let setScheduleDelayed: @convention(c) (CEFShimLibrary.ScheduleDelayedFn?) -> Int32 = { _ in
+            RemoteSpy.scheduleDelayedCalls += 1
+            return 0
+        }
+        let doWork: @convention(c) () -> Void = { RemoteSpy.doWorkCalls += 1 }
         let nothing: @convention(c) () -> Int = { 0 }
         return switch name {
         case "cmux_shim_abi_id": unsafeBitCast(abiID, to: UnsafeMutableRawPointer.self)
@@ -405,6 +477,8 @@ private nonisolated enum RemoteSpy {
         case "cmux_shim_fork_api_version": unsafeBitCast(forkAPIVersion, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_prepare_application": unsafeBitCast(prepareApplication, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_initialize": unsafeBitCast(initialize, to: UnsafeMutableRawPointer.self)
+        case "cmux_shim_set_schedule_delayed": unsafeBitCast(setScheduleDelayed, to: UnsafeMutableRawPointer.self)
+        case "cmux_shim_do_work": unsafeBitCast(doWork, to: UnsafeMutableRawPointer.self)
         default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
         }
     }

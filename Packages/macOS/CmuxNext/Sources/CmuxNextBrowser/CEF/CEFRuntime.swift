@@ -29,9 +29,15 @@ final class CEFRuntime {
     private(set) var shim: CEFShimLibrary?
     private(set) var layout: CEFRuntimeLayout?
     private(set) var storage = CEFProfileStorage.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
-    var pump: CEFMessagePump?
+    /// The in-process backend's external message pump (``startInProcessPump(_:)``). Nil before the start and
+    /// always in host mode, where the Chromium Host runs Chromium's own message loop (`CefRunMessageLoop`,
+    /// browser_host_main.mm), as Chrome's browser process owns its UI-thread pump
+    /// (content/browser/browser_main_loop.cc): no `CefDoMessageLoopWork` runs in the app.
+    private(set) var pump: CEFMessagePump?
     /// The pump's gate for requests from Chromium threads (read off the main thread).
     nonisolated let pumpGate = CEFPumpCrossThreadGate()
+    /// Makes the pump's one timer on ``wakeUps``; only ``startInProcessPump(_:)`` calls it (a test's counter).
+    var makePumpTimer: @MainActor (MainWakeUpQueue) -> any CEFPumpTimer = { CEFWakeUpQueuePumpTimer(queue: $0) }
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")
 
     // Routing tables (main thread).
@@ -410,26 +416,7 @@ final class CEFRuntime {
         self.shim = shim
         if case .inProcess(let loaded) = library {
             layout = loaded.layout
-            let forkAPI = shim.forkAPIVersion()
-            if forkAPI < CEFPumpSchedule.demandDrivenForkAPI {
-                logger.error("CEF fork API \(forkAPI) predates the demand-driven pump (\(CEFPumpSchedule.demandDrivenForkAPI)): work left after a time slice and delayed tasks posted during a pass wait for the next CEF request, so pages may stall")
-            }
-            // CEF's delayed work as absolute run times with Chromium's leeway (p14-energy-046); older forks
-            // keep the ms path. No request comes before CefInitialize, so the pump need not exist yet.
-            let absoluteRunTimes = shim.setScheduleDelayed(cefScheduleDelayedCallback) == 1
-            logger.notice("CEF pump delayed work: \(absoluteRunTimes ? "absolute run times" : "whole milliseconds", privacy: .public)")
-            let pump = CEFMessagePump(
-                work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.pumpWork() } },
-                timer: CEFWakeUpQueuePumpTimer(queue: wakeUps),
-                gate: pumpGate,
-                absoluteRunTimes: absoluteRunTimes
-            )
-            self.pump = pump
-            if let pumpInput, let input {
-                pump.setInputPolicy(CEFPumpInputPolicy(pending: pumpInput.pending, dispatches: CEFPumpTapDispatches(tap: input),
-                                                       refreshInterval: pumpInput.refreshInterval, frameTarget: pumpInput.frameTarget))
-            }
-            pump.start()
+            startInProcessPump(shim)
         }
 
         storage.prepareForLaunch()
@@ -479,6 +466,9 @@ final class CEFRuntime {
         let locale = library.locale
         logger.info("CEF locale \(locale.locale, privacy: .public), accept-languages \(locale.acceptLanguages, privacy: .public)")
         let context = Unmanaged.passUnretained(self).toOpaque()
+        // Only a pump takes CEF's schedule requests: the shim sets `external_message_pump` from this
+        // callback, and in host mode there is none.
+        let schedule: CEFShimLibrary.ScheduleFn? = pump == nil ? nil : cefScheduleCallback
         // Chromium never opens a window (fork API 8) nor focuses a page of its own.
         shim.setWindowRequestHandler(cefWindowRequestCallback)
         shim.setFocusRequestHandler(cefFocusRequestCallback)
@@ -488,7 +478,7 @@ final class CEFRuntime {
                 CEFStartSteps.shared.timed("cef_initialize") { shim.initialize(
                     paths.framework, paths.mainBundle, paths.helper,
                     storage.root.path, storage.logFile.path, Self.logSeverity, locale.locale, locale.acceptLanguages, list, context,
-                    cefScheduleCallback, cefEventCallback, cefKeyCallback
+                    schedule, cefEventCallback, cefKeyCallback
                 ) }
             } ?? 0
         }
@@ -510,6 +500,32 @@ final class CEFRuntime {
                 CEFRuntime.shared.logger.error("CEF still running at willTerminate; skipping CefShutdown")
             }
         }
+    }
+
+    /// The in-process backend's external message pump: `CefDoMessageLoopWork` on the main thread when CEF
+    /// asks (`CefSettings.external_message_pump`). Host mode never calls this: the host pumps Chromium itself.
+    func startInProcessPump(_ shim: CEFShimLibrary) {
+        guard pump == nil else { return }
+        let forkAPI = shim.forkAPIVersion()
+        if forkAPI < CEFPumpSchedule.demandDrivenForkAPI {
+            logger.error("CEF fork API \(forkAPI) predates the demand-driven pump (\(CEFPumpSchedule.demandDrivenForkAPI)): work left after a time slice and delayed tasks posted during a pass wait for the next CEF request, so pages may stall")
+        }
+        // CEF's delayed work as absolute run times with Chromium's leeway (p14-energy-046); older forks
+        // keep the ms path. No request comes before CefInitialize, so the pump need not exist yet.
+        let absoluteRunTimes = shim.setScheduleDelayed(cefScheduleDelayedCallback) == 1
+        logger.notice("CEF pump delayed work: \(absoluteRunTimes ? "absolute run times" : "whole milliseconds", privacy: .public)")
+        let pump = CEFMessagePump(
+            work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.pumpWork() } },
+            timer: makePumpTimer(wakeUps),
+            gate: pumpGate,
+            absoluteRunTimes: absoluteRunTimes
+        )
+        self.pump = pump
+        if let pumpInput, let input {
+            pump.setInputPolicy(CEFPumpInputPolicy(pending: pumpInput.pending, dispatches: CEFPumpTapDispatches(tap: input),
+                                                   refreshInterval: pumpInput.refreshInterval, frameTarget: pumpInput.frameTarget))
+        }
+        pump.start()
     }
 
     /// The request context key of a pane's store (`CEFProfileStorage.contextKey`).
