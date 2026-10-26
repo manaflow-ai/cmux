@@ -120,7 +120,11 @@ def launch_and_seed(app_path):
         seed_rows[:] = workspace_rows()
     rows = ordered(workspace_rows())
     middle = len(rows) // 2
-    action("selectWorkspaceByNumber", {"index": middle + 1})
+    frame = rows[middle].get("window_frame") or {}
+    selection = rpc("debug.mouse", {"action": "click", "x": frame["x"] + frame["width"] / 2,
+                                    "y": frame["y"] + frame["height"] / 2})
+    if isinstance(selection, dict) and selection.get("error"):
+        raise RuntimeError(f"middle workspace click: {selection['error']}")
     wait_for("middle workspace selection", lambda: selected_index(workspace_rows()) == middle)
     save_json("seed.json", {"windows": rpc("debug.windows"), "sidebar": sidebar()})
     # Keep the daemon sessions/layout, then relaunch the same isolated tag.
