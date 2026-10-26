@@ -32,13 +32,15 @@ struct ProcessRoleTests {
             var status: Int32 = 0
             _ = waitpid(pid, &status, 0)
         }
+        let externallySuppressed = ProcessRole.DarwinBackground(internalFlag: false, externalFlag: true)
+        let clear = ProcessRole.DarwinBackground(internalFlag: false, externalFlag: false)
         try ProcessRole.backgroundSuppressed.applySuppression(toChild: pid)
         let suppressed = ProcessRole.darwinBackground(pid: pid)
-        #expect(suppressed == .init(internalFlag: false, externalFlag: true), "the parent sets the child's external flag")
+        #expect(suppressed == externallySuppressed, "the parent sets the child's external flag")
         #expect(suppressed?.isSuppressed == true)
 
         try ProcessRole.foreground.applySuppression(toChild: pid)
-        #expect(ProcessRole.darwinBackground(pid: pid) == .init(internalFlag: false, externalFlag: false), "and clears it")
+        #expect(ProcessRole.darwinBackground(pid: pid) == clear, "and clears it")
         #expect(ProcessRole.darwinBackground() == before, "this process's flags do not change")
     }
 
