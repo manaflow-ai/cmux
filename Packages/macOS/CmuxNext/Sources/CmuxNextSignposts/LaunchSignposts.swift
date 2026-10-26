@@ -110,4 +110,14 @@ public nonisolated struct LaunchSignposts: Sendable {
             _ = signposter.beginInterval(begun.name, id: begun.signpostID)
         }
     }
+
+    /// Emits the `launch.value` event for a launch value: a count or a CPU time, never a time since process start,
+    /// so it is not a `launch.mark` (scripts/cmux-next/trace.py places every `launch.mark` on the launch timeline).
+    ///
+    /// - Parameters:
+    ///   - name: The value's name (`launch.pageins_first_frame`, `launch.main_cpu_ms`).
+    ///   - number: The value.
+    public func value(_ name: String, number: Double) {
+        signposter.emitEvent("launch.value", "\(name, privacy: .public) value=\(number, format: .fixed(precision: 1), privacy: .public)")
+    }
 }

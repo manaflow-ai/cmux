@@ -1375,7 +1375,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextLaunchTests",
-            // Compat, Signposts and Trace: LaunchReadEventTests reads the `launch.read_done` record of a test trace runtime.
+            // Compat, Signposts and Trace: LaunchReadEventTests reads the `launch.read_done` record of a test trace runtime;
+            // LaunchCounterLogTests journals with Compat's Mutex.
             dependencies: ["CmuxNextLaunch", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat",
                            "CmuxNextSignposts", "CmuxNextTrace"],
             swiftSettings: uiSwiftSettings
@@ -2047,6 +2048,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextRemoteViewSessions",
                 "CmuxNextScreenshots",
                 "CmuxNextServerHelper",
+                "CmuxNextSettings",
                 "CmuxNextSignposts",
                 "CmuxNextStash",
                 "CmuxNextTabs",
