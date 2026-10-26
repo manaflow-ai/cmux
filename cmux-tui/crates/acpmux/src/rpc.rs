@@ -282,6 +282,8 @@ pub mod method {
     pub const MUX_SEND_STATUS: &str = "_acpmux/send_status";
     /// Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
     pub const MUX_AGENT_PAIR_RESUME: &str = "_acpmux/agent_pair_resume";
+    /// Retry a chat's failed last turn now (`hub/auto_resume/retry_turn.rs`).
+    pub const MUX_RETRY: &str = "_acpmux/retry";
     pub const MUX_INFO: &str = "_acpmux/info";
     /// Metadata-only paths for a session's config and state files; local Unix socket only.
     pub const MUX_SESSION_FILES: &str = "_acpmux/session_files";
@@ -457,6 +459,8 @@ pub mod method {
     pub const MUX_SUBSESSION_ANSWER: &str = "_acpmux/subsession/answer";
     /// Sets a session's limits: the person, or an ancestor session.
     pub const MUX_SUBSESSION_LIMITS: &str = "_acpmux/subsession/limits";
+    /// Retries a descendant's failed last turn, as `_acpmux/retry` does.
+    pub const MUX_SUBSESSION_RETRY: &str = "_acpmux/subsession/retry";
     /// Forum announcements (`forum.rs`, `hub/forum.rs`, `server/forum.rs`):
     /// post a rule by key, read the current rules, ack one.
     pub const MUX_FORUM_ANNOUNCE: &str = "_acpmux/forum/announce";

@@ -152,7 +152,8 @@ pub(super) fn mark_forwarded(
     forwarded: &mut Value,
 ) {
     // A peer takes a prompt's provenance from its own unix socket only (prompt_provenance.rs):
-    // the prompt goes there without it.
+    // the prompt goes there without it. Its `author` goes on as it came (`author.rs`): the peer
+    // takes it from this link and stamps the provenance itself.
     if let Some(mux) = forwarded.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         mux.remove("provenance");
     }
@@ -183,6 +184,14 @@ async fn check_inner(
     // of the Codex bridge, `Hub::any_mode_for_web`): none without a proof.
     if !auth.authenticated() {
         return Err(super::conn_auth::refused());
+    }
+    // A person's name (`author.rs`) comes over the unix socket, or from a peer forwarding one it
+    // took there; never from Web, the app's pane or a peer forwarding for its own Web client.
+    if crate::author::present(params)
+        && !(origin == super::Origin::Peer
+            && control_of(origin, auth, params) == crate::hub::Control::Peer)
+    {
+        return Err(crate::author::origin_refused());
     }
     // What the Mac's mobile host refuses a phone by its own rule (cmux-mobile-host
     // `acpmux_policy.rs`: a mode that does not ask, a chat in one) it sends marked when the

@@ -55,6 +55,13 @@ pub struct QueuedPrompt {
     pub(super) retries: usize,
 }
 
+impl QueuedPrompt {
+    /// The person who sent it (`author.rs`), `None` for the owner or an agent.
+    pub(super) fn sender(&self) -> Option<&str> {
+        crate::author::of_provenance(self.run.provenance.as_ref())
+    }
+}
+
 /// A queued prompt and the rules it runs under.
 #[derive(Debug)]
 pub(super) struct PromptRun {
@@ -228,7 +235,7 @@ impl Hub {
         // aimed at a turn that has ended since: the one running now is another prompt's.
         if p.interrupt {
             let running = session.turn().map(|t| t.turn_id);
-            if self.put_next(session, p.prompt_id)
+            if self.put_next(session, p.prompt_id, None).is_ok_and(|next| next)
                 && let Some(running) = running
                 && p.interrupt_turn.is_none_or(|aimed| aimed == running)
             {
@@ -549,13 +556,20 @@ impl Hub {
     }
 
     /// Puts a waiting prompt sent now at the head of the queue; a failed turn no longer holds
-    /// it, nor does the turn it stops. False when it no longer waits.
-    pub(super) fn put_next(&self, session: &Arc<Session>, prompt_id: &str) -> bool {
+    /// it, nor does the turn it stops. False when it no longer waits; `queue.not_author` when
+    /// `editor` did not send it (`author.rs`).
+    pub(super) fn put_next(
+        &self,
+        session: &Arc<Session>,
+        prompt_id: &str,
+        editor: crate::author::Editor<'_>,
+    ) -> Result<bool, RpcError> {
         let order: Vec<String> = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(from) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
-                return false;
+                return Ok(false);
             };
+            crate::author::may_change(editor, queue[from].sender())?;
             // Only the last prompt sent now: one sent before it is a queued prompt again.
             queue.iter_mut().for_each(|q| q.sent_now = false);
             let mut q = queue.remove(from);
@@ -566,7 +580,7 @@ impl Hub {
         session.queue_moved.notify_waiters();
         let msg = json!({"promptId": prompt_id, "order": order, "next": true});
         self.append(session, "mux", "queue_order", msg);
-        true
+        Ok(true)
     }
 
     /// With the turn lock held, takes a queued prompt out of the queue for its turn, with what it
@@ -597,15 +611,17 @@ impl Hub {
     }
 
     /// `_acpmux/queue_remove`: `remove_queued`, refused while the chat is being moved.
+    /// Only `editor`'s own prompt (`author.rs`), checked as it leaves.
     pub fn withdraw_queued(
         &self,
         session: &Arc<Session>,
         prompt_id: &str,
+        editor: crate::author::Editor<'_>,
     ) -> Result<bool, RpcError> {
         if session.moving().is_some() {
             return Err(moving_error());
         }
-        Ok(self.remove_queued(session, prompt_id))
+        self.remove_queued_by(session, prompt_id, None, editor)
     }
 
     /// Takes a waiting prompt out of the queue before its turn starts; its `session/prompt` then
@@ -622,11 +638,23 @@ impl Hub {
         prompt_id: &str,
         reason: Option<&str>,
     ) -> bool {
+        self.remove_queued_by(session, prompt_id, reason, None).unwrap_or(false)
+    }
+
+    /// `remove_queued_because`, only when `editor` sent it (`author.rs`; `None`: the hub's own).
+    fn remove_queued_by(
+        &self,
+        session: &Arc<Session>,
+        prompt_id: &str,
+        reason: Option<&str>,
+        editor: crate::author::Editor<'_>,
+    ) -> Result<bool, RpcError> {
         let (removed, mut ledger) = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(i) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
-                return false;
+                return Ok(false);
             };
+            crate::author::may_change(editor, queue[i].sender())?;
             // Pin the identity before it leaves the queue: its runner may settle it meanwhile.
             let ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
             session.queued.fetch_sub(1, Ordering::SeqCst);
@@ -634,7 +662,7 @@ impl Hub {
         };
         let why = reason.map_or_else(|| json!({}), |reason| json!({"reason": reason}));
         self.settle_removed(session, removed, &mut ledger, why);
-        true
+        Ok(true)
     }
 
     /// A prompt taken out of the queue (`remove_queued_because`, `supersede.rs`): its
@@ -755,7 +783,8 @@ impl Hub {
                         waiting.remove_turn(turn_id);
                     }
                     // An edit (`queue_edit.rs`): the prompt and its rules replace the queued ones,
-                    // and it has no `_meta.provenance` (the person rewrote it).
+                    // and it has no `_meta.provenance` (the person rewrote it), unless the edit
+                    // kept a person's own (`author.rs`).
                     "queue_updated" => {
                         if let Some(q) = waiting.first_of_turn(turn_id) {
                             for k in [
@@ -778,6 +807,10 @@ impl Hub {
                                 q.msg.get_mut("_meta").and_then(Value::as_object_mut)
                             {
                                 meta.remove("provenance");
+                            }
+                            if let Some(p) = e.msg.pointer("/_meta/provenance") {
+                                let kept = json!({"provenance": p});
+                                crate::no_panic::JsonExt::set(&mut q.msg, "_meta", kept);
                             }
                             // The person's now (`digest.rs`), and no sender's to replace.
                             if let Some(fields) = q.msg.as_object_mut() {
@@ -849,7 +882,7 @@ impl Hub {
             // A record from before `fromAgent` names an agent by its provenance (`digest.rs`).
             let from_agent = e.msg.get("fromAgent").and_then(Value::as_str);
             let agent = super::digest::agent_sender(provenance.as_ref(), from_agent);
-            let supersede = e.msg.get("supersede").and_then(Value::as_str).map(str::to_owned);
+            let supersede = crate::author::restored_supersede(&e.msg).map(str::to_owned);
             restored.push((prompt_id.clone(), turn_id.clone()));
             queue.push(QueuedPrompt {
                 prompt_id: prompt_id.clone(),
