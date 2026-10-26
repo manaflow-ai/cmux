@@ -4,7 +4,7 @@ import CmuxNextCompat
 // (urgent_page_discarding_policy.cc: kLarge, kLossy, IsStateful::kNo), which acts when its limit
 // reaches the critical threshold. The critical limit's release slice, a frame after the level
 // change, runs one urgent pass; the owners' critical paces run the next ones (with
-// `memoryUrgentDiscardRanking` that pass ranks tabs, chats and pages: BrowserHibernation+UrgentPass.swift).
+// `memoryUrgentDiscardRanking` that pass ranks tabs, chats and pages: `urgentPass()`).
 // The level sets the timeout and the warning pace (p07-memory.md section 3.A).
 extension BrowserHibernation: MemoryLevelConsumer {
     static let memoryConsumerName = "browser-hibernation"
