@@ -286,18 +286,19 @@ pub struct AttachStream {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AttachFrame {
-    Output(Vec<u8>),
+    /// PTY output; all viewers of one read share its buffer (attach_tap.rs).
+    Output(bytes::Bytes),
     /// [`Self::Output`] of the PTY owner's first read after a `send` with
     /// key press `flow` (never 0) reached the PTY: its echo (p09-observability-018).
     FlowOutput {
-        output: Vec<u8>,
+        output: bytes::Bytes,
         flow: u64,
     },
     /// One parser transition: consumers must apply `output` and replace the
     /// complete color state before rendering or notifying observers.
     /// `flow` is the key press it echoes (0: none), as on [`Self::FlowOutput`].
     OutputWithColors {
-        output: Vec<u8>,
+        output: bytes::Bytes,
         colors: Box<TerminalColors>,
         flow: u64,
     },
@@ -339,12 +340,14 @@ const _: () = assert!(
 const _: () = assert!(VT_REPLAY_MAX_BYTES.div_ceil(3) * 4 < VT_REPLAY_ENCODED_TRANSPORT_MAX_BYTES);
 
 mod attach_tap;
-#[cfg(test)]
-use attach_tap::AttachFrameMerge;
 pub use attach_tap::AttachFrameReceiver;
 pub(crate) use attach_tap::AttachLifecycle;
-use attach_tap::AttachTap;
 pub(crate) use attach_tap::ViewerEvent;
+#[cfg(test)]
+use attach_tap::{
+    AttachFrameMerge, OUTPUT_ARENA_BLOCK_BYTES, OUTPUT_ROPE_COPY_MAX_BYTES, OutputArena, OutputRope,
+};
+use attach_tap::{AttachTap, AttachTaps};
 pub(crate) mod snapshot_attach;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -842,7 +845,7 @@ impl Surface {
                 #[cfg(test)]
                 vt_replay_builds: AtomicUsize::new(0),
                 mux: mux.clone(),
-                taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", Vec::new()),
+                taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", AttachTaps::default()),
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
                 last_input_flow: Default::default(),
