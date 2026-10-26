@@ -200,17 +200,13 @@ fn run(shared: &DelayShared) {
                 if !due.is_empty() {
                     break;
                 }
-                state = match state.queue.peek().map(|first| first.at - now) {
-                    None => shared.changed.wait(state).unwrap_or_else(PoisonError::into_inner),
-                    // wakeup-allow: deadline the earliest delayed item's due time; a post of an earlier item ends the wait first
-                    Some(remaining) => {
-                        shared
-                            .changed
-                            .wait_timeout(state, remaining)
-                            .unwrap_or_else(PoisonError::into_inner)
-                            .0
-                    }
+                let Some(remaining) = state.queue.peek().map(|first| first.at - now) else {
+                    state = shared.changed.wait(state).unwrap_or_else(PoisonError::into_inner);
+                    continue;
                 };
+                // wakeup-allow: deadline the earliest delayed item's due time; an earlier post ends the wait first
+                let waited = shared.changed.wait_timeout(state, remaining);
+                state = waited.unwrap_or_else(PoisonError::into_inner).0;
             }
         }
         for Due { lane, job, .. } in due.drain(..) {
