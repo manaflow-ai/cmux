@@ -445,7 +445,9 @@ def swift_filter(result: Route) -> str:
 
 def swift_priority_filter(result: Route) -> str:
     """A regex matching only suites named by changed Swift files."""
-    return "^(" + "|".join(sorted(result.priority_suites)) + ")\\." if result.priority_suites else ""
+    # SwiftPM names a suite as Target.Suite.Test; unlike the target filter,
+    # this shard must allow the target prefix before the changed suite.
+    return ".*(" + "|".join(sorted(result.priority_suites)) + ")\\." if result.priority_suites else ""
 
 
 def canary_swift_path(path: str) -> bool:

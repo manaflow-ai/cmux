@@ -385,6 +385,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         await AcpmuxEnvironment.adoptBuildHomes()
         // The status call below answered: a later deadline in this lookup is not a missed status call.
         var answered = false
+        // This lookup took a stray daemon over or handed a stale one off: Settings' daemon line
+        // says restarting until it ends.
+        var handedOff = false
+        defer { if handedOff { AcpmuxDaemonSummary.mark(home: environment.home, restarting: false) } }
         do {
             let status = try await AcpmuxStatusClient.status(socketPath: environment.socketPath)
             answered = true
@@ -424,6 +428,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             // install runs (`~/.local/bin/acpmux`) is taken over first (`AcpmuxStrayDaemon`).
             let stray = await AcpmuxStrayDaemon.handOffIfStray(status, environment: environment)
             let stale = stray ? true : await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment)
+            handedOff = stale
             let stopped = stale ? true : await AcpmuxPersonKey.enroll(status, environment: environment)
             guard stopped else {
                 await AcpmuxComputerUse.enroll(environment)
