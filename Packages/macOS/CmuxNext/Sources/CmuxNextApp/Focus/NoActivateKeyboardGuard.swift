@@ -57,6 +57,10 @@ final class NoActivateKeyboardGuard {
     private var pendingApplicationSequence: UInt64 = 0
     private let host: any Host
     private let onGiveBack: (GiveBack) -> Void
+    /// Off: the guard gives nothing back (an update relaunch's startup ended).
+    var isEnabled = true
+    /// The app became active with user intent (a click, Cmd-Tab, recent input): the user chose it.
+    var onUserChose: (() -> Void)?
 
     init(host: any Host, frontmost: NSRunningApplication?, frontmostPID: pid_t? = nil,
          onGiveBack: @escaping (GiveBack) -> Void = { _ in }) {
@@ -110,7 +114,11 @@ final class NoActivateKeyboardGuard {
     }
 
     private func check(_ trigger: Trigger) {
-        guard host.isAppActive, !userIntends else { return }
+        guard isEnabled, host.isAppActive else { return }
+        if userIntends {
+            onUserChose?()
+            return
+        }
         if inGivenBackActivation {
             // The same activation's other notification: step aside again, count once.
             host.giveActivationBack(to: previousApp)

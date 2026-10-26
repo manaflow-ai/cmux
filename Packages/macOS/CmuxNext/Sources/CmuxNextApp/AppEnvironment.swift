@@ -24,7 +24,7 @@ struct AppEnvironment: Sendable {
     /// process, never tests that build `AppServices`.
     var marksRun = false
     /// This launch is the relaunch into an update nobody clicked, in an app the user was not in
-    /// (`UpdateRelaunchFocus`): it starts behind the user's app (`UpdateRelaunchBehind`). Only the
+    /// (`UpdateRelaunchFocus`): it starts behind the user's app (`InputVerificationService.startNoActivateGuard`). Only the
     /// real app process reads it.
     var relaunchBehind: UpdateRelaunchFocus?
     /// What every local terminal of this app gets on top of its filtered

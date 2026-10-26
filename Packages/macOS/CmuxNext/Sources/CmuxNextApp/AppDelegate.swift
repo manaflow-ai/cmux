@@ -49,8 +49,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let mainWork: MainWorkScheduler
     private let control: AppControl
     private let mouseSideButtons = MouseSideButtons()
-    /// The startup of an update relaunch nobody clicked: behind the user's app (`UpdateRelaunchFocus`).
-    private lazy var relaunchBehind = UpdateRelaunchBehind(application: NSApp as? CmuxApplication)
     private var cloudContext: Task<Void, Never>?
     /// OSC 52 clipboard reads on the local daemon (`TerminalClipboardReadService`).
     var daemonPrompts: DaemonPrompts?
@@ -97,8 +95,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // An agent launch must never come back by itself: without this, loginwindow reopens it at the
         // next login (without the agent's environment, so it activates and takes the tag's socket).
         if environment.noActivate { NSApp.disableRelaunchOnLogin() }
-        // An update relaunch nobody clicked starts behind the user's app (before the launch's own activation).
-        if let record = environment.relaunchBehind { relaunchBehind.start(record) }
         // A `cmux` shim outside this app runs the CLI of the app opened last
         // (plans/cmux-next/version-skew.md); an isolated launch never claims it.
         if LastAppCLIPointer.shouldPublish(environment: ProcessInfo.processInfo.environment),
@@ -510,7 +506,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Dock click with no window open: the last closed window comes back
     /// with its workspaces, else a new window (in background mode a panel or the menu bar item may count as visible).
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        _ = relaunchBehind.userReopened()
+        // A Dock click in an update relaunch's startup: the user chose cmux.
+        services?.input.endRelaunchBehind("dock click", activating: true)
         guard let services, !hasVisibleWindows || services.background.isBackground else { return true }
         services.windows.reopenOrCreateWindow()
         return false

@@ -36,11 +36,11 @@ import os
 /// - `CMUX_NEXT_NO_ACTIVATE=1` (``refusesActivation``): every activation
 ///   request, from AppKit, CEF/Chromium, or app code, is dropped, so an agent
 ///   run never takes focus from the user's frontmost app. The startup of an update relaunch nobody
-///   clicked refuses it too, for a few seconds (`UpdateRelaunchBehind`).
+///   clicked refuses it too, for a few seconds (`InputVerificationService.endRelaunchBehind`).
 final class CmuxApplication: NSApplication, CEFAppProtocol {
     private var handlingSendEvent = false
     /// Set in `CmuxNextApp.shared.main` before `run()`; an update relaunch's startup turns it
-    /// off again when it ends (`UpdateRelaunchBehind`).
+    /// off again when it ends (`InputVerificationService.endRelaunchBehind`).
     var refusesActivation = false
     /// Set once by `AppServices`. Gets the key-down and the window it goes
     /// to; returns true when it consumed the key.
