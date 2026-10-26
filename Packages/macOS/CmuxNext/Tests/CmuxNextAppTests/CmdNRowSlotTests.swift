@@ -60,15 +60,23 @@ struct CmdNRowSlotTests {
 
         var frames: [[String]] = []
         var tags: [String] = []
+        let doc = try #require(SidebarDocStore.current)
+        let intentBefore = doc.lastIntentKey
         list.onApply = { layout in
             let frame = rows(layout)
             frames.append(frame)
-            // Where each row draws and whether the sidebar document places it (+d), for a failure's message.
+            // For a failure's message: each row, whether the document confirms its item (+d), a pending row (+pend), a
+            // placement still owed (+placing), the daemon placing it by the rule (+daemon), and for the frame whether
+            // the store lags its shown version (+lag) and the app sent a sidebar change since the press (+sent).
+            let lag = doc.version != doc.shownVersion ? " +lag" : ""
+            let sent = doc.lastIntentKey != intentBefore ? " +sent" : ""
             tags.append(frame.map { id in
-                let kind = services.machines.workspace(id: id)?.0.kind.map { "/\($0)" } ?? ""
                 let item = SidebarDocWiring.item(workspace: id, services.machines) != nil ? "+d" : ""
-                return "\(id.prefix(6))\(kind)\(item)"
-            }.joined(separator: " "))
+                let pending = PendingWorkspaceRows.shared.rows(in: window).contains { $0.id == id } ? "+pend" : ""
+                let placing = services.windows.pendingPlacements[id] != nil ? "+placing" : ""
+                let daemon = services.windows.newPlacements.placedByDaemon.contains(id) ? "+daemon" : ""
+                return "\(id.prefix(6))\(item)\(pending)\(placing)\(daemon)"
+            }.joined(separator: " ") + lag + sent)
         }
         _ = services.registry.perform("newTab")
         await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { settled(start + 4) && rows(list.displayed).count > before.count }
