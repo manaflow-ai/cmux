@@ -1,5 +1,6 @@
 #if DEBUG
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
+import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextCompat
 import Darwin
@@ -195,6 +196,35 @@ import Testing
         #expect(session.contextID == 0)
         #expect(session.view.contextID == 0)
         #expect(session.phase == .starting)
+    }
+
+    /// While a host starts, restarts or has ended, the page view shows the theme's page background,
+    /// not a hole onto whatever is behind the pane.
+    @Test func thePageViewIsFilledWhileNoContextShows() async throws {
+        let launcher = FakeLauncher()
+        let clock = TestClock()
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { clock.now })
+        let theme = PageBackground.cgColor(argb: PageBackground.themeARGB(in: session.view))
+        #expect(session.view.backgroundFill == nil)
+        session.open("https://a.example/")
+        let first = try await nextLaunch(launcher)
+        #expect(session.phase == .starting)
+        #expect(session.view.backgroundFill == theme)
+        answer(first, context: 77, address: "https://a.example/")
+        try await until("running with context 77") { session.phase == .running && session.contextID == 77 }
+
+        // A quick second end leaves the session ended, with no context and the fill.
+        launcher.end(first, ChromiumHostExit(signal: SIGTRAP, status: nil))
+        let second = try await nextLaunch(launcher)
+        #expect(session.view.contextID == 0)
+        #expect(session.view.backgroundFill == theme)
+        launcher.end(second, ChromiumHostExit(signal: SIGTRAP, status: nil))
+        try await until("ended") {
+            if case .ended = session.phase { return true }
+            return false
+        }
+        #expect(session.view.contextID == 0)
+        #expect(session.view.backgroundFill == theme)
     }
 
     /// Writes all of `bytes` to `fd`, blocking until the reader has made room.

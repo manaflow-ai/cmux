@@ -130,6 +130,37 @@ struct InputEventTapTests {
         withExtendedLifetime((observer, first, later, after)) {}
     }
 
+    // MARK: dispatch end
+
+    /// The dispatch end hears its classes once per event with how the dispatch ended, outside the
+    /// dispatch scope: a subscription made in it is live at once for the next event.
+    @Test func theDispatchEndHearsItsClassesWithTheOutcome() throws {
+        let tap = InputEventTap()
+        let log = Log()
+        let subscription = tap.observeDispatchEnd([.key, .button]) { event, outcome in
+            log.calls.append("\(event.type == .keyDown ? "key" : "button").\(outcome == .delivered ? "delivered" : "consumed")")
+            if log.late == nil { log.late = tap.observeDispatchEnd(.key) { _, _ in log.count += 1 } }
+        }
+        #expect(tap.subscriberCount(.key, stage: .dispatchEnd) == 1)
+        #expect(tap.subscriberCount(.key, stage: .afterDispatch) == 0)
+
+        let key = try Self.key()
+        Self.dispatch(key, through: tap)
+        #expect(log.calls.isEmpty, "the three stages do not deliver it")
+        tap.deliverDispatchEnd(key, outcome: .consumed)
+        tap.deliverDispatchEnd(try Self.mouse(.leftMouseDown), outcome: .delivered)
+        tap.deliverDispatchEnd(try Self.mouse(.mouseMoved), outcome: .delivered)
+        #expect(log.calls == ["key.consumed", "button.delivered"])
+        #expect(log.count == 0, "a subscription made in a delivery never hears that event")
+        tap.deliverDispatchEnd(key, outcome: .delivered)
+        #expect(log.count == 1)
+        subscription.cancel()
+        tap.deliverDispatchEnd(key, outcome: .delivered)
+        #expect(log.calls.count == 3)
+        #expect(tap.subscriberCount(.button, stage: .dispatchEnd) == 0)
+        withExtendedLifetime(subscription) {}
+    }
+
     // MARK: lifetime
 
     @Test func aCancelledOrReleasedSubscriptionStopsAtOnce() throws {
