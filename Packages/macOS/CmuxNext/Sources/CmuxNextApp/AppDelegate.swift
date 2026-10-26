@@ -290,6 +290,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // completes at the scheduler's failsafe, with reason `failsafe`.
         order.startup.finishRegistration()
         DebugTimings.markLaunch("did_finish_launching_end")
+        DebugTimings.armFirstIdleMark()
         if let launchStart { startupTrace?.task("did_finish_launching", start: launchStart) }
     }
 
