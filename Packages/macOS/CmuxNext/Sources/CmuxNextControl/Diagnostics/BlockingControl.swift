@@ -2,11 +2,17 @@
 public import CmuxNextCompat
 internal import CmuxNextSettings
 
-/// `debug.blocking`: the call sites that blocked the main thread since launch (the main-thread
-/// blocking detector, plans/cmux-next/threading-model.md), for the every-action sweep and the
-/// benches (Debug and bench builds). `{"reset": true}` zeroes the counts after the report; no other
-/// parameter is read (trap mode is set only by `CMUX_BLOCKING_TRAP=1` at launch). It reads the detector's own tables, so it
-/// runs off the main thread (socket threading policy) and answers while the main thread is busy.
+/// `debug.blocking`: the call sites that blocked the main thread or a shared pool thread since launch (the
+/// blocking detector, plans/cmux-next/threading-model.md), for the every-action sweep and the benches (Debug and
+/// bench-checks builds). Each site has its context (`main` or `pool`), its call count and, for calls timed by
+/// `blockingCall`, the wall time they blocked (`total_ms`, `max_ms`); `contexts` sums the sites per context,
+/// with each context's `overflow` (calls not recorded as a site; the top-level `overflow` is their sum).
+/// `{"reset": true}` zeroes the counts and times after the report; no other parameter is read (trap modes are set
+/// only by `CMUX_BLOCKING_TRAP=1` and `CMUX_BLOCKING_TRAP_POOL=1` at launch). It reads the detector's own tables,
+/// so it runs off the main thread (socket threading policy) and answers while the main thread is busy.
+///
+/// The method also answers in a `--config bench` build, which has no detector: there `compiled_in` is false
+/// and `sites` is always empty, so a reader must refuse such a report rather than read it as no blocking.
 public struct BlockingControl: Sendable {
     private let detector: BlockingDetector
 
@@ -21,14 +27,30 @@ public struct BlockingControl: Sendable {
     }
 
     static func report(_ params: [String: JSONValue], detector: BlockingDetector) -> JSONValue {
+        let sites = detector.sites
+        var contexts: [String: JSONValue] = [:]
+        for context in [BlockingContext.main, .pool] {
+            let inContext = sites.filter { $0.context == context }
+            contexts[context.rawValue] = .object([
+                "sites": .number(Double(inContext.count)),
+                "count": .number(Double(inContext.reduce(0) { $0 + $1.count })),
+                "overflow": .number(Double(detector.overflow(in: context))),
+            ])
+        }
         let report: JSONValue = .object([
+            "compiled_in": .bool(detector.isCompiledIn),
             "mode": .string(detector.mode.rawValue),
+            "pool_mode": .string(detector.poolMode.rawValue),
             "overflow": .number(Double(detector.overflow)),
-            "sites": .array(detector.sites.map { site in
+            "contexts": .object(contexts),
+            "sites": .array(sites.map { site in
                 .object([
+                    "context": .string(site.context.rawValue),
                     "kind": .string(site.kind.rawValue),
                     "location": .string(site.location),
                     "count": .number(Double(site.count)),
+                    "total_ms": .number(Double(site.totalNanos) / 1_000_000),
+                    "max_ms": .number(Double(site.maxNanos) / 1_000_000),
                 ])
             }),
         ])

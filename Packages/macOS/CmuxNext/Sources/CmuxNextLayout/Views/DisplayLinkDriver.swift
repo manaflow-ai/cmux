@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// Steps the layout's springs (panes, dividers, columns, screens, drop
 /// zones) on the window's one `MotionClock`, the clock the tab strip and the
@@ -40,7 +41,7 @@ final class DisplayLinkDriver: MotionAnimating {
         target.run(self, trace: "layout")
     }
 
-    func motionStep(_ dt: Double) -> Bool {
-        onFrame?(dt) ?? false
+    func motionStep(_ tick: FrameTick) -> Bool {
+        onFrame?(tick.elapsed) ?? false
     }
 }

@@ -114,6 +114,7 @@
     "CmuxNextPages": {"layer": "ui", "mixes": ["service"]},
     "CmuxNextPagesTestSupport": {"layer": "ui"},
     "CmuxNextAppPermissions": {"layer": "ui"},
+    "CmuxNextLaunch": {"layer": "ui", "note": "launch-only types (p08-startup task 073): ui because the saved window picture views and its Design dependency are AppKit; never depends on CmuxNextApp"},
     "CmuxNextTestExitTrace": {"layer": "core"},
     "CmuxNextSignposts": {"layer": "core"},
     "CmuxNextTrace": {"layer": "core", "note": "TraceRuntime, Release trace rings, crash keys, HangWatch slots (p09-observability); depends on Compat only"},
