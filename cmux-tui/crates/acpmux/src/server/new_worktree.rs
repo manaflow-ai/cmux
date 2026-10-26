@@ -14,6 +14,11 @@ use serde_json::{Value, json};
 use super::Origin;
 use crate::rpc::RpcError;
 
+/// Whether `meta` asks for a worktree.
+pub(super) fn asked(meta: Option<&Value>) -> bool {
+    meta.and_then(|m| m.get("worktree")).is_some_and(|w| !w.is_null())
+}
+
 /// What a worktree's folder must pass before a create may use it.
 pub(super) type Check = Box<dyn FnOnce(&std::path::Path) -> Result<(), RpcError> + Send>;
 

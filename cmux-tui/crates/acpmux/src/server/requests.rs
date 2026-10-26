@@ -636,18 +636,26 @@ async fn new_local_session(
     let who = who(conn);
     let harness = pick("harness").or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
     // An adopt's conversation: its id and the family `new_session` resolves (`adopted_in`).
+    // One whose harness the source folder does not resolve but its worktree may (a folder
+    // profile only the worktree has) keys nothing: it needs room like a new session, and
+    // its create resolves the harness in the worktree, attaching to a holder there.
     let conversation = match &adopt {
-        Some(a) if a.if_live != crate::adopt::IfLive::Fork => Some(
-            hub.adopt_conversation(
+        Some(a) if a.if_live != crate::adopt::IfLive::Fork => {
+            let (preset, model) = (pick("preset"), pick("model"));
+            let keyed = hub.adopt_conversation(
                 &a.agent_session_id,
                 harness.clone(),
-                &pick("preset"),
-                pick("model").as_deref(),
+                &preset,
+                model.as_deref(),
                 conn.origin.web_class(),
                 cwd.as_deref(),
-            )
-            .await?,
-        ),
+            );
+            match keyed.await {
+                Ok(c) => Some(c),
+                Err(_) if super::new_worktree::asked(meta) => None,
+                Err(e) => return Err(e),
+            }
+        }
         _ => None,
     };
     let mut admitted = match &conversation {
