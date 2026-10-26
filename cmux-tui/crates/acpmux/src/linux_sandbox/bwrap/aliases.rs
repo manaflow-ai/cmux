@@ -239,4 +239,46 @@ mod tests {
             vec![PathBuf::from("/first:colon"), PathBuf::from("/second space"), PathBuf::from(r"/upper\slash"), PathBuf::from("/work")]
         );
     }
+
+    #[test]
+    fn overlay_layers_skip_data_only_empty_parts() {
+        assert_eq!(
+            overlay_layers("lowerdir=/a::/b,upperdir=/upper,workdir=/work").unwrap(),
+            vec![
+                PathBuf::from("/a"),
+                PathBuf::from("/b"),
+                PathBuf::from("/upper"),
+                PathBuf::from("/work")
+            ]
+        );
+    }
+
+    #[test]
+    fn overlay_layers_anywhere_cannot_export_protected_content() {
+        let protected = PathBuf::from("/home/u/.ssh");
+        let outside_overlay = "1 2 8:1 / / rw - ext4 root rw\n2 3 0:55 / /elsewhere rw - overlay overlay rw,lowerdir=/home\n";
+        assert!(!mount_aliases(&[protected.clone()], outside_overlay).is_empty());
+        let writable_overlay = "1 2 8:1 / / rw - ext4 root rw\n2 3 0:55 / /work rw - overlay overlay rw,lowerdir=/home\n";
+        assert!(!writable_mount_aliases(&[&PathBuf::from("/work")], writable_overlay).is_empty());
+    }
+
+    #[test]
+    fn nonlocal_writable_mounts_are_refused_at_and_below_root() {
+        let root = PathBuf::from("/work");
+        for fs_type in ["fuse.sshfs", "nfs4", "9p", "virtiofs", "autofs"] {
+            for point in ["/work", "/work/mnt"] {
+                let info = format!(
+                    "1 2 8:1 / / rw - ext4 root rw\n2 3 0:55 / {point} rw - {fs_type} source rw\n"
+                );
+                assert!(!writable_mount_aliases(&[&root], &info).is_empty(), "{fs_type} {point}");
+            }
+        }
+    }
+
+    #[test]
+    fn writable_root_contained_by_nonlocal_mount_is_refused() {
+        let root = PathBuf::from("/work");
+        let info = "1 2 8:1 / / rw - ext4 root rw\n2 3 0:55 / / rw - nfs4 source rw\n";
+        assert!(!writable_mount_aliases(&[&root], info).is_empty());
+    }
 }

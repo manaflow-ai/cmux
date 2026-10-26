@@ -485,6 +485,13 @@ async fn run(options: Options) -> Result<i32> {
         prefix.extend(["--api-port".into(), api.port().to_string()]);
     }
     prefix.push("--".into());
+    // The snapshot precedes the bwrap clone. Only unsandboxed host processes
+    // can add mounts in that window, and they already have full host access.
+    // After cloning, seccomp and user namespaces block sandbox mounts; the
+    // only propagation path is automount, which writable_mount_aliases rejects
+    // for autofs at, below, or containing every writable root. Other triggers
+    // retain Seatbelt's path-based parity, including its same out-of-scope
+    // limit for mounts exporting protected content elsewhere.
     let mut mountinfo = Vec::new();
     std::fs::File::open("/proc/self/mountinfo")
         .map_err(|e| format!("cannot read mountinfo: {e}"))?
