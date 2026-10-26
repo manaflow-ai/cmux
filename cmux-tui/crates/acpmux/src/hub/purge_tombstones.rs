@@ -1,5 +1,84 @@
 //! Part of `Hub`; see `hub/mod.rs`. A peer's purge that its session list,
 //! read before the purge, must not undo.
+//!
+//! A peer answers `_acpmux/watch` with a list it read before it answered,
+//! while its watch already sends `session_changed` notices from another task
+//! (`server/requests.rs` `MUX_WATCH`, `server/mod.rs` `deliver`): a session
+//! purged after the list was read can have its purge written to the link
+//! before the reply. The hub takes notices in the order the link gives them
+//! (`peer.rs` `serve`), so the purge removes the row and the older list puts
+//! it back. Every peer in the fleet answers this way, older daemons too, so
+//! this daemon decides it: a purge it took on the link before that link's
+//! list is a tombstone the list cannot revive.
+//!
+//! What can never be hidden: a tombstone holds only until the next list, the
+//! end of the link (`Disconnected`; the next link's list is read after the
+//! purge, so a row in it was made again) or a lag (the notice that made it
+//! again may be one the peer dropped), and any other notice of that session
+//! lifts it. A session made again under the purged id after the peer started
+//! watching sends such a notice on this link, so the list loses only rows the
+//! peer no longer has, or one its notice puts back.
+
+use crate::peer::PeerNotice;
+use serde_json::Value;
+use std::collections::{HashMap, HashSet};
+use std::sync::Mutex;
+
+/// Each peer's purges since its last list, link end or lag, for the instance
+/// (`Peer::generation`) that sent them; an entry goes with its list. Lock
+/// order: `Hub::remote_sessions`, then this.
+#[derive(Default)]
+pub(crate) struct PurgeTombstones(Mutex<HashMap<String, (u64, HashSet<String>)>>);
+
+impl PurgeTombstones {
+    /// Records what notice `notice` of instance `generation` of peer `peer`
+    /// says about purges, before the hub applies it (`apply_peer_notice`).
+    pub(super) fn note(&self, peer: &str, generation: u64, notice: &PeerNotice) {
+        let mut map = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        match notice {
+            PeerNotice::Disconnected(_) => {
+                map.remove(peer);
+            }
+            PeerNotice::Notification { method, .. } if method == "_acpmux/lagged" => {
+                map.remove(peer);
+            }
+            PeerNotice::SessionChanged { session, kind, .. } => {
+                let Some(id) = session.get("sessionId").and_then(Value::as_str) else { return };
+                if kind == "purged" {
+                    // Generations only grow: a newer instance starts over, an older one's
+                    // notice is stale (`peer_notice_loop` drops those before this).
+                    let entry = map.entry(peer.to_owned()).or_insert((generation, HashSet::new()));
+                    if entry.0 < generation {
+                        *entry = (generation, HashSet::new());
+                    }
+                    if entry.0 == generation {
+                        entry.1.insert(id.to_owned());
+                    }
+                } else if let Some((g, ids)) = map.get_mut(peer)
+                    && *g == generation
+                {
+                    ids.remove(id);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The sessions instance `generation` of peer `peer` purged before the
+    /// list now applied, which that list must leave out; none are kept after.
+    pub(super) fn take(&self, peer: &str, generation: u64) -> HashSet<String> {
+        let mut map = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        match map.remove(peer) {
+            Some((g, ids)) if g == generation => ids,
+            _ => HashSet::new(),
+        }
+    }
+
+    /// Peer `peer` left (`Hub::purge_peer_rows`).
+    pub(super) fn forget(&self, peer: &str) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).remove(peer);
+    }
+}
 
 #[cfg(test)]
 mod tests {

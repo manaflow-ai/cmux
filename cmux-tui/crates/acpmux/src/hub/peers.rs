@@ -204,6 +204,7 @@ impl Hub {
     pub(super) fn purge_peer_rows(&self, name: &str) {
         let gone: Vec<Value> = {
             let mut map = self.remote_sessions.lock().unwrap();
+            self.purge_tombstones.forget(name);
             let ids: Vec<String> =
                 map.iter().filter(|(_, r)| r.peer == name).map(|(id, _)| id.clone()).collect();
             ids.into_iter().filter_map(|id| map.remove(&id).map(|r| r.summary)).collect()
@@ -372,6 +373,8 @@ impl Hub {
         // drops its rows) must not add rows back or save them. So every path
         // that changes rows checks again under the rows lock.
         use crate::peer::PeerNotice;
+        // Before the notice applies: a list leaves out what was purged before it.
+        self.purge_tombstones.note(peer, generation, &notice);
         let peer = peer.to_owned();
         {
             match notice {
@@ -413,6 +416,8 @@ impl Hub {
                         if !self.is_current(&peer, generation) {
                             return;
                         }
+                        // Read before a purge this link already brought (`purge_tombstones.rs`).
+                        let purged = self.purge_tombstones.take(&peer, generation);
                         let mut old: HashMap<String, Value> = map
                             .iter()
                             .filter(|(_, r)| r.peer == peer)
@@ -423,6 +428,9 @@ impl Hub {
                         for s in list {
                             let summary = Self::remote_summary(&peer, s);
                             let Some(receipt) = session_receipt(&summary) else { continue };
+                            if purged.contains(&receipt.mux_session_id) {
+                                continue;
+                            }
                             let id = receipt.qualified_id();
                             if old.remove(&id).as_ref() != Some(&summary) {
                                 changed.push(summary.clone());

@@ -488,6 +488,8 @@ pub struct Hub {
     pub(crate) outbox: outbox::Outbox,
     pub(crate) watches: watches::Watches,
     pub(crate) peer_accepts: outbox::PeerAccepts,
+    /// A peer's purges its older session list must not undo (`purge_tombstones.rs`).
+    pub(super) purge_tombstones: purge_tombstones::PurgeTombstones,
     /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
     pub(super) agent_pairs: agent_pairs::AgentPairs,
     /// Pairing tickets and paired machines (`crate::pairing`).
@@ -592,6 +594,7 @@ impl Hub {
             outbox: Default::default(),
             watches: Default::default(),
             peer_accepts: Default::default(),
+            purge_tombstones: Default::default(),
             agent_pairs: Default::default(),
             pairing: Default::default(),
             briefs,
