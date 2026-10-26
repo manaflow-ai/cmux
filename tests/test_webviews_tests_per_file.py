@@ -50,6 +50,7 @@ if grep -q -e '"dev",' -e 'createServer(' -e 'vite.config.gallery-dev.ts' -e 'vi
   rmdir "$DEV_RUNNING/$$"
 fi
 case "$file" in
+  *fail-slow*) sleep 1; echo "(fail) a slow broken test"; exit 1 ;;
   *hang*) sleep 60 ;;
   *slow*) sleep 3; echo "(pass) $file" ;;
   *fail*) echo "(fail) a broken test"; exit 1 ;;
@@ -141,6 +142,40 @@ class PerFileRunner(unittest.TestCase):
         self.assertRegex(output, r"TIMEOUT[^\n]*test/hang\.test\.tsx")
         self.assertNotRegex(output, r"(FAIL|TIMEOUT)[^\n]*test/a\.test\.ts")
         self.assertNotRegex(output, r"(FAIL|TIMEOUT)[^\n]*src/b\.test\.tsx")
+
+    def test_a_declared_long_file_cannot_exceed_the_runner_hard_limit(self):
+        result, elapsed, calls = self.run_runner(
+            ["test/slow.test.ts"],
+            contents={"test/slow.test.ts": "// cmux-web-test-timeout: 3000\n"},
+            extra_env={"CMUX_WEB_TEST_MAX_FILE_TIMEOUT": "1"},
+        )
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertLess(elapsed, 3, output)
+        self.assertIn("TIMEOUT test/slow.test.ts", output)
+        self.assertEqual(calls, ["./test/slow.test.ts"])
+
+    def test_a_timed_out_file_reports_once_without_a_serial_retry(self):
+        result, _, calls = self.run_runner(
+            ["test/hang.test.ts"], extra_env={"CMUX_WEB_TEST_RETRIES": "1"}
+        )
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(calls, ["./test/hang.test.ts"], output)
+        self.assertIn("TIMEOUT test/hang.test.ts", output)
+
+    def test_serial_retries_have_a_shared_time_budget(self):
+        files = [f"test/{index}-fail-slow.test.ts" for index in range(4)]
+        result, _, calls = self.run_runner(
+            files,
+            extra_env={"CMUX_WEB_TEST_RETRIES": "60", "CMUX_WEB_TEST_RETRY_BUDGET": "1"},
+        )
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertLess(len(calls), 8, output)
+        for file in files:
+            self.assertIn(f"FAIL {file}", output)
+        self.assertIn("retry budget exhausted", output)
 
     def test_passing_files_pass(self):
         result, _, calls = self.run_runner(["test/a.test.ts", "src/b.test.tsx"])
