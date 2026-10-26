@@ -54,7 +54,9 @@ extension AppControl {
                 .value(DebugMotion.handle(call.params, services, commitProbe: probe))
             },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
-            .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
+            .mainActor("debug.timings") { [weak services] call in
+                .value(DebugTimings.handle(call.params, launchValues: services?.launchValues.values ?? [:]))
+            },
             // The startup trace (CMUX_TRACE_STARTUP): write what it holds now, its file and counts.
             DebugTimings.startupTraceMethod,
             // Each tab switch's own time: intent to shown, and to the next frame (perf-gate.py).
