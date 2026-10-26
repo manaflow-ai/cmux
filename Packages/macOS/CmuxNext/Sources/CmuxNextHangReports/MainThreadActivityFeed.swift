@@ -6,9 +6,8 @@ public import Foundation
 /// Feeds a ``MainThreadReportLedger`` the app's activation notices (through the app's one
 /// `AppEvents` adapter) and the person's keys, clicks and scrolls (through its one input tap);
 /// Chrome's `DesktopSessionDurationTracker` hears window activation and user events the same way.
-/// Input is
-/// forwarded at most once a second: an input stamp at most a second old keeps a span to within a
-/// second of Chrome's.
+/// Input is forwarded at most once a second: an input stamp at most a second old keeps a span to
+/// within a second of Chrome's.
 ///
 /// ```swift
 /// feed = MainThreadActivityFeed(ledger: ledger, input: inputTap, events: appEvents, isActive: NSApp.isActive)
