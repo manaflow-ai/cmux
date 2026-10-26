@@ -38,8 +38,8 @@ extension ActionRegistry {
     /// Binds every ``AgentPageCommand``. `available` is the page commands of the agent chat the
     /// invocation resolves to (its target, else the focused pane; nil when it is no agent chat: `run`
     /// refuses then). A command that page does not list refuses with the reason, checked for the
-    /// run's own target (``ActionTargetReasons``), and one run by automation without a focus request
-    /// refuses too.
+    /// run's own target (``ActionTargetReasons``; the palette row is disabled with it), and one run
+    /// by automation without a focus request refuses too.
     @discardableResult
     public func bindAgentPageCommands(
         available: @escaping @MainActor (ActionInvocation) -> Set<String>?,
@@ -53,10 +53,13 @@ extension ActionRegistry {
                 run(command, invocation)
                 return .done
             })
-            ActionTargetReasons.set(id, in: self) { invocation in
+            let reason: @MainActor (ActionInvocation) -> String? = { invocation in
                 guard let commands = available(invocation), !commands.contains(command.rawValue) else { return nil }
                 return AgentPaneView.pageCommandUnavailable(title)
             }
+            ActionTargetReasons.set(id, in: self, reason)
+            // The palette runs on the focused chat: its row is disabled with the same reason.
+            ActionTargetTitles.setPaletteReason(id, in: self) { reason(ActionInvocation()) }
             return bound
         }.allSatisfy(\.self)
     }
