@@ -88,9 +88,9 @@ export function subsessionInfo(entry: AcpmuxSessionEntry): SubsessionInfo {
     ...(state === "input" && entry.waitingOn ? { waiting: entry.waitingOn } : {}),
     ...(entry.waitsForSlot ? { slot: true as const } : {}),
     ...(entry.model ? { model: entry.model } : {}),
-    // A retry is only ever of a failed turn: on any other row it is stale.
-    ...(state === "failed" && entry.retry ? { retry: entry.retry } : {}),
-    ...(state === "failed" && entry.retryDeciding ? { retryDeciding: true as const } : {}),
+    // Read through retryState.ts ``sessionRetry``, which ignores them on a row that isn't failed.
+    ...(entry.retry ? { retry: entry.retry } : {}),
+    ...(entry.retryDeciding ? { retryDeciding: true as const } : {}),
     ...(state === "failed" && !entry.retry && entry.laneError ? { error: entry.laneError } : {}),
   };
 }

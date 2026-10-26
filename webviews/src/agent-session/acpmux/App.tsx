@@ -179,7 +179,7 @@ import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList
 import { AgentsPill } from "./subagents/AgentsPill";
 import { SubagentTray } from "./subagents/SubagentTray";
 import { SubagentDoneLine } from "./subagents/SubagentDoneLine";
-import { runRetry, type RetryTarget } from "./subagents/retryState";
+import { retryKey, runRetry, type RetryTarget } from "./subagents/retryState";
 import { configureWorkflowCardOpen, WorkflowCard } from "./summary/WorkflowCard";
 import {
   type DoneLineCache,
@@ -5801,11 +5801,7 @@ function AcpmuxPane() {
         agent.action ?? "",
         agent.endedAt ?? "",
         agent.agentId ?? "",
-        ...[agent.retry, agent.firing, agent.retriedOut].map((r) =>
-          r ? `${r.attempt}/${r.of}/${r.reason ?? ""}` : "",
-        ),
-        agent.retryable ?? "",
-        agent.error ?? "",
+        retryKey(agent),
       ].join("\u0000"),
     )
     .join("\u0001");

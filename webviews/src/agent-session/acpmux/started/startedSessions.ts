@@ -149,7 +149,7 @@ export function startedSessions(
         ...(entry.createdAt !== undefined ? { createdAt: entry.createdAt } : {}),
         ...(doing && entry.doing ? { doing: entry.doing } : {}),
         ...(doing && entry.doing && entry.doingTool ? { doingTool: entry.doingTool } : {}),
-        ...(doing && state === "failed" && entry.retry ? { retry: entry.retry } : {}),
+        ...(doing && entry.retry ? { retry: entry.retry } : {}),
       };
     })
     .sort((a, b) => (a.createdAt ?? Infinity) - (b.createdAt ?? Infinity));

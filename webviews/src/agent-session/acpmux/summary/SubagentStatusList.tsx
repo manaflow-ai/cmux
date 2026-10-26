@@ -14,7 +14,7 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { elapsed, running, STATE_LABEL, useNow } from "../subagents/SubagentGroup";
 import type { Subagent } from "../subagents/subagentFold";
-import { retrying, retryLabel } from "../subagents/retryState";
+import { retrying, retryLabel, sessionRetry } from "../subagents/retryState";
 import { Spinner } from "../conversation/icons";
 import {
   SUBSESSION_STATE_LABEL,
@@ -235,8 +235,10 @@ export function SubagentStatusList({
 /// person for), its unread dot, how many messages wait for it, and its state.
 function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOpen?: (sessionId: string) => void }) {
   const t = useT();
-  // While acpmux waits to retry its failed turn, it works again (subagents/retryState.ts).
-  const status = session.retry ? SUBSESSION_STATUS.working : SUBSESSION_STATUS[session.state];
+  // While acpmux retries its failed turn, it works again (subagents/retryState.ts ``sessionRetry``).
+  const phase = sessionRetry(session);
+  const retry = phase.kind === "retrying" ? phase.retry : undefined;
+  const status = retry ? SUBSESSION_STATUS.working : SUBSESSION_STATUS[session.state];
   // What a working one does now, or what one waiting on the person waits for.
   const line = session.waiting ? waitingLine(t, session.waiting) : session.doing;
   return (
@@ -266,8 +268,8 @@ function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOp
         <span className="acpmux-summary-meta">{t("subsession.queued", { n: session.queued })}</span>
       ) : null}
       <span className="acpmux-summary-meta acpmux-summary-agent__state">
-        {session.retry && <Spinner size={12} loading />}
-        {session.retry ? retryLabel(t, session.retry) : t(SUBSESSION_STATE_LABEL[session.state])}
+        {retry && <Spinner size={12} loading />}
+        {retry ? retryLabel(t, retry) : t(SUBSESSION_STATE_LABEL[session.state])}
       </span>
     </button>
   );

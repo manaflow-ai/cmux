@@ -6,6 +6,9 @@ import { SubagentFold } from "./subagentFold";
 import { subsessionInfo } from "./subsessions";
 import { finishedTrayItems, trayItems } from "./runningTray";
 import {
+  SUBAGENT_RETRY,
+  sessionRetry,
+  subagentRetry,
   askPrompt,
   isRetryContinuation,
   readRetry,
@@ -88,11 +91,17 @@ describe("the adapter reads acpmux's retry", () => {
     expect(subsessionInfo(sessionEntry(failed))).toMatchObject({ state: "failed", error: "folder is gone" });
     const waiting = { ...failed, retry: FIXTURE.sessionRetry };
     expect(subsessionInfo(sessionEntry(waiting)).error).toBeUndefined();
-    // A retry acpmux settles or runs offers none; a stale one on a row that runs says nothing.
-    expect(subsessionInfo(sessionEntry({ ...failed, retryDeciding: true })).retryDeciding).toBe(true);
-    const working = { ...waiting, lane: { state: "working" }, retryDeciding: true };
-    expect(subsessionInfo(sessionEntry(working))).not.toHaveProperty("retry");
-    expect(subsessionInfo(sessionEntry(working))).not.toHaveProperty("retryDeciding");
+    // One owner says where it stands: retrying, settling (no Retry), failed with its Retry, or, on a
+    // row that runs, nothing (a stale retry there says nothing).
+    const phase = (entry: Record<string, unknown>, caps?: ReadonlySet<string>) =>
+      sessionRetry(subsessionInfo(sessionEntry({ ...failed, ...entry })), caps);
+    expect(phase({ retry: FIXTURE.sessionRetry }).kind).toBe("retrying");
+    expect(phase({ retryDeciding: true })).toEqual({ kind: "settling" });
+    expect(phase({})).toEqual({ kind: "failed", action: "daemon" });
+    expect(phase({}, new Set([SUBAGENT_RETRY]))).toEqual({ kind: "failed", action: "ask" });
+    expect(phase({ lane: { state: "working" }, retry: FIXTURE.sessionRetry, retryDeciding: true })).toEqual({
+      kind: "none",
+    });
   });
 });
 
@@ -140,8 +149,17 @@ describe("the fold keeps a subagent's retry", () => {
     fold.endRetryTurn();
     expect(fold.all()[0]!.firing).toBeUndefined();
     expect(retryActionOf(fold.all()[0]!)).toBe("daemon");
+    // A sub-session's line reads its own session row: acpmux settling its retry offers nothing.
+    expect(subagentRetry({ ...fold.all()[0]!, child: "s" }, undefined, { retryDeciding: true })).toEqual({
+      kind: "settling",
+    });
     fold.reduceRetryStep({ subagentId: "a", outcome: "exhausted", attempt: 2, of: 2, reason: "capacity" });
     expect(fold.all()[0]!.retriedOut).toEqual({ attempt: 2, of: 2, reason: "capacity" });
+    expect(subagentRetry(fold.all()[0]!)).toEqual({
+      kind: "failed",
+      action: "daemon",
+      gaveUp: { attempt: 2, of: 2, reason: "capacity" },
+    });
     fold.reduceRetryStep({ subagentId: "a", outcome: "scheduled", attempt: 1, of: 2, reason: "capacity" });
     expect(fold.all()[0]!.retriedOut).toBeUndefined();
   });

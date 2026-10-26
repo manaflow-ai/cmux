@@ -19,7 +19,7 @@ import type { BackgroundCommand } from "../inspector/processes";
 import { nestAgents } from "./AgentsPill";
 import { isRunGroup, isSubagentGroup, SUBAGENT_DONE, WORKFLOW_CARD } from "./subagentRows";
 import type { Subagent } from "./subagentFold";
-import { retrying } from "./retryState";
+import { retrying, retryKey, sessionRetry } from "./retryState";
 
 let trayOn = true;
 const listeners = new Set<() => void>();
@@ -79,7 +79,7 @@ export function trayItems(
 }
 
 const liveSession = (session: StartedSession) =>
-  session.state === "running" || session.state === "waiting" || session.retry !== undefined;
+  session.state === "running" || session.state === "waiting" || sessionRetry(session).kind === "retrying";
 
 /// The chat's subagents and started chats that ended, for the tray's bounded status cards: the
 /// subagents that ended last first, so the few the tray shows under what runs are the latest. A
@@ -147,18 +147,13 @@ function versionOf(key: string): number {
 
 function doneLine(agent: Subagent, endedAt: number, cache: DoneLineCache, made: Set<string>): AcpmuxRow {
   const id = `${SUBAGENT_DONE}:${agent.id}`;
-  const retry = [agent.retry, agent.firing, agent.retriedOut].map((r) =>
-    r ? `${r.attempt}/${r.of}/${r.reason ?? ""}` : "",
-  );
   const key = [
     agent.state,
     agent.name,
     agent.startedAt,
     endedAt,
     agent.stopReason ?? "",
-    agent.retryable ?? "",
-    agent.error ?? "",
-    ...retry,
+    retryKey(agent),
   ].join("\u0000");
   made.add(id);
   const kept = cache.get(id);

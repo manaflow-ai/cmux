@@ -21,10 +21,9 @@ import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
-import { retryActionOf, retrying, retryLabel, type RetryAction, type RetryNote, type RetryState } from "./retryState";
+import { retryLabel, subagentRetry, type RetryAction, type RetryNote, type SessionRetryFields } from "./retryState";
 import { elapsed, SubagentNavContext, SubagentPaneContext } from "./SubagentGroup";
 import { useSubsessionInfo } from "./subsessions";
-import type { Subagent } from "./subagentFold";
 
 const DONE_LABEL: Record<string, StringKey> = {
   completed: "subagents.ended.completed",
@@ -48,20 +47,11 @@ export function SubagentDoneLine({ row }: { row: AcpmuxRow }) {
 }
 
 function SubsessionDoneLine({ row, child }: { row: AcpmuxRow; child: string }) {
-  const info = useSubsessionInfo(child);
-  return <DoneLine row={row} childRetry={info?.retry} childSettling={info?.retryDeciding} />;
+  return <DoneLine row={row} child={useSubsessionInfo(child)} />;
 }
 
-function DoneLine({
-  row,
-  childRetry,
-  childSettling,
-}: {
-  row: AcpmuxRow;
-  childRetry?: RetryState;
-  /// acpmux settles, starts or runs the sub-session's retry: neither Retry nor Restart meanwhile.
-  childSettling?: boolean;
-}) {
+/// `child`: a sub-session's own session row, where acpmux keeps its retry.
+function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }) {
   const t = useT();
   const nav = useContext(SubagentNavContext);
   const pane = useContext(SubagentPaneContext);
@@ -73,20 +63,24 @@ function DoneLine({
   const [note, setNote] = useState<{ version: number; key?: RetryNote; busy?: boolean }>();
   const open = pane ?? nav;
   if (!agent) return null;
-  const live: Subagent = childRetry && !agent.retry ? { ...agent, retry: childRetry } : agent;
-  const waiting = retrying(live);
-  const action = retryAgent && !childSettling ? retryActionOf(live, retryCapabilities) : undefined;
+  // The row's retry, as every surface reads it (retryState.ts ``subagentRetry``).
+  const phase = subagentRetry(agent, retryCapabilities, child);
+  const waiting = phase.kind === "retrying" ? phase.retry : undefined;
+  const action = retryAgent && phase.kind === "failed" ? phase.action : undefined;
   const label = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name: agent.name });
   const reasonKey = agent.state === "cancelled" && agent.stopReason ? STOP_REASON_LABEL[agent.stopReason] : undefined;
   const time = formatDuration(elapsed(agent, agent.endedAt ?? row.at));
-  // While acpmux waits to retry it, Restart would run it a second time.
-  const restart = restartSubagent && canRestart(agent) && !waiting && !childSettling ? restartSubagent : undefined;
+  // While acpmux retries it, or settles whether it will, Restart would run it a second time.
+  const restart =
+    restartSubagent && canRestart(agent) && phase.kind !== "retrying" && phase.kind !== "settling"
+      ? restartSubagent
+      : undefined;
   const parts = waiting
     ? [agent.name, retryLabel(t, waiting)]
     : [
         label,
         ...(reasonKey ? [t(reasonKey)] : []),
-        ...(agent.retriedOut ? [t("retry.retriedOut", { of: agent.retriedOut.of })] : []),
+        ...(phase.kind === "failed" && phase.gaveUp ? [t("retry.retriedOut", { of: phase.gaveUp.of })] : []),
         time,
         // Why it failed, as acpmux recorded it, last: the line cuts it first.
         ...(agent.state === "failed" && agent.error ? [agent.error] : []),
@@ -95,7 +89,7 @@ function DoneLine({
   const run = () => {
     if (!retryAgent || shown?.busy) return;
     setNote({ version: row.version, busy: true });
-    void retryAgent(live).then(
+    void retryAgent(agent).then(
       (key) => setNote(key ? { version: row.version, key } : undefined),
       () => setNote({ version: row.version, key: "retry.failed" }),
     );

@@ -47,7 +47,7 @@ import { Icon } from "../icons/Icon";
 import { arrivalKey, type BackgroundCommand, commandLabel, sendLabel } from "../inspector/processes";
 import { StopButton as ProcessStopButton } from "../inspector/TasksSection";
 import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } from "../summary/SubagentStatusList";
-import { retrying, retryLabel } from "./retryState";
+import { retrying, retryLabel, sessionRetry } from "./retryState";
 import { AgentLine } from "./AgentLine";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { elapsed, StopButton, useNow } from "./SubagentGroup";
@@ -284,6 +284,9 @@ export const SubagentTray = memo(function SubagentTray({
         </>
       );
     }
+    // The chat's retry, as every surface reads it (retryState.ts ``sessionRetry``).
+    const sessionPhase = sessionRetry(item.session);
+    const sessionRetrying = sessionPhase.kind === "retrying" ? sessionPhase.retry : undefined;
     return (
       <AgentLine
         name={item.session.title}
@@ -292,11 +295,9 @@ export const SubagentTray = memo(function SubagentTray({
         kind={t("tray.kind.subagent")}
         chevron
         icon="agent.chat"
-        status={item.session.retry ? "running" : SESSION_STATUS[item.session.state]}
-        state={
-          item.session.retry ? retryLabel(t, item.session.retry) : t(STATUS_LABEL[SESSION_STATUS[item.session.state]])
-        }
-        working={item.session.retry !== undefined}
+        status={sessionRetrying ? "running" : SESSION_STATUS[item.session.state]}
+        state={sessionRetrying ? retryLabel(t, sessionRetrying) : t(STATUS_LABEL[SESSION_STATUS[item.session.state]])}
+        working={sessionRetrying !== undefined}
         onOpen={onOpenSession && (() => onOpenSession(item.session.sessionId))}
       />
     );
