@@ -212,9 +212,10 @@ public final class ChromiumWarmup {
         }
     }
 
-    /// Starts Chromium now, with no idle wait: its start costs the main thread nothing (the Chromium Host,
-    /// placed by ``ChromiumHostLaunchStart``, p08-startup-046). Once per process, as ``chromiumLikely(_:)``;
-    /// the first spare window still waits for an idle moment.
+    /// Starts Chromium now, with no idle wait: with the Chromium Host its start holds the main thread only for
+    /// the shim calls (the attach and the start's disk reads run off main; placed by ``ChromiumHostLaunchSlot``,
+    /// p08-startup-046). Once per process, as ``chromiumLikely(_:)``; the first spare window still waits for an
+    /// idle moment.
     public func startWithoutIdleWait(_ reason: Reason) {
         guard self.reason == nil, isAvailable, !engine.isRunning, !stopped else { return }
         self.reason = reason

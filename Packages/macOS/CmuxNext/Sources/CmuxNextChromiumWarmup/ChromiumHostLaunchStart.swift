@@ -2,9 +2,9 @@ public import CmuxNextWakeups
 
 /// When the launch starts the Chromium Host (`BrowserBackend.host`, p08-startup-046).
 ///
-/// With the host, Chromium's start holds the main thread for nothing: the host is spawned on the
-/// child-process launcher, the remote shim opens and attaches off main, and `CefInitialize` is an op
-/// on its wire. So no idle wait places it; Chrome's visible-first startup rule does
+/// With the host, Chromium's start holds the main thread only for its shim calls: the host is spawned
+/// on the child-process launcher, the remote shim opens and attaches off main, the start's disk reads
+/// run off main (`CEFStartInputs`), and `CefInitialize` is an op on its wire. So no idle wait places it; Chrome's visible-first startup rule does
 /// (chrome/browser/ui/startup/startup_browser_creator_impl.cc opens the visible tabs first, and
 /// chrome/browser/after_startup_task_utils.cc holds the rest): a Chromium page in a shown pane starts
 /// the host right after the first frame, a Chromium tab that is only likely (Chromium is the default

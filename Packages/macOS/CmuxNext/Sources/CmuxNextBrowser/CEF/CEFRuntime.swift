@@ -26,7 +26,7 @@ final class CEFRuntime {
     var state: State = .idle { didSet { noteCrashKeyState() } }
     /// The app's crash keys, which name Chromium's state (``attachCrashKeys(_:)``); nil names nothing.
     var crashKeys: CrashKeySlots?
-    private(set) var shim: CEFShimLibrary?
+    var shim: CEFShimLibrary?
     private(set) var layout: CEFRuntimeLayout?
     private(set) var storage = CEFProfileStorage.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
     /// The in-process backend's external message pump, made by the in-process initialize only. Nil before
@@ -182,6 +182,10 @@ final class CEFRuntime {
     }
     /// Host mode (``BrowserBackend/host``): the attach that replaces ``loadInProcess``; nil in process.
     var hostStart: CEFHostStart?
+    /// Prepares a start's disk inputs, off the main thread (``preparedStartInputs()``; a test's recorder).
+    var prepareInputs: @Sendable (CEFStartInputs.Request) -> CEFStartInputs = { CEFStartInputs.prepare($0) }
+    /// The preparation the start under way awaits; nil between starts.
+    var startInputs: Task<CEFStartInputs, Never>?
     private(set) var preloaded = false
     /// The preload finished mapping the framework (CEF not started yet).
     private(set) var libraryLoaded = false
@@ -296,6 +300,7 @@ final class CEFRuntime {
         if let error = startError() { throw error }
         if state == .ready { return }
         state = .loading
+        let inputs = preparedStartInputs()
         let loaded: Result<CEFRuntimeBoot, BootError>
         if let hostStart {
             loaded = await hostStart.attached().map(CEFRuntimeBoot.host)
@@ -309,6 +314,7 @@ final class CEFRuntime {
             loadTask = task
             loaded = await task.value.map(CEFRuntimeBoot.inProcess)
         }
+        let prepared = await inputs.value
         // Another awaiter finished first, or the app began to quit.
         if let error = startError() {
             // A quit during the attach: this runtime never uses the host, so release its wire.
@@ -316,7 +322,7 @@ final class CEFRuntime {
             throw error
         }
         if state == .ready { return }
-        try finishStart(loaded, environment: environment, trigger: trigger)
+        try finishStart(loaded, inputs: prepared, environment: environment, trigger: trigger)
     }
 
     /// Starts mapping the shim and the framework in the background without
@@ -395,7 +401,7 @@ final class CEFRuntime {
         if state == .ready { return }
         // The host attaches asynchronously: no synchronous start in host mode.
         guard hostStart == nil else { throw .engineUnavailable(.cef, reason: Strings.cefUnavailable) }
-        try finishStart(loadInProcess(candidate).map(CEFRuntimeBoot.inProcess), environment: environment, trigger: "debugWindow")
+        try finishStart(loadInProcess(candidate).map(CEFRuntimeBoot.inProcess), inputs: CEFStartInputs.prepare(startInputsRequest), environment: environment, trigger: "debugWindow")
     }
 
     private func startError() -> BrowserEngineError? {
@@ -408,15 +414,17 @@ final class CEFRuntime {
 
     private func finishStart(
         _ loaded: Result<CEFRuntimeBoot, BootError>,
+        inputs: CEFStartInputs,
         environment: [String: String],
         trigger: String
     ) throws(BrowserEngineError) {
+        startInputs = nil
         do {
             let library = try loaded.get()
             let clock = ContinuousClock()
             let started = clock.now
             launchMarks.send(.initializeStarted)
-            try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, environment: environment) }
+            try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, inputs: inputs, environment: environment) }
             launchMarks.send(.initializeEnded)
             state = .ready
             CEFStartSteps.shared.timed("ready_hooks") {
@@ -454,7 +462,8 @@ final class CEFRuntime {
     }
 
     /// The main-thread part: NSApp check, message pump (in process only), `CefInitialize`.
-    private func initialize(_ library: CEFRuntimeBoot, environment: [String: String]) throws(BootError) {
+    /// `inputs`: what it reads from disk, prepared off the main thread (``CEFStartInputs``).
+    private func initialize(_ library: CEFRuntimeBoot, inputs: CEFStartInputs, environment: [String: String]) throws(BootError) {
         let shim = library.shim
         // The app's NSApplication subclass must conform (CmuxApplication); the shim no longer
         // patches NSApp at runtime. In host mode the host's NSApp runs Chromium.
@@ -466,9 +475,7 @@ final class CEFRuntime {
             startInProcessPump(shim)
         }
 
-        storage.prepareForLaunch()
-        let builtInPlan = CEFBuiltInExtensions(adBlockerEnabled: builtInAdBlockerSetting())
-            .plan(resources: Bundle.main.resourceURL, profiles: storage.root)
+        let builtInPlan = inputs.builtInPlan
         let switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(), rendererPaths: CEFForkFeatures(shim).rendererPaths,
             chromiumFeatures: chromiumFeatures,
@@ -505,7 +512,7 @@ final class CEFRuntime {
             if !refused.isEmpty { logger.error("document scripts refused by the shim: \(refused.joined(separator: ", "), privacy: .public)") }
         }
         // Google Chrome's native messaging hosts after cmux's own.
-        for folder in CEFNativeMessaging.googleChromeFolders(home: FileManager.default.homeDirectoryForCurrentUser) {
+        for folder in inputs.nativeMessagingFolders {
             _ = shim.addNativeMessagingDir(folder.path, folder.isUserLevel ? 1 : 0)
         }
         let switches = switchSet.arguments
@@ -534,7 +541,7 @@ final class CEFRuntime {
         }
         installDevToolsKeyPolicy()
         shim.setUnhandledKeyHandler(cefUnhandledKeyCallback)
-        terminationObserver = NotificationCenter.default.addObserver(
+        terminationObserver = terminationObserver ?? NotificationCenter.default.addObserver(  // once: a new host initializes again
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { _ in
             MainActor.assumeIsolated { // main-proof: observer on queue: .main

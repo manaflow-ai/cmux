@@ -13,17 +13,23 @@ import Observation
 // PaneController.contextMenu(for: .newTabButton), the default-engine action
 // from SettingsHandlers.
 extension AppServices {
-    /// Starts the launch preload and the likelihood observers. With the Chromium Host the start costs the main thread
-    /// nothing (the host spawns and attaches off main), so one startup post starts it where ``ChromiumHostLaunchStart``
-    /// puts it, with no idle wait (p08-startup-046); the warm-up, armed in the same post, cannot start it sooner.
+    /// Starts the launch preload and the likelihood observers. With the Chromium Host, Chromium's start holds the
+    /// main thread only for its shim calls (the host spawns and attaches off main, the start's disk reads run off
+    /// main), so once the launch's restore finished, one startup post starts it where ``ChromiumHostLaunchStart``
+    /// puts it, with no idle wait (``ChromiumHostLaunchSlot``, p08-startup-046); the warm-up, armed in the same post,
+    /// cannot start it sooner.
     func startChromiumWarmup() {
-        guard chromiumRuntime.source.backend == .host, let launchStartup,
-              let start = ChromiumHostLaunchStart(showsChromiumPane: showsChromiumPane, defaultIsChromium: cache.browserTabs.preference.defaultEngine == .chromium,
-                                                  hasChromiumTab: machines.hasChromiumTab) else { return armChromiumWarmup() }
-        launchStartup.post(start.priority, "ChromiumHost.start", on: .main) { [weak self] in
+        guard chromiumRuntime.source.backend == .host, let launchStartup else { return armChromiumWarmup() }
+        let preference = cache.browserTabs.preference
+        let slot = ChromiumHostLaunchSlot(startup: launchStartup, decide: { [weak self] in
+            guard let self else { return nil }
+            return ChromiumHostLaunchStart(showsChromiumPane: showsChromiumPane, defaultIsChromium: preference.defaultEngine == .chromium,
+                                           hasChromiumTab: machines.hasChromiumTab)
+        }, start: { [weak self] start in
             self?.armChromiumWarmup()
             self?.chromiumWarmup.startWithoutIdleWait(start.reason)
-        }
+        }, noStart: { [weak self] in self?.armChromiumWarmup() })
+        windows.whenRestored { slot.restored() }
     }
 
     /// A shown window's pane shows a Chromium tab: a restored Chromium page the person sees.
