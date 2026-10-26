@@ -7,7 +7,11 @@
 //   CmuxNextWireGen --sdk-schema cmux-tui/spec/sdk-schema.json \
 //     --resource-operations cmux-tui/spec/resource-operations-v2.json \
 //     --identity-output <plugin work dir>/WireSchemaIdentity+Built.generated.swift \
-//     --method-table-output <plugin work dir>/MethodTable+Schema.swift
+//     --method-table-output <plugin work dir>/MethodTable+Schema.swift \
+//     --resource-output-dir <plugin work dir> --resource-operation-names terminal.input.write,...
+//
+// The last pair writes ResourceOperations.swift and ResourceOperations+<family>.swift: typed
+// requests for the named `cmux.protocol/2` operations (the plugin's appResourceOperations).
 //
 // For CmuxNextIPCTests it writes only the fixture schema's `DaemonWireEvent` (task 022):
 //
@@ -52,6 +56,18 @@ func run(_ argv: [String]) throws(WireGenError) {
             throw WireGenError.methodTable(error)
         }
         try GeneratedFile(url: output).write(events.source(importing: arguments.eventImport))
+    }
+    if let directory = arguments.resourceOutputDirectory {
+        let files: [ResourceEmitter.File]
+        do throws(ResourceEmitterError) {
+            files = try ResourceEmitter(resourceOperations: resource.bytes, operations: arguments.resourceOperationNames)
+                .files()
+        } catch {
+            throw WireGenError.resourceOperations(error)
+        }
+        for file in files {
+            try GeneratedFile(url: directory.appending(path: file.name, directoryHint: .notDirectory)).write(file.text)
+        }
     }
 }
 
