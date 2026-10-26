@@ -116,17 +116,21 @@ public final class TerminalSurfaceView: NSView {
     /// Ghostty's clipboard reads and confirmations (``TerminalClipboardRequests``).
     private(set) lazy var clipboardRequests = TerminalClipboardRequests(view: self)
     /// Cmd-hover and Cmd-click on links beyond Ghostty's own (``TerminalLinkPointer``).
-    private(set) lazy var linkPointer = TerminalLinkPointer(view: self)
+    private(set) lazy var linkPointer = TerminalLinkPointer(view: self, modifiers: modifierWatch)
+    /// The terminals' one modifier watch (``TerminalModifierWatch``), from the session.
+    let modifierWatch: TerminalModifierWatch?
 
     // MARK: Lifecycle
 
     init(io mode: ghostty_surface_io_mode_e, input: TerminalInputSink, session: TerminalSession?,
-         echoStages: TerminalEchoStages, hangWatch: (any HangWatchScoping)? = nil, secureInput: TerminalSecureInput) {
+         echoStages: TerminalEchoStages, hangWatch: (any HangWatchScoping)? = nil, secureInput: TerminalSecureInput,
+         modifiers: TerminalModifierWatch? = nil) {
         let bridge = SurfaceBridge(input: input)
         self.bridge = Unmanaged.passRetained(bridge)
         self.session = session
         self.hangWatch = hangWatch
         self.secureInput = secureInput
+        modifierWatch = modifiers
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         bridge.view = self
         createSurface(mode: mode, echoStages: echoStages)

@@ -11,8 +11,8 @@ import GhosttyNextKit
 ///   modifier change, a link filter answer (``TerminalLinkFilter``) and a
 ///   Cmd-press send the pointer again after an off-grid position that clears
 ///   Ghostty's last cell, so the first cell the pointer reached shows and opens
-///   its link. While the pointer is over this terminal, a modifier watcher
-///   (``TerminalModifierMonitor``) reaches it focused or not.
+///   its link. While the pointer is over this terminal, the terminals' modifier
+///   watch (``TerminalModifierWatch``) reaches it focused or not.
 /// - A link Ghostty found across rows the terminal wrapped: Ghostty underlines
 ///   only the pointer's row; this underlines the rest (the press stays Ghostty's).
 /// - A URL the program broke onto several rows (``TerminalWrappedLink``): every
@@ -40,11 +40,13 @@ import GhosttyNextKit
     var testFlags: NSEvent.ModifierFlags?
     #endif
 
-    /// Installed while the pointer is over the view.
-    private lazy var modifierMonitor = TerminalModifierMonitor { [weak self] flags in self?.modifiersChanged(flags) }
+    /// The terminals' one modifier watch: it tells this one while the pointer is over the view (nil: only
+    /// the focused view's own key events reach it).
+    let modifierWatch: TerminalModifierWatch?
 
-    init(view: TerminalSurfaceView) {
+    init(view: TerminalSurfaceView, modifiers: TerminalModifierWatch?) {
         self.view = view
+        modifierWatch = modifiers
     }
 
     // MARK: Modifiers
@@ -98,7 +100,7 @@ import GhosttyNextKit
 
     /// After a move went to Ghostty.
     func moved(to point: NSPoint, flags: NSEvent.ModifierFlags) {
-        modifierMonitor.install()
+        modifierWatch?.track(self)
         guard !buttonsDown else { return }
         hoverWrapped(at: point, flags: flags, force: false)
     }
@@ -111,7 +113,7 @@ import GhosttyNextKit
     }
 
     func exited() {
-        modifierMonitor.remove()
+        modifierWatch?.untrack(self)
         isPressing = false
         if wrappedPress != nil { swallowsRelease = true }
         wrappedPress = nil

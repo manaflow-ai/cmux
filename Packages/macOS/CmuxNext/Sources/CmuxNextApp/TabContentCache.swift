@@ -18,6 +18,8 @@ import Observation
 /// from the daemon replay when shown. Previews of destroyed surfaces stay in a 32 MB image LRU.
 final class TabContentCache {
     private let daemon: DaemonService
+    /// Given to every terminal session this cache makes (``TerminalModifierWatch``).
+    let terminalModifiers: TerminalModifierWatch?
     var terminals: [String: TerminalEntry] = [:]
     var browsers: [String: BrowserEntry] = [:] { didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged() } } }
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
@@ -151,10 +153,12 @@ final class TabContentCache {
     ///   - afterFrame: runs work once the current pass's frame committed (a stand-in's page follows the key's
     ///     frame); tests pass one that collects the work or runs it at once.
     ///   - resizes: The app's grid sender (`AppServices.resizes`); tests get their own.
+    ///   - terminalModifiers: The terminals' one modifier watch on the app's input tap; tests without a tap pass none.
     init(daemon: DaemonService, cef: CEFEngine = CEFEngine(stores: .inMemory(), signInCallbacks: CEFSignInCallbacks()), fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
-         resizes: ResizeCoordinator = ResizeCoordinator()) {
+         resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil) {
         self.daemon = daemon
+        self.terminalModifiers = terminalModifiers
         self.cef = cef
         webKit = WebKitEngine(fileInput: fileInput, stores: cef.stores, waitDeadlines: cef.waitDeadlines)
         self.afterFrame = afterFrame
