@@ -22,75 +22,69 @@
 //! nothing here: the list is still older than the purge, and a dropped notice
 //! leaves a row out of date on base too.
 //!
-//! Every change happens under the rows lock once the notice's instance was
-//! found current (`Hub::is_current`), so a removed or replaced peer's late
-//! notice never leaves an entry behind (`Hub::purge_peer_rows` forgets it).
+//! The tombstones live on the peer instance (`Peer::purge_tombstones`), so
+//! they go with it: a removed or replaced peer's never reach another instance
+//! of the name. Every change happens under the rows lock once the notice's
+//! instance was found current (`Hub::is_current`).
 
-use std::collections::{HashMap, HashSet};
+use super::Hub;
+use std::collections::HashSet;
 use std::sync::Mutex;
 
-/// Per peer, its current instance's link: whether that link's list came, and
-/// the sessions it purged before. One entry per peer name, gone with the peer.
-/// Lock order: `Hub::remote_sessions`, then this.
+/// One peer instance's link: whether its list came, and the sessions it
+/// purged before. Lock order: `Hub::remote_sessions`, then this.
 #[derive(Default)]
-pub(crate) struct PurgeTombstones(Mutex<HashMap<String, Link>>);
+pub(crate) struct PurgeTombstones(Mutex<Link>);
 
+#[derive(Default)]
 struct Link {
-    /// `Peer::generation`.
-    generation: u64,
     listed: bool,
     purged: HashSet<String>,
 }
 
 impl PurgeTombstones {
-    /// Runs `f` on instance `generation`'s link of peer `peer`. Generations only
-    /// grow: a newer instance starts over, an older one's is never touched.
-    fn with<T>(&self, peer: &str, generation: u64, f: impl FnOnce(&mut Link) -> T) -> Option<T> {
-        let fresh = || Link { generation, listed: false, purged: HashSet::new() };
-        let mut map = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        let link = map.entry(peer.to_owned()).or_insert_with(fresh);
-        if link.generation < generation {
-            *link = fresh();
-        }
-        (link.generation == generation).then(|| f(link))
+    fn link(&self) -> std::sync::MutexGuard<'_, Link> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Instance `generation` of peer `peer` purged session `id`: its link's
-    /// list, if it has not come yet, leaves `id` out.
-    pub(super) fn purged(&self, peer: &str, generation: u64, id: &str) {
-        self.with(peer, generation, |link| {
-            if !link.listed {
-                link.purged.insert(id.to_owned());
-            }
-        });
+    /// Session `id` was purged: the link's list, if it has not come yet,
+    /// leaves `id` out.
+    pub(super) fn purged(&self, id: &str) {
+        let mut link = self.link();
+        if !link.listed {
+            link.purged.insert(id.to_owned());
+        }
     }
 
     /// Any other notice of session `id`: the peer has it now.
-    pub(super) fn changed(&self, peer: &str, generation: u64, id: &str) {
-        self.with(peer, generation, |link| link.purged.remove(id));
+    pub(super) fn changed(&self, id: &str) {
+        self.link().purged.remove(id);
     }
 
     /// The link ended: the next one's list is read after every purge so far.
-    pub(super) fn link_ended(&self, peer: &str, generation: u64) {
-        self.with(peer, generation, |link| {
-            link.listed = false;
-            link.purged.clear();
-        });
+    pub(super) fn link_ended(&self) {
+        *self.link() = Link::default();
     }
 
     /// The link's list is applied now: the sessions to leave out of it. None
     /// are kept after it.
-    pub(super) fn take(&self, peer: &str, generation: u64) -> HashSet<String> {
-        self.with(peer, generation, |link| {
-            link.listed = true;
-            std::mem::take(&mut link.purged)
-        })
-        .unwrap_or_default()
+    pub(super) fn take(&self) -> HashSet<String> {
+        let mut link = self.link();
+        link.listed = true;
+        std::mem::take(&mut link.purged)
     }
+}
 
-    /// Peer `peer` left (`Hub::purge_peer_rows`).
-    pub(super) fn forget(&self, peer: &str) {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).remove(peer);
+impl Hub {
+    /// Runs `f` on the tombstones of instance `generation` of peer `peer`, if
+    /// it is still the registered one.
+    pub(super) fn with_tombstones<T>(
+        &self,
+        peer: &str,
+        generation: u64,
+        f: impl FnOnce(&PurgeTombstones) -> T,
+    ) -> Option<T> {
+        self.peer(peer).filter(|p| p.generation == generation).map(|p| f(&p.purge_tombstones))
     }
 }
 
@@ -139,6 +133,14 @@ mod tests {
             .filter(|r| r.peer == peer)
             .map(|r| r.receipt.mux_session_id.clone())
             .collect();
+        ids.sort();
+        ids
+    }
+
+    /// The sessions the registered instance of `peer` keeps out of its list, sorted.
+    fn tombstones(hub: &Hub, peer: &str) -> Vec<String> {
+        let p = hub.peer(peer).unwrap();
+        let mut ids: Vec<String> = p.purge_tombstones.link().purged.iter().cloned().collect();
         ids.sort();
         ids
     }
@@ -197,7 +199,7 @@ mod tests {
         // A purge after the link's list is not kept: no older list comes on that link.
         hub.apply_peer_notice("builder", generation, list(&["y"]));
         hub.apply_peer_notice("builder", generation, changed("x", "purged"));
-        assert!(hub.purge_tombstones.0.lock().unwrap()["builder"].purged.is_empty());
+        assert_eq!(tombstones(&hub, "builder"), Vec::<String>::new());
         hub.apply_peer_notice("builder", generation, list(&["x", "y"]));
         assert_eq!(rows(&hub, "builder"), ["x", "y"], "a list after a purge that followed one");
 
@@ -205,21 +207,9 @@ mod tests {
         // purge before its list holds for its list only.
         hub.apply_peer_notice("builder", generation, PeerNotice::Disconnected("reset".into()));
         hub.apply_peer_notice("builder", generation, changed("x", "purged"));
-        assert!(hub.purge_tombstones.0.lock().unwrap()["builder"].purged.contains("x"));
+        assert_eq!(tombstones(&hub, "builder"), ["x"]);
         let next = register(&hub, "builder");
         hub.apply_peer_notice("builder", next, list(&["x", "y"]));
         assert_eq!(rows(&hub, "builder"), ["x", "y"], "another instance's list");
-    }
-
-    /// A removed peer's purge that was queued before its removal keeps nothing.
-    #[test]
-    fn a_removed_peers_late_purge_keeps_nothing() {
-        let hub = hub();
-        let generation = register(&hub, "builder");
-        hub.apply_peer_notice("builder", generation, changed("x", "purged"));
-        hub.peers.lock().unwrap().remove("builder");
-        hub.purge_peer_rows("builder");
-        hub.apply_peer_notice("builder", generation, changed("z", "purged"));
-        assert!(hub.purge_tombstones.0.lock().unwrap().is_empty());
     }
 }

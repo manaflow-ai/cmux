@@ -204,7 +204,6 @@ impl Hub {
     pub(super) fn purge_peer_rows(&self, name: &str) {
         let gone: Vec<Value> = {
             let mut map = self.remote_sessions.lock().unwrap();
-            self.purge_tombstones.forget(name);
             let ids: Vec<String> =
                 map.iter().filter(|(_, r)| r.peer == name).map(|(id, _)| id.clone()).collect();
             ids.into_iter().filter_map(|id| map.remove(&id).map(|r| r.summary)).collect()
@@ -391,7 +390,7 @@ impl Hub {
                         if !self.is_current(&peer, generation) {
                             return;
                         }
-                        self.purge_tombstones.link_ended(&peer, generation);
+                        self.with_tombstones(&peer, generation, |t| t.link_ended());
                         map.values_mut()
                             .filter(|r| r.peer == peer)
                             .filter_map(|r| {
@@ -416,7 +415,8 @@ impl Hub {
                             return;
                         }
                         // Read before a purge this link already brought (`purge_tombstones.rs`).
-                        let purged = self.purge_tombstones.take(&peer, generation);
+                        let purged = self.with_tombstones(&peer, generation, |t| t.take());
+                        let purged = purged.unwrap_or_default();
                         let mut old: HashMap<String, Value> = map
                             .iter()
                             .filter(|(_, r)| r.peer == peer)
@@ -459,7 +459,7 @@ impl Hub {
                                 return;
                             }
                             // An older list of this link must not bring it back.
-                            self.purge_tombstones.purged(&peer, generation, &mux_id);
+                            self.with_tombstones(&peer, generation, |t| t.purged(&mux_id));
                             let key = map
                                 .iter()
                                 .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux_id)
@@ -492,7 +492,7 @@ impl Hub {
                         if !self.is_current(&peer, generation) {
                             return;
                         }
-                        self.purge_tombstones.changed(&peer, generation, &mux_id);
+                        self.with_tombstones(&peer, generation, |t| t.changed(&mux_id));
                         let old_id = map
                             .iter()
                             .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux_id)
