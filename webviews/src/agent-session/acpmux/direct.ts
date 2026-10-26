@@ -174,6 +174,8 @@ type Listener = (snapshot: AcpmuxSnapshot) => void;
 
 /// A hint that a harness is likely next, so acpmux can warm its adapter (cmux-tui acpmux lane).
 export const PREWARM_METHOD = "_acpmux/prewarm";
+/// Reconnects a Claude Code chat's MCP server (reconnectMcp); listed in `initialize` where served.
+export const MCP_RECONNECT_METHOD = "_acpmux/mcp/reconnect";
 
 /// The slash commands are not transcript, so the pane asks for their updates by kind.
 /// How long Stop waits for the turn to end before the pane stops showing it as working. It is
@@ -2152,13 +2154,16 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/process/background", params, 10_000);
   }
 
-  /// Reconnects MCP server `server` (its `mcpServers` name) of the selected Claude Code chat: acpmux
+  /// Reconnects MCP server `server` (its `mcpServers` name) of the Claude Code chat on screen: acpmux
   /// sends Claude Code's mcp_reconnect and answers `{}`, or Claude Code's error; another harness's
   /// chat is refused. Once it reconnected, the server reads connected in the chat's `mcpServers`.
+  /// During a switch's hold that is the chat the Inspector still draws (`actingSessionId`), whose
+  /// server the button names, not the chat opening.
   /// The app's pane relay must allow `_acpmux/mcp/reconnect` (cmux-agent-pane-policy) first.
   reconnectMcp(server: string): Promise<unknown> {
-    if (!this.selectedSessionId) return Promise.reject(new Error());
-    return this.request("_acpmux/mcp/reconnect", { sessionId: this.selectedSessionId, server }, 35_000);
+    const sessionId = this.actingSessionId;
+    if (!sessionId) return Promise.reject(new Error());
+    return this.request(MCP_RECONNECT_METHOD, { sessionId, server }, 35_000);
   }
 
   /// Stops one of the selected session's running subagents (a Claude agent or workflow); acpmux
@@ -2879,7 +2884,9 @@ export class AcpmuxDirectClient {
         this.pendingPermission =
           this.nextWaitingPermission() ??
           (this.permissions.state.supported ? undefined : [...this.groupedPermissions.values()].at(-1));
-    } else if (event.kind === "secret_request")
+    } else if (event.kind === "permission_auto" && typeof msg.fullAccess === "string")
+      this.recordFullAccess(event, msg);
+    else if (event.kind === "secret_request")
       this.pendingSecret = {
         secretId: String(msg.secretId ?? ""),
         name: String(msg.name ?? ""),
@@ -2959,6 +2966,30 @@ export class AcpmuxDirectClient {
       text: translate(DECISION_TEXT[decision.kind], {
         action: asked.title?.trim() || translate("permission.required"),
         option: decision.kind === "answered" ? decision.option : "",
+      }),
+    });
+  }
+
+  /// An ask a chat in Full access answered unasked (acpmux hub/permissions.rs `full_access_allow`:
+  /// Claude Code's own guards in bypassPermissions, and any plain tool ask) leaves the receipt line
+  /// a card would, "Approved: rm -rf … (Full access)", so what ran unasked can be seen afterwards.
+  private recordFullAccess(event: EventRecord, msg: any): void {
+    const permission = permissionFromMessage({ ...msg, sessionId: event.sessionId }, this.selectedSessionId ?? "");
+    if (!permission) return;
+    const rowId = `permission-${permission.permissionId}`;
+    // Drawn already (a resync replays the live records after its rebuild drew them).
+    if (this.rows.has(rowId)) return;
+    this.closeSegment();
+    this.rows.set(rowId, {
+      id: rowId,
+      version: 1,
+      at: event.at,
+      kind: PERMISSION_RECORD,
+      permission,
+      decision: { kind: "fullAccess" },
+      text: translate(DECISION_TEXT.fullAccess, {
+        action: permission.title?.trim() || translate("permission.required"),
+        option: "",
       }),
     });
   }
@@ -3794,6 +3825,7 @@ export class AcpmuxDirectClient {
       ...(this.drewKeptTail ? { drewKeptTail: true as const } : {}),
       ...(this.chatRead() ? { chatRead: true as const } : {}),
       ...(this.extensions.includes("acp.trust.set") ? { answersTrust: true } : {}),
+      ...(this.extensions.includes(MCP_RECONNECT_METHOD) ? { reconnectsMcp: true } : {}),
       sessionId: this.selectedSessionId,
       // A replayed turn is history: no live "Working for" clock.
       isWorking:
@@ -4496,11 +4528,17 @@ export class AcpmuxDirectClient {
     return true;
   }
   /// The queue the composer shows: a task's result waiting there draws as its received line instead.
+  /// One array per queue, so a snapshot that leaves the queue as it was gives the same queue (the
+  /// transcript reads another agent's waiting messages from it: conversation/queuedMessages.ts).
   private shownQueue(): { id: string; prompt: string }[] {
     if (!offersShown()) return this.queue;
+    if (this.shownQueueOf?.queue === this.queue) return this.shownQueueOf.shown;
     const shown = this.queue.filter((entry) => !entry.id.startsWith(OFFER_RESULT_PROMPT));
-    return shown.length === this.queue.length ? this.queue : shown;
+    const kept = shown.length === this.queue.length ? this.queue : shown;
+    this.shownQueueOf = { queue: this.queue, shown: kept };
+    return kept;
   }
+  private shownQueueOf?: { queue: QueuedPrompt[]; shown: { id: string; prompt: string }[] };
   /// Suggested tasks turned on or off (`sessions.promptSuggestions` or the Debug tunable): offers draw or go at once.
   suggestedTasksChanged(): void {
     if (!this.selectedSessionId || this.events.length === 0) return;
