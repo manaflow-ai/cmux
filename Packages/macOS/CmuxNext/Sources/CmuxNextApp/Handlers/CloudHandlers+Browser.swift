@@ -13,19 +13,21 @@ import Foundation
 extension CloudHandlers {
     static func bindBrowserActions(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
         bind("cloudOpenBrowser", registry, reason: reason) { invocation in
-            let session = try machine(invocation, context), port = try port(invocation)
-            let path = try browserPath(invocation)
+            let session = try machine(invocation, context), port = try port(invocation, session, verb: "open-browser")
             let names = CloudPortNames(session, port: port)
+            let path = try browserPath(invocation, names)
             let label = "open machine port in browser"
             if origin(of: invocation) == .user {
                 return runTracked(label, context) { _ = try await openBrowser(session, port: port, path: path, names: names, invocation, context) }
             }
-            result(label, context) { try await openBrowser(session, port: port, path: path, names: names, invocation, context) }
+            result(label, context, pendingAfter: answerWithin, pending: ["machine_id": .string(session.machineID), "port": .int(port)]) {
+                try await openBrowser(session, port: port, path: path, names: names, invocation, context)
+            }
         }
         bind("cloudPortList", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), names = CloudPortNames(session, port: nil)
             guard session.appLink != nil else { throw ActionFailure(message: CloudPortStrings.classicLink(names)) }
-            answer("list machine ports", invocation, context) {
+            answer("list machine ports", invocation, context, pendingAfter: answerWithin, pending: ["machine_id": .string(session.machineID)]) {
                 let listed = try await portOp("cloud.port.list", ["machine": .string(session.machineID)], key: nil, names, invocation, context)
                 let forwards = (listed["forwards"]?.arrayValue ?? []).map(forwardFields)
                 let lines = forwards.compactMap { fields -> String? in
@@ -37,9 +39,9 @@ extension CloudHandlers {
             }
         }
         bind("cloudPortForward", registry, reason: reason) { invocation in
-            let session = try machine(invocation, context), port = try port(invocation), names = CloudPortNames(session, port: port)
+            let session = try machine(invocation, context), port = try port(invocation, session, verb: "port-forward"), names = CloudPortNames(session, port: port)
             guard session.appLink != nil else { throw ActionFailure(message: CloudPortStrings.classicLink(names)) }
-            answer("forward machine port", invocation, context) {
+            answer("forward machine port", invocation, context, pendingAfter: answerWithin, pending: ["machine_id": .string(session.machineID), "port": .int(port)]) {
                 let args: [String: JSONValue] = ["machine": .string(session.machineID), "port": .number(Double(port))]
                 let forward = forwardFields(try await portOp("cloud.port.forward", args, key: UUID().uuidString.lowercased(), names, invocation, context))
                 guard case .string(let url)? = forward["url"] else { throw ActionFailure(message: CloudPortStrings.failed(names, detail: "no local port")) }
@@ -47,9 +49,9 @@ extension CloudHandlers {
             }
         }
         bind("cloudPortClose", registry, reason: reason) { invocation in
-            let session = try machine(invocation, context), port = try port(invocation), names = CloudPortNames(session, port: port)
+            let session = try machine(invocation, context), port = try port(invocation, session, verb: "port-close"), names = CloudPortNames(session, port: port)
             guard session.appLink != nil else { throw ActionFailure(message: CloudPortStrings.classicLink(names)) }
-            result("close machine port", context) {
+            result("close machine port", context, pendingAfter: answerWithin, pending: ["machine_id": .string(session.machineID), "port": .int(port)]) {
                 let args: [String: JSONValue] = ["machine": .string(session.machineID), "port": .number(Double(port))]
                 let closed = try await portOp("cloud.port.close", args, key: UUID().uuidString.lowercased(), names, invocation, context)
                 guard closed["closed"]?.boolValue == true else { throw ActionFailure(message: CloudPortStrings.noForward(names)) }
@@ -58,10 +60,10 @@ extension CloudHandlers {
         }
         bind("cloudMachineLink", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
-            let port = invocation["port"] == nil ? nil : try Self.port(invocation)
+            let port = invocation["port"] == nil ? nil : try Self.port(invocation, session, verb: "machine-link")
             let names = CloudPortNames(session, port: port)
             let cloud = context.services.cloud
-            answer("machine link", invocation, context) {
+            answer("machine link", invocation, context, pendingAfter: answerWithin, pending: ["machine_id": .string(session.machineID)]) {
                 var fields: [String: ActionResultValue] = ["machine_id": .string(session.machineID), "target": .string("machine:\(session.machineID)")]
                 let address = session.machine.address?.ipv4
                 guard let port else {
@@ -71,7 +73,7 @@ extension CloudHandlers {
                 fields["port"] = .int(port)
                 if let address { fields["private_url"] = .string("http://\(address):\(port)") }
                 guard session.machine.allows(.ports) else { throw ActionFailure(message: CloudPortStrings.noLink(names)) }
-                let link = try await cloud.api.openPort(session.machineID, port: port)
+                let link = try await wrapped(names) { try await cloud.api.openPort(session.machineID, port: port) }
                 fields["url"] = .string(link.url)
                 if let open = link.openUrl { fields["open_url"] = .string(open) }
                 return CloudAnswer(title: CloudPortStrings.title, text: link.openUrl ?? link.url, fields: fields)
@@ -102,8 +104,10 @@ extension CloudHandlers {
             if opened == nil { fields["pending"] = .bool(true) }
             return fields
         }
-        try await attachedAndConnected(session, invocation)
-        let anchor = try await terminalAnchor(on: session, context)
+        let anchor = try await wrapped(names) {
+            try await attachedAndConnected(session, invocation)
+            return try await terminalAnchor(on: session, context)
+        }
         switch services.remoteLocalhost.route(daemon: session.daemon, workspace: anchor.id, engine: .cef) {
         case .machine: break
         case .thisMacInstead(_, .turnedOff): throw ActionFailure(message: CloudPortStrings.localhostOff(names))
@@ -116,7 +120,7 @@ extension CloudHandlers {
             surface = try await browserTabs.open(BrowserEngineChoice(engine: .cef, pinned: true), in: anchor.pane, url: url,
                                                  activate: invocation.allowsViewChange)
         } catch {
-            throw ActionFailure(message: CloudPortStrings.browserFailed(names, detail: (error as? ActionFailure)?.message ?? String(describing: error)))
+            throw ActionFailure(message: CloudPortStrings.browserFailed(names, detail: detail(error)))
         }
         if invocation.allowsViewChange { reveal(surface, in: anchor.pane, workspaceID: anchor.id, context) }
         fields["url"] = .string(url)
@@ -169,14 +173,50 @@ extension CloudHandlers {
             return try await context.services.cloud.appOps(op, .object(args), key, invocation.origin == .user ? .user : .script)
         } catch let failure as CloudAppOpFailure {
             throw ActionFailure(message: portFailure(failure, names))
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw ActionFailure(message: CloudPortStrings.failed(names, detail: detail(error)))
         }
+    }
+
+    /// `work`, whose failure (a link that never came up, an API error) names the machine and the port.
+    @MainActor
+    static func wrapped<T>(_ names: CloudPortNames, _ work: @MainActor () async throws -> T) async throws -> T {
+        do {
+            return try await work()
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw ActionFailure(message: CloudPortStrings.failed(names, detail: detail(error)))
+        }
+    }
+
+    /// An error's own words, without a trailing period (it sits inside a sentence).
+    static func detail(_ error: any Error) -> String {
+        var text = (error as? ActionFailure)?.message ?? (error as? any LocalizedError)?.errorDescription ?? String(describing: error)
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        while text.hasSuffix(".") { text.removeLast() }
+        return text
+    }
+
+    /// A CLI or agent run answers within `action.run`'s result deadline: a slow link or app op
+    /// answers `pending` then, and the work goes on.
+    static let answerWithin: Duration = ActionDescriptor.resultDeadline - .seconds(5)
+
+    /// `--port`, refused with the machine named and the command to run.
+    static func port(_ invocation: ActionInvocation, _ session: CloudMachineSession, verb: String) throws -> Int {
+        guard let port = invocation["port"]?.intValue, (1...65535).contains(port) else {
+            throw ActionFailure(message: CloudPortStrings.invalidPort(CloudPortNames(session, port: nil), verb: verb))
+        }
+        return port
     }
 
     /// The message of a refused port op.
     static func portFailure(_ failure: CloudAppOpFailure, _ names: CloudPortNames) -> String {
         switch failure.code {
         case "cmux.cloud.port_limit": CloudPortStrings.limit(names)
-        default: CloudPortStrings.failed(names, detail: failure.description)
+        default: CloudPortStrings.failed(names, detail: detail(failure))
         }
     }
 
@@ -195,10 +235,10 @@ extension CloudHandlers {
     }
 
     /// `--path`: where the tab opens on the port, `/` when absent.
-    static func browserPath(_ invocation: ActionInvocation) throws -> String {
+    static func browserPath(_ invocation: ActionInvocation, _ names: CloudPortNames) throws -> String {
         guard let path = invocation["path"]?.stringValue?.trimmingCharacters(in: .whitespaces), !path.isEmpty else { return "/" }
         guard path.hasPrefix("/"), path.utf8.count <= 2048, !path.contains(where: { $0.isWhitespace || $0.unicodeScalars.contains { $0.properties.generalCategory == .control } }) else {
-            throw ActionFailure(message: CloudPortStrings.pathInvalid)
+            throw ActionFailure(message: CloudPortStrings.pathInvalid(names))
         }
         return path
     }

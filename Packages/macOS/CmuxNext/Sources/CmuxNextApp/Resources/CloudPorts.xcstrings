@@ -35,15 +35,15 @@
       "comment": "A port forward or browser route was refused because this Mac has the most open. %1$@ is the machine's name, %2$@ its id, %3$@ the port. Keep the commands in backticks as written.",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Couldn't forward port %3$@ of machine `%1$@`: this Mac already has the most port forwards and browser routes open. `cmux cloud port-list` lists them, and `cmux cloud port-close --target machine:%2$@ --port %3$@` closes one."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "マシン `%1$@` のポート %3$@ を転送できませんでした。この Mac で開けるポート転送とブラウザルートが上限に達しています。`cmux cloud port-list` で一覧を確認し、`cmux cloud port-close --target machine:%2$@ --port %3$@` で 1 つ閉じてください。"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Port %3$@ der Maschine `%1$@` konnte nicht weitergeleitet werden: Auf diesem Mac sind bereits die meisten Portweiterleitungen und Browser-Routen offen. `cmux cloud port-list` listet sie, `cmux cloud port-close --target machine:%2$@ --port %3$@` schließt eine."}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Impossible de rediriger le port %3$@ de la machine `%1$@` : ce Mac a déjà le maximum de redirections et de routes de navigateur ouvertes. `cmux cloud port-list` les liste, et `cmux cloud port-close --target machine:%2$@ --port %3$@` en ferme une."}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "No se pudo reenviar el puerto %3$@ de la máquina `%1$@`: este Mac ya tiene abiertos el máximo de reenvíos y rutas de navegador. `cmux cloud port-list` los muestra y `cmux cloud port-close --target machine:%2$@ --port %3$@` cierra uno."}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "تعذّرت إعادة توجيه المنفذ %3$@ من الجهاز `%1$@`: بلغ هذا الـ Mac الحد الأقصى لعمليات إعادة التوجيه ومسارات المتصفح المفتوحة. يعرضها `cmux cloud port-list`، ويغلق `cmux cloud port-close --target machine:%2$@ --port %3$@` واحدًا منها."}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 `%1$@`의 포트 %3$@을(를) 전달하지 못했습니다. 이 Mac에 열 수 있는 포트 전달과 브라우저 경로가 최대치입니다. `cmux cloud port-list`로 목록을 보고 `cmux cloud port-close --target machine:%2$@ --port %3$@`(으)로 하나를 닫으세요."}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "无法转发机器 `%1$@` 的端口 %3$@：这台 Mac 打开的端口转发和浏览器路由已达上限。`cmux cloud port-list` 会列出它们，`cmux cloud port-close --target machine:%2$@ --port %3$@` 可关闭其中一个。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法轉送機器 `%1$@` 的連接埠 %3$@：這台 Mac 開啟的連接埠轉送與瀏覽器路由已達上限。`cmux cloud port-list` 會列出它們，`cmux cloud port-close --target machine:%2$@ --port %3$@` 可關閉其中一個。"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Couldn't forward port %3$@ of machine `%1$@`: this Mac already has the most port forwards and browser routes open. `cmux cloud port-list --target machine:%2$@` lists them, and `cmux cloud port-close --target machine:%2$@ --port %3$@` closes one."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン `%1$@` のポート %3$@ を転送できませんでした。この Mac で開けるポート転送とブラウザルートが上限に達しています。`cmux cloud port-list --target machine:%2$@` で一覧を確認し、`cmux cloud port-close --target machine:%2$@ --port %3$@` で 1 つ閉じてください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Port %3$@ der Maschine `%1$@` konnte nicht weitergeleitet werden: Auf diesem Mac sind bereits die meisten Portweiterleitungen und Browser-Routen offen. `cmux cloud port-list --target machine:%2$@` listet sie, `cmux cloud port-close --target machine:%2$@ --port %3$@` schließt eine."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Impossible de rediriger le port %3$@ de la machine `%1$@` : ce Mac a déjà le maximum de redirections et de routes de navigateur ouvertes. `cmux cloud port-list --target machine:%2$@` les liste, et `cmux cloud port-close --target machine:%2$@ --port %3$@` en ferme une."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "No se pudo reenviar el puerto %3$@ de la máquina `%1$@`: este Mac ya tiene abiertos el máximo de reenvíos y rutas de navegador. `cmux cloud port-list --target machine:%2$@` los muestra y `cmux cloud port-close --target machine:%2$@ --port %3$@` cierra uno."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تعذّرت إعادة توجيه المنفذ %3$@ من الجهاز `%1$@`: بلغ هذا الـ Mac الحد الأقصى لعمليات إعادة التوجيه ومسارات المتصفح المفتوحة. يعرضها `cmux cloud port-list --target machine:%2$@`، ويغلق `cmux cloud port-close --target machine:%2$@ --port %3$@` واحدًا منها."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 `%1$@`의 포트 %3$@을(를) 전달하지 못했습니다. 이 Mac에 열 수 있는 포트 전달과 브라우저 경로가 최대치입니다. `cmux cloud port-list --target machine:%2$@`로 목록을 보고 `cmux cloud port-close --target machine:%2$@ --port %3$@`(으)로 하나를 닫으세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "无法转发机器 `%1$@` 的端口 %3$@：这台 Mac 打开的端口转发和浏览器路由已达上限。`cmux cloud port-list --target machine:%2$@` 会列出它们，`cmux cloud port-close --target machine:%2$@ --port %3$@` 可关闭其中一个。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法轉送機器 `%1$@` 的連接埠 %3$@：這台 Mac 開啟的連接埠轉送與瀏覽器路由已達上限。`cmux cloud port-list --target machine:%2$@` 會列出它們，`cmux cloud port-close --target machine:%2$@ --port %3$@` 可關閉其中一個。"}}
       }
     },
     "cloud.ports.failed": {
@@ -152,18 +152,33 @@
       }
     },
     "cloud.ports.pathInvalid": {
-      "comment": "cmux cloud open-browser with a bad --path. Keep --path /docs as written.",
+      "comment": "cmux cloud open-browser with a bad --path. %1$@ machine name, %2$@ id, %3$@ port. Keep the command as written.",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Pass a path that starts with / and has no spaces, for example --path /docs."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "/ で始まり空白を含まないパスを指定してください (例: --path /docs)。"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Gib einen Pfad an, der mit / beginnt und keine Leerzeichen enthält, zum Beispiel --path /docs."}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Indiquez un chemin qui commence par / et sans espaces, par exemple --path /docs."}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Pasa una ruta que empiece por / y no tenga espacios, por ejemplo --path /docs."}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "مرّر مسارًا يبدأ بـ / ولا يحتوي على مسافات، مثل ‎--path /docs."}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "/로 시작하고 공백이 없는 경로를 지정하세요(예: --path /docs)."}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "请传入以 / 开头且不含空格的路径，例如 --path /docs。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "請傳入以 / 開頭且不含空白的路徑，例如 --path /docs。"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Machine `%1$@` can't open that path on port %3$@: pass one that starts with / and has no spaces, for example `cmux cloud open-browser --target machine:%2$@ --port %3$@ --path /docs`."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン `%1$@` のポート %3$@ でそのパスは開けません。/ で始まり空白を含まないパスを指定してください (例: `cmux cloud open-browser --target machine:%2$@ --port %3$@ --path /docs`)。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Maschine `%1$@` kann diesen Pfad auf Port %3$@ nicht öffnen: Gib einen an, der mit / beginnt und keine Leerzeichen enthält, zum Beispiel `cmux cloud open-browser --target machine:%2$@ --port %3$@ --path /docs`."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "La machine `%1$@` ne peut pas ouvrir ce chemin sur le port %3$@ : indiquez-en un qui commence par / et sans espaces, par exemple `cmux cloud open-browser --target machine:%2$@ --port %3$@ --path /docs`."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "La máquina `%1$@` no puede abrir esa ruta en el puerto %3$@: pasa una que empiece por / y sin espacios, por ejemplo `cmux cloud open-browser --target machine:%2$@ --port %3$@ --path /docs`."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "لا يستطيع الجهاز `%1$@` فتح ذلك المسار على المنفذ %3$@: مرّر مسارًا يبدأ بـ / ولا يحتوي على مسافات، مثل `cmux cloud open-browser --target machine:%2$@ --port %3$@ --path /docs`."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 `%1$@`의 포트 %3$@에서 그 경로를 열 수 없습니다. /로 시작하고 공백이 없는 경로를 지정하세요(예: `cmux cloud open-browser --target machine:%2$@ --port %3$@ --path /docs`)."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器 `%1$@` 无法在端口 %3$@ 上打开该路径：请传入以 / 开头且不含空格的路径，例如 `cmux cloud open-browser --target machine:%2$@ --port %3$@ --path /docs`。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器 `%1$@` 無法在連接埠 %3$@ 上開啟該路徑：請傳入以 / 開頭且不含空白的路徑，例如 `cmux cloud open-browser --target machine:%2$@ --port %3$@ --path /docs`。"}}
+      }
+    },
+    "cloud.ports.invalidPort": {
+      "comment": "A port outside 1 to 65535. %1$@ machine name, %2$@ id, %3$@ the command (open-browser, port-forward, ...). Keep the command as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Pass a port from 1 to 65535 for machine `%1$@`, for example `cmux cloud %3$@ --target machine:%2$@ --port 3000`."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン `%1$@` には 1〜65535 のポートを指定してください (例: `cmux cloud %3$@ --target machine:%2$@ --port 3000`)。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Gib für Maschine `%1$@` einen Port von 1 bis 65535 an, zum Beispiel `cmux cloud %3$@ --target machine:%2$@ --port 3000`."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Indiquez un port de 1 à 65535 pour la machine `%1$@`, par exemple `cmux cloud %3$@ --target machine:%2$@ --port 3000`."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Indica un puerto de 1 a 65535 para la máquina `%1$@`, por ejemplo `cmux cloud %3$@ --target machine:%2$@ --port 3000`."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "مرّر منفذًا من 1 إلى 65535 للجهاز `%1$@`، مثل `cmux cloud %3$@ --target machine:%2$@ --port 3000`."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 `%1$@`에는 1~65535 범위의 포트를 지정하세요(예: `cmux cloud %3$@ --target machine:%2$@ --port 3000`)."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "请为机器 `%1$@` 传入 1 到 65535 之间的端口，例如 `cmux cloud %3$@ --target machine:%2$@ --port 3000`。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "請為機器 `%1$@` 傳入 1 到 65535 之間的連接埠，例如 `cmux cloud %3$@ --target machine:%2$@ --port 3000`。"}}
       }
     },
     "cloud.ports.title": {

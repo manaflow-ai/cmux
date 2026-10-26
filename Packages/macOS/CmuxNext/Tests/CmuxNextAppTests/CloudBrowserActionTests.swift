@@ -72,13 +72,15 @@ struct CloudBrowserActionTests {
 
     @Test func thePathDefaultsToTheRootAndMustBeAPath() throws {
         let f = Self.fixture()
-        #expect(try CloudHandlers.browserPath(Self.invocation(f.session)) == "/")
-        #expect(try CloudHandlers.browserPath(Self.invocation(f.session, ["path": .string("/docs?x=1")])) == "/docs?x=1")
+        let names = CloudPortNames(f.session, port: 3000)
+        #expect(try CloudHandlers.browserPath(Self.invocation(f.session), names) == "/")
+        #expect(try CloudHandlers.browserPath(Self.invocation(f.session, ["path": .string("/docs?x=1")]), names) == "/docs?x=1")
         for bad in ["docs", "/a b", "/a\u{7}b"] {
-            #expect(throws: ActionFailure(message: CloudPortStrings.pathInvalid)) {
-                try CloudHandlers.browserPath(Self.invocation(f.session, ["path": .string(bad)]))
+            #expect(throws: ActionFailure(message: CloudPortStrings.pathInvalid(names))) {
+                try CloudHandlers.browserPath(Self.invocation(f.session, ["path": .string(bad)]), names)
             }
         }
+        #expect(CloudPortStrings.pathInvalid(names).contains("cmux cloud open-browser --target machine:\(f.session.machineID) --port 3000 --path /docs"))
     }
 
     // MARK: Failures name the machine and the port, and give the next command
@@ -93,10 +95,12 @@ struct CloudBrowserActionTests {
         #expect(refusal.contains("cmux cloud open-browser --target machine:\(f.session.machineID) --port \(port.map(String.init) ?? "<port>")"))
     }
 
-    @Test func aPortOutOfRangeIsRefusedBeforeAnythingRuns() throws {
+    @Test(arguments: [("cloudOpenBrowser", "open-browser"), ("cloudPortForward", "port-forward"), ("cloudPortClose", "port-close"), ("cloudMachineLink", "machine-link")])
+    func aPortOutOfRangeIsRefusedWithTheMachineAndTheCommand(id: String, verb: String) throws {
         let f = Self.fixture()
-        let refusal = try Self.refusal(f.services, "cloudOpenBrowser", Self.invocation(f.session, ["port": .int(70_000)]))
-        #expect(refusal == CloudStrings.invalidPort)
+        let refusal = try Self.refusal(f.services, ActionID(rawValue: id), Self.invocation(f.session, ["port": .int(70_000)]))
+        #expect(refusal == CloudPortStrings.invalidPort(CloudPortNames(f.session, port: nil), verb: verb))
+        #expect(refusal?.contains("`cmux cloud \(verb) --target machine:\(f.session.machineID) --port 3000`") == true)
     }
 
     @Test func aRefusedPortOpNamesTheMachineAndPort() {
@@ -104,9 +108,26 @@ struct CloudBrowserActionTests {
         let limit = CloudHandlers.portFailure(CloudAppOpFailure(code: "cmux.cloud.port_limit", message: "at most 16"), names)
         #expect(limit == CloudPortStrings.limit(names))
         #expect(limit.contains("cmux cloud port-close --target machine:vm-devbox3 --port 8080"))
+        #expect(limit.contains("cmux cloud port-list --target machine:vm-devbox3"))
         let other = CloudHandlers.portFailure(CloudAppOpFailure(code: "cloud.machine.not_found", message: "no such machine in this team"), names)
         #expect(other.contains("devbox-3") && other.contains("8080") && other.contains("no such machine in this team"))
         #expect(other.contains("cmux cloud machine-status --target machine:vm-devbox3"))
+    }
+
+    @Test func anyOtherFailureOfThePortWorkNamesTheMachineAndPort() async throws {
+        struct Down: Error, LocalizedError { var errorDescription: String? { "The network connection was lost." } }
+        let names = CloudPortNames(name: "devbox-3", id: "vm-devbox3", port: 8080)
+        do {
+            let _: Int = try await CloudHandlers.wrapped(names) { throw Down() }
+            Issue.record("the failure was swallowed")
+        } catch let failure as ActionFailure {
+            #expect(failure.message == CloudPortStrings.failed(names, detail: "The network connection was lost"))
+            #expect(failure.message.contains("devbox-3") && failure.message.contains("8080"))
+            #expect(!failure.message.contains("lost.."))
+        }
+        await #expect(throws: CancellationError.self) {
+            let _: Int = try await CloudHandlers.wrapped(names) { throw CancellationError() }
+        }
     }
 
     @Test func everyHintNamesAVerbTheCLIOffers() throws {
@@ -115,7 +136,7 @@ struct CloudBrowserActionTests {
         let messages = [CloudPortStrings.classicLink(names), CloudPortStrings.noForward(names), CloudPortStrings.limit(names),
                         CloudPortStrings.failed(names, detail: "x"), CloudPortStrings.browserFailed(names, detail: "x"),
                         CloudPortStrings.noWindow(names), CloudPortStrings.updateMachine(names), CloudPortStrings.localhostOff(names),
-                        CloudPortStrings.noLink(names)]
+                        CloudPortStrings.noLink(names), CloudPortStrings.pathInvalid(names), CloudPortStrings.invalidPort(names, verb: "port-forward")]
         let offered = Set(services.registry.descriptors.filter(\.cli).map(\.cliName))
         for message in messages {
             let verbs = message.components(separatedBy: "`cmux ").dropFirst().map { $0.split(separator: " ").prefix(2).joined(separator: " ") }

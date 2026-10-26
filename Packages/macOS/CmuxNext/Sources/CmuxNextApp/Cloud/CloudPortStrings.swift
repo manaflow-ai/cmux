@@ -40,7 +40,7 @@ enum CloudPortStrings {
     /// The Cloud app server's `cmux.cloud.port_limit`.
     static func limit(_ names: CloudPortNames) -> String {
         String(format: String(localized: "cloud.ports.limit",
-                              defaultValue: "Couldn't forward port %3$@ of machine `%1$@`: this Mac already has the most port forwards and browser routes open. `cmux cloud port-list` lists them, and `cmux cloud port-close --target machine:%2$@ --port %3$@` closes one.",
+                              defaultValue: "Couldn't forward port %3$@ of machine `%1$@`: this Mac already has the most port forwards and browser routes open. `cmux cloud port-list --target machine:%2$@` lists them, and `cmux cloud port-close --target machine:%2$@ --port %3$@` closes one.",
                               table: "CloudPorts", bundle: .module), names.name, names.id, names.port)
     }
 
@@ -91,9 +91,18 @@ enum CloudPortStrings {
                               table: "CloudPorts", bundle: .module), code)
     }
 
-    static var pathInvalid: String {
-        String(localized: "cloud.ports.pathInvalid", defaultValue: "Pass a path that starts with / and has no spaces, for example --path /docs.",
-               table: "CloudPorts", bundle: .module)
+    /// `open-browser --path` that is no path.
+    static func pathInvalid(_ names: CloudPortNames) -> String {
+        String(format: String(localized: "cloud.ports.pathInvalid",
+                              defaultValue: "Machine `%1$@` can't open that path on port %3$@: pass one that starts with / and has no spaces, for example `cmux cloud open-browser --target machine:%2$@ --port %3$@ --path /docs`.",
+                              table: "CloudPorts", bundle: .module), names.name, names.id, names.port)
+    }
+
+    /// A `--port` outside 1...65535; `verb` is the command after `cmux cloud` (`open-browser`).
+    static func invalidPort(_ names: CloudPortNames, verb: String) -> String {
+        String(format: String(localized: "cloud.ports.invalidPort",
+                              defaultValue: "Pass a port from 1 to 65535 for machine `%1$@`, for example `cmux cloud %3$@ --target machine:%2$@ --port 3000`.",
+                              table: "CloudPorts", bundle: .module), names.name, names.id, verb)
     }
 
     /// The sheet title of a person's port list, forward or link.
