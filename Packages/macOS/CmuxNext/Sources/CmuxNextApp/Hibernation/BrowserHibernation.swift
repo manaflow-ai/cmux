@@ -129,6 +129,8 @@ final class BrowserHibernation {
     private var settingsObservation: ServiceObservation<BrowserHibernationSetting>?
     /// Where the probes' answers land: one background task each (nobody waits on a hidden page's probe).
     let mainWork: MainWorkScheduler
+    /// Where a woken page's load timing puts its 15 s bound when the page has no keyed waits (``timeLoad(_:page:)``).
+    let mainDeadlines: MainDeadlineScheduler
     private(set) var hibernatedCount = 0
     /// A page was hibernated (the App counts it in the memory histograms).
     var onHibernate: () -> Void = {}
@@ -223,6 +225,7 @@ final class BrowserHibernation {
         freezeDeadline = MainDeadline(owner: "BrowserFreeze", workClass: .background, scheduler: deadlines)
         hoverDwell = MainDeadline(owner: "BrowserNeighborHover", workClass: .background, scheduler: deadlines)
         mainWork = deadlines.work
+        mainDeadlines = deadlines
         snapshots = HibernationSnapshots(fullCapacityBytes: cache.imageCaches.hibernationSnapshotBytes)
         self.energy = energy
         energySaver = energy.policy.pageSaver

@@ -2,6 +2,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
+import CmuxNextDaemonService
 import CmuxNextHibernation
 import CmuxNextInput
 import CmuxNextWakeups
@@ -123,17 +124,29 @@ extension BrowserHibernation {
     }
 
     /// Records when the woken page's load ends (finished or failed), bounded: a page that is
-    /// still loading after 15 s records none. R-wait: the page's keyed phase wait (`PageWaiters`), read only
-    /// on a load-phase change, never on a title or progress tick; the record lands in one background task.
-    private func timeLoad(_ key: String, page: any BrowserTab) {
-        guard let waiting = page as? any BrowserPageWaiting else { return wakeLog.loaded(key, ended: Self.loadEnded(page.state.phase)) }
-        let mainWork = mainWork
-        // task-owner: one load timing, bounded by the wait's 15 s; the page's close ends the wait at once
-        Task { @concurrent [weak self] in
-            let ended = await waiting.when(phase: { phase in BrowserHibernation.loadEnded(phase) }, timeout: Self.loadTimingLimit) != nil
-            await mainWork.apply(.background, owner: "BrowserHibernation.wakeLoaded") { [weak self, weak waiting] in
-                guard let self, let waiting, cache?.browsers[key]?.tab === waiting else { return }
-                wakeLog.loaded(key, ended: ended)
+    /// still loading after 15 s records none. R-wait: an engine page's keyed phase wait (`PageWaiters`), read
+    /// only on a load-phase change; any other page (a streamed or a cmux page) through an ``ObservedCondition``
+    /// on its phase, with a `MainDeadline` for the bound. The end's time is read where the wait returns, so the
+    /// record's background task adds no queue time to `loaded_ms`.
+    func timeLoad(_ key: String, page: any BrowserTab) {
+        let mainWork = mainWork, deadlines = mainDeadlines, limit = Self.loadTimingLimit
+        let waiting = page as? any BrowserPageWaiting
+        let condition = waiting == nil ? ObservedCondition(owner: "BrowserHibernation.wakeLoad", .background, on: mainWork) : nil
+        // task-owner: one load timing, bounded by 15 s; an engine page's close ends its keyed wait at once
+        Task { @concurrent [weak self, weak page] in
+            // nil: the condition ended, at the load's end or at the bound; the record reads which from the phase.
+            var ended: Bool?
+            if let waiting {
+                ended = await waiting.when(phase: { phase in BrowserHibernation.loadEnded(phase) }, timeout: limit) != nil
+            } else {
+                await condition?.until(timeout: limit, deadlines: deadlines) { [weak page] in
+                    page.map { BrowserHibernation.loadEnded($0.state.phase) } ?? true
+                }
+            }
+            let at = ContinuousClock.now, result = ended
+            await mainWork.apply(.background, owner: "BrowserHibernation.wakeLoaded") { [weak self, weak page] in
+                guard let self, let page, cache?.browsers[key]?.tab === page else { return }
+                wakeLog.loaded(key, ended: result ?? Self.loadEnded(page.state.phase), at: at)
             }
         }
     }
