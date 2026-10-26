@@ -42,7 +42,7 @@ public enum CloudStrings {
     }
     public static var noTeams: String { String(localized: "cloud.failed.noTeams", defaultValue: "This account has no teams.", table: "Cloud", bundle: .module) }
     public static var invalidPort: String { String(localized: "cloud.failed.invalidPort", defaultValue: "Port must be between 1 and 65535.", table: "Cloud", bundle: .module) }
-    public static var noAddress: String { String(localized: "cloud.failed.noAddress", defaultValue: "The machine has no private address yet. Check its state with `cmux cloud machine-status --target machine:<id>`; if it is paused, run `cmux cloud resume-machine` first.", table: "Cloud", bundle: .module) }
+    public static var noAddress: String { String(localized: "cloud.failed.noAddress", defaultValue: "The machine has no private address yet. Check its state with `cmux cloud machine-status --target machine:<id>`; if it is paused, run `cmux cloud resume-machine --target machine:<id>` first.", table: "Cloud", bundle: .module) }
     public static var killMachineTitle: String { String(localized: "cloud.prompt.killMachine", defaultValue: "Kill this Cloud machine?", table: "Cloud", bundle: .module) }
     public static var killMachineBody: String { String(localized: "cloud.prompt.killMachineBody", defaultValue: "The machine and every terminal on it are deleted. This cannot be undone.", table: "Cloud", bundle: .module) }
     public static var kill: String { String(localized: "cloud.button.kill", defaultValue: "Kill Machine", table: "Cloud", bundle: .module) }

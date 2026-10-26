@@ -932,127 +932,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The GitHub CLI isn't installed on this machine. Install gh on it, then run `cmux cloud setup-github` again."
+            "value": "The GitHub CLI isn't installed on this machine. Install gh on it, then run `cmux cloud setup-github --target machine:<id>` again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "واجهة GitHub CLI غير مثبتة على هذا الجهاز. ثبّت gh عليه، ثم شغّل `cmux cloud setup-github` مرة أخرى."
+            "value": "واجهة GitHub CLI غير مثبتة على هذا الجهاز. ثبّت gh عليه، ثم شغّل `cmux cloud setup-github --target machine:<id>` مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub CLI nije instaliran na ovoj mašini. Instalirajte gh na nju, pa ponovo pokrenite `cmux cloud setup-github`."
+            "value": "GitHub CLI nije instaliran na ovoj mašini. Instalirajte gh na nju, pa ponovo pokrenite `cmux cloud setup-github --target machine:<id>`."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub CLI er ikke installeret på denne maskine. Installer gh på den, og kør derefter `cmux cloud setup-github` igen."
+            "value": "GitHub CLI er ikke installeret på denne maskine. Installer gh på den, og kør derefter `cmux cloud setup-github --target machine:<id>` igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die GitHub CLI ist auf dieser Maschine nicht installiert. Installiere gh darauf und führe dann `cmux cloud setup-github` erneut aus."
+            "value": "Die GitHub CLI ist auf dieser Maschine nicht installiert. Installiere gh darauf und führe dann `cmux cloud setup-github --target machine:<id>` erneut aus."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub CLI no está instalado en esta máquina. Instala gh en ella y vuelve a ejecutar `cmux cloud setup-github`."
+            "value": "GitHub CLI no está instalado en esta máquina. Instala gh en ella y vuelve a ejecutar `cmux cloud setup-github --target machine:<id>`."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub CLI n’est pas installé sur cette machine. Installez-y gh, puis exécutez à nouveau `cmux cloud setup-github`."
+            "value": "GitHub CLI n’est pas installé sur cette machine. Installez-y gh, puis exécutez à nouveau `cmux cloud setup-github --target machine:<id>`."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub CLI non è installato su questa macchina. Installa gh, poi esegui di nuovo `cmux cloud setup-github`."
+            "value": "GitHub CLI non è installato su questa macchina. Installa gh, poi esegui di nuovo `cmux cloud setup-github --target machine:<id>`."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このマシンには GitHub CLI がインストールされていません。gh をインストールしてから、`cmux cloud setup-github` をもう一度実行してください。"
+            "value": "このマシンには GitHub CLI がインストールされていません。gh をインストールしてから、`cmux cloud setup-github --target machine:<id>` をもう一度実行してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub CLI មិនត្រូវបានដំឡើងនៅលើម៉ាស៊ីននេះទេ។ ដំឡើង gh លើវា រួចដំណើរការ `cmux cloud setup-github` ម្តងទៀត។"
+            "value": "GitHub CLI មិនត្រូវបានដំឡើងនៅលើម៉ាស៊ីននេះទេ។ ដំឡើង gh លើវា រួចដំណើរការ `cmux cloud setup-github --target machine:<id>` ម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 머신에는 GitHub CLI가 설치되어 있지 않습니다. gh를 설치한 뒤 `cmux cloud setup-github`를 다시 실행하세요."
+            "value": "이 머신에는 GitHub CLI가 설치되어 있지 않습니다. gh를 설치한 뒤 `cmux cloud setup-github --target machine:<id>`를 다시 실행하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub CLI er ikke installert på denne maskinen. Installer gh på den, og kjør deretter `cmux cloud setup-github` igjen."
+            "value": "GitHub CLI er ikke installert på denne maskinen. Installer gh på den, og kjør deretter `cmux cloud setup-github --target machine:<id>` igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub CLI nie jest zainstalowany na tej maszynie. Zainstaluj na niej gh, a potem ponownie uruchom `cmux cloud setup-github`."
+            "value": "GitHub CLI nie jest zainstalowany na tej maszynie. Zainstaluj na niej gh, a potem ponownie uruchom `cmux cloud setup-github --target machine:<id>`."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O GitHub CLI não está instalado nesta máquina. Instale o gh nela e execute `cmux cloud setup-github` de novo."
+            "value": "O GitHub CLI não está instalado nesta máquina. Instale o gh nela e execute `cmux cloud setup-github --target machine:<id>` de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub CLI не установлен на этой машине. Установите на нее gh, затем снова выполните `cmux cloud setup-github`."
+            "value": "GitHub CLI не установлен на этой машине. Установите на нее gh, затем снова выполните `cmux cloud setup-github --target machine:<id>`."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่ได้ติดตั้ง GitHub CLI บนเครื่องนี้ ติดตั้ง gh บนเครื่อง แล้วเรียกใช้ `cmux cloud setup-github` อีกครั้ง"
+            "value": "ไม่ได้ติดตั้ง GitHub CLI บนเครื่องนี้ ติดตั้ง gh บนเครื่อง แล้วเรียกใช้ `cmux cloud setup-github --target machine:<id>` อีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub CLI bu makinede yüklü değil. Makineye gh yükleyin, sonra `cmux cloud setup-github` komutunu yeniden çalıştırın."
+            "value": "GitHub CLI bu makinede yüklü değil. Makineye gh yükleyin, sonra `cmux cloud setup-github --target machine:<id>` komutunu yeniden çalıştırın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub CLI не встановлено на цій машині. Встановіть на неї gh, а потім знову виконайте `cmux cloud setup-github`."
+            "value": "GitHub CLI не встановлено на цій машині. Встановіть на неї gh, а потім знову виконайте `cmux cloud setup-github --target machine:<id>`."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub CLI chưa được cài trên máy này. Hãy cài gh trên máy rồi chạy lại `cmux cloud setup-github`."
+            "value": "GitHub CLI chưa được cài trên máy này. Hãy cài gh trên máy rồi chạy lại `cmux cloud setup-github --target machine:<id>`."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此机器上未安装 GitHub CLI。请在其上安装 gh，然后再次运行 `cmux cloud setup-github`。"
+            "value": "此机器上未安装 GitHub CLI。请在其上安装 gh，然后再次运行 `cmux cloud setup-github --target machine:<id>`。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此機器上未安裝 GitHub CLI。請在其上安裝 gh，然後再次執行 `cmux cloud setup-github`。"
+            "value": "此機器上未安裝 GitHub CLI。請在其上安裝 gh，然後再次執行 `cmux cloud setup-github --target machine:<id>`。"
           }
         }
       }
@@ -1064,127 +1064,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub sign-in didn't start on this machine. Run `cmux cloud setup-github` again."
+            "value": "GitHub sign-in didn't start on this machine. Run `cmux cloud setup-github --target machine:<id>` again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم يبدأ تسجيل الدخول إلى GitHub على هذا الجهاز. شغّل `cmux cloud setup-github` مرة أخرى."
+            "value": "لم يبدأ تسجيل الدخول إلى GitHub على هذا الجهاز. شغّل `cmux cloud setup-github --target machine:<id>` مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prijava na GitHub nije pokrenuta na ovoj mašini. Ponovo pokrenite `cmux cloud setup-github`."
+            "value": "Prijava na GitHub nije pokrenuta na ovoj mašini. Ponovo pokrenite `cmux cloud setup-github --target machine:<id>`."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub-login startede ikke på denne maskine. Kør `cmux cloud setup-github` igen."
+            "value": "GitHub-login startede ikke på denne maskine. Kør `cmux cloud setup-github --target machine:<id>` igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die GitHub-Anmeldung ist auf dieser Maschine nicht gestartet. Führe `cmux cloud setup-github` erneut aus."
+            "value": "Die GitHub-Anmeldung ist auf dieser Maschine nicht gestartet. Führe `cmux cloud setup-github --target machine:<id>` erneut aus."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El inicio de sesión de GitHub no se inició en esta máquina. Vuelve a ejecutar `cmux cloud setup-github`."
+            "value": "El inicio de sesión de GitHub no se inició en esta máquina. Vuelve a ejecutar `cmux cloud setup-github --target machine:<id>`."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La connexion à GitHub n’a pas démarré sur cette machine. Exécutez à nouveau `cmux cloud setup-github`."
+            "value": "La connexion à GitHub n’a pas démarré sur cette machine. Exécutez à nouveau `cmux cloud setup-github --target machine:<id>`."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "L’accesso a GitHub non si è avviato su questa macchina. Esegui di nuovo `cmux cloud setup-github`."
+            "value": "L’accesso a GitHub non si è avviato su questa macchina. Esegui di nuovo `cmux cloud setup-github --target machine:<id>`."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このマシンで GitHub へのサインインを開始できませんでした。`cmux cloud setup-github` をもう一度実行してください。"
+            "value": "このマシンで GitHub へのサインインを開始できませんでした。`cmux cloud setup-github --target machine:<id>` をもう一度実行してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ការចូល GitHub មិនបានចាប់ផ្តើមនៅលើម៉ាស៊ីននេះទេ។ ដំណើរការ `cmux cloud setup-github` ម្តងទៀត។"
+            "value": "ការចូល GitHub មិនបានចាប់ផ្តើមនៅលើម៉ាស៊ីននេះទេ។ ដំណើរការ `cmux cloud setup-github --target machine:<id>` ម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 머신에서 GitHub 로그인이 시작되지 않았습니다. `cmux cloud setup-github`를 다시 실행하세요."
+            "value": "이 머신에서 GitHub 로그인이 시작되지 않았습니다. `cmux cloud setup-github --target machine:<id>`를 다시 실행하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub-pålogging startet ikke på denne maskinen. Kjør `cmux cloud setup-github` igjen."
+            "value": "GitHub-pålogging startet ikke på denne maskinen. Kjør `cmux cloud setup-github --target machine:<id>` igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Logowanie do GitHub nie rozpoczęło się na tej maszynie. Ponownie uruchom `cmux cloud setup-github`."
+            "value": "Logowanie do GitHub nie rozpoczęło się na tej maszynie. Ponownie uruchom `cmux cloud setup-github --target machine:<id>`."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O login no GitHub não foi iniciado nesta máquina. Execute `cmux cloud setup-github` de novo."
+            "value": "O login no GitHub não foi iniciado nesta máquina. Execute `cmux cloud setup-github --target machine:<id>` de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вход в GitHub на этой машине не начался. Снова выполните `cmux cloud setup-github`."
+            "value": "Вход в GitHub на этой машине не начался. Снова выполните `cmux cloud setup-github --target machine:<id>`."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การลงชื่อเข้าใช้ GitHub ไม่ได้เริ่มบนเครื่องนี้ เรียกใช้ `cmux cloud setup-github` อีกครั้ง"
+            "value": "การลงชื่อเข้าใช้ GitHub ไม่ได้เริ่มบนเครื่องนี้ เรียกใช้ `cmux cloud setup-github --target machine:<id>` อีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu makinede GitHub oturum açma başlamadı. `cmux cloud setup-github` komutunu yeniden çalıştırın."
+            "value": "Bu makinede GitHub oturum açma başlamadı. `cmux cloud setup-github --target machine:<id>` komutunu yeniden çalıştırın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вхід у GitHub на цій машині не розпочався. Знову виконайте `cmux cloud setup-github`."
+            "value": "Вхід у GitHub на цій машині не розпочався. Знову виконайте `cmux cloud setup-github --target machine:<id>`."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Đăng nhập GitHub chưa bắt đầu trên máy này. Hãy chạy lại `cmux cloud setup-github`."
+            "value": "Đăng nhập GitHub chưa bắt đầu trên máy này. Hãy chạy lại `cmux cloud setup-github --target machine:<id>`."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此机器上的 GitHub 登录未能开始。请再次运行 `cmux cloud setup-github`。"
+            "value": "此机器上的 GitHub 登录未能开始。请再次运行 `cmux cloud setup-github --target machine:<id>`。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此機器上的 GitHub 登入未能開始。請再次執行 `cmux cloud setup-github`。"
+            "value": "此機器上的 GitHub 登入未能開始。請再次執行 `cmux cloud setup-github --target machine:<id>`。"
           }
         }
       }

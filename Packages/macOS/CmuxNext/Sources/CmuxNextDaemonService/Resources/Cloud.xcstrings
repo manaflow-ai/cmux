@@ -1057,127 +1057,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The machine has no private address yet. Check its state with `cmux cloud machine-status --target machine:<id>`; if it is paused, run `cmux cloud resume-machine` first."
+            "value": "The machine has no private address yet. Check its state with `cmux cloud machine-status --target machine:<id>`; if it is paused, run `cmux cloud resume-machine --target machine:<id>` first."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このマシンにはまだプライベートアドレスがありません。`cmux cloud machine-status --target machine:<id>` で状態を確認してください。一時停止中の場合は、先に `cmux cloud resume-machine` を実行してください。"
+            "value": "このマシンにはまだプライベートアドレスがありません。`cmux cloud machine-status --target machine:<id>` で状態を確認してください。一時停止中の場合は、先に `cmux cloud resume-machine --target machine:<id>` を実行してください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ليس للجهاز عنوان خاص بعد. تحقق من حالته باستخدام `cmux cloud machine-status --target machine:<id>`؛ وإذا كان متوقفًا مؤقتًا، فشغّل `cmux cloud resume-machine` أولًا."
+            "value": "ليس للجهاز عنوان خاص بعد. تحقق من حالته باستخدام `cmux cloud machine-status --target machine:<id>`؛ وإذا كان متوقفًا مؤقتًا، فشغّل `cmux cloud resume-machine --target machine:<id>` أولًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mašina još nema privatnu adresu. Provjerite njeno stanje pomoću `cmux cloud machine-status --target machine:<id>`; ako je pauzirana, prvo pokrenite `cmux cloud resume-machine`."
+            "value": "Mašina još nema privatnu adresu. Provjerite njeno stanje pomoću `cmux cloud machine-status --target machine:<id>`; ako je pauzirana, prvo pokrenite `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Maskinen har endnu ingen privat adresse. Tjek dens tilstand med `cmux cloud machine-status --target machine:<id>`. Hvis den er sat på pause, så kør `cmux cloud resume-machine` først."
+            "value": "Maskinen har endnu ingen privat adresse. Tjek dens tilstand med `cmux cloud machine-status --target machine:<id>`. Hvis den er sat på pause, så kør `cmux cloud resume-machine --target machine:<id>` først."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Die Maschine hat noch keine private Adresse. Prüfe ihren Zustand mit `cmux cloud machine-status --target machine:<id>`; ist sie pausiert, führe zuerst `cmux cloud resume-machine` aus."
+            "value": "Die Maschine hat noch keine private Adresse. Prüfe ihren Zustand mit `cmux cloud machine-status --target machine:<id>`; ist sie pausiert, führe zuerst `cmux cloud resume-machine --target machine:<id>` aus."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La máquina aún no tiene dirección privada. Revisa su estado con `cmux cloud machine-status --target machine:<id>`; si está en pausa, ejecuta primero `cmux cloud resume-machine`."
+            "value": "La máquina aún no tiene dirección privada. Revisa su estado con `cmux cloud machine-status --target machine:<id>`; si está en pausa, ejecuta primero `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La machine n’a pas encore d’adresse privée. Vérifiez son état avec `cmux cloud machine-status --target machine:<id>` ; si elle est en pause, exécutez d’abord `cmux cloud resume-machine`."
+            "value": "La machine n’a pas encore d’adresse privée. Vérifiez son état avec `cmux cloud machine-status --target machine:<id>` ; si elle est en pause, exécutez d’abord `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La macchina non ha ancora un indirizzo privato. Controlla il suo stato con `cmux cloud machine-status --target machine:<id>`; se è in pausa, esegui prima `cmux cloud resume-machine`."
+            "value": "La macchina non ha ancora un indirizzo privato. Controlla il suo stato con `cmux cloud machine-status --target machine:<id>`; se è in pausa, esegui prima `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ម៉ាស៊ីននៅមិនទាន់មានអាសយដ្ឋានឯកជននៅឡើយទេ។ ពិនិត្យស្ថានភាពរបស់វាដោយប្រើ `cmux cloud machine-status --target machine:<id>`។ ប្រសិនបើវាត្រូវបានផ្អាក សូមដំណើរការ `cmux cloud resume-machine` ជាមុនសិន។"
+            "value": "ម៉ាស៊ីននៅមិនទាន់មានអាសយដ្ឋានឯកជននៅឡើយទេ។ ពិនិត្យស្ថានភាពរបស់វាដោយប្រើ `cmux cloud machine-status --target machine:<id>`។ ប្រសិនបើវាត្រូវបានផ្អាក សូមដំណើរការ `cmux cloud resume-machine --target machine:<id>` ជាមុនសិន។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 기기에는 아직 사설 주소가 없습니다. `cmux cloud machine-status --target machine:<id>`로 상태를 확인하십시오. 일시 정지된 경우 먼저 `cmux cloud resume-machine`을 실행하십시오."
+            "value": "이 기기에는 아직 사설 주소가 없습니다. `cmux cloud machine-status --target machine:<id>`로 상태를 확인하십시오. 일시 정지된 경우 먼저 `cmux cloud resume-machine --target machine:<id>`을 실행하십시오."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Maskinen har ingen privat adresse ennå. Sjekk tilstanden med `cmux cloud machine-status --target machine:<id>`. Hvis den er satt på pause, kjør `cmux cloud resume-machine` først."
+            "value": "Maskinen har ingen privat adresse ennå. Sjekk tilstanden med `cmux cloud machine-status --target machine:<id>`. Hvis den er satt på pause, kjør `cmux cloud resume-machine --target machine:<id>` først."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Maszyna nie ma jeszcze adresu prywatnego. Sprawdź jej stan za pomocą `cmux cloud machine-status --target machine:<id>`; jeśli jest wstrzymana, najpierw uruchom `cmux cloud resume-machine`."
+            "value": "Maszyna nie ma jeszcze adresu prywatnego. Sprawdź jej stan za pomocą `cmux cloud machine-status --target machine:<id>`; jeśli jest wstrzymana, najpierw uruchom `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "A máquina ainda não tem endereço privado. Verifique o estado dela com `cmux cloud machine-status --target machine:<id>`; se estiver pausada, execute `cmux cloud resume-machine` primeiro."
+            "value": "A máquina ainda não tem endereço privado. Verifique o estado dela com `cmux cloud machine-status --target machine:<id>`; se estiver pausada, execute `cmux cloud resume-machine --target machine:<id>` primeiro."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "У машины пока нет частного адреса. Проверьте ее состояние командой `cmux cloud machine-status --target machine:<id>`; если она приостановлена, сначала выполните `cmux cloud resume-machine`."
+            "value": "У машины пока нет частного адреса. Проверьте ее состояние командой `cmux cloud machine-status --target machine:<id>`; если она приостановлена, сначала выполните `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เครื่องยังไม่มีที่อยู่ส่วนตัว ตรวจสอบสถานะด้วย `cmux cloud machine-status --target machine:<id>` หากเครื่องหยุดชั่วคราวอยู่ ให้เรียกใช้ `cmux cloud resume-machine` ก่อน"
+            "value": "เครื่องยังไม่มีที่อยู่ส่วนตัว ตรวจสอบสถานะด้วย `cmux cloud machine-status --target machine:<id>` หากเครื่องหยุดชั่วคราวอยู่ ให้เรียกใช้ `cmux cloud resume-machine --target machine:<id>` ก่อน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Makinenin henüz özel adresi yok. Durumunu `cmux cloud machine-status --target machine:<id>` ile kontrol edin; duraklatılmışsa önce `cmux cloud resume-machine` komutunu çalıştırın."
+            "value": "Makinenin henüz özel adresi yok. Durumunu `cmux cloud machine-status --target machine:<id>` ile kontrol edin; duraklatılmışsa önce `cmux cloud resume-machine --target machine:<id>` komutunu çalıştırın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Машина ще не має приватної адреси. Перевірте її стан командою `cmux cloud machine-status --target machine:<id>`; якщо її призупинено, спершу виконайте `cmux cloud resume-machine`."
+            "value": "Машина ще не має приватної адреси. Перевірте її стан командою `cmux cloud machine-status --target machine:<id>`; якщо її призупинено, спершу виконайте `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Máy chưa có địa chỉ riêng. Hãy kiểm tra trạng thái bằng `cmux cloud machine-status --target machine:<id>`; nếu máy đang tạm dừng, hãy chạy `cmux cloud resume-machine` trước."
+            "value": "Máy chưa có địa chỉ riêng. Hãy kiểm tra trạng thái bằng `cmux cloud machine-status --target machine:<id>`; nếu máy đang tạm dừng, hãy chạy `cmux cloud resume-machine --target machine:<id>` trước."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此机器还没有私有地址。请用 `cmux cloud machine-status --target machine:<id>` 查看其状态；如果它已暂停，请先运行 `cmux cloud resume-machine`。"
+            "value": "此机器还没有私有地址。请用 `cmux cloud machine-status --target machine:<id>` 查看其状态；如果它已暂停，请先运行 `cmux cloud resume-machine --target machine:<id>`。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此機器尚無私人位址。請用 `cmux cloud machine-status --target machine:<id>` 查看其狀態；如果它已暫停，請先執行 `cmux cloud resume-machine`。"
+            "value": "此機器尚無私人位址。請用 `cmux cloud machine-status --target machine:<id>` 查看其狀態；如果它已暫停，請先執行 `cmux cloud resume-machine --target machine:<id>`。"
           }
         }
       }

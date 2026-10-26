@@ -61,6 +61,18 @@ struct CloudHintCommandsTests {
         }
     }
 
+    /// A verb that acts on one machine names it: `--target machine:<id>`
+    /// follows it, or the suggested command answers "No Cloud machine is selected".
+    @Test func aMachineVerbNamesItsTarget() {
+        for hint in Self.hints {
+            for verb in Self.verbs(in: hint.text) {
+                guard let descriptor = ActionCatalog.all.first(where: { $0.cliName == "cloud \(verb)" }),
+                      descriptor.targets.contains(.machine) else { continue }
+                #expect(hint.text.contains("cmux cloud \(verb) --target machine:"), "`cmux cloud \(verb)` in “\(hint.text)” names no machine")
+            }
+        }
+    }
+
     /// The reason goes last, so a reason that ends with a full stop never doubles it.
     @Test func theReasonOfAFailedMoveOrStartComesLast() {
         #expect(CloudMoveStrings.moveFailed("REASON.").hasSuffix("REASON."))
