@@ -70,6 +70,8 @@ struct ForkApi {
   int (*browser_set_resize_sync)(int, int) = nullptr;
   // API version 32: the resize fence in display frames.
   int (*browser_set_resize_fence)(int, uint32_t, uint32_t) = nullptr;
+  // API version 33: a tab's Chromium views in an embedder NSView.
+  int (*browser_attach_view)(int, void*) = nullptr;
   void (*set_new_tab_page_url)(const char*) = nullptr;
   void (*set_install_prompt_handler)(void (*)(void*, int, int, const char*), void*) = nullptr;
   int (*install_prompt_reply)(int, int) = nullptr;

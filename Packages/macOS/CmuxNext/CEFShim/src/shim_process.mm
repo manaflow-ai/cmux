@@ -314,6 +314,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(browser_set_layer_hosting, "cmux_browser_set_layer_hosting");
   CMUX_BIND(browser_set_resize_sync, "cmux_browser_set_resize_sync");
   CMUX_BIND(browser_set_resize_fence, "cmux_browser_set_resize_fence");
+  CMUX_BIND(browser_attach_view, "cmux_browser_attach_view");
   CMUX_BIND(set_new_tab_page_url, "cmux_set_new_tab_page_url");
   CMUX_BIND(set_install_prompt_handler, "cmux_set_install_prompt_handler");
   CMUX_BIND(install_prompt_reply, "cmux_install_prompt_reply");

@@ -1093,6 +1093,25 @@ every task that changes behavior or performance and is not repeated per row.
   visible, WasShown fires when the parent window is visible; no NSTextInputClient added in CmuxNext.
 - Test phase: cmux-ci build cef; cef-layer-verify.py --checks hosted; check-ime-input.py; AX Inspector dump.
 - Size L. Depends: 041, 058. Start hour 0 in parallel with 042.
+- Landed in the fork at API 33: manaflow-ai/cef `cp/p03-rendering-044` (`a1123260`, on `cp/p03-rendering-042`).
+  `cmux_browser_attach_view(id, parent_view)` moves the tab's whole WebContentsViewCocoa (not only its
+  RenderWidgetHostViewCocoa) into `parent_view`, filling it, as Chrome's NativeViewHostMac adds it to a view of
+  the browser window and content_shell shows it: the drag destination (WebDragDest) and Chrome's own visibility
+  path (`-[WebContentsViewCocoa updateWebContentsVisibility]`, the occlusion checker) are on that view, so
+  WasShown/WasHidden follow the parent view and its window with no embedder visibility call (task 058's override
+  is for hosted page windows; attached pages do not need it). Each RenderWidgetHostViewMac leaves the Views parent
+  `ui::Layer` (own `ui::Compositor`) and its bridge's DisplayCALayerTree comes back
+  (`RenderWidgetHostNSViewBridge::EnableDisplay`, patch `cmux_embedder_attach_view`; the WebContentsViewMac part is
+  in `cmux_remote_popup_menu.patch`, one patch per Chromium file). Views still attaches and detaches the tab
+  (Chromium's active tab decides visibility); its bounds are ignored while attached. The page window stays the
+  tab's views::Widget, headless as a detached page's; layer hosting, detached hosting and the resize fence refuse an
+  attached page, and the page is active while the parent's window is key. NULL gives the tab back.
+  App shim: `cmux_shim_browser_attach_view` (`shim_browser.mm`); the remote shim's is a local stub that returns 0
+  (an NSView* means nothing in the host; F2's form is remote_cocoa's Application mojom). Embedder case
+  `helper-attach-view` (not run here: no Chromium tree). Pin rule: as for 042, the pin moves only with a CEF build of
+  this ref; task 045 binds the export with `r.optional` and checks `forkAPIVersion >= 33`.
+- Open for 046: Views bubbles anchored in the page window (autofill, extension popups, the side panel) belong to
+  the headless page window, so they need the hosted-widget path (API 31) or a per-widget fallback.
 
 #### p03-rendering-045 App adopts the attached Chromium view
 - Files: `.../CmuxNextBrowser/CEF/CEFHostView.swift`, `CEFLayerHosting.swift`, `CEFHostedPageView.swift`.

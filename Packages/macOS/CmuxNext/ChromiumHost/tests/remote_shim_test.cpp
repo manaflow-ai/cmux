@@ -394,6 +394,9 @@ int main() {
   // client refuses it as a fork without the call would and sends nothing, so the next frame
   // the host reads is go_back's.
   CHECK(cmux_shim_browser_set_resize_fence(browser, 0x1103u, 2) == 0);
+  // An attach names an NSView of this process: refused the same way, nothing sent.
+  int parent_view = 0;
+  CHECK(cmux_shim_browser_attach_view(browser, &parent_view) == 0);
 
   // go_back marks the navigation state pending under its token until the host's ack.
   cmux_shim_go_back(browser);

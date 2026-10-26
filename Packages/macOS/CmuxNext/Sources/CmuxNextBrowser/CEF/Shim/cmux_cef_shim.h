@@ -330,6 +330,20 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_set_resize_sync(int browser_id, int timeo
 // nothing in another process. UI thread.
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_resize_fence(int browser_id, unsigned int fence_port,
                                                         unsigned int deadline_frames);
+// Fork API 33 (cmux_browser_attach_view; p03-rendering-044, Track B):
+// browser_id's page shows in parent_view (an NSView* of this process, in the
+// app's window) as Chromium's own views: its WebContentsViewCocoa fills
+// parent_view, below its other subviews, and each RenderWidgetHostViewCocoa
+// draws through its own layer tree. Input, IME, cursor, drag, popups and
+// accessibility come from those views, and the page's visibility follows
+// parent_view and its window (and Chromium's active tab). The page window
+// stays headless (never ordered in) while a tab of it is attached; layer
+// hosting, detached hosting and the resize fence refuse the page then.
+// parent_view NULL gives the tab back to its page window. Returns 1, or 0 for
+// an unknown browser, a browser with no page window, or a fork without the
+// call. In-process only: an NSView* means nothing in another process. UI
+// thread.
+CMUX_SHIM_EXPORT int cmux_shim_browser_attach_view(int browser_id, void* parent_view);
 // Fork API 30: the helper-app browser process (plans/cmux-next/cef-helper-app-DESIGN.md).
 // Each returns 0 (or does nothing) when the fork lacks the call; the fork's
 // include/cef_cmux.h documents the semantics. UI thread only unless noted.
