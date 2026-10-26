@@ -135,6 +135,13 @@ pub(super) fn withdrawn_reply(prompt_id: &str, turn_id: &str) -> Value {
     })
 }
 
+/// Whether a prompt waits in the chat's queue that a failed turn does not hold, read under the
+/// queue's lock.
+fn queue_waits(session: &Session) -> bool {
+    let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    queue.iter().any(|q| !q.held)
+}
+
 impl Hub {
     /// Gets a prompt its turn: at once when nothing runs or waits, else after it joins the queue
     /// (and `accept` hears `queued`) and reaches its head. A family prompt to a sub-session whose
@@ -182,8 +189,9 @@ impl Hub {
                 // Prompts a failed turn holds (`pause_queue`) do not hold up a new one.
                 let held = session.queue().iter().filter(|q| q.held).count() as u64;
                 let waiting = session.turn().is_some() || session.queued() > held;
-                // Decided with the queue's own test, with no await since: it never queues.
-                if waiting && p.no_queue {
+                // It never queues: busy when the queue's own test, or a prompt waiting in it read
+                // under its lock, says it would. The turn lock is tried below.
+                if p.no_queue && (waiting || queue_waits(session)) {
                     return Err(Err(super::auto_resume::retry_turn::busy()));
                 }
                 let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;

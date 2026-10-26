@@ -10,7 +10,8 @@
 //! - The person's own prompt into a chat resumes that chat's pairs too ([`person_prompt`]).
 //!
 //! And `_acpmux/retry {sessionId, subagentId?}` ([`retry`]): the chat's failed last turn, retried
-//! now (`hub/auto_resume/retry_turn.rs`). It may reach a peer's chat (`peer_forward.rs`).
+//! now (`hub/auto_resume/retry_turn.rs`), or with `subagentId` that failed subagent, resumed now
+//! (`hub/subagent_retry_manual.rs`). It may reach a peer's chat (`peer_forward.rs`).
 
 use super::{Conn, Origin, session_key, str_param};
 use crate::hub::{Hub, Session};

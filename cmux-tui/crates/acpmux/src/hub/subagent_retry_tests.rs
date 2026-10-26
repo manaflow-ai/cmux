@@ -424,3 +424,72 @@ async fn a_sub_session_retry_runs_and_names_its_sender() {
     assert_eq!(provenance["manual"], true, "{provenance}");
     assert_eq!(provenance["kind"], "subagent_retry", "{provenance}");
 }
+
+/// A turn continuation that becomes pending between a person's claim and its start (here: its
+/// cut turn ending, not settled yet): refused `retry.busy` at the start, under the continuation's
+/// own lock, and the claim given back.
+#[tokio::test]
+async fn a_person_retry_is_busy_once_a_continuation_is_pending_at_its_start() {
+    let (hub, session, _conn) = chat(vec![60_000]).await;
+    hub.observe_subagents(&session, &[failed("s/t1")]);
+    settle().await;
+    let claim = hub.claim_subagent(&session, "s/t1", 1).unwrap();
+    hub.set_ending_for_test(&session, Some("t-cut"));
+    let refused = hub.send_claim(&session, "s/t1", claim, by_person()).await.unwrap_err();
+    assert_eq!(refused.data.unwrap()["reason"], "retry.busy");
+    assert!(prompts(&hub, &session).is_empty(), "nothing sent");
+    assert!(session.turn().is_none());
+    settle().await;
+    assert_eq!(wait_of(&hub, &session, "s/t1"), (0, Some((1, false))), "the wait is given back");
+    hub.set_ending_for_test(&session, None);
+    hub.retry_subagent(&session, "s/t1", by_person()).await.unwrap();
+}
+
+/// A prompt that comes into the queue between a person's claim and its slot, which the `queued`
+/// count does not show yet (a queue change in flight): read under the queue's lock, the retry is
+/// `retry.busy` and never starts ahead of it.
+#[tokio::test]
+async fn a_person_retry_is_busy_behind_a_queued_prompt_the_count_misses() {
+    let (hub, session, _conn) = chat(vec![60_000]).await;
+    hub.observe_subagents(&session, &[failed("s/t1")]);
+    settle().await;
+    let run = crate::hub::queue::PromptRun {
+        blocks: vec![json!({"type": "text", "text": "waits"})],
+        display_parts: None,
+        control: crate::hub::Control::Local,
+        trust_gate: false,
+        provenance: None,
+        agent: None,
+        supersede: None,
+        full_access_device: None,
+    };
+    let queued = crate::hub::queue::QueuedPrompt {
+        prompt_id: "p-waits".into(),
+        turn_id: "t-waits".into(),
+        client: "test".into(),
+        preview: "waits".into(),
+        queued_at: 0,
+        withdraw: Arc::new(Notify::new()),
+        run: Arc::new(run),
+        restored: false,
+        resume: false,
+        steer: false,
+        held: false,
+        sent_now: false,
+        joined: Arc::new(std::sync::Mutex::new(None)),
+        requeued: false,
+        retries: 0,
+    };
+    // Claimed with the queue empty; the prompt comes in before the retry's slot.
+    let claim = hub.claim_subagent(&session, "s/t1", 1).unwrap();
+    session.queue.lock().unwrap().push(queued);
+    assert_eq!(session.queued(), 0, "the count does not show it");
+    let refused = hub.send_claim(&session, "s/t1", claim, by_person()).await.unwrap_err();
+    assert_eq!(refused.data.unwrap()["reason"], "retry.busy");
+    assert!(prompts(&hub, &session).is_empty(), "it never started ahead of the queue");
+    settle().await;
+    assert_eq!(wait_of(&hub, &session, "s/t1"), (0, Some((1, false))), "the wait is given back");
+    session.queue.lock().unwrap().clear();
+    hub.retry_subagent(&session, "s/t1", by_person()).await.unwrap();
+    assert_eq!(prompts(&hub, &session).len(), 1);
+}

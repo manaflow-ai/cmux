@@ -312,18 +312,14 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
-        // A person's subagent retry never waits out Claude Code's own turn: it is busy.
-        if no_queue && session.harness_turn.load(Ordering::SeqCst) {
-            let e = super::auto_resume::retry_turn::busy();
-            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
-            drop(guard);
-            return Err(e);
+        // A subagent retry waits out Claude Code's own turn (`subagent_retry.rs`); a person's
+        // never waits: `start_turn` refuses it then.
+        if !no_queue {
+            self.hold_retry_start(session, &prompt_id).await;
         }
-        // A subagent retry waits out Claude Code's own turn (`subagent_retry.rs`).
-        self.hold_retry_start(session, &prompt_id).await;
         // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
         let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control);
-        if let Err(e) = self.start_turn(session, after_turn.as_deref(), turn) {
+        if let Err(e) = self.start_turn(session, after_turn.as_deref(), no_queue, turn) {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
