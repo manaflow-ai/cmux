@@ -100,7 +100,7 @@ enum CloudHandlers {
             } catch {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 if interactive { CloudPresenter.failure(error, in: window(context)) }
-                return ActionWorkFailure("\(label): \(error)")
+                return ActionWorkFailure("\(label): \(CloudStrings.errorText(error))")
             }
         }
         context.services.registry.track(task)

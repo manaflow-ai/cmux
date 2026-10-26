@@ -23,6 +23,7 @@ import type { Subagent } from "../subagents/subagentFold";
 import { subagentStatus, subagentStatusLabel, type SubagentStatus } from "../summary/SubagentStatusList";
 import { orderedSessions, sessionStatus, sessionStateLabel } from "./ChildSessionRows";
 import "./SubagentsSection.css";
+import { InspectorFold } from "./InspectorSection";
 
 /// Running lines shown before "Show more", as Claude Code desktop's panel caps its list.
 export const SUBAGENTS_SHOWN = 5;
@@ -227,16 +228,11 @@ export function SubagentsSection({
         </ul>
       )}
       {runningLines.length > SUBAGENTS_SHOWN && (
-        <button
-          type="button"
-          className="acpmux-chat-inspector-fold acpmux-chat-inspector-subagents__more"
-          aria-expanded={more}
-          onClick={() => setMore(!more)}
-        >
+        <InspectorFold className="acpmux-chat-inspector-subagents__more" open={more} onToggle={() => setMore(!more)}>
           {more
             ? t("chatInspector.subagents.less")
             : t("chatInspector.subagents.more", { n: runningLines.length - SUBAGENTS_SHOWN })}
-        </button>
+        </InspectorFold>
       )}
       {endedLines.length > 0 && (
         <>

@@ -346,3 +346,32 @@ async fn a_web_answer_never_makes_a_lasting_grant() {
     let e = web.request(method::SESSION_PROMPT, prompt(&id, "hi", None)).await.unwrap_err();
     assert!(e.contains("lasting grant"), "{e}");
 }
+
+/// A group answer is told to a later answer for one of its items at once (`permission_settled.rs`),
+/// before each asking task logs its decision.
+#[tokio::test]
+async fn an_answer_after_a_group_answer_is_told_the_group_won() {
+    let (hub, mut c) = setup(PermissionPolicy::Ask).await;
+    let id = new_session(&mut c, "late-item").await;
+    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: parallel", None)).await;
+    let g = ready(&mut c).await;
+    let item = g["items"][0]["permissionId"].clone();
+    let mut r = connect(&hub).await;
+    r.request(RESPOND, decision(&id, &g, "all", "deny")).await.unwrap();
+    r.next += 1;
+    let late = json!({"sessionId": id, "permissionId": item, "optionId": "no"});
+    let line = Message::request(r.next, method::MUX_PERMISSION_RESPOND, late).to_line();
+    r.tx.send(line).await.unwrap();
+    let error = loop {
+        let line = r.rx.recv().await.expect("connection closed");
+        if let Message::Response { id, error, .. } = Message::parse(&line).unwrap()
+            && id == json!(r.next)
+        {
+            break error.expect("the late answer is refused");
+        }
+    };
+    let data = error.data.expect("who won, and how");
+    assert_eq!(data["answeredBy"], Value::Null, "{data}");
+    assert!(data["outcome"]["outcome"].is_string(), "{data}");
+    assert!(c.response(rid).await.0.is_ok());
+}

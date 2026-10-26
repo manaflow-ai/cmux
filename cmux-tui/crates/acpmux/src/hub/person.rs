@@ -159,8 +159,8 @@
 //!   `personInstance` is a daemon it enrolled directly (an app follow-up).
 //!
 //! The default start mode (`hub/start_mode.rs`, cx-wx93i) is not a request:
-//! with no `mode` asked, a new chat starts in the person's latest pick, else
-//! `defaultPermissionMode` / `agents.defaultPermissionMode`, else the
+//! with no `mode` asked, a new chat starts in `defaultPermissionMode` /
+//! `agents.defaultPermissionMode`, else the
 //! harness's full-access mode, for every non-Web origin (also the unix
 //! socket CLI). It never widens a proven caller session: one in a mode
 //! that asks starts its chats in the harness's own mode
@@ -323,6 +323,8 @@ pub struct Answerer<'a> {
     pub approver: Option<(&'a str, &'a Value)>,
     /// A caller session answering its descendant's question: set by the hub, never by a request.
     pub(crate) ancestor: Option<&'a str>,
+    /// The person who answered (`author.rs`), recorded in `answeredBy`: it proves nothing.
+    pub author: Option<&'a crate::author::Author>,
 }
 
 impl<'a> Answerer<'a> {
@@ -341,7 +343,7 @@ impl<'a> Answerer<'a> {
             (Some(nonce), Some(signed)) => Some((nonce, signed)),
             _ => None,
         };
-        Self { person, decision, approver, ancestor: None }
+        Self { person, decision, approver, ancestor: None, author: None }
     }
 }
 
@@ -830,6 +832,11 @@ impl Hub {
             }
             method::MUX_NEW_CHAT_PICKS_SET => Err(person_required("changing the new chat picks")),
             method::MUX_PERMISSION_RESPOND => {
+                // Answered already: `respond_permission` tells this one who answered first
+                // (`permission_settled.rs`), and it changes nothing.
+                if self.permission_settled(params) {
+                    return Ok(());
+                }
                 let option = params.get("optionId").filter(|v| !v.is_null());
                 // A phone's signed allow or answer (`approvers.rs`). Never
                 // with `answeredBy`: that stays the person's own claim.
@@ -1041,6 +1048,17 @@ impl Hub {
     /// sessions, permissions and options are not rejects: the handler still
     /// answers not-found or invalid params for a person, and a client
     /// without the person learns nothing more than its refusal.
+    /// Whether the prompt a `permission_respond` names was answered, and is no longer pending.
+    fn permission_settled(&self, params: &Value) -> bool {
+        let Some(s) = crate::server::session_key(params).ok().and_then(|k| self.resolve(k).ok())
+        else {
+            return false;
+        };
+        let Some(pid) = params.get("permissionId").and_then(Value::as_str) else { return false };
+        let state = s.permissions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        !state.pending.contains_key(pid) && state.settled.lost(pid).is_some()
+    }
+
     fn option_rejects(&self, params: &Value, option: &Value) -> bool {
         let Some(s) = crate::server::session_key(params).ok().and_then(|k| self.resolve(k).ok())
         else {
