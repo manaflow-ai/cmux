@@ -1453,6 +1453,13 @@ def e2e_build_unfinished(api: GitHub, target: Target, sleep: Callable[[float], N
 def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
                log: Callable[[str], None]) -> str:
     """Why the pull request (or main) no longer wants this run, or "" when it still does."""
+    if target.nightly and target.push_branch == "nightly-next":
+        # Each nightly-next run builds and signs in groups of its own (nightly.yml
+        # scopes them to github.run_id), so a newer tip builds alongside this one
+        # and never makes it moot: a newer tip is never a reason to cancel a
+        # nightly (Nightly freshness). publish-nightly's order check refuses a
+        # build no newer than the feed, so re-running an older one never downgrades.
+        return ""
     if target.nightly:
         # nightly.yml's concurrency group never cancels in progress: a newer
         # run waits behind this one, and a re-run of this one would join the

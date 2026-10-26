@@ -1760,19 +1760,19 @@ class Nightly(unittest.TestCase):
         for why, payload in cases.items():
             self.assertIsInstance(rescue.target_from_event(payload, "manaflow-ai/cmux"), str, why)
 
-    def test_next_push_is_watched_and_superseded_only_by_next(self):
+    def test_a_newer_next_push_never_cancels_this_one(self):
+        # Each nightly-next run builds in its own groups, so a newer tip builds alongside this one.
         payload = nightly_event(head_branch="nightly-next")
         target = rescue.target_from_event(payload, "manaflow-ai/cmux")
         self.assertIsInstance(target, rescue.Target)
         self.assertEqual(target.push_branch, "nightly-next")
         clock = Clock()
-        api = NightlyAPI(clock, nightly_run(), newer=[RUN_ID + 7])
-        _, summary = run_main(api, clock, payload=payload, env_extra={"RESCUE_SECONDS": "30"})
-        self.assertIn("cancel", api.calls)
-        self.assertNotIn("rerun-failed", api.calls)
-        self.assertIn("newer:nightly-next", api.calls)
-        self.assertNotIn("newer:main", api.calls)
-        self.assertIn("a newer nightly run on nightly-next", summary)
+        api = NightlyAPI(clock, nightly_run(refused_at=60), finished=lambda s: s >= 200,
+                         newer=[RUN_ID + 7], head="b" * 40, pushes=[RUN_ID + 7])
+        run_main(api, clock, payload=payload, env_extra={"RESCUE_SECONDS": "30"})
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("newer:nightly-next", api.calls)
+        self.assertEqual(api.calls[-1], "rerun-failed")
 
     def test_next_refusal_moves_failed_jobs_to_blacksmith(self):
         clock = Clock()
@@ -1990,16 +1990,8 @@ class Nightly(unittest.TestCase):
         self.assertEqual(rescue.reserved_runner({"labels": [TRUSTED, "glaeda-runner-x"]}), "glaeda-runner-x")
         self.assertIsNone(rescue.reserved_runner({"labels": [TRUSTED]}))
 
-    def test_a_superseded_commit_is_never_rerun(self):
-        # nightly-next is never pending at the workflow level; the branch moved and a newer push run builds it.
-        clock = Clock()
-        api = NightlyAPI(clock, nightly_run(refused_at=60), finished=lambda s: s >= 200,
-                         head="b" * 40, pushes=[RUN_ID + 3])
-        _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
-        self.assertNotIn("rerun-failed", api.calls)
-        self.assertNotIn("cancel", api.calls)
-        self.assertIn("nightly-next has moved on to bbbbbbbbbbbb", summary)
-        # The same on main: a newer push run that is already running or done, not pending.
+    def test_a_superseded_main_commit_is_never_rerun(self):
+        # On main: a newer push run that is already running or done, not pending.
         clock = Clock()
         api = NightlyAPI(clock, nightly_run(refused_at=60), finished=lambda s: s >= 200,
                          head="c" * 40, pushes=[RUN_ID + 4])
@@ -2715,8 +2707,9 @@ class Workflow(unittest.TestCase):
                      "startsWith(vars.CI_NIGHTLY_TRUSTED_RUNNER, 'glaeda-runner-') || "
                      "github.event.workflow_run.head_branch == 'nightly-next' && "
                      "github.event.workflow_run.event == 'push' && "
+                     "(startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || "
                      "startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, 'glaeda-trusted-') && "
-                     "startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER, 'glaeda-runner-'))) && "
+                     "startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER, 'glaeda-runner-')))) && "
                      "github.event.workflow_run.head_repository.full_name == github.repository && "
                      "github.event.workflow_run.run_attempt == 1)"):
             self.assertIn(part, condition)
