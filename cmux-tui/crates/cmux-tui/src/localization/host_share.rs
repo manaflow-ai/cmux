@@ -16,6 +16,7 @@ pub(crate) struct Messages {
     pub frame_too_long: &'static str,
     pub proxy_refused: &'static str,
     pub unavailable: &'static str,
+    pub shared: &'static str,
 }
 
 pub(crate) const ENGLISH: Messages = Messages {
@@ -34,6 +35,7 @@ pub(crate) const ENGLISH: Messages = Messages {
     frame_too_long: "a frame is longer than the line limit",
     proxy_refused: "the session daemon refused the proxy identity",
     unavailable: "the session daemon did not report its boot id; restart cmux and try again",
+    shared: "this login has a shared chat (cmux host shares lists it); remove it with cmux host unshare before giving full access",
 };
 pub(crate) const JAPANESE: Messages = Messages {
     no_arguments: "位置引数は指定できません",
@@ -51,4 +53,5 @@ pub(crate) const JAPANESE: Messages = Messages {
     frame_too_long: "フレームが行の上限を超えています",
     proxy_refused: "セッションデーモンがプロキシの ID を拒否しました",
     unavailable: "セッションデーモンが起動 ID を返しませんでした。cmux を再起動してからもう一度お試しください",
+    shared: "このログインには共有チャットがあります (cmux host shares で確認できます)。フルアクセスを与える前に cmux host unshare で削除してください",
 };

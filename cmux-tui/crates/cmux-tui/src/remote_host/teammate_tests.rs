@@ -345,6 +345,29 @@ fn a_shared_login_on_the_full_access_list_still_goes_through_its_grant() {
     assert!(matches!(decide_for(&config, PEER, person(LAWRENCE)), Decision::Refused(_)));
 }
 
+/// `cmux host allow` is refused while the login has a share, of this boot or a stale one: the
+/// share would route it through its grant, so full access would silently not apply. Unsharing
+/// (always allowed, whatever the boot) clears the way, and the order the other way is refused too.
+#[test]
+fn full_access_is_refused_while_the_login_has_a_share() {
+    use super::shares::{Role, allowable, applied};
+    let config = leo_host(consented(LAWRENCE, &[Scope::Agents]));
+    assert!(allowable(&config, LAWRENCE).is_ok(), "no share: allow is fine");
+    let shared = applied("share", config, 7, LAWRENCE, Role::Member, "boot-1", "boot-1").unwrap();
+    let refused = allowable(&shared, "Lawrence@Manaflow.ai").unwrap_err().to_string();
+    assert!(refused.contains("cmux host unshare"), "{refused}");
+    // The daemon restarted since: the share is stale, but admission still routes the login by it.
+    assert!(allowable(&shared, LAWRENCE).is_err(), "a stale share refuses allow too");
+    assert!(allowable(&shared, LEO).is_ok(), "another login is unaffected");
+    let unshared = applied("unshare", shared, 7, LAWRENCE, Role::Member, "", "boot-2").unwrap();
+    assert!(unshared.shares.is_empty());
+    assert!(allowable(&unshared, LAWRENCE).is_ok());
+    // And a login on the full-access list cannot get a share.
+    let mut allowed = unshared;
+    allowed.allow = vec![LAWRENCE.to_owned()];
+    assert!(applied("share", allowed, 7, LAWRENCE, Role::Member, "boot-2", "boot-2").is_err());
+}
+
 #[test]
 fn a_shared_login_takes_the_proxy_even_with_shell() {
     use super::serve::proxied;

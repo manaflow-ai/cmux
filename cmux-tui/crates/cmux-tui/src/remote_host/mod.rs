@@ -549,6 +549,10 @@ fn edit_allow(args: &[String], add: bool) -> anyhow::Result<()> {
     }
     let lock = config::lock()?;
     let mut config = config::load()?;
+    // Checked under the lock, as `share` checks the list: neither change slips past the other.
+    if add {
+        shares::allowable(&config, login)?;
+    }
     config.allow.retain(|l| !config::same_login(l, login));
     if add {
         config.allow.push(login.to_owned());

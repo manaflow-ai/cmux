@@ -124,6 +124,16 @@ fn shareable(verb: &str, config: &config::Config, login: &str) -> anyhow::Result
     Ok(())
 }
 
+/// Whether `login` may go on the full-access list (`cmux host allow`): not while it has a share,
+/// of this daemon boot or an older one. A shared login is admitted through its grant and the
+/// filtered proxy (admit.rs), so full access would silently not apply; the owner unshares first.
+pub(super) fn allowable(config: &config::Config, login: &str) -> anyhow::Result<()> {
+    if config.shares.iter().any(|share| config::same_login(&share.login, login)) {
+        bail!("{}: {login}", crate::localization::catalog().host_share.shared);
+    }
+    Ok(())
+}
+
 fn generation(config: &config::Config) -> anyhow::Result<String> {
     let path = cmux_tui_core::server::try_default_socket_path(
         config.session.as_deref().unwrap_or("main"),
