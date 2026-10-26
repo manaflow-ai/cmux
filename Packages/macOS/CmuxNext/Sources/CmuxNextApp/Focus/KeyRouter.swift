@@ -8,6 +8,7 @@ import CmuxNextTerminal
 import CmuxNextFocus
 import CmuxNextWakeups
 import CmuxNextPages
+import CmuxNextLaunch
 /// The one key dispatcher (plans/cmux-next/keybindings.md section 4,
 /// focus.md section 5). It decides every key-down of every cmux window in
 /// `CmuxApplication.sendEvent` (``interceptKeyDown(_:in:)``), before any
@@ -231,6 +232,7 @@ final class KeyRouter: BrowserKeyRouting {
         }
         if newTabInputCoordinator.capture(event, in: window) { return true }
         if creationInputCoordinator.capture(event, in: window) { return true }
+        if modes.contains(.launchPicture), holdsForLaunchPicture(event, in: window) { return true }
         // Set again only when this key runs an action (debug.key reports it).
         lastInterception = nil
         if cancelsMissedModal(event, in: window) { return true }
@@ -385,6 +387,12 @@ final class KeyRouter: BrowserKeyRouting {
     lazy var newTabInputCoordinator = NewTabInputCoordinator(router: self)
     /// A pending split or terminal tab owns its window's keys until the new terminal has the keyboard (cx-wb5.76).
     lazy var creationInputCoordinator = CreationInputCoordinator(router: self)
+    /// Keys typed for a terminal that is still a picture (p08-startup-061, KeyRouter+LaunchPicture).
+    lazy var launchPictureKeys: LaunchPictureKeys = {
+        let keys = LaunchPictureKeys { [unowned self] target, events in deliverLaunchPictureKeys(events, to: target) }
+        keys.onActiveChange = { [unowned self] in modes.set(.launchPicture, $0) }
+        return keys
+    }()
     /// Browser focus mode's double-Escape exit (``routesFocusModeEscape(_:in:)``).
     var focusModeEscape = BrowserFocusModeEscapeExit() { didSet { modes.set(.focusModeEscape, focusModeEscape.armedTab != nil) } }
 
@@ -435,6 +443,7 @@ final class KeyRouter: BrowserKeyRouting {
         typeAheadFocusDidSettle(focus.resolved)
         newTabInputCoordinator.flush(in: window)
         creationInputCoordinator.focusDidSettle(in: window)
+        if modes.contains(.launchPicture) { launchPictureKeys.retry() }
         guard chords.isPending, let window, chords.focusDidChange(to: focus.resolved, in: ObjectIdentifier(window)) else { return }
         whichKey?.hide()
     }
