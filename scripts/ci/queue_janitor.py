@@ -2052,7 +2052,10 @@ def orphan_protected_reason(run: Mapping[str, Any]) -> str | None:
         return f"{event} event"
     if TAG_LIKE_REF.match(branch):
         return f"tag-like ref {branch}"
-    if ORPHAN_PROTECTED_WORKFLOW.search(" ".join(str(run.get(key) or "") for key in ("name", "path"))):
+    # Match the workflow path only, as RESERVED_POOL_WORKFLOW does: ci.yml's
+    # run name carries `release=arm64`, which kept an orphaned main dispatch
+    # holding CI's concurrency group (and every later main run pending).
+    if ORPHAN_PROTECTED_WORKFLOW.search(str(run.get("path") or "")):
         return "release/publish workflow"
     return None
 
