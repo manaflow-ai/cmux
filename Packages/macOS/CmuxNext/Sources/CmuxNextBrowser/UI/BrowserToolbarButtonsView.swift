@@ -2,6 +2,7 @@ public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextWakeups
 
 /// The trailing toolbar buttons (`BrowserToolbarButton`): media hub, zoom level,
 /// Favorites, Downloads, design mode, profile, theme, DevTools and More. Engine-neutral: the states come from
@@ -52,6 +53,8 @@ public final class BrowserToolbarButtonsView: NSStackView {
     private var states: [BrowserToolbarButton: BrowserToolbarButtonState] = [:]
     private weak var tab: (any BrowserTab)?
     private var observation: ObservationLoop?
+    /// The scheduler and the tab's node of the last ``bind(_:on:node:)`` (nil: node-free).
+    private var binding: (work: MainWorkScheduler, node: VisibilityNode?)?
     private var pageURL: URL?
     /// The last facts rendered: zoom and Downloads show only on some.
     private var facts = BrowserToolbarFacts(engine: .webkit, hostsDevTools: false)
@@ -76,23 +79,24 @@ public final class BrowserToolbarButtonsView: NSStackView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// Shows `tab`'s states. A new page (another tab, or the chrome's tab
-    /// swapped) gets the chosen color scheme and starts with design mode off.
-    func bind(_ tab: any BrowserTab) {
+    /// Shows `tab`'s states, at the frames of `work` while `node` shows. A new page (another tab, or
+    /// the chrome's tab swapped) gets the chosen color scheme and starts with design mode off.
+    func bind(_ tab: any BrowserTab, on work: MainWorkScheduler, node: VisibilityNode?) {
         observation?.cancel()
+        binding = (work, node)
         if self.tab !== tab {
             self.tab = tab
             pageURL = tab.state.url
             modes.designMode = false
             if modes.colorScheme != .system { (tab as? any BrowserColorSchemeApplying)?.applyColorScheme(modes.colorScheme) }
         }
-        observation = ObservationLoop { [weak self] in self?.render() }
+        observation = ObservationLoop(owner: "browser.toolbar.buttons", delivery: .visible(node), on: work) { [weak self] in self?.render() }
     }
 
     /// An App closure changed after `bind`: observe again so its reads count.
     private func rebind() {
-        guard let tab else { return render() }
-        bind(tab)
+        guard let tab, let binding else { return render() }
+        bind(tab, on: binding.work, node: binding.node)
     }
 
     /// Reads the states again, WebKit's inspector visibility included

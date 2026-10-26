@@ -53,8 +53,9 @@ final class CEFReplyWaiters<Key: Hashable & Sendable, Value: Sendable> {
         let deadline = Task { [weak self] in
             let failure: any Error
             do {
-                // wakeup-allow: one-shot reply deadline on the injected clock, cancelled when the reply arrives
-                try await clock.sleep(for: timeout)
+                // wakeup-allow: one-shot reply deadline on the injected clock, cancelled when the reply arrives;
+                // not a DemandTimer: main actor (timer-class asks MainDeadline, and this type has no MainDeadlineScheduler seam)
+                try await clock.sleep(for: timeout, tolerance: WakeLeeway.window(delay: timeout).tolerance)
                 failure = timeoutError()
             } catch {
                 guard let cancelledError else { return }

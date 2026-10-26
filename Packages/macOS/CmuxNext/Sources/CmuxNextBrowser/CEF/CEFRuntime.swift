@@ -117,7 +117,7 @@ final class CEFRuntime {
     var profileProxyChecks: [BrowserProfileID: CEFProfileProxyCheck] = [:]
     var shutdownSequence: CEFShutdownSequence?
     var shutdownWaiter: CheckedContinuation<Void, Never>?
-    var shutdownTimeout: Task<Void, Never>?
+    var shutdownTimeout: AlignedWakeups.Ticket?  // quit's bound on the wait for Chromium's windows, on `wakeUps`
     /// Recent renderer and helper process failures (`debug.crashes`).
     let crashLog = BrowserCrashLog()
     /// Watches helper exits (GPU, utility, extension renderers) from start.

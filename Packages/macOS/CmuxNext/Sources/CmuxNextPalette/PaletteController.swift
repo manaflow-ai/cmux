@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
+public import CmuxNextWakeups
 
 /// Which page the palette opens on.
 public enum PaletteMode: Sendable, Hashable {
@@ -21,6 +22,7 @@ public enum PaletteMode: Sendable, Hashable {
 /// ```
 public final class PaletteController {
     public let registry: ActionRegistry
+    private let mainWork: MainWorkScheduler // the app's one main-thread scheduler: the panel renders at its frames
     public let model: PaletteModel
     public var sources: PaletteSources
     /// Additional rows the app hides from the registry page based on live Labs/debug state.
@@ -58,10 +60,9 @@ public final class PaletteController {
         registry: ActionRegistry,
         sources: PaletteSources = PaletteSources(),
         frecencyPersistence: (any FrecencyPersisting)? = UserDefaultsFrecencyPersistence(),
-        usage: (any PaletteUsageStore)? = nil
+        usage: (any PaletteUsageStore)? = nil, mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())
     ) {
-        self.registry = registry
-        self.sources = sources
+        (self.registry, self.mainWork, self.sources) = (registry, mainWork, sources)
         self.model = PaletteModel(usage: usage ?? LocalPaletteUsageStore(persistence: frecencyPersistence))
         // What an open's first frame does not show (the command page's workspaces and tabs)
         // loads once that frame is committed.
@@ -153,11 +154,7 @@ public final class PaletteController {
     // MARK: Presentation
 
     public func toggle(_ mode: PaletteMode = .commands, relativeTo window: NSWindow? = nil) {
-        if isVisible {
-            hide()
-        } else {
-            show(mode, relativeTo: window)
-        }
+        if isVisible { hide() } else { show(mode, relativeTo: window) }
     }
 
     /// Opens the palette over `window` (default: the key or main window).
@@ -335,7 +332,7 @@ public final class PaletteController {
 
     private func makePanel() -> PalettePanel {
         let panel = PalettePanel(size: PaletteLayout.windowSize)
-        let content = PaletteContentView(model: model)
+        let content = PaletteContentView(model: model, mainWork: mainWork)
         content.autoresizingMask = [.width, .height]
         content.onPreferredSizeChange = { [weak self, weak panel] size in
             guard let self, let panel, self.isVisible else { return }

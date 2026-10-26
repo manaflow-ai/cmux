@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// Owns one browser pane's Extensions bubble (Chrome's `ExtensionsMenuView`): the native popup
 /// below the Extensions button, its rows grouped by their access to the tab's site, the
@@ -32,6 +33,7 @@ final class ExtensionsMenuController {
     private let panel = ExtensionsMenuPanel()
     private let popup: NativePopupHost
     private let style: ExtensionsMenuStyle
+    private let mainWork: MainWorkScheduler
     private var observation: ObservationLoop?
     private weak var host: (any BrowserExtensionActionHosting)?
     private var handler: (any ExtensionMenuHandling)?
@@ -59,8 +61,9 @@ final class ExtensionsMenuController {
 
     private var observedInputs: RenderInputs?
 
-    init(style: ExtensionsMenuStyle = .standard) {
+    init(style: ExtensionsMenuStyle = .standard, mainWork: MainWorkScheduler) {
         self.style = style
+        self.mainWork = mainWork
         content = ExtensionsMenuView(style: style)
         card = ExtensionsMenuCardView(content: content, style: style)
         popup = NativePopupHost(panel: panel)
@@ -112,7 +115,8 @@ final class ExtensionsMenuController {
         // open. The tab's state changes on every load event; only these inputs re-render.
         observation?.cancel()
         observedInputs = nil
-        observation = ObservationLoop { [weak self] in
+        // node-free: the bubble is open only over its shown page, and closes when the page hides
+        observation = ObservationLoop(owner: "browser.extensions.menu", delivery: .visible(nil), on: mainWork) { [weak self] in
             guard let self, let host = self.host else { return }
             let inputs = RenderInputs(extensions: host.extensionStore.extensions, actions: host.extensionActions,
                                       url: (host as? any BrowserTab)?.state.url)

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// What the Markdown omnibar asks of its tab's owner (``FilePageService``).
 struct MarkdownOmnibarActions {
@@ -37,8 +38,8 @@ final class MarkdownOmnibarBar: NSView {
     private lazy var height = heightAnchor.constraint(equalToConstant: toolbar.preferredHeight)
 
     init(suggestionEngine: OmniboxSuggestionEngine, reader: MarkdownFileLocationReader = MarkdownFileLocationReader(),
-         actions: MarkdownOmnibarActions) {
-        toolbar = OmnibarToolbarView(suggestionEngine: suggestionEngine, navigation: true)
+         actions: MarkdownOmnibarActions, mainWork: MainWorkScheduler) {
+        toolbar = OmnibarToolbarView(suggestionEngine: suggestionEngine, navigation: true, mainWork: mainWork)
         self.reader = reader
         self.actions = actions
         super.init(frame: .zero)

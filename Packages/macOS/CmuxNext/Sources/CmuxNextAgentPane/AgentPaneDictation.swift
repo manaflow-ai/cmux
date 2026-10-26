@@ -60,6 +60,11 @@ final class AgentPaneDictation {
     private var recordsAudio = false
     /// Opens a URL (System Settings).
     var open: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
+    /// A session started (`true`: starting, listening or finalizing) or ended (`false`), once per
+    /// change and once more at ``close()`` if one still ran: the page's `dictation` keep reason, so
+    /// a hidden chat is not frozen or discarded while it still takes the person's words.
+    var onRunning: ((Bool) -> Void)?
+    private var running = false
 
     /// The held shortcut while hold-to-talk may still apply: a press that
     /// lasts longer than ``holdThreshold`` stops on release; a quick press
@@ -187,6 +192,13 @@ final class AgentPaneDictation {
         endSleepWatch()
         session?.cancel()
         session?.onUpdate = nil
+        noteRunning(false)
+    }
+
+    private func noteRunning(_ now: Bool) {
+        guard now != running else { return }
+        running = now
+        onRunning?(now)
     }
 
     /// Whether anything is still armed for a session (tests check nothing leaks).
@@ -202,6 +214,7 @@ final class AgentPaneDictation {
         let session = activeSession()
         session.recordsAudio = recordsAudio
         session.start()
+        noteRunning(!phase.isStartable)
         if !phase.isStartable, sleepObserver == nil {
             sleepObserver = MainActorObservation(NSWorkspace.willSleepNotification, center: sleepNotifications) { [weak self] in
                 self?.session?.stop()
@@ -222,6 +235,7 @@ final class AgentPaneDictation {
     }
 
     private func deliver(_ update: DictationUpdate) {
+        noteRunning(!update.phase.isStartable)
         if update.phase.isStartable {
             endHold()
             endSleepWatch()
