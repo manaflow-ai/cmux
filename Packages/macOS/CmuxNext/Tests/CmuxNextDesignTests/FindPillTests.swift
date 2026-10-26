@@ -131,12 +131,15 @@ import CmuxNextInput
                                     backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.orderOut(nil) }
-        for (characters, keyCode) in [("a", UInt16(0)), ("\r", 36), (" ", 49), ("\u{1b}", 53)] {
-            let event = try Self.keyDown(characters, keyCode: keyCode, window: window)
+        let plainKeys = try [("a", UInt16(0)), ("\r", 36), (" ", 49), ("\u{1b}", 53)].map { characters, keyCode in
+            try Self.keyDown(characters, keyCode: keyCode, window: window)
+        }
+        let left = try Self.keyDown(String(Character(UnicodeScalar(NSLeftArrowFunctionKey)!)), keyCode: 123, window: window)
+        window.firstResponderReads = 0  // count only the calls under test, not AppKit's setup reads
+        for event in plainKeys {
             #expect(!FindPillView.forwardArrowKeyDown(event, in: window))
         }
         #expect(window.firstResponderReads == 0, "a plain key read the first responder")
-        let left = try Self.keyDown(String(Character(UnicodeScalar(NSLeftArrowFunctionKey)!)), keyCode: 123, window: window)
         #expect(!FindPillView.forwardArrowKeyDown(left, in: window))
         #expect(window.firstResponderReads == 1, "an arrow asks the window who has the keyboard")
         #expect((123...126).allSatisfy { FindPillView.isArrowKeyCode($0) })
@@ -160,6 +163,7 @@ import CmuxNextInput
         pill.query = "abcd"
         let plain = try Self.keyDown("a", keyCode: 0, window: window)
         let left = try Self.keyDown(String(Character(UnicodeScalar(NSLeftArrowFunctionKey)!)), keyCode: 123, window: window)
+        window.firstResponderReads = 0  // count only the calls under test, not AppKit's setup reads
         let plainWithNoPill = FindPillView.forwardArrowKeyDownToEditingPill(plain, in: window)
         let arrowWithNoPill = FindPillView.forwardArrowKeyDownToEditingPill(left, in: window)
         #expect(!plainWithNoPill && !arrowWithNoPill)
