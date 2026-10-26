@@ -2637,17 +2637,17 @@ class ResourceApiTests(unittest.TestCase):
         with UnixJsonServer(handler) as server:
             with Client(server.path, timeout=0.2) as client:
                 session = client.session(SESSION)
-                send_encoded = client._connection._wire._send_encoded
+                send_encoded = client._connection._wire._send_encoded_bounded
 
-                def deliver_then_fail(encoded):
-                    send_encoded(encoded)
+                def deliver_then_fail(encoded, dispatch_deadline):
+                    send_encoded(encoded, dispatch_deadline)
                     if not open_seen.wait(1):
                         raise AssertionError("server did not receive stream open")
                     raise expected
 
                 with patch.object(
                     client._connection._wire,
-                    "_send_encoded",
+                    "_send_encoded_bounded",
                     side_effect=deliver_then_fail,
                 ):
                     with self.assertRaises(CmuxConnectionError) as raised:
@@ -2755,10 +2755,10 @@ class ResourceApiTests(unittest.TestCase):
 
         with UnixJsonServer(handler) as server:
             with Client(server.path, timeout=0.2) as client:
-                send_encoded = client._connection._wire._send_encoded
+                send_encoded = client._connection._wire._send_encoded_bounded
 
-                def wait_for_reader_failure(encoded):
-                    send_encoded(encoded)
+                def wait_for_reader_failure(encoded, dispatch_deadline):
+                    send_encoded(encoded, dispatch_deadline)
                     if not failure_sent.wait(1):
                         raise AssertionError("server did not send protocol failure")
                     deadline = time.monotonic() + 1
@@ -2769,7 +2769,7 @@ class ResourceApiTests(unittest.TestCase):
 
                 with patch.object(
                     client._connection._wire,
-                    "_send_encoded",
+                    "_send_encoded_bounded",
                     side_effect=wait_for_reader_failure,
                 ):
                     with self.assertRaises(cmux.ProtocolError) as raised:
@@ -3743,14 +3743,14 @@ class ResourceApiTests(unittest.TestCase):
         with UnixJsonServer(handler) as server:
             with Client(server.path, timeout=2) as client:
                 session = client.session(SESSION)
-                send_encoded = client._connection._wire._send_encoded
+                send_encoded = client._connection._wire._send_encoded_bounded
                 send_count = 0
 
-                def fail_second_write(encoded):
+                def fail_second_write(encoded, dispatch_deadline):
                     nonlocal send_count
                     send_count += 1
                     if send_count == 1:
-                        send_encoded(encoded)
+                        send_encoded(encoded, dispatch_deadline)
                         return
                     partial = encoded[: max(1, len(encoded) // 2)]
                     client._connection._wire._socket.sendall(partial)
@@ -3769,7 +3769,7 @@ class ResourceApiTests(unittest.TestCase):
 
                 with patch.object(
                     client._connection._wire,
-                    "_send_encoded",
+                    "_send_encoded_bounded",
                     side_effect=fail_second_write,
                 ):
                     open_thread = threading.Thread(target=open_stream)

@@ -508,7 +508,16 @@ class ProtocolConnection:
                             self._pending.pop(request_id, None)
                         return _REQUEST_NOT_DISPATCHED
                 else:
-                    self._wire.send(envelope, on_sent=_on_dispatched)
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError(
+                            f"{operation} did not dispatch before the deadline"
+                        )
+                    self._wire.send(
+                        envelope,
+                        on_sent=_on_dispatched,
+                        timeout=remaining,
+                    )
             finally:
                 if claimed_dispatch:
                     with self._request_cleanup_condition:

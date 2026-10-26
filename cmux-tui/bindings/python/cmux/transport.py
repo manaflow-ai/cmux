@@ -78,15 +78,31 @@ class JsonLineConnection:
         value: Mapping[str, Any],
         *,
         on_sent: Optional[Callable[[], None]] = None,
+        timeout: Optional[float] = None,
     ) -> None:
+        if timeout is not None and (
+            isinstance(timeout, bool)
+            or not isinstance(timeout, (int, float))
+            or not math.isfinite(timeout)
+            or timeout <= 0
+        ):
+            raise ValueError("send timeout must be finite and greater than zero")
         encoded = self._encode(value)
-        with self._send_lock:
+        deadline = None if timeout is None else time.monotonic() + timeout
+        if timeout is None:
+            self._send_lock.acquire()
+        elif not self._send_lock.acquire(timeout=timeout):
+            raise TimeoutError("session socket write lock timed out")
+        try:
             if self._write_poisoned:
                 raise CmuxConnectionError(
                     "session socket write state is indeterminate"
                 )
             try:
-                self._send_encoded(encoded)
+                if deadline is None:
+                    self._send_encoded(encoded)
+                else:
+                    self._send_encoded_bounded(encoded, deadline)
             except BaseException:
                 # A socket error may follow a partial write. Poison the writer
                 # before releasing the lock so no frame can be appended.
@@ -94,6 +110,8 @@ class JsonLineConnection:
                 raise
             if on_sent is not None:
                 on_sent()
+        finally:
+            self._send_lock.release()
 
     def send_bounded_if(
         self,
