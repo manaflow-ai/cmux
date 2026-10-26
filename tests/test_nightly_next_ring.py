@@ -315,33 +315,42 @@ class LegacyPublishedTests(unittest.TestCase):
     def gate(self, **env: str) -> subprocess.CompletedProcess:
         body = self.job("nightly-identity-legacy-published")
         script = body[body.index("        run: |\n") + len("        run: |\n"):]
-        script = "\n".join(line[12:] for line in script.splitlines())
-        base = {"TARGET": "success", "ACTION": "new", "BUILD": "4023940374302", "SIGN": "success",
-                "SIGN_SKIP": "false", "SIGN_PENDING": "false", "VERIFY": "success", "PUBLISH": "success"}
+        script = "\n".join(line[10:] for line in script.splitlines())
+        base = {"DECIDED": "true", "ACTION": "new", "BUILD": "4023940374302", "NEXT_BUILD": "4023940374302",
+                "SIGN_SKIP": "false", "SIGN_PENDING": "false", "ALREADY": "false", "PUBLISHED": "true"}
         return subprocess.run(["bash", "-c", script], env={"PATH": "/usr/bin:/bin", **base, **env},
                               capture_output=True, text=True)
 
     def test_the_gate_is_red_unless_the_old_feed_published_or_had_nothing_to(self):
         self.assertEqual(self.gate().returncode, 0)
-        for env in ({"ACTION": "none", "BUILD": ""}, {"SIGN_SKIP": "true", "PUBLISH": "skipped"},
-                    {"SIGN_PENDING": "true", "PUBLISH": "skipped"}):
+        for env in ({"ACTION": "none", "BUILD": "", "PUBLISHED": ""}, {"SIGN_SKIP": "true", "PUBLISHED": ""},
+                    {"ALREADY": "true", "PUBLISHED": "false"}, {"SIGN_PENDING": "true", "PUBLISHED": ""},
+                    # A continued older build: the publisher runs only for this run's build.
+                    {"ACTION": "continue", "BUILD": "4023540480101", "PUBLISHED": ""}):
             self.assertEqual(self.gate(**env).returncode, 0, env)
-        for env in ({"TARGET": "failure", "ACTION": "", "BUILD": ""},
-                    {"SIGN": "skipped", "VERIFY": "skipped", "PUBLISH": "skipped"},
-                    {"SIGN": "failure", "VERIFY": "skipped", "PUBLISH": "failure"},
-                    {"PUBLISH": "skipped"}):
+        # A failed target leaves no outputs (continue-on-error reports it as success).
+        for env in ({"DECIDED": "", "ACTION": "", "BUILD": "", "PUBLISHED": ""},
+                    {"PUBLISHED": ""}, {"PUBLISHED": "false"},
+                    {"ACTION": "continue", "PUBLISHED": "false"}):
             result = self.gate(**env)
             self.assertEqual(result.returncode, 1, env)
             self.assertIn("::error title=cmux NIGHTLY feed not published::", result.stdout)
 
-    def test_the_gate_runs_whenever_cmux_next_published_and_is_not_masked(self):
+    def test_the_gate_reads_outputs_and_runs_whenever_cmux_next_published(self):
         body = self.job("nightly-identity-legacy-published")
         for need in ("publish-nightly", "legacy-identity-target", "sign-nightly-identity-legacy",
                      "verify-nightly-identity-legacy", "publish-nightly-identity-legacy"):
             self.assertIn(need, body.split("\n", 1)[0])
         self.assertIn("always() && !cancelled()", body)
         self.assertIn("needs.publish-nightly.result == 'success'", body)
-        self.assertNotIn("continue-on-error", body)
+        self.assertNotIn("\n    continue-on-error:", body)
+        self.assertNotRegex(body, r"needs\.(?:legacy-identity-target|[a-z-]*identity-legacy)\.result")
+        target = self.job("legacy-identity-target")
+        self.assertIn("decided: ${{ steps.target.outputs.decided }}", target)
+        self.assertEqual(target.count('echo "decided=true"'), 2)
+        publish = self.job("publish-nightly-identity-legacy")
+        self.assertIn("published: ${{ steps.publish.outcome == 'success' && 'true' || 'false' }}", publish)
+        self.assertIn("already: ${{ steps.order.outputs.skip }}", publish)
 
     def test_only_a_refusal_skips_a_build_and_an_error_fails_the_target(self):
         body = self.job("legacy-identity-target")

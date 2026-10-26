@@ -5803,6 +5803,9 @@ jobs:
       bundle_run: ${{ steps.target.outputs.bundle_run }}
       source_run: ${{ steps.target.outputs.source_run }}
       source_sha: ${{ steps.target.outputs.source_sha }}
+      # true only when the target step ran to the end (continue-on-error
+      # reports a failed job as success to the jobs that need it).
+      decided: ${{ steps.target.outputs.decided }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -5855,7 +5858,7 @@ jobs:
             cp old-all.xml old.xml
           elif [ -z "$next_nightly" ] && [ "$CURRENT_BUILD_READY" != true ]; then
             echo "### cmux NIGHTLY-identity: no cmux NEXT build is on Nightly yet; the old feed waits (cx-x7hwx)" >> "$GITHUB_STEP_SUMMARY"
-            { echo "action=none"; echo "pending_run="; echo "bundle_run="; echo "source_run="; echo "source_sha="; echo "build="; } >> "$GITHUB_OUTPUT"
+            { echo "action=none"; echo "pending_run="; echo "bundle_run="; echo "source_run="; echo "source_sha="; echo "build="; echo "decided=true"; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # A cmux NIGHTLY-identity submission still in Apple's queue is kept by
@@ -5987,7 +5990,7 @@ jobs:
               echo "::warning::could not search for the failure issue; the refusal is in this run's summary only"
             fi
           fi
-          { echo "action=$action"; echo "pending_run=$pending_run"; echo "bundle_run=$bundle_run"; echo "build=$build"; } >> "$GITHUB_OUTPUT"
+          { echo "action=$action"; echo "pending_run=$pending_run"; echo "bundle_run=$bundle_run"; echo "build=$build"; echo "decided=true"; } >> "$GITHUB_OUTPUT"
           if [ -n "$build" ]; then
             echo "### cmux NIGHTLY-identity: $action build $build for the old feed (cx-x7hwx)" >> "$GITHUB_STEP_SUMMARY"
           else
@@ -6603,6 +6606,11 @@ jobs:
       issues: write
       # Read and retire the pending-submission artifacts of earlier runs.
       actions: write
+    outputs:
+      # The old feed already has this build (or a newer one).
+      already: ${{ steps.order.outputs.skip }}
+      # The old feed now serves this build.
+      published: ${{ steps.publish.outcome == 'success' && 'true' || 'false' }}
     # Publishes only a DMG whose sha256 verify-nightly-identity-legacy tested,
     # then resolves the attempt (retire, keep or mark the submission; count a
     # failure) for the whole sign, verify and publish chain. Runs no bundle code.
@@ -6932,32 +6940,41 @@ jobs:
     timeout-minutes: 5
     permissions: {}
     env:
-      TARGET: ${{ needs.legacy-identity-target.result }}
+      # Outputs only: continue-on-error reports a failed legacy job as success.
+      DECIDED: ${{ needs.legacy-identity-target.outputs.decided }}
       ACTION: ${{ needs.legacy-identity-target.outputs.action }}
       BUILD: ${{ needs.legacy-identity-target.outputs.build }}
-      SIGN: ${{ needs.sign-nightly-identity-legacy.result }}
+      NEXT_BUILD: ${{ needs.publish-nightly.outputs.build }}
       SIGN_SKIP: ${{ needs.sign-nightly-identity-legacy.outputs.skip }}
       SIGN_PENDING: ${{ needs.sign-nightly-identity-legacy.outputs.pending }}
-      VERIFY: ${{ needs.verify-nightly-identity-legacy.result }}
-      PUBLISH: ${{ needs.publish-nightly-identity-legacy.result }}
+      ALREADY: ${{ needs.publish-nightly-identity-legacy.outputs.already }}
+      PUBLISHED: ${{ needs.publish-nightly-identity-legacy.outputs.published }}
     steps:
       - name: The old feed published, or had nothing to publish
         run: |
-            set -euo pipefail
-            echo "target=$TARGET action=${ACTION:-} build=${BUILD:-} sign=$SIGN (skip=${SIGN_SKIP:-} pending=${SIGN_PENDING:-}) verify=$VERIFY publish=$PUBLISH"
-            if [ "$TARGET" != success ]; then
-              echo "::error title=cmux NIGHTLY feed not published::legacy-identity-target $TARGET; the old feed keeps its previous build"; exit 1
-            fi
-            if [ -z "${BUILD:-}" ] || [ "${ACTION:-none}" = none ]; then
-              echo "the old feed is current, or its candidate was refused (recorded on the failure issue)"; exit 0
-            fi
-            if [ "$SIGN" = success ] && { [ "${SIGN_SKIP:-}" = true ] || [ "${SIGN_PENDING:-}" = true ]; }; then
-              echo "build $BUILD is already on the old feed, or still in Apple's queue (a later run continues it)"; exit 0
-            fi
-            if [ "$PUBLISH" = success ]; then
-              echo "build $BUILD published to the old feed"; exit 0
-            fi
-            echo "::error title=cmux NIGHTLY feed not published::build $BUILD: sign $SIGN, verify $VERIFY, publish $PUBLISH"; exit 1
+          set -euo pipefail
+          echo "decided=${DECIDED:-} action=${ACTION:-} build=${BUILD:-} next=${NEXT_BUILD:-} sign skip=${SIGN_SKIP:-} pending=${SIGN_PENDING:-} already=${ALREADY:-} published=${PUBLISHED:-}"
+          if [ "${DECIDED:-}" != true ]; then
+            echo "::error title=cmux NIGHTLY feed not published::legacy-identity-target did not finish; the old feed keeps its previous build"; exit 1
+          fi
+          if [ -z "${BUILD:-}" ] || [ "${ACTION:-none}" = none ]; then
+            echo "the old feed is current, or its candidate was refused (recorded on the failure issue)"; exit 0
+          fi
+          if [ "${SIGN_SKIP:-}" = true ] || [ "${ALREADY:-}" = true ]; then
+            echo "build $BUILD is already on the old feed"; exit 0
+          fi
+          if [ "${SIGN_PENDING:-}" = true ]; then
+            echo "build $BUILD is still in Apple's queue; a later run continues it"; exit 0
+          fi
+          if [ "${PUBLISHED:-}" = true ]; then
+            echo "build $BUILD published to the old feed"; exit 0
+          fi
+          if [ "${ACTION:-}" = continue ] && [ "$BUILD" != "${NEXT_BUILD:-}" ]; then
+            # The publisher runs only for this run's build; the continued older
+            # one is published by a later run (the feed watch alarms on the lag).
+            echo "::notice::continued build $BUILD is not this run's ($NEXT_BUILD); a later run publishes it"; exit 0
+          fi
+          echo "::error title=cmux NIGHTLY feed not published::build $BUILD (action ${ACTION:-}) was neither published nor pending"; exit 1
 
   generate-nightly-deltas:
     # Delta work is deliberately downstream of the first publication. A slow
