@@ -8,6 +8,7 @@ import { gcpCredentialFromRequest, wipeProviderCredential } from "../services/vm
 import { releaseProviderCredential } from "../services/vms/workflows";
 
 const now = 1_735_689_600_000;
+const labsOn = { CMUX_VM_GCP_LABS_ENABLED: "1", CMUX_VM_GCP_ENABLED: "1" };
 
 function credential(overrides: Partial<ProviderCredential> = {}): ProviderCredential {
   return {
@@ -28,8 +29,23 @@ function json(value: unknown, status = 200): Response {
 describe("GCP Labs provider", () => {
   test("is disabled by default and requires the Labs flag", () => {
     expect(vmCreateDisabledReason("gcp", {})).toContain("Labs");
-    expect(vmCreateDisabledReason("gcp", { CMUX_VM_GCP_LABS_ENABLED: "1" })).toBeNull();
+    expect(vmCreateDisabledReason("gcp", { CMUX_VM_GCP_LABS_ENABLED: "1" })).toContain("Labs");
+    expect(vmCreateDisabledReason("gcp", { CMUX_VM_GCP_ENABLED: "1" })).toContain("Labs");
+    expect(vmCreateDisabledReason("gcp", labsOn)).toBeNull();
     expect(vmCreateDisabledReason("gcp", { CMUX_VM_GCP_LABS_ENABLED: "1", CMUX_VM_GCP_ENABLED: "0" })).toContain("gcp");
+    expect(vmCreateDisabledReason("freestyle", {})).toBeNull();
+  });
+
+  test("with Labs off, no operation on an existing GCP machine reaches Compute Engine", async () => {
+    let requests = 0;
+    const provider = new GcpProvider({ fetch: async () => { requests += 1; return json({ status: "RUNNING" }); }, now: () => now, env: {} });
+    const vmId = "manaflow-437420/us-west1-b/cmux-abc";
+    await expect(provider.getStatus(vmId, { credential: credential() })).rejects.toThrow(/Labs/);
+    await expect(provider.getPauseState(vmId, credential())).rejects.toThrow(/Labs/);
+    await expect(provider.pause(vmId, credential())).rejects.toThrow(/Labs/);
+    await expect(provider.resume(vmId, credential())).rejects.toThrow(/Labs/);
+    await expect(provider.destroy(vmId, credential())).rejects.toThrow(/Labs/);
+    expect(requests).toBe(0);
   });
 
   test("keeps the local credential redacted and wipes it after request use", () => {
@@ -76,7 +92,7 @@ describe("GCP Labs provider", () => {
 
   test("refuses a wiped token before touching Compute Engine", async () => {
     let requests = 0;
-    const provider = new GcpProvider({ fetch: async () => { requests += 1; return json({}); }, now: () => now });
+    const provider = new GcpProvider({ fetch: async () => { requests += 1; return json({}); }, now: () => now, env: labsOn });
     const wiped = credential();
     wipeProviderCredential(wiped);
     await expect(provider.pause("manaflow-437420/us-west1-b/cmux-abc", wiped)).rejects.toThrow(/access token is required/);
@@ -85,7 +101,7 @@ describe("GCP Labs provider", () => {
 
   test("create fails closed without a resolved private network or SSH key pair", async () => {
     let requests = 0;
-    const provider = new GcpProvider({ fetch: async () => { requests += 1; return json({}); }, now: () => now });
+    const provider = new GcpProvider({ fetch: async () => { requests += 1; return json({}); }, now: () => now, env: labsOn });
     await expect(provider.create({
       image: "projects/manaflow-437420/global/images/cmux-linux",
       providerCredential: credential({
@@ -113,7 +129,7 @@ describe("GCP Labs provider", () => {
       });
       return json({ name: `${calls.length}-op`, status: "DONE" });
     };
-    const provider = new GcpProvider({ fetch, now: () => now });
+    const provider = new GcpProvider({ fetch, now: () => now, env: labsOn });
     const local = credential({
       sshPublicKey: "ssh-ed25519 AAAA test",
       sshPrivateKeyPem: new SecretBytes(new TextEncoder().encode("PRIVATE KEY")),
@@ -148,7 +164,7 @@ describe("GCP Labs provider", () => {
 
   test("refuses an expired token before touching Compute Engine", async () => {
     let requests = 0;
-    const provider = new GcpProvider({ fetch: async () => { requests += 1; return json({}); }, now: () => now });
+    const provider = new GcpProvider({ fetch: async () => { requests += 1; return json({}); }, now: () => now, env: labsOn });
     await expect(provider.create({
       image: "projects/manaflow-437420/global/images/cmux-linux",
       providerCredential: credential({ expiresAtUnix: Math.floor(now / 1000) }),

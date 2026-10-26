@@ -1,3 +1,4 @@
+import { gcpLabsDisabledReason, type VmRuntimeEnv } from "../config";
 import {
   ProviderError,
   type CreateOptions,
@@ -51,6 +52,8 @@ export type GcpProviderDependencies = {
   readonly now?: () => number;
   readonly sleep?: (milliseconds: number) => Promise<void>;
   readonly operationTimeoutMs?: number;
+  /** Labs flags; defaults to process.env. */
+  readonly env?: VmRuntimeEnv;
 };
 
 /** A redacted HTTP error that keeps status for provider not-found handling. */
@@ -99,12 +102,14 @@ export class GcpProvider implements VMProvider {
   private readonly now: () => number;
   private readonly sleep: (milliseconds: number) => Promise<void>;
   private readonly operationTimeoutMs: number;
+  private readonly env: VmRuntimeEnv;
 
   constructor(deps: GcpProviderDependencies = {}) {
     this.request = deps.fetch ?? fetch;
     this.now = deps.now ?? Date.now;
     this.sleep = deps.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
     this.operationTimeoutMs = deps.operationTimeoutMs ?? OPERATION_TIMEOUT_MS;
+    this.env = deps.env ?? process.env;
   }
 
   async create(options: CreateOptions): Promise<VMHandle> {
@@ -259,6 +264,9 @@ export class GcpProvider implements VMProvider {
   }
 
   private async api<T>(method: string, path: string, credential: ProviderCredential, body?: unknown, signal?: AbortSignal): Promise<T> {
+    // Every Compute Engine call, not only create, is behind the Labs gate.
+    const disabled = gcpLabsDisabledReason(this.env);
+    if (disabled) throw new ProviderError("gcp", disabled);
     const token = this.requireCredential(credential);
     let response: Response;
     try {
