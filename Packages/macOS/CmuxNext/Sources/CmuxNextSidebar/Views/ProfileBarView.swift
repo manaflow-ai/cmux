@@ -24,9 +24,8 @@ final class ProfileBarView: NSView {
     var pressPoint: NSPoint?
     /// The space dot being dragged (`ProfileBarView+DotDrag`); nil otherwise.
     var dotDrag: ProfileBarDotDrag?
-    private var swipeTracker = ProfileSwipeTracker()
-    private var wheel = SpaceWheelPager()
-    private var paging = false
+    /// Nothing over the bar scrolls vertically, so a vertical wheel pages too.
+    private let swipe = SidebarSwipeInput(pagesVertically: true)
     static let plusIndex = -1
 
     /// The current space's chip; it slides on a switch.
@@ -35,13 +34,26 @@ final class ProfileBarView: NSView {
     let marks = ProfileBarLayerView()
 
     /// Called once for a qualifying horizontal trackpad swipe over the bar.
-    var onHorizontalSwipe: ((Int) -> Void)?
+    var onHorizontalSwipe: ((Int) -> Void)? {
+        get { swipe.onHorizontalSwipe }
+        set { swipe.onHorizontalSwipe = newValue }
+    }
     /// A horizontal trackpad gesture over the bar, 1:1 like over the list
     /// (`SidebarScrollView.onHorizontalScroll`). When set, it replaces the
     /// one-step swipe.
-    var onHorizontalScroll: ((ProfileSwipeTracker.Phase, CGFloat, TimeInterval) -> Void)?
+    var onHorizontalScroll: ((ProfileSwipeTracker.Phase, CGFloat, TimeInterval) -> Void)? {
+        get { swipe.onHorizontalScroll }
+        set { swipe.onHorizontalScroll = newValue }
+    }
     /// A mouse wheel notch over the bar, either axis: -1 or +1.
-    var onWheelPage: ((Int) -> Void)?
+    var onWheelPage: ((Int) -> Void)? {
+        get { swipe.onWheelPage }
+        set { swipe.onWheelPage = newValue }
+    }
+    /// The app's input tap; it feeds the swipe and the wheel paging for this window.
+    var scrollTap: (any SidebarScrollTap)? {
+        didSet { swipe.subscribe(scrollTap, view: self) }
+    }
 
     init(model: SidebarModel) {
         self.model = model
@@ -315,38 +327,14 @@ final class ProfileBarView: NSView {
 
     /// The bar is the pager's dots: a trackpad pages over it like over the
     /// list, and a mouse wheel pages on either axis (nothing here scrolls).
+    /// The input tap feeds both before dispatch (`SidebarSwipeInput`).
     override func scrollWheel(with event: NSEvent) {
-        guard event.hasPreciseScrollingDeltas, let phase = Self.phase(of: event) else {
-            if let onWheelPage, !event.hasPreciseScrollingDeltas {
-                switch wheel.feed(deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY, time: event.timestamp, pagesVertically: true) {
-                case .pass, .hold: return
-                case .page(let step): return onWheelPage(step)
-                }
-            }
-            super.scrollWheel(with: event)
-            return
-        }
-        let step = swipeTracker.feed(deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY), phase: phase)
-        if let onHorizontalScroll {
-            if phase == .ended || phase == .momentum {
-                if paging, phase == .ended { onHorizontalScroll(.ended, 0, event.timestamp) }
-                paging = false
-            } else if swipeTracker.isHorizontal {
-                onHorizontalScroll(paging ? .changed : .began, event.scrollingDeltaX, event.timestamp)
-                paging = true
-            }
-        } else if let step {
-            onHorizontalSwipe?(step)
-        }
-        if !swipeTracker.isHorizontal { super.scrollWheel(with: event) }
+        if !swipe.skipsScrolling(event) { super.scrollWheel(with: event) }
     }
 
-    private static func phase(of event: NSEvent) -> ProfileSwipeTracker.Phase? {
-        if !event.momentumPhase.isEmpty { return .momentum }
-        if event.phase.contains(.began) { return .began }
-        if event.phase.contains(.changed) { return .changed }
-        if event.phase.contains(.ended) || event.phase.contains(.cancelled) { return .ended }
-        return nil
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        swipe.subscribe(scrollTap, view: self)
     }
 
     private func activate(_ index: Int) {
