@@ -820,9 +820,9 @@ enum TapbackGlyph {
         let centroid = CGPoint(x: c.x, y: c.y - 0.27)
         let box = CGRect(x: centroid.x + 0.48 - s.width / 2, y: centroid.y + 0.84 - s.height / 2, width: s.width, height: s.height)
         let rgb = { (r: CGFloat, g: CGFloat, b: CGFloat) in UIColor(red: r / 255, green: g / 255, blue: b / 255, alpha: 1).cgColor }
-        guard let g = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
-                                 colors: [rgb(237.87, 147.07, 180.7), rgb(244.11, 188.55, 217.27), rgb(235.21, 96.07, 160.02)] as CFArray,
-                                 locations: [0, 0.5, 1]) else { return }
+        guard let g = CGGradient.checked(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
+                                         colors: [rgb(237.87, 147.07, 180.7), rgb(244.11, 188.55, 217.27), rgb(235.21, 96.07, 160.02)],
+                                         locations: [0, 0.5, 1]) else { return }
         ctx.saveGState()
         ctx.beginTransparencyLayer(auxiliaryInfo: nil)
         img.draw(in: box)
@@ -1134,7 +1134,8 @@ extension CALayer {
         guard let raw = contents else { return nil }
         let object = raw as AnyObject
         guard CFGetTypeID(object) == CGImage.typeID else { return nil }
-        return unsafeDowncast(object, to: CGImage.self) // type checked above (ComposeAttachments' pattern)
+        // SAFETY: the Core Foundation type ID (checked above) says the object is a CGImage: the downcast's precondition.
+        return unsafe unsafeDowncast(object, to: CGImage.self)
     }
 }
 

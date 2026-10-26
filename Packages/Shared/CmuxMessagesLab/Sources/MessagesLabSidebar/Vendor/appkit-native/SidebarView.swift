@@ -1664,7 +1664,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         var img: CGImage?
         appearance.performAsCurrentDrawingAppearance {
             let r = NSRect(origin: .zero, size: sym.size)
-            let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: CrashGuard.int(sym.size.width * scale), pixelsHigh: CrashGuard.int(sym.size.height * scale),
+            // SAFETY: the planes pointer is nil, so AppKit allocates the pixel memory and owns it for the rep's life.
+            let rep = unsafe NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: CrashGuard.int(sym.size.width * scale), pixelsHigh: CrashGuard.int(sym.size.height * scale),
 
                                        bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
             rep?.size = sym.size
