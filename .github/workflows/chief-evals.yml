@@ -52,8 +52,9 @@ jobs:
         if: github.repository_owner == 'manaflow-ai'
         uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
         with:
-          oauth-client-id: ${{ vars.TS_E2E_OIDC_CLIENT_ID }}
-          audience: ${{ vars.TS_E2E_OIDC_AUDIENCE }}
+          # Needs a trust credential for this branch (agent-evals-DESIGN.md).
+          oauth-client-id: ${{ vars.TS_CHIEF_EVALS_OIDC_CLIENT_ID || vars.TS_E2E_OIDC_CLIENT_ID }}
+          audience: ${{ vars.TS_CHIEF_EVALS_OIDC_AUDIENCE || vars.TS_E2E_OIDC_AUDIENCE }}
           tags: tag:ci
           use-cache: "true"
       - name: Model cases skipped (no tailnet)

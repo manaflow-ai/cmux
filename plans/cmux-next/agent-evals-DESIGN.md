@@ -280,5 +280,11 @@ The worst three failures and their fixes:
 
 Open: one judge run returned no verdict (now retried once); automations
 cases from a675 fail 2/3 (word count, judge); the model route in CI depends
-on the subrouter, which was down during this work, so CI's model step has
-not yet run green.
+on the tailnet: the only GitHub OIDC trust credential for `tag:ci`
+(T4fhFAtTch11CNTRL) accepts the subject
+`repo:manaflow-ai/cmux:environment:ios-e2e` only, so this job gets a 403 and
+skips its model cases with a warning. It needs a federated credential for
+`repo:manaflow-ai/cmux:ref:refs/heads/feat-cmux-next` (tag `tag:ci`, scope
+`auth_keys`) set as `vars.TS_CHIEF_EVALS_OIDC_CLIENT_ID`/`_AUDIENCE`. The
+subrouter itself answered 502 during this work (the sr2 gateway worked).
+Until then the model cases run on a mini: `evals/run.sh` on cmux-lawrence.
