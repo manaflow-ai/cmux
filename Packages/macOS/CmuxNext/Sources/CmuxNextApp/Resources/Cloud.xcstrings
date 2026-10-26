@@ -15604,6 +15604,66 @@
           }
         }
       }
+    },
+    "cloud.cli.enrollNameInvalid": {
+      "comment": "cmux cloud enroll-machine: the ssh host name is not usable. Keep the flag as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The machine's ssh name must be letters, digits, dots, dashes or underscores: pass --name lane-vm-N."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシンの ssh 名には英数字、ドット、ハイフン、アンダースコアのみ使用できます。--name lane-vm-N を指定してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Der ssh-Name der Maschine darf nur Buchstaben, Ziffern, Punkte, Bindestriche oder Unterstriche enthalten: Gib --name lane-vm-N an."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Le nom ssh de la machine ne peut contenir que des lettres, chiffres, points, tirets ou traits de soulignement : passez --name lane-vm-N."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "El nombre ssh de la máquina solo puede tener letras, dígitos, puntos, guiones o guiones bajos: pasa --name lane-vm-N."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يجب أن يتكوّن اسم ssh للجهاز من حروف أو أرقام أو نقاط أو شرطات أو شرطات سفلية: مرّر ‎--name lane-vm-N."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신의 ssh 이름은 영문자, 숫자, 점, 하이픈, 밑줄만 쓸 수 있습니다. --name lane-vm-N을 지정하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器的 ssh 名称只能包含字母、数字、点、连字符或下划线：请传入 --name lane-vm-N。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器的 ssh 名稱只能包含字母、數字、點、連字號或底線：請傳入 --name lane-vm-N。"}}
+      }
+    },
+    "cloud.cli.enrollNoAddress": {
+      "comment": "cmux cloud enroll-machine: the machine has no private network address to reach.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "This Cloud machine has no private address yet, so ssh can't reach it. Try again once it is running."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "この Cloud マシンにはまだプライベートアドレスがないため、ssh で接続できません。実行中になってから再試行してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Diese Cloud-Maschine hat noch keine private Adresse, daher erreicht ssh sie nicht. Versuche es erneut, sobald sie läuft."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Cette machine Cloud n’a pas encore d’adresse privée, ssh ne peut donc pas l’atteindre. Réessayez une fois qu’elle est en marche."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Esta máquina de Cloud aún no tiene dirección privada, así que ssh no puede llegar a ella. Vuelve a intentarlo cuando esté en ejecución."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "ليس لجهاز Cloud هذا عنوان خاص بعد، لذا لا يستطيع ssh الوصول إليه. أعد المحاولة بعد أن يعمل."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "이 Cloud 머신에는 아직 사설 주소가 없어 ssh로 연결할 수 없습니다. 실행 중이 되면 다시 시도하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "此 Cloud 机器还没有私有地址，ssh 无法连接。请在它运行后重试。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "此 Cloud 機器還沒有私有位址，ssh 無法連線。請在它執行後重試。"}}
+      }
+    },
+    "cloud.cli.enrollKeyUnreadable": {
+      "comment": "cmux cloud enroll-machine: the ssh public key file can't be used. %@ is its path.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Can't use the ssh key %@: it must be one ssh-ed25519 public key. Pass --ssh-key with an absolute path."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ssh 鍵 %@ を使用できません。ssh-ed25519 公開鍵 1 つである必要があります。--ssh-key に絶対パスを指定してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Der ssh-Schlüssel %@ kann nicht verwendet werden: Er muss genau ein öffentlicher ssh-ed25519-Schlüssel sein. Gib --ssh-key mit einem absoluten Pfad an."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Impossible d’utiliser la clé ssh %@ : elle doit être une seule clé publique ssh-ed25519. Passez --ssh-key avec un chemin absolu."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "No se puede usar la clave ssh %@: debe ser una sola clave pública ssh-ed25519. Pasa --ssh-key con una ruta absoluta."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تعذّر استخدام مفتاح ssh ‏%@: يجب أن يكون مفتاحًا عامًا واحدًا من نوع ssh-ed25519. مرّر ‎--ssh-key بمسار مطلق."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "ssh 키 %@을(를) 사용할 수 없습니다. ssh-ed25519 공개 키 하나여야 합니다. --ssh-key에 절대 경로를 지정하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "无法使用 ssh 密钥 %@：它必须是一个 ssh-ed25519 公钥。请用绝对路径传入 --ssh-key。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法使用 ssh 金鑰 %@：它必須是一個 ssh-ed25519 公鑰。請用絕對路徑傳入 --ssh-key。"}}
+      }
+    },
+    "cloud.cli.enrollAuthorizeFailed": {
+      "comment": "cmux cloud enroll-machine: setting up ssh on the machine failed. %@ is the machine's own error output.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Couldn't set up ssh on the machine: %@"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシンで ssh を設定できませんでした: %@"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "ssh konnte auf der Maschine nicht eingerichtet werden: %@"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Impossible de configurer ssh sur la machine : %@"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "No se pudo configurar ssh en la máquina: %@"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تعذّر إعداد ssh على الجهاز: %@"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신에서 ssh를 설정하지 못했습니다: %@"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "无法在机器上设置 ssh：%@"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法在機器上設定 ssh：%@"}}
+      }
     }
   },
   "version": "1.0"
