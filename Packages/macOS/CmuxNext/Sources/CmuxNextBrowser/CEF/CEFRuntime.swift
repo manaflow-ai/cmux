@@ -433,7 +433,7 @@ final class CEFRuntime {
             loadDuration = library.loadDuration
             initializeDuration = clock.now - started
             readyAfterLaunch = CEFStartReport.secondsSinceLaunch()
-            logger.notice("CEF ready trigger=\(trigger, privacy: .public) shim_abi=\(CEFShimABI.short(library.shimABI), privacy: .public) fork_api=\(library.shim.forkAPIVersion()) load=\(library.loadDuration, privacy: .public) map=\(prefetch.last?.map ?? .zero, privacy: .public) initialize=\(clock.now - started, privacy: .public)")
+            logger.notice("CEF ready trigger=\(trigger, privacy: .public) shim_abi=\(CEFShimABI.short(library.shimABI), privacy: .public) fork_api=\(library.shim.forkAPIVersion()) load=\(library.loadDuration, privacy: .public) map=\(self.prefetch.last?.map ?? .zero, privacy: .public) initialize=\(clock.now - started, privacy: .public)")
         } catch {
             // A trust failure names the rejected item in the log, but the
             // user-facing refusal stays the existing localized summary.
