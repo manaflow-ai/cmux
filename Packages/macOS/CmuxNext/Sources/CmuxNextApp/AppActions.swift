@@ -6,12 +6,20 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextEnergy
 import CmuxNextSidebarActions
+import CmuxNextWakeups
 import os
 
 /// Binds catalog actions to handlers. Menus, shortcuts, the palette, and
 /// context menus all resolve through the registry (REWRITE.md "Action
 /// contract"), so each behavior is written once here.
 enum AppActions {
+    /// The launch's bindings as the critical `AppActions.bind` step (startup-DESIGN.md row O11): keys work
+    /// from the first frame, and the step's record (`debug.startup`) and `launch.startup_task` signpost
+    /// carry its cost, as Chrome times its startup steps (components/startup_metric_utils/browser/startup_metric_utils.cc).
+    static func bindAtLaunch(_ services: AppServices, on startup: StartupScheduler) {
+        startup.post(.critical, "AppActions.bind", on: .main) { AppActions.bind(services) }
+    }
+
     static func bind(_ services: AppServices) {
         bindApp(services)
         bindWorkspaces(services)
