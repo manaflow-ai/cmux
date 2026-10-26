@@ -291,7 +291,7 @@ class StarvationGuardTests(unittest.TestCase):
         def ref_sha(self, branch):
             return self._tip
 
-        def recent_runs(self, workflow, branch=None):
+        def recent_runs(self, workflow, branch=None, now=None):
             return list(self._runs)
 
         def dispatch(self, workflow, ref, inputs=None):
@@ -382,6 +382,22 @@ class StarvationGuardTests(unittest.TestCase):
                 raise AssertionError("a fresh feed must not call the API")
         self.assertEqual(self.guard(NoCalls("o/r", "t", False), feed_age_minutes=24.0), "fresh")
 
+    def test_a_feed_path_we_could_not_read_is_not_evidence_of_freshness(self):
+        """Usually a path the publish step never wrote, which a build does fix."""
+        gh = self.Gh(self, [])
+        self.assertEqual(
+            watch.starvation_dispatch(gh, NOW, feed=NOW, published_sha="", branch="feat-cmux-next",
+                                      workflow="nightly-next-tick.yml", ref="main", feed_unknown=True),
+            f"dispatched nightly-next-tick.yml for {self.TIP}")
+        # Still bounded: a branch that has not moved past the published commit
+        # dispatches nothing, however unreadable its feed is.
+        quiet = self.Gh(self, [])
+        self.assertEqual(
+            watch.starvation_dispatch(quiet, NOW, feed=None, published_sha=self.TIP,
+                                      branch="feat-cmux-next", workflow="nightly-next-tick.yml",
+                                      ref="main", feed_unknown=True), "unchanged")
+        self.assertEqual(quiet.dispatched, [])
+
     def test_the_guard_never_cancels_a_run(self):
         """Leo, 2026-10-24: a newer tip builds alongside, it never evicts."""
         self.assertNotIn("/cancel", SCRIPT.read_text())
@@ -390,6 +406,46 @@ class StarvationGuardTests(unittest.TestCase):
         """25 minutes to act, so the 30-minute ceiling is never breached."""
         import inspect
         self.assertEqual(inspect.signature(watch.starvation_dispatch).parameters["minutes"].default, 25.0)
+
+
+class ActiveRunReadTests(unittest.TestCase):
+    """A stuck run must be found even when newer runs have buried it.
+
+    One page of 100 would have missed a run displaced by newer completed ones,
+    which is exactly the run that holds the feed back.
+    """
+
+    class Paged(watch.GitHub):
+        def __init__(self, pages):
+            super().__init__("o/r", "t", dry_run=True)
+            self.pages, self.asked = pages, []
+
+        def call(self, method, path, body=None):
+            page = int(urllib.parse.parse_qs(path.split("?", 1)[1])["page"][0])
+            self.asked.append(page)
+            return {"workflow_runs": self.pages[page - 1] if page <= len(self.pages) else []}
+
+    def page_of(self, count, hours_ago):
+        return [{"id": i, "created_at": at(hours_ago), "status": "completed"} for i in range(count)]
+
+    def test_it_pages_past_a_full_page_of_recent_runs(self):
+        stuck = {"id": 999, "created_at": at(2.0), "status": "queued"}
+        gh = self.Paged([self.page_of(100, 0.5), [stuck] + self.page_of(99, 3.0)])
+        runs = gh.recent_runs("nightly.yml", "nightly-next", NOW)
+        self.assertIn(stuck, runs)
+        # Page 2 is still inside the lookback, so it asks once more and the
+        # empty page three ends the walk.
+        self.assertEqual(gh.asked, [1, 2, 3])
+
+    def test_it_stops_once_a_page_is_older_than_anything_can_still_be_running(self):
+        gh = self.Paged([self.page_of(100, 9.0), self.page_of(100, 20.0)])
+        gh.recent_runs("nightly.yml", "nightly-next", NOW)
+        self.assertEqual(gh.asked, [1], "a page older than the lookback ends the walk")
+
+    def test_a_short_page_ends_the_walk(self):
+        gh = self.Paged([self.page_of(3, 0.5)])
+        self.assertEqual(len(gh.recent_runs("nightly.yml", "nightly-next", NOW)), 3)
+        self.assertEqual(gh.asked, [1])
 
 
 class HealBeforeAlarmTests(unittest.TestCase):

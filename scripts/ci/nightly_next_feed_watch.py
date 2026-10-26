@@ -186,20 +186,33 @@ class GitHub:
     def jobs(self, run: dict) -> list[dict]:
         return self.call("GET", f"/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")["jobs"]
 
-    def recent_runs(self, workflow: str, branch: str | None = None) -> list[dict]:
-        """The newest page of one workflow's runs, for the active-run test.
+    def recent_runs(self, workflow: str, branch: str | None = None,
+                    now: dt.datetime | None = None) -> list[dict]:
+        """Every run of one workflow new enough to still be active.
 
-        Walking up to ten pages to find the handful of live runs cost 40 calls
-        for the four workflows the NEXT guard watches and, on 2026-10-26, more
-        than the socket timeout. One page is enough: runs come back newest
-        first, a queued run is new by definition, and a running one started
-        within its timeout. Filtering by status instead would be narrower but
-        would miss `requested` and `pending`, which ACTIVE counts.
+        Runs come back newest first, so this pages only until a page's oldest
+        run predates ACTIVE_LOOKBACK: no delivery run outlives its own timeout
+        by six hours, so nothing active can be older than that. A quiet
+        workflow costs one call; a busy one pages until it is sure, instead of
+        stopping at 100 and missing a stuck run displaced by newer ones.
+        Filtering by status would be fewer rows but would miss `requested` and
+        `pending`, which ACTIVE counts.
         """
-        query = {"per_page": 100}
-        if branch:
-            query["branch"] = branch
-        return self.call("GET", f"/actions/workflows/{workflow}/runs?{urllib.parse.urlencode(query)}")["workflow_runs"]
+        cutoff = (now or dt.datetime.now(dt.timezone.utc)) - ACTIVE_LOOKBACK
+        runs: list[dict] = []
+        for page in range(1, 11):
+            query = {"per_page": 100, "page": page}
+            if branch:
+                query["branch"] = branch
+            batch = self.call("GET", f"/actions/workflows/{workflow}/runs?{urllib.parse.urlencode(query)}")["workflow_runs"]
+            runs.extend(batch)
+            if len(batch) < 100:
+                break
+            oldest = min((parse_time(run["created_at"]) for run in batch if run.get("created_at")),
+                         default=None)
+            if oldest is not None and oldest < cutoff:
+                break
+        return runs
 
     def ref_sha(self, branch: str) -> str:
         return self.call("GET", f"/git/ref/heads/{branch}")["object"]["sha"]
@@ -232,6 +245,9 @@ class GitHub:
 
 
 ACTIVE = {"queued", "requested", "waiting", "pending", "in_progress"}
+# No nightly, tick, train or promotion run outlives its own timeout by this
+# much, so a run older than this cannot still be delivering.
+ACTIVE_LOOKBACK = dt.timedelta(hours=6)
 
 
 def is_active_delivery_run(workflow: str, branch: str | None, run: dict) -> bool:
@@ -281,7 +297,8 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
                         published_sha: str, branch: str, workflow: str,
                         ref: str, inputs: dict[str, str] | None = None,
                         active_workflows: list[tuple[str, str | None]] | None = None,
-                        minutes: float = 25.0, tip_input: str | None = None) -> str:
+                        minutes: float = 25.0, tip_input: str | None = None,
+                        feed_unknown: bool = False) -> str:
     """Start one build of the branch tip after `minutes` without a publication.
 
     Nothing is ever cancelled: a newer tip builds alongside a running build,
@@ -298,23 +315,36 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
     landed can still make this dispatch a duplicate; the tick coalesces, and
     the promotion ignores a request that does not move nightly-next forward.
 
+    Two limits this does not close. `tip_landed` is the commit's committer
+    date, not the moment it reached the branch; for this repository they are
+    the same, because every commit on these branches arrives by squash merge,
+    which sets the committer date at merge time. And a tip the release marker
+    already calls published dispatches nothing even if a feed path lags: the
+    publication, not the build, is what is behind, and the stale-feed issue is
+    what covers it.
+
     `tip_input` names the dispatch input that carries the commit, filled in
     from the tip this call resolved. Reading it here rather than in the
     caller's argument list keeps a `fresh` or `unchanged` answer free of API
     calls, and means the dispatched commit is exactly the one that was
     judged stale.
     """
-    if feed is None:
-        # Not "fresh": we do not know. A build cannot fix an unreadable feed,
-        # so this still stands down, but it says so.
+    if feed_unknown:
+        # A feed path we could not read is not evidence of freshness. Usually
+        # it is a path the publish step never wrote, which a build does fix,
+        # so treat it as stale and let the checks below decide. They are the
+        # bound on how often this can fire: a branch that has not moved past
+        # the published commit dispatches nothing at all.
+        pass
+    elif feed is None:
         return "feed unknown, nothing dispatched"
-    if (now - feed).total_seconds() < minutes * 60:
+    elif (now - feed).total_seconds() < minutes * 60:
         return "fresh"
     tip, tip_landed = gh.ref_commit(branch)
     if not tip or tip == published_sha:
         return "unchanged"
     active = [run for name, run_branch in (active_workflows or [(workflow, branch)])
-              for run in gh.recent_runs(name, run_branch)
+              for run in gh.recent_runs(name, run_branch, now)
               if is_active_delivery_run(name, run_branch, run) and carries_tip(run, tip, tip_landed)]
     if active:
         return f"running {active[0].get('html_url', active[0].get('id', '?'))}"
@@ -429,17 +459,13 @@ def main(argv: list[str]) -> int:
         print("GH_TOKEN is required", file=sys.stderr)
         return 2
     newest, missing = read_feeds(args.feed_urls or list(NEXT_FEED_URLS))
-    for note in missing:
+    classic_newest, classic_missing = read_feeds([args.classic_feed_url])
+    for note in missing + classic_missing:
         print(f"::warning::could not read {note}")
     if newest is None:
         # The alarm needs a timestamp, but the classic guard does not: it
         # watches a different feed and must still run.
         print("::warning::no cmux NEXT feed had a dated item")
-    try:
-        classic_newest = read_feed(args.classic_feed_url)
-    except (OSError, ValueError) as error:
-        print(f"::warning::could not read classic feed {args.classic_feed_url}: {error}")
-        classic_newest = None
     gh = GitHub(args.repo, token, args.dry_run)
     now = dt.datetime.now(dt.timezone.utc)
     published_sha = published_commit(gh)
@@ -449,11 +475,13 @@ def main(argv: list[str]) -> int:
     heal("next", lambda: starvation_dispatch(
         gh, now, feed=newest, published_sha=published_sha,
         branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main", tip_input="sha",
+        feed_unknown=bool(missing),
         active_workflows=[("nightly-next-tick.yml", "main"), ("nightly-next-train.yml", "feat-cmux-next"),
                           ("nightly.yml", "nightly-next"), ("nightly.yml", "main")]))
     heal("classic", lambda: starvation_dispatch(
         gh, now, feed=classic_newest, published_sha=published_commit_for_release(gh, "nightly"),
-        branch="main", workflow="nightly.yml", ref="main", inputs={"force": "false"}))
+        branch="main", workflow="nightly.yml", ref="main", inputs={"force": "false"},
+        feed_unknown=bool(classic_missing)))
 
     if newest is None:
         return 0
