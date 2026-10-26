@@ -1,5 +1,5 @@
 // The shipped agent pane as a loopback server answers it to a real browser: the pane's folder
-// (Resources/agent-pane), and the pages' shared chunks (Resources/pages/_shared), which the pane
+// (Resources/agent-pane), and the pages' shared folder (Resources/pages/_shared, React's library), which the pane
 // imports from cmux-page://cmux.shared/, at /_shared/ (scripts/pages/shared-origin.mjs). Both are
 // build output: CI builds the web bundles before the suites; locally run
 // scripts/cmux-next/build-agent-pane-web.sh first.

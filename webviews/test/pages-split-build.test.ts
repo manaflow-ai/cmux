@@ -154,50 +154,79 @@ describe("split page build", () => {
     expect(reactUrls[1]).toBe(reactUrls[0]);
   }, 60_000);
 
-  test("the agent pane, an entry of the same run, loads React from the pages' URL and keeps no chunk", async () => {
-    const out = tempDir();
-    const pane = path.join(tempDir(), "scripts");
+  /** Every file under `dir`, by its path under `dir`, with its bytes. */
+  function treeFiles(dir: string): Record<string, string> {
+    const files: Record<string, string> = {};
+    const walk = (folder: string) => {
+      for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
+        const file = path.join(folder, entry.name);
+        if (entry.isDirectory()) walk(file);
+        else files[path.relative(dir, file)] = fs.readFileSync(file, "utf8");
+      }
+    };
+    walk(dir);
+    return files;
+  }
+
+  test("the agent pane loads React from the pages' library URL and never changes what a page loads", async () => {
     const pagesRoot = path.join(import.meta.dir, "fixtures/pages-split");
     const entry = path.join(import.meta.dir, "fixtures/pages-split-agent/main.tsx");
+    const alone = tempDir();
+    await buildPages({ out: alone, pages: ["alpha", "beta"], pagesRoot });
+    const out = tempDir();
+    const pane = path.join(tempDir(), "scripts");
     await buildPages({ out, pages: ["alpha", "beta"], pagesRoot, agentPane: { entry, out: pane } });
-    // The pane's folder: its entry and its first-load preloads, nothing for the page tree.
+    // The pages are the same files, byte for byte, with the pane built or not: what only the pane
+    // imports (util's forPane, alpha's lazy module) never reaches a page's chunks.
+    expect(treeFiles(out)).toEqual(treeFiles(alone));
+    expect(Object.values(treeFiles(out)).join("\n")).not.toContain(".repeat(64)");
+    // The pane's folder: its entry, its own chunks and its first-load preloads, nothing for the tree.
     const files = fs.readdirSync(pane).sort();
-    expect(files).toHaveLength(2);
+    expect(files).toHaveLength(3);
     expect(files[0]).toMatch(/^app-[A-Z0-9]+\.js$/);
-    expect(files[1]).toBe("preload.html");
+    expect(files.slice(1)).toEqual(["chunks", "preload.html"]);
+    const paneCode = Object.values(treeFiles(pane)).join("\n");
+    expect(paneCode).toContain(".repeat(64)");
+    expect(fs.readFileSync(path.join(pane, files[0]), "utf8")).toMatch(/import\("\.\/chunks\/lazy-[A-Z0-9]+\.js"\)/);
     expect(fs.existsSync(path.join(out, AGENT_PANE))).toBe(false);
-    expect(fs.existsSync(path.join(out, "_agent-pane"))).toBe(false);
     const preload = fs.readFileSync(path.join(pane, "preload.html"), "utf8");
     expect(preload.split("\n")[0]).toBe(`<link rel="modulepreload" href="${files[0]}" />`);
     expect(checkPageTree(out, ["alpha", "beta"], { dir: pane, html: "preload.html" })).toEqual([]);
-    // The lazy module alpha and the pane share is one shared chunk too.
-    expect(fs.readFileSync(path.join(pane, files[0]), "utf8")).toMatch(/import\("cmux-page:\/\/cmux\.shared\/lazy-/);
     const pageReact = reactUrl(out, path.join(out, "alpha"), "index.html");
+    expect(pageReact).toMatch(/^cmux-page:\/\/cmux\.shared\/react-[A-Z0-9]+\.js$/);
     expect(reactUrl(out, pane, "preload.html")).toBe(pageReact);
   }, 60_000);
 
-  test("the agent pane's page resolves its own files on cmux.agent and its chunks on cmux.shared only", () => {
+  test("the agent pane's page resolves its own files on cmux.agent and the library on cmux.shared", () => {
+    const library = `${SHARED_ORIGIN}react-R.js`;
     const pane = tree({
       "index.html": [
         '<link rel="modulepreload" href="app-P.js" />',
-        `<link rel="modulepreload" href="${SHARED_ORIGIN}chunk-A.js" />`,
+        '<link rel="modulepreload" href="chunks/own-C.js" />',
+        `<link rel="modulepreload" href="${library}" />`,
         '<script src="locales/en.js"></script>',
         '<script type="module" src="app-P.js"></script>',
       ].join("\n"),
-      "app-P.js": `import{a}from"${SHARED_ORIGIN}chunk-A.js";a();`,
+      "app-P.js": `import{c}from"./chunks/own-C.js";import{createElement as e}from"${library}";e(c);`,
+      "chunks/own-C.js": `import{jsx as j}from"${library}";export const c=j;`,
       "locales/en.js": "self.strings={};",
     });
-    const pages = tree(whole);
+    const pages = tree({ ...whole, "_shared/react-R.js": "export const createElement=()=>{},jsx=()=>{};" });
     const agentPane = { dir: pane, html: "index.html" };
     expect(checkPageTree(pages, [], agentPane)).toEqual([]);
-    // A chunk missing from the pages' shared folder; the daemon serves no agent pane.
-    fs.rmSync(path.join(pages, "_shared/chunk-B.js"));
-    expect(checkPageTree(pages, [], agentPane)).toEqual([`_shared/chunk-A.js: ./chunk-B.js is not on ${APP}`]);
-    // A chunk of the pane's own, named relative to it: one URL per page again.
-    fs.writeFileSync(path.join(pane, "app-P.js"), 'import"./own-C.js";');
-    fs.writeFileSync(path.join(pane, "own-C.js"), "");
-    expect(checkPageTree(tree(whole), [], agentPane)).toEqual([
-      `${AGENT_PANE}/app-P.js: ./own-C.js is not on ${SHARED_ORIGIN}`,
+    // A chunk of the pane's own goes missing.
+    fs.rmSync(path.join(pane, "chunks/own-C.js"));
+    expect(checkPageTree(pages, [], agentPane)).toEqual([
+      `${AGENT_PANE}/index.html: chunks/own-C.js is not on ${APP}`,
+      `${AGENT_PANE}/app-P.js: ./chunks/own-C.js is not on ${APP}`,
+    ]);
+    // The library is missing from the pages' shared folder; the daemon serves no agent pane.
+    fs.writeFileSync(path.join(pane, "chunks/own-C.js"), `import{jsx as j}from"${library}";export const c=j;`);
+    fs.rmSync(path.join(pages, "_shared/react-R.js"));
+    expect(checkPageTree(pages, [], agentPane)).toEqual([
+      `${AGENT_PANE}/index.html: ${library} is not on ${APP}`,
+      `${AGENT_PANE}/app-P.js: ${library} is not on ${APP}`,
+      `${AGENT_PANE}/chunks/own-C.js: ${library} is not on ${APP}`,
     ]);
     expect(checkPageTree(pages, [], { dir: tempDir(), html: "index.html" })).toEqual([`${AGENT_PANE}: no index.html`]);
   });

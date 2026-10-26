@@ -4,9 +4,10 @@
 # (webviews/scripts/pages/build-pages.mjs): code the pages share is one set of content-hashed
 # chunks under _shared/, which every page imports from cmux-page://cmux.shared/ (one URL per
 # chunk), and each page's index.html preloads (modulepreload) the scripts its first frame runs and
-# has no inline script. The agent pane (CmuxNextAgentPane's Resources/agent-pane) is an entry of
-# the same run, so it imports React and the code it shares with the pages from the same URLs;
-# build-agent-pane-web.sh writes its page around the run's output. The output is build output
+# has no inline script. React is the shared library (_shared/react-<hash>.js), external to every
+# bundle. The agent pane (CmuxNextAgentPane's Resources/agent-pane) is built by the same build in a
+# run of its own, so it imports React from the same URL and changes nothing a page loads;
+# build-agent-pane-web.sh writes its page around the build's output. The output is build output
 # (gitignored; scripts/cmux-next/build-web-bundles.sh runs this before every app build).
 #
 #   scripts/cmux-next/build-pages-web.sh          # rebuild every page and the agent pane

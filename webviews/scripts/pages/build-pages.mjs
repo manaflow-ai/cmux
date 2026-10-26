@@ -9,27 +9,34 @@
 //       [--shiki <dir>] [--report <file>] [--agent-pane <scripts dir>]
 //   bun scripts/pages/build-pages.mjs --out <dir> [--pages "<page> ..."] --agent-pane <pane dir> --check-only
 //
-// --agent-pane adds the agent pane (src/agent-session/acpmux/main.tsx) to the run, as Chrome builds
-// its New Tab page against chrome://resources like every other WebUI page: the pane imports React
-// and every module it shares with the pages from the same cmux.shared URLs. <scripts dir> gets the
-// pane's entry app-<hash>.js and preload.html, the modulepreload links of its first load;
-// scripts/cmux-next/build-agent-pane-web.sh writes the pane's index.html around them. --check-only
-// builds nothing: it checks the tree at <dir> and the pane page in <pane dir> (its index.html).
+// React is the shared library (shared-library.mjs, _shared/react-<hash>.js): built first and
+// external to every bundle, as chrome://resources is to every WebUI page, so every page and the
+// agent pane load it from one URL.
+//
+// --agent-pane also builds the agent pane (src/agent-session/acpmux/main.tsx), as Chrome builds its
+// New Tab page against chrome://resources like every other WebUI page, in a run of its own: it
+// shares the library with the pages and nothing else, so it never changes what a page loads.
+// <scripts dir> gets the pane's entry app-<hash>.js, its chunks/ and preload.html, the
+// modulepreload links of its first load; scripts/cmux-next/build-agent-pane-web.sh writes the
+// pane's index.html around them. --check-only builds nothing: it checks the tree at <dir> and the
+// pane page in <pane dir> (its index.html).
 //
 // <dir> gets _shared/<chunk>.js and, per page, <page>/index.html, <page>/app-<hash>.js and
 // <page>/locales/ (--split-strings pages). A page names every chunk by the shared origin
 // (SHARED_ORIGIN, cmux-page://cmux.shared/<chunk>.js, which the app serves from _shared/), as
 // Chrome's WebUI pages name chrome://resources/, so a chunk has one URL whichever page loads it;
-// chunks name each other relatively. The daemon's /pages/ serves the same tree to a browser and
-// answers the shared origin's URLs at /pages/_shared/ (cmux-tui page_files.rs). --shiki resolves
-// `shiki` to the agent pane's trimmed copy (pages that render the pane's Markdown). Every import,
-// script and preload is checked to resolve on both (checkPageTree).
+// chunks, all in _shared/ beside the library, name each other and the library relatively. The
+// daemon's /pages/ serves the same tree to a browser and answers the shared origin's URLs at
+// /pages/_shared/ (cmux-tui page_files.rs). --shiki resolves `shiki` to the agent pane's trimmed
+// copy (pages that render the pane's Markdown). Every import, script and preload is checked to
+// resolve on both (checkPageTree).
 import { build } from "esbuild";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appBundleOptions, reactCompilerPass, shikiAlias, sourcePlugins } from "../agent-pane/bundle.mjs";
+import { buildSharedLibrary } from "./shared-library.mjs";
 import { SHARED_ORIGIN } from "./shared-origin.mjs";
 
 export { SHARED_ORIGIN };
@@ -39,8 +46,6 @@ const pagesRoot = path.resolve(here, "../../src/pages");
 const SHARED = "_shared";
 /** The agent pane's entry (PageDescriptor.agent, `cmux-page://cmux.agent/`). */
 export const AGENT_PANE_ENTRY = path.resolve(here, "../../src/agent-session/acpmux/main.tsx");
-/** The pane's folder in the run's output; no page folder starts with `_`. */
-const AGENT_PANE_OUT = "_agent-pane";
 /** The pane's name in checkPageTree's findings; its folder is not in the pages tree. */
 export const AGENT_PANE = "agent-pane";
 
@@ -126,73 +131,130 @@ export function pageHtml({ page, entry, preload, loader, css }) {
 }
 
 /**
+ * One esbuild run of `entryPoints` into `outdir` with the shared library external (`library`, its
+ * plugin): the metafile's outputs keyed by their path under `outdir`, each import of an output named
+ * the same way (an import of the library keeps its specifier). Fails on a stylesheet no document loads.
+ */
+async function bundle({ entryPoints, outdir, outbase, entryNames, chunkNames, library, compiler, shiki }) {
+  const result = await build({
+    ...appBundleOptions,
+    entryPoints,
+    ...(outbase ? { outbase } : {}),
+    outdir,
+    splitting: true,
+    minify: true,
+    metafile: true,
+    entryNames,
+    chunkNames,
+    alias: shikiAlias(shiki ?? "-"),
+    plugins: [library, compiler.plugin, ...sourcePlugins({ split: true })],
+  });
+  const outputPath = (file) => path.relative(outdir, path.resolve(file));
+  const outputs = Object.fromEntries(
+    Object.entries(result.metafile.outputs).map(([file, output]) => [outputPath(file), output]),
+  );
+  for (const output of Object.values(outputs))
+    for (const item of output.imports) if (!item.external) item.path = outputPath(item.path);
+  // Each document's <style> is its entry's stylesheet, which holds every sheet it imports, through
+  // dynamic imports too; any other stylesheet would never load.
+  const css = new Set(
+    Object.values(outputs).flatMap((output) => (output.cssBundle ? [outputPath(output.cssBundle)] : [])),
+  );
+  const strayCss = Object.keys(outputs).filter((file) => file.endsWith(".css") && !css.has(file));
+  if (strayCss.length) throw new Error(`stylesheets no page loads: ${strayCss.join(", ")}`);
+  return { outputs, outputPath };
+}
+
+/** The output esbuild wrote for the entry point `source`. */
+function entryOutput(outputs, source, name) {
+  const entryFile = Object.keys(outputs).find(
+    (file) => outputs[file].entryPoint && path.resolve(outputs[file].entryPoint) === path.resolve(source),
+  );
+  if (!entryFile) throw new Error(`esbuild wrote no entry for ${name}`);
+  return entryFile;
+}
+
+/** The specifiers the outputs `files` import statically that no run wrote (the shared library's). */
+function externalImports(outputs, files) {
+  const specifiers = files.flatMap((file) =>
+    outputs[file].imports.filter((item) => item.external && STATIC.has(item.kind)).map((item) => item.path),
+  );
+  return [...new Set(specifiers)];
+}
+
+/** Logs what a document's first load runs from its own run; page-bundle-report counts the library too. */
+function logFirstLoad(name, outputs, firstLoad, library) {
+  const bytes = firstLoad.reduce((sum, file) => sum + outputs[file].bytes, 0);
+  console.log(
+    `built ${name}: ${firstLoad.length} first-load scripts (${bytes} bytes) and ${library.length} library file`,
+  );
+}
+
+/**
  * Builds `options.pages`, the folders of `options.pagesRoot` (src/pages unless a test passes its
- * own), into `options.out`, and with `options.agentPane` (`{ entry, out }`) the agent pane's script
- * into `agentPane.out` (app-<hash>.js and preload.html), in the same run.
+ * own), into `options.out`, and with `options.agentPane` (`{ entry, out }`) the agent pane into
+ * `agentPane.out` (app-<hash>.js, chunks/ and preload.html). The shared library (React,
+ * shared-library.mjs) is built first into _shared and is external to both runs: the pages' run
+ * splits what the pages share into _shared, the pane's run keeps its code in its own folder.
  */
 export async function buildPages(options) {
   const root = options.pagesRoot ?? pagesRoot;
   const agentPane = options.agentPane;
   const work = fs.mkdtempSync(path.join(fs.realpathSync(process.env.TMPDIR ?? "/tmp"), "cmux-pages-"));
+  const pagesWork = path.join(work, "pages");
+  const paneWork = path.join(work, "agent-pane");
   try {
     const compiler = reactCompilerPass();
-    const result = await build({
-      ...appBundleOptions,
-      entryPoints: [
-        ...options.pages.map((page) => path.join(root, page, "main.tsx")),
-        // `out` names the folder; entryNames still names the file app-<hash>.js.
-        ...(agentPane ? [{ in: agentPane.entry, out: `${AGENT_PANE_OUT}/app` }] : []),
-      ],
-      outbase: root,
-      outdir: work,
-      splitting: true,
-      minify: true,
-      metafile: true,
-      entryNames: "[dir]/app-[hash]",
-      chunkNames: `${SHARED}/[name]-[hash]`,
-      alias: shikiAlias(options.shiki ?? "-"),
-      plugins: [compiler.plugin, ...sourcePlugins({ split: true })],
-    });
+    const library = await buildSharedLibrary(path.join(pagesWork, SHARED));
+    // The pages' chunks sit beside the library in _shared and name it relatively, as they name
+    // each other; an entry names it by its URL (below). The pane's files are on its own origin.
+    const pagesSpecifier = `./${library.file}`;
+    const runs = { compiler, shiki: options.shiki };
+    const [pages, pane] = await Promise.all([
+      options.pages.length > 0
+        ? bundle({
+            ...runs,
+            entryPoints: options.pages.map((page) => path.join(root, page, "main.tsx")),
+            outbase: root,
+            outdir: pagesWork,
+            entryNames: "[dir]/app-[hash]",
+            chunkNames: `${SHARED}/[name]-[hash]`,
+            library: library.plugin(pagesSpecifier),
+          })
+        : undefined,
+      agentPane
+        ? bundle({
+            ...runs,
+            entryPoints: [agentPane.entry],
+            outdir: paneWork,
+            entryNames: "app-[hash]",
+            chunkNames: "chunks/[name]-[hash]",
+            library: library.plugin(library.url),
+          })
+        : undefined,
+    ]);
     await compiler.finish(options.report);
-    const outputPath = (file) => path.relative(work, path.resolve(file));
-    const outputs = Object.fromEntries(
-      Object.entries(result.metafile.outputs).map(([file, output]) => [outputPath(file), output]),
-    );
-    for (const output of Object.values(outputs)) for (const item of output.imports) item.path = outputPath(item.path);
-    // Each page's <style> is its entry's stylesheet, which holds every sheet the page imports,
-    // through dynamic imports too; any other stylesheet would never load.
-    const pageCss = new Set(
-      Object.values(outputs).flatMap((output) => (output.cssBundle ? [outputPath(output.cssBundle)] : [])),
-    );
-    const strayCss = Object.keys(outputs).filter((file) => file.endsWith(".css") && !pageCss.has(file));
-    if (strayCss.length) throw new Error(`stylesheets no page loads: ${strayCss.join(", ")}`);
-
-    /** The entry esbuild wrote for `source`, written to the empty folder `dir` with its chunks named by the shared origin. */
-    const writeEntry = (source, dir, name) => {
-      const entryFile = Object.keys(outputs).find(
-        (file) => outputs[file].entryPoint && path.resolve(outputs[file].entryPoint) === path.resolve(source),
-      );
-      if (!entryFile) throw new Error(`esbuild wrote no entry for ${name}`);
-      fs.rmSync(dir, { recursive: true, force: true });
-      fs.mkdirSync(dir, { recursive: true });
-      const entryCode = fs.readFileSync(path.join(work, entryFile), "utf8");
-      fs.writeFileSync(
-        path.join(dir, path.basename(entryFile)),
-        nameChunksBySharedOrigin(entryCode, outputs[entryFile].imports),
-      );
-      const firstLoad = closure(outputs, entryFile, STATIC);
-      const bytes = firstLoad.reduce((sum, file) => sum + outputs[file].bytes, 0);
-      console.log(`built ${name}: ${firstLoad.length} first-load scripts (${bytes} bytes)`);
-      return { entryFile, entry: path.basename(entryFile), preload: firstLoad.slice(1).map(sharedUrl) };
-    };
 
     fs.rmSync(path.join(options.out, SHARED), { recursive: true, force: true });
-    fs.cpSync(path.join(work, SHARED), path.join(options.out, SHARED), { recursive: true });
+    fs.cpSync(path.join(pagesWork, SHARED), path.join(options.out, SHARED), { recursive: true });
     for (const page of options.pages) {
+      const { outputs, outputPath } = pages;
       const dir = path.join(options.out, page);
-      const { entryFile, entry, preload } = writeEntry(path.join(root, page, "main.tsx"), dir, page);
+      const entryFile = entryOutput(outputs, path.join(root, page, "main.tsx"), page);
+      const entry = path.basename(entryFile);
+      fs.rmSync(dir, { recursive: true, force: true });
+      fs.mkdirSync(dir, { recursive: true });
+      const entryCode = fs.readFileSync(path.join(pagesWork, entryFile), "utf8");
+      const named = nameChunksBySharedOrigin(entryCode, outputs[entryFile].imports);
+      fs.writeFileSync(path.join(dir, entry), named.replaceAll(`"${pagesSpecifier}"`, `"${library.url}"`));
+      const firstLoad = closure(outputs, entryFile, STATIC);
+      const libraryUrls = externalImports(outputs, firstLoad).map((specifier) =>
+        specifier === pagesSpecifier ? library.url : specifier,
+      );
+      logFirstLoad(page, outputs, firstLoad, libraryUrls);
+      const preload = [...firstLoad.slice(1).map(sharedUrl), ...libraryUrls];
       const cssBundle = outputs[entryFile].cssBundle;
-      const css = cssBundle ? fs.readFileSync(path.join(work, outputPath(cssBundle)), "utf8").trimEnd() : "";
+      const css = cssBundle ? fs.readFileSync(path.join(pagesWork, outputPath(cssBundle)), "utf8").trimEnd() : "";
       const loader = (options.splitStrings ?? []).includes(page)
         ? execFileSync(
             process.execPath,
@@ -210,8 +272,18 @@ export async function buildPages(options) {
     // The pane's <style> is build-agent-pane-web.sh's (dev.tsx's sheets, then Tailwind), not its
     // entry's stylesheet, which is left out.
     if (agentPane) {
-      const { entry, preload } = writeEntry(agentPane.entry, agentPane.out, AGENT_PANE);
-      fs.writeFileSync(path.join(agentPane.out, "preload.html"), modulepreloadLinks(entry, preload).join("\n") + "\n");
+      const { outputs } = pane;
+      const entryFile = entryOutput(outputs, agentPane.entry, AGENT_PANE);
+      fs.rmSync(agentPane.out, { recursive: true, force: true });
+      for (const file of Object.keys(outputs).filter((file) => file.endsWith(".js"))) {
+        fs.mkdirSync(path.dirname(path.join(agentPane.out, file)), { recursive: true });
+        fs.copyFileSync(path.join(paneWork, file), path.join(agentPane.out, file));
+      }
+      const firstLoad = closure(outputs, entryFile, STATIC);
+      const libraryUrls = externalImports(outputs, firstLoad);
+      logFirstLoad(AGENT_PANE, outputs, firstLoad, libraryUrls);
+      const links = modulepreloadLinks(entryFile, [...firstLoad.slice(1), ...libraryUrls]);
+      fs.writeFileSync(path.join(agentPane.out, "preload.html"), links.join("\n") + "\n");
     }
   } finally {
     fs.rmSync(work, { recursive: true, force: true });
@@ -267,7 +339,8 @@ const treeFile = (location) => path.posix.join(location.root, location.url);
  * cmux.shared serves _shared/) and the daemon's /pages/ (the tree). Empty when the tree is whole.
  *
  * `agentPane` (`{ dir, html }`) also checks the agent pane's document `html` in its own folder `dir`
- * (cmux.agent, outside the tree) on the app's origins: the daemon serves no agent pane.
+ * (cmux.agent, outside the tree, with its own chunks) on the app's origins: the daemon serves no
+ * agent pane.
  */
 export function checkPageTree(root, pages, agentPane) {
   const problems = [];
@@ -333,8 +406,9 @@ export function checkPageTree(root, pages, agentPane) {
         for (const [, specifier] of fs.readFileSync(fileOf(location), "utf8").matchAll(IMPORT)) {
           const next = reach(location, specifier);
           if (next) scripts.push(next);
-          // A chunk on the page's own origin would have a different URL on every page.
-          if (next && next.root === page)
+          // A chunk on a page's own origin would have a different URL on every page. The pane's
+          // chunks are its own run's, which no page imports.
+          if (next && next.root === page && page !== AGENT_PANE)
             problems.push(`${treeFile(location)}: ${specifier} is not on ${SHARED_ORIGIN}`);
         }
       }

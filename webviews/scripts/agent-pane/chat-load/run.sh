@@ -8,7 +8,7 @@
 #          [--pane DIR --shared PAGES/_shared]
 #
 # --pane takes a pane built elsewhere (build-agent-pane-web.sh --out DIR --pages-out PAGES), with
-# the pages' shared chunks it imports (--shared).
+# the pages' shared library it imports (--shared).
 #
 # Run from the repository root (needs webviews/ and scripts/cmux-next/build-agent-pane-web.sh).
 set -euo pipefail
@@ -45,8 +45,11 @@ if [[ -z "$pane" ]]; then
   sed -i 's/return protocol === "cmux-agent:" ||/return protocol === "http:" || protocol === "cmux-agent:" ||/' \
     "$root/webviews/src/agent-session/acpmux/conversation/highlightPool.ts"
   grep -q 'protocol === "http:"' "$root/webviews/src/agent-session/acpmux/conversation/highlightPool.ts"
-  # The pane's script is an entry of the pages' run (build-pages.mjs).
-  if [[ "${CHAT_LOAD_NO_MINIFY:-}" == 1 ]]; then sed -i 's/      minify: true,/      minify: false,/' "$root/webviews/scripts/pages/build-pages.mjs"; fi
+  # The pane's script comes from the pages' build (build-pages.mjs, its runs and the shared library's).
+  if [[ "${CHAT_LOAD_NO_MINIFY:-}" == 1 ]]; then
+    sed -i 's/^\( *\)minify: true,/\1minify: false,/' "$root/webviews/scripts/pages/build-pages.mjs" \
+      "$root/webviews/scripts/pages/shared-library.mjs"
+  fi
   pane="$work/pane"
   shared="$work/pages/_shared"
   "$root/scripts/cmux-next/build-agent-pane-web.sh" --out "$pane" --pages-out "$work/pages"

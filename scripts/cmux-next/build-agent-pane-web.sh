@@ -1,31 +1,30 @@
 #!/bin/sh
 # Builds the React agent pane (webviews/src/agent-session/acpmux) into the page
 # that CmuxNextAgentPane ships as a module resource: index.html (markup, styles
-# and the modulepreload links of its first load), its entry app-<hash>.js,
-# highlight-worker.js and locales/ (strings and the loader that picks them). The
-# page runs no inline script (CSP script-src 'self' plus the shared chunk origin),
-# so markup an agent gets rendered cannot run script. The output is build output
-# (gitignored; scripts/cmux-next/build-web-bundles.sh builds it before every app build).
+# and the modulepreload links of its first load), its entry app-<hash>.js and
+# chunks/ (code it loads when used: shiki's grammars, KaTeX), highlight-worker.js
+# and locales/ (strings and the loader that picks them). The page runs no inline
+# script (CSP script-src 'self' plus the shared chunk origin), so markup an agent
+# gets rendered cannot run script. The output is build output (gitignored;
+# scripts/cmux-next/build-web-bundles.sh builds it before every app build).
 #
-# The pane's script is an entry of the React pages' one esbuild run
-# (build-pages-web.sh, webviews/scripts/pages/build-pages.mjs --agent-pane), as
-# Chrome builds its New Tab page against chrome://resources like every WebUI page:
-# React, every module the pane shares with the pages and the code it loads when
-# used (shiki's grammars, KaTeX) are the pages' content-hashed chunks, which the
-# pane imports from cmux-page://cmux.shared/ (Resources/pages/_shared). The pane
-# and the pages therefore build together:
+# The pane's script comes from the React pages' build (build-pages-web.sh,
+# webviews/scripts/pages/build-pages.mjs --agent-pane), as Chrome builds its New Tab
+# page against chrome://resources like every WebUI page: React is the shared library
+# the pages also import, from cmux-page://cmux.shared/ (Resources/pages/_shared); the
+# rest of the pane is its own. The pane and the pages therefore build together:
 #
 #   scripts/cmux-next/build-agent-pane-web.sh          # rebuild the pane and the pages in the tree
 #   scripts/cmux-next/build-agent-pane-web.sh --check  # build both into a temp dir only (the sources build)
 #   scripts/cmux-next/build-agent-pane-web.sh --out DIR --pages-out PAGES
 #                                                      # the pane into DIR, the pages and their shared chunks into PAGES
 #
-# build-pages-web.sh runs it to write the pane's page around the run's output:
+# build-pages-web.sh runs it to write the pane's page around the build's output:
 #
 #   scripts/cmux-next/build-agent-pane-web.sh --scripts DIR --pages-tree TREE --out DIR
 #
-# DIR holds the pane's app-<hash>.js and preload.html (build-pages.mjs --agent-pane),
-# TREE the run's pages tree (TREE/_shared).
+# DIR holds the pane's app-<hash>.js, chunks/ and preload.html (build-pages.mjs
+# --agent-pane), TREE the build's pages tree (TREE/_shared).
 set -eu
 
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
@@ -59,14 +58,20 @@ if [ -z "$SCRIPTS" ]; then
   if [ "$CHECK" = 1 ]; then
     exec "$ROOT/scripts/cmux-next/build-pages-web.sh" --check
   fi
+  # Both or neither: the pane imports the pages' shared library (cmux-page://cmux.shared/), and
+  # build-pages-web.sh --out alone writes no pane.
   if [ -n "$OUT" ] && [ -z "$PAGES_OUT" ]; then
-    echo "error: --out needs --pages-out: the pane imports the pages' shared chunks (cmux-page://cmux.shared/)" >&2
+    echo "error: --out needs --pages-out: the pane imports the pages' shared library (cmux-page://cmux.shared/)" >&2
     exit 2
   fi
-  set --
-  [ -z "$PAGES_OUT" ] || set -- --out "$PAGES_OUT"
-  [ -z "$OUT" ] || set -- "$@" --agent-pane "$OUT"
-  exec "$ROOT/scripts/cmux-next/build-pages-web.sh" "$@"
+  if [ -n "$PAGES_OUT" ] && [ -z "$OUT" ]; then
+    echo "error: --pages-out needs --out: it names where the pane's pages go, not the pane" >&2
+    exit 2
+  fi
+  if [ -n "$OUT" ]; then
+    exec "$ROOT/scripts/cmux-next/build-pages-web.sh" --out "$PAGES_OUT" --agent-pane "$OUT"
+  fi
+  exec "$ROOT/scripts/cmux-next/build-pages-web.sh"
 fi
 
 if [ -z "$PAGES_TREE" ] || [ -z "$OUT" ]; then
@@ -139,7 +144,7 @@ fi
 # Tailwind utilities last (acpmux/tailwind.css): compiled over the classes the pane's sources use.
 bun scripts/agent-pane/tailwind-css.mjs "$SRC/acpmux/tailwind.css" >> "$WORK/styles.css"
 
-# Same-origin script files and the shared chunks only (no inline script, no eval; WebAssembly
+# Same-origin script files and the shared library only (no inline script, no eval; WebAssembly
 # compiles for Ondine's Mermaid diagrams) and inline style. No connection of its own: the host's
 # native transport (AgentPaneTransport) carries acpmux. No remote loads. Frames show only loopback
 # web pages (a turn's preview card; URL+AgentPanePreview.swift keeps the same hosts) and the render
@@ -153,7 +158,7 @@ CSP="default-src 'none'; script-src 'self' cmux-page://cmux.shared 'wasm-unsafe-
   printf '<meta http-equiv="Content-Security-Policy" content="%s" />\n' "$CSP"
   printf '<meta name="viewport" content="width=device-width, initial-scale=1" />\n'
   printf '<title>cmux Agent</title>\n'
-  # The entry and every shared chunk its first frame runs, fetched in parallel with the parse.
+  # The entry, its chunks and the shared library its first frame runs, fetched in parallel with the parse.
   cat "$SCRIPTS/preload.html"
   printf '%s\n' "$LOADER"
   printf '<style>\n'
@@ -167,15 +172,16 @@ if grep -q 'KaTeX_Main' "$WORK/page/index.html"; then
   echo "error: KaTeX's stylesheet reached the page's <style>; it loads with KaTeX (katexStylePlugin.mjs)" >&2
   exit 1
 fi
-if ! grep -lq 'KaTeX_Main' "$PAGES_TREE"/_shared/*.js; then
-  echo "error: no shared chunk carries KaTeX's stylesheet (katexStylePlugin.mjs)" >&2
+if ! grep -lq 'KaTeX_Main' "$SCRIPTS"/chunks/*.js; then
+  echo "error: no chunk carries KaTeX's stylesheet (katexStylePlugin.mjs)" >&2
   exit 1
 fi
 
 cp "$SCRIPTS/$ENTRY" "$WORK/page/$ENTRY"
+cp -R "$SCRIPTS/chunks" "$WORK/page/chunks"
 rm -rf "$OUT"
 mkdir -p "$(dirname "$OUT")"
 cp -R "$WORK/page" "$OUT"
-# Every script, preload and import of the page resolves: its own files on cmux.agent, the chunks on cmux.shared.
+# Every script, preload and import of the page resolves: its own files on cmux.agent, the library on cmux.shared.
 bun scripts/pages/build-pages.mjs --out "$PAGES_TREE" --agent-pane "$OUT" --check-only
-echo "wrote $OUT/index.html ($(wc -c < "$OUT/index.html" | tr -d ' ') bytes) and $ENTRY ($(wc -c < "$OUT/$ENTRY" | tr -d ' ') bytes)"
+echo "wrote $OUT/index.html ($(wc -c < "$OUT/index.html" | tr -d ' ') bytes), $ENTRY ($(wc -c < "$OUT/$ENTRY" | tr -d ' ') bytes) and $(ls "$OUT/chunks" | wc -l | tr -d ' ') chunks"

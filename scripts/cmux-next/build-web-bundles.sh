@@ -164,7 +164,7 @@ out() {
 }
 
 rm -f "$STAMP"
-# The pages and the agent pane are one esbuild run: the pane imports the pages' shared chunks.
+# The pages and the agent pane build together: the pane imports the pages' shared library (React).
 "$ROOT/scripts/cmux-next/build-pages-web.sh" --out "$(out "$PAGES")" --agent-pane "$(out "$PANE")"
 "$ROOT/scripts/cmux-next/build-agent-activity-web.sh" --out "$(out "$ACTIVITY")"
 "$ROOT/scripts/cmux-next/build-palette-ranker.sh" --out "$(out "$PALETTE")"

@@ -14,9 +14,9 @@ import WebKit
 /// goes to the page instance's ``PageDynamicResourceSource`` first and only: its answer, or a
 /// 404 with the same headers. The same containment rules apply (no `.` or `..` components).
 ///
-/// `cmux-page://cmux.shared/` is answered for every page from ``sharedRoot`` by
-/// ``PageSharedChunks``' rules: its `.js` and `.css` files only, only to a first-party page origin,
-/// never to a navigation.
+/// `cmux-page://cmux.shared/` is answered for every page from ``sharedRoot`` (or the overlay, Debug
+/// override or web update that also serves pages) by ``PageSharedChunks``' rules: its `.js` and
+/// `.css` files only, only to a first-party page origin, never to a navigation.
 ///
 /// Absorbed from the Settings lead's `SettingsPageSchemeHandler` (branch
 /// feat-cmux-next-settings-react), generalized to every page.
@@ -44,6 +44,9 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// The folder `cmux-page://cmux.shared/` serves (``PageSharedChunks/bundledRoot``; tests pass their
     /// own), nil when there is none: every shared request fails.
     let sharedRoot: URL?
+    /// The Debug override of the shared folder (``PageSharedChunks/debugRoot``; tests pass their own),
+    /// read before ``sharedRoot``.
+    let debugSharedRoot: URL?
     /// The Vite server pages load from (``PageDevServer``, Debug only), nil for the bundled pages.
     let devServer: PageDevServer?
     /// Fetches one file from ``devServer`` (tests replace it).
@@ -67,10 +70,11 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
 
     init(page: PageDescriptor, root: URL, dynamicSource: (any PageDynamicResourceSource)? = nil,
          devServer: PageDevServer? = PageDevServer.current, trace: any PageTraceSink = TraceRuntime.shared,
-         sharedRoot: URL? = PageSharedChunks.bundledRoot) {
+         sharedRoot: URL? = PageSharedChunks.bundledRoot, debugSharedRoot: URL? = PageSharedChunks.debugRoot) {
         self.devServer = devServer
         self.trace = trace
         self.sharedRoot = sharedRoot
+        self.debugSharedRoot = debugSharedRoot
         let served = Served(page: page, root: root.standardizedFileURL.resolvingSymlinksInPath(), dynamicSource: dynamicSource)
         let host = page.id.lowercased()
         resolve = { $0 == host ? served : nil }
@@ -78,11 +82,13 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
 
     /// Creates a handler whose page origin resolves to one of the supplied bundled pages.
     init(resolve: @escaping (String) -> Served?, devServer: PageDevServer? = PageDevServer.current,
-         trace: any PageTraceSink = TraceRuntime.shared, sharedRoot: URL? = PageSharedChunks.bundledRoot) {
+         trace: any PageTraceSink = TraceRuntime.shared, sharedRoot: URL? = PageSharedChunks.bundledRoot,
+         debugSharedRoot: URL? = PageSharedChunks.debugRoot) {
         self.resolve = resolve
         self.devServer = devServer
         self.trace = trace
         self.sharedRoot = sharedRoot
+        self.debugSharedRoot = debugSharedRoot
     }
 
     private func served(_ url: URL) -> Served? {
@@ -150,21 +156,29 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     /// The reply for a GET of the shared chunk `url` with the `Origin` header `origin` and the top
-    /// document `mainDocument`: the `.js` or `.css` file in ``sharedRoot`` (or in the active web update's
-    /// copy of it), readable by that origin only; nil, so the task fails, for a navigation, an origin
-    /// that may not read it, or any other file (``PageSharedChunks``). No ``devServer`` serves it.
+    /// document `mainDocument`: the `.js` or `.css` file of the first folder that holds it, among the
+    /// live override's overlay, ``debugSharedRoot``, the active web update's copy of ``sharedRoot`` and
+    /// ``sharedRoot`` (``PageSharedChunks/roots(overlay:debug:update:bundled:)``), the same roots a page's
+    /// own files come from; readable by that origin only; nil, so the task fails, for a navigation, an
+    /// origin that may not read it, or any other file (``PageSharedChunks``). No ``devServer`` serves it.
     func sharedReply(to url: URL, origin: String?, mainDocument: URL? = nil, page: UInt64 = 0) async -> Reply? {
-        let start = step(page) { () -> (allowed: String, root: URL)? in
+        let start = step(page) { () -> (allowed: String, root: URL, overlay: URL?)? in
             guard let root = self.sharedRoot,
                   let allowed = PageSharedChunks.allowedOrigin(for: url, origin: origin, mainDocument: mainDocument)
             else { return nil }
-            return (allowed, root)
+            return (allowed, root, self.liveOverride().overlay)
         }
         guard let start else { return nil }
-        let root = await WebBundleOverlay.shared.root(for: start.root)
-        guard let file = step(page, { PageSharedChunks.file(for: url, root: root) }),
-              let data = await Self.read(file) else { return nil }
-        return step(page) { PageSharedChunks.reply(url: url, allowedOrigin: start.allowed, body: data, file: file) }
+        let update = await WebBundleOverlay.shared.root(for: start.root)
+        let roots = step(page) {
+            PageSharedChunks.roots(overlay: start.overlay, debug: self.debugSharedRoot, update: update, bundled: start.root)
+        }
+        for root in roots {
+            guard let file = step(page, { PageSharedChunks.file(for: url, root: root) }),
+                  let data = await Self.read(file) else { continue }
+            return step(page) { PageSharedChunks.reply(url: url, allowedOrigin: start.allowed, body: data, file: file) }
+        }
+        return nil
     }
 
     /// The reply for a GET of `url`: a bundled file (nil when missing or outside the root, as
