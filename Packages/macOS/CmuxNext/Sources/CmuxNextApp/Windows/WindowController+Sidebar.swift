@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
+import CmuxNextWakeups
 
 extension WindowController {
     /// The sidebar's shown state reaches the top row: the incognito badge after the traffic lights
@@ -20,18 +21,41 @@ extension WindowController {
             self?.relayoutTopRowStrips()
         }
         let model = sidebar.model
-        sidebarObservation = Task { [weak self] in
-            for await hidden in ObservationStream({ model.isHidden }) {
-                guard let self else { return }
-                if hidden { services.hoverCards.suppress(.sidebarHide) }
-                else { services.hoverCards.unsuppress(.sidebarHide) }
-                if hidden { services.hoverCards.dismiss(.action) }
-                root.showsTitlebarBadge = hidden && root.titlebarBadge != nil
-                root.sidebarHidden = hidden
-                root.layoutSubtreeIfNeeded()
-                relayoutTopRowStrips()
-                pagesDidChangeChrome()
-            }
+        // A service observation: the hover cards (another owner) and the pages hear it while the window is hidden.
+        // The person's toggle applies in the input-response pass, before the frame commits.
+        sidebarObservation = ServiceObservation(.visible, owner: "WindowController.sidebarHidden", on: services.mainWork) {
+            model.isHidden
+        } apply: { [weak self] hidden in
+            guard let self else { return }
+            if hidden { services.hoverCards.suppress(.sidebarHide) }
+            else { services.hoverCards.unsuppress(.sidebarHide) }
+            if hidden { services.hoverCards.dismiss(.action) }
+            root.showsTitlebarBadge = hidden && root.titlebarBadge != nil
+            root.sidebarHidden = hidden
+            root.layoutSubtreeIfNeeded()
+            relayoutTopRowStrips()
+            pagesDidChangeChrome()
+        }
+    }
+
+    /// The window recolors when it switches room: view work, on the window's node (a hidden window recolors
+    /// when it shows). The room's browser profile for tab badges is model state: it follows while hidden.
+    func observeRoom() {
+        let state = state
+        roomObservation = VisibleObservation(visibility, owner: "WindowController.roomTheme", on: services.mainWork) {
+            state.profileID
+        } apply: { [weak self] _ in
+            guard let self else { return }
+            services.themes.windowDidChange(self)
+        }
+        // Set in the switch's own turn (`WindowState.profileID`), and again when the room's record changes.
+        let home = services.machines.local.store
+        state.roomBrowserProfileOf = { [weak home] room in home?.profile(room)?.browserProfileID?.rawValue }
+        roomBrowserProfileObservation = ServiceObservation(.visible, owner: "WindowController.roomBrowserProfile",
+                                                           on: services.mainWork) {
+            home.profile(state.profileID)?.browserProfileID
+        } apply: { _ in
+            state.refreshRoomBrowserProfile()
         }
     }
 

@@ -226,7 +226,7 @@ import Testing
         #expect(classes == [nil, .frame], "unbudgeted, in the pass")
         fixture.frame()
         fixture.frame()
-        #expect(applied == [0, 1], "the pass flushed it: its visible task finds nothing pending")
+        #expect(applied == [0, 1], "the pass flushed it: its userBlocking task finds nothing pending")
         withExtendedLifetime(token) {}
     }
 
@@ -246,9 +246,9 @@ import Testing
         withExtendedLifetime(token) {}
     }
 
-    /// A person change the pass did not reach, and a frontend change, flush as `visible`, ahead
-    /// of the observer's own lower class.
-    @Test func aPersonOrFrontendChangeThePassDidNotTakeFlushesInTheVisibleClass() {
+    /// A person change the pass did not reach flushes as `userBlocking` and a frontend change as
+    /// `visible`, ahead of the observer's own lower class (p06-scheduler-208).
+    @Test func aPersonChangeThePassDidNotTakeFlushesAsUserBlockingAndAFrontendOneAsVisible() {
         let fixture = Fixture()
         let model = Model()
         var classes: [MainWorkClass?] = []
@@ -261,10 +261,11 @@ import Testing
         }
         fixture.work.causes.withCause(.person) { model.count = 1 }
         fixture.work.causes.withCause(.frontend) { model.name = "b" }
-        #expect(fixture.work.postedCount(.visible) == 2)
+        #expect(fixture.work.postedCount(.userBlocking) == 1)
+        #expect(fixture.work.postedCount(.visible) == 1)
         #expect(fixture.work.postedCount(.background) + fixture.work.postedCount(.automation) == 0)
         fixture.frame()
-        #expect(classes == [nil, nil, .visible, .visible])
+        #expect(classes == [nil, nil, .userBlocking, .visible], "userBlocking runs before visible")
         withExtendedLifetime((person, frontend)) {}
     }
 

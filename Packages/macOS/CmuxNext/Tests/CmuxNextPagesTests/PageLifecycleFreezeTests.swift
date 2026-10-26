@@ -115,11 +115,11 @@ struct PageLifecycleFreezeTests {
         #expect(view.freezePage())
         page.onEvent?(.ended)
         #expect(view.engineDecision.engine == .webKit)
-        #expect(view.webKitView.isHidden)
-        #expect(view.webKitView.configuration.preferences.hiddenPageThrottling == .full)
+        #expect(view.webView.isHidden)
+        #expect(view.webView.configuration.preferences.hiddenPageThrottling == .full)
         #expect(view.freezePage())
         view.thawPage()
-        #expect(!view.webKitView.isHidden)
+        #expect(!view.webView.isHidden)
     }
 
     // MARK: WebKit
@@ -143,17 +143,17 @@ struct PageLifecycleFreezeTests {
     @Test func aWebKitPageStaysInItsWindowHiddenAndThrottledAndThawsBeforeItShows() throws {
         let view = try webKitView()
         defer { finish(view) }
-        let preferences = view.webKitView.configuration.preferences
+        let preferences = view.webView.configuration.preferences
         preferences.setHiddenPageThrottling(.off)
         tab.isHidden = true
         let target = PageWebViewLifecycle(view, encoder: PageSnapshotEncoder { _, done in done(nil) })
         #expect(target.freeze())
-        #expect(view.webKitView.isHidden)
-        #expect(view.webKitView.window === window, "WebKit is not detached")
+        #expect(view.webView.isHidden)
+        #expect(view.webView.window === window, "WebKit is not detached")
         #expect(preferences.hiddenPageThrottling == .full)
         // The lifecycle's show thaws while the tab is still hidden.
         target.thaw()
-        #expect(!view.webKitView.isHidden)
+        #expect(!view.webView.isHidden)
         #expect(!view.isShownInWindow)
         tab.isHidden = false
         #expect(view.isShownInWindow)
@@ -164,7 +164,7 @@ struct PageLifecycleFreezeTests {
     @Test func aThawedWebKitPageGetsBackTheThrottlingItHadBeforeTheFreeze() throws {
         let view = try webKitView()
         defer { finish(view) }
-        let preferences = view.webKitView.configuration.preferences
+        let preferences = view.webView.configuration.preferences
         for before in [WebKitHiddenPageThrottling.off, Self.mixed] {
             preferences.setHiddenPageThrottling(before)
             tab.isHidden = true
@@ -179,20 +179,20 @@ struct PageLifecycleFreezeTests {
     @Test func aWebKitPageShownWithoutAThawThawsBeforeItIsVisible() throws {
         let view = try webKitView()
         defer { finish(view) }
-        view.webKitView.configuration.preferences.setHiddenPageThrottling(Self.mixed)
+        view.webView.configuration.preferences.setHiddenPageThrottling(Self.mixed)
         tab.isHidden = true
         #expect(view.freezePage())
         tab.isHidden = false
-        #expect(!view.webKitView.isHidden)
-        #expect(view.webKitView.configuration.preferences.hiddenPageThrottling == Self.mixed)
+        #expect(!view.webView.isHidden)
+        #expect(view.webView.configuration.preferences.hiddenPageThrottling == Self.mixed)
     }
 
     @Test func aShownWebKitPageRefusesToFreeze() throws {
         let view = try webKitView()
         defer { finish(view) }
         #expect(!view.freezePage())
-        #expect(!view.webKitView.isHidden)
+        #expect(!view.webView.isHidden)
         view.thawPage()
-        #expect(!view.webKitView.isHidden)
+        #expect(!view.webView.isHidden)
     }
 }
