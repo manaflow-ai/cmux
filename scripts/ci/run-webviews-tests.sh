@@ -8,15 +8,19 @@
 # wall-clock timeout per file names a stuck file instead of hanging the job.
 #
 # CMUX_WEB_TEST_FILE_TIMEOUT: seconds one file may run (default 120); a file may declare more
-# with a `// cmux-web-test-timeout: SECONDS` header line.
+# with a `// cmux-web-test-timeout: SECONDS` header line, up to CMUX_WEB_TEST_MAX_FILE_TIMEOUT
+# (default 300). The 3000s attachment stress test once outlived the entire 40-minute CI job;
+# longer runs must explicitly raise the ceiling outside the ordinary PR shard.
 # CMUX_WEB_TEST_TIMEOUT_MS: one test's default limit (bun's own default is 5000); a test or file
 # that sets its own (setDefaultTimeout, a per-test timeout) keeps it. 30000 by default: on a fleet
 # worker that also runs GitHub runner jobs, a render-heavy jsdom test that takes 0.5 s alone took
 # 5-23 s with six files beside it (cmuxs-Mac-mini-3, step 7a7920f90018502137c79111: 110 files over
 # 5 s), and each of those files passed alone on the same worker.
-# CMUX_WEB_TEST_RETRIES: files that fail or time out run once more, one at a time, after every
+# CMUX_WEB_TEST_RETRIES: files that fail run once more, one at a time, after every
 # file has run (default 60 files; 0 turns it off). A file that passes alone is reported as a retry
 # pass (a contention flake, listed so it stays visible); one that fails again fails the lane.
+# Timed-out files keep their named failure without another full timeout. Serial retries stop
+# starting after CMUX_WEB_TEST_RETRY_BUDGET seconds (default 120); unretried failures stay red.
 # CMUX_WEB_TEST_JOBS: files run at once (default: CMUX_CI_CPU_BUDGET, the cores a fleet
 # worker granted the step, else the CPU count).
 # CMUX_WEB_TEST_FILES: optional newline-separated test files (relative to webviews/) to run instead
@@ -80,11 +84,15 @@ run_with_timeout() {
 # file_limit FILE DEFAULT: the seconds FILE may run. A file whose own tests need more than the
 # default names its limit on a header line (first 20 lines), `// cmux-web-test-timeout: SECONDS`
 # (editor-page: 24 browser tests in two engines, about 115 s on the CI runner, were killed at
-# 120 s mid-WebKit). The longer of the two wins, so a declared limit never shortens the default.
+# 120 s mid-WebKit). The longer of the two wins, up to the runner hard ceiling.
 file_limit() {
-  local declared
+  local declared limit maximum="${CMUX_WEB_TEST_MAX_FILE_TIMEOUT:-300}"
+  [[ "$maximum" =~ ^[1-9][0-9]*$ ]] || maximum=300
   declared="$(head -n 20 "$1" 2> /dev/null | sed -n 's|^// cmux-web-test-timeout: \([1-9][0-9]*\)$|\1|p' | head -n 1)"
-  if [ -n "$declared" ] && [ "$declared" -gt "$2" ]; then echo "$declared"; else echo "$2"; fi
+  limit="$2"
+  if [ -n "$declared" ] && [ "$declared" -gt "$limit" ]; then limit="$declared"; fi
+  if [ "$limit" -gt "$maximum" ]; then limit="$maximum"; fi
+  echo "$limit"
 }
 
 test_timeout_ms="${CMUX_WEB_TEST_TIMEOUT_MS:-30000}"
@@ -101,6 +109,7 @@ if [ "${1:-}" = --one ]; then
   file="$2" results="$3" timeout_seconds="$(file_limit "$2" "$4")" cache="${5:-}" seed="${6:-}"
   log="$results/$(printf '%s' "$file" | tr '/' '_').log"
   status=0
+  echo "START $file (hard limit ${timeout_seconds}s)"
   if [ -n "$cache" ]; then
     # `|| true` on cache upkeep: a failed copy or cleanup (a server outliving its timed-out file)
     # must still leave this file's result in the summary, not stop the lane under set -e.
@@ -122,6 +131,11 @@ if [ "${1:-}" = --one ]; then
   esac
   printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
   echo "$result $file"
+  if [ "$result" != PASS ]; then
+    echo "::group::$result $file (hard limit ${timeout_seconds}s)"
+    cat "$log"
+    echo "::endgroup::"
+  fi
   exit 0
 fi
 
@@ -275,7 +289,7 @@ if [ -s "$results/dev-cold" ]; then
   xargs -0 -n 3 -P 1 bash "$self" --one-cached "$results" "$timeout_seconds" < "$results/dev-cold"
 fi
 
-# Retry each failed or timed-out file once, alone, so a file that only lost a race for the CPU
+# Retry failed files once, alone, so a file that only lost a race for the CPU
 # with its neighbours gets a verdict of its own. Its first log is kept beside the retry's.
 retries="${CMUX_WEB_TEST_RETRIES:-60}"
 [[ "$retries" =~ ^[0-9]+$ ]] || retries=60
@@ -283,17 +297,26 @@ first="$results/first-summary"
 mv "$results/summary" "$first"
 : > "$results/summary"
 retried=0
+retry_budget="${CMUX_WEB_TEST_RETRY_BUDGET:-120}"
+[[ "$retry_budget" =~ ^[0-9]+$ ]] || retry_budget=120
+retry_started=$SECONDS
 : > "$results/retry-passed"
 while read -r result file log; do
-  if [ "$result" = PASS ] || [ "$retried" -ge "$retries" ]; then
+  if [ "$result" = PASS ] || [ "$result" = TIMEOUT ] || [ "$retried" -ge "$retries" ]; then
     printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
     continue
   fi
+  if [ "$((SECONDS - retry_started))" -ge "$retry_budget" ]; then
+    echo "retry budget exhausted: keeping $result $file"
+    printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
+    continue
+  fi
+  echo "RETRY $file"
   retried=$((retried + 1))
   mv "$log" "$log.first"
   cache=""
   if tr '\0' '\n' < "$results/serial" | grep -qxF -- "$file"; then cache="$vite/retry-$retried"; fi
-  bash "$self" --one "$file" "$results" "$timeout_seconds" "$cache" > /dev/null < /dev/null
+  bash "$self" --one "$file" "$results" "$timeout_seconds" "$cache" < /dev/null
   if [ -n "$cache" ]; then rm -rf "$cache" || true; fi
   if grep -qxF "PASS $file $log" "$results/summary"; then
     echo "$file (first run: $result)" >> "$results/retry-passed"
