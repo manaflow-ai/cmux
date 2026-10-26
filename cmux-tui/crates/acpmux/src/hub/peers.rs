@@ -790,24 +790,25 @@ impl Hub {
         v
     }
 
-    /// The rows of [`Self::all_session_summaries`] whose `sessionId` is one of `ids`, a
-    /// local chat's before a peer's, without summarizing any other chat: a wait reads
-    /// them on every record (`server/wait.rs`), and summarizing all 460 chats there kept
-    /// huge-blue's daemon at 6 to 8 cores and 4.5 GB (2026-10-22).
+    /// For each of `ids`, the row [`Self::all_session_summaries`] puts first for that
+    /// `sessionId` (the newest; at one time, a local chat's before a peer's), without
+    /// summarizing any other chat: a wait reads them on every record (`server/wait.rs`),
+    /// and summarizing all 460 chats there kept huge-blue's daemon at 6 to 8 cores and
+    /// 4.5 GB (2026-10-22), and cosmic-gray's at 2 to 3 cores (2026-10-25).
     pub fn session_summaries_of(&self, ids: &[String]) -> HashMap<String, Value> {
         let local: Vec<Arc<Session>> = {
             let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
             ids.iter().filter_map(|id| sessions.get(id).cloned()).collect()
         };
-        let mut out: HashMap<String, Value> =
-            local.iter().map(|s| (s.id.clone(), self.session_summary(s))).collect();
-        let wanted = |v: &Value| {
-            v.get("sessionId")
-                .and_then(Value::as_str)
-                .is_some_and(|id| ids.iter().any(|w| w == id) && !out.contains_key(id))
-        };
-        let remote = self.remote_rows(wanted);
-        for row in remote {
+        let mut rows: Vec<Value> = local.iter().map(|s| self.session_summary(s)).collect();
+        rows.extend(self.remote_rows(|v| {
+            v.get("sessionId").and_then(Value::as_str).is_some_and(|id| ids.iter().any(|w| w == id))
+        }));
+        // The same stable sort over the same relative order as the full list, so a local
+        // chat and a peer's (or two peers') that share a bare id resolve to the same row.
+        super::session_pages::sort_session_summaries(&mut rows);
+        let mut out = HashMap::new();
+        for row in rows {
             if let Some(id) = row.get("sessionId").and_then(Value::as_str) {
                 out.entry(id.to_owned()).or_insert(row);
             }
