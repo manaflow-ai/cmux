@@ -3,12 +3,18 @@ public import Observation
 
 /// Where a `BrowserExtensionStore` reads and changes extension state: a
 /// Chromium profile (`CEFExtensionBackend`) or a mock (demos, tests).
+///
+/// A change returns whether it was sent, not Chromium's verdict: with the Chromium Host the browser
+/// is another process, so the verdict comes back as an extension event that refreshes the snapshot
+/// (plans/cmux-next/chrome-parity/p01-process.md, task 026). The store decides in the person's turn
+/// what Chromium would refuse, from the extension's own state.
 @MainActor
 public protocol BrowserExtensionBackend: AnyObject {
     /// Enable/disable, remove, pin, options and load unpacked are available.
     var supportsManagement: Bool { get }
     /// The installed extensions and shortcuts, or nil while no browser of
-    /// the profile is live (the store keeps its last lists).
+    /// the profile is live or its lists have no value yet (the store keeps
+    /// its last lists).
     func snapshot() -> (extensions: [BrowserExtensionInfo], commands: [BrowserExtensionCommand])?
     func setEnabled(_ id: String, _ enabled: Bool) -> Bool
     func uninstall(_ id: String) -> Bool
@@ -62,26 +68,56 @@ public final class BrowserExtensionStore {
     /// Reloads an extension, also a crashed one: fork API v5
     /// `cmux_ext_reload`; older forks disable then enable (Chromium moves a
     /// terminated extension to the disabled set and loads it on enable).
-    public func reload(_ id: String) -> Bool { perform { $0.reload(id) } }
+    public func reload(_ id: String) -> Bool {
+        change(id, when: { _ in true }, send: { $0.reload(id) }) { $0.isTerminated = false }
+    }
 
     /// Moves a pinned extension among the pinned ones (the toolbar drag);
-    /// Chromium persists the order per profile.
-    public func movePinned(_ id: String, to index: Int) -> Bool { perform { $0.movePinned(id, to: index) } }
+    /// Chromium persists the order per profile. The toolbar's actions show
+    /// the order, so nothing in these lists changes first.
+    public func movePinned(_ id: String, to index: Int) -> Bool {
+        change(id, when: \.isPinned, send: { $0.movePinned(id, to: index) }) { _ in }
+    }
     public var supportsPinnedOrder: Bool { backend.supportsPinnedOrder }
 
-    public func setEnabled(_ id: String, _ enabled: Bool) -> Bool { perform { $0.setEnabled(id, enabled) } }
-    public func uninstall(_ id: String) -> Bool { perform { $0.uninstall(id) } }
-    public func setPinned(_ id: String, _ pinned: Bool) -> Bool { perform { $0.setPinned(id, pinned) } }
+    /// Chromium refuses to change what policy installed, must keep enabled or
+    /// blocklisted (extensions::ManagementPolicy::UserMayModifySettings and
+    /// MustRemainEnabled, chrome/browser/extensions/extension_service.cc):
+    /// the menus' own `canToggle`.
+    public func setEnabled(_ id: String, _ enabled: Bool) -> Bool {
+        change(id, when: \.canToggle, send: { $0.setEnabled(id, enabled) }) { $0.isEnabled = enabled }
+    }
+
+    /// Gone at once, as its chrome://extensions card goes; the next list confirms it.
+    public func uninstall(_ id: String) -> Bool {
+        change(id, when: \.canRemove, send: { $0.uninstall(id) }, shows: nil)
+    }
+
+    /// Only an extension with a toolbar action pins.
+    public func setPinned(_ id: String, _ pinned: Bool) -> Bool {
+        change(id, when: \.hasAction, send: { $0.setPinned(id, pinned) }) { $0.isPinned = pinned }
+    }
 
     /// Opens the options page as a tab of `tab`'s pane (Chromium adds the tab
-    /// to that tab's window; the host adopts it).
+    /// to that tab's window; the host adopts it). Only an enabled extension
+    /// with an options page has one to open, as Chrome's extension menu
+    /// decides (OptionsPageInfo::HasOptionsPage,
+    /// chrome/browser/extensions/extension_context_menu_model.cc).
     public func openOptions(_ id: String, from tab: (any BrowserTab)? = nil) -> Bool {
-        supportsManagement && backend.openOptions(id, from: tab)
+        guard supportsManagement, let info = extensions.first(where: { $0.id == id }), info.isEnabled, info.optionsURL != nil else {
+            return false
+        }
+        return backend.openOptions(id, from: tab)
     }
 
     /// Loads an unpacked extension directory into this profile (persistent,
-    /// like chrome://extensions "Load unpacked").
-    public func loadUnpacked(at path: String) -> Bool { perform { $0.loadUnpacked(at: path) } }
+    /// like chrome://extensions "Load unpacked"). It shows when Chromium's
+    /// install event refreshes the lists.
+    public func loadUnpacked(at path: String) -> Bool {
+        guard supportsManagement, backend.loadUnpacked(at: path) else { return false }
+        refresh()
+        return true
+    }
 
     /// Runs a shortcut with `tab` as the active tab. `_execute_action` clicks
     /// the toolbar action (anchored to its button, or to the Extensions
@@ -91,6 +127,7 @@ public final class BrowserExtensionStore {
             host.requestExtensionAction(command.extensionID)
             return true
         }
+        guard extensions.first(where: { $0.id == command.extensionID })?.isEnabled == true else { return false }
         return backend.runCommand(command, in: tab)
     }
 
@@ -106,10 +143,25 @@ public final class BrowserExtensionStore {
         commands.first { $0.matches(event) }
     }
 
-    private func perform(_ call: (any BrowserExtensionBackend) -> Bool) -> Bool {
-        guard supportsManagement else { return false }
-        let ok = call(backend)
+    /// A management change: refused in this turn when the extension is unknown or `allowed` says
+    /// Chromium would refuse it, else sent and shown at once: `shows` edits the extension's entry,
+    /// nil removes it and its shortcuts. The refresh after it reads Chromium's state in process; in
+    /// host mode the lists are pending until the host applied the change, and its extension event
+    /// confirms or reverts what shows.
+    private func change(_ id: String, when allowed: (BrowserExtensionInfo) -> Bool,
+                        send: (any BrowserExtensionBackend) -> Bool,
+                        shows: ((inout BrowserExtensionInfo) -> Void)?) -> Bool {
+        guard supportsManagement, let index = extensions.firstIndex(where: { $0.id == id }), allowed(extensions[index]),
+              send(backend) else { return false }
+        if let shows {
+            var shown = extensions[index]
+            shows(&shown)
+            if shown != extensions[index] { extensions[index] = shown }
+        } else {
+            extensions.remove(at: index)
+            if commands.contains(where: { $0.extensionID == id }) { commands.removeAll { $0.extensionID == id } }
+        }
         refresh()
-        return ok
+        return true
     }
 }

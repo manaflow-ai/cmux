@@ -1763,9 +1763,7 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFExtensionBackend.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [
@@ -1775,7 +1773,7 @@
         "tab.omnibox_keywords[*]"
       ],
       "reply_event": null,
-      "reason": "Optimistic in the mirror; TAB_EVENT 7 confirms or reverts it. Its Bool site changes in task 026."
+      "reason": "Optimistic in the mirror; TAB_EVENT 7 confirms or reverts it. BrowserExtensionStore refuses in the person's turn what Chromium would (BrowserExtensionInfo.canToggle), shows the change at once and reads no result (task 026)."
     },
     {
       "name": "cmux_shim_ext_uninstall",
@@ -1791,9 +1789,7 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFExtensionBackend.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [
@@ -1803,7 +1799,7 @@
         "tab.omnibox_keywords[*]"
       ],
       "reply_event": null,
-      "reason": "As ext_set_enabled: a refused uninstall shows when the list comes back unchanged."
+      "reason": "As ext_set_enabled: the store refuses what the menus do not offer (canRemove) and removes the card at once; a refused uninstall shows when the list comes back unchanged."
     },
     {
       "name": "cmux_shim_ext_reload",
@@ -1819,9 +1815,7 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFExtensionBackend.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [
@@ -1851,9 +1845,7 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFExtensionBackend.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [
@@ -1883,9 +1875,7 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFExtensionBackend.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [
@@ -1984,14 +1974,12 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFExtensionBackend.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Key path: the ext_commands mirror decides in the key's turn whether the key is an extension command, as Chrome's chrome/browser/extensions/extension_keybinding_registry.cc decides from its registered list; the run needs no answer (task 026)."
+      "reason": "Key path: the ext_commands mirror decides in the key's turn whether the key is an extension command, as Chrome's chrome/browser/extensions/extension_keybinding_registry.cc decides from its registered list; the store runs it only for an enabled extension and reads no answer (task 026)."
     },
     {
       "name": "cmux_shim_tab_move_to_window",
@@ -4260,15 +4248,6 @@
       "task": "p01-process-022"
     },
     {
-      "site": "CmuxNextBrowser/CEF/CEFExtensionBackend.swift: CEFExtensionBackend.openOptions(_:from:)",
-      "exports": [
-        "cmux_shim_ext_open_options"
-      ],
-      "needs": "reply",
-      "change": "Becomes async: Take the token with CEFHostStart.expectReply() and await it in CEFHostStart.replies; callers learn whether the options page opened from the reply.",
-      "task": "p01-process-026"
-    },
-    {
       "site": "CmuxNextBrowser/CEF/CEFBookmarkBridge.swift: CEFBookmarkBridge.sync(store:treeJSON:)",
       "exports": [
         "cmux_shim_bookmarks_sync"
@@ -4278,15 +4257,6 @@
       "task": "p01-process-027"
     },
     {
-      "site": "CmuxNextBrowser/CEF/CEFOmniboxKeywords.swift: CEFOmniboxKeywords.suggestions(browser:extensionID:text:shim:)",
-      "exports": [
-        "cmux_shim_omnibox_input"
-      ],
-      "needs": "reply",
-      "change": "In host mode the call returns 1 once sent: take the token with CEFHostStart.expectReply() and await it in CEFHostStart.replies beside the OMNIBOX_SUGGESTIONS waiter; a reply of 0 (the extension does not listen) returns nil at once instead of at the suggestion timeout.",
-      "task": "p01-process-026"
-    },
-    {
       "site": "CmuxNextBrowser/CEF/CEFAgentRelay.swift: CEFAgentRelay.send(_:)",
       "exports": [
         "cmux_shim_devtools_send"
@@ -4294,15 +4264,6 @@
       "needs": "reply",
       "change": "In host mode the call returns 1 once sent, so .sent no longer says the browser took the message: take the token with CEFHostStart.expectReply() and await it in CEFHostStart.replies as Int32; send becomes async and reports .noBrowser or .refused from the reply.",
       "task": "p01-process-027"
-    },
-    {
-      "site": "CmuxNextBrowser/CEF/CEFExtensionBackend.swift: CEFExtensionBackend.loadUnpacked(at:)",
-      "exports": [
-        "cmux_shim_ext_load_unpacked"
-      ],
-      "needs": "reply",
-      "change": "The `call { $0.extLoadUnpacked($1, path) } == 1` read is the client's 1 in host mode: take the token with CEFHostStart.expectReply() and await it in CEFHostStart.replies as Int32; loadUnpacked becomes async and returns whether the host loaded the extension.",
-      "task": "p01-process-026"
     }
   ]
 }
