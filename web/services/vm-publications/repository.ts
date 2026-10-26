@@ -170,6 +170,8 @@ export type PublicationConflictReason =
   | "auth_transaction_limit"
   /** API keys only guard a protected publication; a public one is open to everyone. */
   | "publication_public"
+  /** Provisioning asked for other access than the port's live publication has. */
+  | "publication_access_mismatch"
   | "api_key_limit";
 
 export class PublicationConflictError extends Data.TaggedError(
@@ -518,6 +520,11 @@ export type CloudVmPublicationRepositoryShape = {
     PublicationDatabaseError
   >;
   readonly revokePublicationSessions: (input: {
+    readonly publicationId: string;
+    readonly now: Date;
+  }) => Effect.Effect<number, PublicationDatabaseError>;
+  /** Revoke every live API key of a publication, as making it public does. */
+  readonly revokePublicationApiKeys: (input: {
     readonly publicationId: string;
     readonly now: Date;
   }) => Effect.Effect<number, PublicationDatabaseError>;
@@ -2490,6 +2497,19 @@ export function makeCloudVmPublicationRepository(getDb: typeof cloudDb): CloudVm
             ),
           )
           .returning({ tokenHash: cloudVmPublicationSessions.tokenHash });
+        return revoked.length;
+      }),
+
+    revokePublicationApiKeys: (input) =>
+      databaseEffect("revokePublicationApiKeys", async () => {
+        const revoked = await getDb()
+          .update(cloudVmPublicationApiKeys)
+          .set({ revokedAt: input.now })
+          .where(and(
+            eq(cloudVmPublicationApiKeys.publicationId, input.publicationId),
+            isNull(cloudVmPublicationApiKeys.revokedAt),
+          ))
+          .returning({ id: cloudVmPublicationApiKeys.id });
         return revoked.length;
       }),
   };

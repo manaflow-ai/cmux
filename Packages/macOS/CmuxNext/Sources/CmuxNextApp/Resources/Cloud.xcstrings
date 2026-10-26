@@ -18383,7 +18383,7 @@
       }
     },
     "cloud.api.provisioned": {
-      "comment": "Provision API's answer. %1$@ is the https URL, %2$@ the API key, %3$@ the cookie (cmux-api-key=<key>). Keep the curl command, 'Cookie:' and the placeholders as they are.",
+      "comment": "Provision API's answer. %1$@ is the https URL, %2$@ the API key, %3$@ the cookie (__Host-cmux-api-key=<key>). Keep the curl command, 'Cookie:' and the placeholders as they are.",
       "extractionState": "manual",
       "localizations": {
         "en": {

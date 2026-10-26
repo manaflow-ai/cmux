@@ -1288,7 +1288,7 @@ describe("Cloud VM publication workflows", () => {
     }
   });
 
-  test("commits public and revokes sessions before detaching auth", async () => {
+  test("commits public and revokes sessions and API keys before detaching auth", async () => {
     const calls: string[] = [];
     const current = publication("personal", {
       state: "active",
@@ -1321,6 +1321,10 @@ describe("Cloud VM publication workflows", () => {
         calls.push("sessions.revoke");
         return Effect.succeed(1);
       },
+      revokePublicationApiKeys: () => {
+        calls.push("api-keys.revoke");
+        return Effect.succeed(2);
+      },
       recordAppliedForwardAuth: () => {
         calls.push("provider-state.persist");
         return Effect.succeed(detached);
@@ -1344,6 +1348,7 @@ describe("Cloud VM publication workflows", () => {
       "operation.claim",
       "policy.commit",
       "sessions.revoke",
+      "api-keys.revoke",
       "rule.detach",
       "provider-state.persist",
       "operation.release",

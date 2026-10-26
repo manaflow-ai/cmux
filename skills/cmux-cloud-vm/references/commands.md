@@ -197,7 +197,7 @@ cmux cloud bring-back    # Bring Back Local: the reverse
 `provision-api` publishes a machine port behind cmux sign-in under a generated
 HTTPS hostname and mints an API key for it. It answers `url`, `key`, `cookie`,
 `publication_id` and `api_key_id`; the key is shown once. API clients send it as
-the `cmux-api-key` cookie (`curl -H 'Cookie: cmux-api-key=<key>' <url>`), which
+the `__Host-cmux-api-key` cookie (`curl -H 'Cookie: __Host-cmux-api-key=<key>' <url>`), which
 the machine never receives. Running it again for the same port reuses the URL
 and mints another key. `api-key-revoke` cuts a key off from the next request.
 A browser still reaches the URL by signing in to cmux.

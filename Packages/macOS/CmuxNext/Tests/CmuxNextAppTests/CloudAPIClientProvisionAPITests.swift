@@ -22,7 +22,7 @@ struct CloudAPIClientProvisionAPITests {
             let answer: String
             switch (request.httpMethod ?? "", url.path) {
             case ("POST", "/api/vm/apis"):
-                answer = #"{"url":"https://hello--owner--3000.cmux.sh","publication":{"id":"pub-1","hostname":"hello--owner--3000.cmux.sh","url":"https://hello--owner--3000.cmux.sh","vmId":"vm-1","port":3000,"accessMode":"personal","state":"active"},"apiKey":\#(key),"token":"cmux_api_secret","cookieName":"cmux-api-key","cookie":"cmux-api-key=cmux_api_secret"}"#
+                answer = #"{"url":"https://hello--owner--3000.cmux.sh","publication":{"id":"pub-1","hostname":"hello--owner--3000.cmux.sh","url":"https://hello--owner--3000.cmux.sh","vmId":"vm-1","port":3000,"accessMode":"personal","state":"active"},"apiKey":\#(key),"token":"cmux_api_secret","cookieName":"__Host-cmux-api-key","cookie":"__Host-cmux-api-key=cmux_api_secret"}"#
             case ("GET", _):
                 answer = #"{"apiKeys":[\#(key)]}"#
             default:
@@ -81,14 +81,14 @@ struct CloudAPIClientProvisionAPITests {
         let fields = CloudHandlers.machineFields("vm-1", CloudHandlers.provisionedAPIFields(provisioned))
         #expect(fields["url"] == .string("https://hello--owner--3000.cmux.sh"))
         #expect(fields["key"] == .string("cmux_api_secret"))
-        #expect(fields["cookie"] == .string("cmux-api-key=cmux_api_secret"))
+        #expect(fields["cookie"] == .string("__Host-cmux-api-key=cmux_api_secret"))
         #expect(fields["api_key_id"] == .string("key-1"))
         #expect(fields["publication_id"] == .string("pub-1"))
         #expect(fields["access"] == .string("personal"))
         #expect(fields["target"] == .string("machine:vm-1"))
         // The person's sheet carries the same URL, key and a working request.
         let text = CloudStrings.provisionedAPI(url: provisioned.url, key: provisioned.token, cookie: provisioned.cookie)
-        #expect(text.contains("curl -H 'Cookie: cmux-api-key=cmux_api_secret' https://hello--owner--3000.cmux.sh"))
+        #expect(text.contains("curl -H 'Cookie: __Host-cmux-api-key=cmux_api_secret' https://hello--owner--3000.cmux.sh"))
     }
 
     @Test func listAndRevokeAddressThePublicationAndKey() async throws {

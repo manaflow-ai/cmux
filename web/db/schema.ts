@@ -1030,7 +1030,7 @@ export const cloudVmPublicationEmailGrants = pgTable("cloud_vm_publication_email
 
 /**
  * A machine credential for one protected publication: API clients send it in
- * the `cmux-api-key` cookie, which the edge strips before the VM sees the
+ * the `__Host-cmux-api-key` cookie, which the edge strips before the VM sees the
  * request. Only the SHA-256 of the key is stored; revoking sets `revoked_at`.
  */
 export const cloudVmPublicationApiKeys = pgTable("cloud_vm_publication_api_keys", {

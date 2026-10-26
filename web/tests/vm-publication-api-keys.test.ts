@@ -138,6 +138,8 @@ describe("publication API keys", () => {
     const key = randomPublicationApiKey();
     expect(isPublicationApiKey(key)).toBe(true);
     expect(key.startsWith("cmux_api_")).toBe(true);
+    // A __Host- cookie cannot be planted by a sibling host with Domain=.
+    expect(PUBLICATION_API_KEY_COOKIE).toBe("__Host-cmux-api-key");
     expect(isPublicationApiKey(`${key}x`)).toBe(false);
     expect(isPublicationApiKey("cmux_api_short")).toBe(false);
     expect(isPublicationApiKey(null)).toBe(false);
@@ -235,6 +237,15 @@ describe("one-call API provisioning", () => {
     expect(result.apiKey.name).toBe("agent");
   });
 
+  test("a retry that asks for other access than the live publication is refused, not ignored", async () => {
+    const live = target(publication("personal"));
+    await expect(runWorkflow(provisionPublicationApi({
+      principal: { ...principal, teamIds: ["team-1"] }, providerVmId: "vm-provider-1", port: 3_000, accessMode: "team", teamId: "team-1", forwardAuth, now: NOW,
+    }), {
+      reserveManagedPublication: () => Effect.succeed(live),
+    })).rejects.toMatchObject({ reason: "publication_access_mismatch" });
+  });
+
   test("refuses public access and bad key input before publishing anything", async () => {
     for (const input of [{ accessMode: "public" as never }, { name: "" }, { expiresAt: "not a date" }]) {
       await expect(runWorkflow(provisionPublicationApi({
@@ -291,9 +302,10 @@ describe("forward auth with an API key", () => {
       expect(await runAuth(evaluatePublicationRequest({ providerTlsRuleId: "tls-rule-1", method, sessionToken: null, apiKey: key, now: NOW }), context.repository))
         .toEqual({ kind: "unauthorized" });
     }
-    // A malformed key is never hashed or looked up, and is refused the same way.
+    // A malformed cookie is never hashed or looked up, and is no key: a browser
+    // that carries junk in it still gets the sign-in handoff.
     const malformed = await runAuth(evaluatePublicationRequest({ providerTlsRuleId: "tls-rule-1", method: "GET", sessionToken: null, apiKey: "guess", now: NOW }), context.repository);
-    expect(malformed).toEqual({ kind: "unauthorized" });
+    expect(malformed.kind).toBe("sign_in_required");
     expect((context.reads.at(-1) as { apiKeyHash: unknown }).apiKeyHash).toBeNull();
   });
 
@@ -342,7 +354,7 @@ describe("forward auth with an API key", () => {
 
 test("conflict copy names the API key limit and public publications", async () => {
   const { publicationErrorResponse } = await import("../app/api/vm/publications/routeShared");
-  for (const reason of ["publication_public", "api_key_limit"] as const) {
+  for (const reason of ["publication_public", "publication_access_mismatch", "api_key_limit"] as const) {
     const response = publicationErrorResponse(new PublicationConflictError({ reason }));
     expect(response.status).toBe(409);
     const body = await response.json() as { message: string; reason: string };

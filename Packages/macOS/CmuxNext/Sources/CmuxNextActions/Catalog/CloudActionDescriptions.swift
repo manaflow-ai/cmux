@@ -163,7 +163,7 @@ nonisolated enum CloudActionDescriptions {
             Provisions an API on the machine (--target machine:<id>): publishes --port behind cmux \
             sign-in under a generated https hostname and mints an API key for it, in one call. Returns url, \
             publication_id, api_key_id, key and cookie. API clients send the key as the cookie \
-            (cmux-api-key=<key>), which the machine never receives; the key is answered this one time. \
+            (__Host-cmux-api-key=<key>), which the machine never receives; the key is answered this one time. \
             Running it again for the same port reuses the URL and mints another key. Optional --name names \
             the key.
             """,

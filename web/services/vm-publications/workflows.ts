@@ -765,6 +765,14 @@ export function updatePublicationAccess(input: {
           publicationId: committed.id,
           now,
         });
+        // A public rule has no forward auth, so the edge stops withholding the
+        // API key cookie: revoke the keys before the gate goes, so no live key
+        // ever reaches the VM and none comes back if the publication is
+        // protected again.
+        yield* repository.revokePublicationApiKeys({
+          publicationId: committed.id,
+          now,
+        });
         yield* provider.updateTlsRule(tlsRuleId, {
           hostname: target.publication.hostname,
           providerVmId,

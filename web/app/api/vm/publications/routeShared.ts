@@ -482,6 +482,12 @@ function conflictCopy(reason: PublicationConflictError["reason"], language?: str
         action: "Change its access to personal or team first, then create the API key.",
         status: 409,
       };
+    case "publication_access_mismatch":
+      return {
+        message: "That port is already published with different access.",
+        action: "Omit accessMode to keep its access and mint a key, or change the publication's access first.",
+        status: 409,
+      };
     case "api_key_limit":
       return {
         message: "That publication already has the most API keys it can hold.",

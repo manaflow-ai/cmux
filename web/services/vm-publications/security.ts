@@ -12,8 +12,10 @@ export const PUBLICATION_CALLBACK_PATH = "/_cmux/auth/callback";
  * only the caller's `Authorization` and `Cookie` headers to forward auth, and
  * `Authorization` already carries the service credential, so the key rides in
  * a cookie the edge keeps in `protectedCookies`: the VM never receives it.
+ * The `__Host-` prefix keeps a sibling publication under the same zone from
+ * planting one with `Domain=`: browsers refuse that for a `__Host-` name.
  */
-export const PUBLICATION_API_KEY_COOKIE = "cmux-api-key";
+export const PUBLICATION_API_KEY_COOKIE = "__Host-cmux-api-key";
 const PUBLICATION_API_KEY_PREFIX = "cmux_api_";
 const PUBLICATION_API_KEY_PATTERN = /^cmux_api_[A-Za-z0-9_-]{43}$/u;
 

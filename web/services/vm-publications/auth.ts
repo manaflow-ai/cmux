@@ -153,7 +153,7 @@ export function evaluatePublicationRequest(input: {
   readonly providerTlsRuleId: string;
   readonly method: string;
   readonly sessionToken: string | null;
-  /** The `cmux-api-key` cookie an API client sent, if any. */
+  /** The `__Host-cmux-api-key` cookie an API client sent, if any. */
   readonly apiKey?: string | null;
   readonly now?: Date;
 }) {
@@ -194,8 +194,10 @@ export function evaluatePublicationRequest(input: {
     if (liveApiKey && (yield* publicationApiKeyOwnerAllowed(target, liveApiKey.ownerUserId, viewerResolver))) {
       return { kind: "allow" } as const satisfies PublicationRequestEvaluation;
     }
-    // An API client that sent a key gets a plain refusal, never a sign-in redirect.
-    if (apiKey !== null) {
+    // An API client that sent a key gets a plain refusal, never a sign-in
+    // redirect. Only a well-formed key counts: junk in the cookie must not
+    // take a browser's way to sign in.
+    if (isPublicationApiKey(apiKey)) {
       return { kind: "unauthorized" } as const satisfies PublicationRequestEvaluation;
     }
 

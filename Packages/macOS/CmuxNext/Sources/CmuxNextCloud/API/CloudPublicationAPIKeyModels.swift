@@ -13,7 +13,7 @@ public struct CloudPublicationAPIKey: Sendable, Hashable, Decodable {
 }
 
 /// `POST /api/vm/apis`: a machine port published under a generated hostname, with a new key.
-/// `token` is in this answer only; API clients send it as `cookie` (`cmux-api-key=<token>`),
+/// `token` is in this answer only; API clients send it as `cookie` (`__Host-cmux-api-key=<token>`),
 /// which the Cloud edge withholds from the machine.
 public struct CloudProvisionedAPI: Sendable, Hashable, Decodable {
     public var url: String

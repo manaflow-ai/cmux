@@ -196,6 +196,11 @@ export function provisionPublicationApi(input: {
       generatedDomain: input.generatedDomain,
       now,
     });
+    // A retry reuses the live publication of that port with its own access; a
+    // different access asked for explicitly is refused, never silently ignored.
+    if (input.accessMode !== undefined && publication.accessMode !== input.accessMode) {
+      return yield* new PublicationConflictError({ reason: "publication_access_mismatch" });
+    }
     const minted = yield* createPublicationApiKey({
       principal: input.principal,
       publicationId: publication.id,
