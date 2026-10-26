@@ -1,0 +1,16 @@
+name: fresh-chief-eval
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "Native/OptChat/optchat-chief/**"
+jobs:
+  eval:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: Native/OptChat/optchat-chief/scripts-fresh-chief-eval.sh

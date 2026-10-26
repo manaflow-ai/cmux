@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextWakeups
 
 /// When a Chromium document first paints content, through the DevTools
 /// protocol's page lifecycle events (`CEFAgentRelay.deliver` hands every raw
@@ -60,8 +61,18 @@ final class CEFFirstPaintBridge {
     /// reads the stream and never takes a message off it: an agent relaying
     /// raw protocol messages still sees every lifecycle event.
     func handle(_ json: String) -> Bool {
-        if Self.isFirstContentfulPaint(json, mainFrame: mainFrame) { tab?.documentDidSettle() }
+        if Self.isFirstContentfulPaint(json, mainFrame: mainFrame) { painted() }
         return false
+    }
+
+    /// The main frame's document painted content (a lifecycle event, or from fork API 29 the
+    /// first paint channel, `BrowserFirstPaintScript`).
+    func painted() {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        ChatOpenTrace.shared.mark(.firstContentfulPaint, chromiumPane: tab?.host.key.pane.rawValue)
+        if let tab { tab.runtime.benchMarks.firstPaint(tab.id.rawValue) }
+        #endif
+        tab?.documentDidSettle()
     }
 
     /// Whether `json` is the first contentful paint of `mainFrame`. A

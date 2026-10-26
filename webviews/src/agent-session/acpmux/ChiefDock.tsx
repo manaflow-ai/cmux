@@ -169,6 +169,7 @@ export function ChiefDock({
                   id: "move-to-tab",
                   label: t("floating.moveToTab"),
                   icon: <Icon name="link.open.newtab" size={14} />,
+                  symbol: "link.open.newtab",
                   onSelect: () => onMoveToTab(session.sessionId),
                 },
               ];

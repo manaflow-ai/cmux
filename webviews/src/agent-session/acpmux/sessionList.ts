@@ -59,6 +59,9 @@ export type AcpmuxSessionEntry = {
   lane?: SessionLane;
   /** Prompts waiting behind its running turn, when any. */
   queued?: number;
+  /** Its parent already runs as many sub-sessions as `maxRunning` allows: its first prompt waits
+   *  for a run slot (acpmux `waitsForSlot`), so it has not started. */
+  waitsForSlot?: true;
   /** One line of what its running turn does now: its plan step and latest tool, as acpmux says it
    *  to the parent's agent (`doing`). */
   doing?: string;
@@ -217,6 +220,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     shortName: text(session.shortName),
     lane: LANES.includes(session.lane?.state) ? session.lane.state : undefined,
     queued: Number(session.queued) > 0 ? Number(session.queued) : undefined,
+    ...(session.waitsForSlot === true && { waitsForSlot: true as const }),
     doing: doingLine(session),
     waitingOn: sessionWaiting(session),
     forkSeq: typeof session.forkSeq === "number" ? session.forkSeq : undefined,
@@ -332,7 +336,7 @@ export function isAgentHome(cwd: string | undefined): boolean {
 export function mostRecentProject(
   sessions: readonly AcpmuxSessionEntry[],
   home?: string,
-  known?: readonly string[],
+  known?: readonly string[] | null,
 ): string | undefined {
   return firstProject(recentLocalFolders(sessions), home, known);
 }
@@ -356,8 +360,14 @@ export function recentLocalFolders(sessions: readonly AcpmuxSessionEntry[], limi
 }
 
 /// The first of `folders` (newest first) a New Tab may start in: not the home folder, and with
-/// `known` (the host's project list; empty is not loaded yet) one in it.
-export function firstProject(folders: readonly string[], home?: string, known?: readonly string[]): string | undefined {
+/// `known` (the host's project list; absent or empty is not loaded yet) one in it. `null`: the host
+/// answered and lists no project (every one removed or missing), so no folder is one.
+export function firstProject(
+  folders: readonly string[],
+  home?: string,
+  known?: readonly string[] | null,
+): string | undefined {
+  if (known === null) return undefined;
   const projects = known?.length ? new Set(known.map((path) => path.replace(/(.)\/+$/, "$1"))) : undefined;
   const homeFolder = home?.replace(/\/+$/, "");
   return folders.find((cwd) => cwd !== homeFolder && (!projects || projects.has(cwd)));
