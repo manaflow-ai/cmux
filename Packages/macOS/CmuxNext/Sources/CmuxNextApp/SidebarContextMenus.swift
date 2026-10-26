@@ -14,6 +14,7 @@ enum SidebarContextMenus {
         switch target {
         case .tab(let workspace, let tab):
             // The tab's own menu, as on its strip; the row is not selected by the right-click.
+            // view-observation-allow: locateTab is one MachineTabIndex lookup (R-index's target), not an observation
             let model = services.locateTab(tab.rawValue)?.0
             let menu = PaneController.tabMenu(tab.rawValue, tab: model, keepsTab: TabPromotion.staysPut(tab: tab.rawValue, in: services.workspace(id: workspace.rawValue)),
                                               sameKind: NewTabKind.of(tab.rawValue, tab: model, services: services), registry: registry)

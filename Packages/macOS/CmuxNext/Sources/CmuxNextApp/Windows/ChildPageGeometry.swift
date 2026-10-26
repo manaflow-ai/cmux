@@ -57,6 +57,7 @@ enum ChildPageGeometry {
         for pane in controller.content?.panes.values.map({ $0 }) ?? [] {
             guard case .browser(let entry)? = pane.currentContent, entry.tab.presentation == .childWindow else { continue }
             let content = entry.tab.contentView
+            // visibility-walk-allow: the check compares AppKit's own view state with the page windows the fork placed; a node would hide the mismatch it looks for
             guard content.window === window, !content.isHiddenOrHasHiddenAncestor, !content.bounds.isEmpty else { continue }
             let contentRect = window.convertToScreen(content.convert(content.bounds, to: nil))
             let devTools = (entry.tab as? CEFTab)?.devToolsDiagnosticFrames

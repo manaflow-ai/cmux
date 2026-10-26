@@ -334,6 +334,23 @@ the tables of "Release trace ring v1"; the Swift `TraceRuntime.Role` and `TraceR
   the pass used CEF's whole 10 ms time slice, else 0; end arg1 is the pass's elapsed time in us on
   the pump's clock. With the Chromium host on, the host writes the same name and layout from its
   own ring (task 104). The app emits no `cef.pump` then.
+- `task.post` and `task.run` (category `task`, recording only, closed by p09-observability-042) trace
+  posted work as Chrome's `TaskAnnotator` does (base/task/common/task_annotator.cc): every item posted
+  to a `BackgroundWork` lane and every request the control queue (`MainActorWorkQueue`) accepts. A
+  request the queue refuses as busy writes no `task.post`, so each `task.post` has its `task.run`.
+  `task.post` is a flow-out at the post: arg0 the post site (the interned `#fileID`'s id in bits 0-15,
+  the line in bits 16-47), arg1 the flow id (bit 63 set). The run's flow-in is the first record inside
+  its `task.run` slice (B/E): arg0 the post site, arg1 the flow id. A lane item's slice is the lane's
+  (below, "Blocking calls and lane jobs"); a control request's is written by `TaskTrace` on the main
+  thread, with the lane 3 (main) in B arg0 bits 8-15 and its `MainWorkClass` `rawValue` in bits 0-7, and
+  B arg1 the queue wait in us, or u64::MAX when unknown (the post was written before the recording started).
+- `control.request` (category `control`, closed for its queue part by p09-observability-042; task 115
+  owns the accept-to-reply part) is an async slice (AB/AE) per control request from its enqueue on
+  `MainActorWorkQueue` to the end of its run or its failure, keyed by an async id
+  (`TraceRuntime.nextAsyncScope`) in arg1 of both records. AB arg0 is the method's main task board
+  owner index in bits 0-31 (0 without a board) and the main work class (`MainWorkClass.rawValue`) in
+  bits 32-39. AE arg0 is the outcome: 0 ran, 1 expired while queued, 2 refused as
+  busy (it never queued).
 - `cef.create_browser` is reserved but has no emitter (requested from PL-motion-cef, task 033).
   Without it, a Release trace attributes Chromium browser-creation time only through the stack samples.
 - `cef.geometry` (category `cef`, perf-hot `cef-geometry`, owner PL-motion-cef, closed by
@@ -395,6 +412,7 @@ the tables of "Release trace ring v1"; the Swift `TraceRuntime.Role` and `TraceR
     start in us; a `WorkSequence` item's post is its post to the sequence, so the wait includes the time behind
     the items in front of it (Chrome stamps a sequenced task's queue time at its post,
     base/task/thread_pool/sequence.cc). Whether an item records is decided at that post too. A `task.blocking_call` inside the item nests in its slice.
+    The item's `task.post` flow-in (p09-observability-042, above) is the first record inside the slice.
 - acpmux has no spans; only its sampled stacks show (requested through the cmux-4f lead from
   PL-acpmux).
 - Time Profiler samples only threads that run. Off-CPU time shows as gaps. Use `--system-trace` for

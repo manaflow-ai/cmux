@@ -38,19 +38,23 @@
       "args": {
         "method": "tab_group.ungroup",
         "params": {
-          "tab_group": ""
+          "tab_group": "oracle-missing"
         },
         "idempotencyKey": "tab-group-ungroup-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "resource.not_found",
+        "errorDetails": {
+          "scope": "tab_group",
+          "id": "oracle-missing"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "tab_group breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a group id that names no group: nothing is ungrouped"
     }
   ],
   "invariants": [

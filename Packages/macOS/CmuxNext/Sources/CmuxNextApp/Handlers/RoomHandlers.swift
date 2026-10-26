@@ -170,7 +170,7 @@ enum RoomHandlers {
                 // (`personal-changed`, then a resync). Entering it earlier
                 // files the new workspace unpinned (so in `default`) and
                 // the window falls back as from a deleted room (cx-d8x5).
-                await services.machines.local.store.mirrored(profile: id)
+                await services.machines.local.store.mirrored(profile: id, on: services.mainWork)
                 if let enter, let active, let state = services.windows.states[active.id] {
                     enter(id, state)
                 } else {

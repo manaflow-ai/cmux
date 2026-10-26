@@ -23,7 +23,7 @@ struct BrowserTabDuplicate {
             pane.newBrowserTab(url: url, inherited: tab.browserEngine, profile: profile, opener: tab.surface)
             return
         }
-        var configuration = BrowserTabConfiguration(profile: page.profileID, initialURL: url, zoom: page.state.zoom)
+        var configuration = BrowserTabConfiguration(profile: page.profileID, initialURL: url, zoom: page.state.zoom, origin: .user)
         configuration.restoreState = state
         switch state {
         case .webKit:

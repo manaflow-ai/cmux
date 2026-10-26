@@ -57,10 +57,6 @@ public final class PageRelayDedicatedStreams: PageRelayStreamOpening {
             }
         }
 
-        var confirmationBinding: [String: JSONValue] {
-            ["relay_connection_id": .string(epoch.connectionID)]
-        }
-
         func send(operation: String, params: [String: JSONValue], idempotencyKey: String?,
                   origin: JSONValue) async throws -> JSONValue {
             guard await isOpen else { throw DaemonError.connectionClosed(reason: "page stream \(page) ended") }
