@@ -70,6 +70,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setScheduleDelayed: @convention(c) (ScheduleDelayedFn?) -> Int32
     /// `cmux_shim_set_energy_saver(enabled, exempt_scheme)` (``CEFEnergySaver``); 1 when the fork took it.
     let setEnergySaver: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
+    /// `cmux_shim_memory_pressure_vote(level)`: cmux's vote in Chromium's pressure aggregator (``CEFMemoryPressureVote``).
+    let memoryPressureVote: @convention(c) (Int32) -> Int32
 
     let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     /// The same window whose first tab has no renderer and never navigates (the spare window's
@@ -337,6 +339,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         doWork = try r("cmux_shim_do_work")
         setScheduleDelayed = try r("cmux_shim_set_schedule_delayed")
         setEnergySaver = try r("cmux_shim_set_energy_saver")
+        memoryPressureVote = try r("cmux_shim_memory_pressure_vote")
         createWindow = try r("cmux_shim_create_window")
         createPlaceholderWindow = try r("cmux_shim_create_placeholder_window")
         placeholderSupported = try r("cmux_shim_placeholder_supported")

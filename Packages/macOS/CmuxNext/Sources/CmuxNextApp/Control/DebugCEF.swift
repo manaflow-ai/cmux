@@ -80,6 +80,8 @@ enum DebugCEF {
                     "url": tab.state.url.map { .string($0.absoluteString) } ?? .null,
                     "title": tab.state.title.map { .string($0) } ?? .null,
                     "open": .bool(state.isOpen), "dock": .string(state.dock.rawValue),
+                    // Host mode: the page's cursor over its page view (CSS name; null in process).
+                    "page_cursor": ChromiumHostPageView.first(in: tab.contentView)?.pageCursorName.map(JSONValue.string) ?? .null,
                 ]
                 if let panel = tab.sidePanelDiagnostic {
                     object["side_panel"] = .object(["title": .string(panel.title), "pinned": .bool(panel.pinned),
