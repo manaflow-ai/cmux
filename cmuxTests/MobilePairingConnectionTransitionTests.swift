@@ -37,6 +37,42 @@ struct MobilePairingConnectionTransitionTests {
         #expect(MobilePairingModel.v2StatusTransition(status, baselineConnectionCount: 0) == .preparing)
     }
 
+    @Test("A ready Tailscale listener displays a scannable QR and manual address", arguments: [false, true])
+    func tailscaleListenerProducesPairingCode(irohReady: Bool) throws {
+        let route = try tailscaleRoute()
+        var status = MobileHostServiceStatus(
+            isRunning: true, port: 7777, configuredPort: 7777,
+            usesEphemeralFallback: false, routes: [route], activeConnectionCount: 0,
+            lastErrorDescription: nil, tailscaleIsRunning: true, tailscalePort: 7777,
+            tailscaleRoutes: [route]
+        )
+        status.isPairingReady = irohReady
+        let model = MobilePairingModel()
+        model.receiveHostStatus(status, baselineConnectionCount: 0)
+        defer { model.stopObserving() }
+        guard case let .ready(ready) = model.state else {
+            Issue.record("A ready Tailscale listener must allow pairing independently of Iroh")
+            return
+        }
+        #expect(!ready.v2Only)
+        #expect(ready.tailscaleLines == ["100.64.0.1:7777"])
+        #expect(ready.manualEntry == CmxManualPairingEntry(host: "100.64.0.1", port: 7777))
+        let components = try #require(URLComponents(string: ready.attachURL))
+        let ticket = try CmxPairingQRCode().decode(components)
+        #expect(ticket.routes.map(\.endpoint) == [route.endpoint])
+        #expect(ticket.authToken == nil)
+
+        status.tailscaleIsRunning = false
+        status.tailscaleRoutes = []
+        model.receiveHostStatus(status, baselineConnectionCount: 0)
+        if case let .ready(withdrawn) = model.state {
+            #expect(withdrawn.attachURL.isEmpty)
+            #expect(withdrawn.v2Only)
+        } else {
+            #expect(!irohReady)
+        }
+    }
+
     @Test("Listener and registration failures expose recovery", arguments: [false, true])
     func v2FailuresDoNotRemainPreparing(running: Bool) {
         let status = MobileHostServiceStatus(
