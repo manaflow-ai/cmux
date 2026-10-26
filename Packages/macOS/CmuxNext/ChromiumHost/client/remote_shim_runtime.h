@@ -132,6 +132,14 @@ bool PostForReply(uint16_t op, uint32_t token, const TlvWriter& args);
 // host's verdict once (PostForReply). Returns the client's check of the arguments, the
 // in-process shim's own: 1 accepted, 0 refused (nothing recorded).
 int32_t PostPreinit(uint16_t op, uint32_t token, const TlvWriter& args);
+// cmux_shim_password_reveal's wire (task p01-process-025), for remote_shim_local.mm:
+// kOpPasswordReveal with str profile_cache_path and str id under `token`. The host's REPLY is
+// one bytes field, the password, or none when its shim found none; it goes to `revealed`
+// (the bytes valid during the call, zeroed after it), never to the reply callback, and
+// nothing here logs or counts it. A detach drops the token unanswered (the local class ends
+// the reveal then). False when not sent: no host attached, or the channel refused it.
+using PasswordRevealedFn = bool (*)(uint32_t token, const char* password, size_t length);
+bool PostPasswordReveal(uint32_t token, const char* profile_cache_path, const char* id, PasswordRevealedFn revealed);
 // Never 0.
 uint32_t NextToken();
 // Browser and window ids from 1 << 20, so they never meet one Chromium assigned; DevTools

@@ -25,6 +25,9 @@
 //   kOpInitialize                               cmux_shim_initialize's arguments
 //                                              without the function pointers, in
 //                                              header order (switches as a str list)
+//   kOpPasswordReveal                           str profile_cache_path, str id under
+//                                              a token: cmux_shim_password_reveal,
+//                                              whose done becomes the token's REPLY
 // Every preinit op comes before kOpInitialize (the remote shim queues them,
 // task 014); everything else after it.
 //
@@ -35,7 +38,11 @@
 //              (EncodeFields), or no value: cmux forgets the key
 //   kOpEvent   EncodeEvent's fields, after the MIRRORs the event refreshes
 //   kOpAck     reply flag, token: the op ran
-//   kOpReply   reply flag, token, the op's result and out-parameters
+//   kOpReply   reply flag, token, the op's result and out-parameters; for a
+//              password reveal one bytes field, the password, or no field when
+//              the shim found none. That REPLY is the only place the password
+//              crosses (task p01-process-025): no log, trace or counter here
+//              names its fields, and its copy is zeroed once it is sent.
 //
 // Everything here runs on the host's main thread (Chromium's UI thread), so
 // it holds no lock (p01-process section 4, rule 1).
@@ -130,6 +137,8 @@ class HostContext {
   HostContext(Send send, HostDelegate& delegate, PageViews& views, Resolve resolve);
   HostContext(const HostContext&) = delete;
   HostContext& operator=(const HostContext&) = delete;
+  // A reveal the shim answers later finds no host and sends nothing.
+  ~HostContext();
 
   // The mirrors whose only refresh is attach, then the hello. Once, before
   // the first OnMessages; the framework is loaded, CEF not started.
@@ -147,6 +156,8 @@ class HostContext {
   static int OnWindowRequest(void* ctx, int kind, int disposition, int source_browser_id, int has_bounds, int x,
                              int y, int width, int height, int user_gesture, const char* url,
                              const char* profile_path);
+  // cmux_shim_password_reveal's done; ctx is the reveal's PasswordReveal.
+  static void OnPasswordRevealed(void* ctx, const char* password, size_t length);
 
   // The interface of the generated host_dispatch.inc.
   int Browser(int32_t client_id);
@@ -183,10 +194,18 @@ class HostContext {
     std::optional<std::string> profile;  // create_window's profile_cache_path ("" the default)
   };
 
+  // A password reveal waiting for the shim's done.
+  struct PasswordReveal {
+    HostContext* host;  // nullptr once the host context is gone
+    uint32_t token;
+  };
+
   void Handle(control::Message& message);
   bool HandleHello(const control::Message& message);
   void Dispatch(const control::Message& message);
   bool HandleInitialize(const control::Message& message);
+  void RevealPassword(const control::Message& message);
+  void SendRevealed(uint32_t token, const char* password, size_t length);
   void Watch(uint16_t op, const std::vector<control::Field>& key);
   void ForwardEvent(int kind, int browser_id, int request, int64_t a, int64_t b, const char* s1, const char* s2);
   void Refresh(const MirrorEvent& event);
@@ -235,6 +254,9 @@ class HostContext {
 
   // The optional exports' functions in the host's shim, by op (kOptionalExports).
   std::vector<std::pair<uint16_t, void*>> optional_exports_;
+
+  // Reveals the shim has not answered; each is freed by its done.
+  std::unordered_set<PasswordReveal*> reveals_;
 
   // Open page view tokens, and the view each create_window browser has.
   std::unordered_set<uint64_t> open_views_;

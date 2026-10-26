@@ -63,8 +63,11 @@ Inputs (paths relative to --root, the repository by default):
          which await the answer the same way in both backends), a mint_returns id call in the mint
          form (its id keys a `.reply(for:` wait for its reply_event), and a site listed with needs
          `kept`: a local export called only on the in-process path, which `change` names by an
-         identifier of the site's file (CEFRuntimeBoot.inProcess, loadInProcess). Every other need
-         names work still to do, and its site stays listed until the task doing it drops the entry.
+         identifier of the site's file (CEFRuntimeBoot.inProcess, loadInProcess), or with needs
+         `client`: a local export the client defines by hand (HOST/client, outside generated/) with
+         the in-process contract, so the same call serves both backends; that site stays listed
+         until HOST/client defines the export. Every other need names work still to do, and its
+         site stays listed until the task doing it drops the entry.
 
 Outputs (written by a run without a check flag; --check fails when one is stale):
 
@@ -188,7 +191,7 @@ OPTIONAL_EXPORT_FIELDS = EXPORT_FIELDS | {"fork_api"}  # fork_api: the fork API 
 DOCUMENTED_FIELDS = EXPORT_FIELDS | set(TOP_LISTS)  # what `fields` in the ops JSON explains
 EVENT_FIELDS = {"kind", "value", "refreshes", "reason"}
 REWRITE_FIELDS = {"site", "exports", "needs", "change", "task"}
-REWRITE_NEEDS = ("after_attach", "reply", "pending_tab", "host_exit", "kept")
+REWRITE_NEEDS = ("after_attach", "reply", "pending_tab", "host_exit", "kept", "client")
 # The one need that settles a listed site for --swift-sites: a local export called only on the in-process
 # path, which the entry's change names by an identifier of the site's file (KEPT_PATH). Every other need
 # names work still to do: its site stays listed until the code that does the work removes the entry.
@@ -855,6 +858,8 @@ def load_ops(header: Header, root: Path) -> tuple[Model | None, list[str], dict[
                 problems.append(f"{label}: needs after_attach is for mirror reads; {name} is {ops[name].cls}")
             elif entry.get("needs") == "kept" and name in ops and ops[name].cls != "local":
                 problems.append(f"{label}: needs kept is for local exports called only in process; {name} is {ops[name].cls}")
+            elif entry.get("needs") == "client" and name in ops and ops[name].cls != "local":
+                problems.append(f"{label}: needs client is for local exports the client defines; {name} is {ops[name].cls}")
         kept_path = KEPT_PATH.search(str(entry.get("change") or "")) if entry.get("needs") == "kept" else None
         if entry.get("needs") == "kept" and kept_path is None:
             problems.append(f"{label}: needs kept names the in-process-only path in change (CEFRuntimeBoot.inProcess, "
@@ -2119,15 +2124,17 @@ def first_argument(text: str, begin: int, close: int) -> str:
     return text[begin:close]
 
 
-def site_settled(model: Model, site: Site, op: Op) -> bool:
+def site_settled(model: Model, site: Site, op: Op, client: str) -> bool:
     """Whether a call site already meets host mode, so --swift-sites no longer lists it: an async call in
-    the token form, a mint_returns id call in the mint form, or a site a `kept` host_mode_rewrites entry
-    settles (SETTLED_NEEDS)."""
+    the token form, a mint_returns id call in the mint form, a site a `kept` host_mode_rewrites entry
+    settles (SETTLED_NEEDS), or a `client` one whose export `client` (hand_written HOST/client) defines."""
     if site.token_form and op.cls in TOKEN_FORM_CLASSES:
         return True
     if site.mint_form and op.cls == "mint" and op.mint_returns == "id" and op.reply_event:
         return True
     rewrite = rewrite_for(model, site)
+    if rewrite is not None and rewrite.needs == "client":
+        return defines(client, site.export)
     return rewrite is not None and rewrite.needs in SETTLED_NEEDS
 
 
@@ -2410,9 +2417,10 @@ def site_reasons(model: Model, op: Op, site: Site) -> list[str]:
 
 def report_sites(model: Model, root: Path, args: argparse.Namespace) -> int:
     rows = []
+    client = hand_written(root, CLIENT_SRC)
     for site in swift_sites(root):
         op = model.ops.get(site.export)
-        if op is None or site_settled(model, site, op):
+        if op is None or site_settled(model, site, op, client):
             continue
         reasons = site_reasons(model, op, site)
         if reasons:

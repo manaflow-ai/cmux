@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include <cstdio>
+#include <memory>
 #include <utility>
 
 #include "cmux_cef_shim.h"
@@ -35,6 +36,9 @@ constexpr size_t kMaxPageViews = 4096;
 // create_window and create_placeholder_window calls whose AFTER_CREATED has
 // not come yet.
 constexpr size_t kMaxPendingBinds = 4096;
+// Password reveals the shim has not answered: the Passwords page asks for one
+// at a time, after the device owner authenticated.
+constexpr size_t kMaxPendingReveals = 64;
 
 bool IsMirrorOp(uint16_t op) {
   for (const MirrorRefresh& row : kMirrorRefreshes) {
@@ -86,6 +90,15 @@ control::Message MessageOf(uint16_t op, bool reply, uint32_t token, std::vector<
   return message;
 }
 
+// Zeroes the byte payloads of `fields` (a password reveal's answer).
+void WipeFields(std::vector<control::Field>& fields) {
+  for (control::Field& field : fields) {
+    volatile char* bytes = field.bytes.data();  // volatile: the stores are not dead to the optimizer
+    for (size_t i = 0; i < field.bytes.size(); ++i) bytes[i] = 0;
+    field.bytes.clear();
+  }
+}
+
 }  // namespace
 
 HostContext::HostContext(Send send, HostDelegate& delegate, PageViews& views, Resolve resolve)
@@ -93,6 +106,10 @@ HostContext::HostContext(Send send, HostDelegate& delegate, PageViews& views, Re
   for (const auto& entry : kOptionalExports) {
     if (void* fn = resolve ? resolve(entry.name) : nullptr) optional_exports_.emplace_back(entry.op, fn);
   }
+}
+
+HostContext::~HostContext() {
+  for (PasswordReveal* reveal : reveals_) reveal->host = nullptr;
 }
 
 void HostContext::Attach() {
@@ -206,6 +223,7 @@ bool HostContext::HandleInitialize(const control::Message& message) {
 }
 
 void HostContext::Dispatch(const control::Message& message) {
+  if (message.op == kOpPasswordReveal) return RevealPassword(message);  // local class: no generated case
   if (message.op == kOpShutdown) {
     // CefShutdown runs once the loop has ended (browser_host_main.mm), never inside a task.
     Ack(message.token);
@@ -261,6 +279,49 @@ void HostContext::Dispatch(const control::Message& message) {
   replies.swap(held_replies_);
   for (control::Message& reply : replies) Post(std::move(reply));
   if (!ok) Bad("a malformed op " + std::to_string(message.op));
+}
+
+// cmux_shim_password_reveal for cmux's local client (remote_shim_local.mm),
+// which keeps the done and ctx it was given: the host's own done answers the
+// token. As Chrome's PasswordsPrivateDelegate answers a plaintext request
+// through its callback, never through a broadcast (chrome/browser/extensions/
+// api/passwords_private/passwords_private_delegate_impl.cc).
+void HostContext::RevealPassword(const control::Message& message) {
+  TlvReader r(message.fields);
+  const std::optional<std::string> path = r.Str();
+  const std::optional<std::string> id = r.Str();
+  if (!r.ok() || !r.AtEnd() || message.token == 0) return Bad("a malformed password reveal");
+  if (state_ != State::kRunning) return SendRevealed(message.token, nullptr, 0);  // the shim's 0: not started
+  if (reveals_.size() >= kMaxPendingReveals) return Bad("too many password reveals waiting");
+  auto reveal = std::make_unique<PasswordReveal>(PasswordReveal{this, message.token});
+  PasswordReveal* pending = reveal.get();
+  reveals_.insert(pending);
+  // done runs exactly once when this returns 1, and never when it returns 0.
+  const int started = cmux_shim_password_reveal(path ? path->c_str() : nullptr, id ? id->c_str() : nullptr,
+                                                &HostContext::OnPasswordRevealed, reveal.release());
+  if (started == 1) return;
+  reveals_.erase(pending);
+  delete pending;
+  SendRevealed(message.token, nullptr, 0);
+}
+
+void HostContext::OnPasswordRevealed(void* ctx, const char* password, size_t length) {
+  const std::unique_ptr<PasswordReveal> reveal(static_cast<PasswordReveal*>(ctx));
+  if (reveal == nullptr || reveal->host == nullptr) return;
+  reveal->host->reveals_.erase(reveal.get());
+  reveal->host->SendRevealed(reveal->token, password, length);
+}
+
+// Sent at once, never held behind an op's events: the answer refreshes no
+// mirror. The shim zeroes its buffer after done; the message's copy is zeroed
+// once the channel has framed it.
+void HostContext::SendRevealed(uint32_t token, const char* password, size_t length) {
+  if (state_ == State::kEnded) return;
+  TlvWriter answer;
+  if (password != nullptr && length > 0) answer.Bytes(password, length);
+  control::Message message = MessageOf(kOpReply, true, token, answer.Take());
+  if (!send_(message)) fprintf(stderr, "cmux-chromium-host: a password reveal's answer was not sent\n");
+  WipeFields(message.fields);
 }
 
 void HostContext::Watch(uint16_t op, const std::vector<control::Field>& key) {

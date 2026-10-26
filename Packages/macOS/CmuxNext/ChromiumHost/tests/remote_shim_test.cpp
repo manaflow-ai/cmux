@@ -382,6 +382,50 @@ int main() {
     cmux_remote_shim_set_reply(nullptr, &OnReply);
   }
 
+  // A password reveal's REPLY goes to its own sink, zeroed after it, never to the reply
+  // callback (task p01-process-025).
+  {
+    static std::vector<std::pair<uint32_t, std::string>> revealed;
+    static bool null_password = false;
+    const cmux_remote::PasswordRevealedFn sink = [](uint32_t answered, const char* password, size_t length) {
+      null_password = password == nullptr;
+      revealed.emplace_back(answered, password ? std::string(password, length) : std::string());
+      return true;
+    };
+    CHECK(!cmux_remote::PostPasswordReveal(0, "/profile", "id1", sink));
+    CHECK(!cmux_remote::PostPasswordReveal(cmux_remote::NextToken(), "/profile", "id1", nullptr));
+    const uint32_t token = cmux_remote::NextToken();
+    CHECK(cmux_remote::PostPasswordReveal(token, "/profile", "id1", sink));
+    const std::vector<Message> sent = host.Read(1);
+    CHECK(sent.size() == 1 && sent[0].op == cmux_remote::kOpPasswordReveal && sent[0].token == token);
+    if (sent.size() == 1) {
+      TlvReader request(sent[0].fields);
+      CHECK(request.Str() == std::optional<std::string>("/profile"));
+      CHECK(request.Str() == std::optional<std::string>("id1") && request.ok() && request.AtEnd());
+    }
+    cmux_host::control::TlvWriter password;
+    password.Bytes("s3cret", 6);
+    Message answer;
+    answer.op = cmux_remote::kOpReply;
+    answer.token = token;
+    answer.fields = password.Take();
+    host.Send(answer);
+    CHECK(PumpUntil([] { return !revealed.empty(); }));
+    CHECK(revealed.size() == 1 && revealed[0] == std::make_pair(token, std::string("s3cret")) && !null_password);
+    CHECK(seen.replies.size() == 2);  // the reply callback never saw it
+
+    const uint32_t missing = cmux_remote::NextToken();
+    CHECK(cmux_remote::PostPasswordReveal(missing, "/profile", "id2", sink));
+    CHECK(host.Read(1).size() == 1);
+    Message none;
+    none.op = cmux_remote::kOpReply;
+    none.token = missing;
+    host.Send(none);
+    CHECK(PumpUntil([] { return revealed.size() == 2; }));
+    CHECK(revealed.size() == 2 && revealed[1].first == missing && null_password);
+    CHECK(seen.replies.size() == 2);
+  }
+
   // A mirror value pushed before its EVENT is what the event's callback reads.
   const int browser = cmux_remote::kFirstMintedBrowserID;
   host.Send(Mirror(cmux_remote::kOpTabNavigationState, browser, "{\"index\":1}"));

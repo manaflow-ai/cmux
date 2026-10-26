@@ -12,7 +12,8 @@
 //                 kOpMirror   i32 mirror op, bytes key (EncodeFields), then bytes value, or no
 //                             value to forget the key; before the EVENT that refreshes it
 //                 kOpAck      `token`'s op ran: its pending marks clear
-//                 kOpReply    the answer to an awaited `token`, its fields to the reply callback
+//                 kOpReply    the answer to an awaited `token`, its fields to the reply callback;
+//                             a password reveal's (PostPasswordReveal) to its own sink only
 // Anything else from the host is malformed and ends it, as bad_message::ReceivedBadMessage ends
 // a renderer (content/browser/bad_message.cc).
 
@@ -271,6 +272,16 @@ class Runtime {
     return sent;
   }
 
+  bool PostPasswordReveal(uint32_t token, const char* path, const char* id, PasswordRevealedFn revealed) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    if (token == 0 || revealed == nullptr || link_ != Link::kAttached) return false;
+    TlvWriter args;
+    args.Str(path);
+    args.Str(id);
+    reveals_[token] = revealed;  // an op that is not sent drops it again (Forget)
+    return Post(kOpPasswordReveal, token, args);
+  }
+
   int32_t PostPreinit(uint16_t op, uint32_t token, const TlvWriter& args) {
     CMUX_REMOTE_ASSERT_MAIN();
     if (!PreinitAccepted(op, args)) {
@@ -483,6 +494,7 @@ class Runtime {
     if (token == 0) return;
     mirror_.Ack(token);
     awaiting_.erase(token);
+    reveals_.erase(token);
   }
 
   // Closes the channel. Its reader thread ends on its own and its end reaches Ended, which
@@ -502,12 +514,13 @@ class Runtime {
     queued_live_ = 0;
     mirror_.Clear();
     awaiting_.clear();
+    reveals_.clear();
     host_exports_.clear();
   }
 
   void Deliver(uint64_t generation, std::vector<Message> batch) {
     CMUX_REMOTE_ASSERT_MAIN();
-    for (const Message& message : batch) {
+    for (Message& message : batch) {
       // A callback below may have detached, or detached and attached again.
       if (generation != generation_) return;
       if (!Apply(message)) {
@@ -527,8 +540,8 @@ class Runtime {
     closing_.erase(generation);
   }
 
-  // False for a malformed frame.
-  bool Apply(const Message& message) {
+  // False for a malformed frame. A password reveal's answer is zeroed after it is applied.
+  bool Apply(Message& message) {
     TlvReader r(message.fields);
     switch (message.op) {
       case kOpEvent: {
@@ -565,6 +578,13 @@ class Runtime {
         mirror_.Ack(message.token);
         return true;
       case kOpReply: {
+        if (const auto reveal = reveals_.find(message.token); reveal != reveals_.end()) {
+          const PasswordRevealedFn revealed = reveal->second;
+          reveals_.erase(reveal);
+          const bool ok = Revealed(message, revealed);
+          WipeFields(message.fields);
+          return ok;
+        }
         std::string fields;
         if (awaiting_.erase(message.token) == 0) return false;  // a reply to no request
         if (!cmux_host::control::EncodeFields(message.fields, &fields)) return false;
@@ -587,6 +607,27 @@ class Runtime {
       }
       default:
         return false;
+    }
+  }
+
+  // A password reveal's REPLY: one bytes field (the password) or none (not found).
+  static bool Revealed(const Message& message, PasswordRevealedFn revealed) {
+    if (message.fields.size() > 1) return false;
+    if (message.fields.empty()) {
+      revealed(message.token, nullptr, 0);
+      return true;
+    }
+    const Field& password = message.fields.front();
+    if (password.type != cmux_host::control::Type::kBytes || password.tag != cmux_host::control::kTagValue) return false;
+    revealed(message.token, password.bytes.data(), password.bytes.size());
+    return true;
+  }
+
+  static void WipeFields(std::vector<Field>& fields) {
+    for (Field& field : fields) {
+      volatile char* bytes = field.bytes.data();  // volatile: the stores are not dead to the optimizer
+      for (size_t i = 0; i < field.bytes.size(); ++i) bytes[i] = 0;
+      field.bytes.clear();
     }
   }
 
@@ -616,6 +657,8 @@ class Runtime {
   MirrorCache mirror_;
   // Tokens sent with PostForReply and not answered yet.
   std::unordered_set<uint32_t> awaiting_;
+  // Password reveals sent and not answered yet, and where each answer goes.
+  std::unordered_map<uint32_t, PasswordRevealedFn> reveals_;
   std::unordered_set<std::string> host_exports_;
   std::unordered_map<uint16_t, void*> policies_;
 #if !defined(__APPLE__)
@@ -650,6 +693,9 @@ bool PostInput(uint16_t op, uint32_t token, const TlvWriter& args) {
 }
 bool PostForReply(uint16_t op, uint32_t token, const TlvWriter& args) {
   return R().PostForReply(op, token, args);
+}
+bool PostPasswordReveal(uint32_t token, const char* profile_cache_path, const char* id, PasswordRevealedFn revealed) {
+  return R().PostPasswordReveal(token, profile_cache_path, id, revealed);
 }
 int32_t PostPreinit(uint16_t op, uint32_t token, const TlvWriter& args) {
   return R().PostPreinit(op, token, args);

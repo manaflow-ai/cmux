@@ -588,6 +588,19 @@ edit_ops "$settled" 'd["host_mode_rewrites"][0]["change"] = "Runs only before th
 expect 1 "needs kept names the in-process-only path" "a kept entry that names no in-process path" -- --root "$settled" --check-ops
 edit_ops "$settled" 'd["host_mode_rewrites"][0]["change"] = "Runs only as loadInProcess."'
 expect 1 "which .*CEFAsync.swift does not use" "a kept entry that names a path its file does not use" -- --root "$settled" --check-ops
+# needs client (task p01-process-025): a local export the client defines by hand (HOST/client, outside
+# generated/) is the same call in both backends; its site stays listed until HOST/client defines it.
+edit_ops "$settled" 'd["host_mode_rewrites"][0] = {"site": "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.boot(_:)",
+  "exports": ["cmux_shim_initialize"], "needs": "client", "change": "The same call in both backends.", "task": "p01-process-025"}'
+expect 0 "" "a client entry is valid" -- --root "$settled" --check-ops
+sites="$(python3 "$gen" --root "$settled" --swift-sites)"
+listed 42 || fail "a client site whose export HOST/client does not define is not listed: $sites"
+hand_written "$settled"
+sites="$(python3 "$gen" --root "$settled" --swift-sites)"
+listed 42 && fail "a client site whose export HOST/client defines is listed: $sites"
+edit_ops "$settled" 'd["host_mode_rewrites"][0]["site"] = "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.window(_:)"
+d["host_mode_rewrites"][0]["exports"] = ["cmux_shim_create_window"]'
+expect 1 "needs client is for local exports the client defines; cmux_shim_create_window is mint" "a client mint" -- --root "$settled" --check-ops
 edit_ops "$settled" 'd["host_mode_rewrites"][0] = {"site": "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.window(_:)",
   "exports": ["cmux_shim_create_window"], "needs": "kept", "change": "CEFRuntimeBoot.inProcess", "task": "p01-process-021"}'
 expect 1 "needs kept is for local exports called only in process; cmux_shim_create_window is mint" "a kept mint" -- --root "$settled" --check-ops

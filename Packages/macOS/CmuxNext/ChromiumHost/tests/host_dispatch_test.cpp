@@ -47,6 +47,9 @@ struct Shim {
   int live = 0;
   int devtools_result = 77;
   int focus_answer = -1;  // what the focus handler said inside set_focus
+  cmux_shim_password_reveal_fn reveal_done = nullptr;
+  void* reveal_ctx = nullptr;
+  bool reveal_refuses = false;  // password_reveal returns 0
 } shim;
 
 void Emit(int kind, int browser, int request, const char* s1 = "") {
@@ -96,6 +99,13 @@ char* cmux_shim_tab_navigation_state(int browser_id) {
   return strdup(("state of " + std::to_string(browser_id)).c_str());
 }
 void cmux_shim_free(char* s) { std::free(s); }
+int cmux_shim_password_reveal(const char* path, const char* id, cmux_shim_password_reveal_fn done, void* ctx) {
+  shim.calls.push_back(std::string("reveal ") + (path ? path : "<null>") + " " + (id ? id : "<null>"));
+  if (shim.reveal_refuses) return 0;
+  shim.reveal_done = done;
+  shim.reveal_ctx = ctx;
+  return 1;
+}
 int cmux_shim_live_browser_count(void) { return shim.live; }
 }
 
@@ -514,6 +524,66 @@ void PopupBoundsByWindow() {
   Expect(f.Sent(), {"event 16 77 11"}, "another window's change leaves it, even from browser 77");
 }
 
+// cmux_shim_password_reveal (task p01-process-025): the shim's done answers
+// the op's token with one bytes field, or none when it found no password.
+Message RevealRequest(uint32_t token, const char* id) {
+  Writer w;
+  w.Str("/profile");
+  w.Str(id);
+  return Op(kOpPasswordReveal, token, w);
+}
+
+bool Answers(const std::vector<Message>& sent, uint32_t token, const char* password) {
+  if (sent.size() != 1 || sent[0].op != kOpReply || !sent[0].reply || sent[0].token != token) return false;
+  if (password == nullptr) return sent[0].fields.empty();
+  return sent[0].fields.size() == 1 && sent[0].fields[0].type == control::Type::kBytes &&
+         sent[0].fields[0].tag == control::kTagValue && sent[0].fields[0].bytes == password;
+}
+
+void PasswordReveal() {
+  {
+    Fixture f;
+    f.Start();
+    f.host.OnMessages({RevealRequest(9, "id1")});
+    Check(!shim.calls.empty() && shim.calls.back() == "reveal /profile id1", "the reveal reaches the shim");
+    Check(f.sent.empty(), "nothing is sent before the shim's done");
+    shim.reveal_done(shim.reveal_ctx, "s3cretXX", 6);
+    Check(Answers(f.sent, 9, "s3cret"), "done answers the token with the password's bytes");
+    f.sent.clear();
+    f.host.OnMessages({RevealRequest(10, "id2")});
+    shim.reveal_done(shim.reveal_ctx, nullptr, 0);
+    Check(Answers(f.sent, 10, nullptr), "not found: a REPLY with no field");
+    f.sent.clear();
+    shim.reveal_refuses = true;
+    f.host.OnMessages({RevealRequest(11, "id3")});
+    Check(Answers(f.sent, 11, nullptr), "a reveal the shim did not start is answered at once as not found");
+    f.sent.clear();
+    f.host.OnMessages({RevealRequest(0, "id4")});
+    Check(f.delegate.calls.back() == "bad a malformed password reveal", "a reveal with no token is bad");
+  }
+  {
+    Fixture f;
+    f.host.Attach();
+    f.host.OnMessages({Hello()});
+    f.Sent();
+    f.host.OnMessages({RevealRequest(12, "id5")});
+    Check(Answers(f.sent, 12, nullptr), "before initialize nothing is started: not found");
+    Check(shim.calls.empty(), "before initialize the shim is not asked");
+  }
+  // A done after the host context is gone sends nothing (ASan: no use after free).
+  cmux_shim_password_reveal_fn done = nullptr;
+  void* ctx = nullptr;
+  {
+    Fixture f;
+    f.Start();
+    f.host.OnMessages({RevealRequest(13, "id6")});
+    done = shim.reveal_done;
+    ctx = shim.reveal_ctx;
+  }
+  Check(done != nullptr, "the late reveal started");
+  if (done) done(ctx, "late", 4);
+}
+
 void WipeZeroes() {
   std::vector<std::string> secrets = {"hunter2", ""};
   cmux_host::Wipe(secrets);
@@ -534,6 +604,7 @@ int main() {
   Shutdown();
   BadMessages();
   PopupBoundsByWindow();
+  PasswordReveal();
   WipeZeroes();
   if (failures) return EXIT_FAILURE;
   std::puts("chromium-host-dispatch tests: ok");
