@@ -56,13 +56,31 @@ what needs the person first.
    destructive, sign-in; such asks go first, self-contained), and
    preferences (remember at once; never ask what the profile answers).
 
+## Fixed (#25576)
+
+1. **Learned preferences hold at once, in every chat.** The profile is read
+   once per host start (the cached prefix), so a line `remember` kept later
+   lived only in the chat that called it, until the view summarized it away.
+   Now each turn's tail (after the cache marks) names the `## Learned` lines
+   the system text lacks, and so does each new subagent's task
+   (`assistant::learned_since`, brain/assist.rs, `Spawner::with_learned`).
+2. **A promise in prose gets a wake.** A reply that says "I'll check back",
+   "I'll let you know" and the like, in a turn that called no `sleep`, has
+   no wake pending and no subagent at work, gets a host wake in 15 minutes
+   (`assistant::PROMISE_WAKE_SECS`) whose note quotes the promise.
+3. **Replies end with the result.** A last post that ends by handing a
+   decision back ("Want me to fix it?", "Should I ...?") gets one `[decide]`
+   note: do the default and say so, or, when the step needs the person
+   (money, legal, destructive, sign-in), leave the question and stop. A
+   `[decide]` turn never gets another. The prompt says the same
+   ("End every reply with the result or what runs now").
+4. Evals: `tests/eval_assistant_followthrough.rs` (deterministic), and the
+   model cases `assistant-25576-learned-preference-applied`,
+   `assistant-25576-ends-with-result`, `tenacity-25576-blocked-report-surfaced`.
+   The model runner mirrors the tail line and the `[decide]` turn, and its
+   `remember` stub now writes through the real `remember`.
+
 ## Still open
 
 - No "forget" or "show what you remember" view. The file is plain Markdown,
   so the user can edit it now.
-- A promise the Chief makes in prose ("I'll check back") without calling
-  `sleep` is still not detected by the host. The prompt rule and the
-  `tenacity-watch-promise-uses-wake` eval cover it.
-- The person profile is read once per host start (it is the cached prefix).
-  A new preference holds at once through the chat and the tool call, and
-  from the next host start through the prompt.

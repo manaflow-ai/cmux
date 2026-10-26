@@ -1096,6 +1096,7 @@ pub fn settings(dir: &Path) -> Settings {
         home_view: None,
         membership: Default::default(),
         keep_turn_session: false,
+        person: None,
     }
 }
 

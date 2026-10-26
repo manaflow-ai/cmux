@@ -97,6 +97,7 @@ impl Brain {
         self.state.wakes.push(wake);
         self.state.wakes.sort_by_key(|w| w.at_ms);
         self.save();
+        self.turn_slept = true;
         let running = self.phase == Phase::Running;
         if running {
             self.end_turn_by_tool("sleep");
