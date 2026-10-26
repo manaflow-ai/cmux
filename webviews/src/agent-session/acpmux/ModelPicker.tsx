@@ -89,14 +89,13 @@ const QUICK_ROWS = 4;
 const isVariant = (model: ModelChoice) => model.id.includes("[") || model.name.includes(" · ");
 
 /// `choices` as one row per model (modelVariants.ts): a model several providers serve lands the
-/// running provider's row (`model`), else the first one that is available, and `offers` holds
-/// every provider's. Its name drops the provider; a bracketed note becomes its `tag`.
+/// running provider's row (`model`) while it is available, else the first one that is, and `offers`
+/// holds every provider's. A list with no Provider row (search, Starred) would otherwise leave an
+/// unavailable running provider as the model's only way in. Its name drops the provider; a
+/// bracketed note becomes its `tag`.
 function groupChoices(choices: readonly ModelChoice[], model: string | undefined): ModelChoice[] {
   return groupVariants(choices, model).map(({ model: grouped, name, tag, offers }): ModelChoice => {
-    const choice =
-      grouped.unavailable && grouped.id !== model
-        ? (offers.find((offer) => !offer.model.unavailable)?.model ?? grouped)
-        : grouped;
+    const choice = grouped.unavailable ? (offers.find((offer) => !offer.model.unavailable)?.model ?? grouped) : grouped;
     const provider = offers.find((offer) => offer.model === choice)?.provider;
     return {
       ...choice,
@@ -705,12 +704,7 @@ export function ModelPicker(props: ModelPickerProps) {
     const groupOf = new Map<ModelChoice, ModelChoice>();
     for (const entry of new Set(found.map((match) => match.entry))) {
       const matches = found.filter((match) => match.entry === entry).map((match) => match.model);
-      // The running provider's row leads its model only while it is available: a search has no
-      // Provider row, so an unavailable one would leave the model's other providers out of reach.
-      const running = entry.ids.includes(harness ?? "")
-        ? matches.find((match) => match.id === props.model && !match.unavailable)?.id
-        : undefined;
-      for (const group of groupChoices(matches, running))
+      for (const group of groupChoices(matches, entry.ids.includes(harness ?? "") ? props.model : undefined))
         for (const member of group.offers ?? [group])
           groupOf.set(
             matches.find((match) => match.id === member.id)!,
