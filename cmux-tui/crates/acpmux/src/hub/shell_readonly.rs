@@ -42,11 +42,11 @@ const TRUSTED_DIRS: [&str; 6] =
 const PLAIN: &[&str] = &[
     "pwd", "ls", "cat", "head", "tail", "wc", "echo", "true", "false", "which", "type", "stat",
     "du", "df", "basename", "dirname", "realpath", "readlink", "cut", "tr", "nl", "cmp", "comm",
-    "diff", "grep", "egrep", "fgrep", "column", "whoami", "id", "uname", "test", "[", "jq",
+    "grep", "egrep", "fgrep", "column", "whoami", "id", "uname", "jq",
 ];
 
 /// Shell builtins: they run in the shell, whatever PATH holds.
-const BUILTINS: &[&str] = &["pwd", "echo", "printf", "true", "false", "test", "[", "type"];
+const BUILTINS: &[&str] = &["pwd", "echo", "true", "false", "test", "[", "type"];
 
 /// `GIT_*` variables that make no read run another program (identity, editors for commands that
 /// edit, the prompt switch); every other one asks (`GIT_EXTERNAL_DIFF`, `GIT_CONFIG_COUNT`, ...).
@@ -77,6 +77,8 @@ const RUNS_ENV: &[&str] = &[
     "PAGER",
     "LESSOPEN",
     "LESSCLOSE",
+    // zsh runs `$ZDOTDIR/.zshenv` before any `-c` script.
+    "ZDOTDIR",
 ];
 
 /// How long the repository probe may take before the command asks instead.
@@ -96,6 +98,12 @@ fn env_runs_nothing(env: &Env) -> bool {
             || k.starts_with("BASH_FUNC_")
             || (k.starts_with("GIT_") && !HARMLESS_GIT_ENV.contains(&k.as_str())))
     })
+}
+
+/// Whether every PATH entry is absolute. An empty or relative one is searched from the command's
+/// own directory, which this cannot see from the daemon's (`PATH=.:/usr/bin` finds `./ls`).
+fn path_is_absolute(env: &Env) -> bool {
+    env.get("PATH").is_none_or(|path| std::env::split_paths(path).all(|d| d.is_absolute()))
 }
 
 /// Whether the shell that runs the script is a system one. Claude Code runs `$SHELL`, and Codex
@@ -184,7 +192,7 @@ pub(crate) fn request_is_read_only(request: &Value, session_cwd: &Path, env: &En
         },
         _ => return false,
     };
-    if !env_runs_nothing(env) || !shells_are_system(env) {
+    if !env_runs_nothing(env) || !path_is_absolute(env) || !shells_are_system(env) {
         return false;
     }
     let found = |name: &str| BUILTINS.contains(&name) || resolve(name, env).is_some();
@@ -255,6 +263,8 @@ fn segments(script: &str) -> Option<Vec<Vec<String>>> {
     };
     while let Some(c) = chars.next() {
         match c {
+            // Bash splits words only at space, tab and newline: a `\r` stays in the word.
+            c if c.is_control() && c != '\t' && c != '\n' => return None,
             '\'' => {
                 in_word = true;
                 loop {
@@ -322,7 +332,7 @@ fn segments(script: &str) -> Option<Vec<Vec<String>>> {
                 end(&mut segs, &mut word, &mut in_word);
                 segs.push(Vec::new());
             }
-            ' ' | '\t' | '\r' => end(&mut segs, &mut word, &mut in_word),
+            ' ' | '\t' => end(&mut segs, &mut word, &mut in_word),
             ch => {
                 in_word = true;
                 word.push(ch);
@@ -346,6 +356,13 @@ fn short_has(arg: &str, flag: char) -> bool {
     arg.starts_with('-') && !arg.starts_with("--") && arg[1..].contains(flag)
 }
 
+/// A long option that GNU getopt and git read as `full`: any unambiguous prefix of it, with or
+/// without `=VALUE` (`--out=f` is `--output=f`).
+fn long_is(arg: &str, full: &str) -> bool {
+    let name = arg.split_once('=').map_or(arg, |(n, _)| n);
+    name.len() > 2 && name.starts_with("--") && full.starts_with(name)
+}
+
 fn segment_ok(words: &[String]) -> Option<Reads> {
     let Some((first, args)) = words.split_first() else { return Some(Reads::Plain) };
     // `GIT_EXTERNAL_DIFF=x git diff` runs x.
@@ -362,15 +379,16 @@ fn segment_ok(words: &[String]) -> Option<Reads> {
     let any = |f: &dyn Fn(&str) -> bool| args.iter().any(|a| f(a));
     let ok = match name {
         n if PLAIN.contains(&n) => true,
-        // Bash's `printf -v NAME` sets a variable (`PATH`) for the commands after it.
-        "printf" => !any(&|a| a.starts_with("-v")),
+        // `-v NAME` and `-R NAME` evaluate an array subscript, which can hold `$(...)`.
+        "test" | "[" => !any(&|a| matches!(a, "-v" | "-R")),
+        // `--paginate` (`-l`) runs `pr`.
+        "diff" => !any(&|a| short_has(a, 'l') || long_is(a, "--paginate")),
         "sort" => !any(&|a| {
-            a == "-o"
-                || a.starts_with("--output")
-                || a.starts_with("--compress-program")
-                || short_has(a, 'o')
+            short_has(a, 'o') || long_is(a, "--output") || long_is(a, "--compress-program")
         }),
-        // A second operand is the output file; after `--` every word is an operand.
+        // A second operand is the output file; after `--` every word is an operand, and a glob
+        // can expand to two.
+        "uniq" if any(&|a| a.contains(['*', '?', '['])) => false,
         "uniq" => {
             let end = args.iter().position(|a| a == "--").unwrap_or(args.len());
             let operands =
@@ -378,7 +396,23 @@ fn segment_ok(words: &[String]) -> Option<Reads> {
                     + args.len().saturating_sub(end + 1);
             operands <= 1
         }
-        "date" => !any(&|a| a.starts_with("--set") || short_has(a, 's')),
+        // An operand other than `+FORMAT` sets the clock (`date 102612002026`).
+        "date" => {
+            let mut ok = true;
+            let mut takes_value = false;
+            for a in args {
+                if std::mem::take(&mut takes_value) {
+                    continue;
+                }
+                match a.as_str() {
+                    "-d" | "--date" | "-r" | "--reference" | "-f" | "--file" => takes_value = true,
+                    a if long_is(a, "--set") || short_has(a, 's') => ok = false,
+                    a if a.starts_with('-') || a.starts_with('+') => {}
+                    _ => ok = false,
+                }
+            }
+            ok
+        }
         "hostname" => args.iter().all(|a| {
             matches!(
                 a.as_str(),
@@ -398,9 +432,16 @@ fn segment_ok(words: &[String]) -> Option<Reads> {
                     | "--all-fqdns"
             )
         }),
-        "file" => !any(&|a| a == "--compile" || short_has(a, 'C')),
+        "file" => !any(&|a| long_is(a, "--compile") || short_has(a, 'C')),
         "tree" => !any(&|a| short_has(a, 'o') || short_has(a, 'R')),
-        "rg" => !any(&|a| a == "--pre" || a.starts_with("--pre=") || a.starts_with("--pre-glob")),
+        // `--search-zip` (`-z`) runs gzip, xz and the like from PATH.
+        "rg" => !any(&|a| {
+            a == "--pre"
+                || a.starts_with("--pre=")
+                || a.starts_with("--pre-glob")
+                || long_is(a, "--search-zip")
+                || short_has(a, 'z')
+        }),
         "find" => !any(&|a| {
             a.starts_with("-exec")
                 || a.starts_with("-ok")
@@ -442,12 +483,15 @@ fn git_ok(args: &[String]) -> Option<Option<String>> {
 
 fn git_read_ok(args: &[String]) -> bool {
     let Some((sub, rest)) = args.split_first() else { return false };
+    // git takes any unambiguous prefix of a long option, and a short cluster (`-nOsh` is
+    // `-n -O sh`). A signature check (`--show-signature`, a `%G` format) runs gpg.
     let writes = |a: &String| {
-        a == "--output"
-            || a.starts_with("--output=")
-            || a.starts_with("-O")
-            || a.starts_with("--open-files-in-pager")
-            || a == "--ext-diff"
+        long_is(a, "--output")
+            || short_has(a, 'O')
+            || long_is(a, "--open-files-in-pager")
+            || long_is(a, "--ext-diff")
+            || long_is(a, "--show-signature")
+            || a.contains("%G")
     };
     if rest.iter().any(writes) {
         return false;
@@ -566,7 +610,16 @@ fn repository_runs_nothing(git_bin: &Path, env: &Env, dir: &Path, depth: u8) -> 
             return false;
         };
         let (key, value) = entry.split_once('\n').unwrap_or((entry, "true"));
-        if matches!(scope, "local" | "worktree") && !key_runs_nothing(key, value) {
+        let runs = match scope {
+            "local" | "worktree" => !key_runs_nothing(key, value),
+            // The person's own config may hold anything, but not a program a read runs, except
+            // git-lfs's own filter (`git lfs install`) when PATH finds it in a system directory.
+            _ => {
+                key_runs_on_read(key, value)
+                    && !(is_lfs_filter(key, value) && resolve("git-lfs", env).is_some())
+            }
+        };
+        if runs {
             return false;
         }
     }
@@ -592,6 +645,35 @@ fn repository_runs_nothing(git_bin: &Path, env: &Env, dir: &Path, depth: u8) -> 
         sub.join(".git").symlink_metadata().is_err()
             || repository_runs_nothing(git_bin, env, &sub, depth + 1)
     })
+}
+
+/// Whether global or system config `key` = `value` makes a git read run a program or fetch:
+/// `diff.external`, a diff driver's `textconv` or `command`, a filter, an fsmonitor hook,
+/// `log.showSignature` (gpg) or a promisor remote (a lazy fetch writes objects).
+fn key_runs_on_read(key: &str, value: &str) -> bool {
+    let truthy = !matches!(value.to_ascii_lowercase().as_str(), "false" | "no" | "off" | "0" | "");
+    let Some((section, rest)) = key.split_once('.') else { return false };
+    let name = rest.rsplit_once('.').map_or(rest, |(_, n)| n);
+    match section {
+        "diff" => matches!(name, "external" | "textconv" | "command"),
+        "filter" => true,
+        "core" => name == "fsmonitor" && !key_runs_nothing(key, value),
+        "log" => name == "showsignature" && truthy,
+        "remote" => name == "promisor" && truthy,
+        "extensions" => name == "partialclone",
+        _ => false,
+    }
+}
+
+/// The filter lines `git lfs install` writes.
+fn is_lfs_filter(key: &str, value: &str) -> bool {
+    matches!(
+        (key, value),
+        ("filter.lfs.clean", "git-lfs clean -- %f")
+            | ("filter.lfs.smudge", "git-lfs smudge -- %f")
+            | ("filter.lfs.process", "git-lfs filter-process")
+            | ("filter.lfs.required", "true")
+    )
 }
 
 /// Whether repository config `key` = `value` names no program for a git read to run. An
@@ -647,8 +729,6 @@ fn key_runs_nothing(key: &str, value: &str) -> bool {
                 | "pushurl"
                 | "fetch"
                 | "push"
-                | "promisor"
-                | "partialclonefilter"
                 | "tagopt"
                 | "prune"
                 | "prunetags"
@@ -1079,7 +1159,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(reads("git diff"), resolve("git-lfs", &env).is_some());
-        std::fs::write(home.join(".gitconfig"), "[filter \"lfs\"]\n\tclean = /tmp/hook %f\n").unwrap();
+        std::fs::write(home.join(".gitconfig"), "[filter \"lfs\"]\n\tclean = /tmp/hook %f\n")
+            .unwrap();
         assert!(!reads("git diff"));
         for d in [dir, home] {
             std::fs::remove_dir_all(d).unwrap();
