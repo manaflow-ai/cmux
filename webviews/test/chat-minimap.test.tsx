@@ -17,12 +17,13 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
   pretendToBeVisual: true,
   virtualConsole: new VirtualConsole(),
 });
-// Frames run when the test says so.
-let frames: FrameRequestCallback[] = [];
+// Frames run when the test says so; a cancelled one never runs.
+const frames = new Map<number, FrameRequestCallback>();
+let frameId = 0;
 const runFrames = () => {
-  for (let pass = 0; pass < 4 && frames.length; pass += 1) {
-    const due = frames;
-    frames = [];
+  for (let pass = 0; pass < 4 && frames.size; pass += 1) {
+    const due = [...frames.values()];
+    frames.clear();
     for (const callback of due) callback(performance.now());
   }
 };
@@ -50,12 +51,12 @@ const replacements: Record<string, unknown> = {
   matchMedia: (media: string) => ({ matches: media.includes("reduce"), media }), // prettier-ignore
   IntersectionObserver: Inert,
   ResizeObserver: Inert,
-  requestAnimationFrame: (callback: FrameRequestCallback) => frames.push(callback),
-  cancelAnimationFrame: () => {},
+  requestAnimationFrame: (callback: FrameRequestCallback) => (frames.set(++frameId, callback), frameId),
+  cancelAnimationFrame: (id: number) => void frames.delete(id),
   IS_REACT_ACT_ENVIRONMENT: true,
 };
 dom.window.requestAnimationFrame = replacements.requestAnimationFrame as typeof dom.window.requestAnimationFrame;
-dom.window.cancelAnimationFrame = () => {};
+dom.window.cancelAnimationFrame = replacements.cancelAnimationFrame as typeof dom.window.cancelAnimationFrame;
 for (const key of Object.getOwnPropertyNames(dom.window))
   if (/^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in scope))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
@@ -138,7 +139,7 @@ async function mount(after: AcpmuxRow[] = []) {
   document.body.append(host);
   const root = createRoot(host);
   const base = chat("Streaming");
-  const render = (reply: string, streaming = false) => {
+  const render = (reply: string, streaming = false, sessionId = "chat-minimap") => {
     const rows = base.slice();
     rows[rows.length - 1] = { ...base.at(-1)!, text: reply, version: reply.length, streaming }; // prettier-ignore
     rows.push(...after);
@@ -146,7 +147,7 @@ async function mount(after: AcpmuxRow[] = []) {
       root.render(
         <VirtualTranscript
           rows={turnView(rows, new Set())}
-          sessionId="chat-minimap"
+          sessionId={sessionId}
           onToggleActivity={() => {}}
           expanded={new Set()}
         />,
@@ -158,7 +159,9 @@ async function mount(after: AcpmuxRow[] = []) {
     await act(async () => root.unmount());
     host.remove();
   };
-  return { host, render, draws, done };
+  const box = () => host.querySelector<HTMLElement>(".acpmux-chat-minimap__view")!;
+  const scroller = () => host.querySelector<HTMLElement>(".acpmux-scroll")!;
+  return { host, render, draws, done, box, scroller };
 }
 
 test("on: one canvas, no node per row; frozen while a reply streams; a scroll moves only the view box", async () => {
@@ -198,7 +201,7 @@ test("on: one canvas, no node per row; frozen while a reply streams; a scroll mo
     const size = placeholder.style.cssText;
     const atStart = pane.draws();
     // The view is at the end, following the reply.
-    const page = content(scroller, 60_000);
+    const page = content(scroller, 20_000);
     await scrollTo(scroller, page.height - VIEWPORT);
     const boxAtStart = box.style.transform;
     for (let token = 0; token < 200; token += 1) {
@@ -315,5 +318,109 @@ test("off by default; on, but not with Full Width or a column too wide for the r
   } finally {
     await pane.done();
     setChatDisplay({});
+  }
+});
+
+test("a reply that starts streaming freezes the box where the view is: the first follow leaves it", async () => {
+  setChatDisplay({ "agentPane.display.vscodeMinimap": true });
+  const pane = await mount();
+  try {
+    await pane.render("Done.");
+    await act(async () => flushFrames());
+    // The view sits at the end already (as when a prompt was just sent); no scroll since mount.
+    const page = content(pane.scroller(), 20_000);
+    pane.scroller().scrollTop = page.height - VIEWPORT;
+    await pane.render("Streaming", true);
+    await act(async () => flushFrames());
+    const frozen = pane.box().style.transform;
+    // The transcript follows the reply down: the box stays where it froze.
+    page.height += 40;
+    await scrollTo(pane.scroller(), page.height - VIEWPORT);
+    expect(pane.box().style.transform).toBe(frozen);
+    expect(frozen).not.toBe("translateY(0px)");
+    // The same follow with no reply streaming moves it (so the check above can fail).
+    await pane.render("Streaming", false);
+    page.height += 40;
+    await scrollTo(pane.scroller(), page.height - VIEWPORT);
+    expect(pane.box().style.transform).not.toBe(frozen);
+  } finally {
+    await pane.done();
+    setChatDisplay({});
+  }
+});
+
+test("the scrollbar's value is the share scrolled of the real range, focused or not, and keys move it", async () => {
+  setChatDisplay({ "agentPane.display.vscodeMinimap": true });
+  const pane = await mount();
+  try {
+    await pane.render("Done.");
+    await act(async () => flushFrames());
+    const control = pane.host.querySelector<HTMLElement>(".acpmux-chat-minimap [role=scrollbar]")!;
+    const value = () => control.getAttribute("aria-valuenow");
+    // The scroller's own range (content less the view), whatever padding or dock is in the content.
+    const page = content(pane.scroller(), 1000);
+    await scrollTo(pane.scroller(), 1000 - VIEWPORT);
+    expect(value()).toBe("100");
+    await scrollTo(pane.scroller(), 0);
+    expect(value()).toBe("0");
+    await scrollTo(pane.scroller(), 200);
+    expect(value()).toBe("50");
+    // Keys on the focused control scroll the transcript; the value follows.
+    await act(async () => control.focus());
+    const key = (name: string) =>
+      act(async () => {
+        control.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true }));
+        pane.scroller().dispatchEvent(new dom.window.Event("scroll"));
+        runFrames();
+      });
+    await key("End");
+    expect(value()).toBe("100");
+    await key("Home");
+    expect(value()).toBe("0");
+    await key("ArrowDown");
+    expect(value()).toBe(String(Math.round((100 * 40) / (page.height - VIEWPORT))));
+  } finally {
+    await pane.done();
+    setChatDisplay({});
+  }
+});
+
+test("another chat starts its own minimap: no canvas, placeholder or scale carried over", async () => {
+  setChatDisplay({ "agentPane.display.vscodeMinimap": true });
+  const pane = await mount();
+  try {
+    await pane.render("Streaming", true, "chat-a");
+    await act(async () => flushFrames());
+    const canvasA = pane.host.querySelector(".acpmux-chat-minimap canvas");
+    const placeholder = () => pane.host.querySelector<HTMLElement>(".acpmux-chat-minimap__placeholder")!.style.height;
+    const heightA = placeholder();
+    // Chat B: its reply, streaming at the same row, is already long.
+    await pane.render(Array.from({ length: 120 }, (_, n) => `Paragraph ${n}.`).join("\n\n"), true, "chat-b");
+    await act(async () => flushFrames());
+    expect(pane.host.querySelector(".acpmux-chat-minimap canvas")).not.toBe(canvasA);
+    expect(Number.parseFloat(placeholder())).toBeGreaterThan(Number.parseFloat(heightA));
+    expect(pane.draws()).toBe(1);
+  } finally {
+    await pane.done();
+    setChatDisplay({});
+  }
+});
+
+test("unmounting cancels the view box's pending frame", async () => {
+  setChatDisplay({ "agentPane.display.vscodeMinimap": true });
+  const pane = await mount();
+  try {
+    await pane.render("Done.");
+    await act(async () => flushFrames());
+    await act(async () => {
+      pane.scroller().scrollTop = 3000;
+      pane.scroller().dispatchEvent(new dom.window.Event("scroll"));
+    });
+    const follow = [...frames].find(([, callback]) => callback.name === "follow");
+    expect(follow).toBeDefined();
+    await act(async () => setChatDisplay({}));
+    expect(frames.has(follow![0])).toBe(false);
+  } finally {
+    await pane.done();
   }
 });

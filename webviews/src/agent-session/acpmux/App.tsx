@@ -3921,6 +3921,8 @@ export function VirtualTranscript({
         )}
         {/* The VS Code-style minimap at the right edge (Settings > Agent Chat > VS Code Minimap, off by default). */}
         <ChatMinimap
+          // Another chat is another minimap: no canvas, placeholder or scale carried over.
+          key={sessionId}
           rows={rows}
           layout={layout}
           scroller={ref}

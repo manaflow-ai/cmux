@@ -153,12 +153,11 @@ const Minimap = memo(function Minimap({
     if (drawn.current.transform !== transform) box.style.transform = drawn.current.transform = transform;
     const boxHeight = `${Math.round(at.height * 4) / 4}px`;
     if (drawn.current.boxHeight !== boxHeight) box.style.height = drawn.current.boxHeight = boxHeight;
-    // The control's value (the share scrolled) only matters while it has focus.
+    // The control's value: the share of the scroller's own range scrolled, written when it changes.
     const owner = control.current;
-    if (!owner || owner.ownerDocument.activeElement !== owner) return;
-    const range = source.current.layout.totalHeight + THREAD_PADDING_TOP - height;
-    const now = String(range > 0 ? Math.round((100 * top) / range) : 0);
-    if (owner.getAttribute("aria-valuenow") !== now) owner.setAttribute("aria-valuenow", now);
+    const range = node.scrollHeight - node.clientHeight;
+    const now = String(range > 0 ? Math.round((100 * Math.min(range, Math.max(0, top))) / range) : 0);
+    if (owner && owner.getAttribute("aria-valuenow") !== now) owner.setAttribute("aria-valuenow", now);
   });
 
   const [draw] = useState(() => () => {
@@ -270,6 +269,15 @@ const Minimap = memo(function Minimap({
     } else setHold(undefined);
     schedule(false);
   }, [streaming, track, schedule, source]);
+
+  // A reply starts streaming: the box freezes where the view is now, after the transcript has placed
+  // itself (a passive effect runs after its layout effects), so its own follow never moves the box.
+  useEffect(() => {
+    const node = scroller.current;
+    if (streaming < 0 || !node) return;
+    drawn.current.atLatest = node.scrollHeight - node.clientHeight - node.scrollTop <= LATEST_PX;
+    placeView();
+  }, [streaming, scroller, placeView]);
 
   useEffect(() => {
     const node = scroller.current;
