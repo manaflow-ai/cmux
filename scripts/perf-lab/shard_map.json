@@ -6,7 +6,7 @@
           "index": 0,
           "seconds": {
             "T1": 19300,
-            "T2": 31440
+            "T2": 36840
           },
           "stories": {
             "T1": [
@@ -90,10 +90,13 @@
               "daemon-spawn",
               "devtools-resize-live",
               "launch-after-reboot",
+              "launch-connect",
               "layout-loop-stress",
               "new-surfaces-stress",
               "pane-scale",
               "perceived-speed",
+              "readiness-soak",
+              "relaunch-e2e",
               "script-storm",
               "script-storm-stress",
               "sidebar-churn-typing",
@@ -115,7 +118,7 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 31440
+            "T2": 36840
           },
           "stories": {
             "T2": [
@@ -147,10 +150,13 @@
               "daemon-spawn",
               "devtools-resize-live",
               "launch-after-reboot",
+              "launch-connect",
               "layout-loop-stress",
               "new-surfaces-stress",
               "pane-scale",
               "perceived-speed",
+              "readiness-soak",
+              "relaunch-e2e",
               "script-storm",
               "script-storm-stress",
               "sidebar-churn-typing",
