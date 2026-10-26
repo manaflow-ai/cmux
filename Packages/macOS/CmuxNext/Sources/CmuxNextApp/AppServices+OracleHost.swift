@@ -52,8 +52,9 @@ extension AppServices: OracleHost {
             OracleOverlaysFacet(hash: Self.oracleSHA256, changes: { [overlayChanges] in overlayChanges.subscribe() }) { [weak self] in
                 self?.oracleOverlays()
             },
-            // The daemon mirror's terminals in one main-actor hop; their screens from the daemons off the main actor.
-            OracleTerminalsFacet(rewrite: .init(environment: ProcessInfo.processInfo.environment), hash: Self.oracleSHA256) {
+            // The local daemon mirror's terminals in the snapshot's main-actor turn; their screens off the main actor.
+            OracleTerminalsFacet(rewrite: .init(rootVariable: environment.oracleRoot, home: environment.launchHome), hash: Self.oracleSHA256,
+                                 changes: { [terminalScreenChanges] in terminalScreenChanges.subscribe() }) {
                 [weak self] () throws(OracleFacetError) -> [OracleTerminalsFacet.Terminal] in
                 guard let self else { throw OracleFacetError("the app services are gone") }
                 return try oracleTerminals()
@@ -157,30 +158,36 @@ extension AppServices {
         return CmuxNextTabs.TabID(hoverCardTarget: id).map { OracleOverlaysFacet.HoverTarget.tab($0.rawValue) }
     }
 
-    /// The `terminals` facet's main-actor read (p15-oracle-044): every local terminal tab's daemon mirror values and
-    /// its view's attach driver, never a Ghostty surface; the attach state and the screen are read off the main actor.
+    /// The `terminals` facet's main-actor read (p15-oracle-044): the local daemon's terminals, as the facet says. A
+    /// Cloud, SSH or server machine's terminals are not the case's: a reconnecting remote must not fail the snapshot.
     func oracleTerminals() throws(OracleFacetError) -> [OracleTerminalsFacet.Terminal] {
-        var terminals: [OracleTerminalsFacet.Terminal] = []
-        for (workspace, daemon) in machines.allWorkspaces {
-            // A remote-terminal tab's terminal is another session's, and a terminal not made yet has no screen.
-            for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) where tab.kind == .pty && tab.remote == nil {
-                guard let id = tab.terminalResourceID?.rawValue ?? tab.terminalID?.rawValue else { continue }
-                guard let connection = daemon.connection else { throw OracleFacetError("no connection to \(daemon.machineID) for \(id)") }
-                let exitCode = tab.end.flatMap { $0.kind == .exited ? $0.code.map { Int($0) } : nil }
-                let reads = Self.oracleReads(view: cache.existingTerminal(tab.id)?.io, connection: connection, surface: tab.surface)
-                terminals.append(OracleTerminalsFacet.Terminal(terminal: id, tab: tab.id, cols: tab.size?.cols ?? 0, rows: tab.size?.rows ?? 0,
-                                                               title: tab.title, cwd: tab.cwd, ended: tab.dead, exitCode: exitCode,
-                                                               attach: reads.attach, screen: reads.screen))
-            }
+        let connection = machines.local.connection
+        return try Self.oracleTerminals(in: machines.local.store.workspaces, attach: { [cache] tab in
+            (cache.existingTerminal(tab)?.io).map { view in { @Sendable () -> OracleTerminalsFacet.Attach in view.attachPhase.oracleAttach } }
+        }) { surface throws(OracleFacetError) -> @Sendable () async throws -> String in
+            guard let connection else { throw OracleFacetError("no connection to the local daemon to read surface \(surface.rawValue)") }
+            return { try await connection.request(ReadScreenRequest(surface: surface), timeout: .seconds(2)).text }
         }
-        return terminals
     }
 
-    /// A terminal's two off-main reads: its view's attach machine (behind the driver's lock) and its daemon's `read-screen`.
-    nonisolated static func oracleReads(view: DaemonTerminalIO?, connection: DaemonConnection, surface: SurfaceID)
-        -> (attach: (@Sendable () -> OracleTerminalsFacet.Attach)?, screen: @Sendable () async throws -> String) {
-        let attach = view.map { view in { @Sendable () -> OracleTerminalsFacet.Attach in view.attachPhase.oracleAttach } }
-        return (attach, { try await connection.request(ReadScreenRequest(surface: surface), timeout: .seconds(2)).text })
+    /// Every terminal tab's daemon mirror values, never a Ghostty surface; the attach state (its view's attach machine,
+    /// behind the driver's lock) and the screen are read off the main actor.
+    /// - Parameters:
+    ///   - attach: The attach state read of the view that shows a tab, nil when no view is made.
+    ///   - screen: The `read-screen` of a surface.
+    static func oracleTerminals(in workspaces: [WorkspaceModel], attach: (String) -> (@Sendable () -> OracleTerminalsFacet.Attach)?,
+                                screen: (SurfaceID) throws(OracleFacetError) -> @Sendable () async throws -> String)
+        throws(OracleFacetError) -> [OracleTerminalsFacet.Terminal] {
+        var terminals: [OracleTerminalsFacet.Terminal] = []
+        // A remote-terminal tab's terminal is another session's; a tab with no public terminal id has no terminal made yet.
+        for tab in workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs) where tab.kind == .pty && tab.remote == nil {
+            guard let id = tab.terminalResourceID?.rawValue else { continue }
+            let exitCode = tab.end.flatMap { $0.kind == .exited ? $0.code.map { Int($0) } : nil }
+            terminals.append(OracleTerminalsFacet.Terminal(terminal: id, tab: tab.id, cols: tab.size?.cols ?? 0, rows: tab.size?.rows ?? 0,
+                                                           title: tab.title, cwd: tab.cwd, ended: tab.dead, exitCode: exitCode,
+                                                           attach: attach(tab.id), screen: try screen(tab.surface)))
+        }
+        return terminals
     }
 
     nonisolated static func oracleSHA256(_ text: String) -> String {

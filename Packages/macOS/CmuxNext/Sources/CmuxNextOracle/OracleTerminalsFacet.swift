@@ -6,9 +6,14 @@
 /// facet whatever their views draw. Chromium's web tests compare a page the same way when it asks for a text dump:
 /// the document's text, not the pixels (content/web_test/renderer/test_runner.cc, `dumpAsText`).
 ///
-/// A background facet: the host's one main-actor hop reads the daemon mirror's values (``Terminal``); the attach
-/// state and every screen are read off the main actor, the screens at once. No private text: the title and the rows
-/// go in as `sha256:<hex>` after the path rewrite (``PathRewrite``).
+/// A split facet (``OracleFacetCapture/split(_:)``): the snapshot's one main-actor turn lists the daemon mirror's
+/// values (``Terminal``) with the other main-actor facets, so `terminals`, `tabs` and `layout` describe one state of
+/// the model; the attach state and every screen are read off the main actor after that turn, the screens at once.
+/// No private text: the title and the rows go in as `sha256:<hex>` after the path rewrite (``PathRewrite``).
+///
+/// `debug.oracle.wait_for` wakes on a change of the mirror values (the wait observes the main-actor part) and on the
+/// host's `changes` (each step a terminal view's attach driver maps). A terminal no view attaches gets no output
+/// steps in the app, so a wait on its screen wakes only on its mirror changes.
 public struct OracleTerminalsFacet: OracleFacetProvider {
     /// The schema's `attach` values.
     public enum Attach: String, Sendable {
@@ -25,7 +30,7 @@ public struct OracleTerminalsFacet: OracleFacetProvider {
     /// One terminal as the host's main-actor hop captures it: the daemon mirror's values, and the two reads that
     /// run off the main actor.
     public struct Terminal: Sendable {
-        /// The public terminal id (`term_…`), else the daemon's terminal id.
+        /// The public terminal id (`term_<32 hex>`, the schema's `terminal` id kind).
         public var terminal: String
         public var tab: String?
         /// The PTY grid the daemon reports; 0 before its first report.
@@ -66,10 +71,17 @@ public struct OracleTerminalsFacet: OracleFacetProvider {
             public var token: String
         }
 
-        /// The case root the runner launched the app under, read once at the composition root: its paths separated
-        /// by `:`, each alias a shell may report too (`/tmp/o/…` and `/private/tmp/o/…` on macOS), as the runner gives
-        /// normalize.py several values per token.
-        public static let rootVariable = "CMUX_ORACLE_ROOT"
+        /// The case root the oracle's app driver launches the app under, read once at the composition root
+        /// (schemas/oracle/README.md, "Case root and home"): its paths separated by `:`, each alias a shell may
+        /// report too (`/tmp/o/…` and `/private/tmp/o/…` on macOS), the values the driver gives normalize.py as
+        /// `--root`. `CMUX_NEXT_`, because the app unsets every other inherited `CMUX*` variable at launch
+        /// (`LaunchIdentity.inheritedKeys`).
+        public static let rootVariable = "CMUX_NEXT_ORACLE_ROOT"
+
+        /// Where the oracle runner makes every case root (oracle.py `DEFAULT_STATE_BASE`, spec 3G), inside
+        /// `/private/tmp/o/` too: hashed text that still holds it after the rewrite was captured without
+        /// ``rootVariable``.
+        public static let stateBase = "/tmp/o/"
 
         /// Longest prefix first: a root inside the home is `$ROOT`.
         public private(set) var entries: [Entry]
@@ -87,11 +99,13 @@ public struct OracleTerminalsFacet: OracleFacetProvider {
             self.entries = entries.sorted { $0.prefix.count != $1.prefix.count ? $0.prefix.count > $1.prefix.count : $0.prefix < $1.prefix }
         }
 
-        /// `CMUX_ORACLE_ROOT` and `HOME` of the app's launch environment.
-        public init(environment: [String: String]) {
-            let root = environment[Self.rootVariable].map { $0.split(separator: ":").map(String.init) } ?? []
-            self.init(root: root, home: environment["HOME"].map { [$0] } ?? [])
+        /// ``rootVariable`` and `HOME` of the app's launch environment, as the composition root read them.
+        public init(rootVariable: String?, home: String?) {
+            self.init(root: rootVariable.map { $0.split(separator: ":").map(String.init) } ?? [], home: home.map { [$0] } ?? [])
         }
+
+        /// Whether the run's case root is known.
+        public var rewritesRoot: Bool { entries.contains { $0.token == "$ROOT" } }
 
         /// `text` with every prefix that stands as a whole path (not inside a longer name) replaced by its token.
         public func apply(_ text: String) -> String {
@@ -112,6 +126,9 @@ public struct OracleTerminalsFacet: OracleFacetProvider {
             return text
         }
 
+        /// Whether `text` names a path under ``stateBase``.
+        static func holdsStateBase(_ text: String) -> Bool { text.contains(stateBase) }
+
         /// A character a name goes on with (normalize.py `[A-Za-z0-9._~-]`): a prefix next to one is part of a
         /// longer name.
         private static func continuesName(_ character: Character?) -> Bool {
@@ -125,16 +142,19 @@ public struct OracleTerminalsFacet: OracleFacetProvider {
 
     public var facet: OracleFacet { .terminals }
     public let capture: OracleFacetCapture
+    public let changes: OracleFacetChanges?
 
     /// - Parameters:
     ///   - rewrite: The run's paths, rewritten in the title and the rows before they are hashed.
     ///   - hash: `sha256:<hex>` of a text.
-    ///   - terminals: The terminals now, read in one main-actor hop; daemon mirror values only.
-    public init(rewrite: PathRewrite, hash: @escaping @Sendable (String) -> String,
+    ///   - changes: The host's signal for a change of a screen or an attach state (the mirror values are observed).
+    ///   - terminals: The terminals now, read in the snapshot's main-actor turn; daemon mirror values only.
+    public init(rewrite: PathRewrite, hash: @escaping @Sendable (String) -> String, changes: OracleFacetChanges?,
                 terminals: @escaping @MainActor @Sendable () throws(OracleFacetError) -> [Terminal]) {
-        capture = .background { () async throws(OracleFacetError) -> OracleValue in
-            let list = try await terminals()
-            return try await Self.read(list, rewrite: rewrite, hash: hash)
+        self.changes = changes
+        capture = .split { () throws(OracleFacetError) -> OracleFacetRead in
+            let list = try terminals()
+            return { () async throws(OracleFacetError) -> OracleValue in try await Self.read(list, rewrite: rewrite, hash: hash) }
         }
     }
 
@@ -158,7 +178,12 @@ public struct OracleTerminalsFacet: OracleFacetProvider {
         for (index, terminal) in terminals.enumerated() {
             switch screens[index] {
             case .success(let screen)?:
-                list.append(value(of: terminal, screen: screen, rewrite: rewrite, hash: hash))
+                let title = rewrite.apply(terminal.title), rows = rewrite.apply(lastRows(of: screen))
+                if !rewrite.rewritesRoot, [title, rows].contains(where: PathRewrite.holdsStateBase) {
+                    return .notComparable(reason: "terminal \(terminal.terminal) shows an oracle case root, and the app was launched "
+                                          + "without \(PathRewrite.rootVariable) to rewrite it before hashing", task: "p15-oracle-200")
+                }
+                list.append(value(of: terminal, title: title, rows: rows, hash: hash))
             case .failure(let error)?:
                 throw OracleFacetError("terminal \(terminal.terminal): read-screen failed: \(error)")
             case nil:
@@ -168,8 +193,8 @@ public struct OracleTerminalsFacet: OracleFacetProvider {
         return ["list": .array(list)]
     }
 
-    /// The schema's object for one terminal.
-    static func value(of terminal: Terminal, screen: String, rewrite: PathRewrite, hash: (String) -> String) -> OracleValue {
+    /// The schema's object for one terminal, from its rewritten title and last rows.
+    static func value(of terminal: Terminal, title: String, rows: String, hash: (String) -> String) -> OracleValue {
         let attach: Attach = terminal.ended ? .dead : terminal.attach?() ?? .detached
         return [
             "terminal": .string(terminal.terminal),
@@ -177,9 +202,9 @@ public struct OracleTerminalsFacet: OracleFacetProvider {
             "attach": .string(attach.rawValue),
             "cols": OracleValue(terminal.cols),
             "rows": OracleValue(terminal.rows),
-            "title": .string(hash(rewrite.apply(terminal.title))),
+            "title": .string(hash(title)),
             "cwd": terminal.cwd.map(OracleValue.string) ?? .null,
-            "last24Sha256": .string(hash(rewrite.apply(lastRows(of: screen)))),
+            "last24Sha256": .string(hash(rows)),
             "exitCode": terminal.exitCode.map { OracleValue($0) } ?? .null,
         ]
     }

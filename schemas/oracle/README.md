@@ -107,6 +107,23 @@ tab and group names that a case step sets; page titles and URLs of the hermetic 
 strings (AX label keys, palette and dialog ids, sidebar row labels, which are workspace names); enum values.
 A new raw text field needs that reason in its `description`.
 
+### Case root and home
+
+A hash cannot be rewritten after the capture, so the app rewrites `x-oracle-rewrite: path` text itself
+before it hashes it (the `terminals` facet's `title` and `last24Sha256`). It must know the prefixes that
+normalize gets as `--root` and `--home`. The app driver (task p15-oracle-200) launches the app for each case
+with the variables that `normalize.py`'s `app_environment(Context)` gives for the same `Context`:
+
+| Variable | Value |
+| --- | --- |
+| `CMUX_NEXT_ORACLE_ROOT` | The case root and each alias a shell may report (`/tmp/o/<run6>/<case6>` and `/private/tmp/o/<run6>/<case6>` on macOS), separated by `:`: the `--root` values. The `CMUX_NEXT_` prefix is required: the app unsets every other inherited `CMUX*` variable at launch (`LaunchIdentity.inheritedKeys`). |
+| `HOME` | The hermetic home: the one `--home` value. |
+
+The app reads both once, at its composition root (`AppEnvironment`). When `CMUX_NEXT_ORACLE_ROOT` is not set
+and a hashed text still holds a path under `/tmp/o/`, the `terminals` facet answers not-comparable, never a
+hash of the raw path. `fixtures/path-rewrite.json` holds one environment and texts with their rewrites; the
+normalize selftest (`app_environment_rewrite_matches`) and `OracleTerminalsFacetTests` both check it.
+
 ## Source methods
 
 | Method | Owner | Gives |

@@ -472,6 +472,14 @@ final class AppServices {
     let hoverCards: HoverCardCoordinator
     /// What is above a window's content changed: overlays, the hover card, focus overlays (the overlays facet's wait).
     let overlayChanges = OverlayChangeFeed()
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// A terminal view's daemon screen or link changed (the terminals facet's wait): each step a view's attach driver
+    /// maps signals it. The overlays' broadcaster type, so no second lock site: it only says "read again".
+    let terminalScreenChanges = OverlayChangeFeed()
+    var terminalScreenChanged: (@Sendable () -> Void)? { { [terminalScreenChanges] in terminalScreenChanges.signal() } }
+    #else
+    var terminalScreenChanged: (@Sendable () -> Void)? { nil }
+    #endif
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
