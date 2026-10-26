@@ -418,6 +418,7 @@ def measure(label, name):
         "commits": (commit or {}).get("frames"),
         "grid_reports": trace.get("terminal_grid_reports"), "resizes_sent": trace.get("terminal_resizes_sent"),
         "hangs": len(hang_list) if isinstance(hang_list, list) else hangs.get("count"),
+        "count250": hangs.get("count250") if isinstance(hangs, dict) else None,  # stalls >= 250 ms (perf-cron prints it)
     }
     extra = ""
     if opts.browser:

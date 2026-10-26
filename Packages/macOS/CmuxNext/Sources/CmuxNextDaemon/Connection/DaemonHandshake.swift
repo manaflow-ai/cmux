@@ -9,7 +9,7 @@ struct DaemonHandshake {
         if configuration.role == .pageRelay { return (try await PageRelayHandshake.run(transport, configuration: configuration), false) }
         let handshake = await HandshakeLines.send(transport, configuration: configuration, logger: logger)
         let replies = handshake.lines
-        let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get().line)
+        let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get())
         DaemonLaunchTimings.shared.mark("daemon.identify_end")
         guard identity.app == "cmux-tui" else {
             transport.close()

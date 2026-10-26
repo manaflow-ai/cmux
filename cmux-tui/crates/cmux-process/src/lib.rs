@@ -33,7 +33,8 @@
 //! signals ignored); there is no `pre_exec`, `uid` or `gid` ([`Command::new_session`]
 //! and [`Command::process_group`] cover what the daemon's hooks did); a
 //! descriptor other than 0-2 reaches the child only through
-//! [`Command::inherit_fd`].
+//! [`Command::inherit_fd`]. [`Command::inherit_like_std`] (the CLI's
+//! transparent wrappers) and [`Command::exec`] keep std's inheritance instead.
 
 mod child;
 mod command;

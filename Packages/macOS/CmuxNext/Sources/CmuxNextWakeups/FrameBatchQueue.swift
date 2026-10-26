@@ -22,28 +22,27 @@ public final class FrameBatchQueue {
     public let owner: String
     /// Its work's class: ``MainWorkClass/frame`` for a frame queue, else the budgeted class.
     public let workClass: MainWorkClass
-    private let source: Source
+    /// The budget, class and interned owner of a budgeted queue; nil for a frame queue. The queue
+    /// holds the budget, not the scheduler, so the scheduler can own queues of its own
+    /// (``MainWorkScheduler/post(_:owner:file:line:_:)``) without a retain cycle.
+    private let budgeted: (budget: MainFrameBudget, workClass: MainWorkClass, owner: MainTaskOwner)?
     /// Queued work from ``head`` on (a run slot is cleared so its captures go at once); the
     /// array is compacted when it empties, or when the run prefix is most of it.
-    private var pending: [(@MainActor () -> Void)?] = []
+    private var pending: [Item] = []
     private var head = 0
-    /// Built in init (lazy because its callback captures self; no IUO).
-    private lazy var client: FrameClient = {
-        switch source {
-        case .frame(let scheduler):
-            FrameClient(owner: owner, isAnimation: false, on: scheduler) { [weak self] _ in self?.drainAll() ?? false }
-        case .budgeted(let budgeted, let work, let taskOwner):
-            FrameClient(owner: owner, budgeted: budgeted, on: work) { [weak self] _, budget in
-                self?.drain(budget, budgeted.workClass, taskOwner) ?? false
-            }
-        }
-    }()
+    private let client: FrameClient
 
-    /// Where the queue's frames come from.
-    private enum Source {
-        case frame(FrameScheduler)
-        /// The class, the app's scheduler, and the queue's owner interned on its board.
-        case budgeted(BudgetedWorkClass, MainWorkScheduler, MainTaskOwner)
+    /// One queued task: posted work names its own owner and post (site, enqueue time, node state),
+    /// ``enqueue(_:)`` work runs as the queue's owner.
+    private struct Item {
+        var work: (@MainActor () -> Void)?
+        var owner: MainTaskOwner?
+        var post: MainTaskPost?
+    }
+
+    /// Lets the client's tick reach the queue before `self` exists (the client is built in init).
+    @MainActor private final class Target {
+        weak var queue: FrameBatchQueue?
     }
 
     /// A queue of work a person's action caused: all of it every frame, unbudgeted.
@@ -54,8 +53,10 @@ public final class FrameBatchQueue {
     public init(owner: String, scheduler: FrameScheduler = .app) {
         self.owner = owner
         workClass = .frame
-        source = .frame(scheduler)
-        _ = client
+        budgeted = nil
+        let target = Target()
+        client = FrameClient(owner: owner, isAnimation: false, on: scheduler) { _ in target.queue?.drainAll() ?? false }
+        target.queue = self
     }
 
     /// A queue of budgeted work on the app's ``MainWorkScheduler``.
@@ -70,30 +71,58 @@ public final class FrameBatchQueue {
     public init(owner: String, budgeted: BudgetedWorkClass, on work: MainWorkScheduler) {
         self.owner = owner
         workClass = budgeted.workClass
-        source = .budgeted(budgeted, work, work.budget.board.owner(owner))
-        _ = client
+        self.budgeted = (work.budget, budgeted.workClass, work.budget.board.owner(owner))
+        let target = Target()
+        client = FrameClient(owner: owner, budgeted: budgeted, on: work) { _, _ in target.queue?.drainBudgeted() ?? false }
+        target.queue = self
     }
 
     /// Queues `work` for the next display frame (after work queued before it).
     public func enqueue(_ work: @escaping @MainActor () -> Void) {
-        pending.append(work)
+        pending.append(Item(work: work))
         client.activate()
     }
 
     /// Work queued and not run yet.
     public var count: Int { pending.count - head }
 
+    // MARK: Posted work (MainWorkScheduler.post)
+
+    /// Queues posted work as `owner`, recorded on the board and its ledger as `post` (nil: the work
+    /// names its post when it runs), without waking the frame: the scheduler runs it on the next
+    /// turn or calls ``activate()``.
+    func append(owner: MainTaskOwner, post: MainTaskPost?, _ work: @escaping @MainActor () -> Void) {
+        pending.append(Item(work: work, owner: owner, post: post))
+    }
+
+    /// Ticks on the next frame while work is queued (no effect while ticking).
+    func activate() {
+        guard count > 0 else { return }
+        client.activate()
+    }
+
+    /// Whether the queue ticks on frames now.
+    var isActive: Bool { client.isActive }
+
+    /// Runs at most `limit` of the queued tasks outside a tick, as a tick would (the caller checked
+    /// ``MainFrameBudget/mayRun(_:)`` for the first one); true while work is left.
+    func drainNow(limit: Int) -> Bool {
+        drainBudgeted(limit: limit)
+    }
+
     /// Runs the work queued before this frame, from the front, while the class may run (the
     /// scheduler let the first task start); the rest stays in place, ahead of work queued
     /// meanwhile, which waits for the next frame. No copy and no re-insert: a backlog of N costs
     /// O(N) over all its frames. True while work is left.
-    private func drain(_ budget: MainFrameBudget, _ mainClass: MainWorkClass, _ taskOwner: MainTaskOwner) -> Bool {
-        let end = pending.count
+    private func drainBudgeted(limit: Int = .max) -> Bool {
+        guard let budgeted else { return drainAll() }
+        let budget = budgeted.budget, mainClass = budgeted.workClass
+        let end = limit >= pending.count - head ? pending.count : head + limit
         var ran = 0
         while head < end {
             if ran > 0, !budget.mayRun(mainClass) { break }
-            let work = takeHead()
-            budget.run(mainClass, owner: taskOwner) { work?() }
+            let item = takeHead()
+            budget.run(mainClass, owner: item.owner ?? budgeted.owner, posted: item.post) { item.work?() }
             ran += 1
         }
         compact()
@@ -103,17 +132,17 @@ public final class FrameBatchQueue {
     /// Runs everything queued before this frame (a frame queue); true while more arrived during it.
     private func drainAll() -> Bool {
         let end = pending.count
-        while head < end { takeHead()?() }
+        while head < end { takeHead().work?() }
         compact()
         return head < pending.count
     }
 
-    /// The work at ``head``, its slot cleared.
-    private func takeHead() -> (@MainActor () -> Void)? {
-        let work = pending[head]
-        pending[head] = nil
+    /// The item at ``head``, its slot cleared.
+    private func takeHead() -> Item {
+        let item = pending[head]
+        pending[head] = Item()
         head += 1
-        return work
+        return item
     }
 
     /// Drops the run prefix: all of it, keeping the buffer, once the queue is empty; otherwise
