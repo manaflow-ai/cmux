@@ -37,14 +37,15 @@ public protocol PageChromiumPage: AnyObject {
     /// The view to place where the page shows (Chromium's view tracks it).
     var contentView: NSView { get }
     /// Receives the page's events: its load and crash events, its posts to the page host
-    /// (``PageChromiumEvent/hostMessage(_:_:)``) on renderer paths, and its raw DevTools protocol
+    /// (``PageChromiumEvent/hostMessage(_:)``) on renderer paths, and its raw DevTools protocol
     /// events before them. Set it before the first ``devTools(_:params:)`` call.
     var onEvent: ((PageChromiumEvent) -> Void)? { get set }
-    /// The page runs on the fork's renderer paths (fork API 29): its renderer already has the page
-    /// host script in every `cmux-page:` document, its posts come as
-    /// ``PageChromiumEvent/hostMessage(_:_:)``, its document events come from the browser, and
-    /// ``evaluate(_:)`` runs scripts. The page host then never calls ``devTools(_:params:)``: a
-    /// DevTools agent keeps Chromium from sharing the page's renderer. False on an older fork.
+    /// The page runs on the fork's renderer paths (fork API 29, with the feature
+    /// `chromiumPageRendererPaths` on when Chromium started): its renderer already has the page host
+    /// script in every `cmux-page:` document, its posts come as ``PageChromiumEvent/hostMessage(_:)``,
+    /// its document events come from the browser, and ``evaluate(_:)`` runs scripts. The page host
+    /// then makes no ``devTools(_:params:)`` call for setup, messages or typed edits: a DevTools
+    /// agent keeps Chromium from sharing the page's renderer. False otherwise.
     var usesRendererPaths: Bool { get }
     /// Answers the page's requests for its dynamic paths (``PageDescriptor/dynamicPrefixes``):
     /// Chromium asks it for every request under one, and a nil answerer is a 404. The host sets it
@@ -112,7 +113,8 @@ public nonisolated enum PageChromiumEvent: Sendable, Equatable {
     case userInput(TimeInterval)
     /// The person right-clicked in the page: the host shows its own menu (``PageChromiumContextMenu``).
     case contextMenu(PageChromiumContextMenu)
-    /// The page host script posted `payload` on the page channel (renderer paths). `sender` is the
-    /// frame that delivered it, as the browser process knows it; the payload is untrusted data.
-    case hostMessage(PageChromiumSender, String)
+    /// The page's main frame posted this on the page channel (renderer paths): the channel world's
+    /// envelope (``ChromiumPageHostBridge/receive(hostMessage:)``), untrusted data. The runtime
+    /// delivers only the page's own main frame's posts.
+    case hostMessage(String)
 }

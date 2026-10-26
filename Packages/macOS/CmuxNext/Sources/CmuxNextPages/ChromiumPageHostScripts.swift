@@ -1,7 +1,7 @@
 public import Foundation
 
 /// One document-start script the app installs in every Chromium renderer once (fork API 29,
-/// ``ChromiumPageHostBridge/rendererScripts(handlers:world:channel:)``).
+/// ``ChromiumPageHostBridge/rendererScripts(handlers:documentScripts:world:channel:)``).
 public nonisolated struct ChromiumPageRendererScript: Sendable, Equatable {
     /// The isolated world it runs in; "" for the page's own world.
     public var world: String
@@ -20,14 +20,16 @@ public nonisolated struct ChromiumPageRendererScript: Sendable, Equatable {
 /// ``PageHostTrust/handlerName`` (with replies) and the fire-and-forget handlers, over one transport.
 extension ChromiumPageHostBridge {
     /// The DevTools path's script for every new document: the API over the `__cmuxPageHost`
-    /// binding. Messages posted before the binding exists wait in the page and go out once it appears.
+    /// binding. Messages posted before the binding exists wait in the page and go out once it
+    /// appears; when it never does, their calls fail instead of waiting for ever.
     ///
     /// - Parameter handlers: The fire-and-forget handler names.
     /// - Returns: The script.
     nonisolated public static func pageScript(handlers: [String]) -> String {
-        api(onlyIn: "", handlers: handlers, transport: """
+        api(handlers: handlers, transport: """
           const queue = [];
           let retries = 0;
+          let waiting = false;
           const flush = () => {
             const binding = globalThis.\(bindingName);
             if (typeof binding !== "function") return false;
@@ -35,12 +37,13 @@ extension ChromiumPageHostBridge {
             return true;
           };
           const retry = () => {
-            if (flush() || ++retries > 400) return;
+            if (flush()) { waiting = false; return; }
+            if (++retries > 400) { waiting = false; while (queue.length) failText(queue.shift()); return; }
             setTimeout(retry, 5);
           };
           const send = (text) => {
             queue.push(text);
-            if (!flush() && queue.length === 1) { retries = 0; retry(); }
+            if (!flush() && !waiting) { waiting = true; retries = 0; retry(); }
           };
         """)
     }
@@ -48,64 +51,86 @@ extension ChromiumPageHostBridge {
     /// The renderer path's scripts, installed once for every browser before Chromium starts. Both
     /// return outside the main frame of a `cmux-page:` document, so a web page never gets them.
     ///
-    /// - The page world gets the API; a post goes to the channel world as a ``postEventName``
-    ///   event whose detail is the message text (Blink hands a `CustomEvent` detail across
-    ///   worlds, third_party/blink/renderer/core/events/custom_event.cc).
-    /// - The channel world posts that text on `channel` (`cmuxPost`); the browser reads the
-    ///   sender from the frame that delivered it (``PageChromiumSender``).
+    /// - The page world gets the API, then `documentScripts`, before any script of the page runs.
+    ///   A post goes to the channel world as a ``postEventName`` event whose detail is the message
+    ///   text (Blink hands a `CustomEvent` detail across worlds,
+    ///   third_party/blink/renderer/core/events/custom_event.cc).
+    /// - The channel world posts it on `channel` (`cmuxPost`) inside a ``ChromiumPageHostWire/ChannelPost``
+    ///   with the document's own `location.href`, which no page script can change in that world.
+    ///   Without `cmuxPost` the call fails at once (``unavailableEventName``).
     ///
     /// - Parameters:
-    ///   - handlers: Fire-and-forget handler names every page has; a page adds its own at commit
-    ///     (``rebind()``).
+    ///   - handlers: Handler names every cmux page gets at document start; a page adds its own at
+    ///     commit (``rebind()``).
+    ///   - documentScripts: Scripts every cmux page runs at document start
+    ///     (``PageChromiumDocumentScripts/shared``), each in its own block.
     ///   - world: The isolated world `channel` lives in.
     ///   - channel: The page channel the fork delivers as a page message.
     /// - Returns: The channel world's script, then the page world's.
-    nonisolated public static func rendererScripts(handlers: [String], world: String, channel: String) -> [ChromiumPageRendererScript] {
+    nonisolated public static func rendererScripts(handlers: [String], documentScripts: [String], world: String,
+                                                   channel: String) -> [ChromiumPageRendererScript] {
         let only = "if (location.protocol !== \"cmux-page:\" || window !== window.top) return;\n"
         let event = ChromiumPageHostWire.jsonString(postEventName)
+        let unavailable = ChromiumPageHostWire.jsonString(unavailableEventName)
         let channelName = ChromiumPageHostWire.jsonString(channel)
         let relay = """
         (() => {
           \(only)
-          const queue = [];
-          let retries = 0;
-          const flush = () => {
-            if (typeof cmuxPost !== "function") return false;
-            while (queue.length) cmuxPost(\(channelName), queue.shift());
-            return true;
-          };
-          const retry = () => {
-            if (flush() || ++retries > 400) return;
-            setTimeout(retry, 5);
-          };
           document.addEventListener(\(event), (event) => {
             if (typeof event.detail !== "string") return;
-            queue.push(event.detail);
-            if (!flush() && queue.length === 1) { retries = 0; retry(); }
+            if (typeof cmuxPost !== "function") {
+              document.dispatchEvent(new CustomEvent(\(unavailable), { detail: event.detail }));
+              return;
+            }
+            cmuxPost(\(channelName), JSON.stringify({ url: location.href, message: event.detail }));
           }, true);
         })();
         """
-        let page = api(onlyIn: only, handlers: handlers, transport: """
+        let host = api(handlers: handlers, transport: """
           const send = (text) => { document.dispatchEvent(new CustomEvent(\(event), { detail: text })); };
+          document.addEventListener(\(unavailable), (event) => {
+            console.error("cmux page host: no page channel");
+            if (typeof event.detail === "string") failText(event.detail);
+          }, true);
         """)
+        let page = """
+        (() => {
+          \(only)
+        \(batch([host] + documentScripts))
+        })();
+        """
         return [ChromiumPageRendererScript(world: world, source: relay, allFrames: false),
                 ChromiumPageRendererScript(world: "", source: page, allFrames: false)]
     }
 
-    /// The API over `transport`, which defines `send(text)`. `onlyIn` returns early where the API
-    /// does not belong. ``addHandlersName`` adds handler names to the document later.
-    nonisolated private static func api(onlyIn: String, handlers: [String], transport: String) -> String {
+    /// The API over `transport`, which defines `send(text)` and may call `failText(text)` for a
+    /// message that cannot go out. ``addHandlersName`` adds handler names to the document later.
+    /// Each document has its own `doc` id: a reply carries the id of the document that asked, so
+    /// after a reload it settles nothing in the new document.
+    nonisolated private static func api(handlers: [String], transport: String) -> String {
         let names = ([PageHostTrust.handlerName] + handlers).map(ChromiumPageHostWire.jsonString).joined(separator: ", ")
         let replying = ChromiumPageHostWire.jsonString(PageHostTrust.handlerName)
+        let failure = ChromiumPageHostWire.failureJSON(code: "native.page_host_unavailable", message: "Page host unavailable")
         return """
         (() => {
-          \(onlyIn)if (globalThis.__cmuxPageHostInstalled) return;
+          if (globalThis.__cmuxPageHostInstalled) return;
           Object.defineProperty(globalThis, "__cmuxPageHostInstalled", { value: true });
           const pending = new Map();
           let next = 1;
+          const doc = (globalThis.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Math.random()).slice(2) + String(Date.now());
+          const failText = (text) => {
+            let seq;
+            try { seq = JSON.parse(text).seq; } catch (_) { return; }
+            const done = pending.get(seq);
+            if (done) { pending.delete(seq); done(\(failure)); }
+          };
         \(transport)
           Object.defineProperty(globalThis, "\(resolveName)", {
-            value: (seq, reply) => { const done = pending.get(seq); if (done) { pending.delete(seq); done(reply); } },
+            value: (seq, reply, from) => {
+              if (from !== undefined && from !== doc) return;
+              const done = pending.get(seq);
+              if (done) { pending.delete(seq); done(reply); }
+            },
           });
           const add = (list) => {
             const handlers = {};
@@ -117,7 +142,7 @@ extension ChromiumPageHostBridge {
                   return new Promise((resolve) => {
                     const seq = next++;
                     pending.set(seq, resolve);
-                    send(JSON.stringify({ name, seq, body }));
+                    send(JSON.stringify({ name, seq, doc, body }));
                   });
                 },
               };

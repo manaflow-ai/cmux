@@ -49,38 +49,35 @@ public final class FakeChromiumPage: PageChromiumPage {
     public var onClose: (() -> Void)?
     /// Whether the page is on the fork's renderer paths (no DevTools session).
     public var usesRendererPaths: Bool
-    /// The page's Chromium browser id: the sender of its posts (``post(_:isMainFrame:)``).
-    public var browserID: Int
     /// Every script ``evaluate(_:)`` ran, in order.
     public private(set) var evaluations: [String] = []
     /// Runs after each evaluation (tests wait on it).
     public var onEvaluate: (() -> Void)?
+    /// Answers an evaluation by its script (nil: `null`).
+    public var evaluationAnswer: ((String) -> String?)?
 
     /// Makes a page with no calls yet.
     ///
-    /// - Parameters:
-    ///   - usesRendererPaths: The page is on the fork's renderer paths.
-    ///   - browserID: Its Chromium browser id.
-    public init(usesRendererPaths: Bool = false, browserID: Int = 1) {
+    /// - Parameter usesRendererPaths: The page is on the fork's renderer paths.
+    public init(usesRendererPaths: Bool = false) {
         self.usesRendererPaths = usesRendererPaths
-        self.browserID = browserID
     }
 
-    /// Records `script` in ``evaluations`` and answers `null`.
+    /// Records `script` in ``evaluations`` and answers ``evaluationAnswer``, else `null`.
     public func evaluate(_ script: String) async throws -> String {
         evaluations.append(script)
         onEvaluate?()
-        return "null"
+        return evaluationAnswer?(script) ?? "null"
     }
 
-    /// Posts `payload` on the page channel as this page's frame (renderer paths): the sender is
-    /// what the browser knows of the frame, ``browserID`` and ``senderURL``, whatever the payload says.
+    /// Posts `message` on the page channel from the page's main frame (renderer paths), as the
+    /// channel world does: inside `{url, message}`, with ``senderURL`` as the document's URL.
     ///
-    /// - Parameters:
-    ///   - payload: The post.
-    ///   - isMainFrame: Whether the main frame posts it.
-    public func post(_ payload: String, isMainFrame: Bool = true) {
-        onEvent?(.hostMessage(PageChromiumSender(browserID: browserID, isMainFrame: isMainFrame, url: URL(string: senderURL)), payload))
+    /// - Parameter message: The page's text.
+    public func post(_ message: String) {
+        let envelope: [String: String] = ["url": senderURL, "message": message]
+        let data = (try? JSONSerialization.data(withJSONObject: envelope)) ?? Data()
+        onEvent?(.hostMessage(String(decoding: data, as: UTF8.self)))
     }
 
     /// Records the call and answers it: ``answer`` first, then the sender check, then an empty result.

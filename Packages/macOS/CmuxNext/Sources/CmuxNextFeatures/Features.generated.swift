@@ -2,9 +2,26 @@
 // edit the feature's JSON file and rerun the script.
 
 nonisolated extension Feature {
+    /// On fork API 29, cmux pages in Chromium talk to their host over the page channel with no DevTools session, so pages can share a renderer.
+    public static let chromiumPageRendererPaths = Feature(
+        index: 0,
+        name: "chromiumPageRendererPaths",
+        owner: "PL-webui",
+        description: "On fork API 29, cmux pages in Chromium talk to their host over the page channel with no DevTools session, so pages can share a renderer.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["home-idle"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.
     public static let renderStarvationGuard = Feature(
-        index: 0,
+        index: 1,
         name: "renderStarvationGuard",
         owner: "Performance Lead",
         description: "Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.",
@@ -21,7 +38,7 @@ nonisolated extension Feature {
 
     /// The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.
     public static let taskManagerMemorySaved = Feature(
-        index: 1,
+        index: 2,
         name: "taskManagerMemorySaved",
         owner: "PL-memory",
         description: "The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.",
@@ -38,6 +55,7 @@ nonisolated extension Feature {
 
     /// Every feature, by index: `registered[feature.index] == feature`.
     public static let registered: [Feature] = [
+        .chromiumPageRendererPaths,
         .renderStarvationGuard,
         .taskManagerMemorySaved,
     ]

@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
 import Foundation
+import os
 import Testing
 
 /// Chrome shares a renderer between at most 2 main frames of one site (kProcessPerSiteUpToMainFrameThreshold),
@@ -103,36 +104,57 @@ import Testing
         #expect(!tab.sendClick(x: 1, y: 1))
     }
 
-    /// A cmux page's post to its host reaches its own tab with the sender the browser knows: the
-    /// tab's browser and its main frame's last committed URL, whatever the payload names. A child
-    /// frame's post is dropped; a page host script goes in only on the page-channel path.
-    @Test func aPageHostPostCarriesTheDeliveringFramesCommittedURL() throws {
+    /// A cmux page's post to its host reaches only the tab of the browser whose main frame sent it,
+    /// whatever the payload names (another browser's id, another page's URL). A child frame's post
+    /// is dropped; a page host script goes in only on the page-channel path.
+    @Test func aPageHostPostReachesOnlyTheTabWhoseMainFrameSentIt() throws {
         let rig = try Rig(forkAPI: 29)
         defer { rig.close() }
         let tab = try rig.attachedTab()
-        var posts: [CEFPageHostPost] = []
+        var posts: [String] = []
         var committed: [URL?] = []
         tab.pageEvents = CEFPageTabEvents(posted: { posts.append($0) }, committed: { committed.append($0) }, finished: nil)
         rig.runtime.handle(.loadStart(browser: 7, url: "cmux-page://test.a/", fromPost: false))
-        let payload = #"{"name":"cmuxPage","seq":1,"body":{},"browserID":8,"frameURL":"cmux-page://test.b/"}"#
+        let payload = #"{"url":"cmux-page://test.b/","message":"{\"name\":\"cmuxPage\",\"seq\":1,\"body\":{},\"browserID\":8}"}"#
         rig.runtime.handle(.pageMessage(browser: 7, mainFrame: true, channel: CEFPageSchemes.hostChannel, payload: payload))
         rig.runtime.handle(.pageMessage(browser: 7, mainFrame: false, channel: CEFPageSchemes.hostChannel, payload: payload))
         rig.runtime.handle(.pageMessage(browser: 8, mainFrame: true, channel: CEFPageSchemes.hostChannel, payload: payload))
         #expect(committed == [URL(string: "cmux-page://test.a/")])
-        #expect(posts == [CEFPageHostPost(browserID: 7, committedURL: URL(string: "cmux-page://test.a/"), payload: payload)])
+        #expect(posts == [payload])
 
         let host = CEFDocumentScripts.Script(world: CEFPageSchemes.hostWorld, source: "host()", allFrames: false)
         #expect(CEFDocumentScripts(post: .pageChannel, pageHost: [host]).all.contains(host))
         #expect(!CEFDocumentScripts(post: .binding, pageHost: [host]).all.contains(host))
         let large = String(repeating: "x", count: CEFPageMessage.maxPayloadBytes * 2)
         #expect(CEFPageMessage(channel: CEFPageSchemes.hostChannel, payload: large, mainFrame: true)?.channel == .pageHost)
+        // The page host's channel lives in a world every main frame already has.
+        #expect(CEFPageSchemes.hostWorld == CEFPageMessage.Channel.firstPaint.world)
+    }
+
+    /// A cmux page skips DevTools only when every renderer has its host: no page host scripts (the
+    /// feature off, or a start before the engine handed them over) or one the shim refused keeps
+    /// pages on DevTools instead of leaving them with no host; the page host channel goes in only
+    /// with its scripts.
+    @Test func pagesUseTheRendererHostOnlyWhenItWentInWhole() throws {
+        let logger = Logger(subsystem: "test", category: "renderer-paths")
+        let host = CEFDocumentScripts.Script(world: CEFPageSchemes.hostWorld, source: "host()", allFrames: false)
+        Spy.reset(forkAPI: 29)
+        let library = try Spy.library()
+        #expect(!CEFDocumentScripts(post: .pageChannel).install(library, logger: logger))
+        #expect(!Spy.channels.contains(CEFPageSchemes.hostChannel))
+        Spy.reset(forkAPI: 29)
+        #expect(CEFDocumentScripts(post: .pageChannel, pageHost: [host]).install(library, logger: logger))
+        #expect(Spy.channels.contains(CEFPageSchemes.hostChannel))
+        Spy.reset(forkAPI: 29)
+        Spy.refusedScript = "host()"
+        #expect(!CEFDocumentScripts(post: .pageChannel, pageHost: [host]).install(library, logger: logger))
     }
 
     @Test func aRendererInstallsEveryDocumentScriptOnceForEveryBrowser() throws {
         Spy.reset(forkAPI: 29)
         let refused = CEFDocumentScripts(post: .pageChannel).installInRenderer(try Spy.library())
         #expect(refused.isEmpty)
-        #expect(Set(Spy.channels) == Set(CEFPageMessage.Channel.allCases.map(\.name)))
+        #expect(Set(Spy.channels) == Set(CEFPageMessage.Channel.allCases.filter { $0 != .pageHost }.map(\.name)))
         // The page busy recorder reaches cross-origin frames (it reported nothing from them before).
         #expect(Spy.scripts.contains { $0.source == BrowserPageBusy.recorderScript && $0.world == "" && $0.allFrames == 1 })
         #expect(Spy.scripts.allSatisfy { !$0.source.contains("cmuxMedia(") }, "a page-channel script posts through a DevTools binding")
@@ -239,6 +261,8 @@ private nonisolated enum Spy {
     nonisolated(unsafe) static var unanswered: [Int32] = []
     /// False: the shim predates fork API 29 and has none of its exports.
     nonisolated(unsafe) static var exportsRendererPaths = true
+    /// A document script source the shim refuses.
+    nonisolated(unsafe) static var refusedScript: String?
     static let rendererPathSymbols: Set<String> = ["cmux_shim_add_document_script", "cmux_shim_add_page_channel", "cmux_shim_tab_evaluate",
                                                     "cmux_shim_tab_set_frozen", "cmux_shim_tab_send_click", "cmux_shim_tab_set_color_scheme"]
 
@@ -255,6 +279,7 @@ private nonisolated enum Spy {
         nextMessage = 1
         unanswered = []
         exportsRendererPaths = true
+        refusedScript = nil
     }
 
     static func library() throws -> CEFShimLibrary {
@@ -279,7 +304,9 @@ private nonisolated enum Spy {
             return 1
         }
         let script: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32, Int32) -> Int32 = { world, source, all, _ in
-            Spy.scripts.append(Script(world: world.map { String(cString: $0) } ?? "", source: source.map { String(cString: $0) } ?? "", allFrames: all))
+            let text = source.map { String(cString: $0) } ?? ""
+            if text == Spy.refusedScript { return 0 }
+            Spy.scripts.append(Script(world: world.map { String(cString: $0) } ?? "", source: text, allFrames: all))
             return 1
         }
         let nothing: @convention(c) () -> Int = { 0 }

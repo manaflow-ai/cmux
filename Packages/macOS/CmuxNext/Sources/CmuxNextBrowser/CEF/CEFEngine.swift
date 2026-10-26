@@ -92,8 +92,7 @@ public final class CEFEngine: BrowserEngine {
     public var isRunning: Bool { CEFRuntime.shared.state == .ready }
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
-        adoptStores()
-        try await CEFRuntime.shared.start(layout: layout)
+        try await startRuntime(trigger: "tab")
         return CEFStartSteps.shared.makeTab { makeReadyTab(configuration) }
     }
 
@@ -157,8 +156,7 @@ public final class CEFEngine: BrowserEngine {
     /// caller picks. No-op once CEF is running, failed or shut down.
     public func warmStart(reason: String) async {
         guard layout != nil else { return }
-        adoptStores()
-        try? await CEFRuntime.shared.start(layout: layout, trigger: reason)
+        try? await startRuntime(trigger: reason)
     }
 
     /// Builds a spare Chromium window (`CEFSpareWindow`) once Chromium runs
@@ -360,6 +358,12 @@ public final class CEFEngine: BrowserEngine {
     /// starts or makes a tab (not in `init`: the runtime is built on Chromium's first use, not at launch).
     private func adoptStores() {
         CEFRuntime.shared.adopt(stores: stores, signInCallbacks: signInCallbacks, pageHostScripts: rendererPageHost)
+    }
+
+    /// Starts Chromium for `trigger` with this engine's stores and page host scripts (every start does).
+    func startRuntime(trigger: String) async throws(BrowserEngineError) {
+        adoptStores()
+        try await CEFRuntime.shared.start(layout: layout, trigger: trigger)
     }
 
     private var rendererPageHost: [CEFDocumentScripts.Script] {

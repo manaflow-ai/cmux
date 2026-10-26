@@ -74,9 +74,12 @@ enum FirstPartyPageSchemes {
     }
 
     /// The page host's scripts for every renderer (fork API 29), on Chromium's page host channel:
-    /// the composition root hands them to its `CEFEngine`.
+    /// the composition root hands them to its `CEFEngine` when the feature
+    /// `chromiumPageRendererPaths` is on. Every handler a page view adds is named here, so a page
+    /// has it at document start (the agent page's message menu).
     @MainActor static var hostScripts: [CEFPageSchemes.HostScript] {
-        ChromiumPageHostBridge.rendererScripts(handlers: PageWebView.chromiumFireAndForget,
+        ChromiumPageHostBridge.rendererScripts(handlers: PageWebView.chromiumFireAndForget + [AgentPaneView.contextMenuHandler],
+                                               documentScripts: PageChromiumDocumentScripts.shared,
                                                world: CEFPageSchemes.hostWorld, channel: CEFPageSchemes.hostChannel)
             .map { CEFPageSchemes.HostScript(world: $0.world, source: $0.source, allFrames: $0.allFrames) }
     }

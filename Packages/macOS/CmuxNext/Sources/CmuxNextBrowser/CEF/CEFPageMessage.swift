@@ -15,7 +15,7 @@ nonisolated struct CEFPageMessage: Equatable, Sendable {
         /// `BrowserFirstPaintScript` (main frame only).
         case firstPaint
         /// A cmux page's calls to its page host (``CEFPageSchemes/hostChannel``, main frame only):
-        /// the tab's ``CEFTab/pageHostMessage`` takes them.
+        /// the tab's ``CEFTab/pageEvents`` take them.
         case pageHost
 
         var name: String {

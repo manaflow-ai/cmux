@@ -51,8 +51,9 @@ public struct CEFPageSchemes {
 
     /// The page channel a cmux page's host script posts its calls on (renderer paths).
     nonisolated public static let hostChannel = "cmuxPageHost"
-    /// The isolated world ``hostChannel`` lives in.
-    nonisolated public static let hostWorld = "cmuxPageHost"
-    /// The largest page host call accepted (CmuxNextPages `ChromiumPageHostBridge.maximumPayloadBytes`).
-    nonisolated public static let hostMaxPayloadBytes = 4 << 20
+    /// The isolated world ``hostChannel`` lives in: the first-paint world, which every main frame
+    /// on renderer paths has already, so the page host makes no extra world in a web page.
+    nonisolated public static let hostWorld = BrowserFirstPaintScript.world
+    /// The largest page host post accepted (CmuxNextPages `ChromiumPageHostBridge.maximumEnvelopeBytes`).
+    nonisolated public static let hostMaxPayloadBytes = 2 * (4 << 20) + 64 * 1024
 }

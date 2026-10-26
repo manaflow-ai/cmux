@@ -21,11 +21,13 @@ nonisolated struct ChromiumPageHostWire {
         }
     }
 
-    /// The page script's payload: `{name, seq?, body}`.
+    /// The page script's payload: `{name, seq?, doc?, body}`.
     struct Message {
         var name: String
         /// Set for the replying handler.
         var seq: Int?
+        /// The asking document's id (set with `seq`): its reply settles nothing in another document.
+        var document: String?
         var body: Any
 
         init?(payload: String) {
@@ -35,7 +37,34 @@ nonisolated struct ChromiumPageHostWire {
             if let seq, seq <= 0 { return nil }
             self.name = name
             self.seq = seq
+            document = object["doc"] as? String
             self.body = body
+        }
+    }
+
+    /// A post of the page channel (renderer paths): the channel world's `{url, message}`, where
+    /// `url` is the posting document's `location.href` read in that world (no page script reaches
+    /// it) and `message` the page's text, untrusted.
+    struct ChannelPost: Equatable {
+        var url: URL?
+        var message: String
+
+        init(url: URL?, message: String) {
+            self.url = url
+            self.message = message
+        }
+
+        init?(envelope: String) {
+            guard let object = ChromiumPageHostWire.object(envelope), let message = object["message"] as? String else { return nil }
+            url = (object["url"] as? String).flatMap(URL.init(string:))
+            self.message = message
+        }
+
+        /// The envelope the channel world posts.
+        var envelope: String {
+            let object: [String: String] = ["url": url?.absoluteString ?? "", "message": message]
+            let data = (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
+            return String(decoding: data, as: UTF8.self)
         }
     }
 
@@ -105,15 +134,21 @@ nonisolated struct ChromiumPageHostWire {
         return String(array.dropFirst().dropLast())
     }
 
+    /// The host's failure envelope, `{ok: false, error: {code, userMessage}}`, as JSON.
+    static func failureJSON(code: String, message: String) -> String {
+        #"{"ok":false,"error":{"code":"# + jsonString(code) + #","userMessage":"# + jsonString(message) + "}}"
+    }
+
     /// The reply call: the reply as JSON (`null` for none); a reply that is not JSON becomes the
-    /// host's failure envelope, so the page's promise still settles.
-    static func resolveExpression(seq: Int, reply: Any?) -> String {
+    /// host's failure envelope, so the page's promise still settles. With `document`, only the
+    /// document of that id takes it.
+    static func resolveExpression(seq: Int, reply: Any?, document: String? = nil) -> String {
         let value: String
         if let reply, !(reply is NSNull) {
             // `JSONSerialization` raises an Objective-C exception (it does not throw) for a value
             // that is not JSON, such as a `Date`: check first, wrapped in an array so a bare string
             // or number counts too.
-            let invalid = #"{"ok":false,"error":{"code":"native.invalid_reply","userMessage":"Invalid reply"}}"#
+            let invalid = failureJSON(code: "native.invalid_reply", message: "Invalid reply")
             value = JSONSerialization.isValidJSONObject([reply])
                 ? (try? JSONSerialization.data(withJSONObject: reply, options: [.fragmentsAllowed]))
                     .flatMap { String(data: $0, encoding: .utf8) } ?? invalid
@@ -121,6 +156,7 @@ nonisolated struct ChromiumPageHostWire {
         } else {
             value = "null"
         }
-        return "globalThis.\(ChromiumPageHostBridge.resolveName)?.(\(seq), \(value));"
+        let target = document.map { ", " + jsonString($0) } ?? ""
+        return "globalThis.\(ChromiumPageHostBridge.resolveName)?.(\(seq), \(value)\(target));"
     }
 }

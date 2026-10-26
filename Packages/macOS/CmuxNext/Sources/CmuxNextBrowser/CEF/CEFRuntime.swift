@@ -148,6 +148,8 @@ final class CEFRuntime {
     /// The App's sign-in tabs, which get the shim's AUTH_CALLBACK events, and its page host scripts (`adopt`).
     private(set) var signInCallbacks = CEFSignInCallbacks()
     private(set) var pageHostScripts: [CEFDocumentScripts.Script] = []
+    /// Every renderer got ``pageHostScripts`` at start (fork API 29); else cmux pages keep DevTools.
+    private(set) var pageHostInRenderer = false
 
     private init() {}
 
@@ -439,10 +441,7 @@ final class CEFRuntime {
             if added != 1 { logger.error("cmux-page \(id, privacy: .public) refused by the shim") }
         }
         // Document scripts, channels and the page host, once for every browser (fork API 29, `CEFDocumentScripts`).
-        if CEFForkFeatures(shim).rendererPaths {
-            let refused = CEFDocumentScripts(post: .pageChannel, pageHost: pageHostScripts).installInRenderer(shim)
-            if !refused.isEmpty { logger.error("document scripts refused by the shim: \(refused.joined(separator: ", "), privacy: .public)") }
-        }
+        if CEFForkFeatures(shim).rendererPaths { pageHostInRenderer = CEFDocumentScripts(post: .pageChannel, pageHost: pageHostScripts).install(shim, logger: logger) }
         // Google Chrome's native messaging hosts after cmux's own.
         for folder in CEFNativeMessaging.googleChromeFolders(home: FileManager.default.homeDirectoryForCurrentUser) {
             _ = shim.addNativeMessagingDir(folder.path, folder.isUserLevel ? 1 : 0)

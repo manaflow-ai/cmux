@@ -58,6 +58,11 @@ public final class CEFAgentRelay {
     /// reports come as page messages (``pageMessage(_:)``) instead of bindings.
     public var usesRendererPaths: Bool { tab?.runtime.forkFeatures.rendererPaths == true }
 
+    /// Every renderer has the cmux page host (``CEFPageSchemes/HostScript``): Chromium started on
+    /// renderer paths with the App's page host scripts, and the shim took them all. A cmux page
+    /// then talks to its host over the page channel; otherwise over DevTools.
+    public var pageHostInRenderer: Bool { tab?.runtime.pageHostInRenderer == true }
+
     private func updateWatch() {
         if let tab, let browser = tab.browserID { tab.runtime.shim?.devToolsWatchEvents(browser, sink != nil || mediaListens || designModeListens ? 1 : 0) }
     }
@@ -136,11 +141,8 @@ public final class CEFAgentRelay {
         case .protectedMedia: media?.refused(message.payload)
         case .verification: verification?.report(message.payload)
         case .firstPaint: firstPaint?.painted()
-        // A cmux page's call to its host: the sender is this tab's main frame (child frames are
-        // dropped) at its last committed URL, whatever the payload names.
-        case .pageHost:
-            guard let tab, let browser = tab.browserID else { return }
-            tab.pageEvents?.posted?(CEFPageHostPost(browserID: browser, committedURL: tab.committedURL, payload: message.payload))
+        // A cmux page's call to its host, from this tab's main frame (child frames are dropped).
+        case .pageHost: tab?.pageEvents?.posted?(message.payload)
         }
     }
 
