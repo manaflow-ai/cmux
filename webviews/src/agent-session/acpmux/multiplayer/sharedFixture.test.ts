@@ -5,6 +5,7 @@ import { createAcpmuxDebug } from "../debug";
 import type { AcpmuxRow } from "../model";
 import { acpmuxPerf } from "../perf";
 import { shownPresence } from "./LivePresence";
+import { PresenceClient } from "./presenceClient";
 
 afterEach(() => shownPresence.set(undefined, undefined));
 
@@ -93,4 +94,35 @@ test("a shared seed after live presence or a switch displaced the fixture restor
   await debug.seedRows(0, "shared");
   await debug.seedRows(3, "short");
   expect(shownPresence.get()).toBeUndefined();
+});
+
+test("a chat switch clears the fixture's faces even when no chat has anyone else", async () => {
+  // Wired as the direct client wires it (direct.ts `presence`): every attach and detach tells.
+  const client: PresenceClient = new PresenceClient(
+    () => undefined,
+    () => shownPresence.set(client.chat, client.presence),
+  );
+  let rows: AcpmuxRow[] = [];
+  const debug = createAcpmuxDebug({
+    replaceRows: (next) => {
+      rows = next;
+      queueMicrotask(() => acpmuxPerf.commit(1, 0, [], performance.now()));
+    },
+    rowCount: () => rows.length,
+    sessionId: () => client.chat,
+  });
+  client.attached("chat-a", {});
+  await debug.seedRows(0, "shared");
+  expect(shownPresence.get()?.presence?.viewing).toHaveLength(3);
+  client.detached();
+  expect(shownPresence.get()).toBeUndefined();
+  client.attached("chat-b", {});
+  client.detached();
+  client.attached("chat-a", {});
+  expect(shownPresence.get()).toEqual({ sessionId: "chat-a", presence: undefined });
+  // An acpmux that sends presence, with nobody else here, clears it the same way.
+  await debug.seedRows(0, "shared");
+  client.detached();
+  client.attached("chat-a", { presence: { viewing: [], typing: [] } });
+  expect(shownPresence.get()?.presence).toBeUndefined();
 });
