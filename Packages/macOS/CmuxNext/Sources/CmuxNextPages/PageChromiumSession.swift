@@ -6,12 +6,16 @@ import CmuxNextWakeups
 final class PageChromiumSession {
     let page: any PageChromiumPage
     let bridge: ChromiumPageHostBridge
+    /// The host that made ``page``: its supervisor decides what follows a browser end.
+    let hosting: any PageChromiumHosting
     /// Cancelled when the page reaches the host or the session ends.
     let deadline: DemandTimer
 
-    init(page: any PageChromiumPage, bridge: ChromiumPageHostBridge, clock: any Clock<Duration>) {
+    init(page: any PageChromiumPage, bridge: ChromiumPageHostBridge, hosting: any PageChromiumHosting,
+         clock: any Clock<Duration>) {
         self.page = page
         self.bridge = bridge
+        self.hosting = hosting
         deadline = DemandTimer(owner: "page.chromium.deadline", clock: clock)
     }
 

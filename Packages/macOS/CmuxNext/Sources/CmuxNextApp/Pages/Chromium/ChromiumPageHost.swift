@@ -71,4 +71,8 @@ final class ChromiumPageHost: PageChromiumHosting {
         }
         return chromiumPage
     }
+
+    /// The engine runs in cmux's own process: a browser that ended cannot start again, so there
+    /// is no restart to wait for.
+    func supervisorOutcome() async -> PageChromiumSupervisorOutcome { .gaveUp }
 }

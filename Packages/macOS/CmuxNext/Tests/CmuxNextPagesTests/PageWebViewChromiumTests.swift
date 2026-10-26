@@ -317,6 +317,20 @@ extension PageWebViewChromiumTests {
         views.filter { $0.engineDecision.engine == .webKit }.count
     }
 
+    /// Ends the browser under the first `count` pages and returns once each asked the supervisor.
+    private func endBrowser(_ hosting: FakeChromiumHosting, pages count: Int = 8) async {
+        let asked: Bool? = await PageTestWait.value("supervisor asks") { done in
+            hosting.onSupervisorAsk = { if hosting.supervisorAsks == count { done(true) } }
+            for page in hosting.made.prefix(count) { page.onEvent?(.ended) }
+        }
+        #expect(asked == true)
+    }
+
+    /// Every page whose browser ended has the supervisor's answer.
+    private func answered(_ views: [PageWebView]) async {
+        for view in views { await view.chromiumRecovery?.wait?.value }
+    }
+
     /// The browser under eight pages ends: no page reopens in WebKit in that turn, before the
     /// helper-app supervisor could bring Chromium back. At base all eight reopened at once.
     @Test func aBrowserEndReopensNoPageInWebKitInItsTurn() async throws {
@@ -327,6 +341,86 @@ extension PageWebViewChromiumTests {
         #expect(onWebKit(views) == 0)
         #expect(views.allSatisfy { $0.webKitView.isHidden })
         views.forEach { $0.close() }
+        window.close()
+    }
+
+    /// The fallback storm: eight pages, one shown, wait for the supervisor with no engine page;
+    /// after its give-up only the shown page reopens in WebKit, and a hidden one when it shows.
+    @Test func afterTheSupervisorGivesUpOnlyTheShownPageReopensInWebKit() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        hosting.supervisorWaits = true
+        let (views, window) = try await eightPages(hosting)
+        await endBrowser(hosting)
+        // Waiting: every Chromium page closed, no page on WebKit, no new Chromium page.
+        #expect(hosting.made.allSatisfy(\.closed))
+        #expect(views.allSatisfy { !$0.showsChromium && $0.webKitView.isHidden })
+        #expect(onWebKit(views) == 0)
+        #expect(hosting.made.count == 8)
+
+        hosting.finishSupervision(.gaveUp)
+        await answered(views)
+        #expect(onWebKit(views) == 1)
+        #expect(views[0].engineDecision == .webKit(.chromiumFailed))
+        #expect(!views[0].webKitView.isHidden)
+        #expect(views[0].chromiumRecovery == nil)
+        #expect(views.dropFirst().allSatisfy { $0.chromiumRecovery != nil })
+
+        // A hidden page reopens in WebKit when it shows.
+        window.contentView?.addSubview(views[1])
+        #expect(onWebKit(views) == 2)
+        #expect(views[1].chromiumRecovery == nil)
+        #expect(hosting.made.count == 8)
+        views.forEach { $0.close() }
+        #expect(views.allSatisfy { $0.chromiumRecovery == nil })
+        window.close()
+    }
+
+    /// The supervisor restarts Chromium: the shown page makes a new Chromium page at the route
+    /// opened while it waited, a hidden one only when it shows, and none reopens in WebKit.
+    @Test func afterTheSupervisorRestartsChromiumTheShownPageReturnsToChromium() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        hosting.supervisorWaits = true
+        let (views, window) = try await eightPages(hosting)
+        await endBrowser(hosting)
+        views[0].open(route: "/moved")
+        hosting.finishSupervision(.restarted)
+        await answered(views)
+        await views[0].chromiumStart?.value
+        #expect(hosting.made.count == 9)
+        #expect(hosting.made.last?.loaded == [descriptor.url(route: "#/moved")])
+        #expect(views[0].showsChromium)
+        #expect(onWebKit(views) == 0)
+
+        // Added to the window but hidden: still waits; shown: a new Chromium page.
+        views[2].isHidden = true
+        window.contentView?.addSubview(views[2])
+        #expect(hosting.made.count == 9)
+        views[2].isHidden = false
+        await views[2].chromiumStart?.value
+        #expect(hosting.made.count == 10)
+        #expect(views[2].showsChromium)
+        #expect(onWebKit(views) == 0)
+        views.forEach { $0.close() }
+        window.close()
+    }
+
+    /// A page that closes while it waits for the supervisor does nothing on its answer.
+    @Test func aPageClosedWhileItWaitsDoesNothingOnTheAnswer() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        hosting.supervisorWaits = true
+        let (views, window) = try await eightPages(hosting)
+        await endBrowser(hosting, pages: 1)
+        let wait = try #require(views[0].chromiumRecovery?.wait)
+        views[0].close()
+        #expect(views[0].chromiumRecovery == nil)
+        hosting.finishSupervision(.gaveUp)
+        await wait.value
+        #expect(views[0].engineDecision == .chromium)
+        #expect(views[0].webKitView.isHidden)
+        views.dropFirst().forEach { $0.close() }
         window.close()
     }
 }

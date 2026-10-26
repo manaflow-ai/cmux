@@ -7,8 +7,8 @@ import Foundation
 
 // Chromium mode (`browser.defaultEngine` is `chromium`, ``PageEnginePolicy``): the page shows in a
 // Chromium page from ``PageWebView/chromiumHosting``, over the same router, theme and scripts. The
-// WebKit view stays as an unloaded, hidden subview, so a page that fails in Chromium reopens in
-// WebKit at once (``fallBackToWebKit(_:)``) and WebKit-only hosts keep compiling.
+// WebKit view stays as an unloaded, hidden subview: a page that fails in Chromium reopens in WebKit
+// at once (``fallBackToWebKit(_:)``), and one whose browser ended waits for ``PageChromiumRecovery``.
 extension PageWebView {
     /// The handlers the page scripts post to without a reply, in Chromium mode.
     static let chromiumFireAndForget = [
@@ -94,21 +94,18 @@ extension PageWebView {
                 self?.fallBackToWebKit(.chromiumFailed, detail: "\(error)")
                 return
             }
-            guard let self, self.chromiumStart?.isCancelled == false else {
-                page.close()
-                return
-            }
+            guard let self, self.chromiumStart?.isCancelled == false else { return page.close() }
             #if DEBUG || CMUX_BENCH_HOOKS
             traceMark(.browserCreated)
             #endif
-            await self.attachChromium(page, scripts: scripts)
+            await self.attachChromium(page, scripts: scripts, hosting: hosting)
         }
     }
 
-    private func attachChromium(_ page: any PageChromiumPage, scripts: PageChromiumDocumentScripts) async {
+    private func attachChromium(_ page: any PageChromiumPage, scripts: PageChromiumDocumentScripts, hosting: any PageChromiumHosting) async {
         let handlers = Self.chromiumFireAndForget + chromiumMessageHandlers.keys.sorted()
         let bridge = ChromiumPageHostBridge(page: page, fireAndForget: handlers)
-        let session = PageChromiumSession(page: page, bridge: bridge, clock: chromiumClock)
+        let session = PageChromiumSession(page: page, bridge: bridge, hosting: hosting, clock: chromiumClock)
         page.onEvent = { [weak self] event in self?.chromiumEvent(event) }
         page.resources = { [weak self] url in await self?.chromiumResource(url) ?? .notFound }
         do {
@@ -161,14 +158,10 @@ extension PageWebView {
 
     /// Chromium failed for this page: it reopens in WebKit, at the route it showed.
     func fallBackToWebKit(_ reason: PageWebKitReason, detail: String) {
-        chromiumStart?.cancel()
-        chromiumStart = nil
         logger.error("page \(self.descriptor.id, privacy: .public) reopens in WebKit: \(detail, privacy: .public)")
-        chromiumSession?.end()
-        chromiumSession = nil
+        endChromium()
         chromiumUserEventUptime = nil
         chromiumDragFile = nil
-        inputReadiness.editor = nil
         scriptTarget.bridge = bridge
         engineDecision = .webKit(reason)
         webView.isHidden = false
@@ -177,13 +170,20 @@ extension PageWebView {
         webView.load(URLRequest(url: descriptor.url(route: route)))
     }
 
-    /// Ends Chromium mode for good (the page closed).
+    /// Ends the Chromium page and any wait for its supervisor (the page closed or falls back).
     func endChromium() {
         chromiumStart?.cancel()
         chromiumStart = nil
         chromiumSession?.end()
         chromiumSession = nil
         inputReadiness.editor = nil
+        chromiumRecovery?.cancel()
+    }
+
+    /// The view was added to or removed from a window, or it or an ancestor was hidden or shown.
+    func chromiumVisibilityChanged() {
+        chromiumSession?.page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
+        chromiumRecovery?.pageShown()
     }
 
     // MARK: Events
@@ -211,7 +211,7 @@ extension PageWebView {
         case .crashed:
             contentProcessTerminated()
         case .ended:
-            fallBackToWebKit(.chromiumFailed, detail: "the Chromium browser ended")
+            chromiumRecovery = PageChromiumRecovery(page: self, hosting: chromiumSession.hosting)
         case .openRequested(let url):
             openOutside(url, modifiers: [])
         case .filesDragged(let urls):
