@@ -2154,13 +2154,16 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/process/background", params, 10_000);
   }
 
-  /// Reconnects MCP server `server` (its `mcpServers` name) of the selected Claude Code chat: acpmux
+  /// Reconnects MCP server `server` (its `mcpServers` name) of the Claude Code chat on screen: acpmux
   /// sends Claude Code's mcp_reconnect and answers `{}`, or Claude Code's error; another harness's
   /// chat is refused. Once it reconnected, the server reads connected in the chat's `mcpServers`.
+  /// During a switch's hold that is the chat the Inspector still draws (`actingSessionId`), whose
+  /// server the button names, not the chat opening.
   /// The app's pane relay must allow `_acpmux/mcp/reconnect` (cmux-agent-pane-policy) first.
   reconnectMcp(server: string): Promise<unknown> {
-    if (!this.selectedSessionId) return Promise.reject(new Error());
-    return this.request(MCP_RECONNECT_METHOD, { sessionId: this.selectedSessionId, server }, 35_000);
+    const sessionId = this.actingSessionId;
+    if (!sessionId) return Promise.reject(new Error());
+    return this.request(MCP_RECONNECT_METHOD, { sessionId, server }, 35_000);
   }
 
   /// Stops one of the selected session's running subagents (a Claude agent or workflow); acpmux
