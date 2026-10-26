@@ -13,6 +13,10 @@
 #                             artifact (fails, or prints nothing with
 #                             --optional).
 #
+# An artifact unpacks to the folder <version>/, or to its "dir" field when it
+# names one (a staging pin of fleet builds, scripts/cmux-next/cef-pin-staging.sh,
+# whose x86_64 folder is not the arm64 one). tar reads xz and plain tar alike.
+#
 # Sources, in order; every download is checked against the manifest sha256:
 #   1. the local cache
 #   2. the fleet controller's artifact store: the controller signs a short-lived
@@ -114,7 +118,9 @@ else
 fi
 asset="$(field "${prefix}asset")"; url="$(field "${prefix}url")"; sha="$(field "${prefix}sha256")"
 r2_key="$(field "${prefix}r2_key")"
+inner="$(field "${prefix}dir")"; inner="${inner:-$version}"
 [[ -n "$version" && -n "$asset" && -n "$sha" ]] || fail "manifest $MANIFEST lacks version, asset or sha256 for $arch"
+[[ "$inner" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || fail "manifest $MANIFEST names no valid folder for $arch"
 
 root="$("$SCRIPT_DIR/cef-cache-root.sh")"
 dest="$root/$version$suffix"
@@ -255,11 +261,11 @@ fetch_store || fetch_r2 || fetch_github ||
   fail "could not download a verified $asset (set CMUX_CEF_R2_* or ~/.secrets/cmux-cef.env, or log in with gh / set GH_TOKEN)"
 
 mkdir -p "$tmp/x"
-tar -xJf "$archive" -C "$tmp/x"
-[[ -d "$tmp/x/$version/$FRAMEWORK" ]] || fail "archive $asset has no $version/$FRAMEWORK"
-check_build_flags "$tmp/x/$version"
-printf '%s' "$sha" > "$tmp/x/$version/.verified"
+tar -xf "$archive" -C "$tmp/x"
+[[ -d "$tmp/x/$inner/$FRAMEWORK" ]] || fail "archive $asset has no $inner/$FRAMEWORK"
+check_build_flags "$tmp/x/$inner"
+printf '%s' "$sha" > "$tmp/x/$inner/.verified"
 rm -rf "$dest"
-mv "$tmp/x/$version" "$dest"
+mv "$tmp/x/$inner" "$dest"
 echo "==> CEF $version ready at $dest" >&2
 echo "$dest"
