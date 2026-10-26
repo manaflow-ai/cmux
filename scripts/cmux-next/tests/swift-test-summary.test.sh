@@ -331,4 +331,52 @@ if grep -q 'aPasses\|eachFails' <<<"$stuck"; then fail "the stuck error names a 
 grep -q '::1 test still running' <<<"$stuck" || fail "the stuck error miscounts" "$stuck"
 grep -q 'stuckHere()' <<<"$summary" || fail "the step summary does not name the stuck test" "$summary"
 
+# The watchdog reads finishes with the same definition report() does, so the two can never
+# disagree about what "finished" means. They did: report() learned the known-issue marker and the
+# watchdog did not, so a known-issue pass still looked like a test that had been running for the
+# whole stuck limit. The cost is not a false red, it is a healthy run SAMPLED AND KILLED while its
+# other tests were still going. Every terminal shape appears here, and only the genuinely stuck
+# test may be named.
+cat > "$TMP/stuckshapes.out" <<'EOF2'
+◇ Test knownIssuePass() started.
+━ Test knownIssuePass() passed after 0.300 seconds with 2 known issues.
+◇ Test knownIssueFail() started.
+━ Test knownIssueFail() failed after 0.002 seconds with 1 known issue.
+◇ Test xKnownIssue() started.
+✘ Test xKnownIssue() passed after 0.001 seconds with 1 known issue.
+◇ Test cancelledHere() started.
+➜ Test cancelledHere() was cancelled after 0.001 seconds.
+◇ Test skippedHere() started.
+➜ Test skippedHere() skipped.
+◇ Test eachPasses(n:) started.
+✔ Test eachPasses(n:) with 2 test cases passed after 0.003 seconds.
+◇ Test stuckHere() started.
+EOF2
+STUB_SLEEP=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run stuckshapes 0
+stuck=$(grep '^::error title=cmux-next swift test stuck' <<<"$out" || true)
+[[ -n "$stuck" ]] || fail "no stuck-test ::error line" "$out"
+grep -q '::1 test still running' <<<"$stuck" \
+  || fail "the watchdog read a finished test as still running" "$stuck"
+grep -q 'stuckHere()' <<<"$stuck" || fail "the stuck error does not name stuckHere()" "$stuck"
+for finished in knownIssuePass knownIssueFail xKnownIssue cancelledHere skippedHere eachPasses; do
+  if grep -q "$finished" <<<"$stuck"; then
+    fail "the watchdog named $finished(), which had finished" "$stuck"
+  fi
+done
+
+# A cancelled test is a FINISHED test. swift-testing 6.3 ends a non-failing cancellation
+# (try Test.cancel()) with "was cancelled after ...", a tail name_of() did not strip, so the
+# finish was filed under "f() was cancelled after 0.001 seconds" while the start was filed under
+# "f()" -- a green run reported as truncated, forever, with no way for the test to pass.
+cat > "$TMP/cancelled.out" <<'EOF'
+◇ Test cancelledHere() started.
+➜ Test cancelledHere() was cancelled after 0.001 seconds.
+◇ Test aPasses() started.
+✔ Test aPasses() passed after 0.001 seconds.
+✔ Test run with 2 tests in 1 suite passed after 0.002 seconds.
+EOF
+run cancelled 0
+[[ "$status" == 0 ]] || fail "a run with a cancelled test exited $status" "$out"
+[[ "$out" != *"::error"* ]] || fail "a run with a cancelled test printed an error" "$out"
+
 echo "ok swift-test-summary"

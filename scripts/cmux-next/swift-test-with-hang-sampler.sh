@@ -48,12 +48,41 @@ stuck_limit="${CMUX_NEXT_TEST_STUCK_SECONDS:-300}"
 poll="${CMUX_NEXT_TEST_STUCK_POLL_SECONDS:-10}"
 helpers="$log.helpers"
 : > "$helpers"
-# A test's name from a Swift Testing console line.
+# A test's name from a Swift Testing console line, and whether that line is a FINISH.
+#
+# One definition, used by the watchdog below and by report(): they are the only two readers, and
+# having a copy each is how a finish shape came to be handled by one and not the other. The
+# watchdog's copy still read a known-issue pass as unfinished after report()'s was fixed, so a
+# healthy run whose other tests kept going for stuck_limit would have been sampled and KILLED.
+#
+# Every terminal line a test can get, measured against the reporter rather than assumed:
+#   ✔ Test f() passed after 0.001 seconds.
+#   ✘ Test f() failed after 0.001 seconds with 1 issue.
+#   ✘ Test f() passed after 0.001 seconds with 1 known issue.      a ✘ finish is not only a failure
+#   ━ Test f() passed after 8.359 seconds with 2 known issues.     a known issue has its own marker
+#   ━ Test f() failed after 0.002 seconds with 1 known issue.
+#   ➜ Test f() skipped.
+#   ➜ Test f() was cancelled after 0.001 seconds.                  swift-testing 6.3, Test.cancel()
+#   ✔ Test f(n:) with 2 test cases passed after 0.003 seconds.     parameterized
+# Both verbs on every marker, because which marker carries which verb is the reporter's business.
+# name_of must strip each of those tails: a tail it leaves behind becomes part of the key, so the
+# finish is filed under a name no start ever used and the test reads as unfinished forever.
+#
+# Separate anchored alternatives, NEVER a bracket set: awk reads [✔✘➜━] as the set of BYTES those
+# characters are made of, and each ends in a byte another also contains, so match() lands
+# mid-character and every line matches. Anchored at the line start, so a test's own output
+# ("debug: ✔ Test hung() passed...") cannot self-report.
 names_awk='
   function name_of(line) {
     sub(/^[^ ]+ Test /, "", line)
-    sub(/ (started\.|recorded an issue at .*|passed after .*|with [0-9]+ test cases? (passed|failed) after .*|failed after .*|skipped.*)$/, "", line)
+    sub(/ (started\.|recorded an issue at .*|passed after .*|with [0-9]+ test cases? (passed|failed) after .*|failed after .*|was cancelled after .*|skipped.*)$/, "", line)
     return line
+  }
+  function is_finish(line) {
+    return line ~ /^✔ Test / \
+        || line ~ /^✘ Test .* (passed|failed) after / \
+        || line ~ /^━ Test .* (passed|failed) after / \
+        || line ~ /^➜ Test /
   }'
 # The tests the log shows started and not finished, in start order. The
 # run's own "Test run started." line is not a test.
@@ -63,7 +92,7 @@ open_tests() {
       name = name_of($0)
       if (!(name in started)) { started[name] = 1; starts[++count] = name }
     }
-    /^✔ Test / || /^✘ Test .* failed after / || /^➜ Test / { finished[name_of($0)] = 1 }
+    is_finish($0) { finished[name_of($0)] = 1 }
     END { for (i = 1; i <= count; i++) if (!(starts[i] in finished)) print starts[i] }
   ' "$1"
 }
@@ -166,12 +195,7 @@ fi
 # the run was truncated: no "Test run with" summary line, or a summary that
 # reports fewer tests than the log shows starting.
 report() {
-  awk -v summary_file="${GITHUB_STEP_SUMMARY:-}" -v status="$status" '
-    function name_of(line) {
-      sub(/^[^ ]+ Test /, "", line)
-      sub(/ (started\.|recorded an issue at .*|passed after .*|with [0-9]+ test cases? (passed|failed) after .*|failed after .*|skipped.*)$/, "", line)
-      return line
-    }
+  awk -v summary_file="${GITHUB_STEP_SUMMARY:-}" -v status="$status" "$names_awk"'
     function join(list, count,    out, i, max) {
       max = count > 100 ? 100 : count
       for (i = 1; i <= max; i++) out = out (i > 1 ? "; " : "") list[i]
@@ -199,19 +223,10 @@ report() {
       name = name_of($0)
       if (!(name in started)) { started[name] = 1; starts[++start_count] = name }
     }
-    # Every marker a FINISH can carry, because a finish this misses fails a whole green run.
-    # "✘ Test f() passed after 0.001 seconds with 1 known issue." is a test that finished and
-    # passed, so a ✘ finish is not only a failure and both verbs are accepted. A known-issue
-    # finish carries its own marker, "━", not ✘: the live daemon-tests job of cmux#25391 read
-    # "━ Test aRunCutOffMidwayFinishesWithoutDuplicates() passed after 8.359 seconds with 2 known
-    # issues." as unfinished and failed a run of 386 tests whose summary counted all 386.
-    # Separate anchored patterns, never one bracket set: awk reads [✔✘➜━] as the set of BYTES
-    # those characters are made of, and each ends in a byte another also contains, so match()
-    # lands mid-character and every line matches.
-    /^✔ Test / || /^✘ Test .* (passed|failed) after / || /^━ Test .* (passed|failed) after / \
-      || /^➜ Test / {
-      finished[name_of($0)] = 1
-    }
+    # is_finish and name_of come from names_awk above, the one definition the watchdog also uses:
+    # a finish shape this misses fails a whole green run, and one the watchdog misses gets a
+    # healthy run killed, so they must never be able to disagree.
+    is_finish($0) { finished[name_of($0)] = 1 }
     /^[^ ]+ Test run with [0-9]+ tests? / {
       has_summary = 1
       # "✔ Test run with 399 tests in 80 suites passed after ...". Taken out of the text rather
