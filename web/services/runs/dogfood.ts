@@ -365,14 +365,20 @@ export async function launchSandboxRun(input: {
   await runSandboxAttempt({ ...ids, task: input.task, agent: input.agent, timeoutMs: input.timeoutMs, requestedAt: input.requestedAt }, {
     claimLease: async () => {
       const lease = await claimAttemptLease({ ...ids, workerId: `sandbox:${input.user.id}`, ttlMs: leaseTtlMs });
-      const runtime = await createRuntime({
-        ownerTeamId: teamId,
-        kind: "ephemeral",
-        lifecycleState: "provisioning",
-        idempotencyKey: `run:${input.runId}:attempt:${input.attemptId}:runtime`,
-      });
-      runtimeId = runtime.id;
-      await attachAttemptToRuntime({ ownerTeamId: teamId, ...ids, runtimeId: runtime.id });
+      // The runtime row is bookkeeping: a failure here must not leave a leased attempt behind
+      // with no launcher to fail it, so the launch goes on without it.
+      try {
+        const runtime = await createRuntime({
+          ownerTeamId: teamId,
+          kind: "ephemeral",
+          lifecycleState: "provisioning",
+          idempotencyKey: `run:${input.runId}:attempt:${input.attemptId}:runtime`,
+        });
+        runtimeId = runtime.id;
+        await attachAttemptToRuntime({ ownerTeamId: teamId, ...ids, runtimeId: runtime.id });
+      } catch (error) {
+        console.error("[runs] sandbox runtime bookkeeping failed", error);
+      }
       return lease;
     },
     createVm: async () => {

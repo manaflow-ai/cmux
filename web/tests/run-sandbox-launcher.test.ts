@@ -267,6 +267,9 @@ describe("sandbox run lifecycle", () => {
     const evicted = tail([pem, `${"pad\n".repeat(20_000)}`, "done\n"]);
     expect(evicted).not.toContain(body);
     expect(tail(["log\n", pem, "done\n"])).toBe("log\n[redacted private key]\ndone\n");
+    // Terminal escapes inside the markers can't hide the block.
+    const escaped = pem.replace("-----BEGIN PRIVATE KEY-----", "-----BEGIN \u001b[0mPRIVATE KEY-----").replace("-----END PRIVATE KEY-----", "-----END \u001b[1mPRIVATE KEY-----");
+    expect(tail(["log\n", escaped, "done\n"])).toBe("log\n[redacted private key]\ndone\n");
     // Cut off mid-line by a timeout: the unfinished line is redacted too.
     expect(tail(['echo PASSWORD="example-pass-123!'])).not.toContain("example-pass-123!");
   });

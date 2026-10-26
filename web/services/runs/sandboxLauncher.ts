@@ -1,6 +1,6 @@
 import type { CloudVmAgent, CloudVmAttemptRef, CloudVmPreparedAttempt, CloudVmRunAttemptSpec, CloudVmRunEvent } from "../vms/cloudVmRunAdapter";
 import type { SandboxRunOutcome } from "./model";
-import { redactReceiptText, sandboxReply } from "./sandbox";
+import { redactReceiptText, sandboxReply, stripTerminalEscapes } from "./sandbox";
 
 /** Terminal output the launcher keeps in memory for the receipt's reply. */
 const SANDBOX_OUTPUT_TAIL_CHARS = 64 * 1024;
@@ -49,8 +49,10 @@ export class OutputTail {
     }
   }
 
-  private complete(line: string): void {
-    // A private key's lines are dropped from its BEGIN line through its END line.
+  private complete(raw: string): void {
+    // A private key's lines are dropped from its BEGIN line through its END line, read with
+    // terminal escapes and control characters removed so neither can hide the markers.
+    const line = stripTerminalEscapes(raw);
     if (/-----BEGIN [A-Z0-9 ]*PRIVATE KEY/.test(line)) this.inKeyBlock = true;
     if (this.inKeyBlock) {
       if (/-----END [A-Z0-9 ]*PRIVATE KEY/.test(line)) {
