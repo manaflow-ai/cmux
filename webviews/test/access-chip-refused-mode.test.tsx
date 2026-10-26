@@ -394,6 +394,64 @@ for (const [why, first] of [
   });
 }
 
+test("a full-access choice a chat offers only as a config option is managed too", async () => {
+  // Review 48: a local chat reports its modes only as a `mode` config option (the Options chip).
+  // It learns the managed mark, and the full-access choice there is disabled and says so.
+  const startMode = await import("../src/agent-session/acpmux/startMode");
+  let asked = 0;
+  await act(async () =>
+    startMode.setStartModeSource(async () => {
+      asked += 1;
+      startMode.rememberFullAccess("managed");
+      return undefined;
+    }),
+  );
+  const summary = {
+    sessionId: "s1",
+    harness: "custom",
+    model: "default",
+    turnCount: 1,
+    configOptions: [
+      {
+        id: "mode",
+        name: "Mode",
+        category: "mode",
+        currentValue: "default",
+        options: [
+          { value: "default", name: "Ask" },
+          { value: "bypassPermissions", name: "Bypass permissions" },
+        ],
+      },
+    ],
+  };
+  await render(summary, () => undefined);
+  await flush();
+  expect(asked).toBe(1);
+  const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
+  await act(async () => void openPicker("Options"));
+  const row = [...dom.window.document.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find((r) =>
+    r.textContent?.includes("Bypass permissions"),
+  );
+  expect(row?.getAttribute("aria-disabled")).toBe("true");
+  expect(row?.textContent).toContain("Managed by your organization");
+});
+
+test("a chat in full access whose narrower mode was refused keeps its menu once managed", async () => {
+  // Review 48: the inverse of the two-row case. The current row is the full-access one; the only
+  // other mode was refused. Managed off keeps the menu, with the current row saying why.
+  await render(reported("s1", "bypassPermissions"), () =>
+    Promise.reject(new Error("default is not allowed here")),
+  );
+  const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
+  await act(async () => void openPicker("Mode"));
+  await act(async () => item("Manual")!.click());
+  await flush();
+  await answer({ harness: "claude", modeId: null, fullAccess: "managed" });
+  expect(trigger()).not.toBeNull();
+  await act(async () => void openPicker("Mode"));
+  expect(caption("Bypass permissions")).toBe("Managed by your organization");
+});
+
 test("a new connection forgets the managed mark, and a late answer from the old one changes nothing", async () => {
   const startMode = await import("../src/agent-session/acpmux/startMode");
   const direct = await import("../src/agent-session/acpmux/direct");
