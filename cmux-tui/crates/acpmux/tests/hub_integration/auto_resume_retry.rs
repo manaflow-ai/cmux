@@ -33,8 +33,6 @@ async fn retry_refuses_when_nothing_failed_and_while_a_turn_runs() {
     let e = c.request(RETRY, json!({"sessionId": id})).await.unwrap_err();
     assert!(e.starts_with("retry.nothing_failed"), "{e}");
     prompt(&mut c, &id, "p-ok", "hello").await.unwrap();
-    let e = c.request(RETRY, json!({"sessionId": id, "subagentId": "a1"})).await.unwrap_err();
-    assert!(e.starts_with("retry.nothing_failed"), "{e}");
 
     // A turn runs: busy.
     let mut other = connect(&hub).await;
@@ -54,6 +52,24 @@ async fn retry_refuses_when_nothing_failed_and_while_a_turn_runs() {
     // A cancelled turn did not fail.
     let e = c.request(RETRY, json!({"sessionId": id})).await.unwrap_err();
     assert!(e.starts_with("retry.nothing_failed"), "{e}");
+}
+
+/// A retry of a subagent is not one of the chat's turn: refused by name until subagents retry
+/// (hb-retry-subagent's `Hub::retry_subagent`), never sent as the parent's turn.
+#[tokio::test]
+async fn a_subagent_retry_is_refused_and_never_retries_the_parent_turn() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![]);
+    let id = new_session(&mut c, "retry-subagent").await;
+    prompt(&mut c, &id, "p-f", "fail-once: hello").await.unwrap_err();
+    let e = c.request(RETRY, json!({"sessionId": id, "subagentId": "a1"})).await.unwrap_err();
+    assert!(e.starts_with("retry.subagent_unsupported"), "{e}");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(user_messages(&hub, &id).len(), 1, "the parent's turn was not retried");
+    assert_eq!(row(&hub, &id)["lastTurn"]["status"], "failed");
+    // Without it, the turn retries.
+    let v = c.request(RETRY, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(v["promptId"], "p-f~resume-1", "{v}");
 }
 
 /// A turn that failed before the model produced anything goes again as the same prompt, in the
