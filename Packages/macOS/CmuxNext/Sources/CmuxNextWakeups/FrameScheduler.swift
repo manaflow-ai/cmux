@@ -184,11 +184,17 @@ public final class FrameScheduler: NSObject {
     public private(set) var frameRate: FrameRate?
     /// Energy Saver's ambient cap and the ambient clients waiting out display sleep (FrameScheduler+Energy.swift).
     var energyState = AmbientEnergyState()
+    /// Its motion and commit-window frame sequences: expected refreshes against committed frames
+    /// (FrameSequenceTracker.swift).
+    public let sequences: FrameSequenceTracker
 
-    /// - Parameter displays: The clock to subscribe to (the app's: ``appDisplays``).
+    /// - Parameters:
+    ///   - displays: The clock to subscribe to (the app's: ``appDisplays``).
+    ///   - sequences: Its frame sequences (nil: one on the app's trace runtime).
     init(name: String, host: Host, displays: DisplayClock, clock: any Clock<Duration> = ContinuousClock(),
-         ledger: WakeupLedger = .shared, budget: MainFrameBudget?) {
+         ledger: WakeupLedger = .shared, budget: MainFrameBudget?, sequences: FrameSequenceTracker? = nil) {
         self.budget = budget
+        self.sequences = sequences ?? FrameSequenceTracker()
         self.name = name
         switch host {
         case .screen: isScreenHost = true
@@ -352,6 +358,7 @@ public final class FrameScheduler: NSObject {
         lastTimestamp = nil
         lastTargetTimestamp = nil
         handoff = nil
+        sequences.closeAll()
         guard let subscribed else { return }
         isSubscribed = false
         ticksOnLink = false
@@ -411,10 +418,10 @@ public final class FrameScheduler: NSObject {
         } else {
             linkFrame = nil
         }
-        // Visible motion (not batch work) explains CPU use to the busy watchdog.
-        if clients.values.contains(where: { $0.isActive && $0.isAnimation }) {
-            ExpectedActivity.shared.note(.animationFrame)
-        }
+        // Visible motion (not batch work) explains CPU use to the busy watchdog, and is a motion sequence.
+        let animating = clients.values.contains(where: { $0.isActive && $0.isAnimation })
+        if animating { ExpectedActivity.shared.note(.animationFrame) }
+        sequences.frameBegan(linkFrame, motion: animating)
         budget?.beginFrame(timestamp: timestamp, targetTimestamp: targetTimestamp, refreshInterval: refreshInterval, ranAt: ranAt)
         // A stalled frame keeps refreshInterval nil (`SwitchFrameTimer` reads nil as a stall), but is
         // still shown one link interval after it starts (Chrome's synthetic sources: frame_time + interval).
