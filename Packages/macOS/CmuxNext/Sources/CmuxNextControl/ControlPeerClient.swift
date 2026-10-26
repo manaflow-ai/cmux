@@ -1,5 +1,6 @@
 public import CmuxNextSettings
-import CmuxNextDaemon
+import struct CmuxNextDaemon.POSIXErrorText
+import struct CmuxNextDaemon.UnixSocketAddress
 import Darwin
 import Foundation
 

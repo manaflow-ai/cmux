@@ -1,5 +1,4 @@
 @testable import CmuxNextControl
-import CmuxNextDaemon
 import CmuxNextSettings
 import Darwin
 import Foundation

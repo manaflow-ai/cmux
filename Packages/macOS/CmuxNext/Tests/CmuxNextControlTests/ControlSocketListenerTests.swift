@@ -1,5 +1,4 @@
 import CmuxNextActions
-import CmuxNextDaemon
 @testable import CmuxNextControl
 import CmuxNextSettings
 import CmuxNextWakeups
