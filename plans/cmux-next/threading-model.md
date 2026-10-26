@@ -26,7 +26,8 @@ How it is enforced:
   `context`, `contexts.pool`; not in the Debug menu); launch a Debug build with `CMUX_BLOCKING_TRAP_POOL=1` to
   stop at it. A `BackgroundWork` `.files` or `.system` item, a named queue, a named thread and `allowBlocking` may
   block. A `.cpu` item may not (the lane is sized to the cores): a seam in it records a `wrong-lane` site in the
-  `cpu-lane` context, never a trap; run the item on `.files` or `.system` (p02-threads task 015). The pool
+  `cpu-lane` context, with the seam's own kind as its `seam_kind`, never a trap; run the item on `.files` for
+  `file-io`, on `.system` for any other seam kind (p02-threads task 015). The pool
   is found by the queue label (the `com.apple.root.` prefix, which the cooperative pool's queues share, on a
   thread with no pthread name), which is libdispatch's, not API (p02-threads task 005).
 - **What the detector does not see yet** (slice (c): migrate to a seam, or the probe below finds it): every

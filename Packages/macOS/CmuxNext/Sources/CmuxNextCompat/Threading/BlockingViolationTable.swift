@@ -83,6 +83,7 @@ final class BlockingViolationTable: Sendable {
         var id: Int
         var context: BlockingContext
         var kind: BlockingKind
+        var seamKind: BlockingKind
         var location: String
     }
 
@@ -258,8 +259,8 @@ final class BlockingViolationTable: Sendable {
     /// walks its stack in this frame, as the main path does (so both keep the same caller frames), then
     /// ``BlockingOffMainSites/insert(_:key:)`` takes its id and pushes it to the ring.
     ///
-    /// A `.cpu` lane call is recorded as ``BlockingKind/wrongLane`` whatever its seam waited on, and never traps:
-    /// the item runs on its own lane slot, and the fix is to move it to `.files` or `.system`.
+    /// A `.cpu` lane call is recorded as ``BlockingKind/wrongLane`` with its seam's own kind beside it, and never
+    /// traps: the item runs on its own lane slot, and the fix is to move it to the lane the seam kind names.
     private func recordedOffMainSite(_ kind: BlockingKind, in context: BlockingContext, fileID: StaticString,
                                      line: UInt) -> Int? {
         #if DEBUG
@@ -275,8 +276,8 @@ final class BlockingViolationTable: Sendable {
             sites.countOverflow()
             return nil
         }
-        var pending = BlockingPendingCall(kind: context == .cpuLane ? .wrongLane : kind, site: -1, fileID: fileID,
-                                          line: line)
+        var pending = BlockingPendingCall(kind: context == .cpuLane ? .wrongLane : kind, seamKind: kind, site: -1,
+                                          fileID: fileID, line: line)
         pending.captureStack()
         guard let recorded = sites.insert(pending, key: key) else {
             sites.countOverflow()
@@ -330,22 +331,32 @@ final class BlockingViolationTable: Sendable {
         while let pending = ring.pop() {
             let location = "\(pending.fileID):\(pending.line)"
             published.withLock {
-                $0.append(PublishedSite(id: pending.site, context: context, kind: pending.kind, location: location))
+                $0.append(PublishedSite(id: pending.site, context: context, kind: pending.kind,
+                                        seamKind: pending.seamKind, location: location))
             }
             #if DEBUG
             switch context {
             case .pool:
                 logger.error("blocking \(pending.kind.rawValue, privacy: .public) on the cooperative pool or a GCD root queue at \(location, privacy: .public): run it on a BackgroundWork lane (plans/cmux-next/threading-model.md)")
             case .cpuLane:
-                logger.error("blocking in a .cpu lane item at \(location, privacy: .public): the .cpu lane is sized to the cores and must not block; run the item on .files or .system (plans/cmux-next/threading-model.md)")
+                logger.error("blocking \(pending.seamKind.rawValue, privacy: .public) in a .cpu lane item at \(location, privacy: .public): the .cpu lane is sized to the cores and must not block; run the item on \(Self.mayBlockLane(for: pending.seamKind), privacy: .public) (plans/cmux-next/threading-model.md)")
             case .main, .lane, .dedicated:
                 logger.error("blocking \(pending.kind.rawValue, privacy: .public) on the main thread at \(location, privacy: .public): move it off the main thread, or wrap it in allowBlocking(<reviewed reason>) (plans/cmux-next/threading-model.md)")
             }
             #endif
             guard let sink = sink.withLock({ $0 }) else { continue }
-            sink.record(BlockingViolation(kind: pending.kind, context: context, frames: resolver.frames(pending.stack)))
+            sink.record(BlockingViolation(kind: pending.kind, context: context, frames: resolver.frames(pending.stack),
+                                          seamKind: pending.seamKind))
         }
     }
+
+    #if DEBUG
+    /// The BackgroundWork lane a `.cpu` item whose seam waits on `seamKind` belongs on: disk I/O on `.files`, any
+    /// other wait (a socket, a process, a system framework, a sleep) on `.system`.
+    private static func mayBlockLane(for seamKind: BlockingKind) -> String {
+        seamKind == .fileIO ? ".files" : ".system"
+    }
+    #endif
 
     /// Waits until the drain has handled every site recorded before the call (tests).
     func flush() async {
@@ -369,7 +380,8 @@ final class BlockingViolationTable: Sendable {
             let counters = site.context == .main ? mainCounters : offMainSites(site.context).counters
             let read = counters.read(site: site.id)
             return BlockingSite(kind: site.kind, location: site.location, count: read.count,
-                                totalNanos: read.totalNanos, maxNanos: read.maxNanos, context: site.context)
+                                totalNanos: read.totalNanos, maxNanos: read.maxNanos, context: site.context,
+                                seamKind: site.seamKind)
         }
     }
 

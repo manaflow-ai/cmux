@@ -22,6 +22,7 @@ struct BlockingControlTests {
         #expect(first.objectValue?["compiled_in"]?.boolValue == true)
         #expect(sites.count == 1)
         #expect(sites.first?.objectValue?["kind"]?.stringValue == "file-io")
+        #expect(sites.first?.objectValue?["seam_kind"]?.stringValue == "file-io")
         #expect(sites.first?.objectValue?["count"]?.intValue == 2)
         #expect(detector.sites.map(\.count) == [0])
     }
@@ -42,8 +43,8 @@ struct BlockingControlTests {
         #expect(totalMs >= maxMs)
     }
 
-    /// A seam on the pool (a detached task) is a `pool` site and one in a `.cpu` lane item a `cpu-lane` site;
-    /// `contexts` splits the sites and calls by context.
+    /// A seam on the pool (a detached task) is a `pool` site and one in a `.cpu` lane item a `cpu-lane` site
+    /// of kind `wrong-lane` with the seam's own `seam_kind`; `contexts` splits the sites and calls by context.
     @MainActor @Test func reportsSitesByContext() async throws {
         let table = BlockingViolationTable(mode: .record, poolMode: .record)
         BlockingViolationTable.$scoped.withValue(table) { _ = FileManager.checked.fileExists(atPath: "/") }
@@ -58,6 +59,9 @@ struct BlockingControlTests {
         let report = BlockingControl.report([:], detector: BlockingDetector(table: table))
         let sites = try #require(report.objectValue?["sites"]?.arrayValue)
         #expect(Set(sites.compactMap { $0.objectValue?["context"]?.stringValue }) == ["main", "pool", "cpu-lane"])
+        let cpuLane = try #require(sites.first { $0.objectValue?["context"]?.stringValue == "cpu-lane" }?.objectValue)
+        #expect(cpuLane["kind"]?.stringValue == "wrong-lane")
+        #expect(cpuLane["seam_kind"]?.stringValue == "file-io")
         let contexts = try #require(report.objectValue?["contexts"]?.objectValue)
         #expect(contexts["main"]?.objectValue?["sites"]?.intValue == 1)
         #expect(contexts["main"]?.objectValue?["count"]?.intValue == 1)

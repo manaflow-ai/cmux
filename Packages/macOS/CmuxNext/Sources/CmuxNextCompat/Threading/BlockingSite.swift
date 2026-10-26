@@ -1,8 +1,12 @@
 /// One call site that blocked the main thread, a shared pool thread or a `.cpu` lane item (``context``), as
 /// ``BlockingDetector/sites`` lists it for the `debug.blocking` control command and the Debug menu.
 public struct BlockingSite: Sendable, Equatable {
-    /// What the call waited on.
+    /// What the call waited on, or ``BlockingKind/wrongLane`` for a site in ``BlockingContext/cpuLane``.
     public var kind: BlockingKind
+    /// What the seam itself waited on (``BlockingKind/fileIO``, ``BlockingKind/systemCall``, ...): ``kind``,
+    /// except at a ``BlockingKind/wrongLane`` site, where it says which lane the item belongs on (`.files` for
+    /// file I/O, `.system` for any other wait).
+    public var seamKind: BlockingKind
     /// The call site: `Module/File.swift:line` of the code that called the blocking seam or
     /// ``Mutex/withLock(fileID:line:_:)``.
     public var location: String
@@ -21,8 +25,9 @@ public struct BlockingSite: Sendable, Equatable {
 
     /// Makes the value from its parts.
     public init(kind: BlockingKind, location: String, count: Int, totalNanos: UInt64 = 0, maxNanos: UInt64 = 0,
-                context: BlockingContext = .main) {
+                context: BlockingContext = .main, seamKind: BlockingKind? = nil) {
         self.kind = kind
+        self.seamKind = seamKind ?? kind
         self.location = location
         self.count = count
         self.totalNanos = totalNanos
