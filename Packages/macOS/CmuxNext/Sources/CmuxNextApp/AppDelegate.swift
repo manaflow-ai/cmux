@@ -245,9 +245,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         launchCleanup.schedule(on: order.startup)
         services.iconPicker.onOpened = { DebugTimings.iconPickerOpened($0) }
         let profilesDirectory = BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID)
-        // Every browser tab's page waits for the profiles' launch read: no engine makes one with a profile chosen
-        // before the book was read (p08-startup-028; Chrome opens a profile's first window from its loaded callback).
-        services.cache.enginesAwait = services.browserProfiles.loadRead
         services.browserProfiles.load(directory: profilesDirectory, importStore: services.onboarding.importStore)
         DebugTimings.markLaunch("dfl.first_window_hooks")
         services.home.start()

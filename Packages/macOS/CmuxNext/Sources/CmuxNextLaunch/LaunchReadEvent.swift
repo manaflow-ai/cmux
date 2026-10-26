@@ -1,3 +1,5 @@
+import os
+
 /// A launch read's completion as a one-shot event (Chromium's `base::OneShotEvent`,
 /// base/one_shot_event.h): steps that need the read post to it and run on its ``signal()``, in post
 /// order; a step posted after the signal runs at once. Nothing polls and nothing waits on main
@@ -14,15 +16,19 @@
 /// ```
 @MainActor
 public final class LaunchReadEvent {
-    /// The read, in diagnostics (`Domain.read`).
+    /// The read's signpost event name (`Domain.read`): ``signal()`` emits it with the count of steps it released.
     public let name: StaticString
     /// True once the read is done.
     public private(set) var isSignaled = false
     private var steps: [@MainActor () -> Void] = []
+    private let signposter: OSSignposter
 
-    /// - Parameter name: The read, in diagnostics (`BrowserProfiles.loaded`).
-    public init(_ name: StaticString) {
+    /// - Parameters:
+    ///   - name: The read's signpost event name (`BrowserProfiles.loaded`).
+    ///   - signposter: Where ``signal()`` emits it (Instruments' "launch" category by default).
+    public init(_ name: StaticString, signposter: OSSignposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "launch")) {
         self.name = name
+        self.signposter = signposter
     }
 
     /// The steps still waiting for the read.
@@ -40,6 +46,7 @@ public final class LaunchReadEvent {
         isSignaled = true
         let waiting = steps
         steps = []
+        signposter.emitEvent(name, "\(waiting.count, privacy: .public) waiting steps")
         for step in waiting { step() }
     }
 }

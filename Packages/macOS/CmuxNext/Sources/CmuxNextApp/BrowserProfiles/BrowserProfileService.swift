@@ -51,6 +51,9 @@ final class BrowserProfileService {
         let file = BrowserProfileBookFile(url: directory.appending(path: "profiles.json"))
         self.file = file
         self.importStore = importStore
+        // Until the book applied, no engine makes a tab's page with a profile chosen from an empty book (a deleted
+        // profile's tab would reopen its store; p08-startup-028, Chrome opens a profile's windows from its loaded callback).
+        services.cache.enginesAwait = loadRead
         // task-owner: one-shot launch read of a small JSON file
         Task { [weak self] in
             let loaded = await file.load()

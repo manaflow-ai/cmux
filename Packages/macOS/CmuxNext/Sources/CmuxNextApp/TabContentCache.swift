@@ -85,8 +85,14 @@ final class TabContentCache {
     let pageRequests = BrowserPageRequests()
     /// Chromium pages being created (ChromiumWarmup waits for none, `onPagesSettled`).
     private(set) var pendingBrowsers: Set<String> = [] {
-        didSet { if pendingBrowsers.isEmpty, !oldValue.isEmpty { onPagesSettled?() } }
+        didSet { if !oldValue.isEmpty, !hasPendingPages { onPagesSettled?() } }
     }
+    /// Tabs whose page waits for `enginesAwait`, one posted step each (p08-startup-028).
+    private var awaitingRead: Set<String> = [] {
+        didSet { if !oldValue.isEmpty, !hasPendingPages { onPagesSettled?() } }
+    }
+    /// A page is being made or waits for the launch read (ChromiumWarmup waits for none).
+    var hasPendingPages: Bool { !pendingBrowsers.isEmpty || !awaitingRead.isEmpty }
     /// No Chromium page is being created any more (ChromiumWarmup's spare window).
     var onPagesSettled: (@MainActor () -> Void)?
     private var framedStandIns: Set<String> = [] // stand-in tabs whose page waited for their first frame
@@ -268,10 +274,10 @@ final class TabContentCache {
             return nil
         }
         if let page = appPage(for: tab, url: url) { return page }
-        if let read = enginesAwait, !read.isSignaled { return awaitLaunchRead(read, key) }
         if defersRestoredPages, !startedDeferred.contains(key), !browserTabs.wasOpenedHere(tab) {
             return deferred(tab, url: url)
         }
+        if let read = enginesAwait, !read.isSignaled { return awaitLaunchRead(read, key) }
         guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: key, url: url), tab) }
         if let reason = browserTabs.cefUnavailable() { return fallBack(tab, url: url, reason: reason) }
         if !pendingBrowsers.contains(key), let page = ChromiumNewTabNow(cache: self).page(tab, url: url) { return tracked(install(page, for: key), tab) }
@@ -300,11 +306,23 @@ final class TabContentCache {
         return nil
     }
 
-    /// No page yet: the pane asks again (`onBrowserReady`) once `read` is done, unless the tab was released first.
+    /// No page yet: once `read` is done the page is made for the tab (shown or not) and panes showing it re-show,
+    /// unless the tab was released first. One step per tab: a release forgets it, so a stale step does nothing.
     private func awaitLaunchRead(_ read: LaunchReadEvent, _ key: String) -> BrowserEntry? {
-        guard pendingBrowsers.insert(key).inserted else { return nil }
-        read.post { [weak self] in if self?.pendingBrowsers.remove(key) != nil { self?.onBrowserReady?(key) } }
+        guard awaitingRead.insert(key).inserted else { return nil }
+        read.post { [weak self] in
+            guard let self, awaitingRead.contains(key) else { return }
+            let entry = tabModel(key).flatMap { browser(for: $0) }  // a Chromium page in creation reports when it is ready
+            awaitingRead.remove(key)
+            if entry != nil || !pendingBrowsers.contains(key) { onBrowserReady?(key) }
+        }
         return nil
+    }
+
+    /// Returns once no launch read holds browser pages: at once when none does (callers that need a page now).
+    func enginesReady() async {
+        guard let read = enginesAwait, !read.isSignaled else { return }
+        await withCheckedContinuation { done in read.post { done.resume() } }
     }
 
     /// The URL a browser record may open here. A record from a remote
@@ -459,7 +477,7 @@ final class TabContentCache {
         onRelease?(key)
         if let owner = ledger.remove(key), displacing { presenters[owner]?.value?.surfaceWasDisplaced(key) }
         applyLifecycle(lifecycle.send(.removed(key)))
-        pendingMounts[key] = nil; framedStandIns.remove(key); pendingBrowsers.remove(key)
+        pendingMounts[key] = nil; framedStandIns.remove(key); pendingBrowsers.remove(key); awaitingRead.remove(key)
         hibernation?.forget(key); pageLifecycle?.remove(key)
         agentMarks.forget(key)
         pageRequests.services?.remoteViewPages.forget(key)
