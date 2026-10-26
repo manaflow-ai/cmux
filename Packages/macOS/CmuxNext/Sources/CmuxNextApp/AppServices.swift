@@ -375,6 +375,9 @@ final class AppServices {
     /// Every window's parked workspaces: torn down one per release slice at critical memory pressure, and
     /// held to the Mac's budget with `memoryDiscardParkedWorkspaces`.
     private(set) lazy var parkedWorkspaceBudget: ParkedWorkspaceBudget = makeParkedWorkspaceBudget()
+    /// The app-wide list of hidden terminal frames (Chrome's FrameEvictionManager, p03-rendering-099):
+    /// nil unless `memoryHiddenFrameLRU`.
+    private(set) lazy var hiddenFrames: HiddenFrameLRU? = makeHiddenFrameLRU()
     /// The local memory histograms `debug.memory` shows (never uploaded); discards count per instrumented `ContentKind`.
     private(set) lazy var memoryHistograms = MemoryHistograms(pressure: memoryPressure, discardKinds: MemoryHistograms.hibernationKinds)
     /// Samples the footprints into `memoryHistograms` once an hour (startHibernationMeasurements starts it).
