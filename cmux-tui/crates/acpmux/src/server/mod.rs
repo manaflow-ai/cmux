@@ -1458,6 +1458,8 @@ mod fork_through;
 mod harness_admin;
 mod harness_enable;
 mod inventory_watch;
+mod lane_parent;
+use lane_parent::lane_parent;
 pub mod local_app;
 pub(crate) mod machine_health;
 mod models_fanout;
