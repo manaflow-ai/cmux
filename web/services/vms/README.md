@@ -1,6 +1,6 @@
 # Cloud VMs service
 
-Backend for `cmux vm new/ls/rm/exec/attach` and the sidebar Cloud VM surface. Stack Auth gates every public route. Provider API keys stay server-side. Every managed machine session uses the cmux-tui remote daemon (transport `cmux-remote`). The legacy `cmuxd-remote` WebSocket PTY is gone. Freestyle still exposes a scoped SSH proxy for provider-level diagnostics, but that unmanaged path does not carry cmux workspace, tab, or revision state.
+Backend for `cmux vm new/ls/rm/exec/attach` and the sidebar Cloud VM surface. Stack Auth gates every public route. Freestyle provider API keys stay server-side. Freestyle managed sessions use the cmux-tui remote daemon (transport `cmux-remote`). The legacy `cmuxd-remote` WebSocket PTY is gone. Freestyle still exposes a scoped SSH proxy for provider-level diagnostics, but that unmanaged path does not carry cmux workspace, tab, or revision state.
 
 ## Layout
 
@@ -38,6 +38,22 @@ db/
   subscription must still be able to reach machines it already owns.
 
 There is no raw actor or provider protocol endpoint. The old `/api/rivet/*` gateway has been removed.
+
+## GCP Labs provider
+
+GCP is an explicit, off-by-default Labs provider. Enable it with
+`CMUX_VM_GCP_LABS_ENABLED=1` and `CMUX_VM_GCP_ENABLED=1`, and configure a cmux
+Linux image with `CMUX_VM_GCP_IMAGE`. The local client sends a short-lived OAuth
+access token in `X-Cmux-Gcp-Access-Token` (and, when known, its Unix expiry in
+`X-Cmux-Gcp-Access-Token-Expires-At`); the backend uses it for the current
+Compute Engine request and wipes it before answering. It never writes the token
+or an SSH private key to `cloud_vms.provider_metadata`. Placement headers such
+as `X-Cmux-Gcp-Project` and `X-Cmux-Gcp-Zone` are non-secret and may select the
+user's project (the default development project is `manaflow-437420`).
+
+The first driver supports create, status, start, stop, delete, and a short-lived
+SSH attach handoff. The selected image must already contain acpmux, cmux-tui,
+and the agent tools; the provider does not bootstrap guest software after boot.
 
 ## Huge Blue inspection
 
