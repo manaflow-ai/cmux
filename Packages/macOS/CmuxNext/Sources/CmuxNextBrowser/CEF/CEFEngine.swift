@@ -31,7 +31,7 @@ public final class CEFEngine: BrowserEngine {
     /// Where the pages' keyed waits (``BrowserPageWaiting``) put their timeouts: the main thread's one
     /// deadline queue, shared with the WebKit engine as the stores are.
     public let waitDeadlines: MainWakeUpQueue
-    let loadedStart = CEFLoadedStart(runtime: .shared)  // the warm start's load, then CefInitialize on a picked turn
+    private(set) lazy var loadedStart = CEFLoadedStart(runtime: .shared)  // the warm start: its load, then CefInitialize on a picked turn (built on first use, as the runtime)
 
     /// The runtime to start, nil while none is available.
     var layout: CEFRuntimeLayout? { runtimeSource.layout }
