@@ -989,4 +989,13 @@ mod tests {
         );
         assert_eq!(state(&json!({"status": "disconnected"})), "blocked: its agent stopped");
     }
+
+    #[test]
+    fn a_lane_with_a_prompt_queued_is_working_not_idle() {
+        let between = json!({"status": "ready", "queued": 1});
+        assert_eq!(state(&between), "working on its next prompt");
+        // A paused queue holds its prompts: blocked, not working.
+        let paused = json!({"status": "ready", "queued": 1, "queuePaused": true});
+        assert_eq!(state(&paused), "blocked: its queue is paused");
+    }
 }
