@@ -84,7 +84,7 @@ extension PageWebView {
         let generation = state.generation
         state.pending = true
         state.start = .now
-        if let script = Self.attributesScript(documentAttributes) { webView.evaluateJavaScript(script, completionHandler: nil) }
+        if let script = Self.attributesScript(documentAttributes) { webView.evaluateJavaScript(script, completionHandler: nil) } // MQ12 allowed: a parked spare never freezes
         applyTheme(force: true)
         applyLiveDocumentAttributes()
         let params: JSONValue = route.map { ["route": .string($0)] } ?? .object([:])
@@ -134,7 +134,7 @@ extension PageWebView {
     func reloadDocument() {
         traceOpenLoadStarted(.reload)
         let fragment = route ?? "/"
-        webView.evaluateJavaScript("history.replaceState(null, \"\", \(JSONValue.string(fragment).compactText)); location.reload();",
+        webView.evaluateJavaScript("history.replaceState(null, \"\", \(JSONValue.string(fragment).compactText)); location.reload();", // MQ12 allowed: a parked spare never freezes
                                    completionHandler: nil)
     }
 }

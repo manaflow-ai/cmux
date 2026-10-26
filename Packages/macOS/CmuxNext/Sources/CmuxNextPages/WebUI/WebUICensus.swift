@@ -208,7 +208,7 @@ struct PageCensusState {
     var parked = false
     /// When the page was last hidden; nil while it shows.
     var hiddenSince: Date?
-    /// Native pushes (``PageWebView/evaluateInPage(_:)``) while hidden: one integer add each.
+    /// Native pushes (``PageNativePushes``) while hidden: one integer add each.
     var pushesWhileHidden = 0
 }
 #endif

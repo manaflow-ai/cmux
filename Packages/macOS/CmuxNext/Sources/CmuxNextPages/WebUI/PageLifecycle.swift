@@ -224,6 +224,18 @@ package final class PageLifecycle {
         if dropped, hiddenKeys.contains(key) { arm(at: uptime()) }
     }
 
+    /// A call that needs `page` running reached it frozen (``PageFrozenPush/thawsFirst``): it thaws now,
+    /// counts as hidden, and a pass at most one recently visible window later freezes it again, as
+    /// Chrome refreezes once no `CannotFreezeReason` holds (components/performance_manager/freezing/freezing_policy.cc).
+    package func thawForCall(_ page: AnyObject) {
+        guard let key = keys[ObjectIdentifier(page)], var entry = entries[key], entry.target.object === page,
+              entry.state == .frozen else { return }
+        entry.state = .hidden
+        entries[key] = entry
+        entry.target.thaw()
+        arm(at: uptime() + .seconds(planner.timing.visibleWindow(energySaver: conditions.energySaver)))
+    }
+
     /// The memory pressure, Energy Saver, or `browser.hibernation` and its companions changed (the
     /// app's browser hibernation passes on what it follows): a pass looks again. When pressure turns
     /// critical and ``leavesCriticalEventToUrgentPass`` is set, that pass discards nothing: the event's
