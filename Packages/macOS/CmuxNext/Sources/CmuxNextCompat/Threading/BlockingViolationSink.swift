@@ -1,4 +1,4 @@
-/// Receives each new main-thread blocking call site once per launch (to come: the opt-in hang
+/// Receives each new main-thread or pool blocking call site once per launch (to come: the opt-in hang
 /// reports; tests: a recorder).
 ///
 /// ``BlockingDetector/install(sink:)`` installs one at the composition root. ``record(_:)`` runs

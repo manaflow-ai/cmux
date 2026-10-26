@@ -4,7 +4,7 @@
 # (scripts/fuzz/macos-matrix/vm.sh on a Tart worker), waits, downloads the results and prints
 # the verdict per macOS major.
 #
-# Usage: scripts/cmux-next/os-matrix.sh --build JOB_ID [--os 14,15] [--suite smoke|fuzz|repro:NAME|exec:NAME]
+# Usage: scripts/cmux-next/os-matrix.sh --build JOB_ID [--os 14,15] [--suite smoke|fuzz|chaos|repro:NAME|exec:NAME]
 #                                       [--seed N] [--minutes N] [--ref SHA] [--attempt N] [--out DIR]
 #   --build    a done fleet `cmux` build job (cmux-ci build cmux ...). The smoke needs a DEV build
 #              (the release socket refuses debug.* calls). The build may be of any commit.
@@ -13,6 +13,8 @@
 #   --suite    smoke (default): launch, window, a terminal that echoes, a split, a Chromium and a
 #              WebKit tab that load a page served in the guest, Settings, quit.
 #              fuzz: the seeded UI fuzz (fuzz.py) for --minutes (default 15) per major.
+#              chaos: one fault at a time during a typing and split tour (chaos.py; DEV build),
+#              one result.json row per fault with its expected outcome and ok/FAIL/skip.
 #              repro:NAME: replay scripts/fuzz/macos-matrix/repros/NAME.jsonl.
 #              exec:NAME: an OS probe, scripts/fuzz/macos-matrix/probes/NAME.swift, compiled on the
 #              Tart host from the runner ref and run in each guest (exit 0 PASS, 1 FAIL, else no
@@ -44,7 +46,7 @@ while [[ $# -gt 0 ]]; do
     --out) OUT=$2; shift 2 ;;
     --attempt) ATTEMPT=$2; shift 2 ;;
     --tests) echo "--tests: cmux-unit in the guest is not supported yet (the base images have no Xcode; see scripts/fuzz/macos-matrix/MATRIX.md)" >&2; exit 2 ;;
-    -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,34p' "$0"; exit 0 ;;
     *) echo "unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -56,11 +58,11 @@ done
 [[ "$ATTEMPT" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "--attempt takes 1..999" >&2; exit 2; }
 suite_args=(--suite "${SUITE%%:*}")
 case "$SUITE" in
-  smoke) ;;
+  smoke|chaos) ;;
   fuzz) suite_args+=(--seed "$SEED" --minutes "$MINUTES") ;;
   repro:*) suite_args+=(--repro "${SUITE#repro:}") ;;
   exec:*) suite_args+=(--probe "${SUITE#exec:}") ;;
-  *) echo "--suite takes smoke, fuzz, repro:NAME or exec:NAME" >&2; exit 2 ;;
+  *) echo "--suite takes smoke, fuzz, chaos, repro:NAME or exec:NAME" >&2; exit 2 ;;
 esac
 
 CI=${CMUX_CI:-$HOME/.local/bin/cmux-ci}
