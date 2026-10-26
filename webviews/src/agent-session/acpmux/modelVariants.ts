@@ -94,10 +94,17 @@ export function groupVariants<T extends VariantModel>(models: readonly T[], curr
     const id = identity(row);
     const joined = id === undefined ? undefined : byIdentity.get(id);
     if (joined) {
-      const duplicate = joined.offers.some(
+      const duplicateIndex = joined.offers.findIndex(
         (each) => each.provider.trim().toLowerCase() === (provider ?? "").trim().toLowerCase(),
       );
-      if (!duplicate) joined.offers.push(offer);
+      if (duplicateIndex < 0) {
+        joined.offers.push(offer);
+      } else {
+        const existing = joined.offers[duplicateIndex]!;
+        const existingUnavailable = Boolean((existing.model as VariantModel & { unavailable?: unknown }).unavailable);
+        const incomingUnavailable = Boolean((model as T & { unavailable?: unknown }).unavailable);
+        if (model.id === current || (existingUnavailable && !incomingUnavailable)) joined.offers[duplicateIndex] = offer;
+      }
       if (model.id === current) joined.model = model;
       joined.tag ??= tag;
       continue;
