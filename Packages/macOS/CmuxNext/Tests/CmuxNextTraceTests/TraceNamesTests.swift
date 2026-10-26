@@ -112,8 +112,44 @@ struct TraceNamesTests {
         #expect(overflows.cachedID(inSlot: 0) == 0)
     }
 
-    /// Two rings in one slot (two runtimes of one process, as tests make) never share a name's id: each ring
-    /// whose name table differs interns the name itself, also when the rings take turns.
+    /// The race the one active-ring load closes: names interned in the heap after the file's copy and before
+    /// the swap. Each write uses a new name, so many first interns fall in that window; a heap id written
+    /// into a file chunk would name another thread's text there, or nothing.
+    @Test("While the file is adopted, every record in it names its writer's text")
+    func internedWritesRacingAdoption() throws {
+        let directory = try TraceRingCheck.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let texts: [StaticString] = ["adopt.race.0", "adopt.race.1", "adopt.race.2", "adopt.race.3",
+                                     "adopt.race.4", "adopt.race.5", "adopt.race.6", "adopt.race.7"]
+        let ring = TraceRing(sizes: TraceRing.Sizes(nameCapacity: 16384, threadCapacity: 256, chunkCount: 1024),
+                             identity: TraceRing.Identity(pid: 4141, role: .app))
+        let started = SharedCount()
+        let adopted = SharedCount()
+        runOnThreads(texts.count + 1) { tag in
+            guard tag < texts.count else {
+                while started.value.load(ordering: .acquiring) < texts.count {}
+                adopted.value.store(TraceRingFile.adopt(ring, directory: directory) == nil ? 2 : 1, ordering: .releasing)
+                return
+            }
+            started.value.add(1, ordering: .acquiringAndReleasing)
+            var after = 0
+            for index in 0 ..< 1500 where after < 100 {
+                if adopted.value.load(ordering: .acquiring) != 0 { after += 1 }
+                ring.write(TraceRuntime.InternedName(texts[tag], categoryBit: 0), phase: .instant,
+                           timestamp: UInt64(index + 1), arg0: UInt64(tag))
+            }
+        }
+        #expect(adopted.value.load(ordering: .relaxed) == 1)
+        let path = directory + "/" + TraceRingFile.fileName(role: .app, pid: 4141)
+        let image = try #require(TraceRing.Image(bytes: [UInt8](#require(FileManager.default.contents(atPath: path)))))
+        #expect(!image.records.isEmpty)
+        let wrong = image.records.filter { image.name(of: $0) != "\(texts[Int($0.arg0)])" }
+        #expect(wrong.isEmpty, "\(wrong.count) of \(image.records.count) records name another text or none")
+        #expect(image.header.nameOverflow == 0)
+    }
+
+    /// Two rings in one slot (two runtimes of one process, as tests make, or one recording ring after another
+    /// in slot 2) never share a name's id: each ring interns the name itself, also when the rings take turns.
     @Test("A second ring in the same slot interns the name again and never uses the first ring's id")
     func secondRingInTheSameSlot() throws {
         let first = Self.ring()

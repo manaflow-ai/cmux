@@ -75,6 +75,16 @@
       "what": "every action run's always-on budget record: two clock reads and one ring-slot write (ActionBudgetMonitor.record)",
       "bench": "CMUX_ACTION_BUDGET_BENCH=1 swift test -c release --filter ActionBudgetMonitorBench (ns per run and per batch), on macOS 26 and 27",
       "owner": "Performance Lead (PL-instant)"
+    },
+    "trace-ring-write": {
+      "what": "one Release trace ring record under a catalog id (TraceRing.write(name:)): the thread's TLS state, one acquire load of the active ring, the seqlock publish, a chunk claim every 31st record",
+      "bench": "swift test -c release --filter 'TraceRingTests.*eightContendedThreadsKeepTheSingleThreadP99' (31-record batch p99, 1 and 8 threads)",
+      "owner": "p09-observability"
+    },
+    "trace-ring-write-interned": {
+      "what": "one trace ring record under a run-time name (TraceRing.write(_ InternedName)): the catalog-id write plus one relaxed load and a tag compare after the name's first record in the ring",
+      "bench": "swift test -c release --filter 'TraceNamesTests.*internedWriteCost' (31-record batch p50, interned vs catalog id)",
+      "owner": "p09-observability"
     }
   }
 }

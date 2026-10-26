@@ -13,8 +13,9 @@ import CmuxNextCompat
 /// single reviewed exception to the no-singleton rule (plans/cmux-next/arch-ratchet.json, 2026-10-25).
 /// Code that can take an injected runtime does (``init(role:)``; tests make their own).
 ///
-/// Stub (task 000): the API is frozen here; the methods record nothing until tasks 003 (ring), 004
-/// (names and threads), 005 (category defaults), 020 (recording) and 078 (crash keys) fill them.
+/// The write methods publish into the ring its owner attaches (``attach(_:)``; the black box of task 005):
+/// catalog names by id and interned names by their id in the active ring (tasks 003 and 004). The API is
+/// frozen (task 000); recording (020) and crash keys (078) are still stubs.
 ///
 /// ```swift
 /// TraceRuntime.shared.write(name: 46, categoryBit: 10, phase: .instant)
@@ -31,8 +32,8 @@ public final class TraceRuntime: Sendable {
     public let hangWatch: HangWatch
     /// One bit per category (`SignpostCategory.traceBit`); a trace point records only while its bit is set.
     private let categoryFlags = Atomic<UInt64>(0)
-    /// Stub until task 003 adds the ring: the records the `write` methods let through their category
-    /// gate, so tests can see the gate.
+    /// The records the `write` methods let through their category gate while no ring is attached, so a
+    /// test's runtime with no ring can see the gate.
     let stubRecordCount = Atomic<UInt64>(0)
 
     /// The clock that stamps the records the write methods publish.

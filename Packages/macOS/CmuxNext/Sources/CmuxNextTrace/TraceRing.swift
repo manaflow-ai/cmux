@@ -76,7 +76,17 @@ public final class TraceRing: Sendable {
     // perf-hot: 60ns trace-ring-write
     public func write(name: UInt16, phase: TraceRecord.Phase, flags: UInt8 = 0, timestamp: UInt64,
                       arg0: UInt64 = 0, arg1: UInt64 = 0) {
-        guard hasThreadKey, let state = threadState(), let active = activeRing else { return }
+        guard let active = activeRing else { return }
+        write(into: active, name: name, phase: phase, flags: flags, timestamp: timestamp, arg0: arg0, arg1: arg1)
+    }
+
+    /// Appends one record to `active`, the ring the caller loaded once: a name id resolved in that ring
+    /// (TraceNames.swift) goes into the same ring's record even when an adoption swaps the active ring
+    /// between the two (trace.md "Name table": ids never cross rings; Rust's `Tracer::write` the same).
+    @inline(__always)
+    func write(into active: UnsafeMutablePointer<TraceRingActive>, name: UInt16, phase: TraceRecord.Phase, flags: UInt8,
+               timestamp: UInt64, arg0: UInt64, arg1: UInt64) {
+        guard hasThreadKey, let state = threadState() else { return }
         if state.pointee.nextSlot != 0, let owner = state.pointee.owner, owner != active {
             // The active ring changed: complete the chunk in the old one, claim in the new one.
             owner.pointee.storage.complete(chunk: state.pointee.chunk, lap: state.pointee.lap)
@@ -123,13 +133,7 @@ public final class TraceRing: Sendable {
 
     /// Decodes a ring image (``image()`` or a ring file's bytes); nil when it is not a whole v1 ring.
     public static func records(inImage bytes: [UInt8]) -> [TraceRecord]? {
-        // An aligned copy: the decoder reads 8-byte words atomically.
-        let copy = UnsafeMutableRawPointer.allocate(byteCount: max(bytes.count, 8), alignment: 16)
-        defer { copy.deallocate() }
-        bytes.withUnsafeBytes { source in
-            if let address = source.baseAddress { copy.copyMemory(from: address, byteCount: source.count) }
-        }
-        return TraceRingStorage(validating: copy, byteCount: bytes.count)?.decode()
+        TraceRingStorage.withValidated(bytes: bytes) { $0.decode() }
     }
 
     /// Whether writes go to a mapped file rather than the heap.

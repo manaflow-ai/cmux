@@ -53,7 +53,8 @@ extension TraceRing {
 
     /// Appends one record named by `name`, under its id in the active ring, interned there at its first
     /// record (trace.md "Name table": one id per ring). After that first record the name costs one relaxed
-    /// load on top of ``write(name:phase:flags:timestamp:arg0:arg1:)``.
+    /// load on top of ``write(name:phase:flags:timestamp:arg0:arg1:)``. The active ring is loaded once: the
+    /// id and the record are in the same ring also when an adoption swaps it meanwhile.
     ///
     /// - Parameters:
     ///   - name: the trace point's name; one `static let` per site.
@@ -66,8 +67,8 @@ extension TraceRing {
     public func write(_ name: TraceRuntime.InternedName, phase: TraceRecord.Phase, flags: UInt8 = 0, timestamp: UInt64,
                       arg0: UInt64 = 0, arg1: UInt64 = 0) {
         guard let active = activeRing else { return }
-        write(name: name.id(inSlot: active.pointee.slot, of: active.pointee.storage), phase: phase, flags: flags,
-              timestamp: timestamp, arg0: arg0, arg1: arg1)
+        write(into: active, name: name.id(inSlot: active.pointee.slot, of: active.pointee.storage), phase: phase,
+              flags: flags, timestamp: timestamp, arg0: arg0, arg1: arg1)
     }
 }
 
@@ -78,6 +79,7 @@ public typealias TraceSite = TraceRuntime.InternedName
 extension TraceRuntime.InternedName {
     /// This name's id in `storage`, the ring of `slot` (0 heap, 1 black-box file, 2 recording), interned
     /// there at its first record. After that it is one relaxed load and a compare of the ring's tag.
+    // perf-hot: 60ns trace-ring-write-interned
     @inline(__always)
     func id(inSlot slot: Int, of storage: TraceRingStorage) -> UInt16 {
         let tag = Self.tag(of: storage)
