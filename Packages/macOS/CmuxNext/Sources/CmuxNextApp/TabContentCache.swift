@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHibernation
+import CmuxNextInput
 import CmuxNextLaunch
 import CmuxNextMacScreen
 import CmuxNextPages
@@ -23,6 +24,9 @@ final class TabContentCache {
     private let daemon: DaemonService
     /// Given to every terminal session this cache makes: the modifier watch (``TerminalModifierWatch``), and the scheduler its host follows its models through.
     let terminalModifiers: TerminalModifierWatch?
+    /// Given to every terminal session this cache makes: the windows' frame-aligned pointer input (feature
+    /// `terminalPointerFrames`); nil: each pointer event reaches Ghostty at once.
+    let terminalPointerFrames: PointerFrameCoalescers?
     let mainWork: MainWorkScheduler
     var terminals: [String: TerminalEntry] = [:]
     var browsers: [String: BrowserEntry] = [:] { didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged() } } }
@@ -160,11 +164,14 @@ final class TabContentCache {
     ///     frame); tests pass one that collects the work or runs it at once.
     ///   - resizes: The app's grid sender (`AppServices.resizes`); tests get their own.
     ///   - terminalModifiers: The terminals' one modifier watch on the app's input tap; tests without a tap pass none.
+    ///   - terminalPointerFrames: The windows' pointer coalescers while `terminalPointerFrames` is on; nil otherwise.
     ///   - mainWork: The app's main-thread scheduler, for every terminal session it makes.
     init(daemon: DaemonService, chromium: ChromiumEngineSlot, fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
-         resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil, mainWork: MainWorkScheduler) {
+         resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil,
+         terminalPointerFrames: PointerFrameCoalescers? = nil, mainWork: MainWorkScheduler) {
         (self.daemon, self.terminalModifiers, self.chromium, self.resizes, self.mainWork) = (daemon, terminalModifiers, chromium, resizes, mainWork)
+        self.terminalPointerFrames = terminalPointerFrames
         webKit = WebKitEngine(fileInput: fileInput, stores: chromium.stores, waitDeadlines: chromium.waitDeadlines)
         self.afterFrame = afterFrame
         browserTabs = BrowserTabService(daemon: daemon, chromium: chromium)

@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+import CmuxNextInput
 import CmuxNextTerminalGeometry
 import CmuxNextTrace
 import CmuxNextWakeups
@@ -119,18 +120,31 @@ public final class TerminalSurfaceView: NSView {
     private(set) lazy var linkPointer = TerminalLinkPointer(view: self, modifiers: modifierWatch)
     /// The terminals' one modifier watch (``TerminalModifierWatch``), from the session.
     let modifierWatch: TerminalModifierWatch?
+    /// The windows' frame-aligned pointer input (feature `terminalPointerFrames`), from the session; nil:
+    /// every pointer event reaches Ghostty at once.
+    private let frameCoalescers: PointerFrameCoalescers?
+    /// Moves, drags and mouse-reporting trackpad scrolls on this view's window's coalescer
+    /// (``TerminalPointerFrames``); nil while ``frameCoalescers`` is.
+    private(set) lazy var pointerFrames: TerminalPointerFrames? = frameCoalescers.map { coalescers in
+        TerminalPointerFrames(coalescers: coalescers) { [weak self] input in self?.deliverPointer(input) }
+    }
+    /// Whether the program has the mouse, read without the terminal's lock (``TerminalMouseCapture``).
+    lazy var mouseCapture = TerminalMouseCapture(lane: lane)
+    /// Where this view's pointer positions, buttons and scrolls go: its Ghostty surface, or a test's counter.
+    lazy var mouse: any TerminalMouseSink = GhosttyMouseSink(surface: surface)
 
     // MARK: Lifecycle
 
     init(io mode: ghostty_surface_io_mode_e, input: TerminalInputSink, session: TerminalSession?,
          echoStages: TerminalEchoStages, hangWatch: (any HangWatchScoping)? = nil, secureInput: TerminalSecureInput,
-         modifiers: TerminalModifierWatch? = nil) {
+         modifiers: TerminalModifierWatch? = nil, pointerFrames: PointerFrameCoalescers? = nil) {
         let bridge = SurfaceBridge(input: input)
         self.bridge = Unmanaged.passRetained(bridge)
         self.session = session
         self.hangWatch = hangWatch
         self.secureInput = secureInput
         modifierWatch = modifiers
+        frameCoalescers = pointerFrames
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         bridge.view = self
         createSurface(mode: mode, echoStages: echoStages)
@@ -215,6 +229,8 @@ public final class TerminalSurfaceView: NSView {
         observeWindow(false)
         // Leaving its window gets no mouseExited: the modifier watcher and underlines go here.
         if newWindow == nil { linkPointer.exited() }
+        // Pending pointer input is in the old window's coordinates: it never reaches the surface.
+        if newWindow !== window { pointerFrames?.cancel() }
     }
 
     public override func viewDidMoveToWindow() {

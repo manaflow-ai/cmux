@@ -174,7 +174,7 @@ final class AppServices {
     let signInCallbacks = CEFSignInCallbacks()
     /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
     let resizes = ResizeCoordinator()
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: makeChromiumSlot(), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap), mainWork: mainWork)  // first read in init (no IUO); its Chromium engine at its first read
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: makeChromiumSlot(), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap), terminalPointerFrames: terminalPointerFrames, mainWork: mainWork)  // first read in init (no IUO); its Chromium engine at its first read
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.terminal_final_grid`: a split's or close's terminal grids, sent, drawn and announced.
     private(set) lazy var finalGridTrace: TerminalFinalGridTrace = {
@@ -286,7 +286,15 @@ final class AppServices {
     /// column and row edges, both sidebars' resize edges and the DevTools divider move on a frame interval's first
     /// drag event and once more at its frame (p04-input-030). Nil while it is off: each drag event moves them.
     private(set) lazy var dragFrameInput: PointerFrameCoalescers? =
-        features.isEnabled(.pointerFrameDrags) ? PointerFrameCoalescers(tap: inputTap, mainWork: mainWork) : nil
+        features.isEnabled(.pointerFrameDrags) ? pointerFrames : nil
+    /// The windows' frame-aligned pointer input for terminals (feature `terminalPointerFrames`): moves, drags and
+    /// mouse-reporting trackpad scrolls reach Ghostty on a frame interval's first event and once more at its frame
+    /// (p04-input-034). Nil while it is off: each event reaches Ghostty at once.
+    private(set) lazy var terminalPointerFrames: PointerFrameCoalescers? =
+        features.isEnabled(.terminalPointerFrames) ? pointerFrames : nil
+    /// The application's one set of window pointer coalescers (p04-input-030), shared by the features above, so a
+    /// window has one coalescer and one flush before each discrete event.
+    private lazy var pointerFrames = PointerFrameCoalescers(tap: inputTap, mainWork: mainWork)
     /// The Task Manager page and Kill Process (`TaskManagerPageService`).
     private(set) lazy var taskManager = TaskManagerPageService(services: self)
     /// The Todo page: a workspace's checklist (`workspace-checklist-v1`).
