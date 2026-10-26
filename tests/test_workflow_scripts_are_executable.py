@@ -6,8 +6,10 @@ cmux#25442's first DEV run (40320904962, 2026-10-26) failed in sign with
 script landed with mode 100644, and its fixture test ran it through bash, so
 nothing caught it before main. This test reads every workflow's `run:` lines,
 finds each `./path` in a command position (the start of a line or after `;`,
-`&&`, `||`, `|`, `$(`, `then`, `do`, `else`, `time`, `timeout N`), and fails
-when that path is a tracked file whose mode in the index is not 100755. A path
+`&&`, `||`, `|`, `$(`, `!`, a reserved word such as `if`, `then`, `while` or
+`do`, or a wrapper such as `time`, `env`, `exec` or `timeout N`), after any
+`NAME=value` prefixes, and fails when that path is a tracked file whose mode
+in the index is not 100755. A path
 given to an interpreter (`bash ./x.sh`, `python3 x.py`, `source ./x.sh`) is
 not a command position and needs no bit. Modes come from `git ls-files -s`,
 not the working tree, because the index is what a checkout restores.
@@ -25,8 +27,9 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
 
 # A `./path` that the shell runs as the command itself.
-COMMAND = re.compile(
-    r"""(?:^|[;&|(`]|\$\(|\b(?:then|do|else|time)\b|\btimeout\s+\S+|run:)\s*["']?\./([A-Za-z0-9_.][A-Za-z0-9_./-]*)""")
+POSITION = r"""(?:^|[;&|(`!{]|\$\(|\b(?:if|elif|then|else|while|until|do|time|env|exec|nohup)\b|\btimeout\s+\S+|run:)"""
+ASSIGNMENTS = r"""(?:\s*[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s;&|"'`()]*)(?=\s))*"""
+COMMAND = re.compile(POSITION + ASSIGNMENTS + r"""\s*["']?\./([A-Za-z0-9_.][A-Za-z0-9_./-]*)""")
 
 
 def direct_scripts(text: str) -> list[tuple[int, str]]:
@@ -75,8 +78,22 @@ class SelfTest(unittest.TestCase):
             "          . ./j.sh",
             "          # ./k.sh",
             "          cp ./l.sh out/",
+            "          CMUX_TAG=cistream ./m.sh",
+            "          A=1 B=\"x y\" ./n.sh",
+            "          if ./o.sh; then :; fi",
+            "          while ./p.sh; do :; done",
+            "          ! ./q.sh",
+            "          env X=1 ./r.sh",
+            "          out=\"$(FOO=1 ./s.sh)\"",
+            "          X=./t.sh",
+            "          [[ -x ./u.sh ]]",
+            "          [[ a != ./v.sh ]]",
+            "          version=\"$(bash ./w.sh)\"",
+            "          ID=\"$(bash ./x.sh \"$1\")\"",
         ])
-        self.assertEqual([path for _, path in direct_scripts(text)], ["a.sh", "b.sh", "c.sh", "d.sh", "e.sh", "f.sh"])
+        self.assertEqual([path for _, path in direct_scripts(text)],
+                         ["a.sh", "b.sh", "c.sh", "d.sh", "e.sh", "f.sh", "m.sh", "n.sh", "o.sh", "p.sh", "q.sh",
+                          "r.sh", "s.sh"])
 
     def test_flags_only_tracked_non_executable(self) -> None:
         modes = {"a.sh": "100644", "b.sh": "100755"}
