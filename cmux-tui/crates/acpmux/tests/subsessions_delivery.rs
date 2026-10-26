@@ -114,6 +114,21 @@ impl Client {
         }
         panic!("{id} never reported its activity");
     }
+
+    /// `id`'s transcript once it shows `needle`: a steer reaches the agent
+    /// after the send's answer.
+    async fn transcript_with(&mut self, id: &str, needle: &str) -> String {
+        for _ in 0..200 {
+            let page =
+                self.ok("_acpmux/events", json!({"sessionId": id, "kinds": "transcript"})).await;
+            let text = page.to_string();
+            if text.contains(needle) {
+                return text;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        panic!("{id}'s transcript never showed {needle:?}");
+    }
 }
 
 fn fifo(root: &Path, name: &str) -> PathBuf {
@@ -188,6 +203,11 @@ async fn a_parent_reaches_a_working_child_and_reads_what_it_does() {
     assert_eq!(sent["queued"], false, "{sent}");
     let row = p.ok(GET, json!({"sessionId": s})).await;
     assert_eq!(row["queued"], 1, "{row}");
+    // Both steers reached the agent inside its running turn (the stand-in echoes
+    // "steer: <text>"), and the turn is still working on its tool.
+    p.transcript_with(&s, "steer: also check the docs").await;
+    p.transcript_with(&s, "steer: echo report").await;
+    assert_eq!(p.ok(GET, json!({"sessionId": s})).await["state"], "working");
     // A contradictory request is refused.
     let e = p
         .refused(
@@ -199,11 +219,15 @@ async fn a_parent_reaches_a_working_child_and_reads_what_it_does() {
     let e = p.refused(SEND, json!({"sessionId": s, "text": "x", "deliver": "soon"})).await;
     assert!(e["message"].as_str().unwrap().contains("next_step"), "{e}");
     std::fs::write(&gate, b"go").unwrap();
-    p.ok(
-        "_acpmux/wait",
-        json!({"sessions": [s], "until": ["ready"], "all": true, "timeoutMs": 20000}),
-    )
-    .await;
+    let waited = p
+        .ok(
+            "_acpmux/wait",
+            json!({"sessions": [s], "until": ["ready"], "all": true, "timeoutMs": 20000}),
+        )
+        .await;
+    assert_ne!(waited["timedOut"], true, "{waited}");
+    // The steered turn was not cancelled: its tool finished and the turn said its own last word.
+    p.transcript_with(&s, "worked").await;
 
     // A child whose agent takes no prompt mid-turn gets it when the turn
     // ends: the answer says it queued, and that it cannot steer.
@@ -227,7 +251,10 @@ async fn a_parent_reaches_a_working_child_and_reads_what_it_does() {
     assert_eq!(sent["steering"], false, "{sent}");
     assert_eq!(sent["queueLength"], 1, "{sent}");
     std::fs::write(&gate, b"go").unwrap();
-    p.ok("_acpmux/wait", json!({"sessions": [q], "until": ["ready"], "timeoutMs": 20000})).await;
+    let waited = p
+        .ok("_acpmux/wait", json!({"sessions": [q], "until": ["ready"], "timeoutMs": 20000}))
+        .await;
+    assert_ne!(waited["timedOut"], true, "{waited}");
     // A finished turn says nothing about what it does.
     let row = p.ok(GET, json!({"sessionId": q})).await;
     if row["turn"].is_null() {
