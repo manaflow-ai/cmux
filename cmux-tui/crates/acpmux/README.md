@@ -115,7 +115,7 @@ Use a non-interactive SSH probe before saving a peer. `acpmux host add` exits
 with `peer_unreachable` when the first attempt is offline and its JSON error
 includes the exact `ssh -o BatchMode=yes HOST true`, add, and doctor commands.
 Peer requests that cannot be sent include `acpmux host ls` and state that the
-prompt was not submitted. A method rejected by an older peer is reported as
+request was not sent. A method rejected by an older peer is reported as
 `peer_version_skew` with `acpmux host update NAME`.
 
 `ACPMUX_SOCKET` takes precedence over `ACPMUX_HOME`. To inspect an isolated
