@@ -373,11 +373,14 @@ fn a_member_cannot_answer_the_hosts_asks() {
         shared_at: "2026-10-26T09:00:00Z".to_owned(),
         generation: "boot-1".to_owned(),
     }];
-    let author = serde_json::json!({"id": format!("tailnet:{LAWRENCE}"), "login": LAWRENCE, "node": "n"});
+    let author =
+        serde_json::json!({"id": format!("tailnet:{LAWRENCE}"), "login": LAWRENCE, "node": "n"});
     let frame = serde_json::json!({"cmd": "agent-session-permission", "surface": 42,
         "permission_id": "p", "option_id": "allow"});
-    assert_eq!(super::agent_proxy::filter(&config, &author, "boot-1", frame), Err("scope_not_granted"));
+    assert_eq!(
+        super::agent_proxy::filter(&config, &author, "boot-1", frame),
+        Err("scope_not_granted")
+    );
     let prompt = serde_json::json!({"cmd": "agent-session-prompt", "surface": 42, "text": "hi"});
     assert!(super::agent_proxy::filter(&config, &author, "boot-1", prompt).is_ok());
 }
-

@@ -65,6 +65,7 @@ mod tests {
     use crate::server::agent_session_attach_tests::{
         Client, FakeAcpmux, SESSION, agent_tab, assert_code, mux_with,
     };
+    use crate::server::{BoundedOutbound, ClientTransport, QueuedSink};
 
     #[test]
     fn proxy_identity_is_fixed_and_stamps_acpmux_calls() {
@@ -114,18 +115,23 @@ mod tests {
             client.request(json!({"cmd":"agent-session-proxy-bind", "author":author}))["ok"],
             true
         );
-        let attach = json!({"cmd":"agent-session-attach", "surface":surface, "_host_author":author});
+        let attach =
+            json!({"cmd":"agent-session-attach", "surface":surface, "_host_author":author});
         assert_eq!(client.request(attach)["ok"], true);
         let record = |seq: u64, kind: &str| {
-            json!({"sessionId": SESSION, "seq": seq, "at": 1, "dir": "mux", "kind": kind, "msg": {}})
+            json!({"sessionId": SESSION, "seq": seq, "at": 1, "dir": "mux", "kind": kind})
         };
         fake.notify("_acpmux/event", record(2, "composer"));
-        fake.notify("_acpmux/session_changed", json!({"sessionId": "acp_child", "parentId": SESSION}));
+        fake.notify(
+            "_acpmux/session_changed",
+            json!({"sessionId": "acp_child", "parentId": SESSION}),
+        );
         fake.notify("_acpmux/event", record(3, "user_message"));
         let event = client.named_event("agent-session-record", WAIT).expect("the prompt record");
         assert_eq!(event["record"]["kind"], "user_message", "the draft never arrives");
         assert!(client.named_event("agent-session-changed", Duration::from_millis(300)).is_none());
-        let children = json!({"cmd":"agent-session-children", "surface":surface, "_host_author":author});
+        let children =
+            json!({"cmd":"agent-session-children", "surface":surface, "_host_author":author});
         assert_code(&client.request(children), "agent_session.not_trusted");
         let answer = json!({"cmd":"agent-session-permission", "surface":surface,
             "permission_id":"perm_attach", "option_id":"allow", "_host_author":author});
@@ -136,7 +142,7 @@ mod tests {
         let websocket = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
         let bind = json!({"id":1, "cmd":"agent-session-proxy-bind", "author":author});
         assert_eq!(
-            super::super::try_handle(&mux, websocket, &bind.to_string(), &writer),
+            try_handle(&mux, websocket, &bind.to_string(), &writer),
             Some(true)
         );
         let reply: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
