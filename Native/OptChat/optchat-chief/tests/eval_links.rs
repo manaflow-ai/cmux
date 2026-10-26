@@ -187,6 +187,22 @@ fn a_bare_number_or_sha_links_only_with_one_repository_named() {
     );
 }
 
+/// Text with multibyte characters right before or after a reference scans by whole
+/// characters: no panic, and the reference after a space still links.
+#[test]
+fn multibyte_text_beside_references_links_and_never_panics() {
+    assert_eq!(
+        link(&format!("Fix — {PR} é#123 …{WS} ✓ #25560")),
+        format!(
+            "Fix — [#25572]({PR}) é#123 …{WS} ✓ [#25560](https://github.com/manaflow-ai/cmux/issues/25560)"
+        )
+    );
+    assert_eq!(
+        link(&format!("“{WS}” — {TAB}")),
+        format!("“{WS}” — [tab](cmux://tab/{TAB})")
+    );
+}
+
 #[test]
 fn a_github_link_already_written_and_other_github_pages_stay() {
     for text in [
