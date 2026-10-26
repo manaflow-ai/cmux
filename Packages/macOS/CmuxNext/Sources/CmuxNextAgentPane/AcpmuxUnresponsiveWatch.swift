@@ -20,7 +20,9 @@ import os
 /// (``signal(_:_:process:)`` puts a kernel exit watch on the process before that check, and the
 /// signal goes by audit token, so the kernel refuses it once the pid names another process), and
 /// the exit wait is on the process before its SIGTERM, so it never follows the pid to a successor. The
-/// `agent.restartUnresponsiveAcpmux` Debug Settings toggle turns it off.
+/// `agent.restartUnresponsiveAcpmux` Debug Settings toggle turns it off: read at each missed status
+/// call (off ends the streak) and again right before the restart is claimed. Answers count with
+/// the toggle off too, so a streak never spans an answer.
 nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
     static let shared = AcpmuxUnresponsiveWatch(clock: ContinuousClock())
 
@@ -107,11 +109,12 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
         }
     }
 
-    /// Takes `pid`'s one restart and one of `home`'s for this launch; false when another caller
-    /// already took it or `home` has none left.
+    /// Takes `pid`'s one restart and one of `home`'s for this launch; false when the streak that
+    /// made it due is gone (the daemon answered meanwhile, or another caller took it) or `home`
+    /// has none left.
     func claim(home: String, pid: Int32) -> Bool {
         state.withLock { state in
-            state.streaks.removeValue(forKey: home)
+            guard let streak = state.streaks.removeValue(forKey: home), streak.pid == pid, streak.count >= misses else { return false }
             guard state.restartsPerHome[home, default: 0] < perLaunch, state.restarted.insert("\(home)|\(pid)").inserted else { return false }
             state.restartsPerHome[home, default: 0] += 1
             return true
@@ -119,9 +122,15 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
     }
 
     /// Counts a missed status call to `environment`'s daemon and restarts that daemon when it
-    /// is due. True when the daemon is gone, so the caller starts a new one.
-    @concurrent func restartIfStuck(_ environment: AcpmuxEnvironment) async -> Bool {
+    /// is due and `enabled` (the toggle) still says yes right before the claim. With `enabled`
+    /// off the miss ends the streak instead. True when the daemon is gone, so the caller starts a
+    /// new one.
+    @concurrent func restartIfStuck(_ environment: AcpmuxEnvironment, enabled: @Sendable () -> Bool) async -> Bool {
         let home = environment.home.standardizedFileURL.path
+        guard enabled() else {
+            answered(home: home)
+            return false
+        }
         guard let daemon = await daemon(environment), missed(home: home, pid: daemon.pid) else { return false }
         let pid = daemon.pid
         do {
@@ -131,6 +140,10 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
         } catch is AgentPaneDeadlineExceeded {
             // Still no answer: restart it below.
         } catch {
+            return false
+        }
+        guard enabled() else {
+            answered(home: home)
             return false
         }
         guard claim(home: home, pid: pid) else { return false }
