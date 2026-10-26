@@ -10,128 +10,81 @@ import Testing
 /// A Mac reached only over SSH (a headless or remote Mac mini) cannot flip the
 /// Settings > Mobile toggle, so cmux.json must be able to opt it in to iOS
 /// pairing. The value has to reach the exact gate the pairing host reads.
-@Suite("iOS pairing host in cmux.json", .serialized)
+@Suite("iOS pairing host in cmux.json")
 struct MobilePairingHostSettingsFileTests {
-    private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
-    private let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
-    private let legacyPairingKey = "cmuxMobilePairingHostEnabled"
+    private let key = MobileHostService.listeningEnabledDefaultsKey
 
     @Test
     func settingsFileEnablesIOSPairingHost() throws {
-        let defaults = UserDefaults.standard
-        let key = MobileHostService.listeningEnabledDefaultsKey
-        try preservingDefaults(keys: allKeys) {
-            #expect(!MobileHostService.isListeningEnabled(defaults: defaults))
-
-            let store = try loadSettingsFile(
-                """
-                {
-                  "mobile": {
-                    "iOSPairingHost": {
-                      "enabled": true
-                    }
-                  }
-                }
-                """
-            )
-
-            withExtendedLifetime(store) {
-                #expect(defaults.object(forKey: key) as? Bool == true)
-                #expect(MobileHostService.isListeningEnabled(defaults: defaults))
-            }
+        try withSettingsFile(#"{"mobile":{"iOSPairingHost":{"enabled":true}}}"#) { defaults, _, _ in
+            #expect(defaults.object(forKey: key) as? Bool == true)
+            #expect(MobileHostService.isListeningEnabled(defaults: defaults))
         }
     }
 
     @Test
     func settingsFileCanTurnIOSPairingHostOff() throws {
-        let defaults = UserDefaults.standard
-        let key = MobileHostService.listeningEnabledDefaultsKey
-        try preservingDefaults(keys: allKeys) {
-            defaults.set(true, forKey: key)
+        try withSettingsFile(
+            #"{"mobile":{"iOSPairingHost":{"enabled":false}}}"#,
+            seed: { $0.set(true, forKey: key) }
+        ) { defaults, _, _ in
+            #expect(defaults.object(forKey: key) as? Bool == false)
+            #expect(!MobileHostService.isListeningEnabled(defaults: defaults))
+        }
+    }
 
-            let store = try loadSettingsFile(
-                """
-                {
-                  "mobile": {
-                    "iOSPairingHost": {
-                      "enabled": false
-                    }
-                  }
-                }
-                """
-            )
-
-            withExtendedLifetime(store) {
-                #expect(defaults.object(forKey: key) as? Bool == false)
-                #expect(!MobileHostService.isListeningEnabled(defaults: defaults))
-            }
+    /// Removing the key from cmux.json hands the setting back to Settings.
+    @Test
+    func removingTheKeyRestoresThePreviousValue() throws {
+        try withSettingsFile(#"{"mobile":{"iOSPairingHost":{"enabled":true}}}"#) { defaults, store, file in
+            #expect(MobileHostService.isListeningEnabled(defaults: defaults))
+            try Data(#"{"mobile":{}}"#.utf8).write(to: file)
+            _ = store.reload()
+            #expect(defaults.object(forKey: key) == nil)
+            #expect(!MobileHostService.isListeningEnabled(defaults: defaults))
         }
     }
 
     @Test
     func settingsFileIgnoresNonBooleanIOSPairingHost() throws {
-        let defaults = UserDefaults.standard
-        let key = MobileHostService.listeningEnabledDefaultsKey
-        try preservingDefaults(keys: allKeys) {
-            let store = try loadSettingsFile(
-                """
-                {
-                  "mobile": {
-                    "iOSPairingHost": {
-                      "enabled": "yes"
-                    }
-                  }
-                }
-                """
-            )
-
-            withExtendedLifetime(store) {
-                #expect(defaults.object(forKey: key) == nil)
-                #expect(!MobileHostService.isListeningEnabled(defaults: defaults))
-            }
+        try withSettingsFile(#"{"mobile":{"iOSPairingHost":{"enabled":"yes"}}}"#) { defaults, store, _ in
+            #expect(defaults.object(forKey: key) == nil)
+            #expect(!MobileHostService.isListeningEnabled(defaults: defaults))
+            #expect(store.configurationIssues.contains { $0.contains("mobile.iOSPairingHost.enabled") })
         }
     }
 
-    private var allKeys: [String] {
-        [
-            MobileHostService.listeningEnabledDefaultsKey,
-            legacyPairingKey,
-            settingsFileBackupsDefaultsKey,
-            importedManagedDefaultsKey,
-        ]
-    }
-
-    private func loadSettingsFile(_ contents: String) throws -> KeyboardShortcutSettingsFileStore {
-        let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-settings-file-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-        try contents.write(to: settingsFileURL, atomically: true, encoding: .utf8)
-        return KeyboardShortcutSettingsFileStore(
-            primaryPath: settingsFileURL.path,
-            fallbackPath: nil,
-            additionalFallbackPaths: [],
-            startWatching: false
-        )
-    }
-
-    private func preservingDefaults(keys: [String], _ body: () throws -> Void) throws {
-        let defaults = UserDefaults.standard
-        let saved = keys.map { ($0, defaults.object(forKey: $0)) }
-        for key in keys { defaults.removeObject(forKey: key) }
-        defer {
-            for (key, value) in saved {
-                if let value {
-                    defaults.set(value, forKey: key)
-                } else {
-                    defaults.removeObject(forKey: key)
-                }
-            }
+    /// The schema allows an empty object, so it must not count as an invalid
+    /// value (an invalid value freezes the whole file at its last good state).
+    @Test
+    func emptyIOSPairingHostObjectIsNotAnError() throws {
+        try withSettingsFile(#"{"mobile":{"iOSPairingHost":{}}}"#) { defaults, store, _ in
+            #expect(defaults.object(forKey: key) == nil)
+            #expect(!store.configurationIssues.contains { $0.contains("iOSPairingHost") })
         }
-        try body()
+    }
+
+    private func withSettingsFile(
+        _ contents: String,
+        seed: (UserDefaults) -> Void = { _ in },
+        _ body: (UserDefaults, KeyboardShortcutSettingsFileStore, URL) throws -> Void
+    ) throws {
+        let suite = "mobile-pairing-host-file-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        seed(defaults)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("cmux.json")
+        try Data(contents.utf8).write(to: file)
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: file.path, fallbackPath: nil, additionalFallbackPaths: [],
+            notificationCenter: NotificationCenter(), userDefaults: defaults,
+            languageSettingsStore: LanguageSettingsStore(defaults: defaults, domainName: suite),
+            startWatching: false,
+            isUserDefaultsKeyForcedByProfile: { _ in false }
+        )
+        try withExtendedLifetime(store) { try body(defaults, store, file) }
     }
 }
