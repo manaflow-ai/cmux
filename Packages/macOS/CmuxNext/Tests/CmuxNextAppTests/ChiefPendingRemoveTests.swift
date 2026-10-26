@@ -153,6 +153,27 @@ struct ChiefPendingRemoveTests {
         #expect(Self.offersLabel(bridge, SidebarLayoutDocument.chiefItemID), "the settled Chief's menu leaves its label edit out")
     }
 
+    /// An undo puts the Chief back (`item.put`, as it was) and the daemon answers it; its echo is lost, and the reload
+    /// after it holds the Chief as the undo put it. The mirror replays the put over the same record without dropping
+    /// it, so the reload settles it by revision: a document at the answer's revision or later holds the change.
+    @Test func aReloadAtTheAnsweredRevisionSettlesAnUndoThatPutTheChiefBack() async throws {
+        let remote = AnsweringRemote(document: Self.document())
+        let (services, store, end) = try await Self.pending(remote: remote)
+        defer { end() }
+        let bridge = try Self.bridge(services)
+        try store.sendChecked(ops: [["op": "item.put", "item": ["id": "itm_chief", "section": "sec_top", "order": "c", "shows_label": false,
+                                                                 "body": ["type": "builtin", "id": "chief"]] as [String: Any]]],
+                              title: "Undo Remove", undoable: false)
+        await RapidWorkspaceCreateTests.wait(within: .seconds(5)) { remote.answered > 0 }
+        try #require(remote.answered == 1 && store.isPending(SidebarLayoutDocument.chiefItemID), "the put was not answered, or not pending")
+        remote.document = Data(String(decoding: Self.document(chief: Self.hiddenLabelChief), as: UTF8.self)
+            .replacingOccurrences(of: #""revision": "1""#, with: #""revision": "2""#).utf8)
+        store.refresh()
+        await RapidWorkspaceCreateTests.wait(within: .seconds(5)) { !store.isPending(SidebarLayoutDocument.chiefItemID) }
+        #expect(!store.isPending(SidebarLayoutDocument.chiefItemID), "the reload at the answered revision left the put Chief pending")
+        #expect(Self.offersLabel(bridge, SidebarLayoutDocument.chiefItemID), "the settled Chief's menu leaves its label edit out")
+    }
+
     /// The daemon answered a remove of the confirmed Chief and an add again (label shown), then a reload older than
     /// both: the mirror replays them, so the Chief stays the new add's, pending until its echo.
     @Test func aReloadOlderThanAnsweredChangesKeepsThemPending() async throws {
