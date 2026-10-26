@@ -9,7 +9,7 @@
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { formatDuration } from "../conversation/turns";
 import { AgentLine } from "../subagents/AgentLine";
-import { useT, type StringKey } from "../i18n";
+import { useT, type StringKey, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { elapsed, running, STATE_LABEL, useNow } from "../subagents/SubagentGroup";
@@ -58,6 +58,13 @@ export function subagentStatusLabel(agent: Subagent, waiting: ReadonlySet<string
   const status = subagentStatus(agent, waiting);
   if (status !== "stopped") return STATUS_LABEL[status];
   return agent.state === "disconnected" ? STATE_LABEL.disconnected : STATE_LABEL.cancelled;
+}
+
+/// What a subagent's line says of its state: acpmux's retry while one waits ("Retrying (2/4) after a
+/// capacity error"), else its status's word.
+export function subagentStateText(t: Translate, agent: Subagent, waiting: ReadonlySet<string>): string {
+  const retry = retrying(agent);
+  return retry ? retryLabel(t, retry) : t(subagentStatusLabel(agent, waiting));
 }
 
 /// The tool calls the chat's open asks are about: the pending permission (`snapshot.permission`),
@@ -190,7 +197,8 @@ export function SubagentStatusList({
                 detail={agent.kind}
                 mark={agent.harness}
                 status={status}
-                state={t(subagentStatusLabel(agent, waiting))}
+                state={subagentStateText(t, agent, waiting)}
+                working={Boolean(retrying(agent))}
                 time={formatDuration(elapsed(agent, now))}
                 iconSize={ROW_ICON}
                 depth={depth}

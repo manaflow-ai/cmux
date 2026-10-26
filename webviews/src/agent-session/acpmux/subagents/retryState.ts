@@ -117,6 +117,12 @@ const refusal = (error: unknown) => {
 /// Runs a row's Retry for `agent` of chat `chat`: acpmux's retry when it serves one, else the ask
 /// (`how` "ask", the menu's Ask parent to retry, asks at once). Settles with the note to show, or
 /// undefined when it went.
+/// Retries in flight or just sent, by target (`chat`, then the sub-session or subagent), with when
+/// each went: a sub-session's line and its card both offer Retry, and a second click on either
+/// before acpmux's next word must not retry it twice. An entry lapses after RETRY_HOLD_MS; no timer.
+const sent = new Map<string, number>();
+export const RETRY_HOLD_MS = 15_000;
+
 export type RetryTarget = Parameters<typeof retryActionOf>[0] & Pick<Subagent, "id" | "name" | "task">;
 
 export async function runRetry(
@@ -129,6 +135,16 @@ export async function runRetry(
   const offered = retryActionOf(agent);
   if (!offered) return undefined;
   const action = how ?? offered;
+  const key = `${chat}\u0000${agent.child ?? agent.id}`;
+  const at = Date.now();
+  if (at - (sent.get(key) ?? -Infinity) < RETRY_HOLD_MS) return undefined;
+  for (const [old, when] of sent) if (at - when >= RETRY_HOLD_MS) sent.delete(old);
+  sent.set(key, at);
+  // A refusal or a failure lets the next click try again.
+  const fail = (note: RetryNote) => {
+    sent.delete(key);
+    return note;
+  };
   if (action === "daemon") {
     const params = agent.child ? { sessionId: agent.child } : { sessionId: chat, subagentId: agent.id };
     try {
@@ -136,16 +152,16 @@ export async function runRetry(
       return undefined;
     } catch (error) {
       const codes = refusal(error);
-      if (codes.includes("retry.nothing_failed")) return "retry.nothingFailed";
-      if (codes.includes("retry.busy")) return "retry.busy";
+      if (codes.includes("retry.nothing_failed")) return fail("retry.nothingFailed");
+      if (codes.includes("retry.busy")) return fail("retry.busy");
       // Only a daemon without the method falls back; any other failure says so.
-      if (!codes.includes("-32601")) return "retry.failed";
+      if (!codes.includes("-32601")) return fail("retry.failed");
     }
   }
   try {
     await deps.send(askPrompt(agent, t));
     return undefined;
   } catch {
-    return "retry.failed";
+    return fail("retry.failed");
   }
 }

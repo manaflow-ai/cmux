@@ -186,34 +186,53 @@ describe("Retry reaches acpmux, else the parent", () => {
   };
 
   test("a subagent's Retry names it to acpmux; a sub-session's names its own session", async () => {
+    const CHAT = "c1";
     const d = deps();
-    expect(await runRetry(failed, "chat", d, translate)).toBeUndefined();
-    expect(await runRetry({ ...failed, child: "s2" }, "chat", d, translate)).toBeUndefined();
+    expect(await runRetry(failed, CHAT, d, translate)).toBeUndefined();
+    expect(await runRetry({ ...failed, child: "s2" }, CHAT, d, translate)).toBeUndefined();
     expect(d.calls).toEqual([
-      [RETRY_METHOD, { sessionId: "chat", subagentId: "a" }],
+      [RETRY_METHOD, { sessionId: "c1", subagentId: "a" }],
       [RETRY_METHOD, { sessionId: "s2" }],
     ]);
   });
 
   test("a daemon without the method falls back to the ask", async () => {
+    const CHAT = "c2";
     const d = deps({ code: -32601 });
-    expect(await runRetry(failed, "chat", d, translate)).toBeUndefined();
+    expect(await runRetry(failed, CHAT, d, translate)).toBeUndefined();
     expect(d.calls[1]).toEqual(["send", 'The subagent "Overview" failed on a transient error. Run it again.']);
   });
 
   test("acpmux's refusals are short notes, never an ask", async () => {
-    expect(await runRetry(failed, "chat", deps({ code: "retry.busy" }), translate)).toBe("retry.busy");
+    const CHAT = "c3";
+    expect(await runRetry(failed, CHAT, deps({ code: "retry.busy" }), translate)).toBe("retry.busy");
     const d = deps({ code: -32000, reason: "retry.nothing_failed" });
-    expect(await runRetry(failed, "chat", d, translate)).toBe("retry.nothingFailed");
+    expect(await runRetry(failed, CHAT, d, translate)).toBe("retry.nothingFailed");
     expect(d.calls).toHaveLength(1);
-    expect(await runRetry(failed, "chat", deps({ code: "native.timed_out" }), translate)).toBe("retry.failed");
+    expect(await runRetry(failed, CHAT, deps({ code: "native.timed_out" }), translate)).toBe("retry.failed");
+  });
+
+  test("a second Retry of the same target before acpmux answers does nothing; a refusal frees it", async () => {
+    const CHAT = "c4";
+    const d = deps();
+    const target = { ...failed, id: "twice", child: "s9" };
+    await runRetry(target, CHAT, d, translate);
+    // The line and the card both offer it.
+    await runRetry(target, CHAT, d, translate);
+    expect(d.calls).toHaveLength(1);
+    const busy = deps({ code: "retry.busy" });
+    const other = { ...failed, id: "refused" };
+    expect(await runRetry(other, CHAT, busy, translate)).toBe("retry.busy");
+    expect(await runRetry(other, CHAT, busy, translate)).toBe("retry.busy");
+    expect(busy.calls).toHaveLength(2);
   });
 
   test("Ask parent to retry asks at once; a row with no Retry does nothing", async () => {
+    const CHAT = "c5";
     const d = deps();
-    await runRetry(failed, "chat", d, translate, "ask");
+    await runRetry(failed, CHAT, d, translate, "ask");
     expect(d.calls.map((call) => (call as unknown[])[0])).toEqual(["send"]);
-    expect(await runRetry({ ...failed, state: "completed" }, "chat", d, translate)).toBeUndefined();
+    expect(await runRetry({ ...failed, state: "completed" }, CHAT, d, translate)).toBeUndefined();
     expect(d.calls).toHaveLength(1);
   });
 
