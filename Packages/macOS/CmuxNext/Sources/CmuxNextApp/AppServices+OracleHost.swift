@@ -2,6 +2,8 @@
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextControl
+import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextFocus
 import CmuxNextFocusUI
@@ -49,6 +51,12 @@ extension AppServices: OracleHost {
             // The overlay hosts, focus overlays, palette, hover card and find bars; their owners signal changes.
             OracleOverlaysFacet(hash: Self.oracleSHA256, changes: { [overlayChanges] in overlayChanges.subscribe() }) { [weak self] in
                 self?.oracleOverlays()
+            },
+            // The daemon mirror's terminals in one main-actor hop; their screens from the daemons off the main actor.
+            OracleTerminalsFacet(rewrite: .init(environment: ProcessInfo.processInfo.environment), hash: Self.oracleSHA256) {
+                [weak self] () throws(OracleFacetError) -> [OracleTerminalsFacet.Terminal] in
+                guard let self else { throw OracleFacetError("the app services are gone") }
+                return try oracleTerminals()
             },
         ])
     }
@@ -147,6 +155,32 @@ extension AppServices {
         }
         if let group = CmuxNextSidebar.GroupID(hoverCardTarget: id) { return .group(group.rawValue) }
         return CmuxNextTabs.TabID(hoverCardTarget: id).map { OracleOverlaysFacet.HoverTarget.tab($0.rawValue) }
+    }
+
+    /// The `terminals` facet's main-actor read (p15-oracle-044): every local terminal tab's daemon mirror values and
+    /// its view's attach driver, never a Ghostty surface; the attach state and the screen are read off the main actor.
+    func oracleTerminals() throws(OracleFacetError) -> [OracleTerminalsFacet.Terminal] {
+        var terminals: [OracleTerminalsFacet.Terminal] = []
+        for (workspace, daemon) in machines.allWorkspaces {
+            // A remote-terminal tab's terminal is another session's, and a terminal not made yet has no screen.
+            for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) where tab.kind == .pty && tab.remote == nil {
+                guard let id = tab.terminalResourceID?.rawValue ?? tab.terminalID?.rawValue else { continue }
+                guard let connection = daemon.connection else { throw OracleFacetError("no connection to \(daemon.machineID) for \(id)") }
+                let exitCode = tab.end.flatMap { $0.kind == .exited ? $0.code.map { Int($0) } : nil }
+                let reads = Self.oracleReads(view: cache.existingTerminal(tab.id)?.io, connection: connection, surface: tab.surface)
+                terminals.append(OracleTerminalsFacet.Terminal(terminal: id, tab: tab.id, cols: tab.size?.cols ?? 0, rows: tab.size?.rows ?? 0,
+                                                               title: tab.title, cwd: tab.cwd, ended: tab.dead, exitCode: exitCode,
+                                                               attach: reads.attach, screen: reads.screen))
+            }
+        }
+        return terminals
+    }
+
+    /// A terminal's two off-main reads: its view's attach machine (behind the driver's lock) and its daemon's `read-screen`.
+    nonisolated static func oracleReads(view: DaemonTerminalIO?, connection: DaemonConnection, surface: SurfaceID)
+        -> (attach: (@Sendable () -> OracleTerminalsFacet.Attach)?, screen: @Sendable () async throws -> String) {
+        let attach = view.map { view in { @Sendable () -> OracleTerminalsFacet.Attach in view.attachPhase.oracleAttach } }
+        return (attach, { try await connection.request(ReadScreenRequest(surface: surface), timeout: .seconds(2)).text })
     }
 
     nonisolated static func oracleSHA256(_ text: String) -> String {
