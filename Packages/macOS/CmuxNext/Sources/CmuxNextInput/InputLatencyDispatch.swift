@@ -84,8 +84,9 @@ public final class InputLatencyDispatch {
     public func willDispatch(_ event: NSEvent, synthetic: Bool, keyWindow: @autoclosure () -> NSWindow?) -> Slot? {
         guard let type = InputEventType(event.type) else { return nil }
         let phase = type == .scrollWheel ? InputEventRecord.scrollPhase(of: event) : .none
-        return open(type, scrollPhase: phase, timestamp: event.timestamp, window: event.window, synthetic: synthetic,
-                    keyWindow: keyWindow(), underPointer: { classifier.pointerTarget(of: event) })
+        return open(type, scrollPhase: phase, keyCode: Self.keyCode(of: event, type: type), timestamp: event.timestamp,
+                    window: event.window, synthetic: synthetic, keyWindow: keyWindow(),
+                    underPointer: { classifier.pointerTarget(of: event) })
     }
 
     /// ``willDispatch(_:synthetic:keyWindow:)`` for a synthesized event the app delivers to `view` in `window` itself
@@ -99,12 +100,14 @@ public final class InputLatencyDispatch {
     public func willDeliver(_ event: NSEvent, in window: NSWindow, to view: NSView?) -> Slot? {
         guard let type = InputEventType(event.type) else { return nil }
         let phase = type == .scrollWheel ? InputEventRecord.scrollPhase(of: event) : .none
-        return open(type, scrollPhase: phase, timestamp: event.timestamp, window: window, synthetic: true,
+        return open(type, scrollPhase: phase, keyCode: Self.keyCode(of: event, type: type), timestamp: event.timestamp,
+                    window: window, synthetic: true,
                     keyWindow: window, underPointer: { classifier.classify(view: view, in: window) })
     }
 
     /// ``willDispatch(_:synthetic:keyWindow:)`` with the event's fields; `underPointer` hit-tests the event's point.
-    func open(_ type: InputEventType, scrollPhase: InputScrollPhase, timestamp: TimeInterval, window: NSWindow?,
+    func open(_ type: InputEventType, scrollPhase: InputScrollPhase, keyCode: UInt16 = 0, timestamp: TimeInterval,
+              window: NSWindow?,
               synthetic: Bool, keyWindow: @autoclosure () -> NSWindow?,
               underPointer: () -> InputTarget) -> Slot? {
         if type.isButtonDown {
@@ -129,7 +132,7 @@ public final class InputLatencyDispatch {
         let presenting = window.map(InputEventRecord.ownerWindow(of:))
         let token = tracker.begin(kind: kind, target: target, entrypoint: synthetic ? .automation : .person,
                                   eventTimestamp: timestamp, window: presenting,
-                                  frameInterval: Self.frameInterval(of: kind, scrollPhase: scrollPhase))
+                                  frameInterval: Self.frameInterval(of: kind, scrollPhase: scrollPhase), keyCode: keyCode)
         if kind == .drag {
             dragToken = token
             if let token, carriedDrags > 0 {
@@ -179,6 +182,12 @@ public final class InputLatencyDispatch {
             if isScroll { scrollTarget = target } else { pressTarget = target }
             return target
         }
+    }
+
+    /// The virtual key code of a key down or up (pairs the press with its release, ``InteractionLatency``), else 0:
+    /// `NSEvent.keyCode` raises for any other type.
+    static func keyCode(of event: NSEvent, type: InputEventType) -> UInt16 {
+        type == .keyDown || type == .keyUp ? event.keyCode : 0
     }
 
     /// The older interval a slot of `kind` carries: `key.frame` for a key press, `key.scroll_frame` with the scroll's

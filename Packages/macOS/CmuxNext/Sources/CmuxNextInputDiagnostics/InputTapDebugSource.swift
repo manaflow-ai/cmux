@@ -47,3 +47,25 @@ nonisolated extension InputLatencyReporter: DebugInputSource {
         await snapshot()
     }
 }
+
+/// `debug.input` section `interactions`: the person's interactions (cmux's INP, p04-input-097) from the
+/// same ledger as `latency`, folded up to the read: the count, the longest, the longest after ignoring
+/// one for each 50, and the kind and target of the longest.
+public nonisolated struct InteractionLatencyDebugSource: DebugInputSource {
+    private let reporter: InputLatencyReporter
+
+    /// - Parameter reporter: The input latency reporter whose ledger pairs the interactions.
+    public init(reporter: InputLatencyReporter) {
+        self.reporter = reporter
+    }
+
+    public var section: DebugInputSection { .interactions }
+
+    public func read() async -> InputLatencySnapshot.Interactions {
+        await reporter.snapshot().interactions
+    }
+
+    public func reset() async {
+        await reporter.reset()
+    }
+}

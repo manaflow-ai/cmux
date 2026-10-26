@@ -174,7 +174,7 @@ public final class InputLatencyTracker {
     public func begin(event: NSEvent, kind: InputEventKind, target: InputTarget, entrypoint: InputEntrypoint,
                       arrivedMain: UInt64? = nil) -> InputLatencyToken? {
         begin(kind: kind, target: target, entrypoint: entrypoint, eventTimestamp: event.timestamp, window: event.window,
-              arrivedMain: arrivedMain)
+              arrivedMain: arrivedMain, keyCode: kind.isKey ? event.keyCode : 0)
     }
 
     /// ``begin(event:kind:target:entrypoint:arrivedMain:)`` with the event's fields.
@@ -188,16 +188,19 @@ public final class InputLatencyTracker {
     ///     scheduler.
     ///   - arrivedMain: When the event reached the main thread, or nil when unknown (also when 0 or after now).
     ///   - frameInterval: The older interval the slot also carries (`key.frame`, `key.scroll_frame`), or nil.
+    ///   - keyCode: The virtual key code of a key event (pairs its press and release into one interaction), else 0.
     /// - Returns: The slot's token, or nil when the table is full.
     // perf-hot: 0.5us key-dispatch
     // perf-hot: 0.5us input-latency-mark
     public func begin(kind: InputEventKind, target: InputTarget, entrypoint: InputEntrypoint,
                       eventTimestamp: TimeInterval, window: NSWindow?,
-                      arrivedMain: UInt64? = nil, frameInterval: InputFrameInterval? = nil) -> InputLatencyToken? {
+                      arrivedMain: UInt64? = nil, frameInterval: InputFrameInterval? = nil,
+                      keyCode: UInt16 = 0) -> InputLatencyToken? {
         let dispatchStart = now()
         let arrived = arrivedMain.flatMap { $0 != 0 && $0 <= dispatchStart ? $0 : nil }
         let generated = Self.generatedNanos(eventTimestamp: eventTimestamp, arrived: arrived ?? dispatchStart)
-        guard let token = table.begin(kind: kind, target: target, entrypoint: entrypoint, generated: generated) else {
+        guard let token = table.begin(kind: kind, target: target, entrypoint: entrypoint, generated: generated,
+                                      keyCode: keyCode) else {
             return nil
         }
         if let arrived { table.mark(token, .arrivedMain, at: arrived) }

@@ -23,6 +23,7 @@ import {
   FieldHistograms,
   InputLatencyEdges,
   InputLatencyRow,
+  InteractionLatency,
   LaunchSections,
   MAX_BLACKBOX_EVENTS,
   MAX_FEATURES,
@@ -254,6 +255,8 @@ export const HangReportSchema2 = Schema.Struct({
  * - `active_seconds` and the `main` interval category;
  * - `launches`, the launch milestone histograms;
  * - `input_latency_bucket_edges_ms`, `input_latency[]` and `scroll_jank`;
+ * - `interaction_latency`, optional: the person's interactions (cmux's INP,
+ *   p04-input-097);
  * - `histograms[]`, `stability{}`, `blackbox[]` and `launch_sections[]`, the
  *   field data (chrome-parity p09-observability-063 and 064;
  *   plans/cmux-next/chrome-parity/p09-observability.md section 3D, "Upload");
@@ -277,6 +280,7 @@ export const HangReportSchema3 = Schema.Struct({
   input_latency_bucket_edges_ms: optionalNullable(InputLatencyEdges),
   input_latency: optionalNullable(Schema.Array(InputLatencyRow).pipe(Schema.maxItems(MAX_INPUT_LATENCY_ROWS))),
   scroll_jank: optionalNullable(ScrollJank),
+  interaction_latency: optionalNullable(InteractionLatency),
   histograms: Schema.optionalWith(FieldHistograms, { exact: true, default: () => [] }),
   stability: optionalNullable(Stability),
   blackbox: optionalArray(BlackboxEvent, MAX_BLACKBOX_EVENTS),

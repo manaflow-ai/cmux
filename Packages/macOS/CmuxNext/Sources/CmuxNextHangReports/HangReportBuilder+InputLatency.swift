@@ -14,8 +14,9 @@ extension HangReportBuilder {
     static let scrollJankNames = Set(ScrollJankHistograms.Name.allCases.map(\.rawValue))
 
     /// Sets the report's three input fields from `snapshot`, or leaves them absent when it
-    /// counted nothing.
+    /// counted nothing, and its interactions when there was one.
     static func addInputLatency(_ snapshot: InputLatencySnapshot, to report: inout HangReport) {
+        report.interactionLatency = interactionLatency(snapshot.interactions)
         let rows = inputLatencyRows(snapshot.rows)
         let jank = scrollJank(snapshot.scrollJank)
         guard !rows.isEmpty || !jank.isEmpty else { return }
@@ -57,6 +58,17 @@ extension HangReportBuilder {
                 < (rhs.kind, rhs.target, rhs.entrypoint, rhs.presentationSource, rhs.display.refreshHz, rhs.display.vrr ? 1 : 0)
         }
         return Array(sorted.prefix(HangReport.maxInputLatencyRows))
+    }
+
+    /// `interactions` with a positive count, a known kind and milliseconds in 0 ms...one day with two
+    /// decimals (the percentile at most the worst), else nil. The target stays on the Mac.
+    static func interactionLatency(_ interactions: InputLatencySnapshot.Interactions) -> HangReport.InteractionLatency? {
+        guard interactions.count > 0, let kind = interactions.kindOfWorst, HangReport.InteractionLatency.kinds.contains(kind)
+        else { return nil }
+        let worst = safeMilliseconds(interactions.worstMilliseconds)
+        return HangReport.InteractionLatency(count: interactions.count, worstMs: worst,
+                                             highPctMs: min(safeMilliseconds(interactions.highPercentileMilliseconds), worst),
+                                             kindOfWorst: kind)
     }
 
     /// The display label as sent: a refresh rate above ``maxRefreshHz`` or below 0 is unknown (0).

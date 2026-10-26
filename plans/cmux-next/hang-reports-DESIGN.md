@@ -223,6 +223,21 @@ check only for a value that is exactly a member of its own field's closed set
 (`PrivacyLeakScanner.closedSetValues`); every other string, image names included, keeps the
 full term list, so a person named Mina still makes a `MinaTools.dylib` frame `other`.
 
+`interaction_latency` (p04-input-097, schema 3, optional) is cmux's Interaction to Next Paint
+(web.dev/articles/inp) from the same field ledger:
+`{"count": 120, "worst_ms": 300, "high_pct_ms": 40, "kind_of_worst": "key"}`. A key press and the
+release of the same key code are one interaction (a key with no release closes at the next key
+press), a mouse press and its release are a `tap`, or a `drag` when it dragged in between; each is
+as long as its longest event, measured to the presented frame, or to the commit or dispatch end
+when nothing changed on screen. Scrolls, moves and automation are not interactions
+(third_party/blink/renderer/core/timing/responsiveness_metrics.cc). `count` is the interactions
+closed in the period, `worst_ms` the longest, `high_pct_ms` the longest after ignoring one for each
+50 from a fixed list of the 11 worst (components/page_load_metrics/browser/
+responsiveness_metrics_normalization.cc), at most `worst_ms`; milliseconds have two decimals and
+are at most one day. `kind_of_worst` is `key`, `tap` or `drag`. The target of the worst stays in
+`debug.input` (section `interactions`) and never leaves the Mac. Absent with no interaction; an
+interaction still open when a report takes its counts goes into the report it closes in.
+
 The field ledger is the reporter's own (`debug.input reset` never changes what a report says)
 and follows the report's on/off state: `HangReportService.setEnabled` calls
 `HangReportInputLatencySource.setRecording`, so off drops every count not yet sent and nothing

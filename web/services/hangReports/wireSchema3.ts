@@ -197,6 +197,20 @@ export const ScrollJank = Schema.Struct({
   ),
 });
 
+/**
+ * `interaction_latency` (the client's `HangReport.InteractionLatency`, p04-input-097):
+ * cmux's INP for the report period, numbers and a closed kind only. The high
+ * percentile is never above the worst.
+ */
+export const InteractionLatency = Schema.Struct({
+  count: u64.pipe(Schema.positive()),
+  worst_ms: milliseconds,
+  high_pct_ms: milliseconds,
+  kind_of_worst: Schema.Literal("key", "tap", "drag"),
+}).pipe(Schema.filter((value) => value.high_pct_ms <= value.worst_ms, {
+  message: () => "interaction high percentile above the worst",
+}));
+
 // MARK: hang samples (blocking detector, task attribution)
 
 /** `hangs[].blocking` of a detector sample: what the call waited on and where it ran. */

@@ -196,6 +196,34 @@ struct DebugInputTests {
         await reader.value
     }
 
+    @Test func theInteractionsSectionPairsTheReportersKeysAndResetEmptiesIt() async throws {
+        let reporter = InputLatencyReporter()
+        let reader = Task.detached(priority: .utility) { await reporter.run() }
+        let debugInput = DebugInput(sources: [reporter, InteractionLatencyDebugSource(reporter: reporter)])
+        var press = InputLatencySlot(kind: .keyPress, target: .palette, entrypoint: .person, keyCode: 36)
+        press.generated = 1_000_000
+        press.dispatchEnd = 9_000_000
+        var release = InputLatencySlot(kind: .keyRelease, target: .palette, entrypoint: .person, keyCode: 36)
+        release.generated = 50_000_000
+        release.dispatchEnd = 51_000_000
+        reporter.submit(InputLatencyBatch(slots: [press, release], vsyncNanos: 16_666_667))
+
+        let reply = try await debugInput.reply(to: .read([.interactions]))
+        #expect(reply["absent"] == .array([]))
+        let object = try Self.object(reply)
+        let section = try #require(object["interactions"] as? [String: Any])
+        #expect(Set(section.keys) == ["count", "worst_ms", "high_pct_ms", "kind_of_worst", "target_of_worst"])
+        #expect(try Self.decode(InputLatencySnapshot.Interactions.self, reply["interactions"])
+            == InputLatencySnapshot.Interactions(count: 1, worstMilliseconds: 8, highPercentileMilliseconds: 8,
+                                                 kindOfWorst: "key", targetOfWorst: "palette"))
+
+        _ = try await debugInput.reply(to: DebugInput.Request(params: ["action": .string("reset")]))
+        let after = try await debugInput.reply(to: .read([.interactions]))
+        #expect(try Self.decode(InputLatencySnapshot.Interactions.self, after["interactions"]) == InputLatencySnapshot.Interactions())
+        reporter.finish()
+        await reader.value
+    }
+
     // MARK: reset and recorders
 
     @Test func resetReachesEverySourceAndRecorder() async throws {
