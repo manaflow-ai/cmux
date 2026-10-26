@@ -752,8 +752,10 @@ async fn a_restart_does_not_resume_after_remote_control_ended() {
     files.sort();
     let last = files.last().expect("an event log").clone();
     let seq = daemon.events(&session).iter().filter_map(|e| e["seq"].as_u64()).max().unwrap();
-    let ended = json!({"seq": seq + 1, "at": 0, "dir": "mux", "kind": "remote_control_ended", "msg": {"mode": "ask"}});
+    let raised = json!({"seq": seq + 1, "at": 0, "dir": "mux", "kind": "turn_control", "msg": {"turnId": started["msg"]["turnId"], "control": "web"}});
+    let ended = json!({"seq": seq + 2, "at": 0, "dir": "mux", "kind": "remote_control_ended", "msg": {"mode": "ask"}});
     let mut log = std::fs::OpenOptions::new().append(true).open(&last).unwrap();
+    std::io::Write::write_all(&mut log, format!("{raised}\n").as_bytes()).unwrap();
     std::io::Write::write_all(&mut log, format!("{ended}\n").as_bytes()).unwrap();
     drop(log);
 
@@ -810,8 +812,10 @@ async fn a_restart_does_not_resume_after_remote_floor_cancel() {
     files.sort();
     let last = files.last().expect("an event log").clone();
     let seq = daemon.events(&session).iter().filter_map(|e| e["seq"].as_u64()).max().unwrap();
-    let cancelled = json!({"seq": seq + 1, "at": 0, "dir": "mux", "kind": "remote_floor_cancel", "msg": {"reason": "remote.mode_not_asking", "turnId": started["msg"]["turnId"]}});
+    let raised = json!({"seq": seq + 1, "at": 0, "dir": "mux", "kind": "turn_control", "msg": {"turnId": started["msg"]["turnId"], "control": "web"}});
+    let cancelled = json!({"seq": seq + 2, "at": 0, "dir": "mux", "kind": "remote_floor_cancel", "msg": {"reason": "remote.mode_not_asking", "turnId": started["msg"]["turnId"]}});
     let mut log = std::fs::OpenOptions::new().append(true).open(&last).unwrap();
+    std::io::Write::write_all(&mut log, format!("{raised}\n").as_bytes()).unwrap();
     std::io::Write::write_all(&mut log, format!("{cancelled}\n").as_bytes()).unwrap();
     drop(log);
 

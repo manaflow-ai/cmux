@@ -124,9 +124,10 @@ impl Hub {
             self.append(session, "mux", "auto_resume_exhausted", msg);
             return None;
         }
-        let blocked = if floor_cancelled {
+        let effective_web = control.as_deref() == Some("web") || raised_to_web;
+        let blocked = if effective_web && floor_cancelled {
             Some("remote_floor_cancel")
-        } else if control_ended {
+        } else if effective_web && control_ended {
             Some("remote_control_ended")
         } else {
             None
