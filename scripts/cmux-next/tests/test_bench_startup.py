@@ -204,6 +204,23 @@ class ValueSummaryTests(unittest.TestCase):
                          ["temperature cold", "page-ins 4100", "interrupted"])
 
 
+    def test_first_frame_threads_print_with_the_runs_that_had_a_runtime_thread(self):
+        """p08-startup-068: the threads right after the first frame, the runtime threads among them (target 0)."""
+        clean = {bs.FIRST_FRAME_THREADS: 41.0, bs.FIRST_FRAME_RUNTIME_THREADS: 0.0, bs.FIRST_FRAME_GHOSTTY_THREADS: 4.0}
+        runs = [dict(clean) for _ in range(3)] + [{**clean, bs.FIRST_FRAME_RUNTIME_THREADS: 2.0}, {"main_start": 1}]
+        self.assertTrue(set(bs.THREAD_MARKS) <= set(bs.VALUE_MARKS), "counts, not times")
+        self.assertEqual(bs.run_values(runs[0]), ["threads at first frame 41 (runtime 0, ghostty 4)"])
+        self.assertEqual(bs.run_values(runs[-1]), [])
+        lines = bs.first_frame_threads_summary(runs)
+        self.assertEqual([line.split(":")[0].strip() for line in lines[:3]], list(bs.THREAD_MARKS))
+        self.assertIn("p50 41", lines[0])
+        self.assertIn("n 4", lines[0])
+        self.assertEqual(lines[-1], "  runtime threads at first frame: runs 4")
+        self.assertEqual(bs.first_frame_threads_summary(runs[:3])[-1], "  runtime threads at first frame: none")
+        self.assertEqual(bs.first_frame_threads_summary([{"main_start": 1}]), [], "an older build prints no thread line")
+        self.assertEqual(bs.value_summary(runs)[-1], "  launch.interrupted: none of 5 runs", "the interrupted line stays last")
+        self.assertNotIn(bs.FIRST_FRAME_THREADS, [row[1] for row in bs.table(runs)], "never a timed row")
+
     def test_sidebar_launch_rows_print_against_the_visible_rows(self):
         """p08-startup-064: the sidebar's row views built before startup_complete, against its visible rows."""
         runs = [{bs.SIDEBAR_ROWS_BUILT: 18.0, bs.SIDEBAR_ROWS_VISIBLE: 17.0} for _ in range(4)]

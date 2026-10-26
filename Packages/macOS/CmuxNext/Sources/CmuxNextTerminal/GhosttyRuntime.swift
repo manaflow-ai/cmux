@@ -168,7 +168,7 @@ public final class GhosttyRuntime {
         unsafe runtime.close_surface_cb = ghosttyCloseSurface
         // SAFETY: ghostty_app_new copies the runtime config during the call and does not take
         // over the built config, which `config` (above) now owns.
-        app = unsafe ghostty_app_new(&runtime, config)
+        app = TerminalTimings.ghosttyAppNew { unsafe ghostty_app_new(&runtime, config) }
         guard let app else {
             Self.logger.error("ghostty_app_new failed; terminal surfaces are disabled")
             return
@@ -195,7 +195,7 @@ public final class GhosttyRuntime {
         environment.freeze()
         // SAFETY: unsafeArgv is the process's argv, argc entries long and valid for the
         // process's lifetime; ghostty_init only reads it.
-        return unsafe ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == 0
+        return TerminalTimings.ghosttyInit { unsafe ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == 0 }
     }()
 
     /// Adopts a config Ghostty already applied (`GHOSTTY_ACTION_CONFIG_CHANGE`).

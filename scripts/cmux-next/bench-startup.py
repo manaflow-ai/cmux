@@ -81,7 +81,10 @@ launch-warm-realistic.json, launch-after-reboot.json, and launch-warm.json.
 Value marks (tasks 007, 108): `launch.temperature`, `launch.pageins_run_loop_start`,
 `launch.pageins_first_frame`, `launch.main_cpu_ms` and `launch.interrupted`
 arrive on the same pipe as `<name> <value>` (a number, true/false, or a name).
-So do p08-startup-064's `launch.sidebar_rows_built` and `launch.sidebar_rows_visible`:
+So do p08-startup-068's `launch.first_frame_threads`, `launch.first_frame_runtime_threads`
+and `launch.first_frame_ghostty_threads` (Debug and bench builds: the threads right after the
+first frame, the native runtime threads among them, target 0, and libghostty's), and
+p08-startup-064's `launch.sidebar_rows_built` and `launch.sidebar_rows_visible`:
 the sidebar row views built before startup_complete against the rows its clip showed
 (sent right after `startup_complete`, so they need --startup-complete).
 They are not times: no table row, gap or --order term. Task 007 can also send
@@ -284,7 +287,14 @@ SIDEBAR_ROWS_VISIBLE = "launch.sidebar_rows_visible"
 SIDEBAR_ROWS_SLACK = 2
 # How long a launch that completed waits for the sidebar's row counts, sent right after startup_complete.
 SIDEBAR_ROWS_WAIT_S = 0.5
-VALUE_MARKS = (TEMPERATURE, PAGEINS_RUN_LOOP, PAGEINS, MAIN_CPU, INTERRUPTED, SIDEBAR_ROWS_BUILT, SIDEBAR_ROWS_VISIBLE)
+# p08-startup-068 (LaunchThreadCensus, Debug and bench builds): the process's threads right after the first frame,
+# the threads of a native runtime no first frame needs (iroh's tokio pool; target 0), and libghostty's threads.
+FIRST_FRAME_THREADS = "launch.first_frame_threads"
+FIRST_FRAME_RUNTIME_THREADS = "launch.first_frame_runtime_threads"
+FIRST_FRAME_GHOSTTY_THREADS = "launch.first_frame_ghostty_threads"
+THREAD_MARKS = (FIRST_FRAME_THREADS, FIRST_FRAME_RUNTIME_THREADS, FIRST_FRAME_GHOSTTY_THREADS)
+VALUE_MARKS = (TEMPERATURE, PAGEINS_RUN_LOOP, PAGEINS, MAIN_CPU, INTERRUPTED, SIDEBAR_ROWS_BUILT, SIDEBAR_ROWS_VISIBLE,
+               *THREAD_MARKS)
 # Percentiles printed after p50 (perf_stats.summary).
 PERCENTILES = (95, 99)
 
@@ -962,6 +972,10 @@ def run_values(marks):
         shown.append(f"main cpu {marks[MAIN_CPU]:.0f} ms")
     if is_number(marks.get(SIDEBAR_ROWS_BUILT)) and is_number(marks.get(SIDEBAR_ROWS_VISIBLE)):
         shown.append(f"sidebar rows built {marks[SIDEBAR_ROWS_BUILT]:.0f} for {marks[SIDEBAR_ROWS_VISIBLE]:.0f} visible")
+    if is_number(marks.get(FIRST_FRAME_THREADS)):
+        shown.append(f"threads at first frame {marks[FIRST_FRAME_THREADS]:.0f}"
+                     f" (runtime {marks.get(FIRST_FRAME_RUNTIME_THREADS, 0):.0f},"
+                     f" ghostty {marks.get(FIRST_FRAME_GHOSTTY_THREADS, 0):.0f})")
     reason = completion_reason(marks)
     if reason is not None:
         shown.append(f"startup complete {reason}")
@@ -1009,6 +1023,7 @@ def value_summary(runs, temperature=None):
         else:
             lines.append(f"  {mark}: missing in all {total} runs")
     lines += sidebar_rows_summary(runs)
+    lines += first_frame_threads_summary(runs)
     lines.append(completion_summary(runs))
     stopped = [str(index + 1) for index, run in enumerate(runs) if interrupted(run)]
     lines.append(f"  {INTERRUPTED}: " + (f"runs {', '.join(stopped)} ({len(stopped)} of {total})" if stopped
@@ -1028,6 +1043,22 @@ def sidebar_rows_summary(runs):
     visible = perf_stats.pct([visible for _, visible in pairs], 0.5)
     return [f"  {SIDEBAR_ROWS_BUILT}: {cells}  n {len(pairs)}; visible p50 {visible:.0f}; "
             f"{over} of {len(pairs)} over visible + {SIDEBAR_ROWS_SLACK}"]
+
+
+def first_frame_threads_summary(runs):
+    """p08-startup-068: each first-frame thread count as a spread, and the runs with a runtime thread at the first
+    frame (target none). No line when no run sent them (an older build, or a Release build without bench hooks)."""
+    lines = []
+    for mark in THREAD_MARKS:
+        values = [run[mark] for run in runs if is_number(run.get(mark))]
+        if values:
+            cells = "  ".join(f"{column} {value:.0f}" for column, value in spread(values).items())
+            lines.append(f"  {mark}: {cells}  n {len(values)}")
+    runtime = [str(index + 1) for index, run in enumerate(runs)
+               if is_number(run.get(FIRST_FRAME_RUNTIME_THREADS)) and run[FIRST_FRAME_RUNTIME_THREADS] > 0]
+    if lines:
+        lines.append("  runtime threads at first frame: " + (f"runs {', '.join(runtime)}" if runtime else "none"))
+    return lines
 
 
 def classified_not_cold(run):
