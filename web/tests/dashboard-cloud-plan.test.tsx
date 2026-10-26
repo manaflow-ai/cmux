@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { NextIntlClientProvider } from "next-intl";
-import type { QueryClient } from "@tanstack/react-query";
-import { RequiresPro } from "../dashboard-app/components/requires-pro";
+import { type QueryClient, QueryObserver } from "@tanstack/react-query";
+import { planPromptChangeProps, planPromptOutdated, RequiresPro } from "../dashboard-app/components/requires-pro";
 import { planQuery } from "../dashboard-app/queries/billing";
 import { CloudPageFrame } from "../dashboard-app/screens/cloud/cloud-frame";
 import enMessages from "../messages/en.json";
@@ -97,22 +97,41 @@ describe("dashboard Cloud plan prompt", () => {
     queryClient.clear();
   });
 
-  test.each([
-    { name: "Free to Team", previous: free },
-    { name: "Team to Free", previous: team },
-  ])("a failed $name switch refresh does not restore the previous team's answer", async ({ previous }) => {
+  test("the prompt re-renders through a team switch reload, whether it succeeds unchanged or fails", async () => {
     const queryClient = createScreenQueryClient();
-    queryClient.setQueryData(planQuery.queryKey, previous);
-    await queryClient.invalidateQueries({ queryKey: planQuery.queryKey, refetchType: "none" });
-    await queryClient
-      .fetchQuery({ ...planQuery, staleTime: 0, queryFn: () => Promise.reject(new Error("plan unavailable")) })
-      .catch(() => undefined);
-    expect(queryClient.getQueryState(planQuery.queryKey)?.status).toBe("error");
+    queryClient.setQueryData(planQuery.queryKey, free);
+    let respond: () => Promise<Plan> = () => Promise.resolve({ ...free });
+    const observer = new QueryObserver(queryClient, {
+      ...planQuery,
+      queryFn: () => respond(),
+      notifyOnChangeProps: planPromptChangeProps,
+    });
+    // React tracks the result fields a component reads; RequiresPro reads only the plan data.
+    void observer.trackResult(observer.getCurrentResult()).data;
+    // Each entry is what RequiresPro renders after a re-render: hidden while the plan is outdated.
+    const renders: boolean[] = [];
+    const unsubscribe = observer.subscribe(() => renders.push(planPromptOutdated(queryClient)));
+    try {
+      // A switch between two Free teams: the reload returns an equal plan.
+      await queryClient.invalidateQueries({ queryKey: planQuery.queryKey });
+      expect(renders).toContain(true);
+      expect(renders.at(-1)).toBe(false);
 
-    const html = await renderCloudWithClient(queryClient);
-    expect(html).toContain("Cloud machines");
-    expect(html).not.toContain('data-testid="requires-pro"');
-    queryClient.clear();
+      // A switch whose reload fails must not bring back the previous team's answer.
+      renders.length = 0;
+      respond = () => Promise.reject(new Error("plan unavailable"));
+      await queryClient.invalidateQueries({ queryKey: planQuery.queryKey });
+      expect(renders.at(-1)).toBe(true);
+
+      // The next good reload shows the prompt again.
+      renders.length = 0;
+      respond = () => Promise.resolve({ ...free });
+      await queryClient.refetchQueries({ queryKey: planQuery.queryKey });
+      expect(renders.at(-1)).toBe(false);
+    } finally {
+      unsubscribe();
+      queryClient.clear();
+    }
   });
 
   test("a Cloud refresh does not confirm a welcome from the previous personal plan", async () => {
