@@ -118,7 +118,10 @@ final class BonsplitTabDragUITests: XCTestCase {
     /// `@Environment(BonsplitController.self)` read and the app exited. macOS 26
     /// does not trap there, so only a macOS 27 run shows a regression.
     func testDroppingTabsOntoPaneEdgesBuildsNestedSplitsWithoutCrashing() {
-        let (app, dataPath) = launchConfiguredApp(fourTabSetup: true)
+        let socketTag = "ui-bonsplit-drop-\(UUID().uuidString.lowercased())"
+        let socketPath = "/tmp/cmux-debug-\(socketTag).sock"
+        let (app, dataPath) = launchConfiguredApp(fourTabSetup: true, socketTag: socketTag)
+        defer { app.terminate() }
 
         XCTAssertTrue(
             ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
@@ -131,6 +134,11 @@ final class BonsplitTabDragUITests: XCTestCase {
         }
         if let setupError = ready["setupError"], !setupError.isEmpty {
             XCTFail("Setup failed: \(setupError)")
+            return
+        }
+
+        guard let workspaceID = ready["workspaceId"], !workspaceID.isEmpty else {
+            XCTFail("Missing fixture workspace ID")
             return
         }
 
@@ -163,7 +171,8 @@ final class BonsplitTabDragUITests: XCTestCase {
             waitForPaneLayout(
                 paneCount: 1,
                 titles: [alphaTitle, betaTitle, gammaTitle, deltaTitle],
-                atPath: dataPath,
+                workspaceID: workspaceID,
+                socketPath: socketPath,
                 timeout: 5.0
             ),
             "Expected the four-tab fixture to start in one pane. data=\(loadJSON(atPath: dataPath) ?? [:])"
@@ -182,7 +191,8 @@ final class BonsplitTabDragUITests: XCTestCase {
             guard let state = waitForPaneLayout(
                 paneCount: expectedGroups.count,
                 titles: expectedGroups.flatMap { $0 },
-                atPath: dataPath,
+                workspaceID: workspaceID,
+                socketPath: socketPath,
                 timeout: 5.0
             ) else {
                 XCTFail(
@@ -1068,7 +1078,8 @@ final class BonsplitTabDragUITests: XCTestCase {
         alwaysShowShortcutHints: Bool = false,
         windowSize: String? = nil,
         actionButtonCount: Int? = nil,
-        fourTabSetup: Bool = false
+        fourTabSetup: Bool = false,
+        socketTag: String? = nil
     ) -> (XCUIApplication, String) {
         let app = XCUIApplication.cmuxTestApplication()
         let dataPath = "/tmp/cmux-ui-test-bonsplit-tab-drag-\(UUID().uuidString).json"
@@ -1077,6 +1088,15 @@ final class BonsplitTabDragUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = dataPath
+        if let socketTag {
+            app.launchEnvironment["CMUX_TAG"] = socketTag
+            app.launchEnvironment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-\(socketTag).sock"
+            app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+            app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+            app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+            app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+            app.launchArguments += ["-socketControlMode", "allowAll"]
+        }
         if startWithHiddenSidebar {
             app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_START_WITH_HIDDEN_SIDEBAR"] = "1"
         }
@@ -1177,16 +1197,17 @@ final class BonsplitTabDragUITests: XCTestCase {
         return nil
     }
 
-    /// Waits for the app-host recorder to publish a complete pane layout.
+    /// Waits for the production control API to report the fixture's complete pane layout.
     private func waitForPaneLayout(
         paneCount: Int,
         titles: [String],
-        atPath path: String,
+        workspaceID: String,
+        socketPath: String,
         timeout: TimeInterval
     ) -> [String: String]? {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if let data = loadJSON(atPath: path),
+            if let data = readPaneLayout(workspaceID: workspaceID, socketPath: socketPath),
                data["trackedPaneCount"] == String(paneCount),
                let placements = panePlacements(from: data),
                titles.allSatisfy({ placements[$0] != nil }) {
@@ -1194,13 +1215,48 @@ final class BonsplitTabDragUITests: XCTestCase {
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
-        guard let data = loadJSON(atPath: path),
+        guard let data = readPaneLayout(workspaceID: workspaceID, socketPath: socketPath),
               data["trackedPaneCount"] == String(paneCount),
               let placements = panePlacements(from: data),
               titles.allSatisfy({ placements[$0] != nil }) else {
             return nil
         }
         return data
+    }
+
+    /// Reads one atomic workspace snapshot without adding an app-side test recorder.
+    private func readPaneLayout(workspaceID: String, socketPath: String) -> [String: String]? {
+        guard let response = controlSocketJSONViaNetcat(
+            [
+                "id": UUID().uuidString,
+                "method": "system.tree",
+                "params": ["workspace_id": workspaceID, "all_windows": true]
+            ],
+            socketPath: socketPath,
+            responseTimeout: 1.0
+        ), response["ok"] as? Bool == true,
+           let result = response["result"] as? [String: Any],
+           let windows = result["windows"] as? [[String: Any]],
+           let workspace = windows.flatMap({ $0["workspaces"] as? [[String: Any]] ?? [] })
+               .first(where: { ($0["id"] as? String)?.lowercased() == workspaceID.lowercased() }),
+           let panes = workspace["panes"] as? [[String: Any]] else {
+            return nil
+        }
+
+        var placements: [String: String] = [:]
+        for pane in panes {
+            guard let paneID = pane["id"] as? String,
+                  let surfaces = pane["surfaces"] as? [[String: Any]] else { return nil }
+            for surface in surfaces {
+                guard let title = surface["title"] as? String,
+                      placements.updateValue(paneID, forKey: title) == nil else { return nil }
+            }
+        }
+        return [
+            "trackedPaneCount": String(panes.count),
+            "trackedPanePlacements": placements.keys.sorted()
+                .map { "\($0)=\(placements[$0]!)" }.joined(separator: "|")
+        ]
     }
 
     /// Asserts that each expected title group occupies one pane and groups are distinct.
@@ -1235,7 +1291,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         )
     }
 
-    /// Parses the app-host recorder's stable title-to-pane layout snapshot.
+    /// Parses the test's stable title-to-pane layout snapshot.
     private func panePlacements(from data: [String: String]) -> [String: String]? {
         guard let rawPlacements = data["trackedPanePlacements"] else { return nil }
         var placements: [String: String] = [:]
