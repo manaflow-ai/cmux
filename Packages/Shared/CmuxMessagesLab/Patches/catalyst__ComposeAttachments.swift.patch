@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/ComposeAttachments.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/ComposeAttachments.swift
-@@ -21,6 +21,11 @@
+@@ -21,21 +21,34 @@
  /// aspects is an estimate; the file tile's height (89 pt) comes from the field
  /// growth (92 pt).
  ///
@@ -12,33 +12,50 @@
  /// Thumbnails are decoded off the main thread with ImageIO
  /// (`CGImageSourceCreateThumbnailAtIndex`, downsampled to the tile's pixel
  /// size at the display scale, EXIF orientation applied, the embedded colour
-@@ -28,13 +33,17 @@
+ /// profile kept: Core Animation colour-matches a P3 screenshot), so a large
  /// screenshot never blocks a frame. Until a thumbnail arrives the tile is the
  /// placeholder grey.
++///
++/// cmux: main-actor (its layers and its thumbnail cache are the compose view's); the
++/// geometry, text and decode helpers are nonisolated (p10-stability-040).
++@MainActor
  final class ComposeAttachmentStrip {
 -    static let boxWidth: CGFloat = 177           // measured 176.2 from the colour bars (+-1); 177 keeps the 1.5 image 118 tall
 -    static let imageMaxHeight: CGFloat = 118     // measured (one aspect)
 -    static let corner: CGFloat = 16              // measured, continuous
+-    static let left: CGFloat = 11.8              // measured
+-    static let top: CGFloat = 7                  // measured
+-    static let gap: CGFloat = 3                  // measured
+-    static let fileHeight: CGFloat = 89          // from the field growth (92 pt)
+-    static let removeSize: CGFloat = 18          // estimate
 +    // cmux: small thumbnails in a row (iMessage-style inline), not Messages' stacked
 +    // 177 x 118 tiles: two pasted screenshots made the field ~280 pt tall and pushed
 +    // the text line to the bottom.
-+    static let boxWidth: CGFloat = 128           // cmux: widest image thumbnail (was 177)
-+    static let imageMaxHeight: CGFloat = 64      // cmux: thumbnail height cap (was 118)
-+    static let corner: CGFloat = 10              // cmux: smaller tiles, smaller corners (was 16)
-     static let left: CGFloat = 11.8              // measured
-     static let top: CGFloat = 7                  // measured
--    static let gap: CGFloat = 3                  // measured
--    static let fileHeight: CGFloat = 89          // from the field growth (92 pt)
-+    static let gap: CGFloat = 6                  // cmux: between tiles in a row and between rows (was 3)
-+    static let fileWidth: CGFloat = 200          // cmux: file pill width (was the 177 box)
-+    static let fileHeight: CGFloat = 52          // cmux: file pill height (was 89)
-     static let removeSize: CGFloat = 18          // estimate
++    nonisolated static let boxWidth: CGFloat = 128           // cmux: widest image thumbnail (was 177)
++    nonisolated static let imageMaxHeight: CGFloat = 64      // cmux: thumbnail height cap (was 118)
++    nonisolated static let corner: CGFloat = 10              // cmux: smaller tiles, smaller corners (was 16)
++    nonisolated static let left: CGFloat = 11.8              // measured
++    nonisolated static let top: CGFloat = 7                  // measured
++    nonisolated static let gap: CGFloat = 6                  // cmux: between tiles in a row and between rows (was 3)
++    nonisolated static let fileWidth: CGFloat = 200          // cmux: file pill width (was the 177 box)
++    nonisolated static let fileHeight: CGFloat = 52          // cmux: file pill height (was 89)
++    nonisolated static let removeSize: CGFloat = 18          // estimate
  
      struct Tile: Equatable { var id: ID; var rect: CGRect; var image: Bool }
-@@ -66,20 +75,26 @@
+ 
+@@ -59,33 +72,40 @@
+         pills.zPosition = -1
+     }
+ 
+-    static func isImage(_ a: Attachment) -> Bool {
++    nonisolated static func isImage(_ a: Attachment) -> Bool {
+         a.kind == "image" && (a.width ?? 0) > 0 && (a.height ?? 0) > 0 && a.asset != nil
+     }
+ 
      /// Tiles (field coordinates, top-left of the field) and the strip height
      /// (what the field grows by).
-     static func layout(_ atts: [Attachment], width: CGFloat, scale: CGFloat) -> (tiles: [Tile], height: CGFloat) {
+-    static func layout(_ atts: [Attachment], width: CGFloat, scale: CGFloat) -> (tiles: [Tile], height: CGFloat) {
++    nonisolated static func layout(_ atts: [Attachment], width: CGFloat, scale: CGFloat) -> (tiles: [Tile], height: CGFloat) {
 +        // cmux: tiles flow left to right and wrap to a new row at the field's right edge.
          var tiles: [Tile] = []
 -        var y = top
@@ -54,12 +71,11 @@
 +                size = CGSize(width: max(1, w * k), height: max(1, h * k))
              }
 -            let r = CGRect(x: left, y: y, width: size.width, height: size.height).integralToScale(scale)
--            tiles.append(Tile(id: a.id, rect: r, image: isImage(a)))
--            y = r.maxY + gap
 +            size.width = min(size.width, right - left)
 +            if x > left, x + size.width > right { x = left; y += rowH + gap; rowH = 0 }
 +            let r = CGRect(x: x, y: y, width: size.width, height: size.height).integralToScale(scale)
-+            tiles.append(Tile(id: a.id, rect: r, image: isImage(a)))
+             tiles.append(Tile(id: a.id, rect: r, image: isImage(a)))
+-            y = r.maxY + gap
 +            x = r.maxX + gap
 +            rowH = max(rowH, r.height)
          }
@@ -68,8 +84,18 @@
 +        return (tiles, y + rowH + gap - top)
      }
  
-     static let nameFont = UIFont.systemFont(ofSize: 11, weight: .semibold)
-@@ -127,7 +142,7 @@
+-    static let nameFont = UIFont.systemFont(ofSize: 11, weight: .semibold)
+-    static let kindFont = UIFont.systemFont(ofSize: 10)
++    // cmux: held by HomeFonts (a `static let` of NSFont is a non-Sendable global).
++    nonisolated static var nameFont: UIFont { HomeFonts.system(ofSize: 11, weight: .semibold) }
++    nonisolated static var kindFont: UIFont { HomeFonts.system(ofSize: 10) }
+     /// "PDF Document · 7 KB" (the type's localized description and the size).
+-    static func kindText(_ a: Attachment) -> String {
++    nonisolated static func kindText(_ a: Attachment) -> String {
+         let kind = UTType(mimeType: a.mimeType)?.localizedDescription ?? a.mimeType
+         guard a.byteSize > 0 else { return kind }
+         return "\(kind) \u{00B7} \(ByteCountFormatter.string(fromByteCount: Int64(clamping: a.byteSize), countStyle: .file))"
+@@ -127,7 +147,7 @@
          l.cornerCurve = .continuous
          l.masksToBounds = true
          l.contentsGravity = .resizeAspectFill
@@ -78,7 +104,7 @@
          let x = CALayer()
          x.actions = none
          x.opacity = 0
-@@ -171,23 +186,23 @@
+@@ -171,23 +191,23 @@
              for tile in files {
                  guard let a = atts.first(where: { $0.id == tile.id }) else { continue }
                  let r = tile.rect
@@ -109,3 +135,21 @@
                  TextDraw.line(Self.fit(a.fileName, Self.nameFont, tw), font: Self.nameFont, color: Fixture.incomingText, x: tx, baseline: y, in: c)
                  y += 14
                  TextDraw.line(Self.fit(Self.kindText(a), Self.kindFont, tw), font: Self.kindFont, color: Fixture.secondaryText, x: tx, baseline: y, in: c)
+@@ -196,7 +216,7 @@
+     }
+ 
+     /// The text cut with an ellipsis to a width.
+-    static func fit(_ s: String, _ f: UIFont, _ w: CGFloat) -> String {
++    nonisolated static func fit(_ s: String, _ f: UIFont, _ w: CGFloat) -> String {
+         if TextDraw.width(s, font: f) <= w { return s }
+         var t = s
+         while !t.isEmpty && TextDraw.width(t + "\u{2026}", font: f) > w { t.removeLast() }
+@@ -226,7 +246,7 @@
+     }
+ 
+     /// A downsampled, orientation-corrected thumbnail; never larger than the source.
+-    static func thumbnail(_ asset: String, maxPixels: Int) -> CGImage? {
++    nonisolated static func thumbnail(_ asset: String, maxPixels: Int) -> CGImage? {
+         let url = URL(string: asset).flatMap { $0.isFileURL ? $0 : nil } ?? URL(fileURLWithPath: asset)
+         guard let src = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
+         let opts: [CFString: Any] = [

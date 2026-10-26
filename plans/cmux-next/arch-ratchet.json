@@ -633,6 +633,12 @@
       "row": "observer_sites",
       "allow": 2,
       "why": "p06-scheduler-022, merged into p06-scheduler-042: AppVisibilitySource subscribes once per app to the hide, unhide and display sleep and wake notices through AppEvents, and WindowVisibilitySource once per window to the occlusion and miniaturize notices through WindowEvents (recipe R-notif). Those five sites replace per-view observers that this branch removes (StatusIndicatorView's occlusion observer, SidebarListView's, the tab strip's WindowVisibilityObserver), so every indicator, row and strip follows one visibility node per window. Chromium observes the NSApp hide notices once (chrome/browser/app_controller_mac.mm) and each window's occlusion once (web_contents_view_cocoa.mm)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "global_mutable_statics",
+      "allow": 8,
+      "why": "p10-stability-040: the vendored MessagesLab catalyst files (Fixture, Layout, CustomRows, Header, LongText) keep process-wide render state that the row threads read: the appearance, scale, palette generation and theme, Metrics.current, the custom-row registry, the header title, LongText's counters, publish batch and handler. Each of the 8 locks replaces unsynchronized static vars, or an NSLock plus vars, in the same type (MessagesLabHome global_mutable_statics -24 in this push). The program spec (chrome-parity/p10-stability.md task 040) asks for these shared caches behind a mutex; moving them into injected instances is a rewrite of the vendored transcript, not this queue. Chrome keeps process-wide render caches behind one lock each (base/synchronization/lock.h). They go when the vendored code's state becomes per view (MessagesWindowView already owns its scale and inactive state)."
     }
   ],
   "observer_wrappers": [

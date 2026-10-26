@@ -1,0 +1,202 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/LinkGuard.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/LinkGuard.swift
+@@ -1,5 +1,6 @@
+ import Foundation
+ import Darwin
++import os // cmux: OSAllocatedUnfairLock
+ 
+ /// What a link preview may fetch. Previews start from URLs in INCOMING messages
+ /// (agents, other people) and then from the page's og:image URL, so without a
+@@ -193,23 +194,39 @@
+ 
+ /// GETs through LinkGuard: an ephemeral session, redirects re-checked, the
+ /// connected address re-checked, a size cap. One instance, a background queue.
+-final class GuardedFetcher: NSObject, URLSessionDataDelegate {
++/// cmux: Sendable (URLSession's delegate protocols are): the jobs, the timeout and the session
++/// live behind one checked lock instead of an NSLock and plain vars (p10-stability-040).
++final class GuardedFetcher: NSObject, URLSessionDataDelegate, Sendable {
+     static let shared = GuardedFetcher()
+-    struct Result { var data: Data; var url: URL }
+-    private final class Job {
++    struct Result: Sendable { var data: Data; var url: URL }
++    /// Runs on the fetcher's queue, once per `get`.
++    typealias Done = @Sendable (Swift.Result<Result, LinkGuard.Refusal>) -> Void
++    private struct Job: Sendable {
+         var data = Data(); var limit: Int; var stopAtHeadEnd: Bool; var redirects = 0
+         var refusal: LinkGuard.Refusal?; var finishedEarly = false
+-        var done: (Swift.Result<Result, LinkGuard.Refusal>) -> Void
++        var done: Done
+         var url: URL
+-        init(limit: Int, stopAtHeadEnd: Bool, url: URL, done: @escaping (Swift.Result<Result, LinkGuard.Refusal>) -> Void) {
++        init(limit: Int, stopAtHeadEnd: Bool, url: URL, done: @escaping Done) {
+             self.limit = limit; self.stopAtHeadEnd = stopAtHeadEnd; self.url = url; self.done = done
+         }
+     }
+-    private var jobs: [Int: Job] = [:]
+-    private let lock = NSLock()
+-    var timeout: TimeInterval = 8
++    private struct State: Sendable {
++        var jobs: [Int: Job] = [:]
++        var timeout: TimeInterval = 8
++        var session: URLSession?
++    }
++    // Lock carve-out: the delegate callbacks (the fetcher's queue) and `get` (any thread) touch it
++    // synchronously; nothing slow runs under it (no resolution, no session call).
++    private let state = OSAllocatedUnfairLock(initialState: State())
++    var timeout: TimeInterval {
++        get { state.withLock { $0.timeout } }
++        set { state.withLock { $0.timeout = newValue } }
++    }
+     let queue: OperationQueue = { let q = OperationQueue(); q.maxConcurrentOperationCount = 1; q.qualityOfService = .utility; return q }()
+-    private lazy var session: URLSession = {
++    /// Made on first use (the timeout set before the first fetch configures it).
++    private var session: URLSession {
++        let (existing, timeout) = state.withLock { ($0.session, $0.timeout) }
++        if let existing { return existing }
+         let c = URLSessionConfiguration.ephemeral
+         c.httpCookieStorage = nil
+         c.httpShouldSetCookies = false
+@@ -220,12 +237,19 @@
+         c.timeoutIntervalForRequest = timeout
+         c.timeoutIntervalForResource = timeout
+         c.httpMaximumConnectionsPerHost = 2
+-        return URLSession(configuration: c, delegate: self, delegateQueue: queue)
+-    }()
++        let made = URLSession(configuration: c, delegate: self, delegateQueue: queue)
++        let kept = state.withLock { s -> URLSession in
++            if let first = s.session { return first }
++            s.session = made
++            return made
++        }
++        if kept !== made { made.invalidateAndCancel() }
++        return kept
++    }
+ 
+     /// Checks the URL (resolution included), then GETs it. `done` runs on the
+     /// fetcher's background queue.
+-    func get(_ url: URL, limit: Int, html: Bool, done: @escaping (Swift.Result<Result, LinkGuard.Refusal>) -> Void) {
++    func get(_ url: URL, limit: Int, html: Bool, done: @escaping Done) {
+         queue.addOperation { [self] in
+             if let r = LinkGuard.check(url) { done(.failure(r)); return }
+             var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
+@@ -234,27 +258,48 @@
+                          forHTTPHeaderField: "User-Agent")
+             req.setValue(html ? "text/html,application/xhtml+xml" : "image/*", forHTTPHeaderField: "Accept")
+             let task = session.dataTask(with: req)
+-            lock.lock(); jobs[task.taskIdentifier] = Job(limit: limit, stopAtHeadEnd: html, url: url, done: done); lock.unlock()
++            let id = task.taskIdentifier, job = Job(limit: limit, stopAtHeadEnd: html, url: url, done: done)
++            state.withLock { $0.jobs[id] = job }
+             task.resume()
+         }
+     }
+ 
+-    private func job(_ t: URLSessionTask) -> Job? { lock.lock(); defer { lock.unlock() }; return jobs[t.taskIdentifier] }
++    private func job(_ t: URLSessionTask) -> Job? {
++        let id = t.taskIdentifier
++        return state.withLock { $0.jobs[id] }
++    }
++
++    /// Changes the task's job in place (nil: no such job). The job is moved out and back, so its
++    /// data buffer is not copied.
++    @discardableResult
++    private func update<R: Sendable>(_ t: URLSessionTask, _ body: @Sendable (inout Job) -> R) -> R? {
++        let id = t.taskIdentifier
++        return state.withLock { s in
++            guard var j = s.jobs.removeValue(forKey: id) else { return nil }
++            defer { s.jobs[id] = j }
++            return body(&j)
++        }
++    }
+ 
+     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+-                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
++                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+         guard let j = job(task), let next = request.url else { completionHandler(nil); return }
+-        j.redirects += 1
+-        if j.redirects > LinkGuard.maxRedirects { j.refusal = .redirectLimit; completionHandler(nil); task.cancel(); return }
+-        if j.url.scheme?.lowercased() == "https" && next.scheme?.lowercased() == "http" { j.refusal = .downgrade; completionHandler(nil); task.cancel(); return }
+-        if let r = LinkGuard.check(next) { j.refusal = r; completionHandler(nil); task.cancel(); return }
+-        j.url = next
++        // cmux: decided outside the lock (LinkGuard.check resolves the name); the delegate queue is serial.
++        let refusal: LinkGuard.Refusal?
++        if j.redirects + 1 > LinkGuard.maxRedirects { refusal = .redirectLimit }
++        else if j.url.scheme?.lowercased() == "https" && next.scheme?.lowercased() == "http" { refusal = .downgrade }
++        else { refusal = LinkGuard.check(next) }
++        update(task) { job in
++            job.redirects += 1
++            if let refusal { job.refusal = refusal } else { job.url = next }
++        }
++        if refusal != nil { completionHandler(nil); task.cancel(); return }
+         var r = request; r.httpShouldHandleCookies = false
+         completionHandler(r)
+     }
+ 
+     func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge,
+-                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
++                    completionHandler: @escaping @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+         if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust {
+             completionHandler(.performDefaultHandling, nil)
+         } else {
+@@ -263,36 +308,41 @@
+     }
+ 
+     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+-                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+-        if let j = job(dataTask), response.expectedContentLength > Int64(truncatingIfNeeded: j.limit) /* Int is 64-bit */, !j.stopAtHeadEnd {
+-            j.refusal = .tooLarge; completionHandler(.cancel); return
+-        }
+-        completionHandler(.allow)
++                    completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void) {
++        let expected = response.expectedContentLength
++        let tooLarge = update(dataTask) { j -> Bool in
++            guard expected > Int64(truncatingIfNeeded: j.limit) /* Int is 64-bit */, !j.stopAtHeadEnd else { return false }
++            j.refusal = .tooLarge
++            return true
++        } ?? false
++        completionHandler(tooLarge ? .cancel : .allow)
+     }
+ 
+     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+-        guard let j = job(dataTask) else { return }
+-        j.data.append(data)
+-        if j.data.count > j.limit {
+-            if j.stopAtHeadEnd { j.data = j.data.prefix(j.limit); j.finishedEarly = true } else { j.refusal = .tooLarge }
+-            dataTask.cancel(); return
+-        }
+-        if j.stopAtHeadEnd, let tail = String(data: j.data.suffix(data.count + 8), encoding: .isoLatin1), tail.range(of: "</head>", options: .caseInsensitive) != nil {
+-            j.finishedEarly = true
+-            dataTask.cancel()
+-        }
++        let cancel = update(dataTask) { j -> Bool in
++            j.data.append(data)
++            if j.data.count > j.limit {
++                if j.stopAtHeadEnd { j.data = j.data.prefix(j.limit); j.finishedEarly = true } else { j.refusal = .tooLarge }
++                return true
++            }
++            if j.stopAtHeadEnd, let tail = String(data: j.data.suffix(data.count + 8), encoding: .isoLatin1), tail.range(of: "</head>", options: .caseInsensitive) != nil {
++                j.finishedEarly = true
++                return true
++            }
++            return false
++        } ?? false
++        if cancel { dataTask.cancel() }
+     }
+ 
+     func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+-        guard let j = job(task) else { return }
+-        for t in metrics.transactionMetrics {
+-            if let a = t.remoteAddress, !LinkGuard.isPublicAddress(a), !LinkGuard.isTestAddress(a) { j.refusal = j.refusal ?? .connectedTo(a) }
+-        }
++        let bad = metrics.transactionMetrics.compactMap(\.remoteAddress).first { !LinkGuard.isPublicAddress($0) && !LinkGuard.isTestAddress($0) }
++        guard let bad else { return }
++        update(task) { j in j.refusal = j.refusal ?? .connectedTo(bad) }
+     }
+ 
+     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+-        lock.lock(); let j = jobs.removeValue(forKey: task.taskIdentifier); lock.unlock()
+-        guard let j else { return }
++        let id = task.taskIdentifier
++        guard let j = state.withLock({ $0.jobs.removeValue(forKey: id) }) else { return }
+         if let r = j.refusal { j.done(.failure(r)); return }
+         if let error, !j.finishedEarly { j.done(.failure(.network(String(describing: (error as NSError).code)))); return }
+         if let http = task.response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) { j.done(.failure(.network("HTTP \(http.statusCode)"))); return }

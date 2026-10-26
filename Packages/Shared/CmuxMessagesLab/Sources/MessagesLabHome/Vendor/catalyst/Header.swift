@@ -4,13 +4,20 @@ import UIKit
 import AppKit
 #endif
 import CoreImage
+import os // cmux: OSAllocatedUnfairLock
 
 /// Header: blurred, darkened copy of the transcript under it, the contact
 /// avatar and name pill, and the video-call button.
 final class HeaderView: UIView {
     weak var source: UIView?
     var title = "Instinct" { didSet { HeaderView.currentTitle = title; overlay.setNeedsDisplay() } }
-    fileprivate static var currentTitle = "Instinct"
+    // cmux: behind a lock (it was an unsynchronized global; p10-stability-040). Lock carve-out:
+    // one String, set by `title` and read by the overlay's drawing.
+    fileprivate static var currentTitle: String {
+        get { titleStore.withLock { $0 } }
+        set { titleStore.withLock { $0 = newValue } }
+    }
+    private static let titleStore = OSAllocatedUnfairLock(initialState: "Instinct")
     private let backdrop = UIImageView()
     private let overlay: CanvasView
     // Display P3: the same transfer curve as sRGB (the fitted blur is unchanged for

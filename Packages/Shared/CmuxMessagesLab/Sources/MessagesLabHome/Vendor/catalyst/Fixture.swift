@@ -3,6 +3,7 @@ import UIKit
 #else
 import AppKit
 #endif
+import os // cmux: OSAllocatedUnfairLock
 
 /// Measured style metrics. Geometry is in points of a 628x1041 pt window.
 enum Fixture {
@@ -18,11 +19,37 @@ enum Fixture {
     /// `MessagesWindowView.setRenderScale` (the last display change). A change does not bump `paletteGeneration`:
     /// every scale-dependent cache is keyed by its scale (row bitmaps, tiles, badges, masks, decoded assets), and a
     /// cell redraws when its own scale changes, so one window's scale change does not redraw another window's rows.
-    static var fallbackRenderScale: CGFloat = 2
+    static var fallbackRenderScale: CGFloat {
+        get { shared.withLock { $0.fallbackRenderScale } }
+        set { shared.withLock { $0.fallbackRenderScale = newValue } }
+    }
+
+    /// cmux: the process-wide values the row renderers read off main, behind one lock
+    /// (p10-stability-040: they were unsynchronized mutable globals). Lock carve-out: renderers
+    /// read them synchronously on their own threads; each access is one load or store.
+    private struct Shared: Sendable {
+        var fallbackRenderScale: CGFloat = 2
+        var lightAppearance = false
+        var paletteGeneration = 0
+        var elevated = false
+    }
+    private static let shared = OSAllocatedUnfairLock(initialState: Shared())
+
+    /// cmux: the theme and the measured gradients. CGGradient (and so FixtureTheme) is not
+    /// Sendable, so this is the lock's unchecked form. Safe: a CGGradient is immutable once made,
+    /// and the lock orders every theme change before the reads after it.
+    private struct Graphics {
+        var theme: FixtureTheme?
+        let darkGradient: CGGradient?
+        let lightGradient: CGGradient?
+    }
+    private static let graphics = OSAllocatedUnfairLock(uncheckedState: Graphics(
+        theme: nil, darkGradient: gradient { p3($0, $1, 247) }, lightGradient: gradient(lightGradientColor)))
 
     // MARK: Style
 
-    static let bodyFont = UIFont.systemFont(ofSize: 13)
+    /// cmux: held by HomeFonts (a `static let` of NSFont is a non-Sendable global).
+    static var bodyFont: UIFont { HomeFonts.body }
     static let lineHeight: CGFloat = 16
     /// Messages draws body text ~0.27% tighter than Core Text's default
     /// advances (measured drift along long lines); bubble widths use the
@@ -56,12 +83,19 @@ enum Fixture {
     /// Light system appearance (the host sets it from its effective appearance).
     /// Link cards follow it: Messages' light card is the light incoming grey
     /// (#E9E9EB) with dark text. A change bumps `paletteGeneration`.
-    static var lightAppearance = false { didSet { if lightAppearance != oldValue { paletteGeneration += 1 } } }
+    static var lightAppearance: Bool { // cmux: in `shared`
+        get { shared.withLock { $0.lightAppearance } }
+        set {
+            shared.withLock { s in
+                if s.lightAppearance != newValue { s.lightAppearance = newValue; s.paletteGeneration += 1 }
+            }
+        }
+    }
     /// Bumped by an appearance or a colour space change: cached bitmaps are stale (not by a window's key state).
-    static fileprivate(set) var paletteGeneration = 0
+    static var paletteGeneration: Int { shared.withLock { $0.paletteGeneration } } // cmux: in `shared`
     /// The bitmaps' colour space changed (a window moved to a display of another colour space): every cache keyed
     /// on the palette generation draws again (MessagesWindowView.displayColorSpaceChanged).
-    static func colorSpaceChanged() { paletteGeneration += 1 }
+    static func colorSpaceChanged() { shared.withLock { $0.paletteGeneration += 1 } }
 
     /// Palette, measured with `screencapture -l` on macOS 27 Messages
     /// (cmux-lawrence-2, 2026-10-05): key and non-key windows are identical
@@ -78,7 +112,17 @@ enum Fixture {
     /// user's accent), set by the Home host; a change bumps
     /// `paletteGeneration`. nil keeps the measured Messages palette below
     /// (fixtures, the differential harness), light or dark (`lightAppearance`).
-    static var theme: FixtureTheme? { didSet { if theme != oldValue { paletteGeneration += 1 } } }
+    static var theme: FixtureTheme? { // cmux: in `graphics`
+        get { graphics.withLockUnchecked { $0.theme } }
+        set {
+            let changed = graphics.withLockUnchecked { g -> Bool in
+                guard g.theme != newValue else { return false }
+                g.theme = newValue
+                return true
+            }
+            if changed { shared.withLock { $0.paletteGeneration += 1 } }
+        }
+    }
     private static func themed(_ pick: (FixtureTheme.Colors) -> UIColor) -> UIColor? {
         theme.map { pick($0.active) }
     }
@@ -124,7 +168,10 @@ enum Fixture {
     }
     /// Rows of an open thread or reply view are drawn lighter (macOS 27, measured 76, 76, 78;
     /// lossless thread-open-esc reference). Set only around those rows' drawing (main thread).
-    static var elevated = false
+    static var elevated: Bool { // cmux: in `shared`
+        get { shared.withLock { $0.elevated } }
+        set { shared.withLock { $0.elevated = newValue } }
+    }
     // cmux: a theme without an accent keeps the measured blue and its gradient.
     private static var themedAccent: Bool { theme.map { !$0.measuredAccent } ?? false }
     static var outgoing: UIColor { (themedAccent ? themed(\.outgoing) : nil) ?? UIColor(red: 2 / 255, green: 132 / 255, blue: 254 / 255, alpha: 1) }
@@ -173,9 +220,11 @@ enum Fixture {
                    locations: gradientStops.map { $0.0 / 2082 })
     }
     // optional, no force unwrap ; a nil gradient draws nothing.
-    private static let darkGradient = gradient { p3($0, $1, 247) }
-    private static let lightGradient = gradient(lightGradientColor)
-    private static var measuredGradient: CGGradient? { (lightAppearance ? lightGradient : nil) ?? darkGradient }
+    // cmux: both made once, in `graphics`.
+    private static var measuredGradient: CGGradient? {
+        let light = lightAppearance
+        return graphics.withLockUnchecked { (light ? $0.lightGradient : nil) ?? $0.darkGradient }
+    }
     /// cmux: the themed outgoing gradient as (2x px window y, colour) stops;
     /// nil keeps the measured stops (`gradientStops`, `gradientBlue`).
     static var themedGradient: [(CGFloat, UIColor)]? { themedAccent ? theme.map { $0.active.gradientStops } : nil }

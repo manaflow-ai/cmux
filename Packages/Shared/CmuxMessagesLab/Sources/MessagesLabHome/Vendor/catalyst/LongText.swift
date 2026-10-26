@@ -3,6 +3,7 @@ import UIKit
 #else
 import AppKit
 #endif
+import os // cmux: OSAllocatedUnfairLock
 
 /// Long messages (agent output: logs, code, 100k-line pastes). shared/LONG-MESSAGES.md.
 /// A long text part is cut into blocks of about 4 KB (index, width independent);
@@ -12,13 +13,15 @@ enum LongText {
     static let minBytes = 8192
     static let minLines = 120
     static let blockBytes = 4096
-    static var enabled = !ProcessInfo.processInfo.arguments.contains("--no-long-text")
+    // cmux: constants for the process (nothing sets them after launch, and the row threads read
+    // them: unsynchronized globals; p10-stability-040).
+    static let enabled = !ProcessInfo.processInfo.arguments.contains("--no-long-text")
     /// Long markdown in tiles (MarkdownLong.swift). Off until its e2e and benches pass;
     /// `--long-markdown` turns it on for one run.
-    static var markdownTiles = ProcessInfo.processInfo.arguments.contains("--long-markdown")
+    static let markdownTiles = ProcessInfo.processInfo.arguments.contains("--long-markdown")
     /// Streaming tail measured and its end tiles drawn off main, published together (no empty
     /// tile). Off until its benches pass; `--long-tail-off-main` turns it on for one run.
-    static var offMainTail = ProcessInfo.processInfo.arguments.contains("--long-tail-off-main")
+    static let offMainTail = ProcessInfo.processInfo.arguments.contains("--long-tail-off-main")
 
     /// O(1) above 8 KB; scans at most 8 KB below.
     static func isLong(_ t: String) -> Bool {
@@ -491,7 +494,7 @@ final class LongTextLayout: @unchecked Sendable {
         }
         let out = l ?? BlockLayout(string: index.blockString(b), column: column, final: index.isFinal(b), reuse: reuse)
         BlockLayoutCache.shared.put(k, out)
-        LongTextStats.blocksMeasured += 1
+        LongTextStats.count(.blocksMeasured)
         report(b, out.lineCount)
         return out
     }
@@ -563,7 +566,7 @@ final class LongTextLayout: @unchecked Sendable {
         }
         let out = l ?? BlockLayout(string: index.blockString(b), column: column, final: index.isFinal(b))
         BlockLayoutCache.shared.put(key(b), out)
-        LongTextStats.blocksMeasured += 1
+        LongTextStats.count(.blocksMeasured)
         return out
     }
 
@@ -750,54 +753,88 @@ final class LongTextLayout: @unchecked Sendable {
     }
 }
 
+/// cmux: the counters behind one checked lock (the measure threads bumped plain globals;
+/// p10-stability-040). Lock carve-out: a counter bump or read, from any thread.
 enum LongTextStats {
-    static var blocksMeasured = 0
-    static var publishes = 0
-    static var indexBuilds = 0
-    static var streamExtends = 0
+    enum Counter: Sendable { case blocksMeasured, publishes, indexBuilds, streamExtends }
+    private struct State: Sendable {
+        var blocksMeasured = 0, publishes = 0, indexBuilds = 0, streamExtends = 0
+        var lastFoldMs: [String: Double] = [:]
+    }
+    private static let state = OSAllocatedUnfairLock(initialState: State())
+    /// One more of `counter`.
+    static func count(_ counter: Counter) {
+        state.withLock { s in
+            switch counter {
+            case .blocksMeasured: s.blocksMeasured += 1
+            case .publishes: s.publishes += 1
+            case .indexBuilds: s.indexBuilds += 1
+            case .streamExtends: s.streamExtends += 1
+            }
+        }
+    }
+    static var blocksMeasured: Int { state.withLock { $0.blocksMeasured } }
+    static var publishes: Int { state.withLock { $0.publishes } }
+    static var indexBuilds: Int { state.withLock { $0.indexBuilds } }
+    static var streamExtends: Int { state.withLock { $0.streamExtends } }
     /// Phases of the last fold change (ms), for the bench.
-    static var lastFoldMs: [String: Double] = [:]
+    static var lastFoldMs: [String: Double] {
+        get { state.withLock { $0.lastFoldMs } }
+        set { state.withLock { $0.lastFoldMs = newValue } }
+    }
 }
 
 /// Main-thread delivery of measured line counts, in batches. `handler(lineages, apply)`
 /// must call `apply` once (the window view keeps its anchor around it).
 enum LongTextCenter {
-    static var handler: ((Set<Int>, () -> Void) -> Void)?
-    private static let lock = NSLock()
-    private static var dirty: [ObjectIdentifier: LongTextLayout] = [:]
-    private static var replaced: [() -> Void] = []
-    private static var replacedLineages = Set<Int>()
-    private static var scheduled = false
+    /// cmux: set and called on the main thread only (the window view's; `publish` runs on main).
+    /// Its closure is not Sendable (it holds the window view), so it sits in the lock's unchecked
+    /// form: the lock orders a set before the main-thread publish that reads it.
+    static var handler: ((Set<Int>, () -> Void) -> Void)? {
+        get { handlerStore.withLockUnchecked { $0 } }
+        set { handlerStore.withLockUnchecked { $0 = newValue } }
+    }
+    private static let handlerStore = OSAllocatedUnfairLock<((Set<Int>, () -> Void) -> Void)?>(uncheckedState: nil)
+    /// cmux: the batch behind a checked lock (it was globals under an NSLock). Lock carve-out:
+    /// the measure threads add to it, main takes it; neither does work under the lock.
+    private struct Batch: Sendable {
+        var dirty: [ObjectIdentifier: LongTextLayout] = [:]
+        var replaced: [@Sendable () -> Void] = []
+        var replacedLineages = Set<Int>()
+        var scheduled = false
+    }
+    private static let batch = OSAllocatedUnfairLock(initialState: Batch())
 
     static func schedule(_ l: LongTextLayout) {
-        lock.lock()
-        dirty.updateValue(l, forKey: ObjectIdentifier(l)) // dictionary write
-        let go = !scheduled
-        scheduled = true
-        lock.unlock()
+        let go = batch.withLock { b -> Bool in
+            b.dirty.updateValue(l, forKey: ObjectIdentifier(l)) // dictionary write
+            defer { b.scheduled = true }
+            return !b.scheduled
+        }
         if go { DispatchQueue.main.async { publish() } }
     }
-    static func scheduleReplace(lineage: Int, _ apply: @escaping () -> Void) {
-        lock.lock()
-        replaced.append(apply)
-        replacedLineages.insert(lineage)
-        let go = !scheduled
-        scheduled = true
-        lock.unlock()
+    /// `apply` runs on the main thread, in the next publish.
+    static func scheduleReplace(lineage: Int, _ apply: @escaping @Sendable () -> Void) {
+        let go = batch.withLock { b -> Bool in
+            b.replaced.append(apply)
+            b.replacedLineages.insert(lineage)
+            defer { b.scheduled = true }
+            return !b.scheduled
+        }
         if go { DispatchQueue.main.async { publish() } }
     }
 
     static func publish() {
-        lock.lock()
-        let ls = Array(dirty.values).filter { !$0.retired }
-        let rs = replaced
-        var lineages = replacedLineages
-        dirty.removeAll(); replaced.removeAll(); replacedLineages.removeAll()
-        scheduled = false
-        lock.unlock()
+        let taken = batch.withLock { b -> Batch in
+            defer { b = Batch() }
+            return b
+        }
+        let ls = Array(taken.dirty.values).filter { !$0.retired }
+        let rs = taken.replaced
+        var lineages = taken.replacedLineages
         lineages.formUnion(ls.map(\.index.lineage))
         guard !lineages.isEmpty else { return }
-        LongTextStats.publishes += 1
+        LongTextStats.count(.publishes)
         let apply = {
             rs.forEach { $0() }
             ls.forEach { $0.applyPending() }
@@ -931,7 +968,7 @@ final class LongTextStore: @unchecked Sendable {
                 }
                 if let keep = keepAt {
                     let i = LongTextIndex.build(t, lineage: prev.lineage, prefix: prev, keep: keep)
-                    LongTextStats.streamExtends += 1
+                    LongTextStats.count(.streamExtends)
                     let old = layoutsOf(prev)
                     register(i, addr: addr, print: pr, head: hd, replacing: prev)
                     // Layouts carry the measured blocks. The tail keeps its previous line count (and
@@ -953,7 +990,7 @@ final class LongTextStore: @unchecked Sendable {
             }
             lineageSerial += 1
             let lineage = lineageSerial
-            LongTextStats.indexBuilds += 1
+            LongTextStats.count(.indexBuilds)
             if p.count <= LongTextStore.syncBytes {
                 let i = LongTextIndex.build(t, lineage: lineage)
                 register(i, addr: addr, print: pr, head: hd, replacing: nil)
@@ -962,8 +999,9 @@ final class LongTextStore: @unchecked Sendable {
             // Large: a placeholder (estimated height, no tiles) until the scan finishes off main.
             let ph = LongTextIndex.placeholder(t, lineage: lineage)
             register(ph, addr: addr, print: pr, head: hd, replacing: nil)
+            let scanned = t // cmux: the scan takes a constant (a captured var is shared with this thread)
             DispatchQueue.global(qos: .userInitiated).async {
-                let i = LongTextIndex.build(t, lineage: lineage)
+                let i = LongTextIndex.build(scanned, lineage: lineage)
                 LongTextCenter.scheduleReplace(lineage: lineage) {
                     self.register(i, addr: addr, print: pr, head: hd, replacing: ph)
                 }
@@ -1027,15 +1065,16 @@ enum LongTextFold {
         if disabledByArgument { return false }
         return UserDefaults.standard.object(forKey: defaultsKey) as? Bool ?? true
     }
-    private static let lock = NSLock()
-    private static var expanded = Set<ID>()
+    // cmux: a checked lock around the set (it was a global under an NSLock; p10-stability-040).
+    // Lock carve-out: rows measure on the loader queue and main; one set read or write.
+    private static let expanded = OSAllocatedUnfairLock(initialState: Set<ID>())
     /// Session only: expanded messages are not stored (they fold again at launch).
-    static func expand(_ id: ID) { lock.lock(); expanded.insert(id); lock.unlock() }
-    static func collapse(_ id: ID) { lock.lock(); expanded.remove(id); lock.unlock() }
+    static func expand(_ id: ID) { expanded.withLock { _ = $0.insert(id) } }
+    static func collapse(_ id: ID) { expanded.withLock { _ = $0.remove(id) } }
     /// A text still scanned off main (above 512 KB, thousands of lines) folds from its first
     /// frame, so the end of the scan changes no height.
     static func isFoldable(_ l: LongTextLayout) -> Bool { enabled && (l.index.ready ? l.estimatedLines > maxLines : l.totalLines > maxLines) }
-    static func isExpanded(_ id: ID) -> Bool { lock.lock(); defer { lock.unlock() }; return expanded.contains(id) }
+    static func isExpanded(_ id: ID) -> Bool { expanded.withLock { $0.contains(id) } }
     static func isFolded(_ id: ID, _ l: LongTextLayout) -> Bool { isFoldable(l) && !isExpanded(id) }
     static func size(_ l: LongTextLayout, scale: CGFloat = Fixture.renderScale) -> CGSize {
         CGSize(width: Sizing.textBalloonWidth(l.column, column: l.column, scale: scale),
