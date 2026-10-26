@@ -165,8 +165,9 @@ public actor TerminalAttachment: TerminalByteChannel {
                 if case .closed = event {
                     queue.finish(event)
                 } else {
-                    if case .output = event { TypingLatencyProbe.shared.mark(.outputDecoded, flow: decoded.flow) }
+                    if case .output = event { TypingLatencyProbe.shared.outputDecoded(flow: decoded.flow) }
                     queue.push(event)
+                    if let flow = decoded.flow { queue.pushWithoutWaiting(.inputEcho(flow: flow)) } // rides behind its chunk
                 }
             },
             onClose: { reason in
@@ -272,7 +273,7 @@ public actor TerminalAttachment: TerminalByteChannel {
             }) { id in
                 try WireCoding.encodeRequest(SendInputRequest(surface: surface, bytes: data, flow: flow), id: id)
             }
-            TypingLatencyProbe.shared.mark(.socketSubmit)
+            if let flow { TypingLatencyProbe.shared.mark(.socketSubmit, flow: flow) }
         } catch {
             logger.debug("input dropped after close: \(String(describing: error), privacy: .public)")
         }

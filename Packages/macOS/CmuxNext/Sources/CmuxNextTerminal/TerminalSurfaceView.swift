@@ -28,9 +28,6 @@ public final class TerminalSurfaceView: NSView {
     private(set) var lane: TerminalOutputLane?
     /// Watches each output chunk's parse on ``lane`` (``TerminalOutputLane``); nil watches nothing.
     private let hangWatch: (any HangWatchScoping)?
-    /// The key presses open on this surface (``TypingLatencyProbe``): the key router opens one here, and
-    /// the lane's received and parsed hops and the frame's contents mark by it. Kept across surface swaps.
-    let keyFlows = TypingLatencyProbe.SurfaceFlows()
     weak var session: TerminalSession?
 
     /// Which grid the surface renders and reports (``TerminalGridPolicy``):
@@ -187,10 +184,10 @@ public final class TerminalSurfaceView: NSView {
         GhosttyRuntime.shared.registerColorScheme(of: self)
         let echoStage = echoStages.makeStage()
         lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output", echoStage: echoStage,
-                                  keyFlows: keyFlows, hangs: hangWatch)
+                                  keyFlows: bridge.takeUnretainedValue().typingSurface, hangs: hangWatch)
         if let layer {
             echoStage?.attach(to: layer)
-            TypingFrameProbe.install(on: layer, gate: echoStages.contentsGate, keyFlows: keyFlows)
+            TypingFrameProbe.install(on: layer, gate: echoStages.contentsGate, keyFlows: bridge.takeUnretainedValue().typingSurface)
         }
         registerForDraggedTypes([.fileURL, .URL, .string])
         updateContentScale()

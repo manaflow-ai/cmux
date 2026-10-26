@@ -9,7 +9,7 @@ import QuartzCore
 /// It goes on every terminal layer class: while some surface's key echo was parsed and its frame is
 /// awaited (``TerminalContentsGate``), the frame marks that surface's ``TerminalEchoStage``, and while
 /// the ``TypingLatencyProbe`` records, the frame is the ``TypingLatencyProbe/Mark/contents`` mark of the
-/// presses open on the layer's surface (``TypingLatencyProbe/SurfaceFlows``). Otherwise each frame pays
+/// presses open on the layer's surface (``TypingLatencyProbe/SurfaceKey``). Otherwise each frame pays
 /// the override's call, the superclass IMP lookup and two relaxed loads. Release builds have no swizzle:
 /// there the contents mark comes from the Ghostty trace hook's IOSurface handoff
 /// (p09-observability-049). DEBUG builds also make a `debug.new_terminal_trace` run's `first_contents`
@@ -35,10 +35,16 @@ enum TypingFrameProbe {
     /// Each hooked layer class and the gate its hook reads.
     @MainActor private static var installed: [ObjectIdentifier: TerminalContentsGate] = [:]
 
-    /// The associated-object key of a layer's ``TypingLatencyProbe/SurfaceFlows``: the class object, one
-    /// stable address readable from any thread.
+    /// A layer's surface to the typing probe, as an associated object.
+    private nonisolated final class SurfaceBox: Sendable {
+        let key: TypingLatencyProbe.SurfaceKey
+        init(_ key: TypingLatencyProbe.SurfaceKey) { self.key = key }
+    }
+
+    /// The associated-object key of a layer's ``SurfaceBox``: the class object, one stable address
+    /// readable from any thread.
     private nonisolated static var keyFlowsKey: UnsafeRawPointer {
-        UnsafeRawPointer(Unmanaged.passUnretained(TypingLatencyProbe.SurfaceFlows.self as AnyObject).toOpaque())
+        UnsafeRawPointer(Unmanaged.passUnretained(SurfaceBox.self as AnyObject).toOpaque())
     }
     #endif
 
@@ -46,9 +52,9 @@ enum TypingFrameProbe {
     /// reads `gate`, so every install on a class must pass the process's gate
     /// (``GhosttyRuntime/echoStages``). Nothing in Release builds.
     @MainActor static func install(on layer: CALayer, gate: TerminalContentsGate,
-                                   keyFlows: TypingLatencyProbe.SurfaceFlows? = nil) {
+                                   keyFlows: TypingLatencyProbe.SurfaceKey? = nil) {
         #if DEBUG || CMUX_BENCH_HOOKS
-        if let keyFlows { objc_setAssociatedObject(layer, keyFlowsKey, keyFlows, .OBJC_ASSOCIATION_RETAIN) }
+        if let keyFlows { objc_setAssociatedObject(layer, keyFlowsKey, SurfaceBox(keyFlows), .OBJC_ASSOCIATION_RETAIN) }
         let layerClass: AnyClass = type(of: layer)
         guard layerClass != CALayer.self else { return }
         if let hooked = installed[ObjectIdentifier(layerClass)] {
@@ -75,8 +81,8 @@ enum TypingFrameProbe {
             }
             if gate.isOpen { TerminalEchoStage.attached(to: layer)?.contentsSet() }
             if TypingLatencyProbe.isEnabled,
-               let keyFlows = objc_getAssociatedObject(layer, keyFlowsKey) as? TypingLatencyProbe.SurfaceFlows {
-                TypingLatencyProbe.shared.mark(.contents, surface: keyFlows)
+               let box = objc_getAssociatedObject(layer, keyFlowsKey) as? SurfaceBox {
+                TypingLatencyProbe.shared.mark(.contents, surface: box.key)
             }
             if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.contents(layer: ObjectIdentifier(layer)) }
         }
