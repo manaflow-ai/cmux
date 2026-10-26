@@ -43,6 +43,8 @@ Per mode:
            paste through cmux's Edit menu, and Chromium's native UI from the host (context menu, <select>, alert,
            file picker; each in a fresh host) with the frontmost pid and the host's activation counters; IME, find
            and drag are listed as not forwarded.
+  ime      helper, with --ime: the host's TEXT_INPUT_STATE pushes per keystroke into the focused field against the
+           fork's text input changes (ime_row; pass: <= 1 push per key).
   identity helper: the host is a second executable of cmux.app (cmux's bundle id): its LaunchServices type
            (UIElement: no Dock icon, menu bar or Cmd-Tab entry), the frontmost app after the input rows and after
            `open -b <bundle id>` and during 10 clicks with a key each (never the host; the host's own activation and
@@ -69,6 +71,10 @@ Per mode:
            with --stress: idle wakes in the same three scenarios, and key and click to paint and the stall in
            both modes, in the STRESS session too (the probe opened in its measured pane).
 
+--native-ui runs instead the hosted widget rows (chromium_host_native_ui.py, p01-process-066): date, datalist,
+popup window, DevTools docked and in a window, an extension popup and a side panel, each shown by cmux from the
+host's layer context (`debug.cef` `host_widgets`), with feature chromiumHostWidgets on and two test extensions.
+
 A Debug or bench build (reload.sh --config bench: debug.chromium_host, its measure call and the tunables file
 answer there for a development bundle, p12-perf-process-221), never Release: the numbers compare the two paths,
 they are not shipping latencies. `build` in the report is the bundle's config.
@@ -91,6 +97,7 @@ sys.path.insert(0, HERE)
 from bench_launch import BenchApp, LaunchError, RecordError, build_config, build_sha, tag_of  # noqa: E402
 import browser_engine_bench_report as results  # noqa: E402
 import chromium_host_baseline  # noqa: E402
+import chromium_host_native_ui  # noqa: E402
 
 
 def parse(argv=None):
@@ -104,6 +111,8 @@ def parse(argv=None):
     parser.add_argument("--stress", action="store_true", help="also measure the pump share in the STRESS session")
     parser.add_argument("--pump-seconds", type=float, default=10.0)
     parser.add_argument("--host-switches", default="", help="more Chromium switches for the host, comma-separated (diagnosis)")
+    parser.add_argument("--ime", action="store_true", help="helper: TEXT_INPUT_STATE pushes per keystroke (ime_row)")
+    parser.add_argument("--native-ui", action="store_true", help="only the hosted widget rows (chromium_host_native_ui.py)")
     parser.add_argument("--baseline", action="store_true", help="task p01-process-005: stall 9a, 10-tab idle wakes, census, rows")
     parser.add_argument("--idle-settle-seconds", type=float, default=35.0, help="wait before the 10-tab idle sample")
     parser.add_argument("--tag", help="the lab runner's tag of --app (checked against the bundle's name)")
@@ -419,6 +428,11 @@ def main():
     open(probe, "w").write(PAGE)
     url = pathlib.Path(probe).as_uri()
     env = {"CMUX_NEXT_DEBUG_TUNABLES_FILE": tunables}
+    if opts.native_ui:
+        native = os.path.join(opts.out, "native-ui.html")
+        open(native, "w").write(chromium_host_native_ui.PAGE)
+        url = pathlib.Path(native).as_uri()
+        env.update(chromium_host_native_ui.launch_env(chromium_host_native_ui.write_extensions(opts.out)))
     if opts.host_switches:
         env["CMUX_NEXT_CHROMIUM_HOST_SWITCHES"] = opts.host_switches
         RESULT["host_switches"] = opts.host_switches
@@ -439,7 +453,9 @@ def main():
         RESULT["cef"] = {"fork_api": (cef.get("windows") or {}).get("fork_api"), "unavailable": cef.get("unavailable"),
                          "fallback": cef.get("fallback")}
         DEFAULTS["launch"] = defaults_snapshot(app_bundle_id())
-        modes = opts.modes.split(",")
+        modes = [] if opts.native_ui else opts.modes.split(",")
+        if opts.native_ui:
+            RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
         inproc_tab = None
         if "inproc" in modes:
             inproc_tab = run_inproc(rpc, url)
@@ -935,6 +951,8 @@ def run_helper(rpc, url, inproc_tab):
     row["fork_api"] = state.get("fork_api")
 
     row["input"] = input_rows(rpc, url, title, click_point, borders, host_pid)
+    if opts.ime:
+        bounded(row, "ime", lambda: ime_row(rpc, title, click_point))
 
     # Kill: cmux keeps running, a new host loads the saved page.
     before = rpc("debug.chromium_host") or {}
@@ -1066,6 +1084,40 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
                              "drag": "drag and drop is not forwarded (slice 4)",
                              "permission_prompt": "needs a page that asks (camera/location), not in the probe"}
     return rows
+
+
+IME_STATS = ("changes", "pushes", "frames", "unsent", "watches")
+
+
+def ime_row(rpc, title, click_point):
+    """--ime: TEXT_INPUT_STATE pushes per keystroke (task p01-process-044). The host folds the fork's text input
+    notifications of one display frame into one push, so a keystroke whose renderer notifications land in two frames
+    costs two; this row measures it. Keys go into the focused field one per 1/15 s (several frames apart, so two
+    keys never share a frame); the host's counters (kOpTextInputStats: changes, pushes, frames, unsent, watches)
+    are read before and after through `debug.chromium_host.measure {op: text_input}`. Pass: pushes per key <= 1,
+    no unsent push. Until cmux's host session asks the host for them (the remote shim's text input watch, tasks 014b
+    and 043), the row says the counters are unavailable instead of passing."""
+    counters = lambda: rpc("debug.chromium_host.measure", {"op": "text_input"}) or {}
+    before = counters()
+    if not all(isinstance(before.get(key), (int, float)) for key in IME_STATS):
+        return {"unavailable": "the app does not answer debug.chromium_host.measure text_input", "reply": before,
+                "pass": None}
+    stats = lambda: probe_stats(title()) or {}
+    rpc("debug.mouse", click_point("t"))
+    start_field = stats().get("field") or 0
+    for _ in range(opts.count):
+        rpc("debug.key", {"key": "a"})
+        time.sleep(1 / 15)  # test harness: keys several frames apart
+    wait(lambda: (stats().get("field") or 0) >= start_field + opts.count, 10)
+    time.sleep(0.2)  # test harness: the last key's frame flushes
+    after = counters()
+    delta = {key: (after.get(key) or 0) - (before.get(key) or 0) for key in IME_STATS if key != "watches"}
+    keys = (stats().get("field") or 0) - start_field
+    row = {"keys": keys, "watches": after.get("watches"), **delta}
+    row["pushes_per_key"] = round(delta["pushes"] / keys, 3) if keys else None
+    row["changes_per_key"] = round(delta["changes"] / keys, 3) if keys else None
+    row["pass"] = bool(keys) and delta["pushes"] <= keys and delta["unsent"] == 0
+    return row
 
 
 def run_lifetime(app, url):

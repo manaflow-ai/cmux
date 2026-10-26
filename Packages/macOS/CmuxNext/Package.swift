@@ -33,10 +33,12 @@ import Foundation
 //     the key.frame and input.frame histograms, p09-observability tasks 054 and 111)
 //   CmuxNextSignpostsC -> libSystem only (C: os_signpost macros for the key and stall signposts, no heap allocation;
 //     p09-observability task 007)
-//   CmuxNextLaunch -> Compat, Signposts, Trace, Wakeups, Design, InputCore (launch-only types: the launch image hold, and the
-//     startup trace, temperature and saved window picture to come; the App only wires them;
+//   CmuxNextLaunch -> Compat, Signposts, Trace, Wakeups, Design, InputCore, ProfileRuntimeC (launch-only types: the launch
+//     image hold, and the startup trace, temperature and saved window picture to come; the App only wires them;
 //     plans/cmux-next/chrome-parity/p08-startup.md, task 073; Trace: LaunchMarks moves each mark's date onto the
 //     trace clock through the launch's one LaunchClock pairing)
+//   CmuxNextProfileRuntimeC -> nothing (C header: the compiler-rt profile runtime's write, reset and file name,
+//     which only the profile build calls; p08-startup task 103)
 //   CmuxNextTrace -> Compat, swift-atomics (the process's TraceRuntime: category flags, Release trace rings, crash-key page,
 //     HangWatch slots and scopes; plans/cmux-next/chrome-parity/p09-observability.md)
 //   CmuxNextMetrics -> Compat, Trace (the field-histogram catalog HistogramID and Metrics.record)
@@ -195,6 +197,15 @@ let daemonSwiftSettings: [SwiftSetting] = [
     .enableUpcomingFeature("ExistentialAny"),
     .enableUpcomingFeature("InternalImportsByDefault"),
 ] + stabilitySwiftSettings
+
+/// Exports of the pinned GhosttyNextKit (Packages/Shared/CmuxGhosttyKit) beyond the API every pin has,
+/// as compile-time conditions of CmuxNextTerminal. libghostty links statically and Release exports no
+/// symbols, so the app never looks one up at run time: the pin bump that brings an export turns its
+/// condition on in the same commit, and a condition on without the export fails the compile and link.
+/// - GHOSTTY_GPU_RESIDENT: `ghostty_surface_set_gpu_resident` (ghostty-next cp/p07-memory-036, not in
+///   723c4ab93): `GhosttyGPUResidency`, so `terminalGPURelease` and the larger warm set.
+let ghosttyNextKitHasGPUResident = false
+let ghosttyNextKitCapabilities: [SwiftSetting] = ghosttyNextKitHasGPUResident ? [.define("GHOSTTY_GPU_RESIDENT")] : []
 
 /// The app's ONE Rust static library, CCmuxAppFFI (cmux-tui/crates/cmux-app-ffi):
 /// the remote desktop core C ABI (module CCmuxRdFFI), the sidebar layout
@@ -1008,9 +1019,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: uiSwiftSettings
         ),
         // The thumbnail grid: tiles, the thumbnail cache, drag out, drop reading, Quick Look and the
-        // command menu. It reads and changes no files (CmuxNextFiles does). System frameworks only.
+        // command menu. It reads and changes no files (CmuxNextFiles does). System frameworks and
+        // CmuxNextCompat only (the thumbnail cache is a memory consumer).
         .target(
             name: "CmuxNextFileGrid",
+            dependencies: ["CmuxNextCompat"],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
             ],
@@ -1027,7 +1040,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextScreenshotsTests",
-            dependencies: ["CmuxNextFileGrid", "CmuxNextFiles", "CmuxNextScreenshots"],
+            dependencies: ["CmuxNextCompat", "CmuxNextFileGrid", "CmuxNextFiles", "CmuxNextScreenshots"],
             swiftSettings: uiSwiftSettings
         ),
         // The built-in Memory Inspector (plans/cmux-next/memory-inspector-native-DESIGN.md):
@@ -1371,10 +1384,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextLaunch",
             // Trace: LaunchMarks moves each mark's Date onto the trace clock through the launch's one LaunchClock pairing.
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextInputCore", "CmuxNextSignposts", "CmuxNextTrace",
-                           "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextInputCore", "CmuxNextProfileRuntimeC",
+                           "CmuxNextSignposts", "CmuxNextTrace", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
+        // The compiler-rt profile runtime's C entry points for ProfileFlush (p08-startup task 103); only the
+        // profile build (CMUX_PGO_PROFILE) imports it, so no other build references the symbols.
+        // settings-allow: C header only, no Swift sources
+        .target(name: "CmuxNextProfileRuntimeC"),
         .testTarget(
             name: "CmuxNextLaunchTests",
             // Compat, Signposts and Trace: LaunchReadEventTests reads the `launch.read_done` record of a test trace runtime.
@@ -1609,13 +1626,15 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // App builds the one provider list (OracleHost) and Control serves it as debug.oracle.snapshot in
         // DEV and bench builds. Pure values: no AppKit, no control socket, so headless services can too.
         // Every source is under DEBUG || CMUX_BENCH_HOOKS (p15-oracle.md section 4 rule 3): Release builds it empty.
+        // CmuxNextCompat: the ax facet reads the string tables with the checked file calls.
         .target(
             name: "CmuxNextOracle",
+            dependencies: ["CmuxNextCompat"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextOracleTests",
-            dependencies: ["CmuxNextOracle"],
+            dependencies: ["CmuxNextOracle", "CmuxNextCompat"],
             swiftSettings: daemonSwiftSettings
         ),
         // The app's one input tap (p04-input.md section 3 (A)): typed subscriptions by event class,
@@ -1767,7 +1786,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             resources: [
                 .process("Resources"),
             ],
-            swiftSettings: uiSwiftSettings
+            swiftSettings: uiSwiftSettings + ghosttyNextKitCapabilities
         ),
         // Terminal tests that need only TerminalSession (the TextBox composer), without the
         // whole App build. libghostty needs libc++, as in CmuxNextAppTests.
@@ -1829,7 +1848,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextPalette",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextActions", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI", "CmuxNextTrace", "CmuxNextSignposts", "CmuxNextWakeups"],
+            // CmuxNextInput: the results' and the Actions menu's frame-aligned hover (PointerFrameHover, p04-input-037).
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextActions", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI", "CmuxNextTrace", "CmuxNextSignposts", "CmuxNextWakeups", "CmuxNextInput"],
             resources: [
                 .process("Localizable.xcstrings"),
                 .process("Resources"),
@@ -1839,9 +1859,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextPaletteTests",
             // CmuxTheme: PaletteScopeChipContrastTests derives theme tokens. Compat, Signposts and Trace:
-            // PaletteOpenSignpostTests reads the `stall.palette_open` records of a test trace runtime.
+            // PaletteOpenSignpostTests reads the `stall.palette_open` records of a test trace runtime. Wakeups and its
+            // test support: the per-frame hover tests' FrameInputTestRig.
             dependencies: ["CmuxNextPalette", "CmuxNextCompat", "CmuxNextSignposts", "CmuxNextTrace",
-                           .product(name: "CmuxTheme", package: "CmuxTheme")],
+                           .product(name: "CmuxTheme", package: "CmuxTheme"), "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         .target(

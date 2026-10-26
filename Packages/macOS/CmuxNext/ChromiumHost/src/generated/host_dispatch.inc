@@ -182,16 +182,19 @@ enum Op : uint16_t {
   kOpTabSetColorScheme = 172,  // optional
   kOpPageSchemeSetGroup = 173,  // optional
   kOpTabDiscard = 174,  // optional
+  kOpWidgetSetGeometry = 175,  // optional
+  kOpWidgetDismiss = 176,  // optional
+  kOpWidgetSendInput = 177,  // optional
 };
-inline constexpr uint16_t kOpCount = 174;
+inline constexpr uint16_t kOpCount = 177;
 inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
-inline constexpr int kEventKindCount = 51;
+inline constexpr int kEventKindCount = 53;
 inline constexpr char kShimAbiID[] = "588fca8016b02a0fa991f93b679b0928e086af927e43015e338195629a536bf8";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "436549af1958deff41c65dce0f2cc0d758653782480c883dd00b57b7dbb2f5aa";
+inline constexpr char kWireID[] = "65875271ce913f844c2465ac080d22cf22662c664f8fd131544c0fe30f292889";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 
@@ -210,6 +213,9 @@ inline constexpr OptionalExport kOptionalExports[] = {
     {kOpTabSetColorScheme, "cmux_shim_tab_set_color_scheme"},
     {kOpPageSchemeSetGroup, "cmux_shim_page_scheme_set_group"},
     {kOpTabDiscard, "cmux_shim_tab_discard"},
+    {kOpWidgetSetGeometry, "cmux_shim_widget_set_geometry"},
+    {kOpWidgetDismiss, "cmux_shim_widget_dismiss"},
+    {kOpWidgetSendInput, "cmux_shim_widget_send_input"},
 };
 
 // Hand-written in HOST/src: install the host's own handler and push its policy.
@@ -1670,6 +1676,46 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       TlvWriter reply_w;
       reply_w.I32(call_result);
       ctx.Reply(wire_token, reply_w);
+      return true;
+    }
+    case kOpWidgetSetGeometry: {
+      const auto arg_widget_id = r.I32();
+      const auto arg_x = r.I32();
+      const auto arg_y = r.I32();
+      const auto arg_width = r.I32();
+      const auto arg_height = r.I32();
+      const auto arg_scale_milli = r.I32();
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto optional_fn = reinterpret_cast<void (*)(int, int, int, int, int, int)>(ctx.OptionalExport(kOpWidgetSetGeometry));
+      if (optional_fn != nullptr) optional_fn(arg_widget_id, arg_x, arg_y, arg_width, arg_height, arg_scale_milli);
+      ctx.Ack(wire_token);
+      return true;
+    }
+    case kOpWidgetDismiss: {
+      const auto arg_widget_id = r.I32();
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto optional_fn = reinterpret_cast<void (*)(int)>(ctx.OptionalExport(kOpWidgetDismiss));
+      if (optional_fn != nullptr) optional_fn(arg_widget_id);
+      ctx.Ack(wire_token);
+      return true;
+    }
+    case kOpWidgetSendInput: {
+      const auto arg_widget_id = r.I32();
+      const auto arg_kind = r.I32();
+      const auto arg_v0 = r.I32();
+      const auto arg_v1 = r.I32();
+      const auto arg_v2 = r.I32();
+      const auto arg_v3 = r.I32();
+      const auto arg_v4 = r.I32();
+      const auto arg_v5 = r.I32();
+      const auto arg_flags = r.I64();
+      const auto arg_time_ns = r.I64();
+      const auto arg_ch = r.I32();
+      const auto arg_unmod = r.I32();
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto optional_fn = reinterpret_cast<void (*)(int, int, int, int, int, int, int, int, int64_t, int64_t, int, int)>(ctx.OptionalExport(kOpWidgetSendInput));
+      if (optional_fn != nullptr) optional_fn(arg_widget_id, arg_kind, arg_v0, arg_v1, arg_v2, arg_v3, arg_v4, arg_v5, arg_flags, arg_time_ns, arg_ch, arg_unmod);
+      ctx.Ack(wire_token);
       return true;
     }
     default:

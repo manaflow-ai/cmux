@@ -306,6 +306,50 @@ import Testing
         #expect(tab.isClosed)
     }
 
+    // MARK: Keys (p01-process-030)
+
+    /// A hosted page gets page-ownable keys first (`KeyRouter.Facts.pageReportsUnhandledKeys`) only
+    /// while its page view has the keyboard and its host reports the chords the page leaves
+    /// unhandled. Until the input route lands, cmux runs its actions before the page as before.
+    @Test func aHostedPageHasTheKeysOnlyWhileItsHostReportsThem() throws {
+        let (runtime, root) = try Self.runtime(hostMode: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, tab, window) = try Self.presentedPopupPane(runtime)
+        defer { window.close() }
+        #expect(!tab.hostedPageHasKeys(in: window), "the pane's page view has no input route yet")
+
+        let page = Self.keyedPage(in: host)
+        #expect(window.makeFirstResponder(page))
+        #expect(!tab.hostedPageHasKeys(in: window), "a host that reports no unhandled key")
+        page.hostReportsUnhandledKeys = true
+        #expect(tab.hostedPageHasKeys(in: window))
+        #expect(window.makeFirstResponder(nil))
+        #expect(!tab.hostedPageHasKeys(in: window), "the page view lost the keyboard")
+    }
+
+    /// KEY_UNHANDLED for a chord: with no cmux action held for it (this tab has no key router), the
+    /// held key goes to the menus, once; a report from another browser takes nothing.
+    @Test func anUnhandledChordGoesToTheMenusOnce() throws {
+        let (runtime, root) = try Self.runtime(hostMode: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, _, window) = try Self.presentedPopupPane(runtime)
+        defer { window.close() }
+        let page = Self.keyedPage(in: host)
+        let seen = ChromiumHostPageViewKeyTests.Redispatches()
+        page.redispatchTarget = { event in
+            seen.events.append(event)
+            return true
+        }
+        let cmdK = try ChromiumHostPageViewKeyTests.key("k", keyCode: 40, modifiers: .command)
+        page.keyDowns.record(cmdK, ChromiumHostInputReceipt(browser: Self.firstBrowser, seq: 7))
+
+        runtime.handle(.keyUnhandledChord(browser: Self.firstBrowser + 1, seq: 7))
+        #expect(seen.events.isEmpty, "another browser's report took the key")
+        runtime.handle(.keyUnhandledChord(browser: Self.firstBrowser, seq: 7))
+        runtime.handle(.keyUnhandledChord(browser: Self.firstBrowser, seq: 7))
+        #expect(seen.events.count == 1 && seen.events.first === cmdK)
+    }
+
     // MARK: Fixtures
 
     /// The first browser's id: a window's AFTER_CREATED names it.
@@ -384,6 +428,24 @@ import Testing
         return (host, tab, try #require(window.contentView))
     }
 
+    /// ``popupPane(_:)`` with its tab shown in a window of the test's own (close it after).
+    private static func presentedPopupPane(_ runtime: CEFRuntime) throws -> (CEFPaneHost, CEFTab, NSWindow) {
+        let (host, tab, _) = try popupPane(runtime)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        host.present(tab, in: try #require(window.contentView))
+        return (host, tab, window)
+    }
+
+    /// A page view that takes the input (the route tasks 041 and 042 give the pane) in place of the
+    /// pane's.
+    private static func keyedPage(in host: CEFPaneHost) -> ChromiumHostPageView {
+        let page = ChromiumHostPageView(frame: host.hostView.bounds, inputTarget: .view)
+        host.hostView.addSubview(page)
+        host.hostedPageView = page
+        return page
+    }
+
     /// An EncodeFields body with one int32 field (chromium_host_tlv.h: type 1, tag 0, length 4).
     private static func int32(_ value: Int32) -> [UInt8] {
         [1, 0, 4, 0] + withUnsafeBytes(of: value.littleEndian) { Array($0) }
@@ -395,6 +457,8 @@ import Testing
     func attachment() async throws(ChromiumHostAttachError) -> ChromiumHostAttachment {
         throw .cannotStart("not started in this test")
     }
+
+    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {}
 }
 
 /// Stand-in shim functions. `create_window` and `popup_window_attach` record their parent view,

@@ -188,7 +188,7 @@ final class AgentPageHibernation {
         if let again = releaseOverLimit(live, at: current) { next = min(next ?? again, again) }
         deadlineDelay = next
         if let next {
-            deadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { @MainActor [weak self] in self?.replan() }
+            deadline.scheduleOnMain(after: .milliseconds(Int64(next * 1000) + 50)) { [weak self] in self?.replan() }
         } else {
             deadline.cancel()
         }

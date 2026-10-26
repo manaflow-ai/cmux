@@ -1,6 +1,6 @@
 // The Chromium Host's dispatcher (host_dispatch.h): one generated case per
 // shim export (generated/host_dispatch.inc), the id maps, the watched mirror
-// keys and the host's focus and window-request policies. No AppKit: the page
+// keys and the host's window-request policy. No AppKit: the page
 // views are behind PageViews (host_page_views.mm).
 
 #include <unistd.h>
@@ -88,8 +88,14 @@ control::Message MessageOf(uint16_t op, bool reply, uint32_t token, std::vector<
 
 }  // namespace
 
-HostContext::HostContext(Send send, HostDelegate& delegate, PageViews& views, Resolve resolve)
-    : send_(std::move(send)), delegate_(delegate), views_(views) {
+HostContext::HostContext(Send send, HostDelegate& delegate, PageViews& views, Resolve resolve,
+                         TextInputPushes::RequestFrame request_frame)
+    : send_(std::move(send)),
+      delegate_(delegate),
+      views_(views),
+      text_input_(std::move(request_frame), [this](int browser, const TextInputState& state) {
+        return Post(MessageOf(kOpTextInputState, false, 0, EncodeTextInputState(ClientOf(browser), state)));
+      }) {
   for (const auto& entry : kOptionalExports) {
     if (void* fn = resolve ? resolve(entry.name) : nullptr) optional_exports_.emplace_back(entry.op, fn);
   }
@@ -167,6 +173,21 @@ void HostContext::Handle(control::Message& message) {
       return;
     case State::kRunning:
       if (message.op == kOpInitialize) return Bad("a second initialize");
+      if (message.op == kOpTextInputWatch) {
+        if (!HandleTextInputWatch(message)) Bad("a malformed text input watch");
+        return;
+      }
+      if (message.op == kOpTextInputStats) {
+        if (!message.fields.empty()) return Bad("a malformed text input stats request");
+        const TextInputPushes::Stats& stats = text_input_.stats();
+        TlvWriter reply;
+        for (uint64_t value : {stats.changes, stats.pushes, stats.frames, stats.unsent,
+                               static_cast<uint64_t>(text_input_.watches())}) {
+          reply.I64(static_cast<int64_t>(value));
+        }
+        Reply(message.token, reply);
+        return;
+      }
       if (IsMirrorOp(message.op)) return Watch(message.op, message.fields);
       Dispatch(message);
       return;
@@ -203,6 +224,64 @@ bool HostContext::HandleInitialize(const control::Message& message) {
   state_ = State::kInitializing;
   delegate_.Initialize(std::move(request));
   return true;
+}
+
+bool HostContext::HandleTextInputWatch(const control::Message& message) {
+  TlvReader r(message.fields);
+  const int32_t client = r.I32();
+  const int32_t watch = r.I32();
+  if (!r.ok() || !r.AtEnd() || (watch != 0 && watch != 1)) return false;
+  auto awaiting = text_input_awaiting_.find(client);
+  if (watch) {
+    if (awaiting != text_input_awaiting_.end() || AwaitsCreation(client)) {
+      text_input_awaiting_[client].push_back(message.token);  // Bind arms and answers it
+    } else {
+      ReplyResult(message.token, ArmTextInputWatch(Browser(client)));
+    }
+    return true;
+  }
+  if (awaiting != text_input_awaiting_.end()) {
+    // The watch never reached the fork: it answers 0, the unwatch 1.
+    for (uint32_t token : awaiting->second) ReplyResult(token, 0);
+    text_input_awaiting_.erase(awaiting);
+    ReplyResult(message.token, 1);
+    return true;
+  }
+  const int browser = Browser(client);
+  text_input_.Forget(browser);
+  ReplyResult(message.token, cmux_shim_browser_text_input_watch(browser, nullptr, nullptr));
+  return true;
+}
+
+int HostContext::ArmTextInputWatch(int chromium_id) {
+  // The fork calls OnTextInput at once with the current state: watch first.
+  text_input_.Watch(chromium_id);
+  const int result = cmux_shim_browser_text_input_watch(chromium_id, &HostContext::OnTextInput, this);
+  if (!result) text_input_.Forget(chromium_id);  // an unknown browser, or a fork without the watch
+  return result;
+}
+
+bool HostContext::AwaitsCreation(int32_t client_id) const {
+  for (const auto& [key, pending] : pending_binds_) {
+    if (pending.minted == client_id) return true;
+  }
+  return false;
+}
+
+void HostContext::ReplyResult(uint32_t token, int32_t result) {
+  TlvWriter reply;
+  reply.I32(result);
+  Reply(token, reply);
+}
+
+void HostContext::OnTextInput(void* ctx, int browser_id, const void* state) {
+  auto* host = static_cast<HostContext*>(ctx);
+  if (host->state_ == State::kEnded) return;
+  TextInputState read;
+  // A state the host cannot read is no editable focus: cmux's client then has no marked text.
+  if (!ReadForkTextInputState(state, &read)) read = TextInputState{};
+  TrimToSelectionContext(&read);
+  host->text_input_.Changed(browser_id, std::move(read));
 }
 
 void HostContext::Dispatch(const control::Message& message) {
@@ -248,13 +327,11 @@ void HostContext::Dispatch(const control::Message& message) {
     if (!peek.ok()) placed_browser = 0;
   }
   dispatching_ = true;
-  dispatching_op_ = message.op;
   dispatching_view_ = 0;
   dispatching_profile_ = std::move(profile);
   TlvReader r(message.fields);
   const bool ok = DispatchOp(*this, message.op, message.token, r);
   dispatching_ = false;
-  dispatching_op_ = 0;
   dispatching_view_ = 0;
   dispatching_profile_.reset();
   if (ok && placed_browser) PlaceDevTools(Browser(placed_browser), placed_view);
@@ -357,11 +434,18 @@ int32_t HostContext::ClientOf(int chromium_id) const {
 void HostContext::Bind(int32_t client_id, int chromium_id) {
   chromium_of_[client_id] = chromium_id;
   client_of_[chromium_id] = client_id;
+  auto awaiting = text_input_awaiting_.find(client_id);
+  if (awaiting == text_input_awaiting_.end()) return;
+  const std::vector<uint32_t> tokens = std::move(awaiting->second);
+  text_input_awaiting_.erase(awaiting);
+  const int result = ArmTextInputWatch(chromium_id);
+  for (uint32_t token : tokens) ReplyResult(token, result);
 }
 
 void HostContext::Forget(int32_t client_id, int chromium_id) {
   chromium_of_.erase(client_id);
   client_of_.erase(chromium_id);
+  text_input_.Forget(chromium_id);  // the fork ends the watch with the page
   for (auto& [op, keys] : watched_) {
     const size_t before = keys.size();
     std::erase_if(keys, [&](const std::vector<control::Field>& key) { return HostMirrors::NamesTab(op, key, client_id); });
@@ -505,10 +589,11 @@ void HostContext::RefreshMirror(uint16_t op, const TlvWriter& key, uint32_t wild
   }
 }
 
-void HostContext::Post(control::Message message) {
-  if (send_(message)) return;
+bool HostContext::Post(control::Message message) {
+  if (send_(message)) return true;
   // Over a frame bound (a value past 64 KiB goes as shm, task 020) or the channel ended.
   fprintf(stderr, "cmux-chromium-host: op %#x not sent\n", message.op);
+  return false;
 }
 
 void HostContext::Bad(const std::string& what) {
@@ -516,12 +601,6 @@ void HostContext::Bad(const std::string& what) {
   state_ = State::kEnded;
   waiting_.clear();
   delegate_.BadMessage(what);
-}
-
-// Chromium never focuses a page on its own: as in process (CEFTab+Focus.swift),
-// a request is granted only inside cmux's cmux_shim_set_focus.
-int HostContext::OnFocusRequest(void* ctx, int, int) {
-  return static_cast<HostContext*>(ctx)->dispatching_op_ == kOpSetFocus ? 1 : 0;
 }
 
 // Chromium never opens a window of its own in the host (it would be a
@@ -534,14 +613,21 @@ int HostContext::OnWindowRequest(void*, int kind, int, int source_browser_id, in
   return kind <= 2 ? source_browser_id : 0;
 }
 
+// No focus handler: the shim grants a focus request only for a page cmux
+// marked embedder-active (task p01-process-032, CEFShim/src/
+// embedder_focus_policy.h), so the focused pane's page keeps Chromium's
+// focus after its own loads and a background pane's load takes none.
 void HostContext::InstallHostPolicies() {
-  cmux_shim_set_focus_request_handler(&HostContext::OnFocusRequest);
+  cmux_shim_set_focus_request_handler(nullptr);
   cmux_shim_set_window_request_handler(&HostContext::OnWindowRequest);
 }
 
-// The host's own handlers stay in place whatever cmux installs: the host
-// decides focus and windows itself (above); keys go on to Chromium until
-// cmux routes them first (tasks 030 and 033).
+// The host's own policies stay in place whatever cmux installs: the shim's
+// embedder-active rule decides focus and the host decides windows (above).
+// cmux routes keys first in its own process: with no unhandled-key handler,
+// a chord the page leaves unhandled goes back as KEY_UNHANDLED with its
+// frame's input seq (SendHostKeyEvent and OnKeyEvent in shim_client.mm,
+// task 030); DevTools keys follow in task 033.
 void InstallPolicySetFocusRequestHandler(HostContext& ctx, bool) {
   ctx.InstallHostPolicies();
 }

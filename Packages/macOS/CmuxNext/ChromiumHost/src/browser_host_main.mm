@@ -13,12 +13,17 @@
 // Order on the wire: each side's HELLO (the host's after the fork
 // capabilities' MIRRORs); cmux's queued preinit ops, applied in order; INITIALIZE, which runs
 // cmux_shim_initialize (CefInitialize) with an event_fn that forwards each
-// event; then every other op. The channel's end (cmux quit or crashed), or
+// event; then every other op. Control messages and input frames meet in one
+// ordered stream (cmux_host::control::OrderedStream, task 092): an input frame
+// waits for the control message it names, an ordered control message (focus,
+// activation, geometry, IME, edit) for the input frame it follows, as Chrome's
+// one RenderWidgetHostNSViewHost pipe orders them. The channel's end (cmux quit or crashed), or
 // a shutdown op, closes every browser and ends the loop; a host that has
 // not ended kQuitLimitSeconds after that _exits, so a hung UI thread or a
 // hung CefInitialize never leaves an orphaned host behind.
 
 #import <AppKit/AppKit.h>
+#import <QuartzCore/QuartzCore.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <objc/runtime.h>
 #include <dlfcn.h>
@@ -138,6 +143,87 @@ std::string Arg(const std::vector<std::string>& args, const std::string& name) {
   return std::string();
 }
 
+}  // namespace
+
+// Runs main-thread work at the start of the main display's next frame
+// (TextInputPushes::RequestFrame), as ExternalBeginFrameSourceMac drives
+// Chrome's BeginFrames from the display link
+// (components/viz/service/frame_sinks/external_begin_frame_source_mac.cc).
+// The link is paused while no work waits, as Chrome stops BeginFrames no
+// client needs; a screen change makes a new link for the next request.
+// Main thread only.
+@interface ChromiumHostFrameClock : NSObject
+- (void)requestFrame:(std::function<void()>)task;
+- (void)invalidate;
+@end
+
+@implementation ChromiumHostFrameClock {
+  CADisplayLink* _link;  // retained; retains this clock until -invalidate
+  std::vector<std::function<void()>> _waiting;
+  id _screenObserver;
+}
+
+- (instancetype)init {
+  if ((self = [super init])) {
+    // The block retains this clock until -invalidate removes the observer.
+    _screenObserver = [[NSNotificationCenter.defaultCenter
+        addObserverForName:NSApplicationDidChangeScreenParametersNotification
+                    object:nil
+                     queue:NSOperationQueue.mainQueue
+                usingBlock:^(NSNotification*) {
+                  [self dropLink];
+                }] retain];
+  }
+  return self;
+}
+
+- (void)requestFrame:(std::function<void()>)task {
+  _waiting.push_back(std::move(task));
+  if (!_link) {
+    NSScreen* screen = NSScreen.mainScreen;
+    if (!screen) {
+      [self tick:nil];  // no display: no frame to wait for
+      return;
+    }
+    _link = [[screen displayLinkWithTarget:self selector:@selector(tick:)] retain];
+    [_link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+  }
+  _link.paused = NO;
+}
+
+- (void)tick:(CADisplayLink*)link {
+  _link.paused = YES;
+  std::vector<std::function<void()>> tasks;
+  tasks.swap(_waiting);
+  for (auto& task : tasks) task();
+}
+
+- (void)dropLink {
+  [_link invalidate];
+  [_link release];
+  _link = nil;
+  if (!_waiting.empty()) {
+    std::vector<std::function<void()>> tasks;
+    tasks.swap(_waiting);
+    for (auto& task : tasks) [self requestFrame:std::move(task)];
+  }
+}
+
+- (void)invalidate {
+  if (_screenObserver) {
+    [NSNotificationCenter.defaultCenter removeObserver:_screenObserver];
+    [_screenObserver release];
+    _screenObserver = nil;
+  }
+  _waiting.clear();
+  [_link invalidate];
+  [_link release];
+  _link = nil;
+}
+@end
+
+namespace {
+
 // A symbol of the shim linked into this executable (an optional export), or nullptr.
 void* ResolveShimSymbol(const char* name) {
   return dlsym(RTLD_DEFAULT, name);
@@ -254,13 +340,32 @@ int main(int argc, char* argv[]) {
   HostMain host_main;
   cmux_host::HostPageViews page_views;
   std::unique_ptr<cmux_host::control::Channel> channel;
+  // Outlives `host`, whose text input flushes it runs.
+  struct FrameClock {
+    ChromiumHostFrameClock* clock = [[ChromiumHostFrameClock alloc] init];
+    ~FrameClock() {
+      [clock invalidate];
+      [clock release];
+    }
+  } frame_clock;
   cmux_host::HostContext host(
       [&channel](const cmux_host::control::Message& message) { return channel && channel->Send(message); },
-      host_main, page_views, &ResolveShimSymbol);
+      host_main, page_views, &ResolveShimSymbol,
+      [clock = frame_clock.clock](std::function<void()> task) { [clock requestFrame:std::move(task)]; });
+  // Main thread only, like `host`. The input ring (task 041) attaches its
+  // dispatch here (AttachInput) and hands each frame to AddInput; until then
+  // no frame comes and cmux stamps no ordered op with an input seq.
+  cmux_host::control::OrderedStream ordered(
+      [&host](std::vector<cmux_host::control::Message> messages) { host.OnMessages(std::move(messages)); });
+  auto check = [&host_main, &ordered](cmux_host::control::OrderedStream::Result result) {
+    if (result == cmux_host::control::OrderedStream::Result::kMalformed) host_main.BadMessage(ordered.what());
+  };
   // The reader thread starts here, after the framework load.
   channel = std::make_unique<cmux_host::control::Channel>(
       kControlFd, &PostToMain,
-      [&host](std::vector<cmux_host::control::Message> messages) { host.OnMessages(std::move(messages)); },
+      [&ordered, &check](std::vector<cmux_host::control::Message> messages) {
+        check(ordered.AddControl(std::move(messages)));
+      },
       [&host_main](cmux_host::control::End) { host_main.Quit(); });
   host.Attach();
 
@@ -296,7 +401,10 @@ int main(int argc, char* argv[]) {
       return cmux_host::kExitInitialize;
     }
     host_main.set_running();
-    PostToMain([&host] { host.Resume(); });
+    PostToMain([&host, &ordered, &check] {
+      host.Resume();
+      check(ordered.OpenInput());  // the messages that waited for initialize ran first
+    });
     CefRunMessageLoop();
     channel->Close();
     cmux_shim_shutdown();

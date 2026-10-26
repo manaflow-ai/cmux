@@ -164,7 +164,7 @@ public final class StartupPhase {
         timer = DemandTimer(owner: "StartupPhase", clock: clock, ledger: ledger)
         phase = .launching
         pendingReferences = Set(Reference.allCases)
-        timer.schedule(after: timing.revealDeadline) { @MainActor [weak self] in self?.revealDeadlinePassed() }
+        timer.scheduleOnMain(after: timing.revealDeadline) { [weak self] in self?.revealDeadlinePassed() }
     }
 
     private init(settledWith ledger: WakeupLedger) {
@@ -259,7 +259,7 @@ public final class StartupPhase {
         if pendingReferences.isEmpty || left <= .zero {
             settle(pendingReferences.isEmpty ? .references : .failsafe)
         } else {
-            timer.schedule(after: left) { @MainActor [weak self] in self?.failsafePassed() }
+            timer.scheduleOnMain(after: left) { [weak self] in self?.failsafePassed() }
         }
     }
 

@@ -163,7 +163,7 @@ package final class ContentDiscardScheduler {
         deadlineAt = at
         nextCheck = wait
         // 50 ms past the due time, so the look finds the item due, not a hair short of it.
-        deadline.schedule(after: .milliseconds(Int64(wait * 1000) + 50)) { @MainActor [weak self] in
+        deadline.scheduleOnMain(after: .milliseconds(Int64(wait * 1000) + 50)) { [weak self] in
             self?.deadlineAt = nil
             self?.replan()
         }

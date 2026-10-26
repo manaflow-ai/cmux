@@ -78,7 +78,7 @@ enum AgentBesidePlacement {
                 return nil
             }
             let bound = DemandTimer(owner: "AgentBesidePlacement.tabOpen")
-            bound.schedule(after: openLimit) { @MainActor in
+            bound.scheduleOnMain(after: openLimit) {
                 listed.cancel()
                 sink.finish()
             }
@@ -114,7 +114,7 @@ enum AgentBesidePlacement {
                         return false
                     }
                     let bound = DemandTimer(owner: "AgentBesidePlacement.chatDock")
-                    bound.schedule(after: openLimit) { @MainActor in
+                    bound.scheduleOnMain(after: openLimit) {
                         listed.cancel()
                     }
                     let moved = await listed.value
@@ -196,7 +196,7 @@ extension AgentBesidePlacement {
             return false
         }
         let bound = DemandTimer(owner: "AgentBesidePlacement.reveal")
-        bound.schedule(after: openLimit) { @MainActor in
+        bound.scheduleOnMain(after: openLimit) {
             listed.cancel()
         }
         let moved = await listed.value

@@ -64,7 +64,7 @@ final class ConcealedPasteboard {
         let text = secret.withUnsafeBytes { String(decoding: $0, as: UTF8.self) }
         pasteboard.write(text, markers: [Self.concealedType, Self.transientType])
         let written = pasteboard.changeCount
-        clearTimer.schedule(after: clearAfter) { @MainActor [weak self] in
+        clearTimer.scheduleOnMain(after: clearAfter) { [weak self] in
             self?.clear(ifStill: written)
             self?.onDeadline?()
         }

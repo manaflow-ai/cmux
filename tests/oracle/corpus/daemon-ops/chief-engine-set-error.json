@@ -14,7 +14,8 @@
   "fixture": {
     "seed": "daemon-ops.chief-engine-set",
     "network": "offline",
-    "clock": "virtual"
+    "clock": "virtual",
+    "agent": "mock"
   },
   "preconditions": [
     "hermetic state root",
@@ -38,19 +39,23 @@
       "args": {
         "method": "chief.engine.set",
         "params": {
-          "chief": ""
+          "chief": "agent_00000000000000000000000000"
         },
         "idempotencyKey": "chief-engine-set-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "operation.failed",
+        "errorDetails": {
+          "operation": "chief.engine.set",
+          "reason": "not_found"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "chief breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a Chief id that names no live Chief (chief_control.rs target), refused before the mock brain is asked"
     }
   ],
   "invariants": [

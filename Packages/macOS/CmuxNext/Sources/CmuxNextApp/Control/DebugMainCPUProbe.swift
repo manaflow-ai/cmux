@@ -32,7 +32,7 @@ final class DebugMainCPUProbe {
             lastTimestamp = 0
             lastCPU = currentThreadCPUNanos()
             client.activate()
-            expiry.schedule(after: Self.maximumRun) { @MainActor [weak self] in self?.stop() }
+            expiry.scheduleOnMain(after: Self.maximumRun) { [weak self] in self?.stop() }
         case "stop":
             // The work since the last frame counts too: a gesture that ends in a long main-thread slice.
             if let now = currentThreadCPUNanos(), let previous = lastCPU { work.append(Double(now &- previous) / 1_000_000) }
