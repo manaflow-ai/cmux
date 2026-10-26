@@ -226,7 +226,7 @@ fn recv_chunk(fd: RawFd, bytes: &mut [u8]) -> io::Result<(usize, Vec<OwnedFd>)> 
         let mut header = libc::CMSG_FIRSTHDR(&msg);
         while !header.is_null() {
             if (*header).cmsg_level == libc::SOL_SOCKET && (*header).cmsg_type == libc::SCM_RIGHTS {
-                let length: usize = (*header).cmsg_len as _;
+                let length = (*header).cmsg_len as _;
                 if length < libc::CMSG_LEN(0) as usize {
                     return Err(io::Error::other("invalid handoff control length"));
                 }
