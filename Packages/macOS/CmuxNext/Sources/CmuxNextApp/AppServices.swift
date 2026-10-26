@@ -203,7 +203,12 @@ final class AppServices {
     #endif
     let switchHits = SwitchHits(counting: ControlRouter.debugMethodsAllowed) // refactor-switch sites' arm counts (debug.oracle.switch_hits)
     private(set) lazy var windows: WindowManager = WindowManager(services: self)  // first read in init (no IUO)
-    private(set) lazy var dragSession: TabDragSession = TabDragSession(services: self)  // built by the first drag
+    /// Built by the first drag. Its moves are frame-aligned with `pointerFrameDrags` and its ghost resampled with
+    /// `resampledDrags`, off under Reduce Motion.
+    private(set) lazy var dragSession: TabDragSession = TabDragSession(
+        services: self, moveFrames: dragFrameInput,
+        makeResampler: { [weak self] in Motion.tabs.animatesMovement ? self?.dragResampler() : nil }
+    )
     /// The command palette on demand (p08-startup-023): launch builds none; it is built after the first frame
     /// (`postBuild`) or by the first palette key, in that key's turn. Handlers add pages to `palettes.sources`.
     private(set) lazy var palettes = PaletteOnDemand(registry: registry, sources: { [weak self] in self.map { PaletteSourcesBridge.make(services: $0) } ?? PaletteSources() }) { [registry, mainWork, weak self] sources in
@@ -308,9 +313,9 @@ final class AppServices {
     /// and the DevTools divider move on a frame interval's first drag event and once more at its frame. Nil while it
     /// is off: each drag event moves them.
     private(set) lazy var dragFrameInput: FrameInputCoalescers? = features.isEnabled(.pointerFrameDrags) ? pointerFrames : nil
-    /// A pane divider drag's resampler, made on its mouse-down (feature `resampledDrags`, p04-input-040): the divider is
-    /// drawn at the pointer resampled at each frame while `input.resampleDrags` is on. Nil without `pointerFrameDrags`,
-    /// with the feature or the setting off; the layout adds Reduce Motion.
+    /// A drag's resampler, made on its start (feature `resampledDrags`, p04-input-040): a pane divider, a tab ghost or a
+    /// pane-swap preview is drawn at the pointer resampled at each frame while `input.resampleDrags` is on. Nil without
+    /// `pointerFrameDrags`, with the feature or the setting off; the layout and ``dragSession`` add Reduce Motion.
     private(set) lazy var dragResampler: () -> DragResampler? = { [weak self] in
         guard let self, dragFrameInput != nil, features.isEnabled(.resampledDrags),
               let setting = settings?.snapshot.dragResampling, setting.resampleDrags else { return nil }

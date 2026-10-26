@@ -779,12 +779,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// Dragged pane dividers and column or row edges are drawn at the pointer resampled at each frame time (Chromium LinearResampling); snaps, release velocity and the drop read the real pointer. Needs pointerFrameDrags; off under Reduce Motion.
+    /// Dragged dividers, pane edges, tab and workspace ghosts and the pane-swap preview are drawn at the pointer resampled at each frame time (Chromium LinearResampling); snaps, drop targets and the drop read the real pointer. Needs pointerFrameDrags; off under Reduce Motion.
     public static let resampledDrags = Feature(
         index: 45,
         name: "resampledDrags",
         owner: "PL-motion-cef",
-        description: "Dragged pane dividers and column or row edges are drawn at the pointer resampled at each frame time (Chromium LinearResampling); snaps, release velocity and the drop read the real pointer. Needs pointerFrameDrags; off under Reduce Motion.",
+        description: "Dragged dividers, pane edges, tab and workspace ghosts and the pane-swap preview are drawn at the pointer resampled at each frame time (Chromium LinearResampling); snaps, drop targets and the drop read the real pointer. Needs pointerFrameDrags; off under Reduce Motion.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,

@@ -30,7 +30,9 @@ public struct PointerDragPoints: Hashable, Sendable {
 /// Every real sample of a delivery feeds the resampler, so a frame's delivery interpolates between the
 /// frame's own points. A delivery that goes out at once (cmux's leading edge, a flush before a button) is
 /// resampled at its newest event's time, so the drawn point keeps the same lag behind the pointer as at a
-/// frame and does not step ahead, then back.
+/// frame. The resample time never goes back within a drag: a frame tick whose vsync time is older than a
+/// leading edge that ran before it (main ran the tick late) resamples at the leading edge's time, so the
+/// drawn point never steps back against the drag.
 ///
 /// ```swift
 /// var resampler = DragResampler(frameAheadMs: 0)
@@ -39,18 +41,22 @@ public struct PointerDragPoints: Hashable, Sendable {
 /// snap.decide(at: points.realPoint)
 /// ```
 public struct DragResampler: Hashable, Sendable {
-    /// Debug frame-ahead prediction in milliseconds (`input.resampleFrameAheadMs`; 0, the default, is
-    /// Chromium's default: interpolate 5 ms behind the frame).
+    /// Debug frame-ahead prediction in milliseconds (`input.resampleFrameAheadMs`, ``InputResampler/frameAheadMs``;
+    /// 0, the default, is Chromium's default: interpolate 5 ms behind the frame).
     public let frameAheadMs: Double
-    private var resampler = InputResampler()
+    private var resampler: InputResampler
+    /// The latest time this drag was resampled at; the next resample is never earlier.
+    private var lastResampleTime = -Double.infinity
 
     public init(frameAheadMs: Double = 0) {
         self.frameAheadMs = max(0, frameAheadMs)
+        resampler = InputResampler(frameAheadMs: self.frameAheadMs)
     }
 
     /// Forgets the drag's samples (a new drag, or its end): `LinearResampling::Reset`.
     public mutating func reset() {
         resampler.reset()
+        lastResampleTime = -Double.infinity
     }
 
     /// Feeds `input`'s real samples and gives its real and drawn points for `frame`.
@@ -61,10 +67,15 @@ public struct DragResampler: Hashable, Sendable {
         } else {
             for sample in input.samples { resampler.update(sample) }
         }
-        let real = PointerDragPoints(real: latest)
-        guard frame.interval > 0 else { return real }
-        resampler.frameAhead = frameAheadMs / 1000 / frame.interval
-        guard let resampled = resampler.resample(frameTime: frame.time, frameInterval: frame.interval) else { return real }
-        return PointerDragPoints(realPoint: latest.location, realTime: latest.timestamp, visualPoint: resampled.location)
+        guard let visual = visualPoint(at: frame.time) else { return PointerDragPoints(real: latest) }
+        return PointerDragPoints(realPoint: latest.location, realTime: latest.timestamp, visualPoint: visual)
+    }
+
+    /// The pointer resampled at `time`, no earlier than the drag's previous resample time; nil before
+    /// there are two samples far enough apart.
+    private mutating func visualPoint(at time: Double) -> InputPoint? {
+        let time = max(time, lastResampleTime)
+        lastResampleTime = time
+        return resampler.resample(frameTime: time)?.location
     }
 }

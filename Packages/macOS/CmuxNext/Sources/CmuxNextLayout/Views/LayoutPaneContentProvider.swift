@@ -142,6 +142,12 @@ final class LayoutViewContext {
     /// A test that pins `reduceMotionOverride` pins this too, so its springs run as before the setting.
     var animatesPaneLayout: Bool { reduceMotionOverride.map { !$0 } ?? Motion.panes.animatesPaneLayout }
 
+    /// A new drag's resampler (``dragResampler``); none under Reduce Motion, where a drag is drawn at the
+    /// real pointer.
+    func newDragResampler() -> DragResampler? {
+        reduceMotion ? nil : dragResampler()
+    }
+
     func host(for pane: PaneID) -> PaneHostView {
         if let host = hosts[pane] { return host }
         let content = provider?.makeContentView(for: pane) ?? NSView()

@@ -103,7 +103,7 @@ extension ScreenContentView {
     /// A new divider drag's resampler; none under Reduce Motion, where the divider follows the real
     /// pointer.
     func newDragResampler() -> DragResampler? {
-        context.reduceMotion ? nil : context.dragResampler()
+        context.newDragResampler()
     }
 
     /// Moves the dragged divider or edge for the pointer at `realWindowPoint`, drawn at

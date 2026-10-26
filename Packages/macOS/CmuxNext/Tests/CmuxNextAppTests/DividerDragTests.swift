@@ -317,6 +317,34 @@ import Testing
         #expect(try resampled.screen.activeDrag?.snapped == 0.5)
     }
 
+    /// A frame tick that main runs after a leading edge, though its vsync came before that edge's event, never
+    /// draws the divider back against the drag: the drag's resample time does not go back.
+    @Test func aLateTickNeverDrawsTheDividerBack() throws {
+        let harness = try Harness(resampled: true, reduceMotion: false)
+        defer { harness.close() }
+        let handle = try harness.handle
+        let start = try harness.center()
+        // A leftward drag at 10 points per step: event i at 1000 + i * step, 10 * (i + 1) points left of the start.
+        func drag(_ index: Int) {
+            let point = CGPoint(x: start.x - CGFloat(10 * (index + 1)), y: start.y)
+            handle.mouseDragged(with: harness.event(.leftMouseDragged, point, at: 1000 + Double(index) * Self.step))
+        }
+        handle.mouseDown(with: harness.event(.leftMouseDown, start, at: 1000 - Self.step))
+        for index in 0...2 { drag(index) }
+        harness.frames.frame()
+        // Event 5 (1000.0195 s) is the next interval's leading edge; the next tick's vsync is 1000.0167 s.
+        for index in 5...7 { drag(index) }
+        harness.frames.frame()
+        let shown = harness.events.compactMap { event -> CGPoint? in
+            if case let .moved(_, _, shown) = event { return shown }
+            return nil
+        }
+        #expect(shown.count == 4, "two leading edges and two frames: \(harness.kinds)")
+        let leading = try #require(shown.dropLast().last)
+        let trailing = try #require(shown.last)
+        #expect(trailing.x <= leading.x + 1e-6, "the divider went back: \(leading.x) then \(trailing.x)")
+    }
+
     /// Reduce Motion draws the divider at the real pointer whatever the resampler setting.
     @Test func reduceMotionDrawsTheRealPointer() throws {
         let reduced = try Harness(resampled: true, reduceMotion: true)

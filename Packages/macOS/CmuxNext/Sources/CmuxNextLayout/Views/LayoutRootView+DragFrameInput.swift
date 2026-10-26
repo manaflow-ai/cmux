@@ -20,6 +20,12 @@ extension LayoutRootView {
         set { context.dragResampler = newValue }
     }
 
+    /// A new drag's resampler for a drag the layout shows (a pane-swap preview): ``dragResampler``'s,
+    /// or nil under Reduce Motion.
+    public func newDragResampler() -> DragResampler? {
+        context.newDragResampler()
+    }
+
     /// Sets ``dragFrameInput`` and ``dragResampler`` together (the app's composition root).
     public func setDragInput(frames: FrameInputCoalescers?, resampler: @escaping () -> DragResampler?) {
         dragFrameInput = frames

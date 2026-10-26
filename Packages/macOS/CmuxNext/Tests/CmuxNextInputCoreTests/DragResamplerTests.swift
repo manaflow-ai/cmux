@@ -67,6 +67,37 @@ struct DragResamplerTests {
         #expect(abs(points.visualPoint.x - 15) < 1e-6, "the leading edge's sample is the segment's start")
     }
 
+    /// A frame tick whose vsync time is older than the leading edge before it (main ran the tick late) resamples
+    /// at the leading edge's time: the resample time never goes back, so the drawn point never steps back
+    /// against the drag. Without the clamp the trailing frame draws 5 points behind the leading edge.
+    @Test func aLateTickNeverDrawsBehindTheLeadingEdge() throws {
+        var resampler = DragResampler()
+        let start = 1.0
+        let frame = { (time: Double) in PointerFrameTime(time: time, interval: 1.0 / 120) }
+        _ = try resampler.points(for: Self.delivery([0, 10, 20], start: start), at: frame(start + 2 * Self.step))
+        let leadTime = start + 3 * Self.step
+        let leading = try resampler.points(for: Self.delivery([30], start: leadTime), at: frame(leadTime))
+        // The tick's vsync came before the leading event, though main ran it after.
+        let trailing = try resampler.points(for: Self.delivery([40, 50], start: start + 4 * Self.step), at: frame(start + 2.5 * Self.step))
+        #expect(trailing.realPoint.x == 50)
+        #expect(trailing.visualPoint.x >= leading.visualPoint.x - 1e-9,
+                "the drawn point went back: \(leading.visualPoint.x) then \(trailing.visualPoint.x)")
+        // A constant-speed drag resampled at the same time draws the same point.
+        #expect(abs(trailing.visualPoint.x - leading.visualPoint.x) < 1e-9)
+    }
+
+    /// Frame-ahead is in milliseconds (InputResampler.frameAheadMs): 8 ms lifts the sample time from 5 ms behind
+    /// the frame to 3 ms past it, with no cap on the extrapolation.
+    @Test func frameAheadIsInMilliseconds() throws {
+        let start = 1.0
+        let input = try Self.delivery([0, 10, 20, 30], start: start)
+        let newest = start + 3 * Self.step
+        var ahead = DragResampler(frameAheadMs: 8)
+        let points = ahead.points(for: input, at: PointerFrameTime(time: newest, interval: 1.0 / 120))
+        let expected = 30 + 10 * (0.003 / Self.step)
+        #expect(abs(points.visualPoint.x - expected) < 1e-6, "\(points.visualPoint.x) != \(expected)")
+    }
+
     /// Debug frame-ahead prediction draws further ahead than the default; 0 is Chromium's default.
     @Test func frameAheadDrawsFurtherAhead() throws {
         let start = 1.0
