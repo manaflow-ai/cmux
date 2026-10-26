@@ -244,7 +244,8 @@ async fn reconcile(hub: &Arc<Hub>) -> Result<(), RpcError> {
                 let id = uuid::Uuid::now_v7().to_string();
                 let now = crate::store::now_ms();
                 let request = json!({"sessionId": w.to, "prompt": [{"type": "text", "text": format!("acpmux watch {}:\n{}", w.id, lines.join("\n\n"))}],
-                    "_meta": {"acpmux": {"promptId": id, "resend": true, "steer": true}}});
+                    "_meta": {"acpmux": {"promptId": id, "resend": true, "steer": true,
+                        "watchId": w.id, "watchDone": w.once && resolved}}});
                 saved.pending.insert(id.clone(), Delivery { id, target: w.to.clone(), request,
                     caller: w.caller.clone(), state: State::Queued, attempts: 0, error: None,
                     accepted: None, created_at: now, updated_at: now });
@@ -284,7 +285,15 @@ fn drain(hub: &Arc<Hub>, retry: bool) {
     for d in pending.into_values() {
         match hub.outbox.get(&d.id) {
             Some(sent) if matches!(sent.state, State::Delivered | State::Held) => {
-                if let Err(e) = hub.watches.change(|s| s.pending.remove(&d.id)) {
+                if let Err(e) = hub.watches.change(|s| {
+                    s.pending.remove(&d.id);
+                    if d.request.pointer("/_meta/acpmux/watchDone") == Some(&json!(true))
+                        && let Some(id) =
+                            d.request.pointer("/_meta/acpmux/watchId").and_then(Value::as_str)
+                    {
+                        s.watches.remove(id);
+                    }
+                }) {
                     tracing::error!("watch: {e}");
                 }
             }

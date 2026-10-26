@@ -32,7 +32,7 @@ pub(super) async fn handle(
             if hub.watches.remove(id)? {
                 Ok(json!({"removed": id}))
             } else {
-                Err(RpcError::not_found(format!("no watch {id:?}; run acpmux watch ls")))
+                Err(RpcError::not_found(format!("no watch {id:?}; call _acpmux/watch_ls")))
             }
         }
         _ => {
@@ -52,12 +52,14 @@ pub(super) async fn handle(
                 .any(|u| !matches!(u.as_str(), "ready" | "permission" | "done" | "closed"))
             {
                 return Err(RpcError::invalid_params(
-                    "watch --until accepts ready, permission, done or closed",
+                    "until accepts ready, permission, done or closed",
                 ));
             }
             let key = match a.to.as_deref() {
                 None | Some("@" | "current") => conn.caller().ok_or_else(|| {
-                    RpcError::invalid_params("watch requires --to SESSION outside an acpmux agent")
+                    RpcError::invalid_params(
+                        "to is required without an authenticated caller session",
+                    )
                 })?,
                 Some(to) => to,
             };
