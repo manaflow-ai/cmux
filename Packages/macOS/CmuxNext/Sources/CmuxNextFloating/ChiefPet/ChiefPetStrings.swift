@@ -1,7 +1,7 @@
 import Foundation
 
 /// Text of the Chief pet. Keys live in Resources/ChiefPet.xcstrings.
-public enum ChiefPetStrings {
+enum ChiefPetStrings {
     static var accessibilityLabel: String {
         String(localized: "chiefPet.accessibilityLabel", defaultValue: "Chief", table: "ChiefPet", bundle: .module)
     }
@@ -53,13 +53,13 @@ public enum ChiefPetStrings {
 
     // MARK: Upload (ChiefAvatarUploads)
 
-    public static var uploadLimits: String {
+    static var uploadLimits: String {
         String(localized: "chiefPet.upload.limits",
                defaultValue: "Use a PNG, JPEG, WebP, HEIC or GIF up to 20 MB. A moving GIF can be at most 512 KB and 256 × 256 pixels.",
                table: "ChiefPet", bundle: .module)
     }
 
-    public static var uploadUnsaved: String {
+    static var uploadUnsaved: String {
         String(localized: "chiefPet.upload.unsaved", defaultValue: "cmux couldn’t save that picture on this Mac.", table: "ChiefPet", bundle: .module)
     }
 }
