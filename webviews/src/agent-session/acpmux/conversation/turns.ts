@@ -1055,6 +1055,7 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
   if (
     group.type === "item" ||
     group.type === "message" ||
+    group.type === "send" ||
     group.type === "subsession" ||
     group.type === "dispatch" ||
     (group.type === "mcp" && group.items.length === 1)
