@@ -24,10 +24,11 @@ def test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups() ->
     tick = (WORKFLOWS / "nightly-next-tick.yml").read_text(encoding="utf-8")
     assert re.search(r'(?m)^\s+- cron: "7,37 \* \* \* \*"$', tick)
     assert "cancel-in-progress: false" in tick
-    assert "group: nightly-next-tick-${{ github.run_id }}" in tick
-    assert "coalesce:" in tick and "needs: coalesce" in tick
-    assert "Number(a.id) - Number(b.id)" in tick
-    assert "candidate[0] === currentOrder[0]" in tick
+    # One shared job-level group: one tick runs, the newest waits. The tick
+    # dispatches no build itself, so replacing a pending tick cancels no work.
+    # No polling coalescer: it spent the GITHUB_TOKEN quota (2026-10-25).
+    assert "|| 'nightly-next-tick' }}" in tick
+    assert "listWorkflowRuns" not in tick and "needs: coalesce" not in tick
     dev = (WORKFLOWS / "cmux-next-dev-daily-dispatch.yml").read_text(encoding="utf-8")
     assert 'cron: "2-59/5 * * * *"' in dev or 'cron: "7,22,37,52 * * * *"' in dev
     assert "cancel-in-progress: false" in dev
