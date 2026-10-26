@@ -49,7 +49,29 @@ fn hub() -> Arc<Hub> {
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
-    Hub::new(cfg, store)
+    let hub = Hub::new(cfg, store);
+    let _ = hub.person.install_spawn_key(PERSON_KEY);
+    hub
+}
+
+/// The person key these hubs hold, as a daemon the app started does.
+const PERSON_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+/// The app's connection: `initialize`, then the person proof (`hub/person.rs`).
+async fn person(hub: &Arc<Hub>) -> Client {
+    let mut c = client(hub, Origin::Local);
+    let init = c.call("initialize", json!({"protocolVersion": 1})).await;
+    let challenge = &init["result"]["_meta"]["acpmux"]["personChallenge"];
+    let proof = acpmux::hub::person::person_proof(
+        PERSON_KEY,
+        acpmux::hub::person::TRANSPORT_UNIX,
+        challenge["nonce"].as_str().unwrap(),
+        challenge["connection"].as_str().unwrap(),
+    )
+    .unwrap();
+    let proved = c.call("_acpmux/person_prove", json!({"proof": proof})).await;
+    assert_eq!(proved["result"]["person"], true, "{proved}");
+    c
 }
 
 struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
@@ -385,6 +407,54 @@ async fn a_queue_edit_cannot_attach_files() {
         "prompt": [{"type": "text", "text": "x"}, image("shot.png", &png(64))]});
     let reply = c.call(method::MUX_QUEUE_EDIT, edit).await;
     assert_eq!(reply["error"]["data"]["reason"], "attach.edit", "{reply}");
+}
+
+/// A held message the person releases into a busy session waits in its queue; withdrawn there
+/// before it runs, it keeps no files.
+#[tokio::test]
+async fn a_released_held_message_withdrawn_before_it_runs_keeps_none() {
+    let hub = hub();
+    let mut c = client(&hub, Origin::Local);
+    let (a, b) = (c.new_session("attach-rel-a").await, c.new_session("attach-rel-b").await);
+    let shot = png(144);
+    let mut reply = Value::Null;
+    for n in 1..=3 {
+        let provenance = json!({"kind": "agent_message", "from": format!("acp:{a}"),
+            "fromName": "agent", "to": format!("acp:{b}"), "msgId": format!("r{n}"),
+            "threadId": "t-1"});
+        let mux = json!({"promptId": format!("r{n}"), "provenance": provenance});
+        let blocks = json!([{"type": "text", "text": "please check the build"},
+            image("shot.png", &shot)]);
+        let p = json!({"sessionId": b, "prompt": blocks, "_meta": {"acpmux": mux}});
+        reply = c.call(method::SESSION_PROMPT, p).await;
+    }
+    assert_eq!(reply["error"]["data"]["held"], true, "{reply}");
+    let busy = json!({"sessionId": b, "prompt": [{"type": "text", "text": "until-cancel"}]});
+    c.0.send(Message::request(json!("busy"), method::SESSION_PROMPT, busy).to_line()).await.unwrap();
+    let mut q = client(&hub, Origin::Local);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while q.user_messages(&b).await.len() < 3 {
+        assert!(tokio::time::Instant::now() < deadline, "the busy turn never started");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    person(&hub).await.call("_acpmux/agent_pair_resume", json!({"sessionId": a})).await;
+    loop {
+        let page = q.call("_acpmux/events", json!({"sessionId": b, "kinds": ["queued"]})).await;
+        if page["result"]["events"].as_array().is_some_and(|e| !e.is_empty()) {
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "the release never queued: {page}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let removed =
+        q.call(method::MUX_QUEUE_REMOVE, json!({"sessionId": b, "promptId": "r3"})).await;
+    assert_eq!(removed["result"]["removed"], true, "{removed}");
+    q.call(method::SESSION_CANCEL, json!({"sessionId": b})).await;
+    let shots = || saved(&b).into_iter().filter(|p| p.ends_with("shot.png")).count();
+    while shots() != 2 {
+        assert!(tokio::time::Instant::now() < deadline, "r3 kept its files: {:?}", saved(&b));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
 }
 
 /// A message refused by a check after its files were read (here its `fromAgent`) keeps none.

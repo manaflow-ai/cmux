@@ -26,6 +26,7 @@ use crate::rpc::RpcError;
 use anyhow::Context;
 use base64::Engine;
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -320,19 +321,31 @@ impl Saved {
     /// first run's outcome (that run reads its own folder, so a retried delivery keeps one copy),
     /// it was refused before it reached the session, or it was queued and then left the queue
     /// unrun (withdrawn, superseded, refused when its turn came). A message an agent pair holds
-    /// keeps them for its release (`agent_pairs.rs`); a resend of one held already does not.
+    /// keeps them until it is dropped ([`held_dropped`]) or its release is answered
+    /// ([`held_released`]); a resend of one held already keeps none.
     pub async fn settle(mut self, hub: &Arc<crate::hub::Hub>, answer: &Result<Value, RpcError>) {
         let accepted = self.accepted.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let data = answer.as_ref().err().and_then(|e| e.data.as_ref());
         let flag = |k| data.and_then(|d| d.get(k)) == Some(&Value::Bool(true));
-        let held = flag("held") && !flag("resent");
+        let held = (flag("held") && !flag("resent"))
+            .then(|| data.and_then(|d| d.get("promptId")).and_then(Value::as_str))
+            .flatten()
+            .map(str::to_owned);
         let withdrawn = answer.as_ref().ok().and_then(|v| v.pointer("/_meta/acpmux/withdrawn"))
             == Some(&Value::Bool(true));
         let failed = answer.is_err();
         let (hub, session, dir) = (hub.clone(), self.session.clone(), self.dir.take());
         let _ = tokio::task::spawn_blocking(move || {
             let keep = match accepted {
-                None => held,
+                None => match held {
+                    Some(prompt_id) => {
+                        if let Some(dir) = dir.clone() {
+                            held_dirs().insert((session.clone(), prompt_id), dir);
+                        }
+                        true
+                    }
+                    None => false,
+                },
                 Some(_) if withdrawn => false,
                 // Refused when its turn came, or its turn failed: kept if it ran.
                 Some((true, id)) if failed => hub.ran_prompt(&session, &id),
@@ -346,14 +359,49 @@ impl Saved {
     }
 }
 
+/// The folders of messages an agent pair holds, by receiving session and prompt id, until
+/// [`held_settled`]. One held across a daemon restart is not here: its folder goes with the
+/// uploads age sweep or the chat's deletion.
+fn held_dirs() -> std::sync::MutexGuard<'static, BTreeMap<(String, String), PathBuf>> {
+    static HELD: Mutex<BTreeMap<(String, String), PathBuf>> = Mutex::new(BTreeMap::new());
+    HELD.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// A message an agent pair held was dropped (`agent_pairs.rs`): its files go.
+pub fn held_dropped(session: &str, prompt_id: &str) {
+    if let Some(dir) = held_dirs().remove(&(session.to_owned(), prompt_id.to_owned())) {
+        remove_soon(dir);
+    }
+}
+
+/// A held message the pair released into session `session` was answered (it ran, or it left
+/// the queue unrun, withdrawn or refused): its files stay only if the session's log shows it ran.
+pub async fn held_released(hub: &Arc<crate::hub::Hub>, session: &str, prompt_id: &str) {
+    let key = (session.to_owned(), prompt_id.to_owned());
+    let Some(dir) = held_dirs().remove(&key) else { return };
+    let hub = hub.clone();
+    let _ = tokio::task::spawn_blocking(move || {
+        if !hub.ran_prompt(&key.0, &key.1) {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    })
+    .await;
+}
+
+/// Deletes folder `dir` off the runtime when there is one.
+fn remove_soon(dir: PathBuf) {
+    let remove = move || drop(std::fs::remove_dir_all(dir));
+    match tokio::runtime::Handle::try_current() {
+        Ok(runtime) => drop(runtime.spawn_blocking(remove)),
+        Err(_) => remove(),
+    }
+}
+
 impl Drop for Saved {
     fn drop(&mut self) {
         let accepted = self.accepted.lock().unwrap_or_else(|e| e.into_inner()).is_some();
-        let Some(dir) = self.dir.take().filter(|_| !accepted) else { return };
-        let remove = move || drop(std::fs::remove_dir_all(dir));
-        match tokio::runtime::Handle::try_current() {
-            Ok(runtime) => drop(runtime.spawn_blocking(remove)),
-            Err(_) => remove(),
+        if let Some(dir) = self.dir.take().filter(|_| !accepted) {
+            remove_soon(dir);
         }
     }
 }
@@ -433,6 +481,40 @@ mod tests {
         request["_meta"] = json!({"acpmux": {"promptId": "x".repeat(2 << 20)}});
         let refused = check_wire(&request).unwrap_err();
         assert!(refused.message.contains("15 MiB"), "{refused}");
+    }
+
+    #[tokio::test]
+    async fn a_held_message_keeps_its_files_until_it_is_dropped_or_its_release_never_ran() {
+        let root = std::env::temp_dir().join(format!("acpmux-held-{}", uuid::Uuid::now_v7()));
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+        let hub = crate::hub::Hub::new(cfg, store);
+        let held = |id: &str| {
+            Err(RpcError::new(-32000, "held").with_data(json!({"held": true, "promptId": id})))
+        };
+        for (id, released) in [("dropped", false), ("released", true)] {
+            let dir = root.join(id);
+            std::fs::create_dir_all(&dir).unwrap();
+            let saved =
+                Saved { dir: Some(dir.clone()), session: "s".into(), accepted: Arc::default() };
+            saved.settle(&hub, &held(id)).await;
+            assert!(dir.is_dir(), "{id}: kept while held");
+            if released {
+                // Released, then withdrawn from the queue: its run never came.
+                held_released(&hub, "s", id).await;
+            } else {
+                held_dropped("s", id);
+                for _ in 0..100 {
+                    if !dir.exists() {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+            }
+            assert!(!dir.exists(), "{id}");
+        }
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
