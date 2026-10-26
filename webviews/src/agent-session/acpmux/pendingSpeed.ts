@@ -22,6 +22,12 @@ export function pendingSpeed(snapshot: AcpmuxSnapshot) {
         ),
       ],
     };
+  const profile = harnessProfiles.get(summary.harness);
+  const profileOption =
+    profile && profile.model === summary.model
+      ? profile.configOptions?.find((option) => option.id === "fast-mode")
+      : undefined;
+  if (profileOption) return profileOption;
   // A bundled model catalog can promise Fast before a new session has reported its config
   // options. Keep that control in the New Tab model menu instead of waiting for the first frame.
   if (model?.fast === true)
@@ -33,8 +39,5 @@ export function pendingSpeed(snapshot: AcpmuxSnapshot) {
         { value: "on", name: "On" },
       ],
     };
-  const profile = harnessProfiles.get(summary.harness);
-  return profile && profile.model === summary.model
-    ? profile.configOptions?.find((option) => option.id === "fast-mode")
-    : undefined;
+  return undefined;
 }
