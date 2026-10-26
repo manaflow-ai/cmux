@@ -406,16 +406,28 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
     // path (renamed in, a copy of its `.git` file), before or during the removal, is left alone.
     #[cfg(unix)]
     if let Some(held) = &worktree.root_held {
+        // Its own registration, read through the held folder before it is emptied.
+        let admin = held_gitdir(held);
         if let Err(e) = empty_held(held) {
             tracing::warn!(root = %worktree.root.display(), "worktree not removed: {e}");
             return;
         }
         #[cfg(test)]
         before_path_removal(&worktree.root);
-        // Only an empty folder goes by path. Its registration goes once its `.git` is gone, and
-        // the branch only then: git refuses to delete a branch a registered worktree is on.
-        let _ = std::fs::remove_dir(&worktree.root);
-        let _ = git(folder, &["worktree", "prune"]);
+        // Only an empty folder goes by path. Its registration goes only once nothing is at its
+        // path, and only its own; the branch only then (git refuses to delete a branch a
+        // registered worktree is on).
+        let gone = match std::fs::remove_dir(&worktree.root) {
+            Ok(()) => true,
+            Err(e) => e.kind() == std::io::ErrorKind::NotFound,
+        };
+        if !gone {
+            tracing::warn!(root = %worktree.root.display(), "worktree registration kept: another folder is at its path");
+            return;
+        }
+        if let Some(admin) = admin {
+            remove_registration(folder, &admin, &worktree.root);
+        }
         if git(folder, &["branch", "-D", &worktree.branch]).is_ok() {
             let _ = git(
                 folder,
@@ -430,6 +442,52 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
     let _ = git(folder, &["config", "--unset", &format!("branch.{}.cmuxBase", worktree.branch)]);
 }
 
+/// The administrative folder the `.git` file in the open worktree folder `dir` names, read
+/// through its handle; None when there is none.
+#[cfg(unix)]
+fn held_gitdir(dir: &std::fs::File) -> Option<PathBuf> {
+    use std::io::Read;
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    let flags = libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    // SAFETY: `dir` is open for the call; the descriptor opened is owned at once.
+    let fd = unsafe { libc::openat(dir.as_raw_fd(), c".git".as_ptr(), flags) };
+    if fd < 0 {
+        return None;
+    }
+    let mut text = String::new();
+    std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) }).read_to_string(&mut text).ok()?;
+    text.trim().strip_prefix("gitdir: ").map(PathBuf::from)
+}
+
+/// Removes the registration `admin` of the worktree that was at `root`, and nothing else: it must
+/// be in `folder`'s repository's `worktrees/` and point back at `root`.
+#[cfg(unix)]
+fn remove_registration(folder: Dir<'_>, admin: &Path, root: &Path) {
+    let common = ["rev-parse", "--path-format=absolute", "--git-common-dir"];
+    let Some(worktrees) = git(folder, &common)
+        .ok()
+        .and_then(|c| std::fs::canonicalize(c).ok())
+        .map(|c| c.join("worktrees"))
+    else {
+        return;
+    };
+    let Ok(admin) = std::fs::canonicalize(admin) else { return };
+    // Its root is gone by now: compared by its folder (resolved, as git may have spelled it
+    // through a link) and its name.
+    let spelled = |p: &Path| {
+        let parent = p.parent().and_then(|d| std::fs::canonicalize(d).ok());
+        (parent, p.file_name().map(std::ffi::OsStr::to_owned))
+    };
+    let points_back = std::fs::read_to_string(admin.join("gitdir")).is_ok_and(|g| {
+        let git = Path::new(g.trim());
+        git.file_name() == Some(std::ffi::OsStr::new(".git"))
+            && git.parent().is_some_and(|r| spelled(r) == spelled(root))
+    });
+    if admin.parent() == Some(worktrees.as_path()) && points_back {
+        let _ = std::fs::remove_dir_all(&admin);
+    }
+}
+
 /// Removes everything in the open folder `dir` through its handle (`openat`/`unlinkat`, never a
 /// path, links not followed), leaving it empty.
 #[cfg(unix)]
@@ -437,8 +495,9 @@ fn empty_held(dir: &std::fs::File) -> std::io::Result<()> {
     use std::ffi::{CStr, CString};
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
     let names: Vec<CString> = {
-        // SAFETY: dup of an open descriptor; fdopendir owns the copy and closedir closes it.
-        let fd = unsafe { libc::dup(dir.as_raw_fd()) };
+        // SAFETY: a close-on-exec copy of an open descriptor (no child spawned meanwhile
+        // inherits it); fdopendir owns the copy and closedir closes it.
+        let fd = unsafe { libc::fcntl(dir.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 0) };
         if fd < 0 {
             return Err(std::io::Error::last_os_error());
         }
