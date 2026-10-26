@@ -1935,8 +1935,10 @@ def check_case(case: Case, mutations: frozenset) -> List[str]:
     for plat in data.get("platforms") or ():
         if plat not in PLATFORMS:
             errors.append(f"{case.id}: unknown platform {plat!r}")
-    for kind in data.get("allow_crashes") or ():
-        if kind not in CRASH_KINDS:
+    for entry in data.get("allow_crashes") or ():
+        # case-v1 $defs/allowCrash: {kind, reason, steps, max}.
+        kind = entry.get("kind") if isinstance(entry, dict) else entry
+        if not isinstance(kind, str) or kind not in CRASH_KINDS:
             errors.append(f"{case.id}: unknown crash kind {kind!r} in allow_crashes")
     steps = data.get("steps")
     if not isinstance(steps, list) or not steps:
@@ -1958,14 +1960,17 @@ def check_case(case: Case, mutations: frozenset) -> List[str]:
         op = step.get("op")
         if op not in STEP_OPS:
             errors.append(f"{case.id}: {label} has unknown op {op!r}")
-        operation = (step.get("args") or {}).get("operation") if isinstance(step.get("args"), dict) else None
+        args = step.get("args") if isinstance(step.get("args"), dict) else {}
+        operation = args.get("method") or args.get("operation")  # case-v1 argsResourceCall names it method
         mutating = op in TARGETED_OPS or (op == "resource.call" and operation in mutations)
         if mutating and not step.get("target"):
             what = f"{op} {operation}" if op == "resource.call" else op
             errors.append(f"{case.id}: {label} mutates ({what}) without a target")
-        checkpoint = step.get("checkpoint")
-        if checkpoint is not None and checkpoint not in CHECKPOINTS:
-            errors.append(f"{case.id}: {label} has unknown checkpoint {checkpoint!r}")
+        # case-v1: checkpoint is an array of checkpoint names.
+        checkpoints = step.get("checkpoint", [])
+        for checkpoint in checkpoints if isinstance(checkpoints, list) else [checkpoints]:
+            if not isinstance(checkpoint, str) or checkpoint not in CHECKPOINTS:
+                errors.append(f"{case.id}: {label} has unknown checkpoint {checkpoint!r}")
     for url in non_loopback_urls(data):
         errors.append(f"{case.id}: non-loopback URL {url!r} (offline fixtures use loopback or $WEB)")
     return errors
