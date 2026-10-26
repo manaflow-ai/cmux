@@ -1,7 +1,8 @@
-/// One study this install is in, and its arm: Chrome's active field trial group
-/// (base/metrics/field_trial.h, `FieldTrial::ActiveGroup`). Hang reports carry it as
-/// ``description`` (`study=arm`, task p12-perf-process-151), and `field.py` splits
-/// every field metric by it.
+/// One study this install is in, and its arm: Chrome's field trial group
+/// (base/metrics/field_trial.h, `FieldTrial::ActiveGroup`). It is in effect only where its arm
+/// decides the feature (``FieldTrials/inEffect(in:localOverride:)``); a hang report then names the
+/// feature as `name=on|off@trial` (task p12-perf-process-151's non-default features), and
+/// `field.py` splits every field metric by ``fieldTag``.
 public nonisolated struct FieldTrial: Sendable, Hashable, CustomStringConvertible {
     public let study: String
     public let arm: String
@@ -17,8 +18,12 @@ public nonisolated struct FieldTrial: Sendable, Hashable, CustomStringConvertibl
         self.isEnabled = isEnabled
     }
 
-    /// `study=arm`, the form reports carry.
+    /// `study=arm`, for logs and diagnostics.
     public var description: String { "\(study)=\(arm)" }
+
+    /// `feature=on|off`: the arm as `field.py` names it from a report's `features[]` entry of source
+    /// `trial`. One study owns a feature and an arm only sets its state, so this is the arm.
+    public var fieldTag: String { "\(feature)=\(isEnabled ? "on" : "off")" }
 }
 
 /// Why a study of the flags document gives this install no arm.
@@ -132,10 +137,23 @@ public nonisolated struct FieldTrials: Sendable, Equatable {
         Dictionary(active.map { ($0.feature, $0.isEnabled) }, uniquingKeysWith: { first, _ in first })
     }
 
-    /// `study=arm` of every active study, sorted: what a hang report carries (task
-    /// p12-perf-process-151) and `field.py` splits by.
-    public var reportTags: [String] {
-        active.map(\.description).sorted()
+    /// The active trials whose arm decides its feature in `list`, in document order: the ones field data
+    /// may count in their arm. A feature that policy, the environment lists, a Labs override or the remote
+    /// document decides (``FeatureList`` steps 1 to 4), or that a late Debug tunable changes
+    /// (``FeatureList/effectiveLocalOverride(_:localOverride:)``), is not in its study's arm. Chrome
+    /// activates a trial only when its own override is the one in use: base/feature_list.cc keeps the
+    /// command-line override over the trial's and activates the trial only when its entry is read.
+    ///
+    /// - Parameters:
+    ///   - list: the launch's list, built with ``values`` as ``FeatureOverrides/fieldTrial``.
+    ///   - localOverride: the Debug tunable the feature replaced, read after the list was built; nil for none.
+    public func inEffect(in list: FeatureList, localOverride: (Feature) -> Bool? = { _ in nil }) -> [FieldTrial] {
+        active.filter { trial in
+            guard let feature = list.registry.feature(named: trial.feature) else { return false }
+            let resolution = list.resolution(of: feature)
+            return resolution.source == .fieldTrial && resolution.isEnabled == trial.isEnabled
+                && list.effectiveLocalOverride(feature, localOverride: localOverride(feature)) == nil
+        }
     }
 
     /// The channels a study names: its `channel` list, else ``defaultChannel``. Unknown names are kept,

@@ -196,13 +196,42 @@ struct FieldTrialTests {
         #expect(remote.resolution(of: Self.slack) == Feature.Resolution(isEnabled: false, source: .remote))
     }
 
-    @Test func reportTagsAreSortedStudyArmPairs() {
+    @Test func trialsInEffectAreTheOnesTheirArmDecides() {
         let trials = Self.trials([
             Self.study("zStudy", arms: [("treatment", 1, "on")]),
             Self.study("aStudy", feature: "prefetchThing", arms: [("control", 1, "off")]),
         ])
-        #expect(trials.reportTags == ["aStudy=control", "zStudy=treatment"])
         #expect(trials.values == ["slackThing": true, "prefetchThing": false])
+        let list = FeatureList(registry: Self.registry, channel: .nightly, overrides: FeatureOverrides(fieldTrial: trials.values))
+        #expect(trials.inEffect(in: list).map(\.description) == ["zStudy=treatment", "aStudy=control"])
+        #expect(trials.inEffect(in: list).map(\.fieldTag) == ["slackThing=on", "prefetchThing=off"])
+    }
+
+    /// An install whose study feature a higher input forces runs that input's value, not its arm's, so its
+    /// field data must not count in the arm (base/feature_list.cc activates a trial only when its override is used).
+    @Test func aHigherInputOnTheStudysFeatureRemovesItsTrial() {
+        let trials = Self.trials([Self.study(arms: [("treatment", 1, "on")])])
+        let forced: [(String, FeatureList)] = [
+            ("policy", FeatureList(registry: Self.registry, channel: .nightly,
+                                   overrides: FeatureOverrides(policyDisabled: ["slackThing"], fieldTrial: trials.values))),
+            ("env off", FeatureList(registry: Self.registry, channel: .nightly,
+                                    overrides: FeatureOverrides(environmentDisabled: ["slackThing"], fieldTrial: trials.values))),
+            ("env on", FeatureList(registry: Self.registry, channel: .nightly,
+                                   overrides: FeatureOverrides(environmentEnabled: ["slackThing"], fieldTrial: trials.values))),
+            ("remote", FeatureList(registry: Self.registry, channel: .nightly,
+                                   overrides: FeatureOverrides(remote: ["slackThing": true], fieldTrial: trials.values))),
+            ("local", FeatureList(registry: Self.registry, channel: .nightly,
+                                  overrides: FeatureOverrides(fieldTrial: trials.values),
+                                  local: FeatureLocalOverrides(values: ["slackThing": true]))),
+        ]
+        for (input, list) in forced {
+            #expect(trials.inEffect(in: list).isEmpty, "\(input) decides slackThing, so its trial is not in effect")
+        }
+        let list = FeatureList(registry: Self.registry, channel: .nightly, overrides: FeatureOverrides(fieldTrial: trials.values))
+        #expect(trials.inEffect(in: list).map(\.study) == ["slackStudy"])
+        // A late Debug tunable is the local step too, on NIGHTLY.
+        #expect(trials.inEffect(in: list, localOverride: { $0.name == "slackThing" ? true : nil }).isEmpty)
+        #expect(trials.inEffect(in: list, localOverride: { $0.name == "prefetchThing" ? false : nil }).map(\.study) == ["slackStudy"])
     }
 
     @Test func studiesComeFromTheSignedDocument() throws {

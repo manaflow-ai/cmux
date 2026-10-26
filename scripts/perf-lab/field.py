@@ -18,11 +18,15 @@ Nightly build, hardware class and features arm it reports (and again per field-t
   sent by task 043 as interval entries).
 
 The features arm is the report's `features_hash` (task 151). A Nightly field trial (task 152, FieldTrial.swift)
-puts the install in one arm of each study it runs; the report lists them as `field_trials` (`study=arm`), and
-every metric is also reported per (build, hardware class, `study=arm`), so the arms of one study compare
-directly, as Chrome's UMA splits each histogram by the variation ids of the active field trials
-(components/variations/variations_ids_provider.h). A report counts once in its features group and once in each
-of its trial groups; the trial groups are left out of the report total.
+puts the install in one arm of each study it runs. Task 151's `features[]` names every feature an input other
+than the channel default decided, as `{name, state, source}`; an entry of source `trial` is a feature whose
+field-trial arm decided it, so a feature that policy, the environment, a Labs override or the remote document
+forced is not in its study's arm. Every metric is also reported per (build, hardware class, `feature=on|off`)
+of those entries, so the arms of one study compare directly, as Chrome's UMA splits each histogram by the
+variation ids of the active field trials (components/variations/variations_ids_provider.h). One study owns a
+feature and an arm only sets its state, so `feature=state` is the arm: two arms of one state run the same code.
+A report counts once in its features group and once in each of its trial groups; the trial groups are left out
+of the report total.
 
 Rules (R10): SELECT only, counts only. Every query runs in one read-only repeatable-read transaction with
 `default_transaction_read_only=on`, and `assert_select_only` refuses any other statement before psql starts.
@@ -135,20 +139,24 @@ def privilege_query() -> str:
 
 
 _FEATURES_HASH = "COALESCE(payload->>'featuresHash', payload->>'features_hash')"
-_FIELD_TRIALS = "COALESCE(payload->'fieldTrials', payload->'field_trials')"
+_FEATURES = "payload->'features'"
 # A report without a list (or with another JSON type there) is in no trial.
-_FIELD_TRIAL_ARRAY = f"CASE WHEN jsonb_typeof({_FIELD_TRIALS}) = 'array' THEN {_FIELD_TRIALS} ELSE '[]'::jsonb END"
-# `study=arm`: one `=`, no separator a label could hide another tag behind.
-_TRIAL_TAG = re.compile(r"^[^=,\s]+=[^=,\s]+$")
+_FEATURE_ARRAY = f"CASE WHEN jsonb_typeof({_FEATURES}) = 'array' THEN {_FEATURES} ELSE '[]'::jsonb END"
+# task 151's `Feature.Source` wire name of a field-trial arm (FeatureFieldState.Entry, wireSchema3.ts FeatureEntry).
+TRIAL_SOURCE = "trial"
+# The registry name the server accepts (wireSchema3.ts FeatureEntry), then the state.
+_FEATURE_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9]{0,63}$")
+_TRIAL_TAG = re.compile(r"^[A-Za-z][A-Za-z0-9]{0,63}=(on|off)$")
+_TRIAL_STATES = ("on", "off")
 FEATURES_SPLIT = "features"
-STUDY_SPLIT = "study"
+TRIAL_SPLIT = "trial"
 _KEY_COLUMNS = ("app_version", "app_build", "chip", "memory_gb")
 
 
 def reports_query(*, since_hours: int, channel: str) -> str:
     """JSON rows of the window, in one snapshot: kind `report` per report (build, hardware class and the payload
     parts this module counts), kind `installs` per build, hardware and features key (a distinct count), and kind
-    `trial_installs` per build, hardware and field-trial tag (a distinct count)."""
+    `trial_installs` per build, hardware and field-trial arm `feature=on|off` (a distinct count)."""
     if not isinstance(since_hours, int) or not 1 <= since_hours <= MAX_SINCE_HOURS:
         raise FieldError(f"since must be 1 h to {MAX_SINCE_HOURS} h")
     if channel not in CHANNELS:
@@ -157,20 +165,23 @@ def reports_query(*, since_hours: int, channel: str) -> str:
     report_columns = ", ".join(["'kind', 'report'", *key,
                                 "'stall_histogram', payload->'stallHistogram'",
                                 "'intervals', payload->'intervals'",
-                                f"'field_trials', {_FIELD_TRIALS}",
+                                f"'features', {_FEATURES}",
                                 "'active_seconds', COALESCE(payload->'activeSeconds', payload->'active_seconds')"])
     install_columns = ", ".join(["'kind', 'installs'", *key, "'installs', count(DISTINCT install_id)"])
-    trial_columns = ", ".join(["'kind', 'trial_installs'", *key[:len(_KEY_COLUMNS)], "'trial', trials.tag",
+    trial_name, trial_state = "trials.entry->>'name'", "trials.entry->>'state'"
+    trial_columns = ", ".join(["'kind', 'trial_installs'", *key[:len(_KEY_COLUMNS)],
+                               f"'trial', ({trial_name}) || '=' || ({trial_state})",
                                "'installs', count(DISTINCT install_id)"])
     where = (f"WHERE received_at >= now() - make_interval(hours => {since_hours}) "
              f"AND channel = '{channel}'")
-    trials = f"CROSS JOIN LATERAL jsonb_array_elements_text({_FIELD_TRIAL_ARRAY}) AS trials(tag)"
+    trials = f"CROSS JOIN LATERAL jsonb_array_elements({_FEATURE_ARRAY}) AS trials(entry)"
+    trial_where = f"{where} AND trials.entry->>'source' = '{TRIAL_SOURCE}'"
     return _read_only(
         f"SELECT json_build_object({report_columns})::text FROM {TABLE} {where} ORDER BY received_at",
         f"SELECT json_build_object({install_columns})::text FROM {TABLE} {where} "
         f"GROUP BY {', '.join(_KEY_COLUMNS)}, {_FEATURES_HASH}",
-        f"SELECT json_build_object({trial_columns})::text FROM {TABLE} {trials} {where} "
-        f"GROUP BY {', '.join(_KEY_COLUMNS)}, trials.tag")
+        f"SELECT json_build_object({trial_columns})::text FROM {TABLE} {trials} {trial_where} "
+        f"GROUP BY {', '.join(_KEY_COLUMNS)}, {trial_name}, {trial_state}")
 
 
 # --- the credential and psql -----------------------------------------------------------------------------------------
@@ -381,7 +392,7 @@ class Group:
     build: str
     hardware_class: str
     arm: str
-    # FEATURES_SPLIT: `arm` is the features hash (or NO_ARM). STUDY_SPLIT: `arm` is one `study=arm` tag.
+    # FEATURES_SPLIT: `arm` is the features hash (or NO_ARM). TRIAL_SPLIT: `arm` is one `feature=on|off` arm.
     split: str = FEATURES_SPLIT
     reports: int = 0
     installs: int = 0
@@ -409,9 +420,16 @@ def _active_seconds(value: object) -> float | None:
     return float(value) if math.isfinite(value) and value > 0 else None
 
 
-def trial_tags(value: object) -> list[str]:
-    """The distinct well-formed `study=arm` tags of a report's `field_trials`, sorted; anything else is skipped."""
-    tags = {tag for tag in value if isinstance(tag, str) and _TRIAL_TAG.match(tag)} if isinstance(value, list) else ()
+def trial_tags(features: object) -> list[str]:
+    """The distinct `feature=on|off` arms of a report's `features[]` entries of source `trial`, sorted; any other
+    entry, and a malformed one, is skipped."""
+    tags = set()
+    for entry in features if isinstance(features, list) else ():
+        if not isinstance(entry, Mapping) or entry.get("source") != TRIAL_SOURCE:
+            continue
+        name, state = entry.get("name"), entry.get("state")
+        if isinstance(name, str) and _FEATURE_NAME.match(name) and state in _TRIAL_STATES:
+            tags.add(f"{name}={state}")
     return sorted(tags)
 
 
@@ -434,8 +452,9 @@ def aggregate(rows: Iterable[Mapping[str, Any]]) -> list[Group]:
 
     for row in rows:
         if row.get("kind") == "trial_installs":
-            for tag in trial_tags([row.get("trial")]):
-                group_of(row, STUDY_SPLIT, tag).installs += _count(row.get("installs"))
+            tag = row.get("trial")
+            if isinstance(tag, str) and _TRIAL_TAG.match(tag):
+                group_of(row, TRIAL_SPLIT, tag).installs += _count(row.get("installs"))
             continue
         arm = row.get("features_hash") if isinstance(row.get("features_hash"), str) and row.get("features_hash") \
             else NO_ARM
@@ -443,7 +462,7 @@ def aggregate(rows: Iterable[Mapping[str, Any]]) -> list[Group]:
         if row.get("kind") == "installs":
             group.installs += _count(row.get("installs"))
             continue
-        for target in [group, *(group_of(row, STUDY_SPLIT, tag) for tag in trial_tags(row.get("field_trials")))]:
+        for target in [group, *(group_of(row, TRIAL_SPLIT, tag) for tag in trial_tags(row.get("features")))]:
             add_report(target, row)
     return [groups[key] for key in sorted(groups)]
 
@@ -561,7 +580,7 @@ def render_text(result: Mapping[str, Any]) -> str:
              + f" ({result['source']})"]
     for group in result["groups"]:
         rate = group["hangs_over_250ms_per_1000_active_hours"]
-        label = "trial" if group["split"] == STUDY_SPLIT else "arm"
+        label = "trial" if group["split"] == TRIAL_SPLIT else "arm"
         lines.append(f"  {group['build']}  {group['hardware_class']}  {label} {group['arm']}: "
                      f"{group['reports']} reports, {group['installs']} installs, "
                      f"{group['hangs_over_250ms']} hangs > {HANG_MS} ms, "
