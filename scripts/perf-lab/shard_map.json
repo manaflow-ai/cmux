@@ -5,8 +5,8 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 19300,
-            "T2": 31440
+            "T1": 19720,
+            "T2": 35070
           },
           "stories": {
             "T1": [
@@ -18,6 +18,7 @@
               "agent-stream-webkit",
               "app-split",
               "blocking-hangs",
+              "burst",
               "chat-anim",
               "command-pan",
               "daemon-ops",
@@ -81,6 +82,8 @@
               "action-sweep-stress-8",
               "app-perf",
               "automation-typing",
+              "browser-idle-cost",
+              "burst-stress",
               "cef-resize-sync",
               "cef-resize-sync-stress",
               "cli-storm",
@@ -89,6 +92,10 @@
               "command-pan-stress",
               "daemon-spawn",
               "devtools-resize-live",
+              "fsync",
+              "idle-budget",
+              "idle-budget-stress",
+              "idle-budget-webkit",
               "launch-after-reboot",
               "layout-loop-stress",
               "new-surfaces-stress",
@@ -115,7 +122,7 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 31440
+            "T2": 35070
           },
           "stories": {
             "T2": [
@@ -138,6 +145,8 @@
               "action-sweep-stress-8",
               "app-perf",
               "automation-typing",
+              "browser-idle-cost",
+              "burst-stress",
               "cef-resize-sync",
               "cef-resize-sync-stress",
               "cli-storm",
@@ -146,6 +155,10 @@
               "command-pan-stress",
               "daemon-spawn",
               "devtools-resize-live",
+              "fsync",
+              "idle-budget",
+              "idle-budget-stress",
+              "idle-budget-webkit",
               "launch-after-reboot",
               "layout-loop-stress",
               "new-surfaces-stress",
@@ -172,7 +185,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 9610
+            "T1": 10030
           },
           "stories": {
             "T0": [
@@ -183,6 +196,7 @@
               "agent-engine-webkit",
               "app-split",
               "blocking-hangs",
+              "burst",
               "command-pan",
               "daemon-ops",
               "home-perf",

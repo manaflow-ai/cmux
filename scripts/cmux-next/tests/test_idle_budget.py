@@ -333,7 +333,7 @@ class IdleBudgetTests(unittest.TestCase):
         report = {"sessions": {"light": {"kinds": {"app": {"wakeups_per_s": 0.4, "threads_max": 30, "main_wakes_per_s": 0}}}}}
         rows = ib.cron_rows(report, {"kinds": {"app": {"wakeups_per_s": 1.0}}})
         self.assertEqual(rows["idle_budget.light.app.wakeups_per_s"],
-                         {"p50": 0.4, "p95": 0.4, "unit": "/s", "budget": 1.0, "floor": 0.5})
+                         {"p50": 0.4, "p95": 0.4, "p99": 0.4, "unit": "/s", "budget": 1.0, "floor": 0.5})
         self.assertEqual(rows["idle_budget.light.app.threads_max"]["unit"], "threads")
         self.assertIsNone(rows["idle_budget.light.app.threads_max"]["budget"])
 
@@ -2138,7 +2138,8 @@ class D15BudgetTests(unittest.TestCase):
         report = {"sessions": {"light": {"kinds": {"app": {"disk_bytes_per_s": 68.267, "network_bytes": 0, "log_lines": None}}}}}
         rows = ib.cron_rows(report, self.BUDGET)
         self.assertEqual(rows["idle_budget.light.app.disk_bytes_per_s"],
-                         {"p50": 68.267, "p95": 68.267, "unit": "B/s", "budget": 0, "floor": 0.5})
+                         {"p50": 68.267, "p95": 68.267, "p99": 68.267, "unit": "B/s", "budget": 0,
+                          "floor": 0.5})
         self.assertEqual(rows["idle_budget.light.app.network_bytes"]["unit"], "bytes")
         self.assertNotIn("idle_budget.light.app.log_lines", rows)
 
