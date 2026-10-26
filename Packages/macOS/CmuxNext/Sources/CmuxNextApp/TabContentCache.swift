@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHibernation
+import CmuxNextLaunch
 import CmuxNextMacScreen
 import CmuxNextPages
 import CmuxNextRemote
@@ -100,6 +101,9 @@ final class TabContentCache {
     var defersRestoredPages = false
     /// Tabs whose deferred page the user started.
     var startedDeferred: Set<String> = []
+    /// The launch read every browser tab's page waits for before an engine makes it (the browser
+    /// profiles, p08-startup-028); nil: none.
+    var enginesAwait: LaunchReadEvent?
     /// Agent marks of tabs (`TabContentCache+AgentDriven`); kept across hibernation and restarts of the page.
     var agentMarks = TabAgentMarks()
     /// Creates a Chromium page (asynchronous; a seam for tests).
@@ -264,6 +268,7 @@ final class TabContentCache {
             return nil
         }
         if let page = appPage(for: tab, url: url) { return page }
+        if let read = enginesAwait, !read.isSignaled { return awaitLaunchRead(read, key) }
         if defersRestoredPages, !startedDeferred.contains(key), !browserTabs.wasOpenedHere(tab) {
             return deferred(tab, url: url)
         }
@@ -295,6 +300,13 @@ final class TabContentCache {
         return nil
     }
 
+    /// No page yet: the pane asks again (`onBrowserReady`) once `read` is done, unless the tab was released first.
+    private func awaitLaunchRead(_ read: LaunchReadEvent, _ key: String) -> BrowserEntry? {
+        guard pendingBrowsers.insert(key).inserted else { return nil }
+        read.post { [weak self] in if self?.pendingBrowsers.remove(key) != nil { self?.onBrowserReady?(key) } }
+        return nil
+    }
+
     /// The URL a browser record may open here. A record from a remote
     /// machine's tree opens only web pages (`RemoteRelayPolicy`): a remote
     /// host must not make this Mac load `file:` or `javascript:` content or
@@ -311,24 +323,6 @@ final class TabContentCache {
     private func chromiumConfiguration(for tab: TabModel, key: String, url: URL?) async -> BrowserTabConfiguration {
         await chromiumConfiguration(for: tab, base: BrowserTabConfiguration(
             id: BrowserTabID(rawValue: key), profile: browserProfile?(key) ?? .default, initialURL: url))
-    }
-
-    /// `base` with the remote-localhost store of `tab` (every Chromium page a
-    /// tab gets goes through here, a hibernated page waking included). A
-    /// failed proxy start leaves the page blank, never on this Mac's localhost.
-    func chromiumConfiguration(for tab: TabModel?, base: BrowserTabConfiguration) async -> BrowserTabConfiguration {
-        guard let tab, let configureBrowser else { return base }
-        if let configured = await configureBrowser(tab, base.initialURL, base) { return configured }
-        var blank = base
-        blank.initialURL = nil
-        blank.restoreState = nil
-        blank.navigationGuard = .noLoopback
-        return blank
-    }
-
-    /// The tab with durable id `key` on any machine.
-    func tabModel(_ key: String) -> TabModel? {
-        browserTabs.tabModel(key) ?? findTab?(key)
     }
 
     /// Re-creates Chromium page `key` in the other remote-localhost store

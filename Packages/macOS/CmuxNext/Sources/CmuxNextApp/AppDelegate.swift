@@ -240,21 +240,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // main actor). Downloads of this run are never touched.
         launchCleanup.schedule(on: order.startup)
         services.iconPicker.onOpened = { DebugTimings.iconPickerOpened($0) }
-        let profilesDirectory = BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID)
-        services.browserProfiles.load(directory: profilesDirectory, importStore: services.onboarding.importStore)
+        let browser = BrowserStartup(services: services)
+        let profilesDirectory = browser.readProfiles()  // every browser page waits for this read (p08-startup-028)
         DebugTimings.markLaunch("dfl.first_window_hooks")
         services.home.start()
         mouseSideButtons.start { [weak services] in _ = services?.registry.perform($0 == .back ? "focusHistoryBack" : "focusHistoryForward") }
         services.keybindingsFile.start()
-        services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore)
-        services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent())
-        // cmux-page:// first-party pages for Chromium, before any window can start it.
-        FirstPartyPageSchemes.install(processGroups: services.features.isEnabled(.pageProcessGroups))
-        // The page host already exists (`services.iconPicker` above reads it) but has opened no page;
-        // the statics forward to it for page views not yet made through `webUI.open`
-        // (p13-webui-006 to 009 move them, 010 deletes the statics).
-        PageWebView.openPanel = services.webUI.openPanel
-        PageWebView.chromiumHosting = services.webUI.chromium
+        browser.startData(profilesDirectory: profilesDirectory)  // bookmarks, history, page schemes, Chromium hosting: before any window
         DebugTimings.markLaunch("dfl.home_history")
         services.windows.restoreWhenLoaded(paneRefs: launchSettle.paneRefs)
         DebugTimings.markLaunch("dfl.windows")
@@ -311,8 +303,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.palettes.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog) { [weak services] in
             services?.windows.active.map { SettingsPaletteSource.themeColors($0.themeScope.tokens) } ?? []
         }
-        services.history.startDaemonSync(settings: settings)
-        services.locationTrail.watchScope(settings: settings)
+        BrowserStartup(services: services).postFollows(settings, on: order.startup)  // history's daemon sync, the location trail
         let shortcutEditor = PaletteShortcutEditor(services: services, settings: settings)
         services.paletteShortcutEditor = shortcutEditor  // the palette's recorder writes through it once built
         // Managed-settings status for MDM tooling (osquery, Fleet, Jamf), plans/cmux-next/enterprise.md.
@@ -359,8 +350,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.configActions.start(settings: settings)
         // Agent- and bench-launched builds never take system-wide keys from the person's app.
         if !environment.isolatedLaunch { services.globalHotKeys.start() }
-        services.cache.browserTabs.preference.follow(settings)
-        BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, cef: services.cache.cef)
+        BrowserStartup(services: services).followEnginePreferences(settings)  // before any page picks an engine
         WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
         BrowserOmnibarPreference.follow(settings, cache: services.cache)
         services.notifications.follow(settings)
