@@ -78,6 +78,9 @@ final class LayoutViewContext {
     /// Presses the root's intercept handled while render-server springs ran on its active screen
     /// (`ScreenContentView.pressedPane(at:)`, `LayoutRootView.pressesMidRenderSpring`), cumulative.
     var pressesMidRenderSpring = 0
+    /// Scrolls the root's intercept sent through its full routing, with point conversions and hit tests
+    /// (`LayoutRootView.routedScrolls`), cumulative; a page's plain scroll takes none.
+    var routedScrolls: UInt64 = 0
     /// The strip scrollbar's fade-out deadline clock.
     let scrollbarClock: any Clock<Duration>
     /// Where the pointer is now, in `window`'s coordinates; nil when it cannot
