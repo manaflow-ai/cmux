@@ -60,6 +60,8 @@ public final class FrameScheduler: NSObject {
         windows[key] = WeakScheduler(value: scheduler)
         // The window keeps its scheduler alive.
         objc_setAssociatedObject(window, &FrameScheduler.associationKey, scheduler, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        // A window's late frames hold work like the app's (RenderStarvationGuard/watch(_:)).
+        app.starvation?.watch(scheduler)
         // A subscribed scheduler is held by its display: let go of it when the window closes.
         scheduler.closeObserver = MainActorObservation(NSWindow.willCloseNotification, object: window) { [weak scheduler] in
             scheduler?.invalidate()
@@ -86,7 +88,8 @@ public final class FrameScheduler: NSObject {
 
     public let name: String
     public private(set) weak var window: NSWindow?
-    private let isScreenHost: Bool
+    /// The scheduler serves window-less work on a display (``app``, the ``MainWorkScheduler``'s).
+    let isScreenHost: Bool
     private var clients: [ObjectIdentifier: FrameClient] = [:]
     /// The budgeted clients, the one that ran least recently first: a class's budget goes to them
     /// in this order, and a client that ran moves to the back, so one saturating client never
@@ -113,6 +116,17 @@ public final class FrameScheduler: NSObject {
     private var lastTimestamp: CFTimeInterval?
     /// The link's last refresh period: a stalled frame is shown this long after it starts.
     private var lastRefreshInterval = FrameTick.defaultRefreshInterval
+    /// When its clients last ticked, or, idle before, activated (``DisplayClock/now()``'s timebase):
+    /// ``RenderStarvationGuard`` measures a late frame from it.
+    public private(set) var lastTick: CFTimeInterval = 0
+    /// Its last tick came from the stall deadline, not from its display's link: the link stopped (a
+    /// ``FrameStall``), or nobody can see its window and it ticks at the stall rate. A late tick then
+    /// says nothing about the main thread.
+    public private(set) var ticksOffLink = false
+    /// The guard that watches its frames (``RenderStarvationGuard/watch(_:)``).
+    weak var starvation: RenderStarvationGuard?
+    /// The late period the guard saw since ``lastTick`` (stale once it moves).
+    var starvationPeriod: RenderStarvationGuard.Period?
     private var closeObserver: MainActorObservation?
     /// Frames delivered since creation (debug).
     public private(set) var frames: UInt64 = 0
@@ -168,6 +182,18 @@ public final class FrameScheduler: NSObject {
         clients.values.filter(\.isActive).map(\.owner).sorted()
     }
 
+    /// A frame-locked client (``MainWorkClass/frame``: a spring, an autoscroll, a drain) is ticking:
+    /// a late tick of this scheduler is a late frame.
+    public var hasActiveFrameClients: Bool {
+        clients.values.contains { $0.isActive && $0.workClass == .frame }
+    }
+
+    /// Its display's link's last refresh period (a 60 Hz frame before the first link frame).
+    var refreshPeriod: CFTimeInterval { lastRefreshInterval }
+
+    /// The display it ticks on now (nil while idle or never subscribed).
+    var display: CGDirectDisplayID? { subscribed }
+
     /// Its display's link exists and runs, and this scheduler ticks on it.
     public var isRunning: Bool { subscribed.map { displayClock.isRunning($0) } ?? false }
 
@@ -209,6 +235,8 @@ public final class FrameScheduler: NSObject {
         guard !isSubscribed else { return }
         let linksBefore = displayClock.linksMade
         lastTimestamp = nil
+        lastTick = displayClock.now()
+        ticksOffLink = false
         let id = displayClock.subscribe(self)
         displayID = id
         isSubscribed = true
@@ -253,6 +281,8 @@ public final class FrameScheduler: NSObject {
         isSubscribed = false
         ticksOnLink = false
         displayClock.unsubscribe(self, from: subscribed)
+        // No frame of it can be late now: what waited for one goes on.
+        starvation?.framesEnded(self)
     }
 
     /// Drops the subscription and every client (the window closed).
@@ -278,17 +308,25 @@ public final class FrameScheduler: NSObject {
                                         targetTimestamp: targetTimestamp)
             return
         }
-        let tick = beginFrame(timestamp: timestamp, refreshInterval: refreshInterval, targetTimestamp: targetTimestamp)
+        let tick = beginFrame(timestamp: timestamp, refreshInterval: refreshInterval, targetTimestamp: targetTimestamp,
+                              offLink: timestamp == nil)
         deliverFrameLocked(tick)
         deliverBudgeted(tick)
         endFrame()
     }
 
     /// Starts this scheduler's part of a frame: its tick (with its own elapsed time) and, on the
-    /// budget holder, the budget's frame window.
-    func beginFrame(timestamp: CFTimeInterval?, refreshInterval: Double?, targetTimestamp: CFTimeInterval?) -> FrameTick {
+    /// budget holder, the budget's frame window. `offLink`: the stall deadline ticks it, not the link
+    /// (``ticksOffLink``).
+    func beginFrame(timestamp: CFTimeInterval?, refreshInterval: Double?, targetTimestamp: CFTimeInterval?,
+                    offLink: Bool) -> FrameTick {
         frames &+= 1
-        let now = timestamp ?? displayClock.now()
+        // When the tick runs on main, not the frame's vsync time: the guard measures main's lateness.
+        let ranAt = displayClock.now()
+        starvation?.tickEnds(self, at: ranAt)
+        lastTick = ranAt
+        ticksOffLink = offLink
+        let now = timestamp ?? ranAt
         let elapsed = lastTimestamp.map { now - $0 } ?? (1.0 / 60.0)
         lastTimestamp = now
         if let refreshInterval { lastRefreshInterval = refreshInterval }

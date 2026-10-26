@@ -60,6 +60,9 @@ public struct ControlMethod: Sendable {
     /// person's input (``injectingInput()``).
     public private(set) var workClass: MainWorkClass = .automation
 
+    /// A read-only `debug.*` diagnostic that release builds serve too (``servingRelease()``).
+    public private(set) var servesRelease = false
+
     /// ``name`` interned on the app's main-thread board, once, when the router registers the
     /// method (nil before, or without a board): each request starts its task with no lock.
     public internal(set) var owner: MainTaskOwner?
@@ -70,6 +73,15 @@ public struct ControlMethod: Sendable {
     public func injectingInput() -> ControlMethod {
         var method = self
         method.workClass = .input
+        return method
+    }
+
+    /// This `debug.*` method, served by release builds too (`debug.memory`): a release router keeps
+    /// it while it drops every other `debug.*` registration. Only for a method that changes nothing
+    /// and whose reply holds no URL, title or path (opaque IDs, kinds and counts).
+    public func servingRelease() -> ControlMethod {
+        var method = self
+        method.servesRelease = true
         return method
     }
 
@@ -123,6 +135,7 @@ public struct ControlMethod: Sendable {
         method.claimsProgress = claimsProgress
         method.limitOverride = limitOverride
         method.workClass = workClass
+        method.servesRelease = servesRelease
         return method
     }
 
