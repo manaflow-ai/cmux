@@ -76,7 +76,7 @@ import Testing
                 let spring = Self.gate.spring(token)
                 let start = scrubber.layer.position.x
                 let target = start + 200
-                Self.gate.renderSpring(token).animate(scrubber.layer, "position.x", to: target, in: nil)
+                Self.gate.renderSpring(token).animate(scrubber.layer, .positionX, to: target, in: nil)
                 #expect(scrubber.layer.position.x == target, "\(token): the model is not at rest at once")
                 let end = RenderSpring.duration(extent: 200, spring: spring)
                 var worst: CGFloat = 0
@@ -97,7 +97,7 @@ import Testing
             for (distance, velocity) in [(CGFloat(200), CGFloat(-900)), (0, 1_200)] {
                 let scrubber = Scrubber()
                 let start = scrubber.layer.position.x
-                Self.gate.renderSpring(.settle).animate(scrubber.layer, "position.x", to: start + distance, velocity: velocity, in: nil)
+                Self.gate.renderSpring(.settle).animate(scrubber.layer, .positionX, to: start + distance, velocity: velocity, in: nil)
                 let end = RenderSpring.duration(extent: abs(distance) + abs(velocity) / CGFloat(spring.omega), spring: spring)
                 var worst: CGFloat = 0
                 for index in 1...Self.samples {
@@ -124,7 +124,7 @@ import Testing
             let start = scrubber.layer.position, target = CGPoint(x: start.x + 240, y: start.y - 90)
             // 3 distances per second toward the target, then the spring.
             let progress: CGFloat = 3
-            Self.gate.renderSpring(.scroll).animateGroup([.init(scrubber.layer, "position", from: start, to: target, progressVelocity: progress)],
+            Self.gate.renderSpring(.scroll).animateGroup([.init(scrubber.layer, .position, from: start, to: target, progressVelocity: progress)],
                                                          in: nil)
             #expect(scrubber.layer.position == target, "the model is not at rest at once")
             let end = RenderSpring.duration(extent: 240 * (1 + progress / CGFloat(spring.omega)), spring: spring)
@@ -149,7 +149,7 @@ import Testing
             let first = CGPoint(x: origin.x + 200, y: origin.y)
             let second = CGPoint(x: origin.x + 200, y: origin.y + 200)
             let render = Self.gate.renderSpring(token)
-            render.animate(scrubber.layer, "position", to: first, in: nil)
+            render.animate(scrubber.layer, .position, to: first, in: nil)
             let retarget = 0.4 * RenderSpring.duration(extent: 200, spring: spring)
             let end = retarget + RenderSpring.duration(extent: 200, spring: spring)
             let times = (1...Self.samples).map { end * Double($0) / Double(Self.samples) }
@@ -177,7 +177,7 @@ import Testing
             let shownAtRetarget = try axes.map { try scrubber.presented($0, at: retarget) }
 
             scrubber.seek(retarget)
-            render.animate(scrubber.layer, "position", to: second, in: nil)
+            render.animate(scrubber.layer, .position, to: second, in: nil)
             let springs = (scrubber.layer.animationKeys() ?? []).compactMap { scrubber.layer.animation(forKey: $0) as? CASpringAnimation }
             #expect(springs.count == 2, "a retarget stacks one spring, it does not replace the running one")
             #expect(springs.allSatisfy { $0.isAdditive && $0.initialVelocity == 0 })
@@ -258,13 +258,13 @@ import Testing
         let start = scrubber.layer.position.x
         let log = Log()
         try Self.withMotion {
-            render.animate(scrubber.layer, "position.x", to: start + 200, in: nil, completion: log.completion("spring"))
+            render.animate(scrubber.layer, .positionX, to: start + 200, in: nil, completion: log.completion("spring"))
         }
         #expect(!(scrubber.layer.animationKeys() ?? []).isEmpty)
 
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
-        render.animate(scrubber.layer, "position.x", to: start + 400, in: nil, completion: log.completion("snap"))
+        render.animate(scrubber.layer, .positionX, to: start + 400, in: nil, completion: log.completion("snap"))
         // The removed spring's own completion comes later from Core Animation; it must not run after the snap's.
         #expect(log.calls == ["spring", "snap"], "completions ran as \(log.calls), not in call order")
         #expect(log.runs.map(\.finished) == [false, true], "the removed spring did not end as superseded, or the snap did not land")
@@ -292,7 +292,7 @@ import Testing
         window.orderFrontRegardless()
         let log = Log()
         let target: CGFloat = 150
-        Self.gate.renderSpring(.move).animate(layer, "position.x", to: target, in: content, completion: log.completion("move"))
+        Self.gate.renderSpring(.move).animate(layer, .positionX, to: target, in: content, completion: log.completion("move"))
         #expect(log.runs.isEmpty, "the completion ran before the spring")
         #expect(await GUIAnimationTestSupport.settle(within: 10) { !log.runs.isEmpty }, "the landing completion never ran")
         #expect(log.runs.map(\.finished) == [true])
@@ -304,13 +304,13 @@ import Testing
             let render = Self.gate.renderSpring(.split)
             let origin = scrubber.layer.position
             let log = Log()
-            render.animate(scrubber.layer, "position", to: CGPoint(x: origin.x + 200, y: origin.y), in: nil,
+            render.animate(scrubber.layer, .position, to: CGPoint(x: origin.x + 200, y: origin.y), in: nil,
                            completion: log.completion("first"))
             #expect(log.runs.isEmpty, "the first call landed before its spring ran")
             // Another value of the layer is not a retarget: it supersedes nothing.
-            render.animate(scrubber.layer, "opacity", to: CGFloat(0.5), in: nil, completion: log.completion("fade"))
+            render.animate(scrubber.layer, .opacity, to: CGFloat(0.5), in: nil, completion: log.completion("fade"))
             #expect(log.runs.isEmpty)
-            render.animate(scrubber.layer, "position.y", to: origin.y + 200, velocity: 0, in: nil, completion: log.completion("second"))
+            render.animate(scrubber.layer, .positionY, to: origin.y + 200, velocity: 0, in: nil, completion: log.completion("second"))
             #expect(log.calls == ["first"] && log.runs.first?.finished == false, "the retarget did not end the first call as superseded")
         }
     }
@@ -340,8 +340,8 @@ import Testing
         defer { Motion.reduceMotionOverride = nil }
         try #require(!Self.gate.animatesMovement && Self.gate.animatesFades, "panes fades are off in this host's settings")
         #expect(!render.animates("position.x", in: nil) && render.animates("opacity", in: nil))
-        render.animate(scrubber.layer, "position.x", to: CGFloat(300), in: nil)
-        render.animate(scrubber.layer, "opacity", to: CGFloat(0), in: nil)
+        render.animate(scrubber.layer, .positionX, to: CGFloat(300), in: nil)
+        render.animate(scrubber.layer, .opacity, to: CGFloat(0), in: nil)
         let added = (scrubber.layer.animationKeys() ?? []).compactMap { scrubber.layer.animation(forKey: $0) as? CABasicAnimation }
         #expect(added.count == 1 && added.first?.keyPath == "opacity", "Reduce Motion moved, or did not crossfade the fade")
         #expect(added.allSatisfy { !($0 is CASpringAnimation) && $0.isAdditive && $0.duration == Self.gate.duration(.crossfade) })

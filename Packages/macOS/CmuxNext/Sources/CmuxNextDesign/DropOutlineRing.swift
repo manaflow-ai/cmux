@@ -119,9 +119,9 @@ public final class DropOutlineRing {
             // A replacing spring would pin the presented value to its own end (`RenderSpring`).
             for keyPath in Self.movedKeyPaths { layer.removeAnimation(forKey: keyPath) }
             Motion.panes.renderSpring(spring).animateGroup([
-                RenderSpring.Move(layer, "bounds.size", to: size),
-                RenderSpring.Move(layer, "position", to: center),
-                RenderSpring.Move(layer, "cornerRadius", to: corner),
+                RenderSpring.Move(layer, .boundsSize, to: size),
+                RenderSpring.Move(layer, .position, to: center),
+                RenderSpring.Move(layer, .cornerRadius, to: corner),
             ], in: view)
         }
     }
