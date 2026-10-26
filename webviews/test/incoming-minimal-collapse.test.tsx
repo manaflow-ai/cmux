@@ -87,12 +87,14 @@ test("Minimal Mode follows only cmux's own Minimal Mode switch", () => {
   expect(resolveChatDisplay({}).minimal).toBe(false);
 });
 
-test("with Minimal Mode off the message draws as before: its line over the whole card", async () => {
+test("received messages default to a compact one-line row", async () => {
   const { toggle } = await line("normal-1");
-  expect(host.querySelector(".cv-received__preview")).toBeNull();
-  expect(host.querySelector(".cv-received__body")?.textContent).toContain("The retry tests pass.");
-  expect(host.querySelector(".cv-received[data-minimal]")).toBeNull();
-  expect(toggle().getAttribute("aria-label")).toBe(t("message.label", { from: "grid-lane", to: t("message.self") }));
+  expect(host.querySelector(".cv-received__preview")?.textContent).toBe("Rebased onto main; ready for review.");
+  expect(host.querySelector(".cv-received__body")).toBeNull();
+  expect(host.querySelector(".cv-received[data-minimal]")?.getAttribute("data-minimal")).toBe("true");
+  expect(toggle().getAttribute("aria-label")).toBe(
+    t("message.collapsedLabel", { from: "grid-lane", preview: "Rebased onto main; ready for review." }),
+  );
   expect(toggle().getAttribute("aria-expanded")).toBe("false");
 });
 
@@ -126,13 +128,12 @@ test("in Minimal Mode the message is one line: the chip, then its first line, wh
   expect(host.querySelector(".cv-received__preview")?.textContent).toBe("Rebased onto main; ready for review.");
 });
 
-test("turning Minimal Mode off draws the closed message's card again", async () => {
+test("turning Minimal Mode off keeps the received row compact", async () => {
   setChatDisplay({ [MINIMAL_MODE_KEY]: true });
   await line("minimal-2");
   expect(host.querySelector(".cv-received__body")).toBeNull();
   await act(async () => setChatDisplay({}));
-  expect(host.querySelector(".cv-received__preview")).toBeNull();
-  expect(host.querySelector(".cv-received__body")?.textContent).toContain("The retry tests pass.");
+  expect(host.querySelector(".cv-received__preview")?.textContent).toBe("Rebased onto main; ready for review.");
 });
 
 test("the line opens with no fade-in, its height alone moving; closing fades out", async () => {
