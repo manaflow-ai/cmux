@@ -73,10 +73,10 @@ final class SidebarPriorityPanelView: NSView {
     func show(_ panel: SidebarPriorityPanel) {
         let old = self.panel
         self.panel = panel
-        // A re-rank, a row coming or going, or a fold under a live drag ends it with no place: the
-        // slot it would take was measured against the old rows. A content-only refresh keeps it.
+        // Hiding ends a drag even when the hidden feed keeps the same attention rows: the release
+        // may never reach the hidden row. A re-rank, a fold or a height change also invalidates its slot.
         if draggingID != nil,
-           old.collapsed != panel.collapsed || old.entries.map(\.id) != panel.entries.map(\.id)
+           old.shown != panel.shown || old.collapsed != panel.collapsed || old.entries.map(\.id) != panel.entries.map(\.id)
             || old.entries.map({ $0.preview != nil }) != panel.entries.map({ $0.preview != nil }) {
             stopDrag()
         }
