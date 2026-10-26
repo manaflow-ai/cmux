@@ -221,6 +221,15 @@ impl Hub {
         }
         for unreadable in bad {
             if let Some(session) = self.session_by_id(&unreadable.session_id) {
+                // MDM forces full access off (#23322): a live host this build cannot adopt ends
+                // too when its chat runs in full access (`end_unadopted_host`: its nonce proves it).
+                if self.managed_off_runs_full_access(&session) {
+                    let _spawning = session.spawn_lock.lock().await;
+                    self.end_managed_full_access(&session).await;
+                    if !Self::host_record_live(&session.id) {
+                        continue;
+                    }
+                }
                 self.mark_unadoptable(
                     &session,
                     json!({"recordVersion": unreadable.record_version, "reason": unreadable.reason}),

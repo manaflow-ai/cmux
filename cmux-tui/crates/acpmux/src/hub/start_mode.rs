@@ -423,11 +423,28 @@ pub(super) fn profile_sets_mode(profile: &HarnessProfile) -> bool {
     })
 }
 
-/// Whether session `meta` runs in full access: its profile pins it in argv
-/// (`subsession_guard::argv_full_access`, the one parse of those flags), or its current mode is one.
-fn runs_full_access(meta: &crate::store::SessionMeta) -> bool {
+/// Whether `session` runs in full access, in any form acpmux sees (#23322): its profile pins it in
+/// argv (`subsession_guard::argv_full_access`, the one parse of those flags), its current mode
+/// (`web_modes::mode_of`) or a mode its harness reported without declaring modes
+/// (`RemoteFloor::undeclared_mode`) is one, or another of its config options holds a full-access
+/// value (as `requests_full_access` reads a switch), all by the shared rule (`is_full_access`).
+fn runs_full_access(session: &Session) -> bool {
+    let undeclared = session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let meta = session.meta();
     super::subsession_guard::argv_full_access(&meta.harness_argv).is_some()
-        || crate::web_modes::mode_of(meta).is_some_and(|m| is_full_access(&m))
+        || crate::web_modes::mode_of(&meta).is_some_and(|m| is_full_access(&m))
+        || undeclared.as_deref().is_some_and(is_full_access)
+        || other_options(&meta).any(|o| o["currentValue"].as_str().is_some_and(is_full_access))
+}
+
+/// Session `meta`'s config options other than its `mode` one (`web_modes::mode_of` reads that).
+fn other_options(meta: &crate::store::SessionMeta) -> impl Iterator<Item = &Value> {
+    meta.config_options
+        .as_ref()
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|o| o.get("id").and_then(Value::as_str) != Some("mode"))
 }
 
 /// Modes that ask (or only read) on harnesses the asking table leaves out:
@@ -642,9 +659,18 @@ impl Hub {
         child: &Arc<ChildAgent>,
         profile: &HarnessProfile,
     ) -> Result<(), RpcError> {
+        let mut refused = None;
         if !profile_sets_mode(profile)
             && let Err(e) = self.leave_full_access_if_off(session, child).await
         {
+            refused = Some(e);
+        }
+        // MDM forces full access off (#23322): a start still in it by any form acpmux sees (a
+        // config option, a mode its harness reports without declaring modes) is refused too.
+        if refused.is_none() && self.managed_off_runs_full_access(session) {
+            refused = Some(full_access_off());
+        }
+        if let Some(e) = refused {
             if let Some(started) = session.child.lock().await.take() {
                 started.terminate(super::shutdown::SHUTDOWN_GRACE).await;
             }
@@ -705,16 +731,20 @@ impl Hub {
     /// Whether MDM forces full access off while session `session` runs in it (`runs_full_access`):
     /// its agent, live or a host a restart left, takes no more work (`end_managed_full_access`).
     pub(super) fn managed_off_runs_full_access(&self, session: &Session) -> bool {
-        self.full_access_managed_off() && runs_full_access(&session.meta())
+        self.full_access_managed_off() && runs_full_access(session)
     }
 
-    /// MDM just forced full access off: every agent still running in it ends now (a turn in
-    /// progress ends with it), each under its session's spawn lock.
+    /// MDM forces full access off: every agent still running in it ends now (a turn in progress
+    /// ends with it), each under its session's spawn lock, checked again there. Run by the push
+    /// that turns it off, and by the hub's background task after a mode write moved a chat into it
+    /// (`write_mode_state`, `idle.rs`).
     pub(super) async fn end_every_managed_full_access(&self) {
         for session in self.sessions() {
-            if runs_full_access(&session.meta()) {
+            if self.managed_off_runs_full_access(&session) {
                 let _spawning = session.spawn_lock.lock().await;
-                self.end_managed_full_access(&session).await;
+                if self.managed_off_runs_full_access(&session) {
+                    self.end_managed_full_access(&session).await;
+                }
             }
         }
     }
@@ -730,6 +760,26 @@ impl Hub {
         }
         if Self::host_record_live(&session.id) {
             self.end_unadopted_host(session).await;
+        }
+        // What only the ended agent said goes with it: the mode it reported without declaring
+        // modes, and a full-access value of another option (the next agent reports its own, and
+        // `replay_config` skips a null).
+        *session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        let scrubbed = {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let mut scrubbed = false;
+            for o in m.config_options.as_mut().and_then(Value::as_array_mut).into_iter().flatten() {
+                if o.get("id").and_then(Value::as_str) != Some("mode")
+                    && o["currentValue"].as_str().is_some_and(is_full_access)
+                {
+                    o["currentValue"] = Value::Null;
+                    scrubbed = true;
+                }
+            }
+            scrubbed
+        };
+        if scrubbed {
+            self.save_meta(session);
         }
         if ended {
             tracing::info!(session = %session.id, "MDM forces full access off: its full-access agent ended");
