@@ -21,13 +21,114 @@
     "no other cmux-tui on the state root"
   ],
   "requires": [
-    "resource_api"
+    "resource_api",
+    "restart"
   ],
   "platforms": [
     "linux",
     "mac"
   ],
   "steps": [
+    {
+      "id": "fx-workspace",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "workspace.create",
+        "params": {
+          "initial_content": "terminal",
+          "name": "oracle"
+        },
+        "idempotencyKey": "session-shutdown-ok.fx-workspace"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "workspaces-before",
+      "op": "resource.call",
+      "readOnly": true,
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "workspace.list",
+        "params": {}
+      },
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
+      "id": "panes-before",
+      "op": "resource.call",
+      "readOnly": true,
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "pane.list",
+        "params": {}
+      },
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
+      "id": "tabs-before",
+      "op": "resource.call",
+      "readOnly": true,
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "tab.list",
+        "params": {}
+      },
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
+      "id": "producers-before",
+      "op": "resource.call",
+      "readOnly": true,
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "session.journal.producer.list",
+        "params": {}
+      },
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
+      "id": "checkpoints-before",
+      "op": "resource.call",
+      "readOnly": true,
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "session.journal.checkpoint.list",
+        "params": {}
+      },
+      "expect": {
+        "outcome": "ok"
+      }
+    },
     {
       "id": "call",
       "op": "resource.call",
@@ -45,17 +146,200 @@
         "receipt": "mutation_result"
       },
       "checkpoint": [
+        "before"
+      ],
+      "note": "a graceful stop: the receipt is committed and sent before the daemon exits; no settled snapshot, the restart step's settled snapshot follows it"
+    },
+    {
+      "id": "restart",
+      "op": "restart",
+      "target": {
+        "process": "daemon"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "identify"
+      },
+      "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "waitFor": {
+        "pointer": "/daemon/session/terminals/0/lifecycle",
+        "equals": "running",
+        "maxMs": 15000
+      }
+    },
+    {
+      "id": "workspaces-after",
+      "op": "resource.call",
+      "readOnly": true,
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "workspace.list",
+        "params": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "result": "$step:workspaces-before#"
+      }
+    },
+    {
+      "id": "panes-after",
+      "op": "resource.call",
+      "readOnly": true,
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "pane.list",
+        "params": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "result": "$step:panes-before#"
+      }
+    },
+    {
+      "id": "tabs-after",
+      "op": "resource.call",
+      "readOnly": true,
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "tab.list",
+        "params": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "result": "$step:tabs-before#"
+      }
+    },
+    {
+      "id": "producers-after",
+      "op": "resource.call",
+      "readOnly": true,
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "session.journal.producer.list",
+        "params": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "result": "$step:producers-before#"
+      }
+    },
+    {
+      "id": "checkpoints-after",
+      "op": "resource.call",
+      "readOnly": true,
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "session.journal.checkpoint.list",
+        "params": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "result": "$step:checkpoints-before#"
+      }
+    },
+    {
+      "id": "workspace-get",
+      "op": "resource.call",
+      "readOnly": true,
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id"
+      },
+      "args": {
+        "method": "workspace.get",
+        "params": {}
+      },
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
+      "id": "pane-get",
+      "op": "resource.call",
+      "readOnly": true,
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "pane": "$step:fx-workspace#/value/pane_id"
+      },
+      "args": {
+        "method": "pane.get",
+        "params": {}
+      },
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
+      "id": "tab-get",
+      "op": "resource.call",
+      "readOnly": true,
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "tab": "$step:fx-workspace#/value/tab_id"
+      },
+      "args": {
+        "method": "tab.get",
+        "params": {}
+      },
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
+      "id": "terminal-get",
+      "op": "resource.call",
+      "readOnly": true,
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:fx-workspace#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.get",
+        "params": {}
+      },
+      "expect": {
+        "outcome": "ok"
+      }
     }
   ],
   "invariants": [
-    "generated by scripts/cmux-next/oracle/gen_daemon_ops.py from the catalog type of session.shutdown (family session)"
+    "generated by scripts/cmux-next/oracle/gen_daemon_ops.py from the catalog type of session.shutdown (family session)",
+    "workspaces-after, panes-after, tabs-after, producers-after, checkpoints-after reply exactly what the earlier read each names replied"
   ],
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
+  ],
+  "allow_crashes": [
+    {
+      "kind": "daemon",
+      "reason": "session.shutdown stops the daemon on purpose (exit 0 after its receipt); the restart step starts it on the same root",
+      "steps": [
+        "call",
+        "restart"
+      ]
+    }
   ]
 }

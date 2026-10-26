@@ -21,13 +21,34 @@
     "no other cmux-tui on the state root"
   ],
   "requires": [
-    "resource_api"
+    "resource_api",
+    "restart"
   ],
   "platforms": [
     "linux",
     "mac"
   ],
   "steps": [
+    {
+      "id": "fx-workspace",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "workspace.create",
+        "params": {
+          "initial_content": "terminal",
+          "name": "oracle"
+        },
+        "idempotencyKey": "session-open-ok.fx-workspace"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
     {
       "id": "call",
       "op": "resource.call",
@@ -48,11 +69,199 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "opens the current session; the session and the fixture keep their ids across a graceful restart"
+    },
+    {
+      "id": "workspaces-before",
+      "op": "resource.call",
+      "readOnly": true,
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "workspace.list",
+        "params": {}
+      },
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
+      "id": "panes-before",
+      "op": "resource.call",
+      "readOnly": true,
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "pane.list",
+        "params": {}
+      },
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
+      "id": "tabs-before",
+      "op": "resource.call",
+      "readOnly": true,
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "tab.list",
+        "params": {}
+      },
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
+      "id": "restart",
+      "op": "restart",
+      "target": {
+        "process": "daemon"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "identify"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "waitFor": {
+        "pointer": "/daemon/session/terminals/0/lifecycle",
+        "equals": "running",
+        "maxMs": 15000
+      }
+    },
+    {
+      "id": "workspaces-after",
+      "op": "resource.call",
+      "readOnly": true,
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "workspace.list",
+        "params": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "result": "$step:workspaces-before#"
+      }
+    },
+    {
+      "id": "panes-after",
+      "op": "resource.call",
+      "readOnly": true,
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "pane.list",
+        "params": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "result": "$step:panes-before#"
+      }
+    },
+    {
+      "id": "tabs-after",
+      "op": "resource.call",
+      "readOnly": true,
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "tab.list",
+        "params": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "result": "$step:tabs-before#"
+      }
+    },
+    {
+      "id": "workspace-get",
+      "op": "resource.call",
+      "readOnly": true,
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id"
+      },
+      "args": {
+        "method": "workspace.get",
+        "params": {}
+      },
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
+      "id": "pane-get",
+      "op": "resource.call",
+      "readOnly": true,
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "pane": "$step:fx-workspace#/value/pane_id"
+      },
+      "args": {
+        "method": "pane.get",
+        "params": {}
+      },
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
+      "id": "tab-get",
+      "op": "resource.call",
+      "readOnly": true,
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "tab": "$step:fx-workspace#/value/tab_id"
+      },
+      "args": {
+        "method": "tab.get",
+        "params": {}
+      },
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
+      "id": "terminal-get",
+      "op": "resource.call",
+      "readOnly": true,
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:fx-workspace#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.get",
+        "params": {}
+      },
+      "expect": {
+        "outcome": "ok"
+      }
     }
   ],
   "invariants": [
-    "generated by scripts/cmux-next/oracle/gen_daemon_ops.py from the catalog type of session.open (family session)"
+    "generated by scripts/cmux-next/oracle/gen_daemon_ops.py from the catalog type of session.open (family session)",
+    "workspaces-after, panes-after, tabs-after reply exactly what the earlier read each names replied"
   ],
   "teardown": [
     "stop the case daemon",
