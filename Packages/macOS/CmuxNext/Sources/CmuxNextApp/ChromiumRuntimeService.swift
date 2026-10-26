@@ -7,12 +7,13 @@ import Foundation
 /// app build ships without the CEF runtime and a pin
 /// (`Contents/Resources/cef-runtime.json`) names the pack to download.
 ///
-/// At launch ``make(bundle:environment:applicationSupport:)`` picks the
+/// At launch ``make(work:bundle:environment:applicationSupport:hostSupervisor:)`` picks the
 /// runtime: the embedded one (builds that still bundle CEF), the pinned pack
 /// when it is installed, or an older compatible pack while the pinned one
 /// downloads. With none, tabs open in WebKit and the ``source`` reports
 /// `downloading` until the install finishes; then the next Chromium tab
-/// starts Chromium in this process.
+/// starts Chromium, in this process or, with a host supervisor, in the
+/// Chromium Host (``backend``).
 ///
 /// The download starts in the background ``prefetchDelay`` after launch (on
 /// an unmetered network), or at once at user priority when a tab wants
@@ -35,6 +36,9 @@ final class ChromiumRuntimeService {
 
     /// The runtime ``CEFEngine`` reads.
     let source: CEFRuntimeSource
+    /// Where Chromium's browser process runs, fixed for the process: App code that
+    /// reaches Chromium's page windows does so only for ``BrowserBackend/inProcess``.
+    var backend: BrowserBackend { source.backend }
     /// Which runtime the launch picked.
     let origin: Origin
     /// The pinned pack's key, nil without a pin.
@@ -76,20 +80,25 @@ final class ChromiumRuntimeService {
     /// The service for this app: the embedded runtime when present, else the
     /// bundled pin with the URLSession, tar, code-signature and path-monitor
     /// implementations. `work` is the app's one ``BackgroundWork``: the
-    /// code-signature checks run on its system lane.
+    /// code-signature checks run on its system lane. `hostSupervisor` puts
+    /// Chromium in the Chromium Host (``BrowserBackend/host``); nil keeps it
+    /// in this process.
     static func make(work: BackgroundWork, bundle: Bundle = .main,
                      environment: [String: String] = ProcessInfo.processInfo.environment,
-                     applicationSupport: URL? = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first)
+                     applicationSupport: URL? = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
+                     hostSupervisor: (any ChromiumHostSupervising)? = nil)
         -> ChromiumRuntimeService {
         if let layout = CEFRuntimeLayout.locate(bundle: bundle, environment: environment) {
-            return ChromiumRuntimeService(source: CEFRuntimeSource(layout: layout), origin: .bundled, installer: nil, mainBundle: bundle.bundleURL)
+            return ChromiumRuntimeService(source: CEFRuntimeSource(layout: layout, hostSupervisor: hostSupervisor), origin: .bundled,
+                                          installer: nil, mainBundle: bundle.bundleURL)
         }
         guard let resources = bundle.resourceURL, let pin = ChromiumRuntimePin.bundled(in: resources),
               let bundleID = bundle.bundleIdentifier, let applicationSupport else {
-            return ChromiumRuntimeService(source: CEFRuntimeSource(layout: nil), origin: .none, installer: nil, mainBundle: bundle.bundleURL)
+            return ChromiumRuntimeService(source: CEFRuntimeSource(layout: nil, hostSupervisor: hostSupervisor), origin: .none,
+                                          installer: nil, mainBundle: bundle.bundleURL)
         }
         let store = ChromiumRuntimeStore(root: ChromiumRuntimeStore.defaultRoot(applicationSupport: applicationSupport, bundleIdentifier: bundleID))
-        return launch(pin: pin, store: store, mainBundle: bundle.bundleURL) { inUse in
+        return launch(pin: pin, store: store, mainBundle: bundle.bundleURL, hostSupervisor: hostSupervisor) { inUse in
             ChromiumRuntimeInstaller(pin: pin, store: store, downloader: URLSessionChromiumRuntimeDownloader(),
                                      unpacker: TarChromiumRuntimeUnpacker(), signatures: SecCodeChromiumRuntimeSignatureChecker(work: work),
                                      network: PathMonitorChromiumRuntimeNetwork(), keepAlso: { inUse })
@@ -98,9 +107,11 @@ final class ChromiumRuntimeService {
 
     /// Picks the launch runtime for `pin` from `store`, and the installer
     /// (`makeInstaller` receives the pack keys this process may run, which
-    /// cleanup must keep).
+    /// cleanup must keep), with Chromium in the Chromium Host when
+    /// `hostSupervisor` is given.
     static func launch(pin: ChromiumRuntimePin, store: ChromiumRuntimeStore, mainBundle: URL,
                        clock: any Clock<Duration> = ContinuousClock(), prefetchDelay: Duration = .seconds(20),
+                       hostSupervisor: (any ChromiumHostSupervising)? = nil,
                        makeInstaller: (Set<String>) -> ChromiumRuntimeInstaller) -> ChromiumRuntimeService {
         let selection = store.select(for: pin)
         let trust = CEFRuntimeLayout.Trust.downloaded(teamID: pin.teamID)
@@ -114,7 +125,7 @@ final class ChromiumRuntimeService {
         default: origin = .downloading
         }
         let inUse: Set<String> = layout == nil ? [] : Set(selection.installation.map { [$0.pin.key] } ?? [])
-        let source = CEFRuntimeSource(layout: layout, pending: .downloading(fraction: nil))
+        let source = CEFRuntimeSource(layout: layout, pending: .downloading(fraction: nil), hostSupervisor: hostSupervisor)
         return ChromiumRuntimeService(source: source, origin: origin, installer: makeInstaller(inUse), mainBundle: mainBundle,
                                       downloadedTrust: trust,
                                       clock: clock, prefetchDelay: prefetchDelay)

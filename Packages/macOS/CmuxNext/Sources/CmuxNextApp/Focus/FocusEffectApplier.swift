@@ -118,14 +118,14 @@ final class FocusEffectApplier: FocusEffectApplying {
             }
         case .agentPage(let pane, let tab):
             guard case .agent(let view)? = presented(pane: pane, tab: tab) else { return }
-            // An agent page in Chromium shows in a child window: it takes the keys like a Chromium page.
-            if let page = TabContent.agent(view).childWindowTab { return focusPage(page, in: window) }
+            // An agent page in Chromium takes the keys like a Chromium page, in either backend.
+            if let page = TabContent.agent(view).chromiumTab { return focusPage(page, in: window) }
             blurChildWindowPage()
             if !responder(of: window, isInside: view) { window.makeFirstResponder(view.focusTarget) }
         case .page(let pane, let tab):
             guard case .page(let view)? = presented(pane: pane, tab: tab) else { return }
-            // A page in Chromium shows in a child window: it takes the keys like a Chromium browser tab.
-            if let page = TabContent.page(view).childWindowTab { return focusPage(page, in: window) }
+            // A page in Chromium takes the keys like a Chromium browser tab, in either backend.
+            if let page = TabContent.page(view).chromiumTab { return focusPage(page, in: window) }
             blurChildWindowPage()
             // A page with a primary input (the docked Home, a Home tab) lands the keyboard there by
             // the same rule as a conversation tab; its page view itself takes no keys.
@@ -178,21 +178,20 @@ final class FocusEffectApplier: FocusEffectApplying {
         let fromDevTools = focusedDevTools.map { $0 === page } ?? false
         if focusedDevTools != nil { blurDevTools() }
         if fromDevTools { pageFocus.page = nil }
-        switch page.presentation {
-        case .inView:
+        // A Chromium page in either backend; its presentation (child window in process, a view in
+        // the pane in host mode) does not change who keeps the keys (p01-process-028).
+        guard page.engineKind == .cef else {
+            // A WebKit page is a view in the pane: it is cmux's first responder.
             blurChildWindowPage()
             if !responder(of: window, isInside: page.contentView) { setPageFocus(page, true) }
-        case .childWindow:
-            // Chromium's page is a child window. Its focus is sticky: while
-            // this window is key because of a click, the click decides.
-            // The page window has the keys: nothing in this window keeps a
-            // responder (a field editor or the sidebar would show a caret).
-            // In host mode the page's own view in this window is the responder (p01-process-046):
-            // it keeps it.
-            if window.firstResponder !== window, !hostedPageHasResponder(page, in: window) { window.makeFirstResponder(nil) }
-            // One key change (#24913): the old page blurs without this window taking the keys
-            // back first; the grant moves them straight to the new page window.
-            pageFocus.focus(page)
+            return
+        }
+        // One key change (#24913): the old page blurs without this window taking the keys back
+        // first. Tracked, so focus leaving the page blurs it (`blurChildWindowPage`).
+        pageFocus.focus(page, in: window) { responder in
+            // Host mode with a view input target: the page's own view is the responder (p01-process-046).
+            guard let view = responder as? ChromiumHostPageView else { return false }
+            return view.isDescendant(of: page.contentView)
         }
     }
 
@@ -241,8 +240,8 @@ final class FocusEffectApplier: FocusEffectApplying {
     private func reclaimKeyAfterActivation() {
         switch controller.focus.state.resolved {
         case .browserPage, .devTools, .overlay: return
-        case .page(let pane, let tab) where presented(pane: pane, tab: tab)?.childWindowTab != nil: return
-        case .agentPage(let pane, let tab) where presented(pane: pane, tab: tab)?.childWindowTab != nil: return
+        case .page(let pane, let tab) where presented(pane: pane, tab: tab)?.chromiumTab != nil: return
+        case .agentPage(let pane, let tab) where presented(pane: pane, tab: tab)?.chromiumTab != nil: return
         default: reclaimKeyFromPageWindow()
         }
     }
@@ -260,14 +259,7 @@ final class FocusEffectApplier: FocusEffectApplying {
     private func setPageFocus(_ page: any BrowserTab, _ focused: Bool) {
         page.setFocused(focused)
         InputJournal.shared.append(window: controller.state.id, .page(tab: page.id.rawValue, focused: focused,
-                                                                      engine: page.presentation == .childWindow ? "chromium" : "webkit"))
-    }
-
-    /// Whether `page`'s Chromium Host page view is `window`'s first responder (host mode: the
-    /// page's focus is that view plus the host's embedder-active state, no page window is key).
-    private func hostedPageHasResponder(_ page: any BrowserTab, in window: NSWindow) -> Bool {
-        guard let view = window.firstResponder as? ChromiumHostPageView else { return false }
-        return view.isDescendant(of: page.contentView)
+                                                                      engine: page.engineKind == .cef ? "chromium" : "webkit"))
     }
 
     private func responder(of window: NSWindow, isInside view: NSView) -> Bool {
