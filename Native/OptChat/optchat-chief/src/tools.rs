@@ -1217,10 +1217,12 @@ fn connection(conn: UnixStream, served: &Served) {
                         req.get("automation").and_then(Value::as_str),
                     ) {
                         (None | Some("list"), _) => Some(crate::brain::AutomationsRequest::List),
-                        (Some(action), Some(id)) => Some(crate::brain::AutomationsRequest::Update {
-                            id: id.to_owned(),
-                            action: action.to_owned(),
-                        }),
+                        (Some(action), Some(id)) => {
+                            Some(crate::brain::AutomationsRequest::Update {
+                                id: id.to_owned(),
+                                action: action.to_owned(),
+                            })
+                        }
                         (Some(_), None) => None,
                     };
                     let answer = match (ask, control) {
@@ -1230,12 +1232,14 @@ fn connection(conn: UnixStream, served: &Served) {
                         (Some(_), None) => {
                             json!({"error": {"code": "unavailable", "message": "automations are not served here"}})
                         }
-                        (Some(ask), Some(control)) => match control(ControlRequest::Automations(ask)) {
-                            Ok(text) => serde_json::from_str(&text).unwrap_or_else(
-                                |_| json!({"error": {"code": "internal", "message": text}}),
-                            ),
-                            Err(e) => json!({"error": {"code": "unavailable", "message": e}}),
-                        },
+                        (Some(ask), Some(control)) => {
+                            match control(ControlRequest::Automations(ask)) {
+                                Ok(text) => serde_json::from_str(&text).unwrap_or_else(
+                                    |_| json!({"error": {"code": "internal", "message": text}}),
+                                ),
+                                Err(e) => json!({"error": {"code": "unavailable", "message": e}}),
+                            }
+                        }
                     };
                     if writeln!(out, "{answer}").is_err() {
                         return;

@@ -35,9 +35,8 @@ impl GhRuns {
             .map(PathBuf::from)
             .find(|p| p.exists())
             .unwrap_or_else(|| "gh".into());
-        let on_path = std::env::var_os("PATH").is_some_and(|path| {
-            std::env::split_paths(&path).any(|dir| dir.join("gh").is_file())
-        });
+        let on_path = std::env::var_os("PATH")
+            .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join("gh").is_file()));
         GhRuns {
             cmd: if on_path { "gh".into() } else { cmd },
         }

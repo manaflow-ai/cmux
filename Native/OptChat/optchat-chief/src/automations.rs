@@ -281,7 +281,11 @@ impl Cron {
         }
         let dom = self.days & (1 << date.day()) != 0;
         let dow = self.weekdays & (1 << date.weekday().num_days_from_sunday()) != 0;
-        if self.either_day { dom || dow } else { dom && dow }
+        if self.either_day {
+            dom || dow
+        } else {
+            dom && dow
+        }
     }
 
     /// The first time strictly after `after` that the cron names, in
@@ -325,7 +329,9 @@ impl Cron {
 
     /// [`Cron::next_after`] in this Mac's time zone, in ms since the epoch.
     pub fn next_local_ms(&self, after_ms: u64) -> Option<u64> {
-        let after = chrono::Local.timestamp_millis_opt(after_ms as i64).single()?;
+        let after = chrono::Local
+            .timestamp_millis_opt(after_ms as i64)
+            .single()?;
         self.next_after(&after).map(|t| t.timestamp_millis() as u64)
     }
 }
@@ -449,12 +455,11 @@ impl AutomationCall {
                 "automation add: `prompt` is at most {PROMPT_MAX} characters"
             ));
         }
-        let name = self
-            .name
-            .clone()
-            .unwrap_or_else(|| clip(&prompt, 40));
+        let name = self.name.clone().unwrap_or_else(|| clip(&prompt, 40));
         if name.chars().count() > NAME_MAX {
-            return Err(format!("automation add: `name` is at most {NAME_MAX} characters"));
+            return Err(format!(
+                "automation add: `name` is at most {NAME_MAX} characters"
+            ));
         }
         Ok((name, prompt))
     }
@@ -462,9 +467,7 @@ impl AutomationCall {
     /// add: the trigger, checked.
     pub fn trigger(&self) -> Result<Trigger, String> {
         match (&self.cron, self.event.as_deref()) {
-            (Some(_), Some(_)) => {
-                Err("automation add: give `cron` or `event`, not both".into())
-            }
+            (Some(_), Some(_)) => Err("automation add: give `cron` or `event`, not both".into()),
             (None, None) => Err(
                 "automation add: give `cron` (like `0 9 * * *`) or `event` (agent_done, ci_red)"
                     .into(),
@@ -489,7 +492,9 @@ impl AutomationCall {
                 if let Some(b) = &self.branch
                     && !valid_branch(b)
                 {
-                    return Err(format!("automation add: `branch` `{b}` is not a branch name"));
+                    return Err(format!(
+                        "automation add: `branch` `{b}` is not a branch name"
+                    ));
                 }
                 Ok(Trigger::CiRed {
                     repo,
@@ -589,11 +594,9 @@ impl Event {
             return false;
         }
         match (&automation.trigger, self) {
-            (Trigger::AgentDone { matches }, Event::AgentDone { title, .. }) => {
-                matches.as_deref().is_none_or(|m| {
-                    title.to_lowercase().contains(&m.to_lowercase())
-                })
-            }
+            (Trigger::AgentDone { matches }, Event::AgentDone { title, .. }) => matches
+                .as_deref()
+                .is_none_or(|m| title.to_lowercase().contains(&m.to_lowercase())),
             (
                 Trigger::CiRed { repo, branch },
                 Event::CiRed {
@@ -680,14 +683,20 @@ mod tests {
             list.next_after(&at("2026-10-26T09:00:00Z")),
             Some(at("2026-10-26T17:00:00Z"))
         );
-        assert_eq!(Cron::parse("@daily").unwrap(), Cron::parse("0 0 * * *").unwrap());
+        assert_eq!(
+            Cron::parse("@daily").unwrap(),
+            Cron::parse("0 0 * * *").unwrap()
+        );
         let jan = Cron::parse("0 0 1 jan *").unwrap();
         assert_eq!(
             jan.next_after(&at("2026-10-26T00:00:00Z")),
             Some(at("2027-01-01T00:00:00Z"))
         );
         // Sunday as 7.
-        assert_eq!(Cron::parse("0 0 * * 7").unwrap(), Cron::parse("0 0 * * 0").unwrap());
+        assert_eq!(
+            Cron::parse("0 0 * * 7").unwrap(),
+            Cron::parse("0 0 * * 0").unwrap()
+        );
     }
 
     #[test]
@@ -705,18 +714,37 @@ mod tests {
     fn a_cron_in_a_time_zone() {
         let pacific = FixedOffset::west_opt(7 * 3600).unwrap();
         let after = pacific.with_ymd_and_hms(2026, 10, 26, 8, 0, 0).unwrap();
-        let next = Cron::parse("0 9 * * *").unwrap().next_after(&after).unwrap();
-        assert_eq!(next, pacific.with_ymd_and_hms(2026, 10, 26, 9, 0, 0).unwrap());
+        let next = Cron::parse("0 9 * * *")
+            .unwrap()
+            .next_after(&after)
+            .unwrap();
+        assert_eq!(
+            next,
+            pacific.with_ymd_and_hms(2026, 10, 26, 9, 0, 0).unwrap()
+        );
         assert_eq!(next.with_timezone(&Utc), at("2026-10-26T16:00:00Z"));
     }
 
     #[test]
     fn bad_crons_say_why() {
-        for bad in ["", "0 9 * *", "61 * * * *", "0 25 * * *", "*/0 * * * *", "0 9 * * fun", "5-1 * * * *"] {
+        for bad in [
+            "",
+            "0 9 * *",
+            "61 * * * *",
+            "0 25 * * *",
+            "*/0 * * * *",
+            "0 9 * * fun",
+            "5-1 * * * *",
+        ] {
             assert!(Cron::parse(bad).is_err(), "{bad:?} parsed");
         }
         // February 30th never comes.
-        assert_eq!(Cron::parse("0 0 30 2 *").unwrap().next_after(&at("2026-01-01T00:00:00Z")), None);
+        assert_eq!(
+            Cron::parse("0 0 30 2 *")
+                .unwrap()
+                .next_after(&at("2026-01-01T00:00:00Z")),
+            None
+        );
     }
 
     fn automation(trigger: Trigger) -> Automation {
@@ -800,19 +828,40 @@ mod tests {
     fn the_tool_checks_its_arguments() {
         let parse = |v: Value| AutomationCall::parse(&v);
         let add = parse(json!({"action": "add", "name": "PRs", "prompt": "summarize my open PRs", "cron": "0 9 * * *"})).unwrap();
-        assert_eq!(add.trigger().unwrap(), Trigger::Schedule { cron: "0 9 * * *".into() });
-        assert!(parse(json!({"action": "add", "prompt": "x"})).is_err(), "no trigger");
+        assert_eq!(
+            add.trigger().unwrap(),
+            Trigger::Schedule {
+                cron: "0 9 * * *".into()
+            }
+        );
+        assert!(
+            parse(json!({"action": "add", "prompt": "x"})).is_err(),
+            "no trigger"
+        );
         assert!(parse(json!({"action": "add", "prompt": "x", "cron": "nope"})).is_err());
-        assert!(parse(json!({"action": "add", "prompt": "x", "event": "ci_red"})).is_err(), "no repo");
-        assert!(parse(json!({"action": "add", "prompt": "x", "event": "ci_red", "repo": "-x/y"})).is_err());
+        assert!(
+            parse(json!({"action": "add", "prompt": "x", "event": "ci_red"})).is_err(),
+            "no repo"
+        );
+        assert!(
+            parse(json!({"action": "add", "prompt": "x", "event": "ci_red", "repo": "-x/y"}))
+                .is_err()
+        );
         assert!(parse(json!({"action": "add", "prompt": "x", "event": "ci_red", "repo": "a/b", "branch": "--evil"})).is_err());
         assert!(parse(json!({"action": "add", "prompt": "x", "event": "nope"})).is_err());
-        assert!(parse(json!({"action": "add", "cron": "@daily"})).is_err(), "no prompt");
+        assert!(
+            parse(json!({"action": "add", "cron": "@daily"})).is_err(),
+            "no prompt"
+        );
         assert!(parse(json!({"action": "pause"})).is_err(), "no id");
         assert!(parse(json!({"action": "explode"})).is_err());
         assert_eq!(parse(json!({})).unwrap().action, "list");
         let ci = parse(json!({"action": "add", "prompt": "fix it", "event": "ci_red", "repo": "manaflow-ai/cmux", "branch": "main"})).unwrap();
-        assert_eq!(ci.texts().unwrap().0, "fix it", "the name defaults to the prompt");
+        assert_eq!(
+            ci.texts().unwrap().0,
+            "fix it",
+            "the name defaults to the prompt"
+        );
         assert_eq!(AutomationCall::parse(&ci.to_json()).unwrap(), ci);
     }
 }

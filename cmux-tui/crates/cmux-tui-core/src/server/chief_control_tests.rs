@@ -290,7 +290,8 @@ fn the_owner_lists_and_updates_the_chiefs_automations_through_the_brain() {
     );
     let mux = Mux::new_for_test("chief-automations", crate::SurfaceOptions::default());
     let owner = mux.control_clients.register(ClientTransport::Unix, writer());
-    let list = json!({"automations":[{"id":"au1","name":"Morning PRs","paused":true}],"outcome":"done"});
+    let list =
+        json!({"automations":[{"id":"au1","name":"Morning PRs","paused":true}],"outcome":"done"});
     let (_dir, sock, seen) = brain(list.clone());
     let listed = call_with(&mux, owner, "chief.automation.list", json!({}), &sock);
     assert_eq!(listed["result"], list, "{listed}");

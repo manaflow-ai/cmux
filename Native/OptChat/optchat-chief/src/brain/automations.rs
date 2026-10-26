@@ -25,7 +25,10 @@ use crate::automations::{
 pub enum AutomationsRequest {
     List,
     /// `pause`, `resume`, `delete` or `run` automation `id`.
-    Update { id: String, action: String },
+    Update {
+        id: String,
+        action: String,
+    },
 }
 
 /// The owner's update actions.
@@ -45,13 +48,18 @@ impl Brain {
                 if self.state.automations.is_empty() {
                     return Ok("outcome: done. no automations".to_owned());
                 }
-                let lines: Vec<String> =
-                    self.state.automations.iter().map(Automation::line).collect();
+                let lines: Vec<String> = self
+                    .state
+                    .automations
+                    .iter()
+                    .map(Automation::line)
+                    .collect();
                 Ok(format!("outcome: done.\n{}", lines.join("\n")))
             }
             action => {
                 let id = call.id.as_deref().unwrap_or_default();
-                self.update_automation(id, action).map(|(kind, text)| format!("outcome: {kind}. {text}"))
+                self.update_automation(id, action)
+                    .map(|(kind, text)| format!("outcome: {kind}. {text}"))
             }
         }
     }
@@ -92,10 +100,16 @@ impl Brain {
         if let Trigger::Schedule { cron } = &automation.trigger
             && automation.next_ms.is_none()
         {
-            return Err(format!("automation add: the cron `{cron}` never comes again"));
+            return Err(format!(
+                "automation add: the cron `{cron}` never comes again"
+            ));
         }
         let line = automation.line();
-        (self.log)(&format!("automation {} made: {}", automation.id, automation.trigger.describe()));
+        (self.log)(&format!(
+            "automation {} made: {}",
+            automation.id,
+            automation.trigger.describe()
+        ));
         self.trace.emit(
             "automation.add",
             json!({"id": automation.id, "trigger": automation.trigger.kind()}),
@@ -108,7 +122,11 @@ impl Brain {
     }
 
     /// pause, resume, delete or run `id`: `(outcome, text)`.
-    fn update_automation(&mut self, id: &str, action: &str) -> Result<(&'static str, String), String> {
+    fn update_automation(
+        &mut self,
+        id: &str,
+        action: &str,
+    ) -> Result<(&'static str, String), String> {
         let Some(index) = self.state.automations.iter().position(|a| a.id == id) else {
             return Err(format!("automation {action}: no automation {id}"));
         };
@@ -135,7 +153,8 @@ impl Brain {
             other => return Err(format!("automation: no action {other}")),
         };
         (self.log)(&format!("automation {id}: {action}"));
-        self.trace.emit("automation.update", json!({"id": id, "action": action}));
+        self.trace
+            .emit("automation.update", json!({"id": id, "action": action}));
         self.save();
         Ok(answer)
     }
@@ -149,7 +168,8 @@ impl Brain {
                 if !UPDATE_ACTIONS.contains(&action.as_str()) {
                     return json!({"error": {"code": "bad_request", "message": format!("action is one of {}", UPDATE_ACTIONS.join(", "))}});
                 }
-                self.update_automation(&id, &action).map(|(kind, _)| Some(kind))
+                self.update_automation(&id, &action)
+                    .map(|(kind, _)| Some(kind))
             }
         };
         match result {
@@ -250,7 +270,8 @@ impl Brain {
         let note = automation.note(why);
         let id = automation.id.clone();
         (self.log)(&format!("automation {id} fires {why}"));
-        self.trace.emit("automation.fire", json!({"id": id, "key": key}));
+        self.trace
+            .emit("automation.fire", json!({"id": id, "key": key}));
         self.queue(note, Source::Note);
     }
 
@@ -305,9 +326,7 @@ impl Brain {
     ) {
         self.ci_polling
             .remove(&(repo.to_owned(), branch.map(str::to_owned)));
-        let watches = |a: &Automation| {
-            matches!(&a.trigger, Trigger::CiRed { repo: r, branch: b } if r == repo && b.as_deref() == branch)
-        };
+        let watches = |a: &Automation| matches!(&a.trigger, Trigger::CiRed { repo: r, branch: b } if r == repo && b.as_deref() == branch);
         let error = result.as_ref().err().cloned();
         let mut changed = false;
         for automation in self.state.automations.iter_mut().filter(|a| watches(a)) {

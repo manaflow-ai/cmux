@@ -92,7 +92,9 @@ fn every_morning_at_nine_runs_at_nine_and_posts_in_the_chat() {
     let nine = made.next_ms.expect("a schedule has its next fire");
     assert_eq!(
         Some(nine),
-        Cron::parse("0 9 * * *").unwrap().next_local_ms(made.created_ms)
+        Cron::parse("0 9 * * *")
+            .unwrap()
+            .next_local_ms(made.created_ms)
     );
     let local = chrono::TimeZone::timestamp_millis_opt(&chrono::Local, nine as i64).unwrap();
     assert_eq!(chrono::Timelike::hour(&local), 9);
@@ -176,7 +178,12 @@ fn the_owner_lists_pauses_resumes_and_deletes_them() {
     assert!(items[0]["next_ms"].is_u64());
     assert_eq!(items[1]["trigger"]["type"], "ci_red");
     assert_eq!(items[1]["trigger"]["repo"], "manaflow-ai/cmux");
-    assert!(items[1]["trigger"]["summary"].as_str().unwrap().contains("CI fails"));
+    assert!(
+        items[1]["trigger"]["summary"]
+            .as_str()
+            .unwrap()
+            .contains("CI fails")
+    );
 
     // Paused: no next fire, and a due time passes with no turn.
     let due = h.brain.automations()[0].next_ms.unwrap();
@@ -292,11 +299,16 @@ fn agent_done_fires_once_when_a_subagent_finishes() {
     )
     .unwrap();
     let sp = spawner(&h);
-    let worker = std::thread::spawn(move || sp.spawn(vec!["Title: CI fix\nCI-TASK fix it".into()], None));
+    let worker =
+        std::thread::spawn(move || sp.spawn(vec!["Title: CI fix\nCI-TASK fix it".into()], None));
     let deadline = Instant::now() + Duration::from_secs(20);
     let mut idle_sent = false;
     while automation_notes(&h).is_empty() {
-        assert!(Instant::now() < deadline, "no automation fired: {:?}", h.log());
+        assert!(
+            Instant::now() < deadline,
+            "no automation fired: {:?}",
+            h.log()
+        );
         if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
             h.brain.step(input);
             continue;
@@ -317,7 +329,11 @@ fn agent_done_fires_once_when_a_subagent_finishes() {
     h.settle_posts();
     let notes = automation_notes(&h);
     assert_eq!(notes.len(), 1, "{notes:?}");
-    assert!(notes[0].contains("Review what the agent did"), "{}", notes[0]);
+    assert!(
+        notes[0].contains("Review what the agent did"),
+        "{}",
+        notes[0]
+    );
     assert!(notes[0].contains("subagent a1"), "{}", notes[0]);
     assert!(notes[0].contains("Fixed the flaky test"), "{}", notes[0]);
     // The same run's end again (a replayed report): no second fire.
@@ -372,8 +388,7 @@ fn now() -> u64 {
 /// Steps the brain until `n` CI reads came back.
 fn read_ci(h: &mut Harness, ci: &FakeCi, n: usize) {
     let deadline = Instant::now() + Duration::from_secs(10);
-    h.brain
-        .fire_automations_at(now());
+    h.brain.fire_automations_at(now());
     while ci.reads.lock().unwrap().len() < n {
         assert!(Instant::now() < deadline, "CI was not read");
         std::thread::sleep(Duration::from_millis(5));
@@ -449,8 +464,7 @@ fn a_paused_ci_automation_is_not_read() {
         id: "au1".into(),
         action: "pause".into(),
     });
-    h.brain
-        .fire_automations_at(now());
+    h.brain.fire_automations_at(now());
     std::thread::sleep(Duration::from_millis(100));
     assert!(ci.reads.lock().unwrap().is_empty());
 }

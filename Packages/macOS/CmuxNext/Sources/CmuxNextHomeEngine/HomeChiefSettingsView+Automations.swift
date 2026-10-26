@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 
 /// The card's Automations block (issue 25573): reading the Chief's automations from its brain and
@@ -70,7 +71,8 @@ extension HomeChiefSettingsView {
     private nonisolated static func automationResult(
         _ body: @escaping @Sendable () async throws(HomeChiefEngineError) -> [ChiefAutomation]
     ) async -> Result<[ChiefAutomation], HomeChiefEngineError> {
-        await Task.detached { () async -> Result<[ChiefAutomation], HomeChiefEngineError> in
+        // The card shows the answer: a person looks at it, nothing waits on a key for it.
+        await Task.detached(priority: WorkPriority.userVisible.taskPriority) { () async -> Result<[ChiefAutomation], HomeChiefEngineError> in
             do { return .success(try await body()) } catch { return .failure(error) }
         }.value
     }
