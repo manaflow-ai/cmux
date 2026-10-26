@@ -76,6 +76,10 @@ public final class ChromiumHostPageView: NSView {
     }
     /// ``pageCursor`` as AppKit shows it, made once per change.
     private(set) var shownCursor: NSCursor?
+    /// Where cmux's views lie over the page (its ``CEFHostView``'s occlusion rects): no page cursor there.
+    var cursorHoles: [CGRect] = [] {
+        didSet { if cursorHoles != oldValue, shownCursor != nil { window?.invalidateCursorRects(for: self) } }
+    }
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Where frames for the host go (``InputTarget/view`` only), synchronously
@@ -143,6 +147,7 @@ public final class ChromiumHostPageView: NSView {
         guard overlay == nil || inputTarget == .view else { return false }
         crashOverlay?.removeFromSuperview()
         crashOverlay = overlay
+        if shownCursor != nil { window?.invalidateCursorRects(for: self) }
         guard let overlay else { return true }
         overlay.frame = bounds
         overlay.autoresizingMask = [.width, .height]

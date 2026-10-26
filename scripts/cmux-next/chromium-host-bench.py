@@ -70,8 +70,10 @@ Per mode:
            both modes, in the STRESS session too (the probe opened in its measured pane).
   cursor   `--modes cursor` (task 045 of plans/cmux-next/chrome-parity/p01-process.md): a Chromium tab of the app's
            backend over a page of four bands, text (an input), link, col-resize and a CSS image cursor; the pointer
-           moves over each and `debug.cef`'s `page_cursor` (the page view's cursor in host mode) must name it. In
-           process the page window shows Chromium's own cursor and the row says so instead of passing.
+           moves over each (`debug.mouse` page `move`, its reply kept per band; a move that errs fails its band) and
+           `debug.cef`'s `page_cursor` (the page view's cursor in host mode) must name it. In process the page window
+           shows Chromium's own cursor, and until the host input route (p01-process-042) a host-mode page view has no
+           pointer route to the host: the row says not_measurable with the reason instead of passing.
 
 A Debug or bench build (reload.sh --config bench: debug.chromium_host, its measure call and the tunables file
 answer there for a development bundle, p12-perf-process-221), never Release: the numbers compare the two paths,
@@ -1021,14 +1023,23 @@ def run_cursor(rpc, url):
         if not rect:
             row[band] = {"error": "no band rect"}
             continue
-        rpc("debug.mouse", {"action": "move", "target": "page", "x": rect[0], "y": rect[1]})
+        moved = rpc("debug.mouse", {"action": "move", "target": "page", "x": rect[0], "y": rect[1]})
+        if not isinstance(moved, dict) or moved.get("error"):
+            # The pointer never reached the page: the driver's fault, not the cursor's.
+            error = moved.get("error") if isinstance(moved, dict) else f"no reply: {moved!r}"
+            row[band] = {"expected": expected, "move": moved, "error": f"debug.mouse move: {error}", "pass": False}
+            continue
         # The renderer sends a changed cursor after the move reaches it; host mode adds the wire hop.
         shown = wait(lambda: (lambda c: c if c == expected else None)(shown_cursor()), 5, 0.05) or shown_cursor()
-        row[band] = {"expected": expected, "shown": shown, "pass": shown == expected}
-    if all((row.get(band) or {}).get("shown") is None for band in CURSOR_BANDS):
+        row[band] = {"expected": expected, "move": moved, "shown": shown, "pass": shown == expected}
+    bands = [row.get(band) or {} for band in CURSOR_BANDS]
+    if all((b.get("move") or {}).get("reason") == "no_host_input_route" for b in bands):
+        row["not_measurable"] = ("no pointer route from the page view to the Chromium Host yet (p01-process-042): "
+                                 "the renderer never sees the pointer, so it computes no cursor")
+    elif all("error" not in b and b.get("shown") is None for b in bands):
         row["not_measurable"] = "no page view cursor: the tab runs in process, where Chromium's page window shows its own cursor"
     else:
-        row["pass"] = all((row.get(band) or {}).get("pass") for band in CURSOR_BANDS)
+        row["pass"] = all(b.get("pass") for b in bands)
     RESULT["modes"]["cursor"] = row
     return True
 

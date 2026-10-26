@@ -94,4 +94,50 @@ import Testing
         #expect(ChromiumHostPageView.first(in: container) === page)
         #expect(ChromiumHostPageView.first(in: NSView()) == nil)
     }
+
+    /// The cursor rects are the visible page less the holes: they never overlap, never reach into a
+    /// hole, and cover the rest of the page.
+    @Test func cursorRectsLeaveOutTheHoles() {
+        let page = CGRect(x: 0, y: 0, width: 300, height: 200)
+        #expect(ChromiumHostPageView.uncovered(page, by: []) == [page])
+        #expect(ChromiumHostPageView.uncovered(page, by: [CGRect(x: 400, y: 0, width: 10, height: 10)]) == [page])
+        #expect(ChromiumHostPageView.uncovered(page, by: [page.insetBy(dx: -5, dy: -5)]).isEmpty)
+        #expect(ChromiumHostPageView.uncovered(.zero, by: []).isEmpty)
+
+        // A find bar at the top right, a divider grab down the left edge, overlapping a prompt bar at the bottom.
+        let holes = [CGRect(x: 180, y: 160, width: 110, height: 30), CGRect(x: 0, y: 0, width: 6, height: 200),
+                     CGRect(x: 0, y: 0, width: 300, height: 24)]
+        let rects = ChromiumHostPageView.uncovered(page, by: holes)
+        for (index, rect) in rects.enumerated() {
+            #expect(page.contains(rect))
+            #expect(!holes.contains { $0.intersects(rect) }, "\(rect) reaches into a hole")
+            #expect(!rects.enumerated().contains { $0.offset != index && $0.element.intersects(rect) }, "\(rect) overlaps")
+        }
+        let area = rects.reduce(0) { $0 + $1.width * $1.height }
+        // 300 x 200, less the grab (6 x 176 above the prompt bar), the prompt bar (300 x 24) and the find bar (110 x 30).
+        #expect(area == 300 * 200 - 6 * 176 - 300 * 24 - 110 * 30)
+    }
+
+    /// Host mode: the page view's cursor holes follow its host view's occlusion rects (the find bar and
+    /// prompt bar over the page), and the crash page covers all of it.
+    @Test func thePageCursorNeverShowsOverNativeUIOnThePage() {
+        let host = CEFHostView(frame: NSRect(x: 0, y: 0, width: 300, height: 200), pageUpdateCenter: NotificationCenter())
+        let page = ChromiumHostPageView(frame: host.bounds, inputTarget: .pageWindow,
+                                        makeLayerHost: { _ in CALayer() }, pageUpdateCenter: NotificationCenter())
+        host.addSubview(page, positioned: .below, relativeTo: nil)
+        let findBar = CGRect(x: 180, y: 160, width: 110, height: 30)
+        host.occlusionRects = [findBar]
+        #expect(page.cursorHoles == [findBar])
+        #expect(page.coveredRects == [findBar])
+        host.occlusionRects = []
+        #expect(page.cursorHoles.isEmpty)
+
+        let crash = NSView()
+        #expect(page.setCrashOverlay(crash) == false, "a page window page shows no crash overlay")
+        let hosted = ChromiumHostPageView(frame: host.bounds, inputTarget: .view,
+                                          makeLayerHost: { _ in CALayer() }, pageUpdateCenter: NotificationCenter())
+        #expect(hosted.setCrashOverlay(crash))
+        #expect(hosted.coveredRects == [hosted.bounds])
+        #expect(ChromiumHostPageView.uncovered(hosted.bounds, by: hosted.coveredRects).isEmpty)
+    }
 }

@@ -33,6 +33,7 @@ extension CEFPaneHost {
         let page = ChromiumHostPageView(frame: hostView.bounds, inputTarget: .pageWindow)
         page.wireToken = runtime.mintPageViewToken()
         hostView.addSubview(page, positioned: .below, relativeTo: nil)
+        hostView.showOcclusion(in: page)
         hostedPageView = page
         return page
     }
