@@ -43,7 +43,7 @@ struct AgentPanePostedClickTests {
         // Another process (not this one, not the HID system) posted the click on Allow.
         let foreign = Int64(getpid()) + 1
         let posted = try Self.click(in: window, source: foreign)
-        try #require(view.webView.bounds.contains(view.webView.convert(posted.locationInWindow, from: nil)),
+        try #require(view.page.bounds.contains(view.page.convert(posted.locationInWindow, from: nil)),
                      "the test click misses the page (\(posted.locationInWindow)); the check below would prove nothing")
         view.judge(posted, eventWindow: window)
         #expect(!gestures.isAvailable, "a click another process posted counted as the person's gesture")

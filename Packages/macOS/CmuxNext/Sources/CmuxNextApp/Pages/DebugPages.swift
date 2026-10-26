@@ -67,7 +67,7 @@ extension AppControl {
         let registry = services.webUI.registry, pages = registry.pages()
         let cef = services.cache.cef
         let census = WebUICensus(
-            pages: pages, registry: registry, newTabSpare: services.newTabSpares.spare?.view.webView,
+            pages: pages, registry: registry, newTabSpare: services.newTabSpares.spare?.view.page,
             spareWindows: [
                 WebUICensus.Host(name: "cef_window", state: cef.spareWindowState, rendererClients: cef.spareWindowRendererClients),
                 WebUICensus.Host(name: "cef_pages_window", state: cef.pagesSpareWindowState, rendererClients: cef.pagesSpareWindowRendererClients),
