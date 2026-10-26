@@ -84,39 +84,56 @@ public struct ServerHelperDeadline {
     }
 }
 
-/// One allowlisted child process, killable from the deadline.
-final nonisolated class FixChild: @unchecked Sendable {
-    private let process = Process()
-    private let pipe = Pipe()
+/// One allowlisted child process, killable from the deadline. The deadline's
+/// timer and the request's task both reach the `Process`, so it lives behind
+/// one lock: a kill waits for a spawn in progress and then kills that child,
+/// and a kill that comes first means the child is never spawned.
+final nonisolated class FixChild: Sendable {
+    private struct Spawn {
+        let process: Process
+        let pipe: Pipe
+        var killed = false
+    }
+
+    private let spawn: Mutex<Spawn>
 
     init(_ executable: URL, _ arguments: [String]) {
+        let process = Process()
+        let pipe = Pipe()
         process.executableURL = executable
         process.arguments = arguments
         process.environment = [:]
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
+        spawn = Mutex(Spawn(process: process, pipe: pipe))
     }
 
     func start() async throws -> FixRunResult {
-        let pipe = pipe
-        return try await withCheckedThrowingContinuation { continuation in
-            process.terminationHandler = { finished in
-                // concurrency-allow: Process.terminationHandler runs on a background queue, never the main thread; pmset -g custom prints about 1 KiB, far below the pipe buffer, so it never blocks the child before exit
-                let data = (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
-                continuation.resume(returning: FixRunResult(status: finished.terminationStatus, output: String(decoding: data.prefix(65_536), as: UTF8.self)))
-            }
-            do {
-                try process.run()
-            } catch {
-                continuation.resume(throwing: error)
+        try await withCheckedThrowingContinuation { continuation in
+            spawn.withLock { child in
+                guard !child.killed else { return continuation.resume(throwing: ServerHelperTimedOut()) }
+                let pipe = child.pipe
+                child.process.terminationHandler = { finished in
+                    // concurrency-allow: Process.terminationHandler runs on a background queue, never the main thread; pmset -g custom prints about 1 KiB, far below the pipe buffer, so it never blocks the child before exit
+                    let data = (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
+                    continuation.resume(returning: FixRunResult(status: finished.terminationStatus, output: String(decoding: data.prefix(65_536), as: UTF8.self)))
+                }
+                do {
+                    try child.process.run()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
             }
         }
     }
 
     /// Kills only this child (the process the helper started).
     func kill() {
-        guard process.isRunning else { return }
-        Darwin.kill(process.processIdentifier, SIGKILL)
+        spawn.withLock { child in
+            child.killed = true
+            guard child.process.isRunning else { return }
+            Darwin.kill(child.process.processIdentifier, SIGKILL)
+        }
     }
 }
