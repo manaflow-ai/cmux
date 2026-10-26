@@ -204,8 +204,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent())
         // cmux-page:// first-party pages for Chromium, before any window can start it.
         FirstPartyPageSchemes.install()
-        // The page host is built here, its first read; the statics forward to it for page views not
-        // yet made through `webUI.open` (p13-webui-006 to 009 move them, 010 deletes the statics).
+        // The page host already exists (`services.iconPicker` above reads it) but has opened no page;
+        // the statics forward to it for page views not yet made through `webUI.open`
+        // (p13-webui-006 to 009 move them, 010 deletes the statics).
         PageWebView.openPanel = services.webUI.openPanel
         PageWebView.chromiumHosting = services.webUI.chromium
         DebugTimings.markLaunch("dfl.home_history")
