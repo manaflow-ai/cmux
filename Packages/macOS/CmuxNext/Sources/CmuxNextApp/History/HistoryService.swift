@@ -170,7 +170,8 @@ final class HistoryService {
             let (title, detail) = Self.daemonClosedText(item, pages: services.pages)
             let closed = CmuxNextHistory.ClosedItem(id: DaemonClosedHistory.historyID(item.id), kind: kind, title: title,
                                                     machine: entry.daemon.machineID, cwd: tab?.cwd,
-                                                    url: tab?.page == nil ? Self.realText(tab?.url) : nil)
+                                                    url: tab?.page == nil ? Self.realText(tab?.url) : nil,
+                                                    agentSession: tab?.agentSession.map { .init(sessionID: $0.session, harness: $0.harness) })
             let local = entry.daemon.machineID == MachineRegistry.localID
             return HistoryEntry(id: "closed:daemon:\(item.id)", kind: .closed,
                                 time: Date(timeIntervalSince1970: Double(item.closedAtMs) / 1000), title: title,
