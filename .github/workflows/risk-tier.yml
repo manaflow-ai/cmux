@@ -85,9 +85,18 @@ jobs:
       # the DEV publish handoff and the CLA checks spend, which ran out repeatedly on 2026-10-26.
       #
       # The labels are created on demand now, only when an add reports one missing, and the pull
-      # request's current labels come from the event payload instead of a `gh pr view`. The payload
-      # can be a moment stale (someone relabels by hand between the event and this step), which at
-      # worst leaves the correction to the next event; the check's verdict never reads the label.
+      # request's current labels come from the event payload instead of a `gh pr view`.
+      #
+      # What a run costs, measured with a recording `gh` (tests/test_risk_label_api_budget.py):
+      # nothing in the usual case, where the pull request already carries exactly this tier; three
+      # on a tier change (the live read, the add, the remove); two when there is no tier yet; two
+      # more when the label is missing from the repository (the create and the retry). It was five
+      # on every run, so about 1,450 requests an hour against a 1,000/hour installation budget.
+      #
+      # The payload can be a moment stale. `labeled` and `unlabeled` are in this workflow's
+      # triggers, so a person's or a PAT's relabel fires a fresh run that corrects it; only an
+      # edit made with GITHUB_TOKEN starts no run, and no other workflow edits risk labels. That
+      # window is the price of the zero-request path and is the one case this step can miss.
       - name: Set the risk label
         continue-on-error: true
         env:
@@ -100,49 +109,69 @@ jobs:
           set -uo pipefail
           # The grade step always writes a label and this step is skipped when it fails, so an empty
           # LABEL is unreachable. Refuse it anyway rather than strip the tier the gate already set:
-          # `grep -vxF ""` keeps every non-empty line, so an empty LABEL would read every risk label
-          # as stale and ask for `--add-label ` with no name.
+          # an empty LABEL would read every risk label as stale and ask to add one with no name.
           if [ -z "${LABEL:-}" ]; then
             echo "::warning::the grade step produced no label; leaving the pull request's labels alone"
             exit 0
           fi
-          current="$(jq -r '.[]' <<<"$CURRENT_JSON")"
-          # risk:medium is the old name for risk:normal.
-          stale="$(grep -E '^risk:(low|medium|normal|high)$' <<<"$current" | grep -vxF "$LABEL" || true)"
-          wanted=no
-          grep -qxF "$LABEL" <<<"$current" && wanted=yes
-          if [ "$wanted" = yes ] && [ -z "$stale" ]; then
+          # The tier labels in a JSON array of label names, one per line. jq matches whole values,
+          # so a label that itself contains a newline cannot synthesise a `risk:` line the way a
+          # line-based grep over every name could. risk:medium is risk:normal's old name.
+          tiers() { jq -r '.[] | select(test("^risk:(low|medium|normal|high)$"))' <<<"$1"; }
+          # Whether a set of labels is already what we want: this tier, and no other.
+          settled() { [ "$(tiers "$1")" = "$LABEL" ]; }
+
+          if settled "$CURRENT_JSON"; then
             echo "$LABEL is already the only risk label; no API request spent"
             exit 0
           fi
           # Only once the payload says an edit is due: confirm against the live labels before making
-          # one. The payload is a snapshot, so two runs racing on one pull request (the concurrency
-          # group cancels the older, but not instantly) could each edit from a different view and
-          # leave two tier labels, and a GITHUB_TOKEN label edit starts no new run to correct it.
-          # This costs one request on the rare change path and none in the usual case above, which
-          # is the whole point of the step.
-          live="$(gh pr view "$NUMBER" --repo "$REPO" --json labels --jq '.labels[].name')" || live=""
-          # An error, or a read that somehow came back with nothing, falls back to the payload
-          # rather than treating the pull request as unlabelled.
-          [ -n "$live" ] || live="$current"
-          stale="$(grep -E '^risk:(low|medium|normal|high)$' <<<"$live" | grep -vxF "$LABEL" || true)"
-          wanted=no
-          grep -qxF "$LABEL" <<<"$live" && wanted=yes
-          if [ "$wanted" = yes ] && [ -z "$stale" ]; then
+          # one. Two runs racing on one pull request (the concurrency group cancels the older, but
+          # not instantly) could otherwise each edit from a different view, and a GITHUB_TOKEN label
+          # edit starts no run to correct that. This narrows the race rather than closing it -- two
+          # runs that both read before either wrote still both write -- but they grade the same head
+          # to the same tier, so what they race to write agrees. It costs one request on the rare
+          # change path and none in the usual case above, which is the whole point of the step.
+          if ! live_json="$(gh pr view "$NUMBER" --repo "$REPO" --json labels --jq '[.labels[].name]')"; then
+            # Only a failed read falls back to the payload. A pull request with no labels reads as
+            # `[]`, which is an answer, not an error: treating it as the payload once removed the
+            # last tier while skipping the add, leaving no tier at all.
+            echo "::warning::could not read the live labels; going by the event payload"
+            live_json="$CURRENT_JSON"
+          fi
+          if settled "$live_json"; then
             echo "$LABEL became the only risk label while this run graded; nothing to do"
             exit 0
           fi
-          if [ "$wanted" = no ] && ! gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL"; then
-            # The only way this label can be missing from the repository is a fresh fork.
-            case "$LABEL" in
-              risk:low) color=0E8A16 ;;
-              risk:normal) color=FBCA04 ;;
-              *) color=B60205 ;;
-            esac
-            gh label create "$LABEL" --repo "$REPO" --color "$color" \
-              --description "Risk tier (docs/ci/risk-tiers.md)" || true
-            gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL" || echo "::warning::could not add $LABEL"
+
+          have=no
+          tiers "$live_json" | grep -qxF "$LABEL" && have=yes
+          if [ "$have" = no ]; then
+            if gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL"; then
+              have=yes
+            else
+              # The only way this label can be missing from the repository is a fresh fork.
+              case "$LABEL" in
+                risk:low) color=0E8A16 ;;
+                risk:normal) color=FBCA04 ;;
+                *) color=B60205 ;;
+              esac
+              gh label create "$LABEL" --repo "$REPO" --color "$color" \
+                --description "Risk tier (docs/ci/risk-tiers.md)" || true
+              gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL" && have=yes
+            fi
           fi
+          if [ "$have" = no ]; then
+            # Stripping the old tier now would leave the pull request with no tier at all, which is
+            # worse than a stale one: `risk evidence` grades from the diff either way, but a person
+            # and next-autoland both read the label. Leave it; the next event grades again.
+            echo "::warning::could not add $LABEL; leaving the pull request's risk labels alone rather than leaving it with no tier"
+            exit 0
+          fi
+          # `|| true`: grep exits 1 when there is nothing stale, which under `pipefail` would be
+          # the script's own exit status. $(...) drops the trailing newline, so an empty result
+          # feeds the loop one empty line, which it skips.
+          stale="$(tiers "$live_json" | grep -vxF "$LABEL" || true)"
           while IFS= read -r old; do
             [ -n "$old" ] || continue
             gh pr edit "$NUMBER" --repo "$REPO" --remove-label "$old" || echo "::warning::could not remove $old"
