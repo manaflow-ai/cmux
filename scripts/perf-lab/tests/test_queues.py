@@ -86,6 +86,7 @@ class PrivateStats(Fixture):
         self.write("scripts/cmux-next/other.py", "def summarize_rows(values):\n    return 0\n")
         self.write("scripts/perf-lab/alerts.py",
                    "def _stats(samples, unit):\n    summary = perf_stats.summary(samples)\n    return str(summary)\n")
+        self.write("scripts/cmux-next/one-line-bench.py", "def pct(v, p): return perf_stats.pct(v, p)\nx = 1\n")
         self.assertEqual(self.keys(queues.private_stats), [])
 
     def test_one_item_per_file_with_its_first_line(self):
@@ -186,6 +187,27 @@ class Signposts(Fixture):
             """)
         self.assertEqual(self.keys(queues.unemitted_signposts), ["documented", "switched"])
 
+    def test_calls_on_other_receivers_are_not_emits(self):
+        self.write(queues.SIGNPOST_NAME, """
+            public enum SignpostName: UInt16 {
+                case cefPump = 1
+                case inputFrame = 2
+                case direct = 3
+                case wrapped = 4
+                case stalled = 5
+                case viaRuntime = 6
+            }
+            """)
+        self.write("Packages/macOS/CmuxNext/Sources/A/Other.swift", """
+            metrics.counter(.cefPump, 1)
+            histograms?.event(.inputFrame, value: 2)
+            inlineRename.begin(.direct)
+            source?.end(.wrapped)
+            Signposter.stall.event(.stalled, "x")
+            self.runtime.begin(.viaRuntime)
+            """)
+        self.assertEqual(self.keys(queues.unemitted_signposts), ["cefPump", "inputFrame", "direct", "wrapped"])
+
     def test_a_missing_catalog_is_an_error(self):
         with self.assertRaises(queues.QueueError):
             queues.unemitted_signposts(self.root)
@@ -237,6 +259,10 @@ class BenchGaps(Fixture):
         compiled = queues.compiled_lines(text)
         self.assertEqual([line for line, on in zip(text.splitlines(), compiled) if on], ["a", "c", "e", "g"])
 
+    def test_blocking_checks_is_not_a_bench_define(self):
+        # reload.sh --config bench passes -DCMUX_BENCH_HOOKS only; bench-checks adds CMUX_BLOCKING_CHECKS.
+        self.assertEqual(queues.compiled_lines("#if DEBUG || CMUX_BLOCKING_CHECKS\nx\n#endif"), [False, False, False])
+
     def test_an_unreadable_condition_is_an_error(self):
         with self.assertRaises(queues.QueueError):
             queues.compiled_lines("#if DEBUG +\n#endif\n")
@@ -252,6 +278,10 @@ class BenchGaps(Fixture):
             #if DEBUG || CMUX_BENCH_HOOKS
             router.register([.mainActor("debug.bench") { _ in .null }])
             #endif
+            #if DEBUG || CMUX_BLOCKING_CHECKS
+            router.register([.mainActor("debug.blocking_only") { _ in .null }])
+            let fence = env["CMUX_NEXT_FENCE_ONLY"]
+            #endif
             #if DEBUG
             let both = env["CMUX_NEXT_BOTH"]
             #else
@@ -265,13 +295,16 @@ class BenchGaps(Fixture):
             rpc("debug.bench")
             rpc("debug.unknown")
             rpc("debug.test_only")
+            rpc("debug.blocking_only")
             env = {"CMUX_NEXT_DEBUG_ONLY": "1", "CMUX_NEXT_BOTH": "1"}
             """)
         self.write("scripts/cmux-next/sidebar-live.py", 'rpc("debug.commented")\n')  # not a bench
+        # A functional launch check (NOT_A_BENCH, the same set MQ2 skips) is not a bench script.
+        self.write("scripts/cmux-next/launch-env-fence-live.py", 'env = {"CMUX_NEXT_FENCE_ONLY": "1"}\n')
         items = queues.bench_gaps(self.root)
-        self.assertEqual([item.key for item in items], ["debug.only", "CMUX_NEXT_DEBUG_ONLY"])
-        self.assertEqual(items[0].where, "Packages/macOS/CmuxNext/Sources/App/Debug.swift:2")
-        self.assertIn("scripts/cmux-next/a-bench.py", items[0].detail)
+        self.assertEqual([item.key for item in items], ["debug.blocking_only", "debug.only", "CMUX_NEXT_DEBUG_ONLY"])
+        self.assertEqual(items[1].where, "Packages/macOS/CmuxNext/Sources/App/Debug.swift:2")
+        self.assertIn("scripts/cmux-next/a-bench.py", items[1].detail)
 
 
 class CommandLine(Fixture):
@@ -302,6 +335,14 @@ class CommandLine(Fixture):
         self.write("scripts/cmux-next/a-bench.py", "def pct(v):\n    pass\n")
         code, out, _ = self.run_main("bench-migration", "--files")
         self.assertEqual((code, out), (0, "scripts/cmux-next/a-bench.py\n"))
+
+    def test_all_files_prints_only_keys(self):
+        self.write("scripts/cmux-next/a-bench.py", "def pct(v):\n    pass\n")
+        self.write(queues.SIGNPOST_NAME, "enum SignpostName {\n    case a = 1\n}\n")
+        self.write("schemas/features/features.schema.json", "{}")
+        _, out, _ = self.run_main("--all", "--files")
+        self.assertNotIn("==", out)
+        self.assertEqual(sorted(set(out.splitlines())), ["a", "scripts/cmux-next/a-bench.py"])
 
     def test_queue_names_and_ids(self):
         for name in ("mq1", "MQ-B", "mqb", "bench-gaps", "MQ13"):

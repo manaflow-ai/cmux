@@ -147,7 +147,10 @@ PRIVATE_STAT_PATTERNS = (
 
 
 def _delegates_to_shared(lines: list[str], index: int) -> bool:
-    """Whether the function defined at `lines[index]` calls perf_stats in its body (a wrapper, not a copy)."""
+    """Whether the function defined at `lines[index]` calls perf_stats in its body (a wrapper, not a copy),
+    on the def line itself (`def pct(v, p): return perf_stats.pct(v, p)`) or in the indented block."""
+    if "perf_stats." in lines[index].split(":", 1)[-1]:
+        return True
     indent = len(lines[index]) - len(lines[index].lstrip())
     for line in lines[index + 1:]:
         if line.strip() and len(line) - len(line.lstrip()) <= indent:
@@ -197,9 +200,17 @@ SELF_LAUNCH = re.compile(r'Contents/MacOS|"open",\s*"-n"|\blaunch_app\b|^[ \t]*d
 USES_BENCH_LAUNCH = re.compile(r"\bbench_launch\b|\bBenchApp\b")
 SELF_LAUNCH_EXEMPT = {
     "perf-cron.py": "runs the other benches; it never launches the app itself",
-    "launch-env-fence-live.py": "checks the launch environment, so it must launch by itself",
     "bench_launch.py": "the shared launch",
 }
+# Scripts whose name matches BENCH_NAME but that are functional checks, not perf benches: MQ2 and MQ13
+# both leave them out.
+NOT_A_BENCH = {
+    "launch-env-fence-live.py": "checks the launch environment (so it must launch by itself), not a perf bench",
+}
+
+
+def _is_bench_name(name: str) -> bool:
+    return bool(BENCH_NAME.search(name)) and name not in NOT_A_BENCH
 
 
 def self_launch(root: str = ROOT) -> list[Item]:
@@ -207,7 +218,7 @@ def self_launch(root: str = ROOT) -> list[Item]:
     items = []
     for rel in _walk(root, BENCH_DIR, (".py",), recursive=False):
         name = os.path.basename(rel)
-        if name in SELF_LAUNCH_EXEMPT or not BENCH_NAME.search(name):
+        if name in SELF_LAUNCH_EXEMPT or not _is_bench_name(name):
             continue
         code = _code(_read(os.path.join(root, rel)), "#")
         if USES_BENCH_LAUNCH.search(code):
@@ -263,12 +274,17 @@ SIGNPOST_CALLS = (
     "begin", "end", "endSpanningNestedLoop", "interval", "event", "asyncBegin", "asyncEnd",
     "flowOut", "flowIn", "counter",
 )
+# The receivers of those calls: `Signposter` and its categories (`Signposter.stall`), a `signposter` or
+# `poster` value, and the TraceRuntime value (`trace`, `runtime`). Other types share the call and case
+# names (HistogramID's `.counter(.cefPump`, a rename's `.begin(.direct`), so any other receiver is not
+# an emit. The plan's reference form (p12-perf-process.md section 7) keys on the receiver the same way.
+SIGNPOST_RECEIVER = r"(?:\bSignposter(?:\.[a-z]\w*)?|\b\w*[sS]ignposter|\bposter|\btrace|\bruntime)\??\s*"
 
-# An emit: a call above with the case first (`.begin(.x`, `.begin(SignpostName.x`, across lines), the
-# os_signpost static name (`SignpostName.x.staticName`), or a typed binding a call takes later
-# (`let name: SignpostName = .x`). A `case .x:` in a switch over the catalog is not an emit.
+# An emit: a call above on a signpost receiver with the case first (`.begin(.x`, `.begin(SignpostName.x`,
+# across lines), the os_signpost static name (`SignpostName.x.staticName`), or a typed binding a call
+# takes later (`let name: SignpostName = .x`). A `case .x:` in a switch over the catalog is not an emit.
 SIGNPOST_EMIT = re.compile(
-    r"\.(?:%s)\(\s*(?:SignpostName)?\.(\w+)\b" % "|".join(SIGNPOST_CALLS)
+    SIGNPOST_RECEIVER + r"\.(?:%s)\(\s*(?:SignpostName)?\.(\w+)\b" % "|".join(SIGNPOST_CALLS)
     + r"|\bSignpostName\.(\w+)\.staticName\b"
     + r"|:\s*SignpostName\??\s*=\s*(?:SignpostName)?\.(\w+)\b")
 
@@ -328,9 +344,10 @@ def unmigrated_features(root: str = ROOT) -> list[Item]:
 # ---------------------------------------------------------------------------------------------
 # MQ13: bench-config gaps
 
-# What `scripts/reload.sh --config bench` defines (reload.sh: -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS,
-# no DEBUG). The fleet Macs are arm64 and the app is macOS only.
-BENCH_DEFINES = frozenset({"CMUX_BENCH_HOOKS", "CMUX_BLOCKING_CHECKS"})
+# What `scripts/reload.sh --config bench` defines: -DCMUX_BENCH_HOOKS only, no DEBUG. `--config
+# bench-checks` adds -DCMUX_BLOCKING_CHECKS (a superset), so a name compiled into bench is in both, and a
+# name only under `#if DEBUG || CMUX_BLOCKING_CHECKS` is a gap. The fleet Macs are arm64, the app macOS only.
+BENCH_DEFINES = frozenset({"CMUX_BENCH_HOOKS"})
 BENCH_SCRIPT_DIRS = ("scripts/cmux-next", "scripts/perf-lab", "scripts/measure", "scripts/perf-bench", "scripts/perf")
 DEBUG_METHOD = re.compile(r"""["'](debug\.[a-z0-9_.]*[a-z0-9_])["']""")
 ENV_NAME = re.compile(r"\b(CMUX_[A-Z0-9_]*[A-Z0-9])\b")
@@ -436,13 +453,14 @@ def compiled_lines(text: str, defines: frozenset[str] = BENCH_DEFINES) -> list[b
 
 def _bench_script_names(root: str) -> dict[str, dict[str, list[str]]]:
     """{"method"|"env": {name: [script paths]}} for the bench scripts: perf-named, MEASURING_SCRIPTS or
-    BenchApp users."""
+    BenchApp users, minus NOT_A_BENCH (the same exclusions as MQ2)."""
     used: dict[str, dict[str, list[str]]] = {"method": {}, "env": {}}
     for top in BENCH_SCRIPT_DIRS:
         for rel in _walk(root, top, (".py", ".sh"), recursive=False):
             code = _code(_read(os.path.join(root, rel)), "#")
             name = os.path.basename(rel)
-            if not (BENCH_NAME.search(name) or name in MEASURING_SCRIPTS or USES_BENCH_LAUNCH.search(code)):
+            if name in NOT_A_BENCH or not (
+                    _is_bench_name(name) or name in MEASURING_SCRIPTS or USES_BENCH_LAUNCH.search(code)):
                 continue
             for kind, pattern in (("method", DEBUG_METHOD), ("env", ENV_NAME)):
                 for name in sorted(set(pattern.findall(code))):
@@ -535,7 +553,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.counts:
             print("%s\t%s\t%s" % (queue.mq, queue.name, "error" if items is None else len(items)))
             continue
-        if args.all:
+        if args.all and not args.files:
             print("== %s %s: %s" % (queue.mq, queue.name, queue.title))
         for item in items or ():
             print(item.key if args.files else "%s\t%s\t%s" % (item.key, item.where, item.detail))
