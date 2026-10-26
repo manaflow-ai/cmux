@@ -12,7 +12,7 @@ public import Foundation
 /// state rather than count events.
 public final class ConfigFileWatcher: @unchecked Sendable {
     public let url: URL
-    private let queue = DispatchQueue(label: "com.cmuxterm.next.settings.watcher")
+    private let queue = DispatchQueue(label: "com.cmuxterm.next.settings.watcher", qos: .utility)
     private let onChange: @Sendable () -> Void
     // Queue-confined state.
     private var fileSource: (any DispatchSourceFileSystemObject)?
@@ -42,11 +42,16 @@ public final class ConfigFileWatcher: @unchecked Sendable {
     public func start(reportInitialChange: Bool = true) {
         // Arm before returning so a caller that just read a snapshot cannot
         // lose a save in the gap between that read and the watcher setup.
-        queue.sync { [self] in
-            isStopped = false
-            rearm()
-            if reportInitialChange { onChange() }
-        }
+        queue.sync { arm(reportingChange: reportInitialChange) }
+    }
+
+    /// ``start(reportInitialChange:)`` without waiting: the watch is armed on the watcher's queue, so
+    /// its opens and stats never run on the caller's thread (the main thread at launch). With the
+    /// initial change on, it is reported there after the watch exists, so a consumer that reads the
+    /// file then loses no save. A ``stop()`` called after it still ends the watch: the queue runs the
+    /// two in order.
+    public func startWithoutWaiting(reportInitialChange: Bool = true) {
+        queue.async { [self] in arm(reportingChange: reportInitialChange) }
     }
 
     public func stop() {
@@ -62,6 +67,12 @@ public final class ConfigFileWatcher: @unchecked Sendable {
     }
 
     // MARK: - Queue-confined
+
+    private func arm(reportingChange: Bool) {
+        isStopped = false
+        rearm()
+        if reportingChange { onChange() }
+    }
 
     private func rearm() {
         guard !isStopped else { return }

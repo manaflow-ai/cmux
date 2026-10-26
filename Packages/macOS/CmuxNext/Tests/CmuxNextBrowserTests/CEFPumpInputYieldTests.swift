@@ -193,7 +193,7 @@ import Testing
         let clock = ManualClock()
         let timer = Timer()
         var passes = 0
-        let pump = CEFMessagePump(work: { passes += 1 }, safetyNet: .none, timer: timer, clock: { clock.seconds },
+        let pump = CEFMessagePump(work: { passes += 1 }, timer: timer, clock: { clock.seconds },
                                   ledger: WakeupLedger())
         pump.start()
         timer.fire()
@@ -217,7 +217,7 @@ import Testing
         let pending = Pending()
         let dispatches = Dispatches()
         var passes = 0
-        let pump = CEFMessagePump(work: { passes += 1 }, safetyNet: .none, timer: timer, clock: { media.now },
+        let pump = CEFMessagePump(work: { passes += 1 }, timer: timer, clock: { media.now },
                                   ledger: WakeupLedger(), starvation: starvation)
         pump.setInputPolicy(CEFPumpInputPolicy(pending: pending, dispatches: dispatches, refreshInterval: { Self.refresh }))
         pump.start()
@@ -306,7 +306,7 @@ import Testing
             pump = CEFMessagePump(work: { [unowned self] in
                 self.passes += 1
                 self.onWork()
-            }, safetyNet: .none, timer: timer, clock: { clock.seconds }, ledger: WakeupLedger())
+            }, timer: timer, clock: { clock.seconds }, ledger: WakeupLedger())
             pump.setInputPolicy(CEFPumpInputPolicy(pending: pending, dispatches: source ?? dispatches,
                                                    refreshInterval: { CEFPumpInputYieldTests.refresh },
                                                    frameTarget: { [unowned self] in self.frameTarget }))

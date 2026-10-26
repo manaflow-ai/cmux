@@ -11,6 +11,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHibernation
 import CmuxNextLayout
+import CmuxNextWakeups
 import Observation
 
 /// One window: sidebar, titlebar, and the content of the workspace it shows.
@@ -38,6 +39,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     var parkSerial: UInt64 = 0
     /// What each workspace this window unmounted showed (`releaseParked`), until it mounts again.
     var unmountedViews: [String: WorkspaceViewRecord] = [:]
+    /// This window in the visibility tree, under the app's node: occlusion, miniaturize, a hidden
+    /// app and sleeping displays feed it (`WindowVisibilitySource`, p06-scheduler-022). The parent
+    /// of every mounted workspace's node.
+    let visibility: VisibilityNode
     unowned let services: AppServices
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
@@ -99,6 +104,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.minSize = NSSize(width: 520, height: 320)
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
+        // Before any view reaches the window, so its views find this node under the app, not a root of their own.
+        visibility = WindowVisibilitySource.of(window, name: "window:\(state.id)", app: services.appVisibility.node).node
         super.init(window: window)
         installHistoryButtons()
         // The key tracker observes through the app's events before the
@@ -139,11 +146,12 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         state.roomBrowserProfileOf = nil
         content?.teardown()
         content = nil
-        services.parkedWorkspaceBudget?.forgetAll(in: self)
+        services.parkedWorkspaceBudget.forgetAll(in: self)
         parked.values.forEach { $0.teardown() }
         parked.removeAll()
         topPages.teardown()
         sidebar.teardown()
+        visibility.detach()
     }
 
     // MARK: Workspace

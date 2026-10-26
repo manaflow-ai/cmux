@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextLayout
 import CmuxNextDesign
+import CmuxNextWakeups
 import Testing
 
 /// A layout under a parked, unhidden workspace (`ParkingContainer`) is not live, as a hidden one is
@@ -23,7 +24,7 @@ struct LayoutParkedLiveTests {
         let provider = Panes()
         let model = LayoutModel(screens: [LayoutScreen(id: "s1", name: "s1", layout: .splits(.leaf("p1")))],
                                 activeScreenID: "s1", focusedPane: "p1")
-        let root = LayoutRootView(model: model, contentProvider: provider)
+        let root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let container = Container(frame: NSRect(x: 0, y: 0, width: 1200, height: 800))
         root.frame = container.bounds
         container.addSubview(root)

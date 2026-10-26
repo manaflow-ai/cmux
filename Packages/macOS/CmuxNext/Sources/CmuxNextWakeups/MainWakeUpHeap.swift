@@ -19,9 +19,10 @@ struct MainWakeUpHeap<Payload> {
         let earliest: UInt64
         /// The entry must run by here.
         let latest: UInt64
-        /// It snaps to the heap's ``MainWakeUpHeap/alignment`` at wake time instead of its window's grid:
-        /// a flexible window on the sub-second alignment grid (``WakeLeeway``'s table). Whole-second and
-        /// hidden windows (``WakeLeeway/hidden(delay:)``, a 1 s grid) keep their own.
+        /// It snaps to the heap's ``MainWakeUpHeap/alignment`` at wake time instead of its window's grid
+        /// (``WakeLeeway/followsAlignment``): a flexible window on the sub-second alignment grid
+        /// (``WakeLeeway``'s table). Whole-second, hidden (``WakeLeeway/hidden(delay:)``, a 1 s grid) and
+        /// own-tolerance (``WakeLeeway/own(tolerance:delay:)``) windows keep their own.
         let followsAlignment: Bool
         let owner: String
         let payload: Payload
@@ -32,7 +33,7 @@ struct MainWakeUpHeap<Payload> {
             self.window = window
             self.earliest = window.earliest(deadline: deadline)
             self.latest = window.latest(deadline: deadline)
-            self.followsAlignment = window.policy != .precise && window.grid < WakeLeeway.wholeSecondDelay
+            self.followsAlignment = window.followsAlignment
             self.owner = owner
             self.payload = payload
         }

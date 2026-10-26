@@ -18,7 +18,7 @@ import Testing
 struct FrontendBrowserTabLateReplyTests {
     private struct Recorded: DaemonRequest {
         typealias Response = JSONValue
-        static let command = "test-browser-creates"
+        static let commandName: DaemonCommandName = "test-browser-creates"
     }
 
     private static let script = #"""

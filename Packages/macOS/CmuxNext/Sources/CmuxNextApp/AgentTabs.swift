@@ -9,6 +9,7 @@ import CmuxNextInput
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextTabs
+import CmuxNextWakeups
 import Observation
 
 /// The pane views of agent chat tabs (the React acpmux pane, CmuxNextAgentPane).
@@ -26,6 +27,8 @@ final class AgentTabStore {
     private let openPanel: MadeAheadOpenPanel?, webUI: WebUIHost, warmup: AgentPageWarmup?
     /// Gives each press to the agent pane it goes to (one input tap subscription per window).
     let gestureRouter: AgentPaneGestureRouter
+    /// The main-thread scheduler the chat headers' watches apply on (``AgentChatHeaderWatch``).
+    let mainWork: MainWorkScheduler
     /// The page every agent tab loads: the bundled file (nil only when the bundled page is missing).
     private let source: AgentPaneSource?
     /// Adaptive, or in Debug builds fixed by `CMUX_NEXT_AGENT_PANE_FULL_RATE` (`1` full, `0` capped) for measuring either rate.
@@ -212,11 +215,13 @@ final class AgentTabStore {
     var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?, openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
-    /// `input` is the app's input tap (`AppServices.inputTap`; a test's own).
+    /// `input` is the app's input tap (`AppServices.inputTap`; a test's own); `mainWork`, the app's scheduler (`AppServices.mainWork`).
     init(build: BuildIdentity?, registry: ActionRegistry, webUI: WebUIHost, input: InputEventTap, environment: [String: String] = ProcessInfo.processInfo.environment,
          showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil,
-         openPanel: MadeAheadOpenPanel? = nil, warmup: AgentPageWarmup? = nil, defaults: UserDefaults = .standard) {
+         openPanel: MadeAheadOpenPanel? = nil, warmup: AgentPageWarmup? = nil, defaults: UserDefaults = .standard,
+         mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())) {
         gestureRouter = AgentPaneGestureRouter(input: input)
+        self.mainWork = mainWork
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.adoptionsDefaultsKey),
            let saved = try? JSONDecoder().blockingDecode([String: String].self, from: data) {

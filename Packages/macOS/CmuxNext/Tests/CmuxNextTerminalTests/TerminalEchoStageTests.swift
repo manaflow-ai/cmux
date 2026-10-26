@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextInputCore
 @testable import CmuxNextTerminal
+import CmuxNextWakeups
 import CoreGraphics
 import Darwin
 import QuartzCore
@@ -400,7 +401,7 @@ struct TerminalEchoStageTests {
         let stages = TerminalEchoStages(contentsGate: GhosttyRuntime.shared.echoStages.contentsGate)
         stages.install(sink)
         let io = ScriptedTerminalIO()
-        let session = TerminalSession(io: io, echoStages: stages)
+        let session = TerminalSession(io: io, echoStages: stages, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         defer {
             io.finish()
             session.close()

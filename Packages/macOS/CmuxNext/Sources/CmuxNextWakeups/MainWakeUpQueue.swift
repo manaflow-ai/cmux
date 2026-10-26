@@ -210,14 +210,17 @@ public final class MainWakeUpQueue: Sendable {
     }
 
     /// Drops the entry; false when it already ran or was cancelled. Re-arms the timer for the next entry
-    /// (or parks it) when the entry was the one the timer waits for. Callable from any thread.
+    /// (or parks it) when the entry was the one the timer waits for. Callable from any thread. The entry is
+    /// freed after the lock is released: its action may hold the last reference to an owner whose deinit
+    /// cancels its own entry here.
     @discardableResult
     public func cancel(_ token: Token) -> Bool {
-        state.withLock { state in
-            if state.heap.remove(id: token.id) == nil, state.hidden.remove(id: token.id) == nil { return false }
+        let removed = state.withLock { state -> MainWakeUpHeap<Action>.Entry? in
+            guard let entry = state.heap.remove(id: token.id) ?? state.hidden.remove(id: token.id) else { return nil }
             rearm(&state)
-            return true
+            return entry
         }
+        return removed != nil
     }
 
     /// The fire: runs every entry due at its start, then arms the timer for the next one.

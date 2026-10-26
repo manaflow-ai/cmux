@@ -238,10 +238,11 @@ not what the session asked for.
   are never aligned. A re-arm to the same date is skipped. A fire runs due entries until a 2 ms budget, then re-arms
   for now so input runs between (Chrome RunWork).
 - `DemandTimer` reads the action's `@isolated(any)` `.isolation`. A main-actor action goes to MainWakeUpQueue: no pool
-  thread. A new sync overload `schedule(after:_ action: @MainActor () -> Void)` runs inline in the callout; the async
-  path creates one `Task { @MainActor in }` inside the callout (the main thread is already awake, no extra kernel
-  wake). Other actions use `clock.sleep(for:tolerance:)`. Call sites do not change (a contingency queue exists if
-  `.isolation` is unusable at macOS 14).
+  thread. A new sync method `scheduleOnMain(after:tolerance:_ action: @MainActor () -> Void)` runs inline in the
+  callout; the async path creates one `Task { @MainActor in }` inside the callout (the main thread is already awake,
+  no extra kernel wake). Other actions use `clock.sleep(for:tolerance:)`. Async call sites do not change (a
+  contingency queue exists if `.isolation` is unusable at macOS 14); sync sites move to `scheduleOnMain` in 133.
+  Queue deadlines are uptime (no system sleep, like `TimeTicks`), and the injected clock times only the sleep path.
 - CEF pump: the queue owns the fire date of CEF's delayed requests, so Chromium's delayed tasks and cmux deadlines
   share wakes. CEF work runs as its own `CFRunLoopPerformBlock` after the cmux entries of the same fire, never inside
   the heap loop (nested run loops in a CEF pass can not delay cmux deadlines). Immediate and cross-thread "now"
@@ -1004,14 +1005,21 @@ repositories.
   `Packages/macOS/CmuxNext/Tests/CmuxNextWakeupsTests/DemandTimerMainQueueTests.swift`.
 - Change: read the `@isolated(any)` action's `.isolation`. When it is `MainActor.shared` and a MainWakeUpQueue is
   injected (AppServices passes the app's), insert into the queue; on fire create one `Task { @MainActor in await
-  action() }` inside the callout. Add `schedule(after:_ action: @escaping @MainActor () -> Void)` that runs inline in the
-  callout. Generation and claim semantics stay (593f5f97c61). Call sites do not change. If `.isolation` is unusable at
-  the macOS 14 target, stop and report: task 132 starts.
+  action() }` inside the callout. Add `scheduleOnMain(after:tolerance:_ action: @escaping @MainActor () -> Void)` that
+  runs inline in the callout. Generation and claim semantics stay (593f5f97c61). Async call sites do not change. If
+  `.isolation` is unusable at the macOS 14 target, stop and report: task 132 starts.
+- As landed (spec change): the sync variant is `scheduleOnMain`, not an overload of `schedule`. A trailing closure
+  with no `await` matches both, so an overload would silently turn a closure written off the main actor into
+  main-actor work. Sync sites therefore move by rename in 133, not by overload resolution. The `mainWork:` init takes
+  no `clock:`: a main-actor action runs on the queue's uptime, which stops while the Mac sleeps and which a
+  `ManualClock` does not drive. Tests of migrated owners fire the queue (`WakeUpQueueRig`); a deadline that must count
+  system sleep uses a nonisolated action. A dropped entry is freed with no timer or queue lock held, because its
+  action may own another timer.
 - Acceptance: a main-actor action at 100 ms runs with 0 pool-thread hops (a test seam counts `clock.sleep` calls == 0
   and the ledger shows one `MainWakeUpQueue.fire`); the sync overload runs inline (no Task); reset and cancel still
   win over a fire; a nonisolated action uses the Task path.
-- Test phase: `swift test --filter DemandTimer` on the fleet; idle-budget light ledger shows `MainWakeUpQueue.fire` and
-  no pool wake per DemandTimer fire.
+- Test phase: `swift test --filter DemandTimer` on the fleet. No production timer gets a queue here, so the
+  idle-budget light ledger (`MainWakeUpQueue.fire`, no pool wake per DemandTimer fire) is evidence for 019a-d and 133.
 - Size M. Depends: 012, 013.
 
 #### p14-energy-015 Backoff leeway
@@ -1150,8 +1158,10 @@ repositories.
 
 #### p14-energy-133 Q13 sync DemandTimer actions use the sync overload
 - Files: the Q13 hit files under `Packages/macOS/CmuxNext/Sources/**`.
-- Change: a main-actor DemandTimer closure with no `await` moves to the sync overload (no Task per fire). Mechanical,
-  reviewed per module.
+- Change: a main-actor DemandTimer closure with no `await` moves from `schedule(after:)` to
+  `scheduleOnMain(after:tolerance:_:)` (no Task per fire), a rename at each site (014 landed a separate name, not an
+  overload). A site's tests that advance a `ManualClock` move to firing the queue. Mechanical, reviewed per module.
+  The light-ledger evidence for DemandTimer on the queue (`MainWakeUpQueue.fire`, no pool wake) comes from here.
 - Acceptance: `wakeup-audit.py --queue demand-sync` prints 0 lines; tests unchanged.
 - Test phase: full CmuxNext `swift test` on the fleet.
 - Size M. Depends: 014. Queue Q13.

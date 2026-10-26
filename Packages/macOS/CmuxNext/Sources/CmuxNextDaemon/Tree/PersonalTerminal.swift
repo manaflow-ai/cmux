@@ -25,7 +25,7 @@ public struct PersonalTerminal: Sendable, Hashable, Decodable {
 /// Sets or (nil) clears one terminal's own theme.
 public struct SetPersonalTerminalRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "set-personal-terminal"
+    public static let commandName: DaemonCommandName = "set-personal-terminal"
     public static let requiredCapability: String? = DaemonCapability.personalTerminals.rawValue
     public var sessionID: String
     public var terminalKey: String

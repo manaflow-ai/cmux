@@ -1,4 +1,5 @@
 package import AppKit
+import CmuxNextWakeups
 
 /// One terminal's TextBox: its model and view, installed under the terminal
 /// (``TerminalHostView/bottomAccessory``) the first time it shows. A submit sends the draft
@@ -18,14 +19,19 @@ package final class TextBoxController {
         self.session = session
         self.sink = sink ?? TerminalSessionTextBoxSink(session: session)
         self.perform = perform
+        mainWork = session.view.mainWork
+        node = session.view.node
     }
 
     private let perform: @MainActor (TextBoxCommand) -> Void
+    /// The terminal host's scheduler and node, which the strip follows its model through.
+    private let mainWork: MainWorkScheduler
+    private let node: VisibilityNode?
 
     /// The strip under the terminal, made the first time it is asked for.
     package var view: TextBoxView {
         if let installed { return installed }
-        let view = TextBoxView(model: model)
+        let view = TextBoxView(model: model, mainWork: mainWork, node: node)
         view.perform = perform
         view.textView.onSubmit = { [weak self] in _ = self?.submit() }
         view.textView.onEscape = { [weak self] in self?.focusTerminal() }

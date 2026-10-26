@@ -13,6 +13,8 @@ final class DisplayLinkDriver: MotionAnimating {
     /// Tests are the clock: `start` asks for no display-link frames, and the test steps
     /// `LayoutRootView.advanceFrame` at a fixed dt instead.
     var isManual = false
+    /// Every `start` call, manual or not: the display frames the layout asked for (tests).
+    private(set) var startRequests = 0
 
     private weak var view: NSView?
     private weak var clock: MotionClock?
@@ -34,6 +36,7 @@ final class DisplayLinkDriver: MotionAnimating {
     }
 
     func start() {
+        startRequests &+= 1
         guard let view, !isManual else { return }
         let target = MotionClock.forView(view)
         if let clock, clock !== target { clock.stop(self) }

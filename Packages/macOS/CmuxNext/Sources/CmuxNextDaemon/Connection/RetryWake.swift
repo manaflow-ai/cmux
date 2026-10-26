@@ -48,7 +48,7 @@ public final class RetryWake: Sendable {
     public let owner: String
     private let ledger: WakeupLedger
     private let probe: RetryWakeProbe
-    private let queue = DispatchQueue(label: "com.cmuxterm.next.retry-wake")
+    private let queue = DispatchQueue(label: "com.cmuxterm.next.retry-wake", qos: .userInitiated)
     private let state = Mutex<State>(State())
 
     /// The folder the vnode watch is on.

@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextLayout
+import CmuxNextWakeups
 import Testing
 
 /// A pane that a new screen takes over from a screen that goes moves to the new screen inside the
@@ -37,7 +38,7 @@ struct ScreenReplaceKeepsTabViewInWindowTests {
         let panes = Panes()
         let model = LayoutModel(screens: [LayoutScreen(id: "standIn", name: "s", layout: .splits(.leaf("pane")))],
                                 activeScreenID: "standIn", focusedPane: "pane")
-        let root = LayoutRootView(model: model, contentProvider: panes)
+        let root = LayoutRootView(model: model, contentProvider: panes, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.contentView = root

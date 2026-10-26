@@ -4,7 +4,7 @@ import Foundation
 /// `terminal-reap-v1` the daemon ends it after the reap grace period unless kept.
 public struct CloseTerminalRequest: DaemonRequest {
     public typealias Response = JSONValue
-    public static let command = "close-terminal"
+    public static let commandName: DaemonCommandName = "close-terminal"
     public var terminalID: TerminalID
     public var terminalIncarnation: TerminalIncarnation?
     public var mutation: MutationIdentity?

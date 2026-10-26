@@ -35,12 +35,12 @@ import Testing
         let ledger: WakeupLedger
     }
 
-    static func rig(safetyNet: CEFPumpSchedule.SafetyNet = .none, work: @escaping () -> Void = {}) -> Rig {
+    static func rig(work: @escaping () -> Void = {}) -> Rig {
         let timer = Timer()
         let clock = Clock()
         let ledger = WakeupLedger()
         let gate = CEFPumpCrossThreadGate(ledger: ledger)
-        let pump = CEFMessagePump(work: work, safetyNet: safetyNet, timer: timer, clock: { clock.seconds }, ledger: ledger, gate: gate)
+        let pump = CEFMessagePump(work: work, timer: timer, clock: { clock.seconds }, ledger: ledger, gate: gate)
         pump.start()
         timer.fire() // the start's immediate pass
         pump.request(milliseconds: 10)
@@ -97,14 +97,6 @@ import Testing
         rig.clock.seconds = 100.010
         rig.timer.fire()
         #expect(admittedDuringWork == true, "a request during the pass was kept against a fire that already ran")
-    }
-
-    /// An older fork (a safety-net pump) does not report its next task after each pass: the gate
-    /// keeps nothing there.
-    @Test func anOldForkKeepsNothing() {
-        let rig = Self.rig(safetyNet: .followUps(first: 1.0 / 30, last: 1))
-        #expect(rig.gate.admit(delayMilliseconds: 50, nowNanos: rig.clock.nanos))
-        #expect(rig.gate.kept == 0)
     }
 
     @Test func aStoppedPumpKeepsNothing() {

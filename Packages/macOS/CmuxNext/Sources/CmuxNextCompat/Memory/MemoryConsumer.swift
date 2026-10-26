@@ -41,7 +41,8 @@ public protocol MemoryConsumer: AnyObject {
     ///
     /// - Parameter slice: The limit to release down to and the time this turn may take.
     /// - Returns: ``MemoryReleaseProgress/done`` when the consumer is at or under the limit,
-    ///   ``MemoryReleaseProgress/more`` when the slice ran out first.
+    ///   ``MemoryReleaseProgress/more`` when the slice ran out first, ``MemoryReleaseProgress/yield``
+    ///   when it freed its one item for this frame and leaves the rest of the slice to the others.
     func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress
 
     /// What the consumer holds now, or nil when it cannot tell.
