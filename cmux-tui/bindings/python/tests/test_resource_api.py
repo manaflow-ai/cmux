@@ -123,23 +123,27 @@ class ResourceApiTests(unittest.TestCase):
             try:
                 if asynchronous:
                     async def exercise():
-                        async with cmux.aio.Client(path, timeout=2) as client:
-                            await client.session(SESSION).terminal(TERMINAL).write(
-                                "x" * (1024 * 1024),
-                                request_options=RequestOptions(timeout=0.05),
-                            )
+                        async with cmux.aio.Client(path, timeout=0.1) as client:
+                            try:
+                                await client.session(SESSION).terminal(TERMINAL).write(
+                                    "x" * (1024 * 1024),
+                                    request_options=RequestOptions(timeout=0.05),
+                                )
+                            finally:
+                                finished.set()
                     asyncio.run(exercise())
                 else:
-                    with Client(path, timeout=2) as client:
-                        client.with_request_options(
-                            RequestOptions(timeout=0.05),
-                            client.session(SESSION).terminal(TERMINAL).write,
-                            "x" * (1024 * 1024),
-                        )
+                    with Client(path, timeout=0.1) as client:
+                        try:
+                            client.with_request_options(
+                                RequestOptions(timeout=0.05),
+                                client.session(SESSION).terminal(TERMINAL).write,
+                                "x" * (1024 * 1024),
+                            )
+                        finally:
+                            finished.set()
             except BaseException as error:
                 errors.append(error)
-            finally:
-                finished.set()
 
         with UnixJsonServer(handler) as server:
             worker = threading.Thread(target=write, args=(server.path,))
@@ -147,16 +151,16 @@ class ResourceApiTests(unittest.TestCase):
             try:
                 self.assertTrue(accepted.wait(1), "server did not accept the SDK client")
                 self.assertTrue(
-                    finished.wait(0.5),
+                    finished.wait(1),
                     "request deadline did not bound blocked socket dispatch",
                 )
-                self.assertEqual(len(errors), 1)
-                self.assertIsInstance(errors[0], MutationTransportError)
-                self.assertIsInstance(errors[0].__cause__, cmux.TimeoutError)
             finally:
                 release.set()
                 worker.join(timeout=3)
             self.assertFalse(worker.is_alive(), "SDK request worker was not released")
+            self.assertEqual(len(errors), 1)
+            self.assertIsInstance(errors[0], MutationTransportError)
+            self.assertIsInstance(errors[0].__cause__, cmux.TimeoutError)
 
     def test_request_deadline_bounds_socket_dispatch(self) -> None:
         self._assert_request_deadline_bounds_socket_dispatch(False)

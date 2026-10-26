@@ -9,7 +9,12 @@ import threading
 import time
 from typing import Any, Callable, Mapping, Optional
 
-from .errors import CmuxConnectionError, ProtocolError, TimeoutError
+from .errors import (
+    _DispatchTimeoutError,
+    CmuxConnectionError,
+    ProtocolError,
+    TimeoutError,
+)
 
 
 DEFAULT_MAX_LINE_BYTES = 16 * 1024 * 1024
@@ -94,7 +99,10 @@ class JsonLineConnection:
         else:
             remaining = deadline - time.monotonic()
             if remaining <= 0 or not self._send_lock.acquire(timeout=remaining):
-                raise TimeoutError("session socket write lock timed out")
+                raise _DispatchTimeoutError(
+                    "session socket write lock timed out",
+                    write_started=False,
+                )
         try:
             if self._write_poisoned:
                 raise CmuxConnectionError(
@@ -105,10 +113,14 @@ class JsonLineConnection:
                     self._send_encoded(encoded)
                 else:
                     self._send_encoded_bounded(encoded, deadline)
-            except BaseException:
+            except BaseException as error:
                 # A socket error may follow a partial write. Poison the writer
                 # before releasing the lock so no frame can be appended.
-                self._write_poisoned = True
+                if not (
+                    isinstance(error, _DispatchTimeoutError)
+                    and not error.write_started
+                ):
+                    self._write_poisoned = True
                 raise
             if on_sent is not None:
                 on_sent()
@@ -132,7 +144,10 @@ class JsonLineConnection:
         encoded = self._encode(value)
         deadline = time.monotonic() + timeout
         if not self._send_lock.acquire(timeout=timeout):
-            raise TimeoutError("session socket write lock timed out")
+            raise _DispatchTimeoutError(
+                "session socket write lock timed out",
+                write_started=False,
+            )
         try:
             if self._write_poisoned:
                 raise CmuxConnectionError(
@@ -142,13 +157,20 @@ class JsonLineConnection:
                 return False
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise TimeoutError("session socket write timed out")
+                raise _DispatchTimeoutError(
+                    "session socket write timed out",
+                    write_started=False,
+                )
             try:
                 self._send_encoded_bounded(encoded, deadline)
-            except BaseException:
+            except BaseException as error:
                 # Once dispatch reaches the socket, every exception may have
                 # followed a partial frame and therefore poisons JSON framing.
-                self._write_poisoned = True
+                if not (
+                    isinstance(error, _DispatchTimeoutError)
+                    and not error.write_started
+                ):
+                    self._write_poisoned = True
                 raise
             return True
         finally:
@@ -192,39 +214,58 @@ class JsonLineConnection:
         if self._closed:
             raise CmuxConnectionError("session socket is closed")
         remaining_bytes = memoryview(encoded + b"\n")
-        while remaining_bytes:
-            remaining_time = deadline - time.monotonic()
-            if remaining_time <= 0:
-                raise TimeoutError("session socket write timed out")
+        write_started = False
+        original_timeout = self._socket.gettimeout()
+        self._socket.settimeout(0.0)
+        try:
+            while remaining_bytes:
+                remaining_time = deadline - time.monotonic()
+                if remaining_time <= 0:
+                    raise _DispatchTimeoutError(
+                        "session socket write timed out",
+                        write_started=write_started,
+                    )
+                try:
+                    _, writable, _ = select.select(
+                        [],
+                        [self._socket],
+                        [],
+                        remaining_time,
+                    )
+                except (OSError, ValueError) as error:
+                    raise CmuxConnectionError(
+                        f"socket write readiness check failed: {error}"
+                    ) from error
+                if not writable:
+                    raise _DispatchTimeoutError(
+                        "session socket write timed out",
+                        write_started=write_started,
+                    )
+                try:
+                    sent = self._socket.send(
+                        remaining_bytes,
+                        socket.MSG_DONTWAIT,
+                    )
+                except BlockingIOError:
+                    continue
+                except socket.timeout as error:
+                    raise _DispatchTimeoutError(
+                        "session socket write timed out",
+                        write_started=write_started,
+                    ) from error
+                except OSError as error:
+                    raise CmuxConnectionError(
+                        f"socket write failed: {error}"
+                    ) from error
+                if sent <= 0:
+                    raise CmuxConnectionError("socket write made no progress")
+                write_started = True
+                remaining_bytes = remaining_bytes[sent:]
+        finally:
             try:
-                _, writable, _ = select.select(
-                    [],
-                    [self._socket],
-                    [],
-                    remaining_time,
-                )
-            except (OSError, ValueError) as error:
-                raise CmuxConnectionError(
-                    f"socket write readiness check failed: {error}"
-                ) from error
-            if not writable:
-                raise TimeoutError("session socket write timed out")
-            try:
-                sent = self._socket.send(
-                    remaining_bytes,
-                    socket.MSG_DONTWAIT,
-                )
-            except BlockingIOError:
-                continue
-            except socket.timeout as error:
-                raise TimeoutError("session socket write timed out") from error
-            except OSError as error:
-                raise CmuxConnectionError(
-                    f"socket write failed: {error}"
-                ) from error
-            if sent <= 0:
-                raise CmuxConnectionError("socket write made no progress")
-            remaining_bytes = remaining_bytes[sent:]
+                self._socket.settimeout(original_timeout)
+            except OSError:
+                pass
 
     def recv(self) -> dict[str, Any]:
         return self._recv()
