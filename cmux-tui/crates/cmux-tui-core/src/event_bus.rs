@@ -642,6 +642,7 @@ impl MuxEventReceiver {
     ) -> Result<MuxEvent, RecvTimeoutError> {
         cmux_threads::assert_blocking_allowed(cmux_threads::BlockingKind::Recv);
         match timeout {
+            // wakeup-allow: deadline the caller's one timeout; an event or the bus closing ends it first
             Some(timeout) => self.recv_timeout(timeout),
             None => self.recv().map_err(|_| RecvTimeoutError::Disconnected),
         }

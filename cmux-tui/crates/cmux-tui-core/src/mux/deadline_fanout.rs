@@ -117,6 +117,7 @@ fn deadline_fanout_worker(inner: Arc<DeadlineFanoutInner>) {
                 let Some(remaining) = idle_until.checked_duration_since(Instant::now()) else {
                     break;
                 };
+                // wakeup-allow: deadline the idle worker's one exit deadline (idle_until); a job ends the wait first
                 state = cmux_threads::checked::sync::wait_timeout(&inner.changed, state, remaining)
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .0;

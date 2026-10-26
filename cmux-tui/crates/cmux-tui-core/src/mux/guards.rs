@@ -71,6 +71,7 @@ impl ResourceWaitWake {
                     let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                         return false;
                     };
+                    // wakeup-allow: deadline the caller's fixed deadline; a wake ends the wait first
                     let (next, timeout) = cmux_threads::checked::sync::wait_timeout(
                         &self.changed,
                         notified,

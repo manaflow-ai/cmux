@@ -393,6 +393,7 @@ fn run_retention_worker(shared: &RetentionShared, mux: &Weak<Mux>) {
             continue;
         };
         if due > now {
+            // wakeup-allow: deadline the next retention due time; with nothing due the wait above is untimed
             schedule =
                 cmux_threads::checked::sync::wait_timeout(&shared.changed, schedule, due - now)
                     .unwrap_or_else(PoisonError::into_inner)
