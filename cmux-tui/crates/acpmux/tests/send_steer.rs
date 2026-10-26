@@ -129,9 +129,8 @@ impl Busy {
             let start = events.iter().position(|e| {
                 turn.is_empty() || (e.kind == "user_message" && e.msg["turnId"] == turn)
             });
-            let said = |e: &acpmux::store::EventRecord| {
-                e.dir == "in" && e.msg.to_string().contains(text)
-            };
+            let said =
+                |e: &acpmux::store::EventRecord| e.dir == "in" && e.msg.to_string().contains(text);
             if start.is_some_and(|at| events[at..].iter().any(said)) {
                 return;
             }

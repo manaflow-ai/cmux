@@ -254,7 +254,8 @@ mod turn_ended_tests {
         assert!(!ended(tie), "its end is not recorded yet, in the same millisecond");
         let recorded = json!({"status": "waiting", "turn": null, "lastTurn": {"turnId": "t1", "endedAt": 120}});
         assert!(ended(recorded), "recorded, while a background ask waits");
-        let later = json!({"status": "ready", "turn": null, "lastTurn": {"turnId": "t2", "endedAt": 150}});
+        let later =
+            json!({"status": "ready", "turn": null, "lastTurn": {"turnId": "t2", "endedAt": 150}});
         assert!(ended(later), "a later turn ended since");
         let next = json!({"status": "running", "turn": {"turnId": "t2"}, "lastTurn": null});
         assert!(ended(next), "another turn runs");

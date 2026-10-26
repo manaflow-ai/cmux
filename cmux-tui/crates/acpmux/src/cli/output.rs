@@ -1177,9 +1177,7 @@ mod prompt_tests {
 
     #[test]
     fn a_turns_reply_is_none_when_the_log_holds_no_start_of_it() {
-        let ev = |seq: u64, kind: &str| {
-            json!({"seq": seq, "dir": "mux", "kind": kind, "msg": {"turnId": "t1"}})
-        };
+        let ev = |seq: u64, kind: &str| json!({"seq": seq, "dir": "mux", "kind": kind, "msg": {"turnId": "t1"}});
         assert_eq!(reply_of_turn(&[ev(1, "turn_result")], "t1"), None, "cut off");
         let whole = [ev(1, "turn_started"), ev(2, "turn_result")];
         assert_eq!(reply_of_turn(&whole, "t1"), Some(String::new()), "it said nothing");
