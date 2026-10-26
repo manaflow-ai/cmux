@@ -444,7 +444,7 @@ async fn unstarted_prompts_a_daemon_held_keep_their_place_in_the_restored_queue(
 #[tokio::test]
 async fn a_persons_queued_prompt_stays_theirs_across_a_crash() {
     let mut daemon = Daemon::new("qauthor", "approve-all");
-    let (session, _gate, client) = gated_turn_without_host(&daemon).await;
+    let (session, gate, client) = gated_turn_without_host(&daemon).await;
     let ana = json!({"id": "tailnet:ana@example.com", "name": "Ana", "login": "ana@example.com"});
     let mut rpc = daemon.rpc().await;
     rpc.send(
@@ -481,6 +481,12 @@ async fn a_persons_queued_prompt_stays_theirs_across_a_crash() {
         );
     }
     std::fs::write(daemon.home.join("go"), b"").unwrap();
+    // The gated turn's agent did not outlive the daemon; one started again waits on the gate.
+    let _ = std::fs::OpenOptions::new()
+        .write(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(&gate)
+        .and_then(|mut f| std::io::Write::write_all(&mut f, b"go"));
     let ran = daemon.wait_event(&session, "q-ana's run", |e| {
         e["kind"] == "user_message" && e["msg"]["promptId"] == "q-ana"
     });
