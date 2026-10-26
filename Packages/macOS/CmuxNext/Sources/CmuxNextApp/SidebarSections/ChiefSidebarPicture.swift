@@ -2,6 +2,7 @@ import CmuxNextChiefPetWiring
 import CmuxNextCompat
 import CmuxNextSidebar
 import CmuxNextWakeups
+import CoreGraphics
 import Foundation
 import Observation
 
@@ -19,13 +20,18 @@ import Observation
 @MainActor @Observable
 final class ChiefSidebarPicture {
     private var loaded: [URL: SidebarFavicon] = [:]
-    @ObservationIgnored private var loading: [URL: Task<Void, Never>] = [:]
+    @ObservationIgnored private var loading: Set<URL> = []
     /// The files that could not be read or decoded; a later ``load(mascot:)`` of one does nothing.
     @ObservationIgnored private var failed: Set<URL> = []
     @ObservationIgnored private let work: BackgroundWork
+    @ObservationIgnored private let mainWork: MainWorkScheduler
 
-    init(work: BackgroundWork) {
+    /// - Parameters:
+    ///   - work: The lanes the file is read and decoded on.
+    ///   - mainWork: The main-thread scheduler the picture lands through, as visible work.
+    init(work: BackgroundWork, mainWork: MainWorkScheduler) {
         self.work = work
+        self.mainWork = mainWork
     }
 
     /// The picture of the character `mascot` names (an unknown or nil id: orb) once it is loaded;
@@ -35,25 +41,24 @@ final class ChiefSidebarPicture {
         ChiefPetSettingsRows.avatarURL(of: mascot).flatMap { loaded[$0] }
     }
 
-    /// Loads the picture of `mascot` on the files lane when it is not loaded, loading or failed.
+    /// Reads and decodes the picture of `mascot` on the files lane, when it is not loaded, loading or
+    /// failed; the result lands on main as visible work (PostTaskAndReply).
     ///
     /// - Parameter mascot: The pet character's id.
-    /// - Returns: The load, for a caller that waits for it; nil when there is nothing to load.
+    /// - Returns: Whether a load started.
     @discardableResult
-    func load(mascot: String?) -> Task<Void, Never>? {
-        guard let url = ChiefPetSettingsRows.avatarURL(of: mascot), loaded[url] == nil, !failed.contains(url) else { return nil }
-        if let running = loading[url] { return running }
-        let work = work
-        // task-owner: one bundled PNG read; ends when the files lane returns it
-        let task = Task { [weak self] in
-            let image = try? await work.run(.userVisible, mayBlock: .files) {
-                CheckedImageSource(blockingContentsOf: url)?.image()
+    func load(mascot: String?) -> Bool {
+        guard let url = ChiefPetSettingsRows.avatarURL(of: mascot), loaded[url] == nil, !failed.contains(url),
+              loading.insert(url).inserted else { return false }
+        work.run(.userVisible, mayBlock: .files) { CheckedImageSource(blockingContentsOf: url)?.image() }
+            .reply(on: mainWork, class: .visible, owner: "sidebar.chiefPicture") { [weak self] image in
+                self?.finish(url, image)
             }
-            guard let self else { return }
-            loading[url] = nil
-            if let image { loaded[url] = SidebarFavicon(image) } else { failed.insert(url) }
-        }
-        loading[url] = task
-        return task
+        return true
+    }
+
+    private func finish(_ url: URL, _ image: CGImage?) {
+        loading.remove(url)
+        if let image { loaded[url] = SidebarFavicon(image) } else { failed.insert(url) }
     }
 }

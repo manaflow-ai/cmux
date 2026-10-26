@@ -441,7 +441,7 @@ final class AppServices {
     private(set) lazy var quickComposer = makeQuickComposer()
     /// The sidebar Chief item's pet picture, one for every window: loaded once off the main thread, then a new
     /// window draws it in its first frame.
-    private(set) lazy var chiefSidebarPicture = ChiefSidebarPicture(work: work)
+    private(set) lazy var chiefSidebarPicture = ChiefSidebarPicture(work: work, mainWork: mainWork)
     let pages = InternalPageTabStore()  // internal page tabs (Settings, Debug Settings, the App Store)
     /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps them in the import store only.
     var importedBookmarkSink: (any ImportedBookmarkSink)?
