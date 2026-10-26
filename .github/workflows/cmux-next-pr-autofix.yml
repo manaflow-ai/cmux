@@ -159,10 +159,11 @@ jobs:
     permissions:
       contents: read
     outputs:
-      exports: ${{ steps.regenerate.outputs.exports || steps.settings.outputs.exports }}
-      # The exports on this tree are current: regenerated, or already fresh.
-      verified: ${{ steps.regenerate.outcome == 'success' }}
-      settings-verified: ${{ steps.settings.outcome == 'success' }}
+      # Outputs advertise an artifact only after the required-output guard passed;
+      # a failed settings export must not make repair download a skipped upload.
+      exports: ${{ steps.require-exports.outcome == 'success' }}
+      verified: ${{ steps.require-exports.outcome == 'success' && steps.regenerate.outcome == 'success' }}
+      settings-verified: ${{ steps.require-exports.outcome == 'success' && steps.settings.outcome == 'success' }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
