@@ -165,6 +165,53 @@ remote session messages, including render attach and VT replay responses, may
 use the separate 33,554,432-byte budget. Receivers reject an oversized message
 before decoding or allocating its payload.
 
+### Binary frames (cmux-ipc, not yet negotiated)
+
+The `cmux-ipc` crate defines binary frames that a local Unix connection will
+carry next to JSON lines once a client negotiates them. No server grants them
+yet; until a later capability does, a frame on any connection is a bad
+message. WebSocket, relay and bridged connections keep JSON lines only.
+
+A message that starts with byte `0xFF` is a frame; any other first byte starts
+a JSON line. `0xFF` never appears in UTF-8, so the two cannot be confused.
+Each frame is a 16-byte little-endian header and then `len` payload bytes:
+
+| Bytes | Field | Notes |
+| --- | --- | --- |
+| 0 | magic | `0xFF` |
+| 1 | kind | table below |
+| 2-3 | stream | u16; 0 is the connection's control sequence, other values are client-minted streams |
+| 4-7 | len | u32 payload bytes, at most 33,554,432 (32 MiB) |
+| 8-15 | aux | u64 whose meaning depends on the kind |
+
+| Kind | Value | aux |
+| --- | --- | --- |
+| OUTPUT, GRID, EVENT, SNAPSHOT, SNAPSHOT_MORE, REPLAY, RING, RING_ADVANCE | 1-8 | absolute PTY offset |
+| INPUT | 9 | flow id |
+| SHARED_BUFFER | 10 | byte size of the attached fd |
+| RING_ACK | 11 | the reader's parsed PTY offset (consumer cursor) |
+| REQUEST, REPLY, ERROR, TYPED_EVENT, CANCEL | 16-20 | request id u32, method id u16, priority hint u8, flags u8 |
+
+Values 0, 12-15 and 21-255 are unassigned. Priority hints are input 0,
+control 1, bulk 2, background 3. Call flags are binary `0x01`, fds `0x02`,
+flow `0x04`, urgent `0x08` and more `0x10`; MORE marks a message cut into
+chunks, the boundary where higher-priority frames may go first. Kinds 1-9 and
+11 never use stream 0.
+
+The receiver validates the header as soon as its 16 bytes arrive, before it
+reads or allocates the payload. A bad magic byte, an unassigned kind,
+priority or flag bit, a length over the limit, terminal data on stream 0, a
+frame before negotiation, a JSON line over 16,777,216 bytes or not UTF-8, or
+a close inside a frame is a bad message. The receiver stops reading and closes
+the connection with `bad_message` and the reason (`bad_magic`, `unknown_kind`,
+`oversize`, `data_on_control_stream`, `unknown_priority`, `unknown_flags`,
+`frames_not_negotiated`, `line_too_long`, `invalid_utf8`, `truncated`).
+Nothing after the bad byte is interpreted.
+
+Golden vectors for every kind, one mixed stream and each bad-message case are
+in `spec/fixtures/ipc-frames` with a `manifest.json` that describes them in
+plain fields. Every implementation decodes them the same way.
+
 ## Relay Stdio
 
 | Field | Value |
