@@ -76,5 +76,9 @@ extension MainActorWorkQueueTests {
         let ends = Self.records(image, .controlRequest, .asyncEnd)
         #expect(ends.map(\.arg0).sorted() == [ControlRequestTrace.Outcome.ran.rawValue, ControlRequestTrace.Outcome.busy.rawValue])
         #expect(Self.records(image, .taskRun, .begin).count == 1, "the refused request never ran")
+        let posts = Self.records(image, .taskPost, .flowOut)
+        let arrivals = Self.records(image, .taskRun, .flowIn)
+        #expect(posts.count == 1, "the refused request was never posted")
+        #expect(Set(posts.map(\.arg1)) == Set(arrivals.map(\.arg1)), "every post's flow ends at its run")
     }
 }

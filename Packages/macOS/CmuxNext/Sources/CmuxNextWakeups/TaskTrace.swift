@@ -11,7 +11,7 @@ public import CmuxNextTrace
 /// Off (the `task` category is a recording category, never the black box's), a post and a run cost one relaxed
 /// load and a branch each. On, the post's site file is interned once per file: one dictionary lookup.
 ///
-/// Records (plans/cmux-next/trace.md "Release trace ring v1"):
+/// Records (plans/cmux-next/trace.md "Limits and open span requests", `task.post` and `task.run`):
 /// - `task.post` flow-out: `arg0` the post site (file id bits 0-15, line bits 16-47), `arg1` the flow id.
 /// - `task.run` B: `arg0` the ``Lane`` code in bits 0-7 and the priority code in bits 8-15 (a ``WorkPriority`` or,
 ///   on ``Lane/main``, a ``MainWorkClass``, as `rawValue + 1`), `arg1` the queue wait in microseconds
@@ -77,16 +77,37 @@ public final class TaskTrace: Sendable {
     /// Marks a post at `fileID`:`line` of an item that runs on `lane`: writes the `task.post` flow-out when the
     /// `task` category is on, and returns the ticket the run hands to ``Ticket/run(priority:_:)``.
     public func post(fileID: StaticString, line: UInt, lane: Lane) -> Ticket {
-        guard runtime.isEnabled(categoryBit: Self.categoryBit) else {
-            return Ticket(trace: self, lane: lane, flow: 0, postNanos: 0, file: nil, line: line)
+        prepare(fileID: fileID, line: line, lane: lane).write()
+    }
+
+    /// The post at `fileID`:`line` of an item that runs on `lane`, its site interned and its record not written
+    /// yet: a queue that can refuse the item resolves the site before it takes its lock and writes the post
+    /// (``PendingPost/write()``, lock-free) only once it accepted the item, so a refused item leaves no post.
+    public func prepare(fileID: StaticString, line: UInt, lane: Lane) -> PendingPost {
+        let traced = runtime.isEnabled(categoryBit: Self.categoryBit)
+        return PendingPost(trace: self, lane: lane, file: traced ? interned(fileID) : nil, line: line, traced: traced)
+    }
+
+    /// A post whose site is resolved and whose `task.post` record is not written yet (``prepare(fileID:line:lane:)``).
+    public struct PendingPost: Sendable {
+        let trace: TaskTrace
+        let lane: Lane
+        let file: TraceRuntime.InternedName?
+        let line: UInt
+        /// The `task` category was on when the site was resolved.
+        let traced: Bool
+
+        /// Writes the `task.post` flow-out when the category is on (no lock: one ring write) and returns the ticket
+        /// the run hands to ``Ticket/run(priority:_:)``.
+        public func write() -> Ticket {
+            let untraced = Ticket(trace: trace, lane: lane, flow: 0, postNanos: 0, file: nil, line: line)
+            guard traced else { return untraced }
+            let runtime = trace.runtime
+            let flow = TaskTrace.flowTag | runtime.nextAsyncScope()
+            guard let posted = runtime.write(name: SignpostName.taskPost.rawValue, categoryBit: TaskTrace.categoryBit,
+                                             phase: .flowOut, file: file, line: line, arg1: flow) else { return untraced }
+            return Ticket(trace: trace, lane: lane, flow: flow, postNanos: posted, file: file, line: line)
         }
-        let flow = Self.flowTag | runtime.nextAsyncScope()
-        let file = interned(fileID)
-        guard let posted = runtime.write(name: SignpostName.taskPost.rawValue, categoryBit: Self.categoryBit,
-                                         phase: .flowOut, file: file, line: line, arg1: flow) else {
-            return Ticket(trace: self, lane: lane, flow: 0, postNanos: 0, file: nil, line: line)
-        }
-        return Ticket(trace: self, lane: lane, flow: flow, postNanos: posted, file: file, line: line)
     }
 
     /// The one name of `fileID` in this trace, made at its first traced post; nil for a string built at run time

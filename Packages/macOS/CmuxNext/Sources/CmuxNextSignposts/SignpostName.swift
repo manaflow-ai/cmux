@@ -267,12 +267,16 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// `FrameSequenceTracker`). Ring: instant; arg0 expected frames, arg1 frames that committed changes.
     case frameSequence = 49
 
-    // MARK: task (reserved: task 042, Performance Lead)
-    /// Reserved (task 042, Performance Lead). A work item posted (Chrome's `PostTask` with `FROM_HERE`).
-    /// Ring: flow-out; arg0 the interned post site, arg1 the item's flow id.
+    // MARK: task (task 042, Performance Lead)
+    /// Task 042 (``TaskTrace``). A work item posted to a ``BackgroundWork`` lane or accepted by the control
+    /// queue (Chrome's `TaskAnnotator::WillQueueTask` with `FROM_HERE`); a refused item writes none. Ring:
+    /// flow-out; arg0 the post site (the interned `#fileID`'s id in bits 0-15, the line in bits 16-47), arg1 the
+    /// flow id (bit 63 set).
     case taskPost = 50
-    /// Reserved (task 042, Performance Lead). A work item run, with the flow-in from its post. Ring: B/E;
-    /// arg0 the lane and priority, arg1 the queue wait in us.
+    /// Task 042 (``TaskTrace``). A work item run, with the flow-in from its post. Ring: B/E. B arg0 the lane code
+    /// in bits 0-7 (1 files, 2 system, 3 cpu, 4 main) and the priority code in bits 8-15 (a `WorkPriority`, or on
+    /// the main lane a `MainWorkClass`, as `rawValue + 1`); B arg1 the queue wait in us, or `UInt64.max` when
+    /// unknown (the post was not traced). The flow-in, inside the B: arg0 the post site, arg1 the flow id.
     case taskRun = 51
 
     // MARK: hang (reserved: PL-telemetry)
@@ -327,10 +331,13 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// arg0 the interned site.
     case crashDumpWithoutCrashing = 65
 
-    // MARK: control (reserved: tasks 042 and 115, Performance Lead)
-    /// Reserved (tasks 042 and 115, Performance Lead). One control-socket request, from the accept to the
-    /// reply, with instants for parsed, queued and dispatched. Ring: AB/AE keyed by the request; begin arg0
-    /// the method id, arg1 the source (cli, mcp, agent, app).
+    // MARK: control (task 042; reserved: task 115, Performance Lead)
+    /// Task 042 (`ControlRequestTrace`). One queued control request, from its enqueue on `MainActorWorkQueue` to
+    /// the end of its run or its failure. Ring: AB/AE keyed by an async id (`TraceRuntime.nextAsyncScope`, in
+    /// arg1 of both). AB arg0 the method's main task board owner index in bits 0-31 (0 without a board) and the
+    /// main work class code (`MainWorkClass.rawValue + 1`) in bits 32-39. AE arg0 the outcome (0 ran, 1 expired
+    /// while queued, 2 refused as busy: it never queued). Reserved (task 115): the accept-to-reply part and the
+    /// parsed, queued and dispatched instants.
     case controlRequest = 66
 
     // MARK: ghostty (reserved: task 049, PL-ghostty)

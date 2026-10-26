@@ -185,9 +185,10 @@ public final class MainActorWorkQueue: Sendable {
         // the drain starts the task without a lock.
         let owner = owner ?? frameSource.mainTaskBoard?.owner(method)
         let itemClass: MainWorkClass = workClass == .input ? .input : .automation
+        // The site is interned here; the post is written only when the queue accepts the item (`enqueue`).
+        let post = taskTrace.prepare(fileID: file, line: line, lane: .main)
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
             let request = ControlRequestTrace.begin(on: taskTrace.runtime, owner: owner, workClass: itemClass)
-            let ticket = taskTrace.post(fileID: file, line: line, lane: .main)
             let item = MainActorWorkItem(
                 connection: connection,
                 method: method,
@@ -196,22 +197,23 @@ public final class MainActorWorkQueue: Sendable {
                 deadline: deadline,
                 enqueuedAt: now,
                 posted: posted,
-                body: {
+                body: { ticket in
                     defer { request?.end(.ran) }
-                    ticket.run(priority: TaskTrace.code(itemClass)) {
+                    let resume = {
                         do {
                             continuation.resume(returning: try work())
                         } catch {
                             continuation.resume(throwing: error)
                         }
                     }
+                    if let ticket { ticket.run(priority: TaskTrace.code(itemClass), resume) } else { resume() }
                 },
                 fail: { error in
                     request?.end(ControlRequestTrace.Outcome(error))
                     continuation.resume(throwing: error)
                 }
             )
-            if let rejection = enqueue(item) {
+            if let rejection = enqueue(item, post: post) {
                 item.expire(rejection)
                 return
             }
@@ -227,7 +229,10 @@ public final class MainActorWorkQueue: Sendable {
 
     // MARK: - Private
 
-    private func enqueue(_ item: MainActorWorkItem) -> ControlError? {
+    /// Queues `item`, or refuses it as `busy`. `post` is written only for an accepted item, before it is
+    /// visible to a drain, so each `task.post` has its `task.run` (Chrome's `TaskAnnotator::WillQueueTask` runs
+    /// for a task the queue took).
+    private func enqueue(_ item: MainActorWorkItem, post: TaskTrace.PendingPost) -> ControlError? {
         let board = item.workClass == .input ? frameSource.mainTaskBoard : nil
         let (rejection, drain) = state.withLock { state -> (ControlError?, Drain?) in
             let pending = state.stats.pending
@@ -240,6 +245,7 @@ public final class MainActorWorkQueue: Sendable {
                 state.stats.rejectedBusy += 1
                 return (.busy(pending: mine, limit: limits.maxPendingPerConnection), nil)
             }
+            item.notePosted(post.write())
             if mine == 0 { state.ready.append(item.connection) }
             state.queues[item.connection, default: ItemQueue()].items.append(item)
             state.stats.pending += 1
