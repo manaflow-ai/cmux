@@ -121,6 +121,15 @@ function runWorkflow<A, E>(
   ));
 }
 
+/** The typed failure of a workflow; runPromise would wrap it in a FiberFailure. */
+function workflowFailure<A, E>(
+  program: Effect.Effect<A, E, CloudVmPublicationRepository | VmPublicationProvider>,
+  repository: Partial<CloudVmPublicationRepositoryShape>,
+  provider: Partial<VmPublicationProviderShape> = {},
+): Promise<E> {
+  return runWorkflow(Effect.flip(program), repository, provider);
+}
+
 function runAuth<A, E, R>(
   program: Effect.Effect<A, E, R>,
   repository: Partial<CloudVmPublicationRepositoryShape>,
@@ -172,16 +181,16 @@ describe("publication API keys", () => {
   });
 
   test("refuses a key on a public publication, which a key could not restrict", async () => {
-    await expect(runWorkflow(createPublicationApiKey({ principal, publicationId: PUBLICATION_ID, forwardAuth, now: NOW }), {
+    expect(await workflowFailure(createPublicationApiKey({ principal, publicationId: PUBLICATION_ID, forwardAuth, now: NOW }), {
       findOwnedPublication: () => Effect.succeed(target(publication("public"))),
-    })).rejects.toMatchObject({ reason: "publication_public" });
+    })).toMatchObject({ reason: "publication_public" });
   });
 
   test("refuses bad names and past expiries before touching the publication", async () => {
-    await expect(runWorkflow(createPublicationApiKey({ principal, publicationId: PUBLICATION_ID, name: "a\nb", now: NOW }), {}))
-      .rejects.toMatchObject({ reason: "invalid_api_key_name", field: "name" });
-    await expect(runWorkflow(createPublicationApiKey({ principal, publicationId: PUBLICATION_ID, expiresAt: "2026-01-01T00:00:00Z", now: NOW }), {}))
-      .rejects.toMatchObject({ reason: "invalid_expiry", field: "expiresAt" });
+    expect(await workflowFailure(createPublicationApiKey({ principal, publicationId: PUBLICATION_ID, name: "a\nb", now: NOW }), {}))
+      .toMatchObject({ reason: "invalid_api_key_name", field: "name" });
+    expect(await workflowFailure(createPublicationApiKey({ principal, publicationId: PUBLICATION_ID, expiresAt: "2026-01-01T00:00:00Z", now: NOW }), {}))
+      .toMatchObject({ reason: "invalid_expiry", field: "expiresAt" });
   });
 
   test("revokes only a key of a publication the caller still owns in this account", async () => {
@@ -194,12 +203,12 @@ describe("publication API keys", () => {
     });
     expect(revoked.revokedAt).toBe(NOW.toISOString());
     // A malformed id names no key and never reaches the uuid column.
-    await expect(runWorkflow(revokePublicationApiKey({ principal, publicationId: PUBLICATION_ID, keyId: "not-a-uuid", now: NOW }), {}))
-      .rejects.toMatchObject({ resource: "api_key" });
+    expect(await workflowFailure(revokePublicationApiKey({ principal, publicationId: PUBLICATION_ID, keyId: "not-a-uuid", now: NOW }), {}))
+      .toMatchObject({ resource: "api_key" });
     // A team VM whose team the caller has left is not theirs to manage.
-    await expect(runWorkflow(revokePublicationApiKey({ principal, publicationId: PUBLICATION_ID, keyId: KEY_ID, now: NOW }), {
+    expect(await workflowFailure(revokePublicationApiKey({ principal, publicationId: PUBLICATION_ID, keyId: KEY_ID, now: NOW }), {
       findOwnedPublication: () => Effect.succeed(target(publication("personal"), "team-1")),
-    })).rejects.toBeInstanceOf(PublicationNotFoundError);
+    })).toBeInstanceOf(PublicationNotFoundError);
   });
 
   test("the revoke route answers 404 with product copy for an unknown key", async () => {
@@ -239,18 +248,18 @@ describe("one-call API provisioning", () => {
 
   test("a retry that asks for other access than the live publication is refused, not ignored", async () => {
     const live = target(publication("personal"));
-    await expect(runWorkflow(provisionPublicationApi({
+    expect(await workflowFailure(provisionPublicationApi({
       principal: { ...principal, teamIds: ["team-1"] }, providerVmId: "vm-provider-1", port: 3_000, accessMode: "team", teamId: "team-1", forwardAuth, now: NOW,
     }), {
       reserveManagedPublication: () => Effect.succeed(live),
-    })).rejects.toMatchObject({ reason: "publication_access_mismatch" });
+    })).toMatchObject({ reason: "publication_access_mismatch" });
   });
 
   test("refuses public access and bad key input before publishing anything", async () => {
     for (const input of [{ accessMode: "public" as never }, { name: "" }, { expiresAt: "not a date" }]) {
-      await expect(runWorkflow(provisionPublicationApi({
+      expect(await workflowFailure(provisionPublicationApi({
         principal, providerVmId: "vm-provider-1", port: 3_000, forwardAuth, now: NOW, ...input,
-      }), {})).rejects.toMatchObject({ _tag: "PublicationInputError" });
+      }), {})).toMatchObject({ _tag: "PublicationInputError" });
     }
   });
 
@@ -266,7 +275,7 @@ describe("one-call API provisioning", () => {
       method: "POST", body: JSON.stringify({ vmId: "vm-provider-1", port: 3000 }),
     }), { principal, run: (p) => { program = p; return Promise.resolve({ url: "https://x.cmux.sh", token: "t" } as never); } }, {
       CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET: "secret", CMUX_VM_PUBLICATION_AUTH_ORIGIN: "https://cmux.com",
-    } as NodeJS.ProcessEnv);
+    } as unknown as NodeJS.ProcessEnv);
     expect(program).toBeDefined();
     expect(ok.status).toBe(201);
     expect(ok.headers.get("cache-control")).toBe("no-store");
