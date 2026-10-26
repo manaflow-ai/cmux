@@ -577,6 +577,7 @@ Dropped or merged draft items: 022 and 045 (replaced by 026 and 191); 025 merged
 | 240 | Driver: errorDetails, mock agent, chief connections | M | 20-36 | 023, 237, 069 | MQ-daemon-ops |
 | 241 | Typed refusals the chief family found | S | 20-28 | 069 | |
 | 242 | normalize.py snapshot-v1 keywords | S | 18-28 | 013, 011 | |
+| 245 | Driver: a call that ends the daemon, expect.result references | S | 20-36 | 023 | MQ-daemon-ops |
 | 206 | I10 idempotent retry steps | S | 20-28 | 060, 110 | |
 | 204 | Streams suite + I8 | L | 18-36 | 023, 110 | |
 | 205 | restore_preview + I9 | M | 18-30 | 021, 201 | |
@@ -948,6 +949,22 @@ root is under /tmp and state/projects.rs refuses every path under /tmp, /var/fol
 success cannot run. Give a case with a generated repository a checkout outside those roots (a per-run folder the
 hermetic environment owns and removes), and project.add's success loses its gap. Test: VM, project.add green twice; no
 folder left after the run.
+
+**245 Driver: a call that ends the daemon, expect.result references.** Files: `driver_daemon.py`,
+`driver_daemon_test.py`, `case_values.py`, `case_checks.py`, `case-v1.schema.json`, `case-v1-mutations.json`. Found by
+063 (session.shutdown and the graceful restart). (1) case-v1 step `ends: daemon` (a mutating resource.call only):
+after an ok reply the runner waits for the daemon's exit in that step, records it as the step's exit and checks it
+against allow_crashes (I17), and fails the step unless the exit is a normal termination (exit 0;
+`base/process/kill.h` TERMINATION_STATUS_NORMAL_TERMINATION). A later restart finds no running daemon, so it starts
+one and never sends shutdown-daemon to a daemon that is exiting; case_checks.py counts the step as one that ends a
+daemon. (2) `expect.result` resolves its `$step:` references before the comparison (case-v1 stepRef: the runner
+substitutes it), so `"$step:<id>#"` holds a reply equal to an earlier one, compared with JSON types (a bool never
+equals a number). (3) `expect.resultExcept`: JSON pointers, `*` for every item or member, removed from both values
+first (case_values.without_pointers), for what a new daemon generation changes. Implemented with 063's fixer, which
+needs all three: without (1) session-shutdown-ok races the exiting daemon at the restart (a Crash). Test:
+driver_daemon_test.py (ExpectTests, without_pointers; live: a call that ends the daemon owns its exit, three runs,
+and one outside allow_crashes is a Crash at the call); case_checks.py --selftest (ends and resultExcept vectors);
+VM, the 22 session cases green twice.
 
 **206 I10 idempotent retry.** For each of the 201 `idempotency: required` ops, the generator adds a same-key retry step. Test: holds on all ops.
 
