@@ -708,12 +708,6 @@ impl Hub {
         answerer: super::person::Answerer<'_>,
         control: Control,
     ) -> Result<(), RpcError> {
-        if annotations.is_some() && !answerer.person {
-            return Err(super::person::person_required("annotations"));
-        }
-        if annotations.is_some() && answers.is_none() {
-            return Err(RpcError::invalid_params("annotations go only with answers"));
-        }
         // Checked again here, at the answer, not only in the remote guard.
         self.web_control_check(session, control)?;
         let cfg = self.config.read().await;
@@ -729,6 +723,14 @@ impl Hub {
                     None => lost,
                 }
             })?;
+            // A question's annotations, after the lookup so a losing answer still learns who
+            // won: only the person's own answer, and only beside its answers.
+            if annotations.is_some() && !answerer.person {
+                return Err(super::person::person_required("annotations"));
+            }
+            if annotations.is_some() && answers.is_none() {
+                return Err(RpcError::invalid_params("annotations go only with answers"));
+            }
             // Legacy clients may answer items in a group, but cannot bypass
             // a policy edit or choose an absent/ambiguous option.
             if let Some(o) = &option_id {
