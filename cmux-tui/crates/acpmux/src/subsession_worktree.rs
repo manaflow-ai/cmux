@@ -1399,6 +1399,33 @@ mod tests {
         assert!(made.root.join("sentinel").exists(), "the folder that took its place stays");
     }
 
+    /// A worktree whose `.git` file and registration name each other by relative paths (git's
+    /// `worktree.useRelativePaths`) is removed whole too.
+    #[cfg(unix)]
+    #[test]
+    fn a_worktree_registered_by_relative_paths_is_removed_whole() {
+        let (_scratch, repo, home) = repo();
+        let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
+        let admin = std::fs::canonicalize(repo.join(".git/worktrees/task")).unwrap();
+        let root = std::fs::canonicalize(&made.root).unwrap();
+        let relative = |from: &Path, to: &Path| {
+            let up = from.components().count() - 1;
+            let mut p = PathBuf::from("../".repeat(up));
+            p.push(to.strip_prefix("/").unwrap());
+            p
+        };
+        let to_admin = relative(&root, &admin);
+        std::fs::write(made.root.join(".git"), format!("gitdir: {}\n", to_admin.display()))
+            .unwrap();
+        let to_root = relative(&admin, &root.join(".git"));
+        std::fs::write(admin.join("gitdir"), format!("{}\n", to_root.display())).unwrap();
+
+        remove_worktree(repo.as_path().into(), &made);
+        assert!(!made.root.exists(), "its folder removed");
+        assert!(!admin.exists(), "its registration removed");
+        assert!(!branch_in(&repo, "task"), "its branch removed");
+    }
+
     /// The descriptor removal reads a folder through never reaches a child another thread
     /// spawns meanwhile: it is close-on-exec from the moment it exists.
     #[cfg(unix)]
