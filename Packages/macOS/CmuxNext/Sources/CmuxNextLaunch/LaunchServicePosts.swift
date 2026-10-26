@@ -84,7 +84,8 @@ public struct LaunchServicePosts {
     }
 
     /// The platform services (p08-startup-029, plans/cmux-next/startup-DESIGN.md section 3): nothing on the
-    /// first frame reads them. The system-wide hot keys and the window style follows are afterFirstFrame, so a
+    /// first frame or the restore reads them. The updater's settings follow is not here: it applies before
+    /// `Updater.start` (`nonPaint`), so the launch runs it inline. The system-wide hot keys and the window style follows are afterFirstFrame, so a
     /// hot key works within a second of launch; the rest is afterStartup. The Apple-event URL handler and
     /// the sign-in handler stay inline (critical): a launch by a URL or a sign-in delivers its event right
     /// after `applicationDidFinishLaunching`.
@@ -93,15 +94,15 @@ public struct LaunchServicePosts {
     ///   - globalHotKeys: Registers the system-wide hot keys; nil for an agent- or bench-launched build,
     ///     which never takes them from the person's app (no post).
     ///   - borders: Follows the window border style.
-    ///   - glass: Follows the glass mode.
+    ///   - glass: Follows the glass mode (the launch sets its first value inline, so the first frame draws it).
     ///   - keepAwake: Starts the keep-awake power assertion follow.
     ///   - mobile: Follows phone access (its listener).
-    ///   - notifications: Follows the notification settings.
+    ///   - notifications: Follows the notification settings (the launch sets the first ones and the Chief pet inline).
     ///   - macScreenSettings: Follows the Share This Mac settings.
     ///   - deviceHub: Starts the device hub.
-    ///   - updaterSettings: Follows the updater settings (before the updater's own start post).
     ///   - computerUseHelper: Follows the Computer Use helper process setting.
-    ///   - hibernation: Starts tab hibernation and the memory-budgeted warm sets.
+    ///   - hibernationMeasurements: Starts the hibernation's footprint samples and occluded-window checker (the
+    ///     hibernation itself starts inline, before the restore mounts a page).
     ///   - apps: Starts the app catalog (an App Store request before it waits).
     ///   - macScreen: Resumes Share This Mac (permissions, shortcut tap, saved device names).
     ///   - updateFeed: Follows the update feed posts.
@@ -114,9 +115,8 @@ public struct LaunchServicePosts {
                                 notifications: @escaping @MainActor @Sendable () -> Void,
                                 macScreenSettings: @escaping @MainActor @Sendable () -> Void,
                                 deviceHub: @escaping @MainActor @Sendable () -> Void,
-                                updaterSettings: @escaping @MainActor @Sendable () -> Void,
                                 computerUseHelper: @escaping @MainActor @Sendable () -> Void,
-                                hibernation: @escaping @MainActor @Sendable () -> Void,
+                                hibernationMeasurements: @escaping @MainActor @Sendable () -> Void,
                                 apps: @escaping @MainActor @Sendable () -> Void,
                                 macScreen: @escaping @MainActor @Sendable () -> Void,
                                 updateFeed: @escaping @MainActor @Sendable () -> Void) -> LaunchServicePosts {
@@ -129,9 +129,8 @@ public struct LaunchServicePosts {
             Post(priority: .afterStartup, name: "Notifications.follow", work: notifications),
             Post(priority: .afterStartup, name: "MacScreen.followSettings", work: macScreenSettings),
             Post(priority: .afterStartup, name: "DeviceHub.start", work: deviceHub),
-            Post(priority: .afterStartup, name: "Updater.follow", work: updaterSettings),
             Post(priority: .afterStartup, name: "ComputerUseHelper.follow", work: computerUseHelper),
-            Post(priority: .afterStartup, name: "Hibernation.start", work: hibernation),
+            Post(priority: .afterStartup, name: "Hibernation.measure", work: hibernationMeasurements),
             Post(priority: .afterStartup, name: "Apps.start", work: apps),
             Post(priority: .afterStartup, name: "MacScreen.activate", work: macScreen),
             Post(priority: .afterStartup, name: "UpdateFeedPosting.follow", work: updateFeed),

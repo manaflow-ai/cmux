@@ -332,10 +332,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings.
         let acpmux = QuitAgents.environment(services)
         ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath)
-        // The platform services: hot keys, borders and glass after the first frame, the rest after startup (p08-startup-029).
-        // The notification preferences now (muted workspaces, attention colors), their follow later.
-        services.notifications.preferences = settings.snapshot.notifications
-        services.postPlatformServices(on: order.startup, hotKeys: !environment.isolatedLaunch)
+        // The platform services: what the first frame or the restore reads now, the rest posted (p08-startup-029).
+        services.startPlatformServices(settings: settings, on: order.startup, hotKeys: !environment.isolatedLaunch)
         services.followEnergySaver(settings)
         services.chatsFeed?.keepCurrent()
         services.projectsImport.start(feed: services.chatsFeed)

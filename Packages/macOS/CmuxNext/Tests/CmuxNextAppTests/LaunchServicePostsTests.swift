@@ -56,13 +56,13 @@ import Testing
         LaunchServicePosts.platform(globalHotKeys: run("GlobalHotKeys.start"), borders: run("Borders.observe"), glass: run("Glass.observe"),
                                     keepAwake: run("KeepAwake.start"), mobile: run("Mobile.follow"), notifications: run("Notifications.follow"),
                                     macScreenSettings: run("MacScreen.followSettings"), deviceHub: run("DeviceHub.start"),
-                                    updaterSettings: run("Updater.follow"), computerUseHelper: run("ComputerUseHelper.follow"),
-                                    hibernation: run("Hibernation.start"), apps: run("Apps.start"), macScreen: run("MacScreen.activate"),
+                                    computerUseHelper: run("ComputerUseHelper.follow"),
+                                    hibernationMeasurements: run("Hibernation.measure"), apps: run("Apps.start"), macScreen: run("MacScreen.activate"),
                                     updateFeed: run("UpdateFeedPosting.follow")).post(on: f.order.startup)
         f.hand.drain()
         let firstFrame = ["GlobalHotKeys.start", "Borders.observe", "Glass.observe"]
         let afterStartup = ["KeepAwake.start", "Mobile.follow", "Notifications.follow", "MacScreen.followSettings", "DeviceHub.start",
-                            "Updater.follow", "ComputerUseHelper.follow", "Hibernation.start", "Apps.start", "MacScreen.activate",
+                            "ComputerUseHelper.follow", "Hibernation.measure", "Apps.start", "MacScreen.activate",
                             "UpdateFeedPosting.follow"]
         let posted = f.order.startup.log.records.map { ($0.name.description, $0.priority) }
         #expect(posted.map(\.0) == firstFrame + afterStartup)
@@ -85,8 +85,8 @@ import Testing
         let f = LaunchOrderFixture()
         let none: @MainActor @Sendable () -> Void = {}
         LaunchServicePosts.platform(globalHotKeys: nil, borders: none, glass: none, keepAwake: none, mobile: none, notifications: none,
-                                    macScreenSettings: none, deviceHub: none, updaterSettings: none, computerUseHelper: none,
-                                    hibernation: none, apps: none, macScreen: none, updateFeed: none).post(on: f.order.startup)
+                                    macScreenSettings: none, deviceHub: none, computerUseHelper: none,
+                                    hibernationMeasurements: none, apps: none, macScreen: none, updateFeed: none).post(on: f.order.startup)
         f.hand.drain()
         let names = f.order.startup.log.records.map(\.name.description)
         #expect(!names.contains("GlobalHotKeys.start"))
