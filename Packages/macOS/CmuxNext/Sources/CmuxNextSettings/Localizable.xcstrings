@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.memory.saver.unavailable.featureOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memory Saver is a Labs feature that is turned off."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توفير الذاكرة ميزة تجريبية متوقفة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ušteda memorije je Labs funkcija koja je isključena."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hukommelsesbesparelse er en Labs-funktion, der er slået fra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Arbeitsspeicher-Sparmodus ist eine Labs-Funktion, die ausgeschaltet ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El ahorro de memoria es una función de Labs que está desactivada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'économiseur de mémoire est une fonctionnalité Labs désactivée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il risparmio memoria è una funzione Labs disattivata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリセーバーはオフになっている Labs 機能です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សន្សំអង្គចងចាំគឺជាមុខងារ Labs ដែលត្រូវបានបិទ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메모리 절약 모드는 꺼져 있는 Labs 기능입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minnesparing er en Labs-funksjon som er slått av."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oszczędzanie pamięci to funkcja Labs, która jest wyłączona."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A economia de memória é um recurso do Labs que está desativado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экономия памяти — функция Labs, и она выключена."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ประหยัดหน่วยความจำเป็นฟีเจอร์ Labs ที่ปิดอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bellek Tasarrufu, kapalı olan bir Labs özelliğidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Економія пам’яті — функція Labs, і її вимкнено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiết kiệm bộ nhớ là một tính năng Labs đang tắt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内存节省程序是一项已关闭的 Labs 功能。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記憶體節省功能是一項已關閉的 Labs 功能。"
+          }
+        }
+      }
+    },
     "settings.group.pointerInput": {
       "extractionState": "manual",
       "localizations": {
@@ -171896,6 +172027,923 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "在主機回顯之前，像 mosh 一樣以暗淡並帶底線的方式顯示你輸入的字元。回顯未確認的猜測會消失。遠端和較慢的終端機：用於另一台機器上的終端機以及回顯較慢時。永遠：在所有終端機中。輸入法正在組字或安全輸入開啟時從不顯示。"
+          }
+        }
+      }
+    },
+    "settings.group.memorySaver": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memory Saver"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توفير الذاكرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ušteda memorije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hukommelsesbesparelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsspeicher-Sparmodus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ahorro de memoria"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Économiseur de mémoire"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risparmio memoria"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリセーバー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សន្សំអង្គចងចាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메모리 절약 모드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minnesparing"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oszczędzanie pamięci"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Economia de memória"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экономия памяти"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ประหยัดหน่วยความจำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bellek Tasarrufu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Економія пам’яті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiết kiệm bộ nhớ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内存节省程序"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記憶體節省功能"
+          }
+        }
+      }
+    },
+    "settings.memory.saver": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memory Saver"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توفير الذاكرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ušteda memorije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hukommelsesbesparelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsspeicher-Sparmodus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ahorro de memoria"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Économiseur de mémoire"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risparmio memoria"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリセーバー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សន្សំអង្គចងចាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메모리 절약 모드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minnesparing"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oszczędzanie pamięci"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Economia de memória"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экономия памяти"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ประหยัดหน่วยความจำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bellek Tasarrufu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Економія пам’яті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiết kiệm bộ nhớ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内存节省程序"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記憶體節省功能"
+          }
+        }
+      }
+    },
+    "settings.memory.saver.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frees memory from hidden pages, conversations and workspaces you are not using. Moderate waits longest, Maximum frees memory soonest, and Balanced is in between. Off frees memory only when the Mac runs low on memory. Browser tabs follow Hibernate Hidden Tabs."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحرر الذاكرة من الصفحات والمحادثات ومساحات العمل المخفية التي لا تستخدمها. «معتدل» ينتظر أطول مدة، و«أقصى» يحرر الذاكرة في أسرع وقت، و«متوازن» بينهما. «إيقاف» يحرر الذاكرة فقط عندما تنخفض ذاكرة جهاز Mac. تتبع علامات تبويب المتصفح إعداد «إسبات علامات التبويب المخفية»."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oslobađa memoriju od skrivenih stranica, razgovora i radnih prostora koje ne koristite. Umjereno čeka najduže, Maksimalno oslobađa memoriju najranije, a Uravnoteženo je između. Isključeno oslobađa memoriju samo kada Macu ponestaje memorije. Kartice preglednika prate postavku Hiberniraj skrivene kartice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigør hukommelse fra skjulte sider, samtaler og arbejdsområder, du ikke bruger. Moderat venter længst, Maksimal frigør hukommelse hurtigst, og Afbalanceret ligger midt imellem. Fra frigør kun hukommelse, når Mac'en er ved at løbe tør for hukommelse. Browserfaner følger Dvale for skjulte faner."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gibt Speicher von ausgeblendeten Seiten, Unterhaltungen und Arbeitsbereichen frei, die du nicht nutzt. Moderat wartet am längsten, Maximal gibt Speicher am frühesten frei, und Ausgewogen liegt dazwischen. Aus gibt Speicher nur frei, wenn der Arbeitsspeicher des Mac knapp wird. Browser-Tabs folgen der Einstellung Verborgene Tabs ruhen lassen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libera memoria de las páginas, conversaciones y espacios de trabajo ocultos que no usas. Moderado espera más tiempo, Máximo libera memoria antes y Equilibrado queda en medio. Desactivado solo libera memoria cuando al Mac le queda poca memoria. Las pestañas del navegador siguen el ajuste Hibernar pestañas ocultas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libère la mémoire des pages, conversations et espaces de travail masqués que vous n'utilisez pas. Modéré attend le plus longtemps, Maximal libère la mémoire le plus tôt, et Équilibré se situe entre les deux. Désactivé ne libère la mémoire que lorsque le Mac en manque. Les onglets du navigateur suivent le réglage Mettre en veille les onglets masqués."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libera memoria da pagine, conversazioni e spazi di lavoro nascosti che non usi. Moderato attende più a lungo, Massimo libera memoria prima e Bilanciato sta nel mezzo. Disattivato libera memoria solo quando il Mac ne ha poca. Le schede del browser seguono l'impostazione Iberna le schede nascoste."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使っていない非表示のページ、会話、ワークスペースのメモリを解放します。「控えめ」は最も長く待ち、「最大」は最も早くメモリを解放し、「バランス」はその中間です。「オフ」は Mac のメモリが不足したときだけメモリを解放します。ブラウザのタブは「非表示のタブを休止」の設定に従います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ចេញអង្គចងចាំពីទំព័រ ការសន្ទនា និងកន្លែងធ្វើការដែលលាក់ ដែលអ្នកមិនកំពុងប្រើ។ «មធ្យម» រង់ចាំយូរបំផុត «អតិបរមា» បញ្ចេញអង្គចងចាំឆាប់បំផុត ហើយ «តុល្យភាព» នៅចន្លោះ។ «បិទ» បញ្ចេញអង្គចងចាំតែពេល Mac ខ្វះអង្គចងចាំប៉ុណ្ណោះ។ ផ្ទាំងកម្មវិធីរុករកធ្វើតាមការកំណត់ «ផ្អាកផ្ទាំងដែលលាក់»។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용하지 않는 숨겨진 페이지, 대화, 작업 공간의 메모리를 확보합니다. '보통'은 가장 오래 기다리고, '최대'는 가장 빨리 메모리를 확보하며, '균형'은 그 중간입니다. '끔'은 Mac의 메모리가 부족할 때만 메모리를 확보합니다. 브라우저 탭은 '숨겨진 탭 휴면' 설정을 따릅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigjør minne fra skjulte sider, samtaler og arbeidsområder du ikke bruker. Moderat venter lengst, Maksimal frigjør minne raskest, og Balansert ligger imellom. Av frigjør bare minne når Macen har lite minne igjen. Nettleserfaner følger Dvale for skjulte faner."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwalnia pamięć ukrytych stron, rozmów i obszarów roboczych, których nie używasz. Umiarkowane czeka najdłużej, Maksymalne zwalnia pamięć najwcześniej, a Zrównoważone jest pośrodku. Wyłączone zwalnia pamięć tylko wtedy, gdy Macowi zaczyna jej brakować. Karty przeglądarki działają według ustawienia Usypiaj ukryte karty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libera memória de páginas, conversas e espaços de trabalho ocultos que você não está usando. Moderado espera mais, Máximo libera memória mais cedo e Equilibrado fica no meio. Desativado só libera memória quando o Mac está com pouca memória. As abas do navegador seguem o ajuste Hibernar abas ocultas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Освобождает память скрытых страниц, разговоров и рабочих пространств, которыми вы не пользуетесь. «Умеренная» ждёт дольше всего, «Максимальная» освобождает память раньше всего, а «Сбалансированная» — посередине. «Выкл.» освобождает память, только когда у Mac заканчивается память. Вкладки браузера следуют настройке «Усыплять скрытые вкладки»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คืนหน่วยความจำจากหน้า การสนทนา และพื้นที่ทำงานที่ซ่อนอยู่ซึ่งคุณไม่ได้ใช้ ปานกลางรอนานที่สุด สูงสุดคืนหน่วยความจำเร็วที่สุด และสมดุลอยู่ตรงกลาง ปิดจะคืนหน่วยความจำเฉพาะเมื่อ Mac มีหน่วยความจำเหลือน้อย แท็บเบราว์เซอร์ทำตามการตั้งค่าพักแท็บที่ซ่อนอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanmadığınız gizli sayfaların, konuşmaların ve çalışma alanlarının belleğini boşaltır. Ilımlı en uzun bekler, Maksimum belleği en erken boşaltır, Dengeli ise ikisinin arasındadır. Kapalı, belleği yalnızca Mac'in belleği azaldığında boşaltır. Tarayıcı sekmeleri Gizli Sekmeleri Uyut ayarını izler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звільняє пам’ять прихованих сторінок, розмов і робочих просторів, якими ви не користуєтеся. «Помірна» чекає найдовше, «Максимальна» звільняє пам’ять найраніше, а «Збалансована» — посередині. «Вимк.» звільняє пам’ять, лише коли Mac бракує пам’яті. Вкладки браузера дотримуються налаштування «Присипляти приховані вкладки»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giải phóng bộ nhớ từ các trang, cuộc trò chuyện và không gian làm việc bị ẩn mà bạn không dùng. Vừa phải chờ lâu nhất, Tối đa giải phóng bộ nhớ sớm nhất, và Cân bằng ở giữa. Tắt chỉ giải phóng bộ nhớ khi máy Mac sắp hết bộ nhớ. Tab trình duyệt theo cài đặt Ngủ đông tab bị ẩn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "释放你未在使用的隐藏页面、对话和工作区占用的内存。“适中”等待最久，“最大”最早释放内存，“平衡”介于两者之间。“关闭”只在 Mac 内存不足时释放内存。浏览器标签页遵循“休眠隐藏的标签页”设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "釋放你未在使用的隱藏頁面、對話和工作區占用的記憶體。「適中」等待最久，「最大」最早釋放記憶體，「平衡」介於兩者之間。「關閉」只在 Mac 記憶體不足時釋放記憶體。瀏覽器標籤頁遵循「休眠隱藏的標籤頁」設定。"
+          }
+        }
+      }
+    },
+    "settings.memory.saver.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free memory from content you are not using"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحرير الذاكرة من المحتوى الذي لا تستخدمه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oslobađa memoriju od sadržaja koji ne koristite"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigør hukommelse fra indhold, du ikke bruger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speicher von Inhalten freigeben, die du nicht nutzt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libera memoria del contenido que no usas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libère la mémoire du contenu que vous n'utilisez pas"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libera memoria dai contenuti che non usi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使っていないコンテンツのメモリを解放"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ចេញអង្គចងចាំពីខ្លឹមសារដែលអ្នកមិនកំពុងប្រើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용하지 않는 콘텐츠의 메모리 확보"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigjør minne fra innhold du ikke bruker"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwalnia pamięć zajętą przez nieużywane treści"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libera memória do conteúdo que você não está usando"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Освобождать память от неиспользуемого содержимого"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คืนหน่วยความจำจากเนื้อหาที่คุณไม่ได้ใช้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanmadığınız içeriklerin belleğini boşaltır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звільняти пам’ять від вмісту, яким ви не користуєтеся"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giải phóng bộ nhớ từ nội dung bạn không dùng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "释放你未在使用的内容占用的内存"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "釋放你未在使用的內容占用的記憶體"
+          }
+        }
+      }
+    },
+    "settings.choice.memory.conservative": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moderate"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معتدل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umjereno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moderat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moderat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moderado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modéré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moderato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "控えめ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មធ្យម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보통"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moderat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umiarkowane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moderado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Умеренная"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปานกลาง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ilımlı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Помірна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vừa phải"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "适中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "適中"
+          }
+        }
+      }
+    },
+    "settings.choice.memory.medium": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Balanced"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متوازن"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uravnoteženo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afbalanceret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgewogen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Equilibrado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Équilibré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilanciato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バランス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តុល្យភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "균형"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Balansert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zrównoważone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Equilibrado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сбалансированная"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สมดุล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dengeli"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Збалансована"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cân bằng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平衡"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平衡"
+          }
+        }
+      }
+    },
+    "settings.choice.memory.aggressive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximum"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أقصى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maksimalno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maksimal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máximo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Massimo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អតិបរមា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최대"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maksimal"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maksymalne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máximo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Максимальная"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สูงสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maksimum"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Максимальна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tối đa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大"
           }
         }
       }
