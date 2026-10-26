@@ -37,6 +37,8 @@ struct Fake {
     /// What `Backend::caller` answers: `None` for a client with no caller
     /// identity, `Some(Null)` for one the app cannot place.
     caller: Option<Value>,
+    /// The app's `beside` with `caller`: the column right of the chat.
+    beside: Value,
     /// What `Backend::focus` answers.
     focus: Option<Value>,
     sent: RefCell<Vec<Value>>,
@@ -305,9 +307,9 @@ impl Backend for Fake {
         Ok(json!({"session": "default", "output": "ok\n", "truncated": false, "error": null}))
     }
 
-    fn caller(&self) -> Result<Option<Value>, CallFailure> {
+    fn identity(&self) -> Result<Option<Value>, CallFailure> {
         self.sent.borrow_mut().push(json!({"kind": "caller"}));
-        Ok(self.caller.clone())
+        Ok(self.caller.clone().map(|caller| json!({"caller": caller, "beside": self.beside})))
     }
 
     fn focus(&self) -> Result<Option<Value>, CallFailure> {

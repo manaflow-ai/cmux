@@ -22,6 +22,7 @@ mod app_browser_route;
 mod app_focus;
 #[cfg(unix)]
 mod apps_run;
+mod beside;
 #[cfg(unix)]
 mod billing;
 mod capability_cache;

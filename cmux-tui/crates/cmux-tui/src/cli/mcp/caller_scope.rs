@@ -11,9 +11,10 @@
 
 use serde_json::{Map, Value, json};
 
-/// The selector levels, outermost first. The app's `caller` and `focus`
-/// objects name each level with the same key.
-const LEVELS: [&str; 4] = ["workspace", "screen", "pane", "tab"];
+/// The selector levels, outermost first, with their public id prefix. The
+/// app's `caller` and `focus` objects name each level with the same key.
+const LEVELS: [(&str, &str); 4] =
+    [("workspace", "ws_"), ("screen", "screen_"), ("pane", "pane_"), ("tab", "tab_")];
 
 /// The selector word for the object the person looks at.
 const FOCUSED: &str = "focused";
@@ -23,7 +24,7 @@ const CURRENT: &str = "current";
 
 /// Whether `params` has a selector `word`, so its place must be found.
 fn has(params: &Map<String, Value>, word: &str) -> bool {
-    LEVELS.iter().any(|field| params.get(*field).and_then(Value::as_str) == Some(word))
+    LEVELS.iter().any(|(field, _)| params.get(*field).and_then(Value::as_str) == Some(word))
 }
 
 /// Whether `params` has a `current` selector.
@@ -34,6 +35,12 @@ pub(super) fn wants_caller(params: &Map<String, Value>) -> bool {
 /// Whether `params` has a `focused` selector.
 pub(super) fn wants_focus(params: &Map<String, Value>) -> bool {
     has(params, FOCUSED)
+}
+
+/// Whether the app's `caller` names a workspace the caller is in.
+pub(super) fn is_placed(caller: &Value) -> bool {
+    caller.get("found").and_then(Value::as_bool) != Some(false)
+        && caller.get("workspace").and_then(Value::as_str).is_some()
 }
 
 /// Rewrites the selectors of `params`, top down. `current` starts in the
@@ -49,14 +56,19 @@ pub(super) fn apply(
     focus: Option<&Value>,
 ) {
     let mut place = caller;
-    for field in LEVELS {
+    for (field, prefix) in LEVELS {
         let Some(value) = params.get(field).and_then(Value::as_str).map(str::to_owned) else {
             continue;
         };
         if value == FOCUSED {
             place = focus;
         } else if value != CURRENT {
-            place = place.filter(|place| place.get(field).and_then(Value::as_str) == Some(&value));
+            // The place's own object, by id or a unique prefix of it.
+            let names = |own: &str| {
+                own == value || (value.starts_with(prefix) && own.starts_with(value.as_str()))
+            };
+            place =
+                place.filter(|place| place.get(field).and_then(Value::as_str).is_some_and(names));
             continue;
         }
         match place.and_then(|place| place.get(field)).and_then(Value::as_str) {
