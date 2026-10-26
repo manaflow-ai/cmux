@@ -1,6 +1,7 @@
 public import CmuxNextSettings
 import Darwin
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// An immutable picture of everything read-only control methods answer
 /// from (plans/cmux-next/architecture.md section 5a).
@@ -206,9 +207,9 @@ public final class ControlSnapshotStore: Sendable {
             return (nil, state.nextWaiter)
         }
         if let ready { return ready }
-        let timer = Task { [weak self] in
-            // wakeup-allow: one-shot read-barrier deadline (1 s), cancelled when the store catches up
-            do { try await Task.sleep(until: deadline, clock: .continuous) } catch { return }
+        // The read-barrier deadline (1 s), cancelled when the store catches up.
+        let timer = DemandTimer(owner: "ControlSnapshot.barrier")
+        timer.schedule(after: max(deadline - .now, .zero)) { [weak self] in
             self?.resolve(id, with: nil)
         }
         defer { timer.cancel() }

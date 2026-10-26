@@ -1,6 +1,6 @@
 import AppKit
+import CmuxNextCompat
 import ObjectiveC
-import os
 
 /// No macOS caret bubble over cmux's own native text.
 ///
@@ -26,9 +26,9 @@ nonisolated enum NativeCaretAccessory {
 
     private typealias Getter = @convention(c) (AnyObject, Selector) -> Int
 
-    private static let installed = OSAllocatedUnfairLock(initialState: false)
+    private static let installed = Mutex(false)
     /// Whether a class comes from a bundled framework, per class (`Bundle(for:)` walks the images).
-    private static let thirdPartyClasses = OSAllocatedUnfairLock<[ObjectIdentifier: Bool]>(initialState: [:])
+    private static let thirdPartyClasses = Mutex<[ObjectIdentifier: Bool]>([:])
 
     /// Gives `NSTextView` its answer; a second call changes nothing. Returns whether this call
     /// installed it.

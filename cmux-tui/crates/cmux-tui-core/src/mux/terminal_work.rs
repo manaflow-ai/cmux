@@ -44,12 +44,23 @@ struct TerminalWorkState {
 /// A bounded pool of short-lived worker threads. Workers start on demand
 /// and exit when the queue is empty, so an idle owner holds none and a
 /// dropped owner never joins a worker that holds its last reference.
-#[derive(Default)]
 pub(crate) struct TerminalWorkPool {
     state: Arc<Mutex<TerminalWorkState>>,
     /// The host process started ahead of the next new tab (R81, cap one).
     #[cfg(any(unix, windows))]
     standby: Arc<standby_host::StandbyHostSlot>,
+}
+
+/// The owner's pool. Its standby slot is the first consumer in the owner's
+/// memory registry (one owner per daemon).
+impl Default for TerminalWorkPool {
+    fn default() -> Self {
+        Self {
+            state: Arc::default(),
+            #[cfg(any(unix, windows))]
+            standby: standby_host::StandbyHostSlot::new(Arc::default()),
+        }
+    }
 }
 
 impl TerminalWorkPool {

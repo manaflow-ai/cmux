@@ -21,7 +21,7 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
     /// suspension points to a real-time path. The lock guards one reference
     /// with short, non-blocking critical sections.
     private final class RequestBox: @unchecked Sendable {
-        private let lock = OSAllocatedUnfairLock()
+        private let lock = OSAllocatedUnfairLock() // lock-allow: realtime audio tap, os_unfair_lock donates
         // Guarded by `lock`; only touched inside withLock-style sections.
         private var request: SFSpeechAudioBufferRecognitionRequest?
 
