@@ -27,7 +27,15 @@ empty one falls back to GITHUB_TOKEN. A script that names $GITHUB_TOKEN itself
 `github.token` or `secrets.GITHUB_TOKEN`. A github-script step counts unless
 its `github-token:` is something else.
 
-Not caught: a sleep or call inside a separate script file the loop runs.
+API calls: `gh <verb>`, and curl to api.github.com or to a variable that holds
+the API URL: GITHUB_API_URL, an env value (step, job or workflow) that carries
+`github.api_url` or api.github.com, or a shell assignment of either.
+
+Scripts in the repository: a loop that runs a script file (`scripts/x.sh`,
+`./scripts/x.sh`, `bash|sh|python3|node|bun scripts/x`) takes on the script's
+API calls and sleeps, and that script's own scripts' in turn. A script the step
+runs anywhere is also read for its own polling loops, judged by the step's
+token. A script run through a variable (`$SCRIPT`) is not followed.
 """
 
 from __future__ import annotations
@@ -43,6 +51,9 @@ OWN_TOKEN = re.compile(r"\$\{\{[^}]*\b(github\.token|secrets\.GITHUB_TOKEN)\b[^}
 SHELL_API = re.compile(r"^(gh)$")
 GH_VERBS = {"api", "run", "pr", "issue", "release", "workflow", "label", "search", "cache"}
 API_TEXT = re.compile(r"api\.github\.com")
+API_URL_VALUE = re.compile(r"github\.api_url|api\.github\.com|\$\{?GITHUB_API_URL\b")
+SCRIPT_PATH = re.compile(r"^(?:\./)?((?:scripts|\.github)/[\w./-]+\.(?:sh|bash|py|js|mjs|cjs|ts))$")
+INTERPRETERS = {"bash", "sh", "python", "python3", "node", "bun", "ruby", "source", "."}
 SEPARATORS = {";", "&&", "||", "|", "(", "$(", "{", "then", "else", "elif", "do", "!", "`", "&", "if", "while",
               "until", "time"}
 
@@ -243,14 +254,132 @@ def shell_sleeps(block: list[str]) -> bool:
     return any(start and w == "sleep" for w, start in zip(block, starts))
 
 
-def shell_api(block: list[str]) -> bool:
+def api_url_pattern(names: Iterable[str]) -> re.Pattern[str]:
+    """Text naming the API: api.github.com, or $NAME / ${NAME} for a variable holding its URL."""
+    alternatives = sorted({"GITHUB_API_URL", *names})
+    return re.compile(r"api\.github\.com|\$\{?(?:" + "|".join(map(re.escape, alternatives)) + r")\b")
+
+
+def api_url_names(script: str, scopes: Iterable[dict] = ()) -> set[str]:
+    """Variables that hold the API URL: env values (any scope given) and shell assignments in the script."""
+    names = {"GITHUB_API_URL"}
+    for scope in scopes:
+        for name, value in (scope or {}).items():
+            if API_URL_VALUE.search(str(value or "")):
+                names.add(str(name))
+    changed = True
+    while changed:
+        changed = False
+        url = api_url_pattern(names)
+        for match in re.finditer(r"(?m)(?:^|[\s;(])(?:local\s+|export\s+|readonly\s+)?([A-Za-z_]\w*)=(\S+)", script):
+            if match.group(1) not in names and (API_URL_VALUE.search(match.group(2)) or url.search(match.group(2))):
+                names.add(match.group(1))
+                changed = True
+    return names
+
+
+def shell_api(block: list[str], api_url: re.Pattern[str] = API_TEXT) -> bool:
     starts = command_positions([(w, 0) for w in block])
     for index, (word, start) in enumerate(zip(block, starts)):
         if start and word == "gh" and index + 1 < len(block) and block[index + 1] in GH_VERBS:
             return True
-        if start and word == "curl" and any(API_TEXT.search(w) for w in block[index + 1:index + 30]):
+        if start and word == "curl" and any(api_url.search(w) for w in block[index + 1:index + 30]):
             return True
     return False
+
+
+def script_paths(block: list[str]) -> list[str]:
+    """Repository script files the block runs: in command position, or after an interpreter."""
+    starts = command_positions([(w, 0) for w in block])
+    found = []
+    for index, (word, start) in enumerate(zip(block, starts)):
+        if not start:
+            continue
+        candidates = [word]
+        if word in INTERPRETERS:
+            candidates = [w for w in block[index + 1:index + 4] if not w.startswith("-")][:1]
+        for candidate in candidates:
+            match = SCRIPT_PATH.match(candidate.lstrip("\0"))
+            if match:
+                found.append(match.group(1))
+    return found
+
+
+class Scripts:
+    """Reads repository scripts once and says whether each (with the scripts it runs) calls the API or sleeps."""
+
+    def __init__(self, root: Path | None) -> None:
+        self.root = root
+        self.cache: dict[str, tuple[bool, bool, list[str], str]] = {}
+
+    def read(self, path: str) -> tuple[bool, bool, list[str], str]:
+        """(calls the API, sleeps, scripts it runs, text) for one file, without following those scripts."""
+        if path in self.cache:
+            return self.cache[path]
+        file = self.root / path if self.root else None
+        if not file or not file.is_file():
+            self.cache[path] = (False, False, [], "")
+            return self.cache[path]
+        text = file.read_text(encoding="utf-8", errors="replace")
+        if path.endswith(".py"):
+            calls, sleeps, runs = python_effects(text)
+        elif path.endswith((".js", ".mjs", ".cjs", ".ts")):
+            code = js_code(text)
+            calls, sleeps, runs = bool(JS_API.search(code)), bool(JS_SLEEP.search(code)), []
+        else:
+            words = [w.lstrip("\0") if not w.startswith("\0") else w for w, _ in shell_words(text)]
+            url = api_url_pattern(api_url_names(text))
+            calls, sleeps, runs = shell_api(words, url), shell_sleeps(words), script_paths(words)
+        self.cache[path] = (calls, sleeps, runs, text)
+        return self.cache[path]
+
+    def effects(self, paths: Iterable[str]) -> tuple[bool, bool]:
+        """Whether running these scripts calls the API, and whether it sleeps, scripts they run included."""
+        calls = sleeps = False
+        seen: set[str] = set()
+        todo = list(paths)
+        while todo:
+            path = todo.pop()
+            if path in seen:
+                continue
+            seen.add(path)
+            c, z, runs, _ = self.read(path)
+            calls, sleeps = calls or c, sleeps or z
+            todo.extend(runs)
+        return calls, sleeps
+
+    def closure(self, paths: Iterable[str]) -> list[str]:
+        """These scripts and every repository script they run, in the order first seen."""
+        seen: list[str] = []
+        todo = list(paths)
+        while todo:
+            path = todo.pop(0)
+            if path in seen:
+                continue
+            seen.append(path)
+            todo.extend(self.read(path)[2])
+        return seen
+
+
+def python_effects(text: str) -> tuple[bool, bool, list[str]]:
+    """(calls the API, sleeps, scripts it runs) anywhere in a Python file."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return False, False, []
+    calls = sleeps = False
+    runs = []
+    for call in (n for n in ast.walk(tree) if isinstance(n, ast.Call)):
+        calls = calls or python_call_is_api(call)
+        sleeps = sleeps or dotted(call.func).split(".")[-1] == "sleep"
+        for arg in call.args:
+            if isinstance(arg, ast.List):
+                for element in arg.elts[:3]:
+                    if isinstance(element, ast.Constant) and isinstance(element.value, str):
+                        match = SCRIPT_PATH.match(element.value)
+                        if match:
+                            runs.append(match.group(1))
+    return calls, sleeps, runs
 
 
 def heredoc_programs(text: str) -> Iterator[tuple[str, str]]:
@@ -266,15 +395,19 @@ def heredoc_programs(text: str) -> Iterator[tuple[str, str]]:
         yield language, "\n".join(body)
 
 
-def shell_polls(text: str) -> str | None:
+def shell_polls(text: str, env_scopes: Iterable[dict] = (), scripts: Scripts | None = None) -> str | None:
     words = shell_words(text)
     loops, functions = shell_blocks(words)
+    url = api_url_pattern(api_url_names(text, env_scopes))
+    scripts = scripts or Scripts(None)
     for loop in loops:
         seen, todo, calls_api, sleeps = set(), [loop], False, False
         while todo:
             block = todo.pop()
-            calls_api = calls_api or shell_api(block)
+            calls_api = calls_api or shell_api(block, url)
             sleeps = sleeps or shell_sleeps(block)
+            script_calls, script_sleeps = scripts.effects(script_paths(block))
+            calls_api, sleeps = calls_api or script_calls, sleeps or script_sleeps
             for name in shell_calls(block, functions) - seen:
                 seen.add(name)
                 todo.append(functions[name])
@@ -451,8 +584,9 @@ def js_polls(text: str) -> str | None:
 
 # ------------------------------------------------------------------ workflows
 
-def step_polls(step: dict, job: dict, workflow: dict) -> str | None:
+def step_polls(step: dict, job: dict, workflow: dict, scripts: Scripts | None = None) -> str | None:
     """The first line of the step's polling loop on github.token, else None."""
+    scripts = scripts or Scripts(None)
     with_ = step.get("with") or {}
     if str(step.get("uses", "")).startswith("actions/github-script"):
         token = with_.get("github-token")
@@ -460,21 +594,41 @@ def step_polls(step: dict, job: dict, workflow: dict) -> str | None:
             return None
         return js_polls(str(with_.get("script", "")))
     script = str(step.get("run", "") or "")
-    if not script or not calls_with_own_token(step, job, workflow, script):
+    if not script:
         return None
     shell = str(step.get("shell") or (job.get("defaults") or {}).get("run", {}).get("shell") or "")
+    runs = [] if shell.startswith("python") else scripts.closure(
+        script_paths([w.lstrip("\0") if not w.startswith("\0") else w for w, _ in shell_words(script)]))
+    every_text = script + "".join(scripts.read(path)[3] for path in runs)
+    if not calls_with_own_token(step, job, workflow, every_text):
+        return None
     if shell.startswith("python"):
         return python_polls(script)
-    return shell_polls(script)
+    scopes = (step.get("env") or {}, job.get("env") or {}, workflow.get("env") or {})
+    found = shell_polls(script, scopes, scripts)
+    if found:
+        return found
+    for path in runs:
+        text = scripts.read(path)[3]
+        if path.endswith(".py"):
+            found = python_polls(text)
+        elif path.endswith((".js", ".mjs", ".cjs", ".ts")):
+            found = js_polls(text)
+        else:
+            found = shell_polls(text, scopes, scripts)
+        if found:
+            return f"{path}: {found}"
+    return None
 
 
 def polling_steps(workflows: Path) -> dict[str, str]:
     found = {}
+    scripts = Scripts(workflows.parent.parent)
     for path in sorted(workflows.glob("*.y*ml")):
         workflow = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         for job in (workflow.get("jobs") or {}).values():
             for index, step in enumerate(job.get("steps") or []):
-                line = step_polls(step, job, workflow)
+                line = step_polls(step, job, workflow, scripts)
                 if line:
                     found[f"{path.name}: {step.get('name') or f'step {index + 1}'}"] = line
     return found

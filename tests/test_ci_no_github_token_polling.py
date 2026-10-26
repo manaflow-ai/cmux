@@ -45,6 +45,54 @@ ALLOWED: dict[str, str] = {
     "nightly-next-tick.yml: Coalesce tick requests without cancelling work":
         "only a hand dispatch with --ref feat-cmux-next runs this copy (schedule, workflow_run and the "
         "tick's own dispatches run main's, which has no coalescer): at most 48 passes, 15 s apart",
+    'cmux-next-base-autofix.yml: Wait for the GhosttyKit release':
+        'per feat-cmux-next push touching its paths, only while the ghostty gitlink has no published GhosttyKit release: one release read every 120 s, at most 45 passes, one run at a time; a candidate for workflow_run on build-ghosttykit.yml',
+    'cmux-next.yml: Probe the same-tree cmux-tui':
+        'a same-repository PR whose merge has its own unpublished cmux-tui tree waits for an active trusted publisher (pin-cmux-tui.sh await_outside_publisher): two run reads every 10 s, at most 10 passes; forks, pushes and DEV dispatches look once',
+    'cmux-tui-artifacts.yml: Re-check the owner after leaving the marker':
+        'only when this run deferred to a same-key owner whose hand-off job has started: one owner-run read every 15 s, at most 12 passes',
+    'cmux-next-generated-catch-up.yml: Select PRs that conflict with feat-cmux-next':
+        "per feat-cmux-next push, only while a PR's mergeable is UNKNOWN: re-lists open PRs every 20 s, at most 5 more times",
+    'published-in.yml: Comment the release on its PRs':
+        'per stable release: one comment per PR, 7.5 s apart for the secondary limit on content writes; stops at the first rate-limit refusal',
+    'nightly.yml: Comment the build on its PRs':
+        'per published nightly-next build: one comment per PR, 7.5 s apart; stops at the first rate-limit refusal',
+    'auto-resume-nightly-notarization.yml: Prepare publication notes':
+        'retry only: a gh api read is retried after a timeout or non-4xx failure, at most 3 tries, 5 and 10 s apart',
+    'auto-resume-nightly-notarization.yml: Publish accepted assets and feeds':
+        'retry only: prune retries a delete after 408/425/429/5xx or a rate-limit 403 (at most 4 tries); the publisher paces writes 1 s apart and waits out rate limits within its budget',
+    'auto-triage.yml: Propose severity and area':
+        'retry only: a request sleeps after a rate-limit 403/429 or a network error, at most 4 tries',
+    'auto-triage.yml: Label untriaged open issues':
+        'a backfill, by hand: the same rate-limit and network retry, at most 4 tries',
+    'fleet-compile-check.yml: Compile-check the app on the build fleet and post fleet/compile-check':
+        'retry only: two status POSTs, each retried after 429/5xx/no answer or a rate-limit 403, at most 6 tries',
+    'ios-internal-nightly-trigger.yml: Decide':
+        'retry only: one runs list, retried after a rate limit/429/5xx/timeout, at most 4 tries, 10/20/40 s apart',
+    'nightly-tag-permission-probe.yml: Expect github.token to reject the workflow-changing ref':
+        'by hand: each ref call retried after 408/425/429/5xx or a network error, at most 4 tries; the expected 403 is not retried',
+    'risk-tier.yml: Grade the pull request':
+        'retry only: a loop over the two sign-off labels; gh_run retries a failed gh call at most 3 times, 2 and 4 s apart',
+    'auto-resume-nightly-notarization.yml: Poll saved Apple submissions without reserving a Mac':
+        "polls Apple's notary service (poll-notary-submission.py), not GitHub; the scan counts urlopen as an API call",
+    "cmux-next-perf-budgets.yml: Read the state and pick this tick's work":
+        "the scan reads every loop of a script the step runs; perf-cron.py's sleeping loop is in run-part (fleet controller calls), which this step never runs",
+    'cmux-next-perf-budgets.yml: Start the next part now':
+        "the scan reads every loop of a script the step runs; perf-cron.py's sleeping loop is in run-part, which this step never runs",
+    'cmux-next-perf-budgets.yml: Store the part, compare, keep the regression issue':
+        "the scan reads every loop of a script the step runs; perf-cron.py's sleeping loop is in run-part, which this step never runs",
+    'cmux-next.yml: Fetch the same-tree cmux-tui':
+        'the scan reads every loop of a script the step runs; pin-cmux-tui.sh fetch waits on files.cmux.com; its GitHub run check is every 300 s inside a 120 s wait, so at most one',
+    'cmux-next.yml: Probe the same-tree cmux-tui after the marker':
+        'the scan reads every loop of a script the step runs; CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS=0 and CMUX_TUI_TREE_RECHECK_SECONDS=0: one look, no sleep',
+    'cmux-tui-artifacts.yml: Check whether a newer push superseded this one':
+        'the scan reads every loop of a script the step runs; the step runs only pin-cmux-tui.sh key, which has no loop and no API call',
+    'nightly-tag-permission-probe.yml: Verify app token moves the workflow-changing ref':
+        'uses the minted App token: its mint has no continue-on-error, so the github.token fallback never applies',
+    'nightly.yml: Continue the newest accepted pending notarization':
+        'walks at most 5 recovery candidates once each; the only sleep retries feed reads from files.cmux.com',
+    'nightly.yml: Resolve cmux-tui client commit':
+        'the scan reads every loop of a script the step runs; resolve-newest-published never waits; its walk visits at most 50 commits once each and sleeps only to retry a files.cmux.com download',
     "tui-publish-npm.yml: Require successful verified artifact run": "a release, by hand: at most 24 reads",
     "tui-publish-pypi.yml: Require successful verified artifact run": "a release, by hand: at most 24 reads",
 }
@@ -145,6 +193,38 @@ for (let attempt = 0; attempt < 48; attempt += 1) {
 
 
 class TokenTests(unittest.TestCase):
+    def test_an_api_url_variable_is_the_api(self) -> None:
+        loop = 'for _ in 1 2; do curl -u "x:$GH_TOKEN" "$API_URL/repos/x/runs/1"; sleep 5; done\n'
+        own = {"GH_TOKEN": "${{ github.token }}"}
+        self.assertTrue(step_polls({"run": loop, "env": dict(own, API_URL="${{ github.api_url }}")}, {}, {}))
+        self.assertTrue(step_polls({"run": loop, "env": own}, {"env": {"API_URL": "https://api.github.com"}}, {}))
+        self.assertIsNone(step_polls({"run": loop, "env": dict(own, API_URL="https://files.cmux.com")}, {}, {}))
+        assigned = 'API="${GITHUB_API_URL}/repos/x"\n' + loop.replace("$API_URL/repos/x", "$API")
+        self.assertTrue(step_polls({"run": assigned, "env": own}, {}, {}))
+        retry = 'post() { for ((a = 1; a <= 6; a++)); do curl -X POST "$API/statuses/s"; sleep 5; done; }\npost\n'
+        self.assertTrue(step_polls({"run": retry, "env": dict(own, API="${{ github.api_url }}/repos/x")}, {}, {}))
+
+    def test_a_loop_takes_on_the_repository_scripts_it_runs(self) -> None:
+        import tempfile
+        from github_token_polling import Scripts
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "scripts").mkdir()
+            (root / "scripts" / "look.sh").write_text('gh api "repos/x/releases/tags/t"\n')
+            (root / "scripts" / "outer.sh").write_text("bash scripts/look.sh\n")
+            (root / "scripts" / "quiet.sh").write_text("echo hi\n")
+            (root / "scripts" / "wait.py").write_text(
+                "import time, subprocess\nfor _ in range(3):\n    subprocess.run(['gh', 'api', 'x'])\n    time.sleep(5)\n")
+            own = {"GH_TOKEN": "${{ github.token }}"}
+            scripts = Scripts(root)
+            calls = 'check() { scripts/outer.sh; }\nfor _ in $(seq 1 45); do sleep 120; check; done\n'
+            self.assertTrue(step_polls({"run": calls, "env": own}, {}, {}, scripts))
+            quiet = "for _ in 1 2; do sleep 1; ./scripts/quiet.sh; done\n"
+            self.assertIsNone(step_polls({"run": quiet, "env": own}, {}, {}, scripts))
+            self.assertIn("scripts/wait.py", step_polls({"run": "python3 scripts/wait.py\n", "env": own}, {}, {}, scripts))
+            app = {"GH_TOKEN": "${{ steps.app.outputs.token }}"}
+            self.assertIsNone(step_polls({"run": calls, "env": app}, {}, {}, scripts))
+
     def test_the_innermost_token_wins(self) -> None:
         job = {"env": {"GH_TOKEN": "${{ github.token }}"}}
         self.assertTrue(calls_with_own_token({}, job, {}))
