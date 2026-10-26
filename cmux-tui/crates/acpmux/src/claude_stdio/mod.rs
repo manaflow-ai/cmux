@@ -244,9 +244,13 @@ mod subagent_route;
 mod subagent_tests;
 #[cfg(test)]
 mod tests;
+mod usage_limits;
+#[cfg(test)]
+mod usage_limits_tests;
 #[cfg(test)]
 mod workflow_tests;
 mod workflows;
+pub use usage_limits::merge_usage_limits;
 
 /// The internal ACP request that stops one of Claude Code's background
 /// tasks (`hub/processes.rs`), `{sessionId, taskId}`: Claude Code's
@@ -468,6 +472,9 @@ pub struct Translator {
     /// and those in the background (`run_in_background`, or moved there) until
     /// their `task_notification` or Claude's exit ends them.
     background_shells: Mutex<HashMap<String, BackgroundShell>>,
+    /// The plan usage limit windows Claude Code reported, newest each, by id
+    /// (`usage_limits.rs`).
+    usage_limits: Mutex<std::collections::BTreeMap<&'static str, Value>>,
 }
 
 /// A running shell: the session its Bash call ran in, its command, Claude's
@@ -555,6 +562,7 @@ impl Translator {
             streamed_subagents: Mutex::new(HashSet::new()),
             edits: Mutex::new(HashMap::new()),
             announced: Mutex::new(HashMap::new()),
+            usage_limits: Mutex::new(Default::default()),
         })
     }
 

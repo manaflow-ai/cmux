@@ -729,6 +729,8 @@ impl Translator {
                     _ => {}
                 }
             }
+            // The account's plan usage limits, newest per window (`usage_limits.rs`).
+            "rate_limit_event" => out.extend(self.usage_limits_update(line).await),
             "system" if sub.starts_with("task_") => {
                 if let Some(update) = self.background_shell_task(sub, line, &sid).await {
                     out.push(update);

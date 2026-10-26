@@ -15,16 +15,12 @@ impl Hub {
             match item {
                 Inbound::Notification { method: m, params, agent } => {
                     if m == method::SESSION_UPDATE {
-                        // A /context breakdown from an agent that was replaced (a failover's
-                        // dying primary answering late) is not the chat's context now. The
+                        // A /context breakdown or usage limits from an agent that was replaced
+                        // (a failover's dying primary answering late) are not the chat's now. The
                         // child lock is held while it is applied: a failover takes it to retire
                         // the old agent, and again to detach it, before it clears the
                         // breakdown, so the check and the write cannot straddle the failover.
-                        let breakdown = params
-                            .as_ref()
-                            .and_then(|p| p.pointer("/update/_meta/acpmux/contextBreakdown"))
-                            .is_some();
-                        if breakdown {
+                        if params.as_ref().is_some_and(crate::agent::process_state) {
                             let child = session.child.lock().await;
                             if child
                                 .as_ref()
@@ -185,6 +181,13 @@ impl Hub {
                 if let Some(breakdown) = update.pointer("/_meta/acpmux/contextBreakdown") {
                     m.context_breakdown = Some(breakdown.clone());
                     breakdown_changed = true;
+                }
+                // The account's plan usage limits, merged by window (`claude_stdio`).
+                if let Some(limits) = update.pointer("/_meta/acpmux/usageLimits") {
+                    let merged =
+                        crate::claude_stdio::merge_usage_limits(m.usage_limits.as_ref(), limits);
+                    breakdown_changed |= m.usage_limits.as_ref() != Some(&merged);
+                    m.usage_limits = Some(merged);
                 }
                 // Claude Code's system/init: its MCP servers, plugins and skills.
                 reported_tools = update
