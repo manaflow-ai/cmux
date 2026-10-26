@@ -506,7 +506,14 @@ impl Hub {
         }
         let now = lock(&self.clock).now();
         let key = p.key.clone();
-        match lock(&self.pool.pool).restore(&key, p, now) {
+        let restored = {
+            let mut pool = lock(&self.pool.pool);
+            // MDM forces full access off (#23322, review 27): a claimed entry never goes back,
+            // since the push's drain may have passed it while it was claimed. Read under the
+            // pool lock, as at completion (`pool_want`), so a drain after this one finds it.
+            if self.full_access_managed_off() { Some(p) } else { pool.restore(&key, p, now) }
+        };
+        match restored {
             Some(p) => self.pool_discard(vec![p]),
             None => {
                 tracing::info!(harness = %key.harness, "an unused claimed session went back to the pool");
