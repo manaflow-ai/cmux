@@ -207,7 +207,7 @@ final class AppServices {
     /// The command palette on demand (p08-startup-023): launch builds none; it is built after the first frame
     /// (`postBuild`) or by the first palette key, in that key's turn. Handlers add pages to `palettes.sources`.
     private(set) lazy var palettes = PaletteOnDemand(registry: registry, sources: { [weak self] in self.map { PaletteSourcesBridge.make(services: $0) } ?? PaletteSources() }) { [registry, mainWork, weak self] sources in
-        PaletteController(registry: registry, sources: sources, usage: self.map { DaemonPaletteUsageStore(services: $0) }, mainWork: mainWork)
+        PaletteController(registry: registry, sources: sources, usage: self.map { DaemonPaletteUsageStore(services: $0) }, mainWork: mainWork, hoverFrameInput: self?.hoverFrameInput)
     }
     var palette: PaletteController { palettes.controller }
     private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache)  // built by the first tab card
@@ -308,8 +308,9 @@ final class AppServices {
     /// and the DevTools divider move on a frame interval's first drag event and once more at its frame. Nil while it
     /// is off: each drag event moves them.
     private(set) lazy var dragFrameInput: FrameInputCoalescers? = features.isEnabled(.pointerFrameDrags) ? pointerFrames : nil
-    /// Hover (feature `pointerFrameHover`, also each main window's `hoverFrameInput`): hover sites act on a frame interval's
-    /// first move and once more at its frame, at the latest point. Nil while it is off: each move hovers.
+    /// Hover (feature `pointerFrameHover`, also each main window's `hoverFrameInput`): hover sites, the palette, the
+    /// omnibox suggestions and the pages' popups act on a frame interval's first move and once more at its frame, at
+    /// the latest point. Nil while it is off: each move hovers.
     private(set) lazy var hoverFrameInput: FrameInputCoalescers? = features.isEnabled(.pointerFrameHover) ? pointerFrames : nil
     /// Terminals (feature `terminalPointerFrames`, p04-input-034): moves, drags and mouse-reporting trackpad scrolls
     /// reach Ghostty on a frame interval's first event and once more at its frame. Nil while it is off: each event
@@ -383,7 +384,8 @@ final class AppServices {
     /// The New Tab page on the app's one preload slot, which it installs on `webUI` (instant open, p13-webui-044).
     private(set) lazy var newTabSpares = NewTabPreload.app(self)
     /// The spare React page hosts for Settings, History and Cloud.
-    private(set) lazy var pageHostPool = PageHostPool(memory: memoryCoordinator, policy: .init(preloadOnMakeVisible: features.isEnabled(.pageRendererAtFirstShow)))
+    private(set) lazy var pageHostPool = PageHostPool(memory: memoryCoordinator, policy: .init(preloadOnMakeVisible: features.isEnabled(.pageRendererAtFirstShow)),
+                                                      hoverFrameInput: hoverFrameInput)
     /// The one owner of cmux pages (p13-webui.md 3.A): every page view opens and closes through it.
     /// Every page follows `browser.defaultEngine` (Chromium by default) through its one Chromium host.
     /// Its views are listed in `PageRegistry.processWide` while the static forwarders remain (p13-webui-010).
@@ -394,7 +396,8 @@ final class AppServices {
                 self?.settings?.snapshot.browserDefaultEngine ?? self?.cache.browserTabs.preference.defaultEngine ?? .fallback
             },
             keyRouter: keyRouter, work: work),
-        openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow))
+        openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
+        hoverFrameInput: hoverFrameInput)
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
     private(set) lazy var iconPicker = IconPickerService(services: self, webUI: webUI)
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
