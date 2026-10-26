@@ -316,8 +316,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NewTabClosed.wire(services.agentTabs, services: services)
         NewTabPlacesFeed.wire(services.agentTabs, services: services)
         NewTabWeather.wire(services.agentTabs, services: services)
-        // Every workspace's chats resume at launch, not when their workspace first shows (cmux#22292).
-        services.agentTabs.resumeChatsWhenLoaded(services.daemon.store)
         // The GitHub connection is deliberately off by default. Changes in
         // Settings apply to the one feed owner and never create a second
         // inbox store.

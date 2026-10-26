@@ -370,6 +370,7 @@ extension AgentTabStore {
             return AgentPaneModel.rememberLocalMachineName(AgentTabStore.displayName(name) ?? name)
         }
         services.madeAgentTabs = tabs
+        tabs.resumeChatsWhenLoaded(services.daemon.store)
         return tabs
     }
 

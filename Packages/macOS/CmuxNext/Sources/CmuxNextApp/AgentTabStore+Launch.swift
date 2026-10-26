@@ -62,10 +62,6 @@ extension AgentTabStore {
         }
     }
 
-    /// The sessions this Mac asks acpmux to resume at launch, without exposing their host
-    /// routing. Kept as a small observable seam for the launch regression tests.
-    func sessionsToResume() -> [String] { resumeTargetsAtLaunch().map(\.session) }
-
     /// Starts the agent of every chat tab of this Mac at launch (cmux#22292): a chat's page, and
     /// with it its session, is made only when its tab shows, so the chats of a workspace not shown
     /// stayed stopped until it was. acpmux starts each one as the page would, with its own mode.

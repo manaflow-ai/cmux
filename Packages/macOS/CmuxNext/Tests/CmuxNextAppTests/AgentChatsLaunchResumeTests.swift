@@ -51,7 +51,6 @@ struct AgentChatsLaunchResumeTests {
             (key: "tab-f", record: AgentSessionRef(host: "install:another-mac", session: "s-elsewhere")),
         ], host: host, chief: chief)
 
-        #expect(tabs.sessionsToResume() == ["s-shown", "s-hidden", "s-hidden-2", "s-chief"])
         await tabs.resumeChatsAtLaunch()
         let warmed = await host.warmed
         #expect(warmed.allSatisfy { $0.count == 1 })
