@@ -567,14 +567,18 @@ protocol SurfacePresenter: AnyObject {
     func surfaceWasDisplaced(_ key: String)
     /// The window it presents in, if any.
     var presentingWindow: NSWindow? { get }
+    /// The size a surface it shows is laid out at, if known (the intent prewarm sizes a hidden page to it).
+    var presentedContentSize: CGSize? { get }
 }
 
 extension SurfacePresenter {
     var presentingWindow: NSWindow? { nil }
+    var presentedContentSize: CGSize? { nil }
 }
 
 extension PaneController {
     var presentingWindow: NSWindow? { view.window }
+    var presentedContentSize: CGSize? { view.contentHost.bounds.size }
 }
 
 struct WeakPresenter {

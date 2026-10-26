@@ -56,6 +56,12 @@ public final class BrowserPictureView: NSImageView {
         image = NSImage(cgImage: decoded, size: .zero)
     }
 
+    /// `image` drawn into a bitmap off the main thread: the intent prewarm decodes a hibernated tab's
+    /// picture ahead of its wake, so the woken page's cover (`init(decoded:)`) shows it from its first frame.
+    @concurrent public nonisolated static func decode(_ image: CGImage) async -> CGImage {
+        decoded(image)
+    }
+
     /// `image` drawn into a bitmap of its size and color space, keeping its alpha if it has one
     /// (a page with a transparent background).
     private nonisolated static func decoded(_ image: CGImage) -> CGImage {

@@ -47,8 +47,9 @@ extension AppServices {
 
     /// The intent prewarm over `hibernation`, its weak warmer, for the triggers whose feature is on: the hover
     /// dwell (`intentPrewarmHover`, p04-input-043) and the press on a row that commits on its release
-    /// (`intentPrewarmPress`, p04-input-042). One background-class dwell deadline, the app's memory pressure,
-    /// the feature's dwell and Energy Saver's inputs as its power. Neither feature on: no service.
+    /// (`intentPrewarmPress`, p04-input-042). A background-class dwell deadline and a background-class press
+    /// start (no warmer work on a press's input turn), the app's memory pressure, the feature's dwell and
+    /// Energy Saver's inputs as its power. Neither feature on: no service.
     private func startIntentPrewarm(over hibernation: BrowserHibernation) {
         var triggers = Set<IntentPrewarmTrigger>()
         if features.isEnabled(.intentPrewarmHover) { triggers.insert(.hoverDwell) }
@@ -57,6 +58,7 @@ extension AppServices {
         let service = IntentPrewarmService<String>(
             warmer: hibernation, memoryPressure: memoryPressure,
             dwellTimer: MainDeadline(owner: "IntentPrewarm.hoverDwell", workClass: .background, scheduler: mainDeadlines),
+            pressStart: MainDeadline(owner: "IntentPrewarm.pressStart", workClass: .background, scheduler: mainDeadlines),
             dwell: Feature.intentPrewarmHover.durationParam("dwell") ?? .milliseconds(200), triggers: triggers)
         let power = energyMonitor.follow { [weak service] inputs in
             service?.power = IntentPrewarmPower(lowPowerMode: inputs.lowPowerMode, onBattery: inputs.onBattery)

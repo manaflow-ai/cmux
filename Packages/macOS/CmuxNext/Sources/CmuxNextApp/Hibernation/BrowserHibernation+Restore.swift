@@ -78,6 +78,9 @@ extension BrowserHibernation {
     }
 
     private func finishRestore(_ key: String, token: ContentLifecycle<String>.Token, page: any BrowserTab) {
+        // An intent prewarm's kinds: the page lays out hidden at its target size, and its cover needs no decode.
+        let prewarmed = prewarmKinds.takeForRestore(key)
+        if let size = prewarmed.size, page.contentView.window == nil { page.contentView.setFrameSize(size) }
         guard let cache, let asleep = cache.browsers[key]?.tab as? HibernatedBrowserTab, cache.lifecycle.record(key)?.pending == token else {
             // Closed or superseded while it restored.
             page.close()
@@ -90,7 +93,7 @@ extension BrowserHibernation {
         // swap's own frame. A page that cannot show one (a Chromium page in its own child window) is counted.
         // A native cmux page draws in its first frame and needs none; one in a web engine does. A remote
         // stream connects first: it keeps the picture for a reconnect's cap (`BrowserWakeStandIn.wakeCoverCap`).
-        let shown = asleep.shownPicture
+        let shown = asleep.shownPicture ?? prewarmed.cover
         if (page as? any BrowserAppPage)?.drawsInFirstFrame != true, let picture = shown ?? snapshotImage(key) {
             let standIn = page as? any BrowserWakeStandIn
             let covered = standIn?.showStandIn(picture, decoded: shown != nil, cap: standIn?.wakeCoverCap ?? Self.standInCap,
@@ -161,9 +164,11 @@ extension BrowserHibernation {
     }
 }
 
-/// The hover-dwell prewarm's warmer (p04-input-043): a frozen or hibernated hidden page is cold, and its
-/// prewarm thaws it or restores it hidden (`warm`), as a hovered neighbor wakes. A prewarm adds no hold,
-/// so a cancelled one only plans again: the page sleeps by the normal rules.
+/// The intent prewarm's warmer (p04-input-042/043): a frozen or hibernated hidden page is cold. Its prewarm
+/// fits a frozen page to its target size and thaws it; for a hibernated page it records the target size,
+/// decodes its cover off the main thread, then restores it hidden (`warm`) with both
+/// (``IntentPrewarmKinds``). A prewarm adds no hold, so a cancelled one drops its kinds and plans again:
+/// the page sleeps by the normal rules.
 extension BrowserHibernation: IntentPrewarmWarming {
     /// Wakes a hidden page early (a neighbor, a hovered tab, an intent prewarm): thaws a frozen one,
     /// restores a hibernated one in the background (the lifecycle keeps it hidden until selected).
@@ -183,11 +188,63 @@ extension BrowserHibernation: IntentPrewarmWarming {
     }
 
     func startPrewarm(_ key: String, trigger: IntentPrewarmTrigger) {
-        warm(key)
         cache?.trace(key, "intent prewarm (\(trigger.rawValue))")
+        let size = prewarmTargetSize(key)
+        guard cache?.lifecycle.phase(key) == .hibernated else {
+            warm(key)
+            if let size, let view = cache?.browsers[key]?.tab.contentView, view.window == nil { view.setFrameSize(size) }
+            return
+        }
+        prewarmKinds.target(key, size: size)
+        // A decode already running restores the page when it lands.
+        guard prewarmKinds.decodes[key] == nil else { return }
+        guard let picture = snapshotImage(key) else { return warm(key) }
+        let decode = Task { [weak self] in
+            let cover = await BrowserPictureView.decode(picture)
+            guard !Task.isCancelled else { return }
+            self?.coverDecoded(key, cover)
+        }
+        prewarmKinds.decoding(key, decode)
     }
 
-    func cancelPrewarm(_ key: String) { replan() }
+    func cancelPrewarm(_ key: String) {
+        prewarmKinds.cancel(key)
+        replan()
+    }
+
+    /// A prewarm's cover is decoded: the hidden restore starts with it, unless the page woke another way meanwhile.
+    private func coverDecoded(_ key: String, _ cover: CGImage) {
+        guard cache?.lifecycle.phase(key) == .hibernated else { return prewarmKinds.cancel(key) }
+        prewarmKinds.decoded(key, cover)
+        warm(key)
+    }
+
+    /// The size `key`'s page shows at: the content size of the pane whose strip lists it, else its view's size when it slept.
+    private func prewarmTargetSize(_ key: String) -> CGSize? {
+        if let pane = neighbors.pane(listing: key), let size = cache?.presenters[pane]?.value?.presentedContentSize,
+           size.width > 0, size.height > 0 { return size }
+        return prewarmKinds.sleptSizes[key]
+    }
+
+    /// Hidden page `key` froze: a prewarm held for it is spent, so the next press on its row prewarms it again.
+    func noteFrozen(_ key: String) {
+        intentPrewarm?.service.cooled(key)
+        cache?.trace(key, "frozen")
+    }
+
+    /// Hidden page `key` hibernates with its view at `size`: its picture (if any) is kept, a prewarm held for it
+    /// is spent, and `size` is its target size until a pane lists it.
+    func keepAsleep(_ key: String, picture: HibernationSnapshots.Picture?, size: CGSize) {
+        if let picture { keep(picture, for: key) }
+        intentPrewarm?.service.cooled(key)
+        prewarmKinds.slept(key, size: size)
+    }
+
+    /// Tab `key` closed: it leaves the prewarm FIFO and its kinds go.
+    func forgetPrewarm(_ key: String) {
+        intentPrewarm?.service.forget(key)
+        prewarmKinds.forget(key)
+    }
 }
 
 /// One Duration in seconds, fractions included (the hibernation deadlines and their elapsed times,
