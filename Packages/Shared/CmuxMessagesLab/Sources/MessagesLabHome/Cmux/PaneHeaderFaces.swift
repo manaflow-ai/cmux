@@ -21,6 +21,9 @@ final class PaneHeaderFacesView: NSView {
     static let size: CGFloat = 20
     /// How much each face covers the one before it.
     static let overlap: CGFloat = 5
+    /// Made once (no font made while drawing, crash ratchet `render_font`).
+    private static let letterFont = NSFont.systemFont(ofSize: 9, weight: .semibold)
+    private static let moreFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
 
     var faces: [PaneHeaderFace] = [] {
         didSet {
@@ -46,7 +49,7 @@ final class PaneHeaderFacesView: NSView {
         let rest = faces.count - Self.shown
         guard rest > 0 else { return nil }
         return NSAttributedString(string: "+\(rest)", attributes: [
-            .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+            .font: Self.moreFont,
             .foregroundColor: NSColor.secondaryLabelColor,
         ])
     }
@@ -63,7 +66,7 @@ final class PaneHeaderFacesView: NSView {
             face.color.setFill()
             NSBezierPath(ovalIn: disc).fill()
             let letter = NSAttributedString(string: face.initial, attributes: [
-                .font: NSFont.systemFont(ofSize: round(s * 0.45), weight: .semibold),
+                .font: Self.letterFont,
                 .foregroundColor: NSColor.white,
             ])
             let size = letter.size()
