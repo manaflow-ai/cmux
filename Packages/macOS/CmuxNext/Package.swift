@@ -36,6 +36,9 @@ import PackageDescription
 //     resolved snapshot the App builds once; plans/cmux-next/chrome-parity/p12-perf-process.md section 3.9)
 //   CmuxNextMemory -> Compat only (the memory coordinator, budgets from RAM and the memory report; the consumer
 //     protocol and traits live in Compat so any module registers a consumer with no new edge; p07-memory.md)
+//   CmuxNextInputCore -> Compat, swift-atomics (input latency: event kinds, stages, open-slot table, closed-slot
+//     ring, buckets; no AppKit; plans/cmux-next/chrome-parity/p04-input.md section 3; Compat's Atomic for
+//     the counters, swift-atomics for the table's packed UnsafeAtomic storage, which Compat's Atomic cannot lay out)
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextChiefMemory -> Design (the built-in Memory Inspector: model and view; the App supplies its daemon-backed source)
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
@@ -1404,6 +1407,22 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextFeatures",
                 .product(name: "Atomics", package: "swift-atomics"),
             ],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // Input latency core (plans/cmux-next/chrome-parity/p04-input.md, section 3 (I)): Chromium's
+        // EventMetrics for cmux: event kinds, stages, the lock-free open-slot table any thread
+        // stamps, the closed-slot ring and the histogram buckets. Pure: no AppKit.
+        .target(
+            name: "CmuxNextInputCore",
+            dependencies: [
+                "CmuxNextCompat",
+                .product(name: "Atomics", package: "swift-atomics"),
+            ],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextInputCoreTests",
+            dependencies: ["CmuxNextCompat", "CmuxNextInputCore"],
             swiftSettings: daemonSwiftSettings
         ),
         .target(
