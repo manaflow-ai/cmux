@@ -36,6 +36,9 @@ pub struct Command {
     /// (descriptor, the number the child gets it at).
     #[cfg(unix)]
     pub(crate) inherit: Vec<(OwnedFd, RawFd)>,
+    /// `CreateProcess` flags ([`Command::creation_flags`]).
+    #[cfg(windows)]
+    pub(crate) creation_flags: u32,
 }
 
 impl Command {
@@ -57,6 +60,8 @@ impl Command {
             new_session: false,
             #[cfg(unix)]
             inherit: Vec::new(),
+            #[cfg(windows)]
+            creation_flags: 0,
         }
     }
 
@@ -114,6 +119,12 @@ impl Command {
         self
     }
 
+    /// The variables this builder sets (`Some`) or removes (`None`), as
+    /// `std::process::Command::get_envs`.
+    pub fn get_envs(&self) -> impl Iterator<Item = (&OsStr, Option<&OsStr>)> {
+        self.env.iter().map(|(key, value)| (key.as_os_str(), value.as_deref()))
+    }
+
     /// The child's working directory.
     pub fn current_dir(&mut self, dir: impl AsRef<Path>) -> &mut Self {
         self.cwd = Some(dir.as_ref().to_owned());
@@ -169,6 +180,14 @@ impl Command {
         self
     }
 
+    /// `CreateProcess` flags (`DETACHED_PROCESS`, `CREATE_SUSPENDED`, ...), as
+    /// `std::os::windows::process::CommandExt::creation_flags`.
+    #[cfg(windows)]
+    pub fn creation_flags(&mut self, flags: u32) -> &mut Self {
+        self.creation_flags = flags;
+        self
+    }
+
     /// Give the child a copy of `fd` at descriptor number `at` (3 or more:
     /// 0-2 are [`Command::stdin`], [`Command::stdout`], [`Command::stderr`]).
     /// The only way a descriptor other than 0-2 reaches the child.
@@ -203,6 +222,29 @@ impl Command {
         }
     }
 
+    /// Replace this process with the program, as
+    /// `std::os::unix::process::CommandExt::exec`; returns only the error
+    /// that kept it from running. On macOS the new image gets descriptors
+    /// 0-2 and the [`Command::inherit_fd`] ones, and no other
+    /// (`posix_spawn` with `POSIX_SPAWN_SETEXEC` and
+    /// `POSIX_SPAWN_CLOEXEC_DEFAULT`), as Chrome's `LaunchProcess` closes
+    /// every descriptor not in `fds_to_remap` (base/process/launch_posix.cc).
+    #[cfg(unix)]
+    pub fn exec(&mut self) -> io::Error {
+        #[cfg(target_vendor = "apple")]
+        {
+            crate::spawn_apple::exec(self)
+        }
+        #[cfg(not(target_vendor = "apple"))]
+        {
+            use std::os::unix::process::CommandExt;
+            match self.std_command() {
+                Ok(mut command) => command.exec(),
+                Err(error) => error,
+            }
+        }
+    }
+
     /// Run the child to its end with stdin null and stdout and stderr
     /// captured (unless set), as `std::process::Command::output`.
     pub fn output(&mut self) -> io::Result<Output> {
@@ -227,6 +269,15 @@ impl Command {
     /// process opens close-on-exec atomically, so nothing leaks.
     #[cfg(not(target_vendor = "apple"))]
     fn spawn_std(&mut self) -> io::Result<Child> {
+        let child = self.std_command()?.spawn()?;
+        #[cfg(unix)]
+        self.inherit.clear();
+        Ok(Child::from_std(child))
+    }
+
+    /// The `std::process::Command` this builder describes (Linux, Windows).
+    #[cfg(not(target_vendor = "apple"))]
+    fn std_command(&mut self) -> io::Result<std::process::Command> {
         let mut command = std::process::Command::new(&self.program);
         command.args(&self.args);
         if self.env_clear {
@@ -322,9 +373,11 @@ impl Command {
                 }
             }
         }
-        let child = command.spawn()?;
-        #[cfg(unix)]
-        self.inherit.clear();
-        Ok(Child::from_std(child))
+        #[cfg(windows)]
+        if self.creation_flags != 0 {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(self.creation_flags);
+        }
+        Ok(command)
     }
 }

@@ -30,6 +30,20 @@ unsafe extern "C" {
 
 /// Spawn `command`; its streams and inherited descriptors are used up.
 pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
+    start(command, false)
+}
+
+/// Replace this process with `command` (`POSIX_SPAWN_SETEXEC`): the same
+/// descriptor plan as [`spawn`]. Returns only the error that kept it from
+/// running.
+pub(crate) fn exec(command: &mut Command) -> io::Error {
+    match start(command, true) {
+        Ok(_) => io::Error::other("posix_spawn returned after POSIX_SPAWN_SETEXEC"),
+        Err(error) => error,
+    }
+}
+
+fn start(command: &mut Command, replace_this_process: bool) -> io::Result<Child> {
     let env = child_env(command);
     let path = resolve(&command.program, command, &env)?;
     let argv0 = command.arg0.clone().unwrap_or_else(|| command.program.clone());
@@ -107,6 +121,9 @@ pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
         | libc::POSIX_SPAWN_CLOEXEC_DEFAULT as libc::c_short;
     if command.new_session {
         flags |= POSIX_SPAWN_SETSID;
+    }
+    if replace_this_process {
+        flags |= libc::POSIX_SPAWN_SETEXEC as libc::c_short;
     }
     let dev_null = c"/dev/null";
     // SAFETY: every call gets the initialized attr/actions and live strings.
