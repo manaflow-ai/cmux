@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """threading-inventory.py (p02-threads-001) on fixture trees, and its acceptance counts on 772cdfc45ac.
 
-The fixture has one hit per rule (main-blocking, raw-blocking, maybe-main-blocking, task-priority, thread-doc), an
+The fixture has hits of every rule (main-blocking, raw-blocking, maybe-main-blocking, task-priority, thread-doc,
+cpu-intensive: raw JSON, image and regex calls in a main-actor target and not in another), an
 `await backoff.wait(` that no rule reports, a sync main-actor function with 4 call sites (a comment, a string, a
 declaration and a call from another module do not count), and the isolation forms the JSONL names (main, pool,
 nonisolated, actor). The CLI runs on a throwaway git repo with sockets switched off and must leave every file as it
@@ -92,6 +93,59 @@ final class Screen {
 
     func refresh(_ url: URL) {
         if loader.loadThing(url: url) == nil { _ = loader.loadThing(url: url) }
+    }
+}
+""",
+    # cpu-intensive (p02-threads-121): raw JSON, image and regex calls in a main-actor target. A keyed container's
+    # decode, a `matches(in:)` with no `range:` (not NSRegularExpression's), the seam and an escaped line are not hits.
+    SRC + "CmuxNextUI/Restorer.swift": """import AppKit
+
+struct Saved: Decodable {
+    var name: String
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+    }
+}
+
+final class Restorer {
+    func restore(_ data: Data) -> Saved? {
+        try? JSONDecoder().decode(Saved.self, from: data)
+    }
+
+    func parse(_ data: Data) -> Any? {
+        try? JSONSerialization.jsonObject(with: data)
+    }
+
+    func picture(_ data: Data) -> NSImage? {
+        NSImage(data: data)
+    }
+
+    func links(_ text: String, _ detector: NSDataDetector) -> Int {
+        detector.matches(in: text, range: NSRange(text.startIndex..., in: text)).count
+    }
+
+    func ranked(_ ranker: Ranker, _ items: [String]) -> Int {
+        ranker.matches(in: items, for: "a").count
+    }
+
+    func checked(_ data: Data) -> Saved? {
+        try? JSONDecoder().blockingDecode(Saved.self, from: data)
+    }
+
+    func reviewed(_ data: Data) -> Any? {
+        // blocking-allow: the fixture's reviewed small parse
+        try? JSONSerialization.jsonObject(with: data)
+    }
+}
+""",
+    # The same raw decode in a target that is not main-actor by default: not a cpu-intensive hit.
+    SRC + "CmuxNextCore/Wire.swift": """import Foundation
+
+struct Wire {
+    func read(_ data: Data) -> [String]? {
+        try? JSONDecoder().decode([String].self, from: data)
     }
 }
 """,
@@ -192,6 +246,17 @@ class RuleTests(unittest.TestCase):
         # Reader.offMain is @concurrent and Store.save an actor method with no custom executor.
         self.assertEqual({(h.enclosing_func, h.isolation) for h in self.hits if h.rule == "pool-blocking"},
                          {("Reader.offMain", "pool"), ("Store.save", "actor")})
+
+    def test_cpu_intensive_lists_raw_long_cpu_calls_in_main_actor_targets(self):
+        found = [h for h in self.hits if h.rule == "cpu-intensive"]
+        self.assertEqual({(h.path.rsplit("/", 1)[1], h.text) for h in found}, {
+            ("Restorer.swift", "try? JSONDecoder().decode(Saved.self, from: data)"),
+            ("Restorer.swift", "try? JSONSerialization.jsonObject(with: data)"),
+            ("Restorer.swift", "NSImage(data: data)"),
+            ("Restorer.swift", "detector.matches(in: text, range: NSRange(text.startIndex..., in: text)).count"),
+        })
+        self.assertTrue(all(h.ui_target and h.isolation == "main" for h in found), found)
+        self.assertEqual(hit(found, "cpu-intensive", "JSONDecoder().decode").enclosing_func, "Restorer.restore")
 
     def test_raw_blocking_lists_the_raw_primitives_main_blocking_took(self):
         raw = {(h.path.rsplit("/", 1)[1], h.text) for h in self.hits if h.rule == "raw-blocking"}
@@ -585,7 +650,7 @@ class CLITests(unittest.TestCase):
         counts = dict(line.split() for line in self.run_main("--count").splitlines())
         self.assertEqual({k: int(v) for k, v in counts.items()},
                          {"main-blocking": 1, "raw-blocking": 8, "pool-blocking": 2, "maybe-main-blocking": 1,
-                          "task-priority": 1, "thread-doc": 1})
+                          "task-priority": 1, "thread-doc": 1, "cpu-intensive": 4})
         records = [json.loads(line) for line in self.run_main("--rule", "main-blocking", "--jsonl").splitlines()]
         self.assertEqual(len(records), 1)
         self.assertEqual(set(records[0]), {"rule", "path", "line", "module", "ui_target", "text", "enclosing_func",
