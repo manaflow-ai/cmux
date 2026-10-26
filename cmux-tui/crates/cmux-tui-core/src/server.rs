@@ -297,6 +297,8 @@ mod chief_control;
 mod chief_engine_mirror;
 /// `energy.set` and `energy.status` (p14-energy-033).
 pub(crate) mod energy_op;
+/// The app's Energy Saver rule for the daemon's own reading (p14-energy-137).
+pub(crate) mod energy_rule;
 pub(crate) use chief_engine_mirror::{
     engine_file as chief_engine_file, write as write_chief_engine_file,
 };
