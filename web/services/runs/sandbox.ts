@@ -132,12 +132,21 @@ function sandboxCleanupPending(snapshot: RunSnapshotRow): boolean {
   return !!snapshot.sandboxVmLive || snapshot.attempts.some((row) => row.providerVmId);
 }
 
-/** Every string inside `value` (any depth) redacted like the receipt; keys and shape kept. */
+/** Keys whose value is a secret whatever it looks like. */
+const SECRET_KEY = /(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|private[_-]?key|authorization|credential|cookie|session)/i;
+
+/**
+ * Every string inside `value` (any depth) redacted like the receipt: keys too, and the whole value
+ * under a secret-named key.
+ */
 export function redactReceiptValue(value: unknown, handles: readonly (string | null | undefined)[]): unknown {
   if (typeof value === "string") return redactReceiptText(value, handles);
   if (Array.isArray(value)) return value.map((item) => redactReceiptValue(item, handles));
   if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactReceiptValue(item, handles)]));
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+      redactReceiptText(key, handles),
+      SECRET_KEY.test(key) && item !== null && item !== undefined ? "[redacted]" : redactReceiptValue(item, handles),
+    ]));
   }
   return value;
 }

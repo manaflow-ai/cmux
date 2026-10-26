@@ -170,11 +170,14 @@ async function readSnapshot(db: RunQueryDb, runId: string, userId: string): Prom
     eq(cloudVms.billingTeamId, run.billingTeamId),
     eq(cloudVms.userId, run.userId),
     inArray(cloudVms.idempotencyKey, keys),
+    // Only the launcher's own rows (marked from their first insert); an unmarked row is not this Run's.
+    sql`${cloudVms.providerMetadata}->>${SANDBOX_VM_MARKER_KEY} = ${cloudVms.idempotencyKey}`,
   )).limit(keys.length * 4);
-  const sandboxVms = rows.map((row) => ({
+  // A create that failed before the provider made a machine never ran: no VM time, nothing to clean.
+  const sandboxVms = rows.filter((row) => !(row.status === "failed" && !row.providerVmId)).map((row) => ({
     createdAt: row.createdAt,
-    destroyedAt: row.destroyedAt,
-    live: row.status !== "destroyed" && !(row.status === "failed" && !row.providerVmId),
+    destroyedAt: row.destroyedAt ?? (row.status === "destroyed" ? row.createdAt : null),
+    live: row.status !== "destroyed",
   }));
   return { run, attempts, artifacts, sandboxVmLive: sandboxVms.some((vm) => vm.live), sandboxVms };
 }

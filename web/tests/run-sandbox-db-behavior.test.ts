@@ -464,14 +464,20 @@ describe("sandboxed Run lifecycle in the repository", () => {
     try {
       const created = await repo().createRun(input(userId));
       const attempt = created.attempts[0]!;
-      await sql!`insert into cloud_vms (user_id, billing_team_id, provider, image_id, status, idempotency_key)
-        values (${userId}, ${userId}, 'freestyle', 'sh-test-image', 'provisioning', ${`sandbox-run:${created.run.id}:attempt:${attempt.id}`})`;
+      const key = `sandbox-run:${created.run.id}:attempt:${attempt.id}`;
+      await sql!`insert into cloud_vms (user_id, billing_team_id, provider, image_id, status, idempotency_key, provider_metadata)
+        values (${userId}, ${userId}, 'freestyle', 'sh-test-image', 'provisioning', ${key}, ${sql!.json({ cmuxSandboxRun: key })})`;
       await repo().cancelRun(created.run.id, userId);
       const snapshot = await repo().getRun(created.run.id, userId);
       expect(snapshot.sandboxVmLive).toBe(true);
       // A create that failed with nothing to clean up is not pending.
       await sql!`update cloud_vms set status = 'failed' where user_id = ${userId}`;
-      expect((await repo().getRun(created.run.id, userId)).sandboxVmLive).toBe(false);
+      const failed = await repo().getRun(created.run.id, userId);
+      expect(failed.sandboxVmLive).toBe(false);
+      expect(failed.sandboxVms).toEqual([]);
+      // An unmarked row under the same key is not this Run's at all.
+      await sql!`update cloud_vms set status = 'running', provider_vm_id = 'vm-x', provider_metadata = '{}'::jsonb where user_id = ${userId}`;
+      expect((await repo().getRun(created.run.id, userId)).sandboxVms).toEqual([]);
     } finally {
       await sql!`delete from cloud_vms where user_id = ${userId}`;
       await removeRuns(userId);

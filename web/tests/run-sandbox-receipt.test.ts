@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { RunSnapshotRow } from "../services/runs/view";
 import { toRunSnapshotView } from "../services/runs/view";
-import { sandboxReceiptFor, sandboxReply, SANDBOX_REPLY_MAX_CHARS } from "../services/runs/sandbox";
+import { redactReceiptValue, sandboxReceiptFor, sandboxReply, SANDBOX_REPLY_MAX_CHARS } from "../services/runs/sandbox";
 
 // A sandboxed Run's receipt (hq#3367): what it ran, how it ended, what it cost, and whether its
 // VM is gone. It never carries provider handles, lease tokens or token-shaped output.
@@ -177,6 +177,9 @@ describe("sandbox receipt", () => {
     expect(sandboxReceiptFor(destroyed)?.cost).toMatchObject({ vmSeconds: 7_200, final: true });
     const up = { ...base, sandboxVmLive: true, sandboxVms: [{ createdAt: created, destroyedAt: null, live: true }] } as RunSnapshotRow;
     expect(sandboxReceiptFor(up)?.cost.final).toBe(false);
+    // No VM row at all (a create that failed before the provider made one): no accrual, final.
+    const none = { ...base, sandboxVms: [] } as RunSnapshotRow;
+    expect(sandboxReceiptFor(none)?.cost.final).toBe(true);
     expect(sandboxReceiptFor(up)?.cleanup).toBe("pending");
   });
 
@@ -185,6 +188,15 @@ describe("sandbox receipt", () => {
     const artifact = { id: "a1", runId: "run-1", attemptId: "attempt-1", name: "out.txt", mediaType: "text/plain", sizeBytes: 3, digest: `sha256:${"a".repeat(64)}`, uri: "x", metadata: { note: "sk-abcdefghijklmnopqrstuvwxyz", paths: ["work/vm-private-handle"], size: 3 }, createdAt, writerLeaseGeneration: null, writerLeaseTokenHash: null };
     const view = toRunSnapshotView({ ...base, artifacts: [artifact] } as RunSnapshotRow);
     expect(view.artifacts[0]?.metadata).toEqual({ note: "[redacted]", paths: ["work/[redacted]"], size: 3 });
+    const keyed = { ...artifact, metadata: { "vm-private-handle": 1, token: "opaque-credential", nested: { password: "hunter2" } } };
+    const keyedView = toRunSnapshotView({ ...base, artifacts: [keyed] } as RunSnapshotRow);
+    // The view already drops secret-named keys (view.ts redactedRecord); what is left is redacted.
+    expect(keyedView.artifacts[0]?.metadata).toEqual({ "[redacted]": 1, token: "[redacted]", nested: {} });
+  });
+
+  test("the value cleanup stores redacts secret-named values and keys at any depth", () => {
+    expect(redactReceiptValue({ password: "hunter2", nested: { token: "x", "vm-1": "ok" } }, ["vm-1"]))
+      .toEqual({ password: "[redacted]", nested: { token: "[redacted]", "[redacted]": "ok" } });
   });
 
   test("an artifact name is redacted like the reply", () => {
