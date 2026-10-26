@@ -21,6 +21,7 @@ struct MobileSSHConnectionAttemptRegistry {
     }
 
     mutating func clearIfCurrent(_ generation: UInt64, for hostID: UUID) -> Bool {
+        guard isCurrent(generation, for: hostID) else { return false }
         currentGenerationByHost[hostID] = nil
         return true
     }
