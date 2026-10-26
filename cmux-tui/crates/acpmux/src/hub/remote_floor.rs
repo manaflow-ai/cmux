@@ -40,6 +40,9 @@ pub(crate) struct FloorState {
     /// A mode the harness reported while it declared no modes; the asking
     /// check reads it. Cleared when the agent exits.
     pub(super) undeclared_mode: StdMutex<Option<String>>,
+    /// Under MDM's off, the log of the host a restart left was read back and found no full
+    /// access: what this daemon keeps of it is complete from then on (`full_access_bound.rs`).
+    pub(super) left_host_read: AtomicBool,
     /// The agent process holds a lasting grant a client gave it ("allow
     /// always"): Web control ends until the agent exits (`web_control.rs`).
     pub(super) harness_grant: AtomicBool,

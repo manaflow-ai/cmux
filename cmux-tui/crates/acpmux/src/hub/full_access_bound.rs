@@ -174,82 +174,153 @@ impl Hub {
 /// - the next start (`ensure_child`); `child_for` never hands such an agent out.
 impl Hub {
     /// Under the managed off, ends `session`'s agent when it runs in full access
-    /// (`runs_full_access`), and says whether it did: its live child, and any host a restart
-    /// left. For such a host the mode its harness reported without declaring modes is read back
-    /// from the log first (`read_back_undeclared_mode`). Called under the session's spawn lock.
-    pub(super) async fn end_if_runs_full_access(&self, session: &Session) -> bool {
-        if !self.full_access_managed_off() {
+    /// (`runs_full_access`), and says what it did: its live child, and any host a restart left.
+    /// For such a host what it reported is read back from the log too (`reported_by_left_host`):
+    /// the saved chat can be older. Called under the session's spawn lock.
+    pub(super) async fn end_if_runs_full_access(&self, session: &Session) -> FullAccessEnd {
+        if !self.full_access_managed_off() || !self.runs_full_access_by_any_record(session) {
+            return FullAccessEnd::NotInFullAccess;
+        }
+        self.end_managed_full_access(session).await
+    }
+
+    /// Whether `session`'s agent runs in full access by what acpmux keeps of it, or, for a host a
+    /// restart left, by what that host reported since it started (`reported_by_left_host`). Once
+    /// that read finds no full access, what this daemon keeps is complete (every later report
+    /// reaches it live), so the log is read once per host, not at each check
+    /// (`FloorState::left_host_read`).
+    fn runs_full_access_by_any_record(&self, session: &Session) -> bool {
+        if runs_full_access(&FullAccessView::of_session(session)).is_some() {
+            return true;
+        }
+        if !Self::host_record_live(&session.id)
+            || session.floor.left_host_read.load(Ordering::SeqCst)
+        {
             return false;
         }
-        if Self::host_record_live(&session.id) {
-            self.read_back_undeclared_mode(session);
+        let reported = runs_full_access(&self.reported_by_left_host(session)).is_some();
+        if !reported {
+            session.floor.left_host_read.store(true, Ordering::SeqCst);
         }
-        if runs_full_access(&FullAccessView::of_session(session)).is_none() {
-            return false;
-        }
-        self.end_managed_full_access(session).await;
-        true
+        reported
     }
 
     /// Every agent still running in full access under the managed off ends now (a turn in
     /// progress ends with it), each under its session's spawn lock, checked again there.
     pub(super) async fn end_every_managed_full_access(&self) {
         for session in self.sessions() {
-            // A host a restart left: the mode its harness reported without declaring modes is
-            // known only from the log, read back before the check (review 27 of #23322).
-            if self.full_access_managed_off() && Self::host_record_live(&session.id) {
-                self.read_back_undeclared_mode(&session);
-            }
-            if self.managed_off_runs_full_access(&session) {
+            if self.full_access_managed_off() && self.runs_full_access_by_any_record(&session) {
                 let _spawning = session.spawn_lock.lock().await;
                 self.end_if_runs_full_access(&session).await;
             }
         }
     }
 
-    /// The mode a harness that declares no modes last reported for its running agent: its own
-    /// `current_mode_update` records since the agent's `host_started`, read back from the log.
-    /// Kept only in memory while a daemon runs (`RemoteFloor::undeclared_mode`), so the next
-    /// daemon reads it before it decides about a host a restart left.
-    fn read_back_undeclared_mode(&self, session: &Session) {
-        if session.meta().modes.is_some()
-            || session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()).is_some()
-        {
-            return;
-        }
-        let mut last = None;
-        // A subagent's update is not the session's own: the tap marks it (`SubagentTree::annotate`)
-        // only for a thread that is not the session's own, as `on_update` skips it live. A mark on
-        // the session's own thread (an agent may write one) does not hide its mode.
+    /// What the host a restart left last reported of its modes and options, read back from the
+    /// log since its `host_started`: the answers to the session's own start (`session/new`,
+    /// `load`, `resume`, `fork`), its `set_mode` and `set_config_option` answers, and its own
+    /// `current_mode_update` and `config_option_update` records. Saved meta is written only at
+    /// some points, so after a crash or a reload it can be older than these (review 51 of #23322).
+    /// A mode reported with or without declared modes counts the same (`mode`). A subagent's
+    /// update is not the session's own: the tap marks it
+    /// (`SubagentTree::annotate`) only for a thread that is not the session's own, as `on_update`
+    /// skips it live.
+    fn reported_by_left_host(&self, session: &Session) -> FullAccessView {
+        use crate::rpc::method;
         let own = session.meta().agent_session_id;
-        let kinds = ["host_started", "current_mode_update"];
+        let mut modes: Option<Value> = None;
+        let mut mode: Option<String> = None;
+        let mut options: Option<Value> = None;
+        // The session's own requests that change modes, by id, until their answer.
+        let mut asked: HashMap<String, (String, Value)> = HashMap::new();
+        let requests = [
+            method::SESSION_NEW,
+            method::SESSION_LOAD,
+            method::SESSION_RESUME,
+            method::SESSION_FORK,
+            method::SESSION_SET_MODE,
+            method::SESSION_SET_CONFIG_OPTION,
+        ];
+        let mut kinds =
+            vec!["host_started", "current_mode_update", "config_option_update", "response"];
+        kinds.extend(requests);
         let _ = self.store.scan_kinds(&session.id, &kinds, &mut |e: crate::store::EventRecord| {
+            let its_own = || {
+                e.msg.pointer("/params/_meta/acpmux/subagent").is_none()
+                    || e.msg.pointer("/params/sessionId").and_then(Value::as_str) == own.as_deref()
+            };
+            let text = |v: Option<&Value>| v.and_then(Value::as_str).map(str::to_owned);
             match (e.dir.as_str(), e.kind.as_str()) {
-                ("mux", "host_started") => last = None,
-                ("in", "current_mode_update")
-                    if e.msg.pointer("/params/_meta/acpmux/subagent").is_none()
-                        || e.msg.pointer("/params/sessionId").and_then(Value::as_str)
-                            == own.as_deref() =>
-                {
-                    last = e
-                        .msg
-                        .pointer("/params/update/currentModeId")
-                        .and_then(Value::as_str)
-                        .map(str::to_owned);
+                ("mux", "host_started") => {
+                    (modes, mode, options) = (None, None, None);
+                    asked.clear();
+                }
+                ("in", "current_mode_update") if its_own() => {
+                    mode = text(e.msg.pointer("/params/update/currentModeId")).or(mode.take());
+                }
+                ("in", "config_option_update") if its_own() => {
+                    if let Some(o) = e.msg.pointer("/params/update/configOptions") {
+                        options = Some(o.clone());
+                    }
+                }
+                ("out", m) if requests.contains(&m) => {
+                    if let Some(id) = e.msg.get("id") {
+                        let params = e.msg.get("params").cloned().unwrap_or(Value::Null);
+                        asked.insert(id.to_string(), (m.to_owned(), params));
+                    }
+                }
+                ("in", "response") => {
+                    let Some((m, params)) =
+                        e.msg.get("id").and_then(|id| asked.remove(&id.to_string()))
+                    else {
+                        return true;
+                    };
+                    let Some(res) = e.msg.get("result") else { return true };
+                    match m.as_str() {
+                        method::SESSION_SET_MODE => {
+                            mode = text(res.get("currentModeId"))
+                                .or_else(|| text(res.get("modeId")))
+                                .or_else(|| text(params.get("modeId")))
+                                .or(mode.take());
+                        }
+                        method::SESSION_SET_CONFIG_OPTION => {
+                            if let Some(o) = res.get("configOptions") {
+                                options = Some(o.clone());
+                            }
+                            if params.get("configId").and_then(Value::as_str) == Some("mode") {
+                                mode = text(res.get("currentModeId")).or(mode.take());
+                            }
+                        }
+                        _ => {
+                            if let Some(m) = res.get("modes").filter(|m| m.is_object()) {
+                                modes = Some(m.clone());
+                                mode = None;
+                            }
+                            if let Some(o) = res.get("configOptions").filter(|o| !o.is_null()) {
+                                options = Some(o.clone());
+                            }
+                        }
+                    }
                 }
                 _ => {}
             }
             true
         });
-        if last.is_some() {
-            *session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) = last;
+        FullAccessView {
+            argv: Vec::new(),
+            mode: mode.or_else(|| text_at(modes.as_ref(), "currentModeId")),
+            undeclared_mode: None,
+            options: options.as_ref().and_then(Value::as_array).cloned().unwrap_or_default(),
         }
     }
 
     /// Ends the agent of a session that runs in full access while MDM forces it off: the live
     /// child and any host a restart left. The start that follows runs in a mode that asks, or
-    /// refuses a profile that pins full access (`refuse_pinned_full_access`).
-    async fn end_managed_full_access(&self, session: &Session) {
+    /// refuses a profile that pins full access (`refuse_pinned_full_access`). A host whose end its
+    /// nonce does not prove may still run in full access: what says so stays, so the next check
+    /// (a start, a push, the background check) tries again, and nothing reaches it meanwhile
+    /// (`FullAccessEnd::StillRunning`, review 51 of #23322).
+    async fn end_managed_full_access(&self, session: &Session) -> FullAccessEnd {
         let child = session.child.lock().await.take();
         let ended = child.is_some() || Self::host_record_live(&session.id);
         if let Some(child) = child {
@@ -262,6 +333,11 @@ impl Hub {
         }
         if Self::host_record_live(&session.id) {
             self.end_unadopted_host(session).await;
+            if Self::host_record_live(&session.id) {
+                tracing::warn!(session = %session.id, "MDM forces full access off: its full-access agent host did not end; it is not reached until it does");
+                self.append(session, "mux", "full_access_end_failed", json!({"reason": "managed"}));
+                return FullAccessEnd::StillRunning;
+            }
         }
         // What only the ended agent said goes with it: the mode it reported without declaring
         // modes, and a full-access value of any option (the next agent reports its own, and
@@ -285,7 +361,25 @@ impl Hub {
             tracing::info!(session = %session.id, "MDM forces full access off: its full-access agent ended");
             self.append(session, "mux", "full_access_ended", json!({"reason": "managed"}));
         }
+        FullAccessEnd::Ended
     }
+}
+
+/// The string at `key` of an object, if any.
+fn text_at(v: Option<&Value>, key: &str) -> Option<String> {
+    v.and_then(|v| v.get(key)).and_then(Value::as_str).map(str::to_owned)
+}
+
+/// What `end_if_runs_full_access` did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum FullAccessEnd {
+    /// The agent does not run in full access (or MDM does not force it off).
+    NotInFullAccess,
+    /// It ran in full access and has ended.
+    Ended,
+    /// It ran in full access and its host may still run: its end by nonce failed. Nothing may
+    /// reach it; the next check tries again.
+    StillRunning,
 }
 
 #[cfg(test)]

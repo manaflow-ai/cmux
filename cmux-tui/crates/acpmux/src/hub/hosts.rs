@@ -4,6 +4,7 @@
 //! replayed entries are in the log, then rebuild the turn and permission
 //! state that died with the previous daemon from that complete log.
 
+use super::full_access_bound::FullAccessEnd;
 use super::*;
 use crate::agent::Attached;
 use crate::agent_host::{self, Liveness};
@@ -212,7 +213,8 @@ impl Hub {
             // MDM forces full access off (start-mode.json, loaded with the hub): a host left
             // running in it is ended, never adopted (#23322), a mode it reported without
             // declaring modes included.
-            if self.end_if_runs_full_access(&session).await {
+            // One whose end failed is not adopted either (review 51).
+            if self.end_if_runs_full_access(&session).await != FullAccessEnd::NotInFullAccess {
                 continue;
             }
             if let Err(e) = self.adopt_one(&session, record).await {
@@ -225,7 +227,7 @@ impl Hub {
                 // too when its chat runs in full access (`end_unadopted_host`: its nonce proves it).
                 let ended = {
                     let _spawning = session.spawn_lock.lock().await;
-                    self.end_if_runs_full_access(&session).await
+                    self.end_if_runs_full_access(&session).await != FullAccessEnd::NotInFullAccess
                 };
                 if ended && !Self::host_record_live(&session.id) {
                     continue;

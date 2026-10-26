@@ -1,5 +1,6 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
+use super::full_access_bound::FullAccessEnd;
 use super::*;
 
 use super::adoption::{Adoption, adopted_in, start_folder};
@@ -521,7 +522,10 @@ impl Hub {
         }
         // MDM forces full access off (#23322): an agent still in it, live or left by a restart,
         // ends here and is never reached again; the start below asks, or refuses a pinned profile.
-        self.end_if_runs_full_access(session).await;
+        // A host whose end failed may still run in it: the chat is refused until it ends (review 51).
+        if self.end_if_runs_full_access(session).await == FullAccessEnd::StillRunning {
+            return Err(super::start_mode::full_access_off());
+        }
         let live = session.child.lock().await.clone();
         if let Some(child) = live
             && child.is_alive().await
