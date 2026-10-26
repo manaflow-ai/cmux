@@ -39,6 +39,14 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "RowMarkerPoint": "RowMarkerPoint",
     "RowHeight": "RowHeight",
     "ExpectAgent": "SendExpectAgent",
+    "AgentCLIIntent": "AgentCLIIntent",
+}
+
+# Named request types whose server struct is the authority for their fields:
+# the SDK object type of the same name must have the same fields, checked like
+# a command's request fields. Paths are under crates/cmux-tui-core/src.
+RUNTIME_NAMED_REQUEST_STRUCTS = {
+    "AgentCLIIntent": "workspace_registry/agent_cli_intents.rs",
 }
 
 # Request fields the server takes as raw JSON and then decodes element by
@@ -49,11 +57,16 @@ RUNTIME_DECODED_REQUEST_FIELDS = {
     # server/bookmarks.rs `import` decodes each node into
     # workspace_registry/personal_bookmarks.rs `BookmarkImportNode`.
     ("import-bookmarks", "nodes"): ("Vec<Value>", "array<ref<BookmarkImportNode>>"),
+    # workspace_registry/agent_cli_intents.rs `normalize_receipt` accepts only
+    # the receipt agent-cli-update-job returned.
+    ("agent-cli-intents-attach", "receipt"): ("Value", "ref<AgentCLIJobReceipt>"),
 }
 
 sys.path.insert(0, str(BINDINGS))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from codegen.ir import SdkIR, load_ir, load_ir_document  # noqa: E402
+from handler_commands import HandlerCommandError, handler_commands  # noqa: E402
 
 
 class SdkSchemaError(ValueError):
@@ -253,6 +266,32 @@ def runtime_command_fields() -> dict[str, dict[str, RuntimeField]]:
     return commands
 
 
+def handler_command_fields(names: set[str]) -> dict[str, dict[str, RuntimeField]]:
+    """Request fields of the `names` a handler module decodes before the
+    Command enum (handler_commands.py); names no handler decodes are left out."""
+
+    try:
+        decoded = handler_commands(TUI)
+    except (HandlerCommandError, OSError, UnicodeError) as error:
+        fail(f"cannot read the handler modules: {error}")
+    commands: dict[str, dict[str, RuntimeField]] = {}
+    for name in sorted(names & set(decoded)):
+        command = decoded[name]
+        label = f"{command.module.name} {command.enum}::{command.variant}"
+        if command.kind == "unit":
+            fields: dict[str, RuntimeField] = {}
+        elif command.kind == "tuple":
+            fields = _rust_struct_fields(command.source, command.payload)
+        else:
+            fields = _parse_rust_fields(command.payload, label)
+        envelope = _parse_rust_fields(command.envelope, f"{label} envelope")
+        overlap = set(envelope) & set(fields)
+        if overlap:
+            fail(f"{label} repeats envelope fields {sorted(overlap)}")
+        commands[name] = _expand_flattened(command.source, {**envelope, **fields}, label)
+    return commands
+
+
 def _expand_flattened(
     source: str, parsed: dict[str, RuntimeField], label: str
 ) -> dict[str, RuntimeField]:
@@ -425,6 +464,10 @@ def validate_runtime_request_fields(ir: SdkIR) -> None:
     """Reject request-field drift against the server's Deserialize contract."""
 
     runtime_commands = runtime_command_fields()
+    for name, fields in handler_command_fields(set(ir.commands)).items():
+        if name in runtime_commands:
+            fail(f"{name} is both a Command variant and a handler module command")
+        runtime_commands[name] = fields
     for command_name, refused in REFUSED_LEGACY_REQUEST_FIELDS.items():
         fields = runtime_commands.get(command_name, {})
         missing = refused - set(fields)
@@ -436,56 +479,79 @@ def validate_runtime_request_fields(ir: SdkIR) -> None:
     for command_name, command in ir.commands.items():
         request = command["request"]
         assert isinstance(request, Mapping)
-        raw_fields = request["fields"]
-        assert isinstance(raw_fields, Mapping)
-        schema_fields = raw_fields
-        runtime_fields = runtime_commands[command_name]
-        compare_names(
-            set(schema_fields),
-            set(runtime_fields),
-            f"SDK request field for {command_name}",
+        _compare_request_fields(
+            command_name, request["fields"], runtime_commands[command_name], ir.types
         )
-        for field_name, runtime_field in runtime_fields.items():
-            schema_field = schema_fields[field_name]
-            assert isinstance(schema_field, Mapping)
-            runtime_presence = _runtime_field_presence(runtime_field)
-            schema_presence = (
-                schema_field["presence"],
-                bool(schema_field["nullable"]),
+    validate_named_request_structs(ir)
+
+
+def validate_named_request_structs(ir: SdkIR) -> None:
+    """Reject drift between RUNTIME_NAMED_REQUEST_STRUCTS and their SDK types."""
+
+    for type_name, relative_path in RUNTIME_NAMED_REQUEST_STRUCTS.items():
+        path = TUI / "crates/cmux-tui-core/src" / relative_path
+        try:
+            source = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            fail(f"cannot read {path.relative_to(ROOT)}: {error}")
+        sdk_type = ir.types.get(type_name)
+        if not isinstance(sdk_type, Mapping) or sdk_type.get("kind") != "object":
+            fail(f"SDK type {type_name} must be an object type")
+        _compare_request_fields(
+            type_name, sdk_type["fields"], _rust_struct_fields(source, type_name), ir.types
+        )
+
+
+def _compare_request_fields(
+    label: str,
+    schema_fields: Mapping[str, Any],
+    runtime_fields: Mapping[str, RuntimeField],
+    types: Mapping[str, Any],
+) -> None:
+    """Fields of one request (a command name) or one named request type."""
+
+    compare_names(set(schema_fields), set(runtime_fields), f"SDK request field for {label}")
+    for field_name, runtime_field in runtime_fields.items():
+        schema_field = schema_fields[field_name]
+        assert isinstance(schema_field, Mapping)
+        runtime_presence = _runtime_field_presence(runtime_field)
+        runtime_shape = _runtime_type_shape(runtime_field.rust_type)
+        decoded = RUNTIME_DECODED_REQUEST_FIELDS.get((label, field_name))
+        if decoded is not None:
+            rust_type, decoded_shape = decoded
+            if runtime_field.rust_type.replace(" ", "") != rust_type:
+                fail(
+                    f"decoded request field {label}.{field_name} is no longer "
+                    f"{rust_type} at runtime: {runtime_field.rust_type}"
+                )
+            runtime_shape = decoded_shape
+            if rust_type == "Value":
+                # The decoder refuses the null a bare Value would take.
+                runtime_presence = (runtime_presence[0], False)
+        schema_presence = (schema_field["presence"], bool(schema_field["nullable"]))
+        if runtime_presence != schema_presence:
+            fail(
+                f"SDK request field presence drift for {label}.{field_name}, "
+                f"SDK={schema_presence}, runtime={runtime_presence}"
             )
-            if runtime_presence != schema_presence:
-                fail(
-                    f"SDK request field presence drift for {command_name}.{field_name}, "
-                    f"SDK={schema_presence}, runtime={runtime_presence}"
-                )
-            runtime_aliases = _runtime_field_aliases(runtime_field)
-            # Several legacy aliases repeat the canonical snake_case field
-            # name. They do not add another accepted wire spelling.
-            runtime_aliases.discard(field_name)
-            schema_aliases = set(schema_field.get("aliases", ()))
-            if runtime_aliases != schema_aliases:
-                fail(
-                    f"SDK request field alias drift for {command_name}.{field_name}, "
-                    f"SDK={sorted(schema_aliases)}, runtime={sorted(runtime_aliases)}"
-                )
-            runtime_shape = _runtime_type_shape(runtime_field.rust_type)
-            decoded = RUNTIME_DECODED_REQUEST_FIELDS.get((command_name, field_name))
-            if decoded is not None:
-                rust_type, decoded_shape = decoded
-                if runtime_field.rust_type.replace(" ", "") != rust_type:
-                    fail(
-                        f"decoded request field {command_name}.{field_name} is no longer "
-                        f"{rust_type} at runtime: {runtime_field.rust_type}"
-                    )
-                runtime_shape = decoded_shape
-            type_expression = schema_field["type"]
-            assert isinstance(type_expression, Mapping)
-            schema_shape = _schema_type_shape(type_expression, ir.types)
-            if runtime_shape != schema_shape:
-                fail(
-                    f"SDK request field type drift for {command_name}.{field_name}, "
-                    f"SDK={schema_shape}, runtime={runtime_shape}"
-                )
+        runtime_aliases = _runtime_field_aliases(runtime_field)
+        # Several legacy aliases repeat the canonical snake_case field
+        # name. They do not add another accepted wire spelling.
+        runtime_aliases.discard(field_name)
+        schema_aliases = set(schema_field.get("aliases", ()))
+        if runtime_aliases != schema_aliases:
+            fail(
+                f"SDK request field alias drift for {label}.{field_name}, "
+                f"SDK={sorted(schema_aliases)}, runtime={sorted(runtime_aliases)}"
+            )
+        type_expression = schema_field["type"]
+        assert isinstance(type_expression, Mapping)
+        schema_shape = _schema_type_shape(type_expression, types)
+        if runtime_shape != schema_shape:
+            fail(
+                f"SDK request field type drift for {label}.{field_name}, "
+                f"SDK={schema_shape}, runtime={runtime_shape}"
+            )
 
 
 def validate_sdk_ir(
