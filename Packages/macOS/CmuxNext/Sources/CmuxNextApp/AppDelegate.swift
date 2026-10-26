@@ -284,36 +284,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         order.startup.finishRegistration()
     }
 
-    /// Home's Chief owner and cloud link, the chats feed and its importers, the New Tab page's feeds and
-    /// the chat settings push: never before the first frame. Each is one ``LaunchNeedPosts`` start, after
-    /// startup by default; right after the first frame once a Home view or an agent page shows
-    /// (`TopHomePageView`, `HomeService.homeDidOpen`, `AgentTabStore.pageShown`), as Chrome starts what a
-    /// visible tab needs first and posts the rest through `AfterStartupTaskUtils::PostTask`
-    /// (chrome/browser/after_startup_task_utils.cc). A Home view's first frame is the last launch's
-    /// list from its cache (`HomeService.primeHomeList`), so it does not wait for these.
-    private func registerHomeFeeds(services: AppServices) {
-        // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings.
-        let acpmux = QuitAgents.environment(services)
-        let feeds = LaunchNeedPosts(startup: order.startup, starts: [
-            .init("Home.start") { [weak services] in services?.home.start() },
-            .init("ChatsFeed.keepCurrent") { [weak services] in services?.chatsFeed?.keepCurrent() },
-            .init("ProjectsImport.start") { [weak services] in if let services { services.projectsImport.start(feed: services.chatsFeed) } },
-            .init("AgentPageChats.wire") { [weak services] in
-                guard let services else { return }
-                if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
-                AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
-            },
-            .init("NewTabClosed.wire") { [weak services] in if let services { NewTabClosed.wire(services.agentTabs, services: services) } },
-            .init("NewTabPlacesFeed.wire") { [weak services] in if let services { NewTabPlacesFeed.wire(services.agentTabs, services: services) } },
-            .init("NewTabWeather.wire") { [weak services] in if let services { NewTabWeather.wire(services.agentTabs, services: services) } },
-            .init("ChatSettingsPush.start") { [weak services] in
-                if let settings = services?.settings { ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath) }
-            },
-        ])
-        services.home.launchFeeds = feeds
-        feeds.post()
-    }
-
     /// cmux.json, created on first launch.
     private func settingsFileURL() -> URL {
         do {
@@ -356,10 +326,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         settings.start(announcingDiagnostics: true)
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, firstWindow: { [startup = order.startup] in await startup.afterFirstFrame() })
+        // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings.
+        let acpmux = QuitAgents.environment(services)
+        ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath)
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
         services.followEnergySaver(settings)
         services.mobile.follow(settings, launch: services.environment.launch)
-        registerHomeFeeds(services: services)  // after the first frame (p08-startup-027)
+        // A page's chat clicks and All chats pages work from its first frame; the feeds come after it (p08-startup-027).
+        AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
+        services.home.postLaunchFeeds(startup: order.startup)
         // The GitHub connection is deliberately off by default. Changes in
         // Settings apply to the one feed owner and never create a second
         // inbox store.

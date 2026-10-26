@@ -8,32 +8,40 @@ public import CmuxNextWakeups
 /// window restore makes its saved windows after it).
 ///
 /// Every start is its own ``StartupScheduler`` post (one service per main turn, as
-/// ``LaunchServicePosts``), in the order given. ``post()`` posts them at afterStartup; ``need()``
-/// posts them again at afterFirstFrame, once per launch. Each start runs once, at whichever of its two
-/// posts runs first, so the starts need not be idempotent. Nothing runs after quit began.
+/// ``LaunchServicePosts``), in the order given. ``post()`` queues one afterStartup post at a time:
+/// each runs its start and then posts the next start not run yet, so a start a page already ran
+/// leaves no queued copy behind (at most one empty post when ``need()`` ran them all). ``need()``
+/// posts every start not run yet at afterFirstFrame, under its ``Start/neededName``, once per launch.
+/// Each start runs once, at whichever of its posts runs first, so the starts need not be idempotent.
+/// Nothing runs after quit began.
 ///
 /// ```swift
 /// let feeds = LaunchNeedPosts(startup: order.startup, starts: [
-///     .init("Home.start") { home.start() },
-///     .init("ChatsFeed.keepCurrent") { chatsFeed?.keepCurrent() },
+///     .init("Home.start", needed: "Home.startNeeded") { home.start() },
+///     .init("ChatsFeed.keepCurrent", needed: "ChatsFeed.keepCurrentNeeded") { chatsFeed?.keepCurrent() },
 /// ])
 /// feeds.post()   // after startup
 /// feeds.need()   // a Home page or an agent page shows: right after the first frame instead
 /// ```
 @MainActor
 public final class LaunchNeedPosts {
-    /// One start: its name in the startup records and signposts, and the work.
+    /// One start: its names in the startup records and signposts, and the work.
     public struct Start {
-        /// Its name in the startup records and signposts (`Domain.step`).
+        /// Its name when it runs after startup (`Domain.step`).
         public let name: StaticString
+        /// Its name when a page needed it right after the first frame (`Domain.stepNeeded`, as
+        /// `Cloud.startNeeded`), so the records show which path ran it.
+        public let neededName: StaticString
         /// The one service start.
         public let work: @MainActor @Sendable () -> Void
 
         /// - Parameters:
-        ///   - name: Its name in the startup records and signposts.
+        ///   - name: Its name when it runs after startup.
+        ///   - neededName: Its name when a page needed it.
         ///   - work: The one service start (it runs once).
-        public init(_ name: StaticString, _ work: @escaping @MainActor @Sendable () -> Void) {
+        public init(_ name: StaticString, needed neededName: StaticString, _ work: @escaping @MainActor @Sendable () -> Void) {
             self.name = name
+            self.neededName = neededName
             self.work = work
         }
     }
@@ -41,6 +49,7 @@ public final class LaunchNeedPosts {
     private weak var startup: StartupScheduler?
     private let starts: [Start]
     private var ran: Set<Int> = []
+    private var posted = false
     /// A page needed the starts (``need()`` posted them at afterFirstFrame).
     public private(set) var isNeeded = false
 
@@ -52,12 +61,17 @@ public final class LaunchNeedPosts {
         self.starts = starts
     }
 
+    /// The starts' after-startup names, in run order.
+    public var names: [String] { starts.map(\.name.description) }
+
     /// The names of the starts that ran, in the order given at init.
     public var started: [String] { ran.sorted().map { starts[$0].name.description } }
 
-    /// Posts the default: every start after startup completes.
+    /// Posts the default: the starts after startup completes, one per post. Once.
     public func post() {
-        post(.afterStartup)
+        guard !posted else { return }
+        posted = true
+        postAfterStartup(from: 0)
     }
 
     /// A visible page needs the starts: they run right after the first frame (in the next frames once
@@ -65,7 +79,10 @@ public final class LaunchNeedPosts {
     public func need() {
         guard !isNeeded else { return }
         isNeeded = true
-        post(.afterFirstFrame)
+        guard let startup else { return }
+        for index in starts.indices where !ran.contains(index) {
+            startup.post(.afterFirstFrame, starts[index].neededName, on: .main) { [weak self] in self?.run(index) }
+        }
     }
 
     /// Returns once the launch's first frame committed (at once when it did, or when quit began): for
@@ -74,10 +91,12 @@ public final class LaunchNeedPosts {
         await startup?.afterFirstFrame()
     }
 
-    private func post(_ priority: StartupPriority) {
-        guard let startup else { return }
-        for index in starts.indices where !ran.contains(index) {
-            startup.post(priority, starts[index].name, on: .main) { [weak self] in self?.run(index) }
+    /// Posts the first start at or after `index` not run yet; it posts the one after it when it runs.
+    private func postAfterStartup(from index: Int) {
+        guard let startup, let next = (index..<starts.count).first(where: { !ran.contains($0) }) else { return }
+        startup.post(.afterStartup, starts[next].name, on: .main) { [weak self] in
+            self?.run(next)
+            self?.postAfterStartup(from: next + 1)
         }
     }
 

@@ -1,4 +1,4 @@
-import CmuxNextProcessEnvironment
+public import CmuxNextProcessEnvironment
 import CmuxNextSignposts
 import Darwin
 import Foundation
@@ -12,24 +12,24 @@ import Foundation
 /// under `PIPE_BUF`, so lines from different threads never interleave. The
 /// descriptor is nonblocking: a reader that stopped reading loses lines
 /// instead of stalling the app.
-nonisolated struct LaunchMarkSink: Sendable {
-    static let shared = LaunchMarkSink(environment: ProcessInfo.processInfo.environment)
+public nonisolated struct LaunchMarkSink: Sendable {
+    public static let shared = LaunchMarkSink(environment: ProcessInfo.processInfo.environment)
 
-    static let environmentKey = "CMUX_NEXT_LAUNCH_MARKS_FD"
+    public static let environmentKey = "CMUX_NEXT_LAUNCH_MARKS_FD"
     private let fd: Int32?
     private let signposts = LaunchSignposts()
 
     /// Children (the daemon, terminals) must not inherit the variable: its
     /// descriptor number means nothing to them. Creates ``shared`` first, so
     /// the sink has read the descriptor. Runs in `CmuxNextApp.prepareLaunchEnvironment`.
-    static func dropInheritedDescriptor(environmentGuard: ProcessEnvironmentGuard = .process) {
+    public static func dropInheritedDescriptor(environmentGuard: ProcessEnvironmentGuard = .process) {
         _ = shared
         environmentGuard.write("LaunchMarkSink.dropInheritedDescriptor") {
             unsetenv(environmentKey)
         }
     }
 
-    init(environment: [String: String]) {
+    public init(environment: [String: String]) {
         guard let text = environment[Self.environmentKey], let fd = Int32(text), fd > 2,
               fcntl(fd, F_GETFD) != -1 else {
             self.fd = nil
@@ -43,7 +43,7 @@ nonisolated struct LaunchMarkSink: Sendable {
     }
 
     /// Sends the launch mark `name`, `ms` after process start; the caller sends each name once.
-    func write(name: String, ms: Double) {
+    public func write(name: String, ms: Double) {
         signposts.mark(name, ms: ms)
         guard let fd else { return }
         let line = "\(name) \(String(format: "%.1f", ms))\n"

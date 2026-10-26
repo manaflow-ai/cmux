@@ -61,7 +61,7 @@ final class HomeService {
     @ObservationIgnored unowned let services: AppServices
     @ObservationIgnored private var availability: Task<Void, Never>?
     @ObservationIgnored private var listing: Task<Void, Never>?
-    /// The launch's Home and New Tab feeds (`AppDelegate.registerHomeFeeds`, p08-startup-027): ``start()`` is one of their
+    /// The launch's Home and New Tab feeds (``postLaunchFeeds(startup:)``, p08-startup-027): ``start()`` is one of their
     /// posts, after startup unless a Home view needs it right after the first frame. nil (tests, a
     /// service made after launch): nothing waits on the launch order.
     @ObservationIgnored var launchFeeds: LaunchNeedPosts?
@@ -201,7 +201,7 @@ final class HomeService {
     /// Observes the Chief owner: each new connection reloads the list and
     /// every open session, then resends what is still sending (same keys;
     /// the owner applies each once). Starts the cloud link and the list's
-    /// owners. Once; never before the first frame at launch (`registerHomeFeeds`):
+    /// owners. Once; never before the first frame at launch (``postLaunchFeeds(startup:)``):
     /// a Home view shows the last list from the cache until then.
     func start() {
         startWorkspace()

@@ -9,9 +9,9 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct LaunchNeedPostsTests {
     private static func feeds(_ s: StartupTestScheduler, _ runs: RunLog) -> LaunchNeedPosts {
         LaunchNeedPosts(startup: s.startup, starts: [
-            .init("Home.start") { runs.names.append("Home.start") },
-            .init("ChatsFeed.keepCurrent") { runs.names.append("ChatsFeed.keepCurrent") },
-            .init("NewTabWeather.wire") { runs.names.append("NewTabWeather.wire") },
+            .init("Home.start", needed: "Home.startNeeded") { runs.names.append("Home.start") },
+            .init("ChatsFeed.keepCurrent", needed: "ChatsFeed.keepCurrentNeeded") { runs.names.append("ChatsFeed.keepCurrent") },
+            .init("NewTabWeather.wire", needed: "NewTabWeather.wireNeeded") { runs.names.append("NewTabWeather.wire") },
         ])
     }
 
@@ -71,6 +71,41 @@ import Testing
         feeds.need()
         for _ in 0..<6 { s.fire() }
         #expect(runs.names == ["Home.start", "ChatsFeed.keepCurrent", "NewTabWeather.wire"], "each start once")
+    }
+
+    /// A page that needed the feeds leaves one afterStartup post queued, not one per start: the
+    /// after-startup work behind it waits one empty frame at most, and the records name the path
+    /// that ran each start once (Chrome's AfterStartupTaskUtils runs no phantom duplicates).
+    @Test func aNeedLeavesOneQueuedPostAndNamesItsRuns() {
+        let s = StartupTestScheduler(), runs = RunLog()
+        let feeds = Self.feeds(s, runs)
+        feeds.post()
+        feeds.post()
+        feeds.need()
+        s.startup.firstFrameCommitted()
+        for _ in 0..<6 { s.fire() }
+        #expect(runs.names.count == 3)
+        s.complete()
+        #expect(s.startup.completion?.heldTasks == 1, "one afterStartup post, not one per start")
+        for _ in 0..<6 { s.fire() }
+        #expect(runs.names.count == 3, "the queued post runs nothing twice and posts no more")
+        let names = s.startup.log.records.map(\.name.description)
+        #expect(names == ["Home.start", "Home.startNeeded", "ChatsFeed.keepCurrentNeeded", "NewTabWeather.wireNeeded"])
+    }
+
+    /// Without a page the one queued post runs its start, then posts the next: one start per frame.
+    @Test func withNoPageEachStartIsItsOwnFrame() {
+        let s = StartupTestScheduler(), runs = RunLog()
+        Self.feeds(s, runs).post()
+        s.complete()
+        #expect(s.startup.completion?.heldTasks == 1)
+        #expect(s.startup.log.records.map(\.name.description) == ["Home.start"])
+        s.fire()
+        #expect(runs.names == ["Home.start"], "one start per frame")
+        s.fire()
+        #expect(runs.names == ["Home.start", "ChatsFeed.keepCurrent"])
+        for _ in 0..<6 { s.fire() }
+        #expect(runs.names == ["Home.start", "ChatsFeed.keepCurrent", "NewTabWeather.wire"])
     }
 
     @Test func quitNeverStartsTheFeeds() {
