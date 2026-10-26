@@ -336,6 +336,12 @@ const modelRows = (popup: HTMLElement) => [
 ];
 const nameOf = (row: HTMLElement) => row.querySelector(".acpmux-menu-label")?.textContent ?? "";
 const detailOf = (row: HTMLElement) => row.querySelector(".acpmux-quick-value")?.textContent ?? "";
+const typeSearch = async (text: string) => {
+  const input = menus()[0]!.querySelector<HTMLInputElement>(".acpmux-quick-search input")!;
+  Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input, text);
+  await act(async () => input.dispatchEvent(new dom.window.Event("input", { bubbles: true })));
+  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+};
 
 test("an OpenCode chat's menu lists each model once, naming the provider its row lands", async () => {
   await mount();
@@ -483,6 +489,49 @@ test("the Starred rail groups provider offers into one model row", async () => {
   expect(rows).toHaveLength(1);
   expect(nameOf(rows[0]!)).toBe("Coder 3");
   expect(detailOf(rows[0]!)).toBe("OpenRouter");
+});
+
+test("search groups provider offers into one result", async () => {
+  await mount(undefined, true, railed);
+  await typeSearch("DeepSeek V4 Pro");
+  const rows = modelRows(menus()[0]!);
+  expect(rows.filter((row) => nameOf(row) === "DeepSeek V4 Pro")).toHaveLength(1);
+});
+
+test("a running model stays in the compact picks after an unavailable group", async () => {
+  const catalog = [
+    {
+      id: "opencode",
+      name: "OpenCode",
+      models: [
+        { id: "offline-model", name: "Offline model", unavailable: "offline" },
+        { id: "model-a", name: "Model A" },
+        { id: "model-b", name: "Model B" },
+        { id: "model-c", name: "Model C" },
+        { id: "model-d", name: "Model D" },
+        { id: "model-e", name: "Model E" },
+      ],
+    },
+  ];
+  await mount("model-e", true, catalog);
+  expect(modelRows(menus()[0]!).map(nameOf)).toContain("Model E");
+});
+
+test("search spacer reserves the query group label", async () => {
+  const catalog = [
+    {
+      id: "opencode",
+      name: "OpenCode",
+      models: Array.from({ length: 12 }, (_, index) => ({ id: `model-${index}`, name: `Model ${index}` })),
+    },
+  ];
+  await mount(undefined, true, catalog);
+  await typeSearch("Model");
+  const body = menus()[0]!.querySelector<HTMLElement>(".acpmux-quick-body")!;
+  const spacerRows = body
+    .querySelector<HTMLElement>(".acpmux-quick-spacer")!
+    .querySelectorAll(":scope > .acpmux-quick-item").length;
+  expect(modelRows(menus()[0]!).length + 1).toBeLessThanOrEqual(spacerRows);
 });
 
 // Astra on #25175: the Provider row is a row of the chat's tab, so the held list height and width
