@@ -694,6 +694,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// At critical memory pressure one urgent pass ranks hidden browser tabs, agent chats and cmux pages together and discards the one hidden longest, as Chrome discards one page per critical event; the browser tabs, chats and pages then discard at their own paces after one interval.
+    public static let memoryUrgentDiscardRanking = Feature(
+        index: 39,
+        name: "memoryUrgentDiscardRanking",
+        owner: "PL-memory",
+        description: "At critical memory pressure one urgent pass ranks hidden browser tabs, agent chats and cmux pages together and discards the one hidden longest, as Chrome discards one page per critical event; the browser tabs, chats and pages then discard at their own paces after one interval.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["browser-hibernation", "memory-hidden"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// The preloaded New Tab page waits hidden in the app's preload slot (its document reports hidden), and Cmd-T shows the picture it parked with until its first live frame in the pane. Off: it waits rendering, as before, and its move into the pane is covered by its own last frame.
     public static let newTabParksHidden = Feature(
         index: 40,
@@ -1187,6 +1204,7 @@ nonisolated extension Feature {
         .memoryScrollbackPressure,
         .memoryTabCaches,
         .memoryTerminalLastFrames,
+        .memoryUrgentDiscardRanking,
         .newTabParksHidden,
         .occludedWindowDiscard,
         .overlayTopLayer,
@@ -1257,6 +1275,7 @@ nonisolated extension Feature {
         .memoryScrollbackPressure,
         .memoryTabCaches,
         .memoryTerminalLastFrames,
+        .memoryUrgentDiscardRanking,
         .newTabParksHidden,
         .occludedWindowDiscard,
         .overlayTopLayer,
