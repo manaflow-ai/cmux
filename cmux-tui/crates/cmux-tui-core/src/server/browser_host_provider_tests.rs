@@ -537,10 +537,8 @@ fn a_host_binary_that_cannot_run_fails_the_start_with_its_exec_error() {
     let dir = std::env::temp_dir().join(format!("cmux-bh-missing-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let supervisor = crate::browser_host::BrowserHostSupervisor::default();
-    supervisor.configure(
-        Some(dir.join("no-such-cmux-browser-host")),
-        dir.join("browser-host.sock"),
-    );
+    supervisor
+        .configure(Some(dir.join("no-such-cmux-browser-host")), dir.join("browser-host.sock"));
     let error = supervisor.credentials().expect_err("a missing binary does not start");
     assert!(error.starts_with("cannot start the browser host"), "{error}");
     drop(supervisor);

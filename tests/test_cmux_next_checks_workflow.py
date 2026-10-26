@@ -2686,7 +2686,7 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
 class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
     """A same-repository PR's app compile runs on the build fleet (`cmux-ci compile-check --ref <head> --app`,
     about a minute) instead of the Mac Release queue. 2026-10-21: 76 of ~350 queued Mac jobs were Release
-    compiles. The job compiles the PR's head, the commit merge_compile_guard.py and the landing hooks ask
+    compiles. The job compiles the PR's head, the commit the landing gate asks
     about; a fleet red fails it; no verdict hands the PR to the Mac Release compile."""
 
     NAME = "cmux-next app compile (build fleet)"
