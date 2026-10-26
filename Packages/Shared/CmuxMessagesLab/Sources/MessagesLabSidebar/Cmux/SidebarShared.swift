@@ -12,8 +12,9 @@ import os
 protocol SidebarShareable {}
 
 /// cmux (Swift 6): a ``SidebarShareable`` value that crosses to another thread. The module's one
-/// unchecked conformance (crash ratchet: MessagesLabSidebar unchecked 1); the text cache's store is
-/// the one unchecked lock state (`SidebarTextCache`).
+/// unchecked conformance (crash ratchet: MessagesLabSidebar unchecked waived 1); the text cache's
+/// store is the one unchecked lock state (`SidebarTextCache`).
+// crash-allow: `value` is a let and Value is only a SidebarShareable type, each immutable once made and thread-safe to read
 struct SidebarShared<Value: SidebarShareable>: @unchecked Sendable {
     let value: Value
     init(_ value: Value) { self.value = value }

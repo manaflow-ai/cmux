@@ -23,6 +23,15 @@ enum Fonts {
     }
 }
 
+/// A font made once and read by every render thread (the measure and row
+/// bitmap queues draw off the main actor). The SDK does not mark `CTFont`
+/// Sendable; this is the module's one place a font crosses threads.
+// crash-allow: `font` is a let, a CTFont is immutable once made, and Core Text fonts are thread-safe (Core Text Programming Guide, "Thread Safety")
+struct SharedFont: @unchecked Sendable {
+    let font: CTFont
+    init(_ font: CTFont) { self.font = font }
+}
+
 /// Lines of text at explicit baselines with Core Text, in top-left contexts.
 enum TextDraw {
     static let fontKey = NSAttributedString.Key(kCTFontAttributeName as String)
