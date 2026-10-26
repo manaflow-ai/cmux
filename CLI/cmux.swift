@@ -32435,6 +32435,10 @@ struct CMUXCLI {
         case "pre-tool-use", "post-tool-use":
             let isPostToolUse = subcommand == "post-tool-use"
             if isPostToolUse {
+                // Feed treats completion telemetry as progress and retires
+                // pending decisions. Rejected completions must not reach the
+                // fallback defer or clear a newer question in this session.
+                didSendFeedTelemetry = true
                 guard let toolName = parsedInput.object?["tool_name"] as? String,
                       toolName == "AskUserQuestion" || toolName == "ExitPlanMode" else {
                     printClaudeHookAck()
@@ -32466,7 +32470,9 @@ struct CMUXCLI {
             let workspaceId = resolvedTarget.workspaceId
             let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
-            sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            if !isPostToolUse {
+                sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            }
             // A helper can invoke PreToolUse after the parent turn's Stop hook.
             // That event belongs to the completed turn, so it must not reopen
             // the parent session as Running. A new parent turn always passes
@@ -32505,6 +32511,9 @@ struct CMUXCLI {
                 telemetry.breadcrumb("claude-hook.\(subcommand).nested-suppressed")
                 printClaudeHookAck()
                 return
+            }
+            if isPostToolUse {
+                sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             }
 
             // AskUserQuestion and ExitPlanMode are blocking "needs input" tools:
