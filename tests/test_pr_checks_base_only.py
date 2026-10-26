@@ -237,7 +237,7 @@ class BaseOnlyStepTests(unittest.TestCase):
 class WorkflowShapeTests(unittest.TestCase):
     def test_the_answer_never_fails_the_run(self):
         self.assertTrue(STEP.get("continue-on-error"))
-        self.assertEqual(JOBS["base-only"]["permissions"], {"contents": "read", "actions": "read"})
+        self.assertEqual(JOBS["base-only"]["permissions"], {"contents": "read"})
         self.assertEqual(JOBS["base-only"]["if"], "github.event.action == 'synchronize'")
 
     def test_only_advisory_jobs_and_every_one_waits_on_it(self):
