@@ -78,7 +78,8 @@ public final class ExternalLinkGate {
         guard let window else { return .cancel }
         let spec = CmuxDialogSpec(
             title: ExternalLinkStrings.sshTitle, lines: ExternalLinkStrings.sshMessage(target.display).components(separatedBy: "\n\n"),
-            fields: [.preview(ExternalLinkStrings.sshTarget(target.display) + "\n" + ExternalLinkStrings.sshCommandLabel + " " + target.command),
+            // The command on its own line, so a long target is not cut off before the host.
+            fields: [.preview([ExternalLinkStrings.sshTarget(target.display), ExternalLinkStrings.sshCommandLabel, target.command].joined(separator: "\n")),
                      .check(id: alwaysField, title: ExternalLinkStrings.sshAlwaysAllow, on: false)],
             buttons: [.cancel(), CmuxDialogButton(id: connectButton, title: ExternalLinkStrings.sshConnect, role: .default)],
             identifier: sshDialogIdentifier)

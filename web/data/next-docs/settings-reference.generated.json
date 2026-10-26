@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 491,
+  "count": 492,
   "sections": [
     {
       "id": "general",
@@ -5386,6 +5386,14 @@
           "kind": "toggle",
           "default": true,
           "group": "Phone Access"
+        },
+        {
+          "key": "ssh.linkAllowedHosts",
+          "title": "Always Allowed SSH Link Hosts",
+          "help": "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again.",
+          "kind": "string_list",
+          "default": [],
+          "group": "SSH Links"
         }
       ]
     },
