@@ -62,11 +62,13 @@ public struct MemorySource: Decodable, Equatable, Sendable {
     }
 
     /// "Bring your memory from Claude Code and ChatGPT", or nil with nothing found. Products appear once, in
-    /// the order found, joined the way the person's language joins a list.
+    /// the order found, joined the way the person's language joins a list; three or more fit no row, so they read
+    /// "Bring your memory from other AI tools" (the dialog names each).
     public static func offerTitle(_ sources: [MemorySource], locale: Locale = .current) -> String? {
         var seen = Set<String>()
         let names = sources.map(\.product).filter { seen.insert($0).inserted }
         guard !names.isEmpty else { return nil }
+        if names.count > 2 { return ChiefMemoryImportStrings.offerMany }
         let list = ListFormatter()
         list.locale = locale
         return ChiefMemoryImportStrings.offer(list.string(from: names) ?? names.joined(separator: ", "))

@@ -34,6 +34,7 @@ public nonisolated enum ChiefMemoryImportStrings {
     public static var noTool: String { text("import.noTool", "The Chief tool is missing from this build, so memories cannot be imported.") }
     public static var signInFirst: String { text("import.signInFirst", "Sign in to cmux Cloud to import into a Cloud Chief.") }
 
+    public static var offerMany: String { text("import.offerMany", "Bring your memory from other AI tools") }
     public static func offer(_ products: String) -> String { String(format: text("import.offer", "Bring your memory from %@"), products) }
     public static func claudeCode(_ count: Int) -> String { String(format: text("import.source.claudeCode", "Claude Code conversations (%lld)"), count) }
     public static func claudeMemory(_ count: Int) -> String { String(format: text("import.source.claudeMemory", "Claude Code memory notes (%lld)"), count) }
