@@ -77,8 +77,8 @@ public struct LaunchOrder {
         let displays = DisplayClock()
         FrameScheduler.install(displays: displays)
         // One frame.commit per commit, and each key echo's present at its display's vsync (p09-observability 037).
+        displays.presents.pendingCommits = { TypingLatencyProbe.shared.takePresentCommits() }
         displays.presents.observeCommits()
-        TypingLatencyProbe.shared.attach(presents: displays.presents)
         // The launch's phases (p06-scheduler-006/007): background work waits for the reveal, idle
         // work for the settle. The marks are queued first, so each shows before the held work it opens.
         let phase = StartupPhase()

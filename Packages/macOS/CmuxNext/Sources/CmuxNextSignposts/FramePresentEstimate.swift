@@ -25,10 +25,10 @@ public import CoreFoundation
 /// keeps an idle link up for at most that many frames, only while recording.
 ///
 /// ```swift
-/// // The composition root: one observer for the app's commits, and the typing probe's echo commits.
+/// // The composition root: one observer for the app's commits, which takes the typing probe's echo commits.
+/// displays.presents.pendingCommits = { TypingLatencyProbe.shared.takePresentCommits() }
 /// displays.presents.observeCommits()
-/// TypingLatencyProbe.shared.attach(presents: displays.presents)
-/// // The frame of a key's echo went to its layer on display `id` this turn:
+/// // Or by hand: the frame of a key's echo went to its layer on display `id` this turn.
 /// presents.markCommit(flow: flow, display: id)
 /// // Each display-link tick (DisplayClock.deliver), only while recording:
 /// if presents.isRecording { presents.frameDidTick(display: id, timestamp: tick.timestamp, target: tick.targetTimestamp) }
@@ -58,6 +58,24 @@ public final class FramePresentEstimate {
     /// Asked for one tick of `display` (a `CGDirectDisplayID`) while a committed flow there waits for a
     /// vsync that shows it (the display clock points it at its link of that display).
     public var onNeedsFrame: (@MainActor (_ display: UInt32) -> Void)?
+    /// The key flows the commit ending this turn carries, from a source that marks them before the commit
+    /// observer runs (the typing probe's echo commits); asked at each turn end while recording.
+    public var pendingCommits: (@MainActor () -> [Commit])?
+
+    /// A key flow's frame that went to its layer on a display (``pendingCommits``).
+    public nonisolated struct Commit: Sendable, Hashable {
+        public let flow: UInt64
+        /// The `CGDirectDisplayID` of the flow's window.
+        public let display: UInt32
+        /// Its GPU work finishes later (``markCommit(flow:display:awaitsGPU:)``).
+        public let awaitsGPU: Bool
+
+        public init(flow: UInt64, display: UInt32, awaitsGPU: Bool = false) {
+            self.flow = flow
+            self.display = display
+            self.awaitsGPU = awaitsGPU
+        }
+    }
 
     /// A flow on its way to the screen.
     private struct Waiting {
@@ -152,11 +170,14 @@ public final class FramePresentEstimate {
         if waiting[index].commitNanos != nil { settle() }
     }
 
-    /// The commit at the end of this main run-loop turn (its observer; tests call it): writes one
-    /// `frame.commit` (arg0 the first flow it carries, 0 for none; arg1 how many it carries) and dates the
-    /// carried flows' commits.
+    /// The commit at the end of this main run-loop turn (its observer; tests call it): marks the
+    /// ``pendingCommits``, writes one `frame.commit` (arg0 the first flow it carries, 0 for none; arg1 how
+    /// many it carries) and dates the carried flows' commits.
     public func turnDidCommit() {
         guard isRecording else { return }
+        if let pendingCommits {
+            for commit in pendingCommits() { markCommit(flow: commit.flow, display: commit.display, awaitsGPU: commit.awaitsGPU) }
+        }
         let now = clock.nowNanos()
         var first: UInt64 = 0, carried: UInt64 = 0
         for index in waiting.indices where waiting[index].commitNanos == nil {

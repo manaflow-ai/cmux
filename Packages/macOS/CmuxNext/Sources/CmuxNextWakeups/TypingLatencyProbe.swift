@@ -154,8 +154,9 @@ public final class TypingLatencyProbe: Sendable {
         /// The flows whose echo frame was handed to their layer (``Mark/contents``) and whose Core
         /// Animation commit (the next run-loop end) is still to be marked `app.frame.commit`.
         var echoCommits: [EchoCommit] = []
-        /// Dates each echo commit's present (``attach(presents:)``).
-        weak var presents: FramePresentEstimate?
+        /// Echo commits with a known display that the presents have not taken (``takePresentCommits()``),
+        /// oldest first; at most ``openCapacity``.
+        var presentCommits: [FramePresentEstimate.Commit] = []
         /// An echo named its press (``outputDecoded(flow:)``): the daemon stamps exact flows, so an
         /// output that names none is not a key's echo.
         var exactEchoes = false
@@ -273,19 +274,14 @@ public final class TypingLatencyProbe: Sendable {
         echoCommitted()
     }
 
-    /// Marks `app.frame.commit` for each flow whose echo frame went to its layer, and hands it to the
-    /// attached presents: the run-loop end that follows ``Mark/contents`` is the Core Animation commit that
-    /// carries it to the screen. The contents mark is the IOSurface handoff, after the frame's GPU work.
+    /// Marks `app.frame.commit` for each flow whose echo frame went to its layer, and keeps the ones whose
+    /// display is known for the presents (``takePresentCommits()``): the run-loop end that follows
+    /// ``Mark/contents`` is the Core Animation commit that carries it to the screen.
     private func echoCommitted() {
-        let (commits, presents) = state.withLock { state -> ([EchoCommit], FramePresentEstimate?) in
+        let commits = state.withLock { state -> [EchoCommit] in
             defer { state.echoCommits.removeAll(keepingCapacity: true) }
-            return (state.echoCommits, state.presents)
-        }
-        if let presents, !commits.isEmpty {
-            // main-proof: the commit observer is on the main run loop only (observeCommits()).
-            MainActor.assumeIsolated {
-                for commit in commits { if let display = commit.display { presents.markCommit(flow: commit.flow, display: display) } }
-            }
+            state.keepForPresents(state.echoCommits)
+            return state.echoCommits
         }
         guard flowsStarted else { return }
         for commit in commits { emitHop(.appFrameCommit, flow: commit.flow) }

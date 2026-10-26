@@ -139,7 +139,7 @@ import Testing
     @Test func aTypingProbeEchoIsPresentedOnItsDisplay() throws {
         let rig = PresentRig()
         let probe = TypingLatencyProbe(path: nil, trace: rig.trace)
-        probe.attach(presents: rig.presents)
+        rig.presents.pendingCommits = { probe.takePresentCommits() }
         probe.startFlows()
         let surface = probe.makeSurfaceKey()
         probe.keyDown(eventTimestamp: 0)
