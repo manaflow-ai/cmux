@@ -52,10 +52,6 @@ extension HangWatch {
         public let overdue: [Overdue]
         /// When to scan next (`CLOCK_UPTIME_RAW` nanoseconds); nil: parked until a scope wakes the monitor.
         public let nextScanNanos: UInt64?
-        /// The latest budget among the scopes open during the scan, reported or not (0: none open). A monitor
-        /// that woke late ignores every scope due by then (Chrome's `deadline_ignore_threshold_`,
-        /// base/threading/hang_watcher.cc `HangWatcher::Wait`).
-        public let latestOpenDeadlineNanos: UInt64
     }
 
     /// Connects the one monitor: from now on a scope that needs an earlier scan calls `wake` (on its own
@@ -102,10 +98,10 @@ extension HangWatch {
             if exchanged { break }
             planned = original
         }
-        guard planned != 0 else { return ScanResult(overdue: [], nextScanNanos: nil, latestOpenDeadlineNanos: 0) } // detached
+        guard planned != 0 else { return ScanResult(overdue: [], nextScanNanos: nil) } // detached
         // A plan the monitor did not publish: a scope moved it (and opened or closed since).
         var changed = planned != published.load(ordering: .relaxed)
-        var earliest = UInt64.max, latestOpen: UInt64 = 0
+        var earliest = UInt64.max
         var overdue: [Overdue] = []
         for index in 0..<min(claimedEnd.load(ordering: .acquiring), Self.capacity) {
             guard let slot = slot(at: index) else { continue }
@@ -116,7 +112,6 @@ extension HangWatch {
                 changed = true
                 seen.pointee = current
             }
-            if current & Self.closedFlag == 0 { latestOpen = max(latestOpen, current & Self.deadlineMask) }
             guard let due = nextTierDue(current) else { continue }
             guard due <= now else {
                 earliest = min(earliest, due)
@@ -149,7 +144,36 @@ extension HangWatch {
             final = original == 0 ? 0 : min(original, next)
         }
         published.store(final, ordering: .relaxed)
-        return ScanResult(overdue: overdue, nextScanNanos: final == 0 || final == .max ? nil : final, latestOpenDeadlineNanos: latestOpen)
+        return ScanResult(overdue: overdue, nextScanNanos: final == 0 || final == .max ? nil : final)
+    }
+
+    /// Cancels every scope open now, in both tiers (monitor thread only): the monitor woke too late to blame
+    /// them. Chrome's `HangWatcher::Wait` (base/threading/hang_watcher.cc), after a wait past
+    /// `kWaitDriftTolerance`, moves `deadline_ignore_threshold_` to the latest deadline open then; cmux marks
+    /// those scopes instead, because its budgets differ by scope (100 ms to 30 s) and a threshold would also
+    /// hide a shorter scope that opens later. A scope that opens afterwards, nested in a cancelled one or not,
+    /// is watched; a cancelled one passes the cancellation back to the scope around it when it closes, as
+    /// after ``invalidateActive()``.
+    ///
+    /// - Returns: How many scopes it cancelled.
+    @discardableResult
+    public func ignoreOpenScopes() -> Int {
+        var ignored = 0
+        for index in 0..<min(claimedEnd.load(ordering: .acquiring), Self.capacity) {
+            guard let slot = slot(at: index) else { continue }
+            let word = Self.word(slot, Self.deadlineWord)
+            var current = word.load(ordering: .sequentiallyConsistent)
+            while current & Self.deadlineMask != 0, current & Self.silencedMask == 0 {
+                let (exchanged, original) = word.compareExchange(expected: current, desired: current | Self.ignoredFlag,
+                                                                 ordering: .acquiringAndReleasing)
+                if exchanged {
+                    ignored += 1
+                    break
+                }
+                current = original
+            }
+        }
+        return ignored
     }
 
     /// Whether `overdue`'s scope is still open (its stack, sampled after the scan, is still its own).

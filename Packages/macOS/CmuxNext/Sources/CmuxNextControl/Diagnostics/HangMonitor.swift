@@ -28,10 +28,12 @@ import os
 /// (`HangWatchDeadline::SetShouldBlockOnHang`) without its `BlockIfCaptureInProgress`, so a watched thread
 /// never waits for the watchdog.
 ///
-/// A monitor that wakes more than ``driftToleranceNanos`` (100 ms) after the time it asked for blames nobody:
-/// the machine was too busy for its own thread, so the scopes open then may be late for the same reason. Their
-/// latest budget becomes the ignore threshold, and no scope due by it is reported, in either tier (Chrome's
-/// `kWaitDriftTolerance` and `deadline_ignore_threshold_`, base/threading/hang_watcher.cc `HangWatcher::Wait`).
+/// When the watchdog thread's wait overruns its timeout by more than ``driftToleranceNanos`` (100 ms), the
+/// monitor blames nobody: the machine was too busy for its own thread, so the scopes open then may be late for
+/// the same reason. Those scopes are cancelled in both tiers (``HangWatch/ignoreOpenScopes()``); a scope that
+/// opens later is watched. Only the wait is timed, as Chrome's `HangWatcher::Wait` times only its `TimedWait`
+/// against `kWaitDriftTolerance` (base/threading/hang_watcher.cc): the watchdog's own work between two waits,
+/// such as a main-thread hang report, is not drift.
 ///
 /// Each reported hang counts in `hang.thread_hung.<lane>` per active hour (``MainThreadFieldMetrics``).
 struct HangMonitor {
@@ -59,14 +61,10 @@ struct HangMonitor {
     #endif
     /// The reported scopes still named in ``crashKeys``' hung threads (at most its capacity).
     private var named: [HangWatch.Overdue] = []
-    /// When the last ``service()`` asked to be called again (`CLOCK_UPTIME_RAW` nanoseconds); nil when it parked.
-    private var expectedWakeNanos: UInt64?
-    /// No scope due by this budget is reported: it was open when the monitor woke late.
-    private(set) var ignoreThroughNanos: UInt64 = 0
-    /// How many times the monitor woke more than ``driftToleranceNanos`` late.
+    /// How many times the watchdog thread's wait overran its timeout by more than ``driftToleranceNanos``.
     private(set) var lateWakes = 0
 
-    /// How late the monitor may wake before it blames nobody (Chrome's `kWaitDriftTolerance`).
+    /// How far a wait may overrun its timeout before the monitor blames nobody (Chrome's `kWaitDriftTolerance`).
     static let driftToleranceNanos: UInt64 = 100_000_000
 
     init(source: Source, log: HangLog, janks: HangLog, logger: Logger?, fieldMetrics: MainThreadFieldMetrics? = nil) {
@@ -80,33 +78,30 @@ struct HangMonitor {
 
     /// Scans when a scan is due and reports what it finds (watchdog thread only).
     ///
+    /// - Parameter waitOverrunNanos: How far the watchdog thread's last wait ran past its timeout (0: it ended
+    ///   in time, early, or had no timeout). Past ``driftToleranceNanos``, no scope open now is reported.
     /// - Returns: How long the watchdog thread may wait before the next scan; nil while the slot table
     ///   is parked (a scope wakes the thread through the kqueue).
-    mutating func service() -> UInt64? {
+    mutating func service(waitOverrunNanos: UInt64 = 0) -> UInt64? {
         clearEndedHangs()
-        let now = watch.nowNanos()
-        let lateNanos = expectedWakeNanos.map { now > $0 ? now - $0 : 0 } ?? 0
-        expectedWakeNanos = nil
+        if waitOverrunNanos > Self.driftToleranceNanos { ignoreOpenScopes(overrunNanos: waitOverrunNanos) }
         guard let planned = watch.nextScanNanos else { return nil }
-        guard planned <= now else {
-            expectedWakeNanos = planned
-            return planned - now
-        }
+        let now = watch.nowNanos()
+        guard planned <= now else { return planned - now }
         let result = watch.scan(nowNanos: now)
-        if lateNanos > Self.driftToleranceNanos { ignoreScopes(through: result.latestOpenDeadlineNanos, lateNanos: lateNanos) }
-        for overdue in result.overdue where overdue.deadlineNanos > ignoreThroughNanos { report(overdue, now: now) }
+        for overdue in result.overdue { report(overdue, now: now) }
         guard let next = result.nextScanNanos else { return nil }
-        expectedWakeNanos = next
         let after = watch.nowNanos()
         return next > after ? next - after : 0
     }
 
-    /// The monitor woke `lateNanos` after the time it asked for: no scope open now is blamed, however long it runs.
-    private mutating func ignoreScopes(through latestOpen: UInt64, lateNanos: UInt64) {
+    /// The watchdog thread woke `overrunNanos` past its wait's timeout: no scope open now is blamed, however long
+    /// it runs.
+    private mutating func ignoreOpenScopes(overrunNanos: UInt64) {
         lateWakes += 1
-        ignoreThroughNanos = max(ignoreThroughNanos, latestOpen)
-        let late = Duration.nanoseconds(Int64(clamping: lateNanos))
-        logger?.notice("hang watch: the monitor woke \(late.fractionalMilliseconds, format: .fixed(precision: 1)) ms late; the scopes open now are not reported")
+        let ignored = watch.ignoreOpenScopes()
+        let late = Duration.nanoseconds(Int64(clamping: overrunNanos))
+        logger?.notice("hang watch: the watchdog woke \(late.fractionalMilliseconds, format: .fixed(precision: 1)) ms late; \(ignored) open scopes are not reported")
     }
 
     /// Takes each named scope that ended off ``named``, and its thread off the crash keys' hung threads once no
