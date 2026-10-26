@@ -39,6 +39,12 @@ LARGE_TOKENS = {"app", "dsym", "dsyms", "xcresult", "capture", "captures", "zip"
 # Path words that name an archive or a bundle: a shell step may build `<name>.app.zip` and upload it
 # through an expression (`${{ steps.dogfood-artifact.outputs.archive }}`, `media-app/app.tar`).
 LARGE_PATH_TOKENS = LARGE_TOKENS | {"archive", "tar", "tgz", "xcarchive"}
+# Handoffs whose name and path do not say what they hold: a directory of a signed zip, an
+# xcarchive zip or a prepared bundle, read by a later job. A new generic-path handoff of that kind
+# belongs here (or on R2); the name and path heuristics cannot see inside a directory.
+KNOWN_LARGE = re.compile(r"^(cmux-next-dev-daily-signed|cmux-mobile-internal-archive-|"
+                         r"cmux-nightly-identity-pending-bundle$|cmux-nightly-identity-signed$|"
+                         r"cmux-nightly-recovered-variant-|nightly-next-pending-(?!state-))")
 SMALL_SUFFIXES = (".log", ".json", ".txt", ".md", ".sha256", ".patch")
 LARGE_SUFFIXES = (".app", ".zip", ".dmg", ".ipa", ".xcresult", ".dsym", ".xcframework", ".xcarchive")
 
@@ -78,7 +84,8 @@ def tokens(text: str) -> set[str]:
 
 def is_large(options: dict) -> bool:
     # Expression contents count too: `${{ inputs.app }}` may well name an app.
-    if tokens(str(options.get("name", ""))) & LARGE_TOKENS:
+    name = str(options.get("name", ""))
+    if KNOWN_LARGE.match(name) or tokens(name) & LARGE_TOKENS:
         return True
     for line in str(options.get("path", "")).splitlines():
         line = line.strip().lower()
@@ -140,7 +147,9 @@ class RuleTests(unittest.TestCase):
                         {"name": "${{ steps.dogfood-artifact.outputs.artifact_name }}",
                          "path": "${{ steps.dogfood-artifact.outputs.archive }}"},
                         {"name": "${{ steps.build_base.outputs.artifact }}", "path": "${{ runner.temp }}/media-app/app.tar"},
-                        {"name": "products", "path": "${{ runner.temp }}/cmux-release-product.tar.gz"}):
+                        {"name": "products", "path": "${{ runner.temp }}/cmux-release-product.tar.gz"},
+                        {"name": "cmux-next-dev-daily-signed", "path": "signed-handoff/*"},
+                        {"name": "cmux-mobile-internal-archive-${{ github.run_id }}", "path": "${{ runner.temp }}/handoff/"}):
             options["retention-days"] = 1
             self.assertTrue(problems(options), options)
         self.assertEqual(problems({"name": "approval-receipt", "retention-days": 1}), [])
