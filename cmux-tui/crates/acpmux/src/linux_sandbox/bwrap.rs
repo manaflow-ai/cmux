@@ -127,8 +127,11 @@ struct OpenHow {
 const RESOLVE_NO_MAGICLINKS: u32 = 0x02;
 const RESOLVE_NO_SYMLINKS: u32 = 0x04;
 
+/// (Owned by this uid, writable by this uid, is a symlink).
+type OutsideStat = (bool, bool, bool);
+
 /// Inspect ownership and effective writability for the real uid. Errors refuse.
-fn outside_stat(path: &Path) -> Result<Option<(bool, bool)>, String> {
+fn outside_stat(path: &Path) -> Result<Option<OutsideStat>, String> {
     let meta = match fs::metadata(path) {
         Ok(meta) => meta,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -140,11 +143,11 @@ fn outside_stat(path: &Path) -> Result<Option<(bool, bool)>, String> {
     let (owned, result) =
         unsafe { (meta.uid() == libc::getuid(), libc::access(c_path.as_ptr(), libc::W_OK)) };
     if result == 0 {
-        return Ok(Some((owned, true)));
+        return Ok(Some((owned, true, false)));
     }
     let error = io::Error::last_os_error();
     match error.raw_os_error() {
-        Some(libc::EACCES | libc::EROFS) => Ok(Some((owned, false))),
+        Some(libc::EACCES | libc::EROFS) => Ok(Some((owned, false, false))),
         _ => Err(format!("cannot inspect write access to {text}: {error}")),
     }
 }
@@ -154,11 +157,11 @@ fn outside_stat(path: &Path) -> Result<Option<(bool, bool)>, String> {
 /// and writable parents permit replacement. The loop ends at the root.
 fn validate_outside(
     path: &Path,
-    mut stat: impl FnMut(&Path) -> Result<Option<(bool, bool)>, String>,
+    mut stat: impl FnMut(&Path) -> Result<Option<OutsideStat>, String>,
 ) -> Result<(), String> {
     let state = if stat(path)?.is_none() { "absent" } else { "present" };
     for ancestor in path.ancestors().skip(1) {
-        let Some((owned, writable)) = stat(ancestor)? else {
+        let Some((owned, writable, _symlink)) = stat(ancestor)? else {
             if ancestor == Path::new("/") {
                 return Err("cannot inspect filesystem root".into());
             }
@@ -448,6 +451,7 @@ mod tests {
                         Some((
                             p == Path::new(ancestor) && owned,
                             p == Path::new(ancestor) && writable,
+                            false,
                         ))
                     })
                 });
@@ -470,7 +474,7 @@ mod tests {
                 validate_outside(path, |p| Ok(if p == path && !exists {
                     None
                 } else {
-                    Some((false, false))
+                    Some((false, false, false))
                 }))
                 .is_ok()
             );
@@ -480,10 +484,28 @@ mod tests {
             validate_outside(path, |p| Ok(if p.starts_with("/Library/nested") {
                 None
             } else {
-                Some((p == Path::new("/Library"), false))
+                Some((p == Path::new("/Library"), false, false))
             }))
             .is_err()
         );
+    }
+
+    #[test]
+    fn outside_symlink_components_are_refused_without_following() {
+        let path = Path::new("/Library/Keychains");
+        for link in [Path::new("/Library"), path] {
+            let error = validate_outside(path, |component| {
+                // /Library may point at /srv/user/library, even while that
+                // target is absent. A leaf symlink must also be refused.
+                assert!(!component.starts_with(link) || component == link);
+                Ok(Some((false, false, component == link)))
+            })
+            .unwrap_err();
+            assert_eq!(
+                error,
+                format!("{} passes through the symlink {}", path.display(), link.display())
+            );
+        }
     }
 
     #[test]
