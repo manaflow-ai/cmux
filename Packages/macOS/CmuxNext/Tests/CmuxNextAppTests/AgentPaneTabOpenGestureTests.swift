@@ -143,7 +143,7 @@ struct AgentPaneTabOpenGestureTests {
         defer { window.close() }
         view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         window.contentView = view
-        try #require(window.makeFirstResponder(view.webView), "the page's field could not take the keyboard")
+        try #require(window.makeFirstResponder(view.focusTarget), "the page's field could not take the keyboard")
         let router = KeyRouter(registry: ActionRegistry.standard())
 
         let posted = try Self.returnKey(source: Int64(getpid()) + 1)

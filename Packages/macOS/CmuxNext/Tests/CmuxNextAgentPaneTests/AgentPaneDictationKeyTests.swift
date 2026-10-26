@@ -47,7 +47,7 @@ struct AgentPaneDictationKeyTests {
 
     /// Start Dictation as AppKit sends it: up the responder chain from the focused web view.
     private func startDictation(from view: AgentPaneView) -> Bool {
-        view.webView.tryToPerform(AgentPaneDictationKey.action, with: nil)
+        view.focusTarget.tryToPerform(AgentPaneDictationKey.action, with: nil)
     }
 
     @Test func theDictationKeyStartsThePanesDictationNotMacOSs() throws {
@@ -85,7 +85,7 @@ struct AgentPaneDictationKeyTests {
         let (view, routes) = try page(systemDictation: nil)
         let window = try window(holding: view)
         defer { view.close(); window.close() }
-        try #require(window.makeFirstResponder(view.webView))
+        try #require(window.makeFirstResponder(view.focusTarget))
         #expect(AgentPaneView.takeStartDictation(in: window, sender: nil),
                 "Start Dictation at NSApplication with the agent page's keyboard went to macOS's dictation overlay")
         #expect(routes.pane == 1, "the Dictation key did not start the pane's dictation")
@@ -118,7 +118,7 @@ struct AgentPaneDictationKeyTests {
         let (view, routes) = try page(systemDictation: true)
         let window = try window(holding: view)
         defer { view.close(); window.close() }
-        try #require(window.makeFirstResponder(view.webView))
+        try #require(window.makeFirstResponder(view.focusTarget))
         #expect(!AgentPaneView.takeStartDictation(in: window, sender: nil),
                 "with agent.systemDictation on, the pane kept the Dictation key from macOS")
         #expect(routes.pane == 0)
