@@ -236,6 +236,8 @@ final class AppServices {
     /// CPU and memory for the hover cards and `resources` (sampled on demand).
     private(set) lazy var resources: AppResourceSource = AppResourceSource(services: self)  // built by its first reader
     private(set) lazy var presentation = ContentPresentationScheduler(mainWork: mainWork)
+    /// Panes off screen make no content until startup completes (`launchVisiblePanesOnly`, p08-startup-065): holds nothing while off.
+    private(set) lazy var launchPanes = LaunchPaneGate(startup: features.isEnabled(.launchVisiblePanesOnly) ? launchStartup : nil)
     private(set) lazy var newTabCloseFrames = FrameBatcher(owner: "NewTabPage.close", scheduler: mainWork.frames)  // a pick's page close: unbudgeted
     /// Blank-pane invariant, checked after each presentation settle.
     let surfaceInvariant = SurfaceInvariantMonitor()

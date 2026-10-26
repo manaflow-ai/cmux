@@ -270,7 +270,9 @@ PAGEINS_RUN_LOOP = "launch.pageins_run_loop_start"
 PAGEINS = "launch.pageins_first_frame"
 MAIN_CPU = "launch.main_cpu_ms"
 INTERRUPTED = "launch.interrupted"
-VALUE_MARKS = (TEMPERATURE, PAGEINS_RUN_LOOP, PAGEINS, MAIN_CPU, INTERRUPTED)
+# The pane content views made before startup_complete (p08-startup-065, `launchVisiblePanesOnly`): == visible panes.
+VIEWS_BUILT = "launch.views_built"
+VALUE_MARKS = (TEMPERATURE, PAGEINS_RUN_LOOP, PAGEINS, MAIN_CPU, INTERRUPTED, VIEWS_BUILT)
 # Percentiles printed after p50 (perf_stats.summary).
 PERCENTILES = (95, 99)
 
