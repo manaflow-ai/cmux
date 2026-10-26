@@ -1133,7 +1133,8 @@ bootout) case "$2" in */com.acpmux.probe) exit 0;; esac
   test ! -f "$HOME/no-gui" || { echo 'Boot-out failed: 125: Domain does not support specified action' >&2; exit 125; }
   test -f "$HOME/loaded" || { echo 'Boot-out failed: 3: No such process' >&2; exit 3; }; rm -f "$HOME/loaded"
   if [ "$(cat "$HOME/daemon-pid" 2>/dev/null || echo 4242)" = 4242 ]; then rm -f "$HOME/daemon"; touch "$HOME/exiting"; fi;;
-print-disabled) test ! -f "$HOME/disabled-daemon" || printf 'disabled services = {\n\t"com.apple.Siri.agent" => enabled\n\t"com.acpmux.daemon" => disabled\n}\n';;
+print-disabled) test ! -f "$HOME/print-disabled-fails" || { echo 'Could not print disabled services: 5: Input/output error' >&2; exit 5; }
+  test ! -f "$HOME/disabled-daemon" || printf 'disabled services = {\n\t"com.apple.Siri.agent" => enabled\n\t"com.acpmux.daemon" => disabled\n}\n';;
 bootstrap)
   test ! -f "$HOME/no-gui" || { echo 'Bootstrap failed: 125: Domain does not support specified action' >&2; exit 125; }
   test ! -f "$HOME/refuses-bootstrap" || { echo 'Bootstrap failed: 5: Input/output error' >&2; exit 5; }
@@ -1512,6 +1513,28 @@ fn an_update_after_someone_logs_in_hands_the_in_place_daemon_to_launchd() {
     assert_eq!((up.outcome, up.in_place.as_deref()), (Outcome::Updated, None), "{up:?}");
     assert_eq!((peer.daemon(), peer.read("daemon-pid").trim()), (NEW.to_owned(), "4242"));
     assert!(!peer.take_calls().iter().any(|c| c.contains("daemon shutdown")));
+}
+
+/// Review of #25602 at d486002d: a `launchctl print-disabled` that fails
+/// says nothing about the daemon's job, so the restart refuses before the
+/// bootout instead of going on as if the job were enabled.
+#[test]
+#[cfg(unix)]
+fn a_launchd_that_cannot_say_whether_the_job_is_disabled_stops_nothing() {
+    let peer = FakePeer::new("print-disabled-fails");
+    peer.under_launchd();
+    peer.write("print-disabled-fails", "");
+    peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(NEW, Some(NEW)));
+    let up = peer.update(true);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Failed, Some("launchdRefused")),
+        "{up:?}"
+    );
+    assert!(up.error.as_deref().unwrap_or("").contains("did not say whether"), "{up:?}");
+    assert_eq!(peer.daemon(), OLD, "the old daemon still runs");
+    assert!(peer.exists("loaded"), "its job was never booted out");
+    assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(OLD, Some(OLD)));
 }
 
 /// A plist launchd cannot read is found before anything stops.

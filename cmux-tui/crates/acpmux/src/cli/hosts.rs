@@ -350,7 +350,8 @@ const LAUNCHD_START_GRACE: std::time::Duration = std::time::Duration::from_secs(
 /// Nothing is stopped unless a daemon can be brought back. Before the
 /// bootout, launchd is asked whether it would take the daemon's job: the
 /// domain must take a probe job (`/usr/bin/true`, booted out at once), the
-/// job's label must not be disabled there (`launchctl print-disabled`), and
+/// job's label must not be disabled there (`launchctl print-disabled`, which
+/// must answer: one that fails refuses too), and
 /// its plist must parse (`plutil -lint`). The job was taken from that plist
 /// when it was last bootstrapped, so these are what can make launchd refuse it
 /// now. When any fails, the script refuses ([`REFUSED`] `launchdRefused`,
@@ -381,7 +382,8 @@ printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<plist version="1.0"><di
 launchctl bootout gui/$acpmux_uid/com.acpmux.probe >/dev/null 2>&1
 if ! acpmux_why=$(launchctl bootstrap gui/$acpmux_uid "$acpmux_pd/probe.plist" 2>&1); then rm -rf "$acpmux_pd"; acpmux_refuse launchdRefused "launchd refuses to start jobs in gui/$acpmux_uid ($acpmux_why)"; fi
 launchctl bootout gui/$acpmux_uid/com.acpmux.probe >/dev/null 2>&1; rm -rf "$acpmux_pd"
-if launchctl print-disabled gui/$acpmux_uid 2>/dev/null | grep -Eq '"com\.acpmux\.daemon" => (disabled|true)'; then acpmux_refuse launchdRefused "launchd has com.acpmux.daemon disabled in gui/$acpmux_uid (launchctl enable $acpmux_job turns it on)"; fi
+acpmux_dis=$(launchctl print-disabled gui/$acpmux_uid 2>&1) || acpmux_refuse launchdRefused "launchd did not say whether com.acpmux.daemon is disabled in gui/$acpmux_uid ($acpmux_dis)"
+case "$acpmux_dis" in *'"com.acpmux.daemon" => disabled'*|*'"com.acpmux.daemon" => true'*) acpmux_refuse launchdRefused "launchd has com.acpmux.daemon disabled in gui/$acpmux_uid (launchctl enable $acpmux_job turns it on)";; esac
 if ! acpmux_why=$(plutil -lint "$acpmux_plist" 2>&1); then acpmux_refuse launchdRefused "launchd cannot start the daemon from $acpmux_plist ($acpmux_why; acpmux host setup writes it again)"; fi
 acpmux_old=$(launchctl print "$acpmux_job" 2>/dev/null | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p' | head -n 1)
 acpmux_p=$(~/.local/bin/acpmux --json daemon status 2>/dev/null | sed -n 's/^ *"pid": *\([0-9][0-9]*\).*/\1/p' | head -n 1)
