@@ -49,7 +49,15 @@ fn new_machine_bootstrap_script_is_made_absolute() {
     let (method, params) = call(
         run_action(
             "cloud new-machine",
-            &args(&["--persistent", "--size", "medium", "--bootstrap", "lane", "--bootstrap-script", "boot.sh"]),
+            &args(&[
+                "--persistent",
+                "--size",
+                "medium",
+                "--bootstrap",
+                "lane",
+                "--bootstrap-script",
+                "boot.sh",
+            ]),
             ActionName::Cli,
         )
         .unwrap(),
