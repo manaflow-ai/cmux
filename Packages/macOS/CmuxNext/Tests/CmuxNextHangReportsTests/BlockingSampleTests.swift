@@ -241,28 +241,36 @@ struct BlockingSampleTests {
 
     @Test func oneSendPerSitePer24Hours() {
         let start = Date(timeIntervalSince1970: 1_000_000)
+        // `admit` is mutating, so each result is read before `#expect` (the macro passes its subject immutably).
         var budget = BlockingReportBudget()
-        #expect(budget.admit(site: "a", now: start))
-        #expect(!budget.admit(site: "a", now: start.addingTimeInterval(60)))
+        let first = budget.admit(site: "a", now: start)
+        let again = budget.admit(site: "a", now: start.addingTimeInterval(60))
+        #expect(first)
+        #expect(!again)
 
         // The next launch reads the saved times.
         var nextLaunch = BlockingReportBudget(lastSent: budget.lastSent)
-        #expect(!nextLaunch.admit(site: "a", now: start.addingTimeInterval(23 * 3_600)))
-        #expect(nextLaunch.admit(site: "a", now: start.addingTimeInterval(BlockingReportBudget.perSiteInterval)))
+        let within24Hours = nextLaunch.admit(site: "a", now: start.addingTimeInterval(23 * 3_600))
+        let after24Hours = nextLaunch.admit(site: "a", now: start.addingTimeInterval(BlockingReportBudget.perSiteInterval))
+        #expect(!within24Hours)
+        #expect(after24Hours)
     }
 
     @Test func aRefusedSiteDoesNotUseTheLaunchBudget() {
         let now = Date(timeIntervalSince1970: 1_000_000)
         var budget = BlockingReportBudget(lastSent: ["held": now])
-        #expect(!budget.admit(site: "held", now: now))
-        #expect((0..<5).allSatisfy { budget.admit(site: "site\($0)", now: now) })
+        let held = budget.admit(site: "held", now: now)
+        let fiveOthers = (0..<5).allSatisfy { budget.admit(site: "site\($0)", now: now) }
+        #expect(!held)
+        #expect(fiveOthers)
     }
 
     @Test func expiredTimesAreForgottenAndAClockMovedBackDoesNotHold() {
         let now = Date(timeIntervalSince1970: 1_000_000)
         var budget = BlockingReportBudget(lastSent: ["old": now.addingTimeInterval(-2 * BlockingReportBudget.perSiteInterval),
                                                      "future": now.addingTimeInterval(3_600)])
-        #expect(budget.admit(site: "future", now: now))
+        let future = budget.admit(site: "future", now: now)
+        #expect(future)
         #expect(budget.lastSent.keys.sorted() == ["future"])
     }
 
