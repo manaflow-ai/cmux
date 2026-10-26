@@ -4096,7 +4096,9 @@ jobs:
         if: needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_CEF_ON_DEMAND == '1'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cef-runtime-pack
+          # One pack per variant: the pack key includes the architecture, and
+          # each leg writes its own cef-runtime.json pin.
+          name: cef-runtime-pack-${{ matrix.variant }}
           path: ${{ runner.temp }}/cef-runtime
           if-no-files-found: error
           retention-days: 7
@@ -5864,7 +5866,8 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_CEF_ON_DEMAND == '1' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: cef-runtime-pack
+          # Each variant's pack lands in cef-runtime/cef-runtime-pack-<variant>/.
+          pattern: cef-runtime-pack-*
           path: cef-runtime
 
       - name: Publish the Chromium runtime pack
@@ -5874,7 +5877,14 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
-        run: bash "$PUBLISH_TOOLING/cmux-next/publish-cef-runtime.sh" cef-runtime
+          VARIANTS: ${{ needs.decide.outputs.variants }}
+        # Every variant's app pins its own architecture's pack: publish each one,
+        # and fail when a variant has none, so no app is offered without its engine.
+        run: |
+          set -euo pipefail
+          for variant in $(jq -r '.[]' <<< "$VARIANTS"); do
+            bash "$PUBLISH_TOOLING/cmux-next/publish-cef-runtime.sh" "cef-runtime/cef-runtime-pack-${variant}"
+          done
 
       - name: Upload nightly-next appcasts to R2
         id: upload_next_appcasts
