@@ -1,5 +1,5 @@
 {
-  "$comment": "p15-oracle-063: the session family's 11 mutations (gen_daemon_ops.py reads this file; run it after an edit). Each success case makes the fixture workspace, runs the operation, reads the durable lists (workspaces, panes, tabs and the journal lists the operation changes), restarts the daemon gracefully on the same state root (restart: shutdown-daemon that keeps the terminals, then a start that adopts them; session.shutdown is that stop itself), waits for the terminal to run again, reads the same lists, which must equal the replies before, and gets the fixture workspace, pane, tab and terminal by their ids from before the restart. The restart step's before and settled snapshots let I2 hold every structural id. Error cases stay the catalog-type refusal on a fresh daemon.",
+  "$comment": "p15-oracle-063: the session family's 11 mutations (gen_daemon_ops.py reads this file; run it after an edit). Each success case makes the fixture workspace, runs the operation, reads the durable lists (workspaces, panes, tabs and the journal lists the operation changes) and session.snapshot, restarts the daemon gracefully on the same state root (restart: shutdown-daemon that keeps the terminals, then a start that adopts them; session.shutdown is that stop itself, a call that `ends` the daemon), waits for the terminal to run again, reads the same lists, which must equal the replies before, and session.snapshot, which must equal the one before but for what a new daemon generation changes: the stream cursor, the session generation and revision (the start commits one), and each terminal's stream_revision and extra (live PTY activity: program_status, activity, busy, prompt, last_output; resource_api.rs). Then it gets the fixture workspace, pane, tab and terminal by their ids from before the restart. The restart step's before and settled snapshots let I2 hold every structural id. Error cases stay the catalog-type refusal on a fresh daemon.",
   "operations": {
     "session.journal.producer.put": {
       "success": {
@@ -12,19 +12,23 @@
         "after": [
           {
             "id": "workspaces-before",
-            "read": "workspace.list"
+            "method": "workspace.list"
           },
           {
             "id": "panes-before",
-            "read": "pane.list"
+            "method": "pane.list"
           },
           {
             "id": "tabs-before",
-            "read": "tab.list"
+            "method": "tab.list"
           },
           {
             "id": "producers-before",
-            "read": "session.journal.producer.list"
+            "method": "session.journal.producer.list"
+          },
+          {
+            "id": "snapshot-before",
+            "method": "session.snapshot"
           },
           {
             "id": "restart",
@@ -37,27 +41,39 @@
           },
           {
             "id": "workspaces-after",
-            "read": "workspace.list",
+            "method": "workspace.list",
             "equals": "workspaces-before"
           },
           {
             "id": "panes-after",
-            "read": "pane.list",
+            "method": "pane.list",
             "equals": "panes-before"
           },
           {
             "id": "tabs-after",
-            "read": "tab.list",
+            "method": "tab.list",
             "equals": "tabs-before"
           },
           {
             "id": "producers-after",
-            "read": "session.journal.producer.list",
+            "method": "session.journal.producer.list",
             "equals": "producers-before"
           },
           {
+            "id": "snapshot-after",
+            "method": "session.snapshot",
+            "equals": "snapshot-before",
+            "except": [
+              "/cursor",
+              "/session/generation",
+              "/session/revision",
+              "/terminals/*/stream_revision",
+              "/terminals/*/extra"
+            ]
+          },
+          {
             "id": "workspace-get",
-            "read": "workspace.get",
+            "method": "workspace.get",
             "target": {
               "workspace": {
                 "$fixture": "workspace"
@@ -66,7 +82,7 @@
           },
           {
             "id": "pane-get",
-            "read": "pane.get",
+            "method": "pane.get",
             "target": {
               "pane": {
                 "$fixture": "pane"
@@ -75,7 +91,7 @@
           },
           {
             "id": "tab-get",
-            "read": "tab.get",
+            "method": "tab.get",
             "target": {
               "tab": {
                 "$fixture": "tab"
@@ -84,7 +100,7 @@
           },
           {
             "id": "terminal-get",
-            "read": "terminal.get",
+            "method": "terminal.get",
             "target": {
               "terminal": {
                 "$fixture": "terminal"
@@ -135,19 +151,23 @@
         "after": [
           {
             "id": "workspaces-before",
-            "read": "workspace.list"
+            "method": "workspace.list"
           },
           {
             "id": "panes-before",
-            "read": "pane.list"
+            "method": "pane.list"
           },
           {
             "id": "tabs-before",
-            "read": "tab.list"
+            "method": "tab.list"
           },
           {
             "id": "producers-before",
-            "read": "session.journal.producer.list"
+            "method": "session.journal.producer.list"
+          },
+          {
+            "id": "snapshot-before",
+            "method": "session.snapshot"
           },
           {
             "id": "restart",
@@ -160,27 +180,39 @@
           },
           {
             "id": "workspaces-after",
-            "read": "workspace.list",
+            "method": "workspace.list",
             "equals": "workspaces-before"
           },
           {
             "id": "panes-after",
-            "read": "pane.list",
+            "method": "pane.list",
             "equals": "panes-before"
           },
           {
             "id": "tabs-after",
-            "read": "tab.list",
+            "method": "tab.list",
             "equals": "tabs-before"
           },
           {
             "id": "producers-after",
-            "read": "session.journal.producer.list",
+            "method": "session.journal.producer.list",
             "equals": "producers-before"
           },
           {
+            "id": "snapshot-after",
+            "method": "session.snapshot",
+            "equals": "snapshot-before",
+            "except": [
+              "/cursor",
+              "/session/generation",
+              "/session/revision",
+              "/terminals/*/stream_revision",
+              "/terminals/*/extra"
+            ]
+          },
+          {
             "id": "workspace-get",
-            "read": "workspace.get",
+            "method": "workspace.get",
             "target": {
               "workspace": {
                 "$fixture": "workspace"
@@ -189,7 +221,7 @@
           },
           {
             "id": "pane-get",
-            "read": "pane.get",
+            "method": "pane.get",
             "target": {
               "pane": {
                 "$fixture": "pane"
@@ -198,7 +230,7 @@
           },
           {
             "id": "tab-get",
-            "read": "tab.get",
+            "method": "tab.get",
             "target": {
               "tab": {
                 "$fixture": "tab"
@@ -207,7 +239,7 @@
           },
           {
             "id": "terminal-get",
-            "read": "terminal.get",
+            "method": "terminal.get",
             "target": {
               "terminal": {
                 "$fixture": "terminal"
@@ -277,15 +309,23 @@
         "after": [
           {
             "id": "workspaces-before",
-            "read": "workspace.list"
+            "method": "workspace.list"
           },
           {
             "id": "panes-before",
-            "read": "pane.list"
+            "method": "pane.list"
           },
           {
             "id": "tabs-before",
-            "read": "tab.list"
+            "method": "tab.list"
+          },
+          {
+            "id": "snapshot-before",
+            "method": "session.snapshot"
+          },
+          {
+            "id": "hooks-before",
+            "method": "session.journal.hook.list"
           },
           {
             "id": "restart",
@@ -298,26 +338,42 @@
           },
           {
             "id": "workspaces-after",
-            "read": "workspace.list",
+            "method": "workspace.list",
             "equals": "workspaces-before"
           },
           {
             "id": "panes-after",
-            "read": "pane.list",
+            "method": "pane.list",
             "equals": "panes-before"
           },
           {
             "id": "tabs-after",
-            "read": "tab.list",
+            "method": "tab.list",
             "equals": "tabs-before"
           },
           {
             "id": "hooks-after",
-            "read": "session.journal.hook.list"
+            "method": "session.journal.hook.list",
+            "equals": "hooks-before",
+            "except": [
+              "/hooks/*/cursor"
+            ]
+          },
+          {
+            "id": "snapshot-after",
+            "method": "session.snapshot",
+            "equals": "snapshot-before",
+            "except": [
+              "/cursor",
+              "/session/generation",
+              "/session/revision",
+              "/terminals/*/stream_revision",
+              "/terminals/*/extra"
+            ]
           },
           {
             "id": "workspace-get",
-            "read": "workspace.get",
+            "method": "workspace.get",
             "target": {
               "workspace": {
                 "$fixture": "workspace"
@@ -326,7 +382,7 @@
           },
           {
             "id": "pane-get",
-            "read": "pane.get",
+            "method": "pane.get",
             "target": {
               "pane": {
                 "$fixture": "pane"
@@ -335,7 +391,7 @@
           },
           {
             "id": "tab-get",
-            "read": "tab.get",
+            "method": "tab.get",
             "target": {
               "tab": {
                 "$fixture": "tab"
@@ -344,7 +400,7 @@
           },
           {
             "id": "terminal-get",
-            "read": "terminal.get",
+            "method": "terminal.get",
             "target": {
               "terminal": {
                 "$fixture": "terminal"
@@ -352,7 +408,7 @@
             }
           }
         ],
-        "note": "installs a hook whose filter matches no journal kind, so it never runs a process; the hook survives a graceful restart",
+        "note": "installs a hook whose filter matches no journal kind, so it never runs a process; hooks-after holds hook oracle (manifest and enabled) equal across a graceful restart",
         "params": {
           "manifest": {
             "hook_id": "oracle",
@@ -384,7 +440,7 @@
           }
         },
         "untested": [
-          "hook.list is read after the restart but not compared: the hook's delivery cursor moves past the records the restart journals"
+          "the hook's delivery cursor is not compared: it moves past the records the restart journals"
         ]
       },
       "error": {
@@ -405,19 +461,23 @@
         "after": [
           {
             "id": "workspaces-before",
-            "read": "workspace.list"
+            "method": "workspace.list"
           },
           {
             "id": "panes-before",
-            "read": "pane.list"
+            "method": "pane.list"
           },
           {
             "id": "tabs-before",
-            "read": "tab.list"
+            "method": "tab.list"
           },
           {
             "id": "checkpoints-before",
-            "read": "session.journal.checkpoint.list"
+            "method": "session.journal.checkpoint.list"
+          },
+          {
+            "id": "snapshot-before",
+            "method": "session.snapshot"
           },
           {
             "id": "restart",
@@ -430,27 +490,39 @@
           },
           {
             "id": "workspaces-after",
-            "read": "workspace.list",
+            "method": "workspace.list",
             "equals": "workspaces-before"
           },
           {
             "id": "panes-after",
-            "read": "pane.list",
+            "method": "pane.list",
             "equals": "panes-before"
           },
           {
             "id": "tabs-after",
-            "read": "tab.list",
+            "method": "tab.list",
             "equals": "tabs-before"
           },
           {
             "id": "checkpoints-after",
-            "read": "session.journal.checkpoint.list",
+            "method": "session.journal.checkpoint.list",
             "equals": "checkpoints-before"
           },
           {
+            "id": "snapshot-after",
+            "method": "session.snapshot",
+            "equals": "snapshot-before",
+            "except": [
+              "/cursor",
+              "/session/generation",
+              "/session/revision",
+              "/terminals/*/stream_revision",
+              "/terminals/*/extra"
+            ]
+          },
+          {
             "id": "workspace-get",
-            "read": "workspace.get",
+            "method": "workspace.get",
             "target": {
               "workspace": {
                 "$fixture": "workspace"
@@ -459,7 +531,7 @@
           },
           {
             "id": "pane-get",
-            "read": "pane.get",
+            "method": "pane.get",
             "target": {
               "pane": {
                 "$fixture": "pane"
@@ -468,7 +540,7 @@
           },
           {
             "id": "tab-get",
-            "read": "tab.get",
+            "method": "tab.get",
             "target": {
               "tab": {
                 "$fixture": "tab"
@@ -477,7 +549,7 @@
           },
           {
             "id": "terminal-get",
-            "read": "terminal.get",
+            "method": "terminal.get",
             "target": {
               "terminal": {
                 "$fixture": "terminal"
@@ -505,23 +577,27 @@
         "after": [
           {
             "id": "workspaces-before",
-            "read": "workspace.list"
+            "method": "workspace.list"
           },
           {
             "id": "panes-before",
-            "read": "pane.list"
+            "method": "pane.list"
           },
           {
             "id": "tabs-before",
-            "read": "tab.list"
+            "method": "tab.list"
           },
           {
             "id": "segments-before",
-            "read": "session.journal.segment.list"
+            "method": "session.journal.segment.list"
           },
           {
             "id": "checkpoints-before",
-            "read": "session.journal.checkpoint.list"
+            "method": "session.journal.checkpoint.list"
+          },
+          {
+            "id": "snapshot-before",
+            "method": "session.snapshot"
           },
           {
             "id": "restart",
@@ -534,32 +610,44 @@
           },
           {
             "id": "workspaces-after",
-            "read": "workspace.list",
+            "method": "workspace.list",
             "equals": "workspaces-before"
           },
           {
             "id": "panes-after",
-            "read": "pane.list",
+            "method": "pane.list",
             "equals": "panes-before"
           },
           {
             "id": "tabs-after",
-            "read": "tab.list",
+            "method": "tab.list",
             "equals": "tabs-before"
           },
           {
             "id": "segments-after",
-            "read": "session.journal.segment.list",
+            "method": "session.journal.segment.list",
             "equals": "segments-before"
           },
           {
             "id": "checkpoints-after",
-            "read": "session.journal.checkpoint.list",
+            "method": "session.journal.checkpoint.list",
             "equals": "checkpoints-before"
           },
           {
+            "id": "snapshot-after",
+            "method": "session.snapshot",
+            "equals": "snapshot-before",
+            "except": [
+              "/cursor",
+              "/session/generation",
+              "/session/revision",
+              "/terminals/*/stream_revision",
+              "/terminals/*/extra"
+            ]
+          },
+          {
             "id": "workspace-get",
-            "read": "workspace.get",
+            "method": "workspace.get",
             "target": {
               "workspace": {
                 "$fixture": "workspace"
@@ -568,7 +656,7 @@
           },
           {
             "id": "pane-get",
-            "read": "pane.get",
+            "method": "pane.get",
             "target": {
               "pane": {
                 "$fixture": "pane"
@@ -577,7 +665,7 @@
           },
           {
             "id": "tab-get",
-            "read": "tab.get",
+            "method": "tab.get",
             "target": {
               "tab": {
                 "$fixture": "tab"
@@ -586,7 +674,7 @@
           },
           {
             "id": "terminal-get",
-            "read": "terminal.get",
+            "method": "terminal.get",
             "target": {
               "terminal": {
                 "$fixture": "terminal"
@@ -602,10 +690,7 @@
           }
         ],
         "params": {
-          "through_sequence": {
-            "$step": "checkpoint",
-            "pointer": "/value/source_sequence"
-          }
+          "through_sequence": "$step:checkpoint#/value/source_sequence"
         }
       },
       "error": {
@@ -627,15 +712,19 @@
         "after": [
           {
             "id": "workspaces-before",
-            "read": "workspace.list"
+            "method": "workspace.list"
           },
           {
             "id": "panes-before",
-            "read": "pane.list"
+            "method": "pane.list"
           },
           {
             "id": "tabs-before",
-            "read": "tab.list"
+            "method": "tab.list"
+          },
+          {
+            "id": "snapshot-before",
+            "method": "session.snapshot"
           },
           {
             "id": "restart",
@@ -648,22 +737,34 @@
           },
           {
             "id": "workspaces-after",
-            "read": "workspace.list",
+            "method": "workspace.list",
             "equals": "workspaces-before"
           },
           {
             "id": "panes-after",
-            "read": "pane.list",
+            "method": "pane.list",
             "equals": "panes-before"
           },
           {
             "id": "tabs-after",
-            "read": "tab.list",
+            "method": "tab.list",
             "equals": "tabs-before"
           },
           {
+            "id": "snapshot-after",
+            "method": "session.snapshot",
+            "equals": "snapshot-before",
+            "except": [
+              "/cursor",
+              "/session/generation",
+              "/session/revision",
+              "/terminals/*/stream_revision",
+              "/terminals/*/extra"
+            ]
+          },
+          {
             "id": "workspace-get",
-            "read": "workspace.get",
+            "method": "workspace.get",
             "target": {
               "workspace": {
                 "$fixture": "workspace"
@@ -672,7 +773,7 @@
           },
           {
             "id": "pane-get",
-            "read": "pane.get",
+            "method": "pane.get",
             "target": {
               "pane": {
                 "$fixture": "pane"
@@ -681,7 +782,7 @@
           },
           {
             "id": "tab-get",
-            "read": "tab.get",
+            "method": "tab.get",
             "target": {
               "tab": {
                 "$fixture": "tab"
@@ -690,7 +791,7 @@
           },
           {
             "id": "terminal-get",
-            "read": "terminal.get",
+            "method": "terminal.get",
             "target": {
               "terminal": {
                 "$fixture": "terminal"
@@ -718,15 +819,19 @@
         "after": [
           {
             "id": "workspaces-before",
-            "read": "workspace.list"
+            "method": "workspace.list"
           },
           {
             "id": "panes-before",
-            "read": "pane.list"
+            "method": "pane.list"
           },
           {
             "id": "tabs-before",
-            "read": "tab.list"
+            "method": "tab.list"
+          },
+          {
+            "id": "snapshot-before",
+            "method": "session.snapshot"
           },
           {
             "id": "restart",
@@ -739,22 +844,34 @@
           },
           {
             "id": "workspaces-after",
-            "read": "workspace.list",
+            "method": "workspace.list",
             "equals": "workspaces-before"
           },
           {
             "id": "panes-after",
-            "read": "pane.list",
+            "method": "pane.list",
             "equals": "panes-before"
           },
           {
             "id": "tabs-after",
-            "read": "tab.list",
+            "method": "tab.list",
             "equals": "tabs-before"
           },
           {
+            "id": "snapshot-after",
+            "method": "session.snapshot",
+            "equals": "snapshot-before",
+            "except": [
+              "/cursor",
+              "/session/generation",
+              "/session/revision",
+              "/terminals/*/stream_revision",
+              "/terminals/*/extra"
+            ]
+          },
+          {
             "id": "workspace-get",
-            "read": "workspace.get",
+            "method": "workspace.get",
             "target": {
               "workspace": {
                 "$fixture": "workspace"
@@ -763,7 +880,7 @@
           },
           {
             "id": "pane-get",
-            "read": "pane.get",
+            "method": "pane.get",
             "target": {
               "pane": {
                 "$fixture": "pane"
@@ -772,7 +889,7 @@
           },
           {
             "id": "tab-get",
-            "read": "tab.get",
+            "method": "tab.get",
             "target": {
               "tab": {
                 "$fixture": "tab"
@@ -781,7 +898,7 @@
           },
           {
             "id": "terminal-get",
-            "read": "terminal.get",
+            "method": "terminal.get",
             "target": {
               "terminal": {
                 "$fixture": "terminal"
@@ -809,15 +926,19 @@
         "after": [
           {
             "id": "workspaces-before",
-            "read": "workspace.list"
+            "method": "workspace.list"
           },
           {
             "id": "panes-before",
-            "read": "pane.list"
+            "method": "pane.list"
           },
           {
             "id": "tabs-before",
-            "read": "tab.list"
+            "method": "tab.list"
+          },
+          {
+            "id": "snapshot-before",
+            "method": "session.snapshot"
           },
           {
             "id": "restart",
@@ -830,22 +951,42 @@
           },
           {
             "id": "workspaces-after",
-            "read": "workspace.list",
+            "method": "workspace.list",
             "equals": "workspaces-before"
           },
           {
             "id": "panes-after",
-            "read": "pane.list",
+            "method": "pane.list",
             "equals": "panes-before"
           },
           {
             "id": "tabs-after",
-            "read": "tab.list",
+            "method": "tab.list",
             "equals": "tabs-before"
           },
           {
+            "id": "snapshot-after",
+            "method": "session.snapshot",
+            "equals": "snapshot-before",
+            "except": [
+              "/cursor",
+              "/session/generation",
+              "/session/revision",
+              "/terminals/*/stream_revision",
+              "/terminals/*/extra"
+            ]
+          },
+          {
+            "id": "call-replayed",
+            "replays": "call",
+            "except": [
+              "/generation",
+              "/replayed"
+            ]
+          },
+          {
             "id": "workspace-get",
-            "read": "workspace.get",
+            "method": "workspace.get",
             "target": {
               "workspace": {
                 "$fixture": "workspace"
@@ -854,7 +995,7 @@
           },
           {
             "id": "pane-get",
-            "read": "pane.get",
+            "method": "pane.get",
             "target": {
               "pane": {
                 "$fixture": "pane"
@@ -863,7 +1004,7 @@
           },
           {
             "id": "tab-get",
-            "read": "tab.get",
+            "method": "tab.get",
             "target": {
               "tab": {
                 "$fixture": "tab"
@@ -872,7 +1013,7 @@
           },
           {
             "id": "terminal-get",
-            "read": "terminal.get",
+            "method": "terminal.get",
             "target": {
               "terminal": {
                 "$fixture": "terminal"
@@ -880,9 +1021,9 @@
             }
           }
         ],
-        "note": "sets the foreground default; the fixture keeps its ids across a graceful restart",
+        "note": "sets the foreground default; after a graceful restart the replayed call returns the same value from the durable receipt, and the session snapshot and the fixture ids are unchanged",
         "untested": [
-          "no read operation returns the terminal defaults, so the restart checks only the daemon facet and the fixture ids"
+          "no read operation returns the live terminal defaults; call-replayed reads them back from the durable receipt (resource_mutations), the row the daemon restores them from at start (public_projection_store.rs durable_terminal_defaults), not from the running terminals"
         ]
       },
       "error": {
@@ -903,15 +1044,19 @@
         "after": [
           {
             "id": "workspaces-before",
-            "read": "workspace.list"
+            "method": "workspace.list"
           },
           {
             "id": "panes-before",
-            "read": "pane.list"
+            "method": "pane.list"
           },
           {
             "id": "tabs-before",
-            "read": "tab.list"
+            "method": "tab.list"
+          },
+          {
+            "id": "snapshot-before",
+            "method": "session.snapshot"
           },
           {
             "id": "restart",
@@ -924,22 +1069,42 @@
           },
           {
             "id": "workspaces-after",
-            "read": "workspace.list",
+            "method": "workspace.list",
             "equals": "workspaces-before"
           },
           {
             "id": "panes-after",
-            "read": "pane.list",
+            "method": "pane.list",
             "equals": "panes-before"
           },
           {
             "id": "tabs-after",
-            "read": "tab.list",
+            "method": "tab.list",
             "equals": "tabs-before"
           },
           {
+            "id": "snapshot-after",
+            "method": "session.snapshot",
+            "equals": "snapshot-before",
+            "except": [
+              "/cursor",
+              "/session/generation",
+              "/session/revision",
+              "/terminals/*/stream_revision",
+              "/terminals/*/extra"
+            ]
+          },
+          {
+            "id": "call-replayed",
+            "replays": "call",
+            "except": [
+              "/generation",
+              "/replayed"
+            ]
+          },
+          {
             "id": "workspace-get",
-            "read": "workspace.get",
+            "method": "workspace.get",
             "target": {
               "workspace": {
                 "$fixture": "workspace"
@@ -948,7 +1113,7 @@
           },
           {
             "id": "pane-get",
-            "read": "pane.get",
+            "method": "pane.get",
             "target": {
               "pane": {
                 "$fixture": "pane"
@@ -957,7 +1122,7 @@
           },
           {
             "id": "tab-get",
-            "read": "tab.get",
+            "method": "tab.get",
             "target": {
               "tab": {
                 "$fixture": "tab"
@@ -966,7 +1131,7 @@
           },
           {
             "id": "terminal-get",
-            "read": "terminal.get",
+            "method": "terminal.get",
             "target": {
               "terminal": {
                 "$fixture": "terminal"
@@ -974,9 +1139,9 @@
             }
           }
         ],
-        "note": "clears the window title; the fixture keeps its ids across a graceful restart",
+        "note": "clears the window title; after a graceful restart the replayed call returns the same receipt, and the session snapshot and the fixture ids are unchanged",
         "untested": [
-          "no read operation returns the window title, so the restart checks only the daemon facet and the fixture ids"
+          "the window title is not daemon state: the operation emits WindowTitleRequested to the attached frontends and stores nothing (resource_router/session.rs), so no read or snapshot holds a title for the restart to keep or lose; call-replayed checks that its receipt survives the restart"
         ]
       },
       "error": {
@@ -997,15 +1162,19 @@
         "after": [
           {
             "id": "workspaces-before",
-            "read": "workspace.list"
+            "method": "workspace.list"
           },
           {
             "id": "panes-before",
-            "read": "pane.list"
+            "method": "pane.list"
           },
           {
             "id": "tabs-before",
-            "read": "tab.list"
+            "method": "tab.list"
+          },
+          {
+            "id": "snapshot-before",
+            "method": "session.snapshot"
           },
           {
             "id": "restart",
@@ -1018,22 +1187,42 @@
           },
           {
             "id": "workspaces-after",
-            "read": "workspace.list",
+            "method": "workspace.list",
             "equals": "workspaces-before"
           },
           {
             "id": "panes-after",
-            "read": "pane.list",
+            "method": "pane.list",
             "equals": "panes-before"
           },
           {
             "id": "tabs-after",
-            "read": "tab.list",
+            "method": "tab.list",
             "equals": "tabs-before"
           },
           {
+            "id": "snapshot-after",
+            "method": "session.snapshot",
+            "equals": "snapshot-before",
+            "except": [
+              "/cursor",
+              "/session/generation",
+              "/session/revision",
+              "/terminals/*/stream_revision",
+              "/terminals/*/extra"
+            ]
+          },
+          {
+            "id": "call-replayed",
+            "replays": "call",
+            "except": [
+              "/generation",
+              "/replayed"
+            ]
+          },
+          {
             "id": "workspace-get",
-            "read": "workspace.get",
+            "method": "workspace.get",
             "target": {
               "workspace": {
                 "$fixture": "workspace"
@@ -1042,7 +1231,7 @@
           },
           {
             "id": "pane-get",
-            "read": "pane.get",
+            "method": "pane.get",
             "target": {
               "pane": {
                 "$fixture": "pane"
@@ -1051,7 +1240,7 @@
           },
           {
             "id": "tab-get",
-            "read": "tab.get",
+            "method": "tab.get",
             "target": {
               "tab": {
                 "$fixture": "tab"
@@ -1060,7 +1249,7 @@
           },
           {
             "id": "terminal-get",
-            "read": "terminal.get",
+            "method": "terminal.get",
             "target": {
               "terminal": {
                 "$fixture": "terminal"
@@ -1068,9 +1257,9 @@
             }
           }
         ],
-        "note": "sets the window title; the fixture keeps its ids across a graceful restart",
+        "note": "sets the window title; after a graceful restart the replayed call returns the same receipt, and the session snapshot and the fixture ids are unchanged",
         "untested": [
-          "no read operation returns the window title, so the restart checks only the daemon facet and the fixture ids"
+          "the window title is not daemon state: the operation emits WindowTitleRequested to the attached frontends and stores nothing (resource_router/session.rs), so no read or snapshot holds a title for the restart to keep or lose; call-replayed checks that its receipt survives the restart"
         ]
       },
       "error": {
@@ -1094,23 +1283,27 @@
         "before": [
           {
             "id": "workspaces-before",
-            "read": "workspace.list"
+            "method": "workspace.list"
           },
           {
             "id": "panes-before",
-            "read": "pane.list"
+            "method": "pane.list"
           },
           {
             "id": "tabs-before",
-            "read": "tab.list"
+            "method": "tab.list"
           },
           {
             "id": "producers-before",
-            "read": "session.journal.producer.list"
+            "method": "session.journal.producer.list"
           },
           {
             "id": "checkpoints-before",
-            "read": "session.journal.checkpoint.list"
+            "method": "session.journal.checkpoint.list"
+          },
+          {
+            "id": "snapshot-before",
+            "method": "session.snapshot"
           }
         ],
         "after": [
@@ -1121,36 +1314,51 @@
               "pointer": "/daemon/session/terminals/0/lifecycle",
               "equals": "running",
               "maxMs": 15000
-            }
+            },
+            "checkpoint": [
+              "settled"
+            ]
           },
           {
             "id": "workspaces-after",
-            "read": "workspace.list",
+            "method": "workspace.list",
             "equals": "workspaces-before"
           },
           {
             "id": "panes-after",
-            "read": "pane.list",
+            "method": "pane.list",
             "equals": "panes-before"
           },
           {
             "id": "tabs-after",
-            "read": "tab.list",
+            "method": "tab.list",
             "equals": "tabs-before"
           },
           {
             "id": "producers-after",
-            "read": "session.journal.producer.list",
+            "method": "session.journal.producer.list",
             "equals": "producers-before"
           },
           {
             "id": "checkpoints-after",
-            "read": "session.journal.checkpoint.list",
+            "method": "session.journal.checkpoint.list",
             "equals": "checkpoints-before"
           },
           {
+            "id": "snapshot-after",
+            "method": "session.snapshot",
+            "equals": "snapshot-before",
+            "except": [
+              "/cursor",
+              "/session/generation",
+              "/session/revision",
+              "/terminals/*/stream_revision",
+              "/terminals/*/extra"
+            ]
+          },
+          {
             "id": "workspace-get",
-            "read": "workspace.get",
+            "method": "workspace.get",
             "target": {
               "workspace": {
                 "$fixture": "workspace"
@@ -1159,7 +1367,7 @@
           },
           {
             "id": "pane-get",
-            "read": "pane.get",
+            "method": "pane.get",
             "target": {
               "pane": {
                 "$fixture": "pane"
@@ -1168,7 +1376,7 @@
           },
           {
             "id": "tab-get",
-            "read": "tab.get",
+            "method": "tab.get",
             "target": {
               "tab": {
                 "$fixture": "tab"
@@ -1177,7 +1385,7 @@
           },
           {
             "id": "terminal-get",
-            "read": "terminal.get",
+            "method": "terminal.get",
             "target": {
               "terminal": {
                 "$fixture": "terminal"
@@ -1188,14 +1396,14 @@
         "allow_crashes": [
           {
             "kind": "daemon",
-            "reason": "session.shutdown stops the daemon on purpose (exit 0 after its receipt); the restart step starts it on the same root",
+            "reason": "session.shutdown stops the daemon on purpose (exit 0 after its receipt); the call step waits for that exit, and the restart step starts the daemon again on the same root",
             "steps": [
-              "call",
-              "restart"
+              "call"
             ]
           }
         ],
-        "note": "a graceful stop: the receipt is committed and sent before the daemon exits; no settled snapshot, the restart step's settled snapshot follows it"
+        "note": "a graceful stop: the receipt is committed and sent before the daemon exits with 0; the call ends the daemon, so it has no settled snapshot, and the restart step, which starts the stopped daemon, has only a settled one",
+        "ends": "daemon"
       },
       "error": {
         "fixture": [],
@@ -1207,7 +1415,8 @@
           "before",
           "settled"
         ],
-        "allow_crashes": []
+        "allow_crashes": [],
+        "ends": null
       }
     }
   }

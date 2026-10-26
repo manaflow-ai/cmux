@@ -32,8 +32,5 @@ p15-oracle-237 daemon-ops/history-visit-record-ok [ Skip ]
 p15-oracle-237 daemon-ops/history-visit-title-ok [ Skip ]
 p15-oracle-238 daemon-ops/pairing-request-resolve-ok [ Skip ]
 p15-oracle-244 daemon-ops/project-add-ok [ Skip ]
-p15-oracle-063 daemon-ops/session-journal-append-ok [ Skip ]
-p15-oracle-063 daemon-ops/session-journal-hook-put-ok [ Skip ]
-p15-oracle-063 daemon-ops/session-journal-producer-put-ok [ Skip ]
 p15-oracle-064 daemon-ops/workspace-agent-folder-set-ok [ Skip ]
 # END scripts/cmux-next/oracle/gen_daemon_ops.py

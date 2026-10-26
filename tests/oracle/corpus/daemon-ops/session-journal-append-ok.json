@@ -121,7 +121,6 @@
     {
       "id": "workspaces-before",
       "op": "resource.call",
-      "readOnly": true,
       "target": {
         "machine": "current",
         "session": "current"
@@ -130,6 +129,7 @@
         "method": "workspace.list",
         "params": {}
       },
+      "readOnly": true,
       "expect": {
         "outcome": "ok"
       }
@@ -137,7 +137,6 @@
     {
       "id": "panes-before",
       "op": "resource.call",
-      "readOnly": true,
       "target": {
         "machine": "current",
         "session": "current"
@@ -146,6 +145,7 @@
         "method": "pane.list",
         "params": {}
       },
+      "readOnly": true,
       "expect": {
         "outcome": "ok"
       }
@@ -153,7 +153,6 @@
     {
       "id": "tabs-before",
       "op": "resource.call",
-      "readOnly": true,
       "target": {
         "machine": "current",
         "session": "current"
@@ -162,6 +161,7 @@
         "method": "tab.list",
         "params": {}
       },
+      "readOnly": true,
       "expect": {
         "outcome": "ok"
       }
@@ -169,7 +169,6 @@
     {
       "id": "producers-before",
       "op": "resource.call",
-      "readOnly": true,
       "target": {
         "machine": "current",
         "session": "current"
@@ -178,6 +177,23 @@
         "method": "session.journal.producer.list",
         "params": {}
       },
+      "readOnly": true,
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
+      "id": "snapshot-before",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "session.snapshot",
+        "params": {}
+      },
+      "readOnly": true,
       "expect": {
         "outcome": "ok"
       }
@@ -205,7 +221,6 @@
     {
       "id": "workspaces-after",
       "op": "resource.call",
-      "readOnly": true,
       "target": {
         "machine": "current",
         "session": "current"
@@ -214,6 +229,7 @@
         "method": "workspace.list",
         "params": {}
       },
+      "readOnly": true,
       "expect": {
         "outcome": "ok",
         "result": "$step:workspaces-before#"
@@ -222,7 +238,6 @@
     {
       "id": "panes-after",
       "op": "resource.call",
-      "readOnly": true,
       "target": {
         "machine": "current",
         "session": "current"
@@ -231,6 +246,7 @@
         "method": "pane.list",
         "params": {}
       },
+      "readOnly": true,
       "expect": {
         "outcome": "ok",
         "result": "$step:panes-before#"
@@ -239,7 +255,6 @@
     {
       "id": "tabs-after",
       "op": "resource.call",
-      "readOnly": true,
       "target": {
         "machine": "current",
         "session": "current"
@@ -248,6 +263,7 @@
         "method": "tab.list",
         "params": {}
       },
+      "readOnly": true,
       "expect": {
         "outcome": "ok",
         "result": "$step:tabs-before#"
@@ -256,7 +272,6 @@
     {
       "id": "producers-after",
       "op": "resource.call",
-      "readOnly": true,
       "target": {
         "machine": "current",
         "session": "current"
@@ -265,15 +280,39 @@
         "method": "session.journal.producer.list",
         "params": {}
       },
+      "readOnly": true,
       "expect": {
         "outcome": "ok",
         "result": "$step:producers-before#"
       }
     },
     {
+      "id": "snapshot-after",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "session.snapshot",
+        "params": {}
+      },
+      "readOnly": true,
+      "expect": {
+        "outcome": "ok",
+        "result": "$step:snapshot-before#",
+        "resultExcept": [
+          "/cursor",
+          "/session/generation",
+          "/session/revision",
+          "/terminals/*/stream_revision",
+          "/terminals/*/extra"
+        ]
+      }
+    },
+    {
       "id": "workspace-get",
       "op": "resource.call",
-      "readOnly": true,
       "target": {
         "machine": "current",
         "session": "current",
@@ -283,6 +322,7 @@
         "method": "workspace.get",
         "params": {}
       },
+      "readOnly": true,
       "expect": {
         "outcome": "ok"
       }
@@ -290,7 +330,6 @@
     {
       "id": "pane-get",
       "op": "resource.call",
-      "readOnly": true,
       "target": {
         "machine": "current",
         "session": "current",
@@ -300,6 +339,7 @@
         "method": "pane.get",
         "params": {}
       },
+      "readOnly": true,
       "expect": {
         "outcome": "ok"
       }
@@ -307,7 +347,6 @@
     {
       "id": "tab-get",
       "op": "resource.call",
-      "readOnly": true,
       "target": {
         "machine": "current",
         "session": "current",
@@ -317,6 +356,7 @@
         "method": "tab.get",
         "params": {}
       },
+      "readOnly": true,
       "expect": {
         "outcome": "ok"
       }
@@ -324,7 +364,6 @@
     {
       "id": "terminal-get",
       "op": "resource.call",
-      "readOnly": true,
       "target": {
         "machine": "current",
         "session": "current",
@@ -334,6 +373,7 @@
         "method": "terminal.get",
         "params": {}
       },
+      "readOnly": true,
       "expect": {
         "outcome": "ok"
       }
@@ -341,7 +381,7 @@
   ],
   "invariants": [
     "generated by scripts/cmux-next/oracle/gen_daemon_ops.py from the catalog type of session.journal.append (family session)",
-    "workspaces-after, panes-after, tabs-after, producers-after reply exactly what the earlier read each names replied"
+    "workspaces-after, panes-after, tabs-after, producers-after, snapshot-after reply what the step each names replied, but for the pointers its resultExcept lists"
   ],
   "teardown": [
     "stop the case daemon",

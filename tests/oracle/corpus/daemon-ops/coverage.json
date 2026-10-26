@@ -4,7 +4,7 @@
   "catalog_sha256": "4c2922739cc0197b0344681e4f831efd0206fb6f85a4296760f0e60424dbb799",
   "suite": "daemon-ops",
   "total": 201,
-  "covered": 167,
+  "covered": 170,
   "verdicts": "not run",
   "excluded": {
     "agent.message.release": "no product runs it yet: only the person in the verified cmux app (the frontend actor) releases a held delivery, and a delivery is held only when an agent (a terminal actor) sends into another workspace; the case connection is a plain local client. p15-oracle-240 gives driver_daemon.py 237's user connection for the release and a fixture-terminal sender for the held delivery",
@@ -37,9 +37,6 @@
     "history.visit.title": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.title is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
     "pairing_request.resolve": "a pairing request exists only while a WebSocket peer waits on the daemon's pairing listener, and no case step opens one (the hermetic case daemon is offline); p15-oracle-238 adds a pairing.open step that opens a WebSocket pairing on the loopback listener, then this case rejects it",
     "project.add": "no case folder is one the project store takes: every case root is under /tmp (oracle.py DEFAULT_STATE_BASE /tmp/o, spec 3G) and state/projects.rs Refusals refuses every path under /tmp, /var/folders and the home folder (validation.invalid refused_path); p15-oracle-244 gives a case a folder outside those roots for project.add; no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
-    "session.journal.append": "placeholders params.event.producer_id: p15-oracle-063 tunes the success case",
-    "session.journal.hook.put": "placeholders params.manifest.hook_id: p15-oracle-063 tunes the success case",
-    "session.journal.producer.put": "placeholders params.manifest.producer_id: p15-oracle-063 tunes the success case",
     "workspace.agent_folder.set": "placeholders params.path: p15-oracle-064 tunes the success case"
   },
   "missing": [],
@@ -55,7 +52,7 @@
     "chief": 24,
     "misc": 28
   },
-  "placeholder_operations": 6,
+  "placeholder_operations": 3,
   "tokens": {
     "$CASE_ROOT": "the case's state root (hermetic_env.py ROOT_TOKEN, p15-oracle-200)"
   },
@@ -2176,15 +2173,29 @@
         "success": "daemon-ops/session-journal-append-ok",
         "error": "daemon-ops/session-journal-append-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace",
+        "producer"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "event",
         "rule": "value must be an object"
       },
-      "placeholders": [
-        "params.event.producer_id"
-      ]
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "restart"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "session.journal.checkpoint.create": {
       "family": "session",
@@ -2192,13 +2203,28 @@
         "success": "daemon-ops/session-journal-checkpoint-create-ok",
         "error": "daemon-ops/session-journal-checkpoint-create-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "oracle_unknown",
         "rule": "request contains unknown parameters"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "restart"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "session.journal.hook.put": {
       "family": "session",
@@ -2206,15 +2232,28 @@
         "success": "daemon-ops/session-journal-hook-put-ok",
         "error": "daemon-ops/session-journal-hook-put-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "manifest",
         "rule": "value must be an object"
       },
-      "placeholders": [
-        "params.manifest.hook_id"
-      ]
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "restart"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "session.journal.producer.put": {
       "family": "session",
@@ -2222,15 +2261,28 @@
         "success": "daemon-ops/session-journal-producer-put-ok",
         "error": "daemon-ops/session-journal-producer-put-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "manifest",
         "rule": "value must be an object"
       },
-      "placeholders": [
-        "params.manifest.producer_id"
-      ]
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "restart"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "session.journal.segment.seal": {
       "family": "session",
@@ -2238,13 +2290,29 @@
         "success": "daemon-ops/session-journal-segment-seal-ok",
         "error": "daemon-ops/session-journal-segment-seal-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace",
+        "checkpoint"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "through_sequence",
         "rule": "value must be an unsigned decimal string"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "restart"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "session.open": {
       "family": "session",
@@ -2252,13 +2320,28 @@
         "success": "daemon-ops/session-open-ok",
         "error": "daemon-ops/session-open-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "expected_revision",
         "rule": "value must be an unsigned decimal string"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "restart"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "session.reload_config": {
       "family": "session",
@@ -2266,13 +2349,28 @@
         "success": "daemon-ops/session-reload-config-ok",
         "error": "daemon-ops/session-reload-config-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "expected_revision",
         "rule": "value must be an unsigned decimal string"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "restart"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "session.shutdown": {
       "family": "session",
@@ -2280,13 +2378,34 @@
         "success": "daemon-ops/session-shutdown-ok",
         "error": "daemon-ops/session-shutdown-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace",
+        "workspaces-before",
+        "panes-before",
+        "tabs-before",
+        "producers-before",
+        "checkpoints-before",
+        "snapshot-before"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "force",
         "rule": "value must be a boolean"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "restart"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "session.terminal_defaults.update": {
       "family": "session",
@@ -2294,13 +2413,28 @@
         "success": "daemon-ops/session-terminal-defaults-update-ok",
         "error": "daemon-ops/session-terminal-defaults-update-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "foreground",
         "rule": "value must be a string"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "restart"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "session.window.title.clear": {
       "family": "session",
@@ -2308,13 +2442,28 @@
         "success": "daemon-ops/session-window-title-clear-ok",
         "error": "daemon-ops/session-window-title-clear-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "expected_revision",
         "rule": "value must be an unsigned decimal string"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "restart"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "session.window.title.set": {
       "family": "session",
@@ -2322,13 +2471,28 @@
         "success": "daemon-ops/session-window-title-set-ok",
         "error": "daemon-ops/session-window-title-set-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "title",
         "rule": "value must be a string"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "restart"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "settings.reset": {
       "family": "misc",
