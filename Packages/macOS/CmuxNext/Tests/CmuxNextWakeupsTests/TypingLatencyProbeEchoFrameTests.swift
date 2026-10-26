@@ -135,6 +135,62 @@ struct TypingLatencyProbeEchoFrameTests {
         #expect(store.delta().isEmpty)
     }
 
+    @Test("A sampled key that echoes nothing does not take an output decoded 2 s later, named or not")
+    func aLateOutputIsNotTheSampledKeysEcho() throws {
+        for exact in [true, false] {
+            let (probe, store, _) = Self.sampler()
+            let surface = probe.makeSurfaceKey()
+            Self.unsampledKeys(probe, 15)
+            #expect(probe.keyDown(eventTimestamp: ProcessInfo.processInfo.systemUptime - 2), "the key-down was 2 s ago")
+            Self.dispatchToTerminal(probe, surface)
+            probe.inputWritten(on: surface)
+            let flow = try #require(probe.openFlow)
+            probe.mark(.socketSubmit, flow: flow)
+            probe.turnDidEnd()
+            #expect(probe.isRecording, "exact \(exact): the written key waits for its echo")
+
+            // The next output on the surface is a redraw 2 s later; the daemon's slot still names the key.
+            probe.outputDecoded(flow: exact ? flow : nil)
+            probe.mark(.outputReceived, flow: flow)
+            probe.mark(.outputReceived, surface: surface)
+            probe.mark(.outputParsed, flow: flow)
+            probe.mark(.outputParsed, surface: surface)
+            probe.mark(.contents, surface: surface)
+            #expect(Self.histogram(.keyEchoFrame(.local), in: store) == nil, "exact \(exact)")
+            #expect(!probe.isRecording && Self.openCount(probe) == 0, "exact \(exact): the sample was dropped")
+            Self.unsampledKeys(probe, 15)
+            #expect(probe.keyDown(eventTimestamp: 0), "exact \(exact): sampling goes on")
+        }
+    }
+
+    @Test("A newer press written on the sample's surface before its echo is decoded drops the sample")
+    func aNewerWriteOnTheSurfaceDropsTheSample() throws {
+        let (probe, store, _) = Self.sampler()
+        let surface = probe.makeSurfaceKey(), other = probe.makeSurfaceKey()
+        Self.unsampledKeys(probe, 15)
+        #expect(probe.keyDown(eventTimestamp: 0))
+        Self.dispatchToTerminal(probe, surface)
+        probe.inputWritten(on: surface)
+        let flow = try #require(probe.openFlow)
+        probe.mark(.socketSubmit, flow: flow)
+
+        #expect(probe.keyDown(eventTimestamp: 0))
+        Self.dispatchToTerminal(probe, other)
+        probe.inputWritten(on: other)
+        #expect(probe.isRecording, "a write on another surface leaves the sample open")
+
+        #expect(probe.keyDown(eventTimestamp: 0))
+        Self.dispatchToTerminal(probe, surface)
+        probe.inputWritten(on: surface)
+        #expect(!probe.isRecording && Self.openCount(probe) == 0, "the newer press holds the daemon's slot now")
+
+        probe.outputDecoded(flow: flow)
+        probe.mark(.outputReceived, flow: flow)
+        probe.mark(.outputParsed, flow: flow)
+        probe.mark(.contents, surface: surface)
+        #expect(store.delta().isEmpty)
+    }
+
     @Test("When the sample closes, presses opened beside it go too, unless key flows are on")
     func theSampleClosesAloneOnlyWhileFlowsRecord() throws {
         for flows in [false, true] {

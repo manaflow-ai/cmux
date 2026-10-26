@@ -49,6 +49,7 @@ extension TypingLatencyProbe {
         let onMain = Thread.isMainThread
         let recorded = withState { state -> Recorded? in
             guard let index = state.open.firstIndex(where: { $0.awaitsWrite(on: surface) }) else { return nil }
+            state.dropEchoSample(overtakenBy: index)
             return state.record(.ioWrite, at: index, now: now, onMain: onMain)
         }
         finish(recorded.map { [$0] } ?? [])

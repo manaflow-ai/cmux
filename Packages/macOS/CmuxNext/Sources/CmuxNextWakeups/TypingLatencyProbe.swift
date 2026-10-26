@@ -83,6 +83,7 @@ public final class TypingLatencyProbe: Sendable {
         /// that chunk (``mark(_:flow:)``), never from the surface's other output.
         var exactEcho = false
         /// The `key.echo_frame` sample (``keyDown(eventTimestamp:)``): its echo's frame records the histogram.
+        /// Cleared when its echo comes too late or a newer press on its surface overtakes it.
         var echoSampled = false
 
         func has(_ mark: Mark) -> Bool { marks[mark.rawValue] != nil }
@@ -136,6 +137,10 @@ public final class TypingLatencyProbe: Sendable {
             if let after = mark.after, !sample.has(after) { return nil }
             sample.marks[mark.rawValue] = now
             if mark == .ioWrite { sample.ioWriteOnMain = onMain }
+            // An echo decoded this late is not the echo sample's (``TypingLatencyProbe/echoMaxAgeNanos``).
+            if mark == .outputDecoded, now > sample.event, now - sample.event > TypingLatencyProbe.echoMaxAgeNanos {
+                sample.echoSampled = false
+            }
             var recorded = Recorded(hop: mark.hop, flow: sample.flow,
                                     ageMicroseconds: Int64(bitPattern: now &- sample.event) / 1_000)
             // A press that shows no echo has none to wait for: its commit ends it.

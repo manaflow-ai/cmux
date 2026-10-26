@@ -16,9 +16,18 @@ import CmuxNextMetrics
 /// that cannot show an echo (``Sample/showsNoEcho``) closes at its turn's commit, so a key typed into a text view
 /// holds no sample open, and a press that never gets its echo goes out with the oldest past ``openCapacity``. When
 /// the sample closes and nothing else records, the presses opened beside it are dropped and the probe is off again.
+///
+/// An output is taken for the sample's echo only while it can still be its own: the daemon names the press its next
+/// PTY read follows, with no time limit (cmux-tui-core `InputFlowSlot`), so a key that echoed nothing would take the
+/// next unrelated redraw. The sample is dropped, its press recorded nothing, when its echo is decoded more than
+/// ``echoMaxAgeNanos`` after the key-down, or when a newer press on its surface is written before that: the newer
+/// press then holds the daemon's slot, and an output without a flow goes to the newest press sent.
 extension TypingLatencyProbe {
     /// One key-down in this many, counted while no echo sample is open, opens a `key.echo_frame` sample.
     public static let echoSampleInterval: UInt32 = 16
+
+    /// An echo decoded later than this after its key-down is not taken for the sample's: 1 s.
+    static let echoMaxAgeNanos: UInt64 = 1_000_000_000
 
     /// The bits of ``modes``.
     enum Modes {
@@ -89,5 +98,15 @@ extension TypingLatencyProbe {
             }
             return result
         }
+    }
+}
+
+extension TypingLatencyProbe.State {
+    /// Drops the echo sample when the press at `written` was just written on its surface before the sample's echo was
+    /// decoded: from now on the next output is the newer press's.
+    mutating func dropEchoSample(overtakenBy written: Int) {
+        guard let surface = open[written].surface, let index = open.firstIndex(where: \.echoSampled), index < written,
+              open[index].surface == surface, !open[index].has(.outputDecoded) else { return }
+        open[index].echoSampled = false
     }
 }
