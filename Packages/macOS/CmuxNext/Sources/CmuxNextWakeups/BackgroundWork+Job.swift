@@ -74,8 +74,12 @@ extension BackgroundWork {
     ///
     /// - Parameters:
     ///   - priority: how much a person waits for it; each run is at the higher of this and the caller's.
-    ///   - shutdown: what ``shutdown()`` does with it. A ``ShutdownBehavior/skipOnShutdown`` job that runs is asked
-    ///     to yield and its rest is dropped; a continue-on-shutdown or block-shutdown job runs on to its end.
+    ///   - shutdown: what ``shutdown()`` does with it. Only a ``ShutdownBehavior/blockShutdown`` job runs on to its
+    ///     end after shutdown starts (and ``shutdown()`` waits for it). Any other job's rest never runs again: a
+    ///     queued rest is dropped and a later yield is refused, so the caller gets `CancellationError`, as Chrome's
+    ///     `TaskTracker::BeforeRunTask` refuses later runs of a non-block job. A running
+    ///     ``ShutdownBehavior/skipOnShutdown`` run is asked to yield; a continue-on-shutdown run is not, so it ends
+    ///     the job when that run finishes it.
     ///   - state: where the work starts; each run gets what the previous one left.
     ///   - fileID: the caller's `#fileID`, which names a slow block-shutdown run (leave the default).
     ///   - line: the caller's `#line`.
@@ -83,7 +87,7 @@ extension BackgroundWork {
     ///     the cpu lane and must not block.
     /// - Returns: the value of ``JobStep/finished(_:)``.
     /// - Throws: what `body` throws; `CancellationError` when the caller's task is cancelled (the rest of the job
-    ///   never runs) or shutdown dropped it.
+    ///   never runs) or shutdown dropped or refused its rest.
     public func job<State: Sendable, T: Sendable>(_ priority: WorkPriority, shutdown: ShutdownBehavior = .skipOnShutdown,
                                                   state: State, fileID: StaticString = #fileID, line: UInt = #line,
                                                   _ body: @escaping @Sendable (inout State, JobDelegate) throws -> JobStep<T>)

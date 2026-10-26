@@ -121,6 +121,51 @@ import Testing
         #expect(runs.order == ["job 1", "job asked true", "blocking", "job 2", "job 3", "job 4"])
     }
 
+    /// The rest goes back by id (Chrome's `JobTaskSource::GetSortKey` keeps the job's queue time): before a
+    /// best-effort item posted after the job started, not at the end of the best-effort list.
+    @Test func theRestGoesBeforeSameLevelItemsPostedAfterTheJobStarted() async throws {
+        let queued = Signal(), held = Signal(), runs = RunOrder(), gate = DispatchSemaphore(value: 0), ran = Signal()
+        let work = Self.work("test.yield-order", queued: queued)
+        let job = Self.gatedJob(work, .bestEffort, name: "job", chunks: 3, runs: runs, held: held, gate: gate)
+        await held.wait(1)
+        work.post(.bestEffort, mayBlock: .cpu) {
+            runs.record("later")
+            ran.send()
+        }
+        await queued.wait(1)
+        let blocking = Task { try await work.run(.userBlocking, mayBlock: .cpu) { runs.record("blocking") } }
+        await queued.wait(1)
+        gate.signal()
+        try await blocking.value
+        #expect(try await job.value == 3)
+        await ran.wait(1)
+        #expect(runs.order == ["job 1", "job asked true", "blocking", "job 2", "job 3", "later"])
+    }
+
+    /// A caller cancelled while the yielded rest waits takes the rest out of the queue: no later chunk runs and the
+    /// lane goes on with the next item.
+    @Test func aCallerCancelledWhileTheRestWaitsDropsTheRest() async throws {
+        let queued = Signal(), held = Signal(), runs = RunOrder(), gate = DispatchSemaphore(value: 0)
+        let started = Signal(), release = DispatchSemaphore(value: 0)
+        let work = Self.work("test.yield-cancel-queued", queued: queued)
+        let job = Self.gatedJob(work, .bestEffort, name: "job", chunks: 5, runs: runs, held: held, gate: gate)
+        await held.wait(1)
+        work.post(.userBlocking, mayBlock: .cpu) {
+            runs.record("blocking")
+            started.send()
+            release.wait()
+        }
+        await queued.wait(1)
+        gate.signal()
+        // The job yielded and its rest waits behind the held user-blocking item.
+        await started.wait(1)
+        job.cancel()
+        await #expect(throws: CancellationError.self) { try await job.value }
+        release.signal()
+        #expect(try await work.run(.userVisible, mayBlock: .cpu) { () throws -> Int in 7 } == 7)
+        #expect(runs.order == ["job 1", "job asked true", "blocking"])
+    }
+
     @Test func aJobNeverYieldsToBestEffortWork() async throws {
         let queued = Signal(), held = Signal(), runs = RunOrder(), gate = DispatchSemaphore(value: 0), ran = Signal()
         let work = Self.work("test.yield-best-effort", queued: queued)
@@ -179,6 +224,63 @@ import Testing
         await work.shutdown()
     }
 
+    /// A continue-on-shutdown job whose rest is queued when shutdown starts: shutdown drops the rest, as it drops
+    /// every queued item that is not block-shutdown (Chrome's `TaskTracker::BeforeRunTask`).
+    @Test func shutdownDropsTheQueuedRestOfAContinueJob() async throws {
+        let queued = Signal(), held = Signal(), runs = RunOrder(), gate = DispatchSemaphore(value: 0)
+        let started = Signal(), release = DispatchSemaphore(value: 0)
+        let work = Self.work("test.yield-continue-queued", queued: queued)
+        let job = Self.gatedJob(work, .bestEffort, name: "job", chunks: 5, shutdown: .continueOnShutdown, runs: runs,
+                                held: held, gate: gate)
+        await held.wait(1)
+        work.post(.userBlocking, mayBlock: .cpu) {
+            runs.record("blocking")
+            started.send()
+            release.wait()
+        }
+        await queued.wait(1)
+        gate.signal()
+        await started.wait(1)
+        work.beginShutdown()
+        await #expect(throws: CancellationError.self) { try await job.value }
+        release.signal()
+        await work.shutdown()
+        #expect(runs.order == ["job 1", "job asked true", "blocking"])
+    }
+
+    /// A continue-on-shutdown job that yields after shutdown started: its rest is refused, as submit refuses a
+    /// continue-on-shutdown item then, so the outcome does not depend on whether the rest was queued or running.
+    @Test func shutdownRefusesTheRestOfAContinueJobThatYieldsLater() async throws {
+        let queued = Signal(), held = Signal(), runs = RunOrder(), gate = DispatchSemaphore(value: 0)
+        let work = Self.work("test.yield-continue-running", queued: queued)
+        let job = Self.gatedJob(work, .bestEffort, name: "job", chunks: 5, shutdown: .continueOnShutdown, runs: runs,
+                                held: held, gate: gate)
+        await held.wait(1)
+        // The waiting user-blocking item asks the job to yield; shutdown then drops that item.
+        let blocking = Task { try await work.run(.userBlocking, mayBlock: .cpu) { runs.record("blocking") } }
+        await queued.wait(1)
+        work.beginShutdown()
+        await #expect(throws: CancellationError.self) { try await blocking.value }
+        gate.signal()
+        await #expect(throws: CancellationError.self) { try await job.value }
+        await work.shutdown()
+        #expect(runs.order == ["job 1", "job asked true"])
+    }
+
+    /// Shutdown does not ask a running continue-on-shutdown run to yield, so a run that is not asked ends the job.
+    @Test func aContinueJobNobodyAsksEndsInTheRunShutdownFound() async throws {
+        let held = Signal(), runs = RunOrder(), gate = DispatchSemaphore(value: 0)
+        let work = Self.work("test.yield-continue-unasked")
+        let job = Self.gatedJob(work, .bestEffort, name: "job", chunks: 3, shutdown: .continueOnShutdown, runs: runs,
+                                held: held, gate: gate)
+        await held.wait(1)
+        work.beginShutdown()
+        gate.signal()
+        #expect(try await job.value == 3)
+        await work.shutdown()
+        #expect(runs.order == ["job 1", "job asked false", "job 2", "job 3"])
+    }
+
     @Test func aBlockShutdownJobThatYieldsStillHoldsShutdownUntilItsEnd() async throws {
         let queued = Signal(), held = Signal(), runs = RunOrder(), gate = DispatchSemaphore(value: 0)
         let work = Self.work("test.yield-block", queued: queued)
@@ -200,6 +302,9 @@ import Testing
         #expect(runs.order == ["job 1", "job asked true", "job 2", "job 3", "drained"])
     }
 
+    /// The acceptance bound (< 10 ns) holds only in an optimized build:
+    /// `swift test -c release -Xswiftc -enable-testing --filter LaneYieldTests/shouldYieldCostsUnder10ns`.
+    /// A Debug run checks only a loose bound and is not the acceptance.
     @Test func shouldYieldCostsUnder10ns() {
         let delegate = JobDelegate()
         let reads = 1_000_000
@@ -210,7 +315,7 @@ import Testing
         print("JobDelegate.shouldYield: \(perRead) ns per read")
         #expect(asked == 0)
         #if DEBUG
-        #expect(perRead < 200, "unoptimized build: a loose bound")
+        #expect(perRead < 200, "Debug build: a loose bound, not the acceptance (run it with -c release)")
         #else
         #expect(perRead < 10, "one relaxed atomic load")
         #endif

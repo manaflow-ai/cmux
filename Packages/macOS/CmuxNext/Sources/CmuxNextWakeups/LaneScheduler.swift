@@ -65,8 +65,11 @@ import Dispatch
 /// below it to yield (its ``JobDelegate/shouldYield``); the job stops between two chunks and its rest is queued again
 /// in its old place (by id), so the waiting item takes the freed slot. Chrome's `ThreadGroup::ShouldYield`
 /// (base/task/thread_pool/thread_group.cc): a job yields only to higher work, never to best-effort work, and one job
-/// yields per waiting item (Chrome resets `max_allowed_sort_key_` when a worker decides to yield). ``close()`` asks
-/// running ``ShutdownBehavior/skipOnShutdown`` jobs to yield; their rest is refused.
+/// yields per waiting item (Chrome resets `max_allowed_sort_key_` when a worker decides to yield). After ``close()``
+/// only a ``ShutdownBehavior/blockShutdown`` job's rest is queued, as only block-shutdown items are taken; the rest of
+/// any other job is dropped (queued) or refused (yielded later), so its caller gets `CancellationError` whenever the
+/// job yields. ``close()`` asks running ``ShutdownBehavior/skipOnShutdown`` jobs to yield; a running
+/// continue-on-shutdown run is not asked by shutdown and may end the job in that run.
 final class LaneScheduler: Sendable {
     /// How the lane's slots register with the hang watch: each slot under `name`, each item with `deadline`.
     struct HangWatching: Sendable {
@@ -374,10 +377,13 @@ final class LaneScheduler: Sendable {
     /// every item at its level posted after the job started (by id), as Chrome sorts a re-enqueued job by its
     /// original queue time (base/task/thread_pool/job_task_source.cc, `GetSortKey`). Refused when `cancelled`
     /// holds (read under the lock, as in ``submit(_:at:posted:cap:raisable:delegate:unless:)``), or after
-    /// ``close()`` for a ``ShutdownBehavior/skipOnShutdown`` job; a started continue-on-shutdown job runs on.
+    /// ``close()`` for any job but a ``ShutdownBehavior/blockShutdown`` one, the rule submit and ``close()`` use:
+    /// Chrome's `TaskTracker::BeforeRunTask` (base/task/thread_pool/task_tracker.cc) refuses every later run of a
+    /// CONTINUE_ON_SHUTDOWN or SKIP_ON_SHUTDOWN task source once shutdown has started. So after ``close()`` only a
+    /// block-shutdown rest is queued, and only it moves to the user-blocking list on a `shared` lane.
     func requeue(_ job: LaneJob, at priority: WorkPriority, delegate: JobDelegate, unless cancelled: () -> Bool) -> Submitted {
         let taken: (starts: [Start], level: WorkPriority)? = state.withLock { state in
-            if cancelled() || (state.closed && job.shutdown == .skipOnShutdown) { return nil }
+            if cancelled() || (state.closed && job.shutdown != .blockShutdown) { return nil }
             let level = state.closed && liftsBlockItems ? WorkPriority.userBlocking : priority
             let list = state.pending[level.rawValue]
             state.pending[level.rawValue].insert(Entry(job: job, posted: false, cap: nil, raisable: false, delegate: delegate),
