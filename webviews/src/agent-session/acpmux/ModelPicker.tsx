@@ -78,7 +78,9 @@ type ModelChoice = {
   /** The provider the row lands ("OpenRouter"), for a harness that routes to several. */
   provider?: string;
   /** Raw catalog rows represented by this grouped model, for search-height reservation. */
-  searchRows?: number;\n  /** Whether any original row was curated as a latest model. */\n  curated?: boolean;
+  searchRows?: number;
+  /** Whether any original row was curated as a latest model. */
+  curated?: boolean;
   /** A bracketed note the model's name carried ("New"). */
   tag?: string;
 };
