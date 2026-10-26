@@ -94,13 +94,16 @@ public final class SidebarRowFeed {
     private let schedule: CausedSchedule
     /// The cause of the change being made now (the app's ``ObservationCauses/currentCause``).
     private let cause: @MainActor () -> ObservationCause
+    /// `debug.observations`' counts of the rows: armed now, re-reads after a change and the ones that changed the row.
+    private let observations: ObservationLedger.Owner?
 
     /// `schedule` defaults to the next main-actor turn. Every flush is ``ObservationCause/program``
-    /// and maps every dirty row: one flush per turn.
-    public convenience init(schedule: Schedule? = nil) {
+    /// and maps every dirty row: one flush per turn. `observations` gets the feed's counts (the app's ledger).
+    public convenience init(schedule: Schedule? = nil, observations: ObservationLedger.Owner? = nil) {
         // task-owner: the feed; one flush per main-actor turn after the store's batch applies
         let plain = schedule ?? { work in Task { @MainActor in work() } }
-        self.init(cause: { .program }, rowsPerBudgetedFlush: .max, schedule: { _, work in plain(work) })
+        self.init(cause: { .program }, rowsPerBudgetedFlush: .max, schedule: { _, work in plain(work) },
+                  observations: observations)
     }
 
     /// A feed whose flushes carry their change's cause.
@@ -111,11 +114,13 @@ public final class SidebarRowFeed {
     ///   - rowsPerBudgetedFlush: The rows one program or automation flush maps; each further slice
     ///     is a flush of its own, so a budgeted queue runs as many as fit a frame.
     ///   - schedule: Runs one flush later, with its cause.
+    ///   - observations: The feed's owner in the app's ``ObservationLedger`` (`debug.observations`).
     public init(cause: @escaping @MainActor () -> ObservationCause, rowsPerBudgetedFlush: Int = 16,
-                schedule: @escaping CausedSchedule) {
+                schedule: @escaping CausedSchedule, observations: ObservationLedger.Owner? = nil) {
         self.cause = cause
         self.rowsPerBudgetedFlush = max(1, rowsPerBudgetedFlush)
         self.schedule = schedule
+        self.observations = observations
     }
 
     /// Starts a structural pass (call first in the pass's tracked closure).
@@ -183,7 +188,12 @@ public final class SidebarRowFeed {
             // A row whose content changed since its last map (dirty) keeps that row here: the scheduled flush maps it
             // and sends it as a patch. Mapped here, a tick's status would ride this pass as a structural set (hitch17:
             // a sidebar reload and an anchored offset shift every 1-2 s under 50 ticking terminals).
-            if remap || (!entry.armed && dirty[id] == nil) { entry.row = arm(id, entry) }
+            if remap || (!entry.armed && dirty[id] == nil) {
+                let row = arm(id, entry)
+                // A re-map (an inputs change) is a re-read as in a flush; a new stub's first map is an arm only.
+                if entry.revision != 0 { observations?.evaluated(applied: row != entry.row) }
+                entry.row = row
+            }
             // The pass holds this row already, unless it was a stub or was mapped again since.
             if entry.revision != entry.namedRevision { rows.append(entry.row) }
             entry.namedRevision = entry.revision
@@ -197,6 +207,7 @@ public final class SidebarRowFeed {
     private func arm(_ id: WorkspaceID, _ entry: Entry) -> SidebarWorkspace {
         disarm(entry)
         entry.armed = true
+        observations?.armed()
         let generation = entry.generation
         let cancel = entry.cancel
         return withObservationTracking {
@@ -221,12 +232,14 @@ public final class SidebarRowFeed {
         entry.generation &+= 1
         guard entry.armed else { return }
         entry.armed = false
+        observations?.disarmed()
         entry.cancel.epoch &+= 1
     }
 
     private func markDirty(_ id: WorkspaceID, generation: UInt64, cause: ObservationCause) {
         guard let entry = entries[id], entry.generation == generation else { return }
         entry.armed = false
+        observations?.disarmed()  // the observation fired, and so is gone
         if let marked = dirty[id], marked >= cause { return }
         dirty[id] = cause
         guard lanes[cause.rawValue].add(id, rowsPerFlush: rowsPerFlush(cause)) else { return }
@@ -249,7 +262,9 @@ public final class SidebarRowFeed {
             for id in ids {
                 guard let entry = entries[id], !entry.armed else { continue }
                 let row = arm(id, entry)
-                guard row != entry.row else { continue }
+                let differs = row != entry.row
+                observations?.evaluated(applied: differs)
+                guard differs else { continue }
                 entry.row = row
                 changed.append(row)
             }

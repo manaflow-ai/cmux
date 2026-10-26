@@ -146,6 +146,8 @@ final class AppControl {
             }.withDeadline(.fixed(RenderFrameLog.armDeadline)),
             // Main-thread blocking call sites since launch (threading-model.md); {"reset": true} zeroes the counts.
             BlockingControl(detector: services.blocking).method,
+            // Observations per owner: armed, evaluated, applied, show re-reads, hosting bodies; {"reset": true} zeroes them.
+            ObservationsControl(ledger: services.observations).method,
             // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class,
             // the run loop's turns, and per owner the wait and run percentiles; main only copies, the turns and
             // owners fold off it.
@@ -217,10 +219,7 @@ final class AppControl {
                 return .value(DebugHome.delivery(services: services))
             },
             // Room, workspace and terminal theme scopes.
-            .mainActor("debug.themes") { [weak services] _ in
-                guard let services else { return .value(.null) }
-                return .value(DebugThemes.report(services: services))
-            },
+            .mainActor("debug.themes") { [weak services] _ in .value(services.map { DebugThemes.report(services: $0) } ?? .null) },
             // Omnibar state machine vs its field editor (focus.md section 7).
             .mainActor("debug.omnibar") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -268,10 +267,7 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugAgentCursor.report(call.params, services: services))
             },
-            .mainActor("debug.screens") { [weak services] _ in
-                guard let services else { return .value(.null) }
-                return .value(DebugScreens.report(services: services))
-            },
+            .mainActor("debug.screens") { [weak services] _ in .value(services.map { DebugScreens.report(services: $0) } ?? .null) },
             // The action signposts' commit boundary against this macOS's display observers.
             .mainActor("debug.commit_boundary") { _ in .value(DebugCommitBoundary().report()) },
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).

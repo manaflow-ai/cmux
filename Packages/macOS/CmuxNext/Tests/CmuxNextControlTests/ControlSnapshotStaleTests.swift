@@ -26,14 +26,14 @@ import Testing
     @Test func aReadAfterAContextPublishBuildsTheTopology() async {
         let store = ControlSnapshotStore()
         let builds = BuildCounter()
-        store.setRefresher { await builds.build(store) }
+        store.setRefresher { builds.build(store) }
         store.markStale()
         store.publish { $0.catalog.contextMask = 0b10 }
         _ = await store.fresh()
         #expect(await builds.count == 1, "the read after the context publish built nothing")
     }
 
-    private actor BuildCounter {
+    @MainActor private final class BuildCounter {
         var count = 0
         func build(_ store: ControlSnapshotStore) {
             count += 1

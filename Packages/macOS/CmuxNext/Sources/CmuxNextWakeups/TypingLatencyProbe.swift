@@ -1,6 +1,7 @@
 import Foundation
 import CmuxNextCompat
 import CmuxNextSignposts
+import CmuxNextTrace
 
 /// Opt-in keystroke-to-frame timeline for one terminal key at a time
 /// (`CMUX_NEXT_TYPING_PROBE=<csv path>`). Off by default: every hop then
@@ -33,6 +34,10 @@ import CmuxNextSignposts
 /// terminal host and the holder mark the same press on the same clock. The
 /// variable alone turns sampling on (no CSV is written without
 /// `CMUX_NEXT_TYPING_PROBE`).
+///
+/// Nothing is sampled while the trace runtime's keystroke-timing gate is closed (secure keyboard entry,
+/// ``TraceRuntime/isKeyTimingSuppressed``, task 128): no row, no hop and no ``openFlow`` for the daemon, so the
+/// daemon, the terminal host and the holder write no `key.echo` hop for a key typed into a password prompt.
 public final class TypingLatencyProbe: Sendable {
     public static let shared = TypingLatencyProbe(path: ProcessInfo.processInfo.environment["CMUX_NEXT_TYPING_PROBE"],
                                                   flows: !(ProcessInfo.processInfo.environment["CMUX_NEXT_TRACE_FLOWS"] ?? "").isEmpty)
@@ -108,11 +113,14 @@ public final class TypingLatencyProbe: Sendable {
     private let output: FileHandle?
     /// The `key.flow` signposter while `CMUX_NEXT_TRACE_FLOWS` is set, else nil.
     private let flows: Signposter?
+    /// The runtime whose keystroke-timing gate stops sampling (the app's: ``TraceRuntime/shared``).
+    private let trace: TraceRuntime
     private let state = Mutex(State())
     private let writes = DispatchQueue(label: "com.cmuxterm.next.typing-probe", qos: .utility)
 
-    init(path: String?, flows: Bool = false) {
-        self.flows = flows ? Signposter(category: .key) : nil
+    init(path: String?, flows: Bool = false, trace: TraceRuntime = .shared) {
+        self.trace = trace
+        self.flows = flows ? Signposter(category: .key, trace: trace) : nil
         if let path, !path.isEmpty, FileManager.default.createFile(atPath: path, contents: nil),
            let handle = FileHandle(forWritingAtPath: path) {
             output = handle
@@ -132,10 +140,10 @@ public final class TypingLatencyProbe: Sendable {
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
     }
 
-    /// The flow id of the open key press, for the daemon's `send` request; nil while flows are off
-    /// or no press is open.
+    /// The flow id of the open key press, for the daemon's `send` request; nil while flows are off,
+    /// no press is open or the keystroke-timing gate is closed.
     public var openFlow: UInt64? {
-        guard flows != nil else { return nil }
+        guard flows != nil, !trace.isKeyTimingSuppressed else { return nil }
         return state.withLock { $0.open?.flow }
     }
 
@@ -156,9 +164,14 @@ public final class TypingLatencyProbe: Sendable {
         flows.flowHop(.appFrameCommit, flow: flow)
     }
 
-    /// Opens a sample for a key-down whose `NSEvent.timestamp` is `eventTimestamp`.
+    /// Opens a sample for a key-down whose `NSEvent.timestamp` is `eventTimestamp`. While the keystroke-timing
+    /// gate is closed it only drops the open sample, unwritten, and opens none.
     public func keyDown(eventTimestamp: Double) {
         guard output != nil || flows != nil else { return }
+        guard !trace.isKeyTimingSuppressed else {
+            state.withLock { $0.open = nil }
+            return
+        }
         let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         let event = eventTimestamp > 0 ? UInt64(eventTimestamp * 1_000_000_000) : now
         let flowBase = UInt64(UInt32(truncatingIfNeeded: getpid())) << 32
@@ -178,7 +191,7 @@ public final class TypingLatencyProbe: Sendable {
     /// before the hop it follows (``Mark/after``) is ignored. Output hops
     /// are not tied to a surface: type into one terminal while sampling.
     public func mark(_ mark: Mark) {
-        guard output != nil || flows != nil else { return }
+        guard output != nil || flows != nil, !trace.isKeyTimingSuppressed else { return }
         let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         let onMain = mark == .ioWrite && Thread.isMainThread
         let (finished, recorded) = state.withLock { state -> (Sample?, Sample?) in

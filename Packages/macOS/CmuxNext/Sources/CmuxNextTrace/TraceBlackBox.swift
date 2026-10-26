@@ -144,9 +144,10 @@ public final class TraceBlackBox: Sendable {
 
 extension TraceRing {
     /// Stores `mask` into the active ring's header `categories` word (trace.md "Header": mirrored on each
-    /// change), so a reader of the file knows what the ring recorded.
+    /// change), so a reader of the file knows what the ring recorded. Sequentially consistent, as the runtime's
+    /// category stores: a publish's re-check then orders its mirror before any later writer's (``TraceRuntime``).
     func mirrorCategories(_ mask: UInt64) {
-        activeRing?.pointee.storage.word(TraceRingOffsets.categories).store(mask, ordering: .relaxed)
+        activeRing?.pointee.storage.word(TraceRingOffsets.categories).store(mask, ordering: .sequentiallyConsistent)
     }
 }
 

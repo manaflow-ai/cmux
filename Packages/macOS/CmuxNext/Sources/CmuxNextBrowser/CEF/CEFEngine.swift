@@ -1,5 +1,6 @@
 import CmuxNextCompat
 public import CmuxNextInput
+public import CmuxNextWakeups
 public import Foundation
 
 /// The Chromium engine: the patched CEF fork (manaflow-ai/cef, Chrome style
@@ -28,6 +29,9 @@ public final class CEFEngine: BrowserEngine {
     public let signInCallbacks: CEFSignInCallbacks
     let lifecycleTrace: BrowserLifecycleTrace
     let contextMenus: BrowserContextMenuBuilder
+    /// Where the pages' keyed waits (``BrowserPageWaiting``) put their timeouts: the main thread's one
+    /// deadline queue, shared with the WebKit engine as the stores are.
+    public let waitDeadlines: MainWakeUpQueue
 
     /// The runtime to start, nil while none is available.
     var layout: CEFRuntimeLayout? { runtimeSource.layout }
@@ -40,14 +44,17 @@ public final class CEFEngine: BrowserEngine {
     ///   - signInCallbacks: The App's sign-in tabs.
     ///   - lifecycleTrace: Receives content lifecycle events; disabled by default.
     ///   - contextMenus: Presents menus when no tab delegate handles the request.
+    ///   - waitDeadlines: The main thread's deadline queue (`MainWorkScheduler.wakeUps`) for the pages' waits;
+    ///     nil (tests, fixtures): a queue of the engine's own.
     ///   - input: The app's input tap, which page link clicks and swipes hear; nil for an engine that
     ///     gives none (a test's).
     public convenience init(layout: CEFRuntimeLayout? = CEFRuntimeLayout.locate(),
                             stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                             lifecycleTrace: BrowserLifecycleTrace = .shared,
-                            contextMenus: BrowserContextMenuBuilder = .shared, input: InputEventTap? = nil) {
+                            contextMenus: BrowserContextMenuBuilder = .shared,
+                            waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap? = nil) {
         self.init(source: CEFRuntimeSource(layout: layout), stores: stores, signInCallbacks: signInCallbacks,
-                  lifecycleTrace: lifecycleTrace, contextMenus: contextMenus, input: input)
+                  lifecycleTrace: lifecycleTrace, contextMenus: contextMenus, waitDeadlines: waitDeadlines, input: input)
     }
 
     /// Creates an engine whose runtime may arrive later (Chromium on demand).
@@ -58,17 +65,21 @@ public final class CEFEngine: BrowserEngine {
     ///   - signInCallbacks: The App's sign-in tabs; the runtime sends the shim's callbacks there.
     ///   - lifecycleTrace: Receives content lifecycle events; disabled by default.
     ///   - contextMenus: Presents menus when no tab delegate handles the request.
+    ///   - waitDeadlines: The main thread's deadline queue (`MainWorkScheduler.wakeUps`) for the pages' waits;
+    ///     nil (tests, fixtures): a queue of the engine's own.
     ///   - input: The app's input tap, which page link clicks and swipes hear (the process-wide
     ///     runtime keeps the first one given); nil for an engine that gives none (a test's).
     public init(source: CEFRuntimeSource,
                 stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                 lifecycleTrace: BrowserLifecycleTrace = .shared,
-                contextMenus: BrowserContextMenuBuilder = .shared, input: InputEventTap? = nil) {
+                contextMenus: BrowserContextMenuBuilder = .shared,
+                waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap? = nil) {
         runtimeSource = source
         self.stores = stores
         self.signInCallbacks = signInCallbacks
         self.lifecycleTrace = lifecycleTrace
         self.contextMenus = contextMenus
+        self.waitDeadlines = waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource())
         if let input { CEFRuntime.shared.attachInput(input) }
     }
 
@@ -93,8 +104,7 @@ public final class CEFEngine: BrowserEngine {
     public var isRunning: Bool { CEFRuntime.shared.state == .ready }
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
-        adoptStores()
-        try await CEFRuntime.shared.start(layout: layout)
+        try await startRuntime()
         return CEFStartSteps.shared.makeTab { makeReadyTab(configuration) }
     }
 
@@ -158,8 +168,7 @@ public final class CEFEngine: BrowserEngine {
     /// caller picks. No-op once CEF is running, failed or shut down.
     public func warmStart(reason: String) async {
         guard layout != nil else { return }
-        adoptStores()
-        try? await CEFRuntime.shared.start(layout: layout, trigger: reason)
+        try? await startRuntime(trigger: reason)
     }
 
     /// Builds the next spare Chromium window (`CEFSpareWindow`) once Chromium runs and no other
@@ -400,12 +409,21 @@ public final class CEFEngine: BrowserEngine {
         return makeReadyTab(configuration)
     }
 
-    /// Hands the stores and sign-in tabs to the process's runtime before it starts or makes a tab
-    /// (not in `init`: the runtime is built on Chromium's first use, not at launch).
+    /// Hands the stores, sign-in tabs, wait deadlines and host supervisor (``CEFRuntimeSource/backend``) to the
+    /// process's runtime before it starts or makes a tab (not in `init`: the runtime is built on
+    /// Chromium's first use, not at launch).
     private func adoptStores() {
         let runtime = CEFRuntime.shared
-        runtime.adopt(stores: stores, signInCallbacks: signInCallbacks)
+        runtime.adopt(stores: stores, signInCallbacks: signInCallbacks, waitDeadlines: waitDeadlines,
+                      hostSupervisor: runtimeSource.hostSupervisor)
         if let pagesProfileID { runtime.spareWindow.pagesProfile = pagesProfileID }
+    }
+
+    /// Starts Chromium in this process or in the Chromium Host, as the source's backend says;
+    /// every start of this engine goes through here. `trigger` names why (`tab`, a warm start reason).
+    func startRuntime(trigger: String = "tab") async throws(BrowserEngineError) {
+        adoptStores()
+        try await CEFRuntime.shared.start(layout: layout, trigger: trigger)
     }
 
     private func makeReadyTab(_ configuration: BrowserTabConfiguration) -> CEFTab {

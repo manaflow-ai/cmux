@@ -18,6 +18,7 @@ use super::{HolderSink, HolderTerminal};
 
 mod trace;
 use crate::panic_free::RecoverPoison;
+pub(crate) use trace::HolderTrace;
 
 /// The current link and the CLOSEs waiting for one. Held only for a
 /// moment: never while connecting, launching or re-adopting.

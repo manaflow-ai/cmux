@@ -360,7 +360,7 @@ STRESS, on macOS 26 and 27 minis. VM timing is not perf evidence.
   input_latency[] {kind, target, entrypoint, presentation_source, count, buckets, max_ms}, scroll_jank, and
   interaction_latency {count, worst_ms, high_pct_ms, kind_of_worst}; buckets sum to count; PrivacyLeakScanner
   passes; KeyPressed/terminal p99 in the same bucket as DC1; VRR rows labelled.
-- DC13 Chromium helper input (browserHost.helperPrototype on): GUI(`python3 scripts/cmux-next/chromium-host-bench.py
+- DC13 Chromium helper input (browserHost.helper on): GUI(`python3 scripts/cmux-next/chromium-host-bench.py
   --app "$NX_APP" --input real --ime --stall 50ms/100ms`). Pass: key-to-page-paint p95 <= in-process + 1 ms; wheel
   momentum (rubber-band); Japanese and Korean IME commits; 0 connection ends under a 1000 Hz pointer flood; no wire
   frame waits for a cmux display tick.
@@ -429,7 +429,7 @@ STRESS, on macOS 26 and 27 minis. VM timing is not perf evidence.
    (`git submodule status` shows `-723c4ab93e7 ghostty-next`) (checked). It needs PL-ghostty review and may land
    after 72 h; DC1's terminal STRESS row may not pass without it.
 6. Chromium host items (063-066) depend on PL-cef-layer fork items; only cmux and shim sides can land in 72 h.
-   DC13 is conditional on browserHost.helperPrototype. CDP histograms (091) may not include renderer histograms
+   DC13 is conditional on browserHost.helper. CDP histograms (091) may not include renderer histograms
    in this CEF build; the reader says so and a fork item follows.
 7. Converting 45 observation hops and 153 non-Swift main hops delays some updates by up to one frame. A same-turn
    correctness need keeps its hop with an allow comment. Automation-class sites must not need a display link.

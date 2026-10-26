@@ -157,6 +157,7 @@
     "CmuxNextAgentActivity": 1,
     "CmuxNextAgentPane": 5,
     "CmuxNextApp": 5,
+    "CmuxNextBrowser": 1,
     "CmuxNextChromiumRuntime": 1,
     "CmuxNextCloud": 1,
     "CmuxNextCompat": 10,

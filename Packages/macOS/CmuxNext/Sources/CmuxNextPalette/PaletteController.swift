@@ -157,8 +157,13 @@ public final class PaletteController {
         for category in ActionCategory.allCases { _ = category.title }
     }
 
-    /// Work of the first open, done ahead of it in steps (the App runs one
-    /// step per idle moment after the first window shows), so the first
+    /// The name of each ``prepare(step:)`` step, by step: the App posts one
+    /// afterStartup task per name (its startup record and signpost).
+    public nonisolated static let prepareStepNames: [StaticString] = ["Palette.prepare.0", "Palette.prepare.1"]
+
+    /// Work of the first open, done ahead of it in steps (the App posts one
+    /// step per ``prepareStepNames`` entry, each in its own idle frame after
+    /// startup completes), so the first
     /// open costs what later opens cost: step 0 creates the panel, its
     /// views and its window-server window; step 1 loads the command page
     /// and lays out its visible rows (row views, symbol images). Returns

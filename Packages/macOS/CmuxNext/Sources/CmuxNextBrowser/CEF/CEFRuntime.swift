@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextInput
-import ImageIO
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -135,7 +135,7 @@ final class CEFRuntime {
     }
     /// The one app-wide observer of display changes: each Chromium host view's resize wait is capped
     /// by the displays' frames (`CEFLayerHosting.displaysChanged`). Made when CEF is ready.
-    private var displayObservation: MainActorObservation?
+    private(set) var displayObservation: MainActorObservation?
     /// True when `--load-extension` is in use (development, verification).
     private(set) var loadsUnpackedExtensions = false
     /// `browser.builtInAdBlocker`, asked at start (the App supplies it).
@@ -149,6 +149,10 @@ final class CEFRuntime {
     private var switchStorage: [UnsafeMutablePointer<CChar>?] = []
     /// The off-main library load; every concurrent first tab awaits it.
     private(set) var loadTask: Task<Result<CEFLoadedLibrary, BootError>, Never>?
+    /// Maps the in-process shim and framework (``loadLibrary(_:signatureChecker:)``; a test's counter).
+    var loadInProcess: @Sendable (CEFRuntimeLayout?) -> Result<CEFLoadedLibrary, BootError> = { CEFRuntime.loadLibrary($0) }
+    /// Host mode (``BrowserBackend/host``): the attach that replaces ``loadInProcess``; nil in process.
+    var hostStart: CEFHostStart?
     private(set) var preloaded = false
     /// The preload finished mapping the framework (CEF not started yet).
     private(set) var libraryLoaded = false
@@ -162,13 +166,24 @@ final class CEFRuntime {
     private(set) var stores = BrowserSharedStores.inMemory()
     /// The App's sign-in tabs (`adopt`): the shim's AUTH_CALLBACK events go here.
     private(set) var signInCallbacks = CEFSignInCallbacks()
+    /// The engine's deadline queue for its pages' keyed waits (`adopt`); a queue of the runtime's own
+    /// until then (a spy runtime in tests).
+    private(set) var waitDeadlines = AlignedWakeups(queue: MainWakeUpQueue(energy: EnergyPolicySource()))
 
     private init() {}
 
-    /// Takes the engine's stores and sign-in tabs (the process has one Chromium, so the App's one
-    /// engine hands them over before its first start or tab). Idempotent for the same stores.
-    func adopt(stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks) {
+    /// A runtime that has not started, its profiles under `storage` (tests start it against seams).
+    init(storage: CEFProfileStorage) { self.storage = storage }
+
+    /// Takes the engine's stores, sign-in tabs and wait deadlines (the process has one Chromium, so the
+    /// App's one engine hands them over before its first start or tab), and its host supervisor, which
+    /// puts a runtime that has not started in host mode. Without `waitDeadlines` the runtime keeps its
+    /// own queue. Idempotent for the same stores.
+    func adopt(stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks, waitDeadlines: MainWakeUpQueue? = nil,
+               hostSupervisor: (any ChromiumHostSupervising)? = nil) {
+        if let hostSupervisor, hostStart == nil, state == .idle { hostStart = CEFHostStart(supervisor: hostSupervisor) }
         self.signInCallbacks = signInCallbacks
+        if let waitDeadlines { self.waitDeadlines = AlignedWakeups(queue: waitDeadlines) }
         guard stores !== self.stores else { return }
         self.stores = stores
         // The pages profile belonged to the old stores: no key of these takes its spare.
@@ -199,18 +214,6 @@ final class CEFRuntime {
     /// protocol, not this log; warnings, errors and FATAL lines stay.
     nonisolated static let logSeverity: Int32 = 3
 
-    /// Process start, from the kernel (`kinfo_proc.p_starttime`).
-    nonisolated static let launchUptime: Double = {
-        var info = kinfo_proc()
-        var size = MemoryLayout<kinfo_proc>.stride
-        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
-        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return 0 }
-        let start = info.kp_proc.p_starttime
-        let started = Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000
-        let age = Date().timeIntervalSince1970 - started
-        return ProcessInfo.processInfo.systemUptime - age
-    }()
-
     var report: CEFStartReport {
         let name = switch state {
         case .idle: "idle"
@@ -235,8 +238,9 @@ final class CEFRuntime {
     /// library load: `dlopen` of the shim and the 367 MiB framework (seconds
     /// on a cold disk or after a rebuild, when the code signature is checked
     /// again) runs on a background thread. Only `CefInitialize`, which Chromium
-    /// requires on the main thread, runs here. Idempotent; concurrent callers
-    /// share one load.
+    /// requires on the main thread, runs here. In host mode (``hostStart``) the
+    /// remote shim attaches to the Chromium Host instead: no framework, no pump.
+    /// Idempotent; concurrent callers share one load.
     /// `trigger` names why CEF starts (`tab`, or a warm start reason).
     func start(
         layout candidate: CEFRuntimeLayout? = CEFRuntimeLayout.locate(),
@@ -245,19 +249,23 @@ final class CEFRuntime {
     ) async throws(BrowserEngineError) {
         if let error = startError() { throw error }
         if state == .ready { return }
-        let task: Task<Result<CEFLoadedLibrary, BootError>, Never>
-        if let loadTask {
-            task = loadTask
+        state = .loading
+        let loaded: Result<CEFRuntimeBoot, BootError>
+        if let hostStart {
+            loaded = await hostStart.attached().map(CEFRuntimeBoot.host)
         } else {
-            state = .loading
-            task = Task.detached(priority: .userInitiated) { CEFRuntime.loadLibrary(candidate) }
+            let task = loadTask ?? Task.detached(priority: .userInitiated) { [loadInProcess] in loadInProcess(candidate) }
             loadTask = task
+            // A utility-priority preload may still be running; the await below
+            // raises its priority to this task's.
+            loaded = await task.value.map(CEFRuntimeBoot.inProcess)
         }
-        // A utility-priority preload may still be running; the await below
-        // raises its priority to this task's.
-        let loaded = await task.value
         // Another awaiter finished first, or the app began to quit.
-        if let error = startError() { throw error }
+        if let error = startError() {
+            // A quit during the attach: this runtime never uses the host, so release its wire.
+            if state == .shutDown, case .success(.host(let host)) = loaded { host.remote.detach() }
+            throw error
+        }
         if state == .ready { return }
         try finishStart(loaded, environment: environment, trigger: trigger)
     }
@@ -266,10 +274,10 @@ final class CEFRuntime {
     /// initializing CEF, so a later first tab skips the load. For a moment
     /// that predicts a Chromium tab (the "+" menu or palette entry opening).
     func preload(layout candidate: CEFRuntimeLayout? = CEFRuntimeLayout.locate()) {
-        guard state == .idle, loadTask == nil else { return }
+        guard state == .idle, loadTask == nil, hostStart == nil else { return }
         state = .loading
         preloaded = true
-        let task = Task.detached(priority: .utility) { CEFRuntime.loadLibrary(candidate) }
+        let task = Task.detached(priority: .utility) { [loadInProcess] in loadInProcess(candidate) }
         loadTask = task
         Task { [weak self] in
             _ = await task.value
@@ -284,7 +292,9 @@ final class CEFRuntime {
     ) throws(BrowserEngineError) {
         if let error = startError() { throw error }
         if state == .ready { return }
-        try finishStart(Self.loadLibrary(candidate), environment: environment, trigger: "debugWindow")
+        // The host attaches asynchronously: no synchronous start in host mode.
+        guard hostStart == nil else { throw .engineUnavailable(.cef, reason: Strings.cefUnavailable) }
+        try finishStart(loadInProcess(candidate).map(CEFRuntimeBoot.inProcess), environment: environment, trigger: "debugWindow")
     }
 
     private func startError() -> BrowserEngineError? {
@@ -296,7 +306,7 @@ final class CEFRuntime {
     }
 
     private func finishStart(
-        _ loaded: Result<CEFLoadedLibrary, BootError>,
+        _ loaded: Result<CEFRuntimeBoot, BootError>,
         environment: [String: String],
         trigger: String
     ) throws(BrowserEngineError) {
@@ -307,15 +317,18 @@ final class CEFRuntime {
             try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, environment: environment) }
             state = .ready
             CEFStartSteps.shared.timed("ready_hooks") {
-                startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install()
+                // The app's pane host views exist in both modes; helpers, Chromium windows and page windows only in process.
                 observeDisplays()
-                ChromiumPageTextAccessory.install { [weak self] view in self?.showsCmuxPage(in: view.window) ?? false }
+                if case .inProcess = library {
+                    startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install()
+                    ChromiumPageTextAccessory.install { [weak self] view in self?.showsCmuxPage(in: view.window) ?? false }
+                }
                 onReady?()
             }
             self.trigger = trigger
             loadDuration = library.loadDuration
             initializeDuration = clock.now - started
-            readyAfterLaunch = ProcessInfo.processInfo.systemUptime - Self.launchUptime
+            readyAfterLaunch = ProcessInfo.processInfo.systemUptime - CEFStartReport.launchUptime
             logger.notice("CEF ready trigger=\(trigger, privacy: .public) shim_abi=\(CEFShimABI.short(library.shimABI), privacy: .public) fork_api=\(library.shim.forkAPIVersion()) load=\(library.loadDuration, privacy: .public) map=\(CEFFrameworkPrefetch.last?.map ?? .zero, privacy: .public) initialize=\(clock.now - started, privacy: .public)")
         } catch {
             // A trust failure names the rejected item in the log, but the
@@ -328,6 +341,8 @@ final class CEFRuntime {
             }
             let reason = untrusted ? Strings.cefUnavailable : "\(Strings.cefUnavailable) (\(error))"
             logger.error("CEF start failed: \(String(describing: error), privacy: .public)")
+            // The attached host's wire stays with the remote shim until it detaches.
+            if case .success(.host(let host)) = loaded { host.remote.detach() }
             state = .failed(reason)
             onStartFailed?()
             throw .engineUnavailable(.cef, reason: reason)
@@ -339,6 +354,8 @@ final class CEFRuntime {
         case untrusted(String)
         case shim(CEFShimLibrary.LoadError)
         case framework(String)
+        /// Host mode: no Chromium Host to attach to (the reason).
+        case host(String)
         /// NSApp is not a CefAppProtocol NSApplication subclass.
         case application
         case initialize
@@ -348,7 +365,7 @@ final class CEFRuntime {
             case .notEmbedded: "runtime not embedded"
             case .untrusted(let item): "runtime signature: \(item)"
             case .shim(let error): "shim: \(error)"
-            case .framework(let message): message
+            case .framework(let message), .host(let message): message
             case .application: "NSApp does not conform to CefAppProtocol"
             case .initialize: "CefInitialize failed"
             }
@@ -391,35 +408,23 @@ final class CEFRuntime {
         return .success(CEFLoadedLibrary(shim: shim, shimABI: shimABI ?? "", layout: layout, locale: locale, loadDuration: clock.now - started))
     }
 
-    /// The first Chromium window decodes its first image with
-    /// `-[NSImage initWithData:]` on the main thread, and ImageIO builds its
-    /// process-wide plugin list on first use (about 70 ms measured). Asking
-    /// for an image type here builds that list on this background thread.
-    nonisolated static func primeImageIO() {
-        // A 1x1 PNG header is enough for the type sniff.
-        let png: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
-        if let source = CGImageSourceCreateWithData(Data(png) as CFData, nil) {
-            _ = CGImageSourceGetType(source)
-        }
-    }
-
-    /// The main-thread part: NSApp check, message pump, `CefInitialize`.
-    private func initialize(_ library: CEFLoadedLibrary, environment: [String: String]) throws(BootError) {
+    /// The main-thread part: NSApp check, message pump (in process only), `CefInitialize`.
+    private func initialize(_ library: CEFRuntimeBoot, environment: [String: String]) throws(BootError) {
         let shim = library.shim
-        let layout = library.layout
-        // The app's NSApplication subclass must conform (CmuxApplication);
-        // the shim no longer patches NSApp at runtime.
-        guard shim.prepareApplication() == 1 else { throw .application }
+        // The app's NSApplication subclass must conform (CmuxApplication); the shim no longer
+        // patches NSApp at runtime. In host mode the host's NSApp runs Chromium.
+        if case .inProcess = library, shim.prepareApplication() != 1 { throw .application }
         self.shim = shim
-        self.layout = layout
-
-        let pump = CEFMessagePump(
-            work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.shim?.doWork() } },
-            safetyNet: CEFPumpSchedule.safetyNet(forkAPIVersion: shim.forkAPIVersion()),
-            gate: pumpGate
-        )
-        self.pump = pump
-        pump.start()
+        if case .inProcess(let loaded) = library {
+            layout = loaded.layout
+            let pump = CEFMessagePump(
+                work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.shim?.doWork() } },
+                safetyNet: CEFPumpSchedule.safetyNet(forkAPIVersion: shim.forkAPIVersion()),
+                gate: pumpGate
+            )
+            self.pump = pump
+            pump.start()
+        }
 
         storage.prepareForLaunch()
         let builtInPlan = CEFBuiltInExtensions(adBlockerEnabled: builtInAdBlockerSetting())
@@ -469,17 +474,18 @@ final class CEFRuntime {
         // Chromium never opens a window (fork API 8) nor focuses a page of its own.
         shim.setWindowRequestHandler(cefWindowRequestCallback)
         shim.setFocusRequestHandler(cefFocusRequestCallback)
+        let paths = library.chromiumPaths
         let ok = switchStorage.withUnsafeBufferPointer { buffer in  // never empty (ends with nil); no base: 0, a failed init
             buffer.baseAddress?.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in
                 CEFStartSteps.shared.timed("cef_initialize") { shim.initialize(
-                    layout.frameworkDirectory.path, layout.mainBundle.path, layout.helperExecutable.path,
+                    paths.framework, paths.mainBundle, paths.helper,
                     storage.root.path, storage.logFile.path, Self.logSeverity, locale.locale, locale.acceptLanguages, list, context,
                     cefScheduleCallback, cefEventCallback, cefKeyCallback
                 ) }
             } ?? 0
         }
         guard ok == 1 else {
-            pump.stop()
+            pump?.stop()
             throw .initialize
         }
         shim.devToolsSetKeyHandler(cefDevToolsKeyCallback)
@@ -522,21 +528,6 @@ final class CEFRuntime {
         defer { nextRequest &+= 1 }
         return nextRequest
     }
-}
-
-nonisolated struct CEFPaneKey: Hashable, Sendable {
-    var pane: BrowserPaneID
-    var profile: BrowserProfileID
-    /// The remote-localhost derived store's machine, nil for the profile's
-    /// own store. A Chromium window holds one store, so it is part of the key.
-    var machineKey: String? = nil
-    /// An incognito window's store: an in-memory context, never a directory.
-    var offTheRecord = false
-}
-
-nonisolated struct CEFDevToolsKey: Hashable, Sendable {
-    var browser: Int32
-    var message: Int32
 }
 
 extension CEFRuntime {

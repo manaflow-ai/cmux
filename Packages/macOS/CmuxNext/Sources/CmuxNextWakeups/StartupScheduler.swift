@@ -115,6 +115,8 @@ public final class StartupScheduler {
     private var idleTasks: [Pending?] = []
     private var idleHead = 0
     private var observers: [@MainActor (Completion) -> Void] = []
+    /// ``afterFirstFrame()`` callers, resumed when the afterFirstFrame tasks are released or quit begins.
+    private var firstFrameWaiters: [CheckedContinuation<Void, Never>] = []
     /// Built in init (lazy because its callback captures self).
     private lazy var idleClient: FrameClient = FrameClient(owner: "Startup.afterStartup", budgeted: .background, on: mainWork) { [weak self] _, budget in
         self?.runIdleTask(budget) ?? false
@@ -263,6 +265,7 @@ public final class StartupScheduler {
         idleHead = 0
         idleClient.deactivate()
         observers = []
+        resumeFirstFrameWaiters()
     }
 
     /// Calls `body` with the completion: now when startup already completed, never after quit.
@@ -270,6 +273,15 @@ public final class StartupScheduler {
         if let completion { return body(completion) }
         guard !isQuitting else { return }
         observers.append(body)
+    }
+
+    /// Returns once the afterFirstFrame tasks are released (the first frame, ``firstFrameMissed(_:)``
+    /// or completion): at once when they were, and at once after ``beginQuit()``. For async launch
+    /// work that goes on after the first frame (a question shown once a window drew); a post is the
+    /// way for work that fits in one main turn.
+    public func afterFirstFrame() async {
+        guard !firstFrameDone, !isQuitting else { return }
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in firstFrameWaiters.append(done) }
     }
 
     /// Whether the scheduler's own failsafe deadline is pending (never while its launch phase owns the deadline).
@@ -363,6 +375,13 @@ public final class StartupScheduler {
         let held = heldAfterFirstFrame
         heldAfterFirstFrame = []
         for task in held { dispatch(task) }
+        resumeFirstFrameWaiters()
+    }
+
+    private func resumeFirstFrameWaiters() {
+        let waiting = firstFrameWaiters
+        firstFrameWaiters = []
+        for waiter in waiting { waiter.resume() }
     }
 
     /// Runs `task` now (critical), or hands it to its main class or its lane.

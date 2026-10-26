@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "77f0c70101ce816e2ee667ac7315cd3b234194807cf3cffd297c5e4bc46edda9";
+inline constexpr std::string_view kProtocolIrSha256 = "5819519176d5752a978a367bdd398e2ab4431f89841efa45c8da605ce35ec617";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -545,6 +545,12 @@ struct TerminalPortsRequest;
 struct TerminalReadRangeRequest;
 struct TerminalResourcesRequest;
 struct TerminalResumeCommandRequest;
+struct TraceStartRequest;
+struct TraceStartResult;
+struct TraceStatusRequest;
+struct TraceStatusResult;
+struct TraceStopRequest;
+struct TraceStopResult;
 struct UndoLayoutRequest;
 struct UngroupScreenGroupRequest;
 struct UngroupTabGroupRequest;
@@ -5723,6 +5729,36 @@ struct TitleChangedEvent {
     friend bool operator==(const TitleChangedEvent&, const TitleChangedEvent&) = default;
 };
 
+struct TraceStartRequest {
+    Field<std::vector<std::string>> categories{};
+    std::optional<bool> keys{};
+    Json::Object additional_properties{};
+    friend bool operator==(const TraceStartRequest&, const TraceStartRequest&) = default;
+};
+
+struct TraceStartResult {
+    Json value{};
+    friend bool operator==(const TraceStartResult&, const TraceStartResult&) = default;
+};
+
+struct TraceStatusRequest {
+    friend bool operator==(const TraceStatusRequest&, const TraceStatusRequest&) = default;
+};
+
+struct TraceStatusResult {
+    Json value{};
+    friend bool operator==(const TraceStatusResult&, const TraceStatusResult&) = default;
+};
+
+struct TraceStopRequest {
+    friend bool operator==(const TraceStopRequest&, const TraceStopRequest&) = default;
+};
+
+struct TraceStopResult {
+    Json value{};
+    friend bool operator==(const TraceStopResult&, const TraceStopResult&) = default;
+};
+
 struct Workspace {
     bool active{};
     Id id{};
@@ -9232,6 +9268,42 @@ template <>
 struct Codec<TerminalResumeCommandRequest> {
     static Result<Json> encode(const TerminalResumeCommandRequest& value);
     static Result<TerminalResumeCommandRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<TraceStartRequest> {
+    static Result<Json> encode(const TraceStartRequest& value);
+    static Result<TraceStartRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<TraceStartResult> {
+    static Result<Json> encode(const TraceStartResult& value);
+    static Result<TraceStartResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<TraceStatusRequest> {
+    static Result<Json> encode(const TraceStatusRequest& value);
+    static Result<TraceStatusRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<TraceStatusResult> {
+    static Result<Json> encode(const TraceStatusResult& value);
+    static Result<TraceStatusResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<TraceStopRequest> {
+    static Result<Json> encode(const TraceStopRequest& value);
+    static Result<TraceStopRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<TraceStopResult> {
+    static Result<Json> encode(const TraceStopResult& value);
+    static Result<TraceStopResult> decode(const Json& value);
 };
 
 template <>
