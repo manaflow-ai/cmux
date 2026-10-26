@@ -38,6 +38,11 @@ public final class DaemonLaunchTimings: Sendable {
         case attachStart = "terminal.attach_start"
         case attachEnd = "terminal.attach_end"
         case connectingStatusShown = "connecting_status_shown"
+        // The launch's connect milestones (``DaemonConnectMarks``), one record each per launch.
+        case connectStarted = "daemon.connect_started"
+        case spawned = "daemon.spawned"
+        case identified = "daemon.identified"
+        case snapshotReceived = "daemon.snapshot_received"
 
         /// The ring code of the mark `name`.
         static func traceCode(of name: String) -> UInt64 {
