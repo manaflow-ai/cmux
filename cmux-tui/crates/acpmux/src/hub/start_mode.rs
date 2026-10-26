@@ -425,8 +425,10 @@ pub(super) fn profile_sets_mode(profile: &HarnessProfile) -> bool {
 }
 
 /// Modes that ask (or only read) on harnesses the asking table leaves out:
-/// the Codex bridge's `ask` and `read-only`.
-const NARROW_MODES: [&str; 2] = ["ask", "read-only"];
+/// the Codex bridge's `ask` and `read-only`. The start gate takes them on the
+/// bridge alone (`start_gate.rs`): the codex-acp adapter's `read-only` writes
+/// in the workspace without asking (`web_modes::NON_ASKING_MODES`).
+pub(super) const NARROW_MODES: [&str; 2] = ["ask", "read-only"];
 
 /// The level of mode `mode` on a harness of `family`: a full-access mode,
 /// a mode that asks before each change (`asking`: the merged asking table's

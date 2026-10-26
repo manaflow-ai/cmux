@@ -266,7 +266,7 @@ impl Hub {
         if pick("peer").is_some_and(|p| !p.is_empty()) {
             return Ok(());
         }
-        let (family, start) = {
+        let (family, bridge, start) = {
             let cfg = self.config.read().await;
             let Some(start) = StartMode::of(params, &cfg) else { return Ok(()) };
             let adopted =
@@ -281,26 +281,36 @@ impl Hub {
                 false,
                 cwd,
             ) {
-                Ok(r) => (crate::config::derive_family(&r.agent, &r.profile), start),
+                Ok(r) => (
+                    crate::config::derive_family(&r.agent, &r.profile),
+                    crate::codex_app_server::is_profile_launch(&r.profile.argv),
+                    start,
+                ),
                 // Not startable: the handler answers why.
                 Err(_) => return Ok(()),
             }
         };
-        self.start_mode_check(caller, &family, &start).map(|_| ())
+        self.start_mode_check(caller, &family, bridge, &start).map(|_| ())
     }
 
     /// Whether a client that is not the person may start a session of
     /// `family` in `start` (module docs, (a), (b)), and why; the refusal
     /// names where to approve it (d). An adopt never takes a mode that does
     /// not ask: it may find a session already running, which only the
-    /// person widens (`session/set_mode`).
+    /// person widens (`session/set_mode`). A mode that asks needs nothing:
+    /// one the asking table lists for `family`, or on the Codex bridge
+    /// (`bridge`) its `ask` or `read-only` (`start_mode.rs` `NARROW_MODES`),
+    /// which the table leaves out because it refuses Codex for the Web.
     pub(crate) fn start_mode_check(
         &self,
         caller: Option<&str>,
         family: &str,
+        bridge: bool,
         start: &StartMode,
     ) -> Result<StartGrant, RpcError> {
-        if self.web_modes().config_value_asks(family, None, Some(start.mode.as_str())) {
+        if self.web_modes().config_value_asks(family, None, Some(start.mode.as_str()))
+            || (bridge && super::start_mode::NARROW_MODES.contains(&start.mode.as_str()))
+        {
             return Ok(StartGrant::Asks);
         }
         if start.adopts {
@@ -420,7 +430,10 @@ impl Hub {
         let checked = if person {
             Ok(StartGrant::Person)
         } else {
-            self.start_mode_check(caller, &crate::web_modes::family_of(&s.meta()), &start)
+            let meta = s.meta();
+            // The bridge as this session was started (its recorded argv).
+            let bridge = crate::codex_app_server::is_profile_launch(&meta.harness_argv);
+            self.start_mode_check(caller, &crate::web_modes::family_of(&meta), bridge, &start)
         };
         let applied = match checked {
             Ok(grant) => match self.set_mode(s, &start.mode).await {
