@@ -83,21 +83,61 @@ names_awk='
         || line ~ /^✘ Test .* (passed|failed) after / \
         || line ~ /^━ Test .* (passed|failed) after / \
         || line ~ /^➜ Test /
+  }
+  # The runs of NAME that started and have not been closed by a finish, as an inclusive index
+  # range into its starts. A finish closes the earliest run still open, so the open runs are
+  # always the most recent ones.
+  function first_open_run(n) {
+    return (n in first_open) ? first_open[n] : 1
+  }
+  function open_runs(n,    fo) {
+    fo = first_open_run(n)
+    return started[n] >= fo ? started[n] - fo + 1 : 0
+  }
+  # The key a run is counted and timed under. Per RUN, not per name: the watchdog remembers when
+  # it first saw each key, so if run 2 of a name were keyed the same as run 1, it would inherit
+  # run 1 starting time and be killed for an age it never reached.
+  function run_key(n, k) {
+    return k > 1 ? n " (run " k ")" : n
+  }'
+# The bookkeeping both readers do, in one place for the same reason is_finish is: the watchdog and
+# the report must never be able to disagree about what is still running.
+#
+# Occurrences, matched in order, not a set of names. One log can hold the same test name more than
+# once (the isolated-suite step runs each suite in its own process, appending to one log). With a
+# set, run 1 finishing covered run 2 starting, so a truncation that only lost names an earlier
+# block had already run and summarized read as a pass.
+#
+# A finish only ever closes a start that is still open. A finish with no open start is ignored
+# rather than banked, which is what keeps two shapes harmless: a parameterized test prints a finish
+# per case ("✔ Test case passing 1 argument ... passed after ...") whose start line the rule below
+# deliberately skips, and a test skipped before it ran prints a "➜ ... skipped." with no start at
+# all. Banked, either could have closed a later, real run of the same name.
+count_awk='
+  /^◇ Test .* started\.$/ && !/^◇ Test case passing / && !/^◇ Test run started\.$/ {
+    counted_name = name_of($0)
+    if (!(counted_name in seen_name)) { seen_name[counted_name] = 1; names[++name_count] = counted_name }
+    started[counted_name]++
+    start_count++
+  }
+  is_finish($0) {
+    counted_name = name_of($0)
+    # Read it into a variable first. Naming first_open[counted_name] as the target of an
+    # assignment CREATES that key before the right-hand side is evaluated, so
+    # `first_open[n] = first_open_run(n) + 1` made first_open_run take its "already set" branch
+    # and read the empty value it had just created: every finish wrote 1 and closed nothing, and
+    # a wholly green run reported every test as unfinished.
+    counted_open = first_open_run(counted_name)
+    if (counted_open <= started[counted_name]) first_open[counted_name] = counted_open + 1
   }'
 # The tests the log shows started and not finished, in start order. The
 # run's own "Test run started." line is not a test.
 open_tests() {
-  awk "$names_awk"'
-    /^◇ Test .* started\.$/ && !/^◇ Test case passing / && !/^◇ Test run started\.$/ {
-      name = name_of($0)
-      if (!(seen[name]++)) starts[++count] = name
-      started[name]++
+  awk "$names_awk$count_awk"'
+    END {
+      for (i = 1; i <= name_count; i++)
+        for (k = first_open_run(names[i]); k <= started[names[i]]; k++) print run_key(names[i], k)
     }
-    is_finish($0) { finished[name_of($0)]++ }
-    # Counted, not a set: one log can hold the same test name twice (the isolated-suite step runs
-    # each suite in its own process into one log), and a set lets the first run finish for the
-    # second. A name is open while its starts outnumber its finishes.
-    END { for (i = 1; i <= count; i++) if (started[starts[i]] > finished[starts[i]]) print starts[i] }
   ' "$1"
 }
 # Samples this run's test processes, then ends them and the run.
@@ -199,7 +239,7 @@ fi
 # the run was truncated: no "Test run with" summary line, or a summary that
 # reports fewer tests than the log shows starting.
 report() {
-  awk -v summary_file="${GITHUB_STEP_SUMMARY:-}" -v status="$status" "$names_awk"'
+  awk -v summary_file="${GITHUB_STEP_SUMMARY:-}" -v status="$status" "$names_awk$count_awk"'
     function join(list, count,    out, i, max) {
       max = count > 100 ? 100 : count
       for (i = 1; i <= max; i++) out = out (i > 1 ? "; " : "") list[i]
@@ -223,26 +263,6 @@ report() {
         red[name] = 1; reds[++red_count] = name " " at
       }
     }
-    # Occurrences per name, not a set of names. One log can hold the same test name more than
-    # once -- the isolated-suite step runs each suite in its own process into one log -- and with
-    # a set the first run finishing covered the second run starting, so a truncation that only
-    # lost tests another block had already run and summarized read as a pass. Both counts here
-    # and the summary total below now count runs, so they stay comparable.
-    /^◇ Test .* started\.$/ && !/^◇ Test case passing / && !/^◇ Test run started\.$/ {
-      name = name_of($0)
-      if (!(seen_name[name]++)) names[++name_count] = name
-      started[name]++
-      start_count++
-    }
-    # is_finish and name_of come from names_awk above, the one definition the watchdog also uses:
-    # a finish shape this misses fails a whole green run, and one the watchdog misses gets a
-    # healthy run killed, so they must never be able to disagree.
-    #
-    # Counted per name rather than summed on its own: a parameterized test prints a finish for
-    # each case ("✔ Test case passing 1 argument ... passed after ...") whose start line the rule
-    # above deliberately skips, so finishes outnumber starts across the whole log. Per name those
-    # case finishes land under a name that never started, where they cannot hide anything.
-    is_finish($0) { finished[name_of($0)]++ }
     /^[^ ]+ Test run with [0-9]+ tests? / {
       has_summary = 1
       # "✔ Test run with 399 tests in 80 suites passed after ...". Taken out of the text rather
@@ -262,15 +282,13 @@ report() {
           for (i = 1; i <= red_count; i++) printf "- `%s`\n", reds[i] >> summary_file
         }
       }
-      # Once, for both branches below. open_count counts unfinished RUNS and open_list the names
-      # that hold them, so a name started twice and finished once reports the one run it lost.
-      for (i = 1; i <= name_count; i++) {
-        short = started[names[i]] - finished[names[i]]
-        if (short > 0) {
-          open_count += short
-          open_tests[++open_list] = short > 1 ? names[i] " (" short " of " started[names[i]] " runs)" : names[i]
+      # Once, for both branches below, and by the same run keys the watchdog lists, so the two
+      # name the same runs: open_count counts unfinished RUNS and open_tests names each one.
+      for (i = 1; i <= name_count; i++)
+        for (k = first_open_run(names[i]); k <= started[names[i]]; k++) {
+          open_count++
+          open_tests[++open_list] = run_key(names[i], k)
         }
-      }
       if (start_count > 0 && !has_summary) {
         printf "::error title=cmux-next swift test ended early::no \"Test run with\" summary line (crash, kill or truncation); swift test exited %s, and SwiftPM prints no line when the test helper ends on SIGINT, SIGTERM or SIGKILL or exits by itself; %d tests started and never finished: %s\n", status, open_count, join(open_tests, open_list)
         if (summary_file != "") {

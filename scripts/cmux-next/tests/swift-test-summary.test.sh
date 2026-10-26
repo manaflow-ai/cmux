@@ -437,4 +437,36 @@ grep -q 'lostAfterTheCases()' <<<"$err" \
 ! grep -q 'paramTest' <<<"$err" \
   || fail "the error named paramTest, whose cases all finished" "$err"
 
+# The watchdog times each RUN, not each name. A name whose first run finished never leaves the open
+# list once a second run starts, so while the open-list key was the bare name, run 2 inherited the
+# timestamp of the poll that first saw run 1 and was killed for an age it never reached: run 1 seen
+# at t=10, finishes at t=180, run 2 starts at t=181, and at t=310 the watchdog reports 300 s and
+# samples a run that is 129 s old. Keying per run also means the error names which run was lost.
+cat > "$TMP/duprun.out" <<'EOF'
+◇ Test duplicate() started.
+✔ Test duplicate() passed after 0.001 seconds.
+◇ Test duplicate() started.
+EOF
+run duprun 0
+err=$(grep '^::error' <<<"$out")
+grep -q 'duplicate() (run 2)' <<<"$err" \
+  || fail "the error does not name the second run of duplicate()" "$err"
+
+# A test skipped before it ran prints "➜ ... skipped." with NO start line, so that finish has no
+# run to close. Banked as a finish it would close a LATER, real run of the same name: here the
+# skipped duplicate() would have covered the unfinished one, leaving 2 starts against a 2-test
+# summary with nothing reported as open. A finish with no open start is ignored instead.
+cat > "$TMP/skipthenlost.out" <<'EOF'
+➜ Test duplicate() skipped: "not on this platform"
+◇ Test other() started.
+✔ Test other() passed after 0.001 seconds.
+◇ Test duplicate() started.
+✔ Test run with 2 tests in 1 suite passed after 0.002 seconds.
+EOF
+run skipthenlost 0
+[[ "$status" != 0 ]] || fail "a skip covered a later unfinished run of the same test" "$out"
+err=$(grep '^::error' <<<"$out")
+grep -q 'duplicate()' <<<"$err" || fail "the error does not name duplicate()" "$err"
+! grep -q 'other()' <<<"$err" || fail "the error named other(), which finished" "$err"
+
 echo "ok swift-test-summary"
