@@ -25,7 +25,8 @@
 # Isolation: the step makes its own simulator device set under its checkout
 # (`simctl --set`), so it never lists, boots or deletes another simulator, and
 # deletes the set when it ends. The artifact holds the screenshots, each
-# benchmark's flood-bench.json, the app log, the test summary and SUMMARY.md.
+# benchmark's flood-bench.json, the app log, the test summary, SUMMARY.md, the
+# built app (zipped) and the PTY recordings with their replay rates.
 set -euo pipefail
 
 # shellcheck source-path=SCRIPTDIR source=../cmux-next/lib/fleet-only.sh
@@ -211,6 +212,12 @@ fi
 
 simctl spawn "$udid" log show --last 10m --style compact --predicate 'process == "CmuxMobileApp"' > "$out/app-log.txt" 2>/dev/null || true
 cp "$work/build.log" "$out/build.log" 2>/dev/null || true
+# The app (so the same build runs on another Mac's simulator) and the recordings.
+ditto -c -k --keepParent "$app" "$out/CmuxMobileApp-Demo-simulator.app.zip"
+if [[ -d "$work/corpus" ]]; then
+  mkdir -p "$out/corpus"
+  cp "$work/corpus/"*.typescript "$work/corpus/"*.rate "$out/corpus/" 2>/dev/null || true
+fi
 (cd "$out" && rm -f evidence.zip && zip -qr evidence.zip . -x evidence.zip)
 cat "$summary"
 if [[ "${test_status:-0}" -ne 0 ]]; then exit "$test_status"; fi
