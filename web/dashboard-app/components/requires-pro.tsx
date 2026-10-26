@@ -25,8 +25,9 @@ export function RequiresPro({ feature }: { readonly feature: ProFeature }) {
   const plan = useQuery(planQuery);
   const welcome = welcomePlan((location.search as Record<string, unknown>).welcome);
   // A team switch or checkout invalidates the plan: hide the previous answer
-  // until it reloads. A routine focus refetch keeps the current prompt.
-  const outdated = plan.isFetching && queryClient.getQueryState(planQuery.queryKey)?.isInvalidated === true;
+  // until it reloads, and keep hiding it if that reload fails. A routine
+  // focus refetch does not invalidate, so it keeps the current prompt.
+  const outdated = queryClient.getQueryState(planQuery.queryKey)?.isInvalidated === true;
   if (outdated || !plan.data) return null;
   // The welcome shows only once the plan confirms the upgrade; a stale
   // ?welcome link must not hide the prompt from a Free viewer.
