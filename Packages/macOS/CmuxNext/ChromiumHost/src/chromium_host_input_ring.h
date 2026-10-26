@@ -24,24 +24,40 @@
 // reads `parked` (both sequentially consistent) and, when it finds the reader
 // parked, clears it and sends one Mach message. One side always sees the
 // other's store (Dekker), so a frame never waits behind a parked reader. The
-// doorbell is a Mach port, not a pipe, because a Mach message carries the
-// sender's QoS to the receiver and a pipe byte does not; it has a queue limit
-// of 1 and the writer sends with a zero timeout, so a ring never blocks (a
-// doorbell already waiting is enough). The reader waits for it in a kqueue
-// whose EVFILT_MACHPORT receives the message, as Chromium's MessagePumpKqueue
-// waits on its wakeup port (base/message_loop/message_pump_kqueue.cc).
+// doorbell is a Mach port, the transport of Mojo's ChannelMac
+// (mojo/core/channel_mac.cc), with a queue limit of 1, and the writer sends
+// with a zero timeout, so a ring never blocks (a doorbell already waiting is
+// enough). The reader waits for it in a kqueue whose EVFILT_MACHPORT receives
+// the message, as Chromium's MessagePumpKqueue waits on its wakeup port
+// (base/message_loop/message_pump_kqueue.cc). A thread blocked in kevent64 on
+// a plain kqueue gets no QoS override from the message (XNU applies one only
+// to a workloop or a sync-IPC waiter), so the reader runs at user-interactive
+// QoS itself (BecomeReaderThread) and needs none.
 //
 // cmux makes the region, passes it on the host's fd kRingFd at spawn and
 // names the doorbell with --input-doorbell=<name>; the host checks the
 // receive right in under that name (bootstrap_check_in, as Chromium's
 // MachPortRendezvousServer does in base/apple/mach_port_rendezvous_mac.cc)
 // before its HELLO, and cmux looks it up once after the HELLO, off main.
+// HostInput below is the host's reader. browser_host_main.mm starts it in
+// task 042, which dispatches the frames to Chromium and acks them; until
+// then the host takes no --input-doorbell, so no key reaches a host that
+// would drop it.
 #pragma once
+
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <functional>
+#include <thread>
+#include <utility>
+#include <vector>
 
 #include "chromium_host_wire.h"
 
@@ -51,7 +67,6 @@
 #include <pthread.h>
 #include <servers/bootstrap.h>
 #include <sys/event.h>
-#include <unistd.h>
 #endif
 
 namespace cmux_host::input_ring {
@@ -158,13 +173,27 @@ class Writer {
   uint64_t head_ = 0;  // the last head read: the writer reads the reader's line only when the ring looks full
 };
 
+// What a doorbell's Wait (on the reader thread) returned.
+enum class Wake {
+  kRung,     // a ring, or a wake that may be spurious: drain again
+  kStopped,  // Stop was called
+  kFailed,   // the doorbell can no longer wait (its kqueue or pipe failed)
+};
+
 // The reader: the host's input thread. One thread.
 class Reader {
  public:
   enum class Drained {
     kEmpty,    // every written frame was handed out
-    kStopped,  // the sink refused a frame; it stays first in the ring
+    kRefused,  // the sink refused a frame; it stays first in the ring
     kBroken,   // the tail is not a position the writer can be at, or a frame has a payload
+  };
+
+  // Why Run returned.
+  enum class End {
+    kStopped,         // the doorbell was stopped
+    kBroken,          // cmux wrote a position or a frame no writer can (a bad message)
+    kDoorbellFailed,  // the doorbell failed: no ring would wake the reader again
   };
 
   explicit Reader(void* mapping) : ring_(mapping), head_(ring_.Head().load(std::memory_order_relaxed)) {}
@@ -185,7 +214,7 @@ class Reader {
         break;
       }
       if (!sink(static_cast<const Header&>(header))) {
-        result = Drained::kStopped;
+        result = Drained::kRefused;
         break;
       }
       ++head_;
@@ -204,25 +233,27 @@ class Reader {
   }
 
   // After a wake: the writer cleared `parked` when it rang; a wake from
-  // elsewhere (the host's own, after a backlog) leaves it set.
+  // elsewhere (the host's own, after a refusal) leaves it set.
   void Unpark() { ring_.Parked().store(0, std::memory_order_relaxed); }
 
   // Drains into `sink`, calls `flush()` (hand on what the sink took), parks
-  // and waits on `doorbell` (`bool Wait()`: false when stopped), until the
-  // doorbell stops or the ring breaks. A refused frame waits, unparked, for
-  // the sink's owner to ring `doorbell` once it takes frames again.
+  // and waits on `doorbell` (`Wake Wait()`), until the doorbell stops or
+  // fails or the ring breaks. A refused frame waits, unparked, for the sink's
+  // owner to ring `doorbell` once it takes frames again.
   template <typename Doorbell, typename Sink, typename Flush>
-  Drained Run(Doorbell& doorbell, Sink&& sink, Flush&& flush) {
+  End Run(Doorbell& doorbell, Sink&& sink, Flush&& flush) {
+    Wake wake;
     do {
       Unpark();
       Drained drained;
       do {
         drained = Drain(sink);
-        if (drained == Drained::kBroken) return drained;
+        if (drained == Drained::kBroken) return End::kBroken;
         flush();
       } while (drained == Drained::kEmpty && !Park());
-    } while (doorbell.Wait());
-    return Drained::kStopped;
+      wake = doorbell.Wait();  // blocks until a ring, Stop or a failure: no spin
+    } while (wake == Wake::kRung);
+    return wake == Wake::kStopped ? End::kStopped : End::kDoorbellFailed;
   }
 
  private:
@@ -289,17 +320,18 @@ class MachDoorbell {
     return kevent64(kqueue_, events, 2, nullptr, 0, 0, nullptr) == 0;
   }
 
-  // Waits for a ring: false after Stop, or when the kqueue broke.
-  bool Wait() {
+  // Waits for a ring or Stop. kFailed when the kqueue failed: the reader
+  // would never wake again, and its owner ends the host.
+  Wake Wait() {
     kevent64_s event = {};
     int count;
     do count = kevent64(kqueue_, nullptr, 0, &event, 1, 0, nullptr);
     while (count < 0 && errno == EINTR);
-    if (count != 1 || (event.flags & EV_ERROR) != 0) return false;
-    return event.filter == EVFILT_MACHPORT;
+    if (count != 1 || (event.flags & EV_ERROR) != 0) return Wake::kFailed;
+    return event.filter == EVFILT_USER ? Wake::kStopped : Wake::kRung;
   }
 
-  // The host's own ring (its UI thread took frames after a backlog).
+  // The host's own ring (its UI thread ran a batch, so a refused frame can go).
   bool Ring() const { return RingPort(port_); }
 
   void Stop() {
@@ -318,12 +350,137 @@ class MachDoorbell {
 };
 
 // Starts the calling thread as the reader: its label, and QoS
-// user-interactive (input is what a person waits on), so the doorbell's QoS
-// override never has to raise it.
+// user-interactive (input is what a person waits on). It stays there: the
+// doorbell's message overrides no QoS of a thread waiting in a plain kqueue.
 inline void BecomeReaderThread() {
   pthread_setname_np(kReaderLabel);
   pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
 }
+#else
+// Elsewhere (the tests on Linux) the reader keeps the default.
+inline void BecomeReaderThread() {}
 #endif
+
+// Maps the ring cmux passed on `fd` (kRingFd in the host) and closes `fd`:
+// nullptr when it is not a ring of this layout. UnmapRegion undoes it.
+inline void* MapRegion(int fd) {
+  struct stat region;
+  const bool sized = fstat(fd, &region) == 0 && region.st_size >= static_cast<off_t>(kRingBytes);
+  void* mapping = sized ? mmap(nullptr, kRingBytes, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0) : MAP_FAILED;
+  ::close(fd);  // the mapping keeps the region
+  if (mapping == MAP_FAILED) return nullptr;
+  if (!Ring::Valid(mapping, kRingBytes)) {
+    munmap(mapping, kRingBytes);
+    return nullptr;
+  }
+  return mapping;
+}
+inline void UnmapRegion(void* mapping) {
+  if (mapping != nullptr) munmap(mapping, kRingBytes);
+}
+
+// The hand-off of ring frames to the UI thread, one batch at a time: while a
+// batch waits for the UI thread, Take refuses, so the frames stay in the ring,
+// a full ring makes cmux keep the rest on its side, and nothing here grows.
+class BatchGate {
+ public:
+  using Frames = std::vector<Header>;
+
+  // The reader thread: false while a batch waits for the UI thread.
+  bool Take(const Header& frame) {
+    if (in_flight_.load(std::memory_order_acquire)) return false;
+    batch_.push_back(frame);
+    return true;
+  }
+
+  // The reader thread, after each drain: true, with the batch in `out`
+  // (empty before), when one is ready for the UI thread.
+  bool Flush(Frames* out) {
+    if (batch_.empty() || in_flight_.load(std::memory_order_acquire)) return false;
+    in_flight_.store(true, std::memory_order_release);
+    out->swap(batch_);
+    return true;
+  }
+
+  // The UI thread, after it ran the batch; then it rings the doorbell, which
+  // wakes a reader that a refusal left waiting.
+  void Done() { in_flight_.store(false, std::memory_order_release); }
+
+ private:
+  Frames batch_;                        // the reader thread's
+  std::atomic<bool> in_flight_{false};  // a batch waits for the UI thread
+};
+
+// The host's input reader: a thread that waits on `doorbell`, takes the
+// frames cmux wrote and hands them to the UI thread one batch at a time
+// (BatchGate) through `post`. The host posts on Chromium's user-input queue
+// once it runs (cmux_shim_post_user_input_task, BrowserTaskType::kUserInput in
+// content/public/browser/browser_task_traits.h) and on its main run loop
+// before. `Doorbell` is MachDoorbell in the host: `Wake Wait()` on the reader
+// thread, `bool Ring() const` and `void Stop()` from any thread. The object,
+// the mapping and the doorbell outlive every task it posted.
+template <typename Doorbell>
+class HostInput {
+ public:
+  using Frames = BatchGate::Frames;
+  // Runs a task on the UI thread, in post order. Any thread.
+  using Post = std::function<void(std::function<void()>)>;
+  // Runs a batch on the UI thread, oldest first.
+  using Deliver = std::function<void(const Frames&)>;
+  // On the UI thread, when the reader ended without Stop (End::kBroken or
+  // End::kDoorbellFailed): the host can no longer take input, and ends.
+  using Ended = std::function<void(Reader::End)>;
+
+  HostInput(void* mapping, Doorbell& doorbell) : mapping_(mapping), doorbell_(doorbell) {}
+  HostInput(const HostInput&) = delete;
+  HostInput& operator=(const HostInput&) = delete;
+  ~HostInput() { Stop(); }
+
+  void Start(Post post, Deliver deliver, Ended ended) {
+    post_ = std::move(post);
+    deliver_ = std::move(deliver);
+    ended_ = std::move(ended);
+    thread_ = std::thread([this] {
+      BecomeReaderThread();
+      Reader reader(mapping_);
+      const Reader::End end = reader.Run(
+          doorbell_, [this](const Header& frame) { return gate_.Take(frame); }, [this] { Flush(); });
+      if (end == Reader::End::kStopped) return;
+      post_([this, end] {
+        if (!stopped_.load(std::memory_order_acquire)) ended_(end);
+      });
+    });
+  }
+
+  // The UI thread: ends the reader; batches that have not run are dropped.
+  void Stop() {
+    if (!thread_.joinable()) return;
+    stopped_.store(true, std::memory_order_release);
+    doorbell_.Stop();
+    thread_.join();
+  }
+
+ private:
+  // The reader thread, after each drain.
+  void Flush() {
+    Frames frames;
+    if (!gate_.Flush(&frames)) return;
+    post_([this, frames = std::move(frames)] {
+      if (stopped_.load(std::memory_order_acquire)) return;
+      deliver_(frames);
+      gate_.Done();
+      doorbell_.Ring();
+    });
+  }
+
+  void* const mapping_;
+  Doorbell& doorbell_;
+  BatchGate gate_;
+  std::thread thread_;
+  Post post_;
+  Deliver deliver_;
+  Ended ended_;
+  std::atomic<bool> stopped_{false};
+};
 
 }  // namespace cmux_host::input_ring

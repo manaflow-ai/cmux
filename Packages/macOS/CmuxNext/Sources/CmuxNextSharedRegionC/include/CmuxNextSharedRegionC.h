@@ -44,8 +44,8 @@ unsigned int cmux_input_ring_doorbell_look_up(const char *name);
 
 // Sends one empty message to `port` with a zero timeout, so it never waits:
 // 1 when it was sent or a doorbell already waits (the port's queue limit is
-// 1), 0 when the port is dead. The message carries the sending thread's QoS
-// to the host's reader, as a Mach message does and a pipe byte does not.
+// 1), 0 when the port is dead. The host's reader runs at user-interactive
+// QoS itself; the message raises no QoS.
 int cmux_input_ring_doorbell_ring(unsigned int port);
 
 // Releases a send right from cmux_input_ring_doorbell_look_up.

@@ -10,21 +10,28 @@ import Darwin
 /// frames of 64 bytes in a shared memory region, not the control socket. One
 /// write stores the frame and release-stores the tail: no lock, no system call,
 /// unless the host's reader is parked, when it also sends one Mach message
-/// with a zero timeout (``ChromiumHostInputDoorbell``; a Mach message carries
-/// this thread's QoS to the reader, a pipe byte would not, as Mojo on macOS
-/// uses Mach ports in mojo/core/channel_mac.cc). The layout, the park protocol
-/// and the host's reader are `ChromiumHost/src/chromium_host_input_ring.h`;
-/// both sides check the same golden bytes (`ChromiumHostInputRingTests`,
+/// with a zero timeout (``ChromiumHostInputDoorbell``, a Mach port as Mojo's
+/// mojo/core/channel_mac.cc uses; the host's reader runs at user-interactive
+/// QoS itself, so it needs no override from the message). The layout, the
+/// park protocol and the host's reader are
+/// `ChromiumHost/src/chromium_host_input_ring.h`; both sides check the same
+/// golden bytes (`ChromiumHostInputRingTests`,
 /// `chromium_host_input_ring_test.cpp`).
 ///
 /// A full ring (a host whose UI thread stopped) never makes a write wait: the
 /// frame goes to this writer's backlog, which the next write or
 /// ``flushBacklog()`` moves into the ring first, so the host still gets every
-/// frame in order. In the backlog a pointer move replaces a waiting move of
-/// the same page and wheel deltas add up into a waiting wheel tick, as the
-/// host's `FrameQueue` coalesces; keys and clicks are kept. Over
-/// ``backlogLimit`` waiting frames a write is refused and counted, as the
-/// control channel's quota counts.
+/// frame in order. Keys, clicks and every frame that is not a move or a wheel
+/// tick wait there and are never dropped: only the person's Reload or the
+/// supervisor's 60 s ceiling ends a host that stopped taking them
+/// (p01-process.md 3.1, Bounds). When a page's newest waiting frame is a
+/// move, its next move replaces it; when it is a wheel tick, the next tick's
+/// deltas add up into it, as the host's `FrameQueue` coalesces. That is
+/// coalescing by page, not by the backlog's last entry, so moves of one page
+/// interleaved with another page's frames still fold, and a page's frames
+/// never pass each other (its seqs keep rising). Over ``coalescableLimit``
+/// waiting moves and wheel ticks, one that cannot fold in is dropped and
+/// counted (``Stats/dropped``), as the control channel's quota counts its excess.
 ///
 /// Main actor: the one writer of a single-producer ring is the thread that
 /// receives `NSEvent`s.
@@ -41,18 +48,21 @@ final class ChromiumHostInputRing {
     nonisolated static let ringBytes = 512 + 4_096 * 64
     /// The host's descriptor of the region (`kRingFd`).
     nonisolated static let hostDescriptor: Int32 = 5
-    /// Frames the backlog holds after coalescing before a write is refused.
-    nonisolated static let backlogLimit = 4_096
+    /// Moves and wheel ticks the backlog holds; keys and clicks have no bound here.
+    nonisolated static let coalescableLimit = 4_096
 
     /// What one ``write(_:browser:)`` did.
     nonisolated enum Push: Equatable, Sendable {
         /// In the ring.
         case written
-        /// In the backlog: the ring is full.
+        /// In the backlog (the ring is full), or folded into a waiting move or
+        /// wheel tick there.
         case spilled
-        /// Dropped and counted: a frame with a payload (ring frames have
-        /// none), or a full backlog.
+        /// Not written and counted: a frame with a payload (ring frames have none).
         case refused
+        /// A move or wheel tick over ``coalescableLimit`` that could not fold
+        /// into a waiting one: dropped and counted. Keys and clicks never are.
+        case dropped
         /// The host moved its head to a position no reader can be at; every
         /// later write is refused too (the owner ends the host).
         case broken
@@ -73,7 +83,10 @@ final class ChromiumHostInputRing {
         var spilled: UInt64 = 0
         var coalesced: UInt64 = 0
         var refused: UInt64 = 0
+        /// Moves and wheel ticks dropped over ``coalescableLimit``.
+        var dropped: UInt64 = 0
     }
+
 
     private(set) var stats = Stats()
     private(set) var isBroken = false
@@ -89,8 +102,21 @@ final class ChromiumHostInputRing {
     private var doorbell: (any ChromiumHostInputDoorbell)?
     /// The reader parked before the doorbell was attached.
     private var ringWhenAttached = false
+    /// Frames waiting for room in the ring, oldest first, from `backlogHead`.
     private var backlog: [ChromiumHostFrame] = []
     private var backlogHead = 0
+    /// The position of `backlog[0]` since this writer began (compaction
+    /// moves it), so `foldInto` positions stay valid.
+    private var backlogStart = 0
+    /// Per page (client browser id), the position of its newest waiting
+    /// frame when that is a move or a wheel tick: the next one of the same
+    /// kind folds into it. Any other frame of the page ends the entry, so a
+    /// page's frames never pass each other.
+    private var foldInto: [Int32: Int] = [:]
+    /// Moves and wheel ticks in the backlog.
+    private var coalescableWaiting = 0
+    /// Compact the backlog once this many frames left it from the front.
+    private static let compactAfter = 1_024
 
     /// Maps the ring in `fd` (``ChromiumHostInputRingRegion/fd``; the caller
     /// keeps and closes the descriptor). Rings `doorbell` when the reader
@@ -152,13 +178,20 @@ final class ChromiumHostInputRing {
     func flushBacklog() -> Flush {
         while backlogHead < backlog.count {
             switch put(backlog[backlogHead]) {
-            case .written: backlogHead += 1
-            case .full: return .waiting(backlogCount)
-            case .broken: return .broken
+            case .written:
+                if Self.isCoalescable(backlog[backlogHead]) { coalescableWaiting -= 1 }
+                backlogHead += 1
+            case .full:
+                compactBacklog()
+                return .waiting(backlogCount)
+            case .broken:
+                return .broken
             }
         }
+        backlogStart += backlog.count
         backlog.removeAll(keepingCapacity: true)
         backlogHead = 0
+        foldInto.removeAll(keepingCapacity: true)
         return .drained
     }
 
@@ -201,18 +234,46 @@ final class ChromiumHostInputRing {
 
     // MARK: The backlog
 
+    /// Keys, clicks and every other kind always wait; a move or wheel tick
+    /// folds into its page's waiting one, else waits while fewer than
+    /// ``coalescableLimit`` do, else is dropped and counted.
     private func spill(_ frame: ChromiumHostFrame) -> Push {
-        if backlogCount > 0, Self.coalesce(&backlog[backlog.count - 1], frame) {
+        let page = Self.browser(of: frame)
+        guard Self.isCoalescable(frame) else {
+            foldInto[page] = nil
+            backlog.append(frame)
+            stats.spilled += 1
+            return .spilled
+        }
+        if let position = foldInto[page], position >= backlogStart + backlogHead,
+           Self.coalesce(&backlog[position - backlogStart], frame) {
             stats.coalesced += 1
             return .spilled
         }
-        guard backlogCount < Self.backlogLimit else {
-            stats.refused += 1
-            return .refused
+        guard coalescableWaiting < Self.coalescableLimit else {
+            stats.dropped += 1
+            return .dropped
         }
+        foldInto[page] = backlogStart + backlog.count
         backlog.append(frame)
+        coalescableWaiting += 1
         stats.spilled += 1
         return .spilled
+    }
+
+    /// Drops the frames that left the front of the backlog once there are
+    /// enough of them, so a backlog that never fully drains does not grow.
+    private func compactBacklog() {
+        guard backlogHead >= Self.compactAfter, backlogHead * 2 >= backlog.count else { return }
+        backlog.removeFirst(backlogHead)
+        backlogStart += backlogHead
+        backlogHead = 0
+    }
+
+    /// A pointer move (mouse phase 0) or a wheel tick: a newer one may fold into it.
+    private static func isCoalescable(_ frame: ChromiumHostFrame) -> Bool {
+        (frame.rawKind == ChromiumHostFrame.Kind.mouse.rawValue && frame.v[2] == 0)
+            || frame.rawKind == ChromiumHostFrame.Kind.wheel.rawValue
     }
 
     /// Folds `next` into `waiting` when it only updates it: the host's

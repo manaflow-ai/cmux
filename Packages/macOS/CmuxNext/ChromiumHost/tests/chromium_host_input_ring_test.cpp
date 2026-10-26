@@ -1,24 +1,37 @@
 // The input ring (chromium_host_input_ring.h): its golden bytes (the same as
 // ChromiumHostInputRingTests.swift checks), full and broken rings, the park
-// protocol, and a process pair that moves 1,000,000 frames with no loss and
-// in order. Run by scripts/cmux-next/tests/chromium-host-input-ring.test.sh;
-// on macOS the pair rings the real Mach doorbell, elsewhere a pipe.
+// protocol, how the reader ends, the host reader's back-pressure handshake
+// (HostInput: a batch in flight refuses, the UI thread's ring takes the reader
+// on) over 1,000,000 frames, and a process pair that moves 1,000,000 frames
+// with no loss and in order. Run by
+// scripts/cmux-next/tests/chromium-host-input-ring.test.sh; on macOS the
+// doorbell is the real Mach port, elsewhere a pipe.
 #include "../src/chromium_host_input_ring.h"
 
 #include <fcntl.h>
 #include <sched.h>
+#include <signal.h>
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <algorithm>
+#include <atomic>
 #include <cerrno>
+#include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
+#include "chromium_host_input_ring_test_support.h"
+
 using cmux_host::Header;
 using namespace cmux_host::input_ring;
+using cmux_host::input_ring::testing::TaskThread;
 
 namespace {
 
@@ -31,6 +44,8 @@ int failures = 0;
       ++failures;                                                       \
     }                                                                   \
   } while (0)
+
+constexpr auto kStallLimit = std::chrono::seconds(60);
 
 std::vector<uint8_t> Hex(const char* hex) {
   std::vector<uint8_t> bytes;
@@ -77,6 +92,49 @@ struct Mapping {
   const uint8_t* bytes() const { return static_cast<const uint8_t*>(base); }
 };
 
+// A doorbell whose Wait returns `wake` at once; rings and stops do nothing.
+struct FixedDoorbell {
+  Wake wake;
+  Wake Wait() { return wake; }
+  bool Ring() const { return true; }
+  void Stop() {}
+};
+
+// The doorbell of an in-process reader, and the writer's ring of it: the real
+// Mach port on macOS (checked in under a name of this process), a pipe elsewhere.
+#if defined(__APPLE__)
+struct LocalDoorbell {
+  using Doorbell = MachDoorbell;
+  MachDoorbell doorbell;
+  bool ready;
+  explicit LocalDoorbell(const char* test) {
+    const std::string name = std::string("com.cmuxterm.chromium-host.input-ring-test.") + test + "." + std::to_string(getpid());
+    ready = doorbell.CheckIn(name.c_str());
+  }
+  Doorbell& get() { return doorbell; }
+  void RingFromWriter() { doorbell.Ring(); }
+};
+#else
+struct LocalDoorbell {
+  using Doorbell = testing::PipeDoorbell;
+  int bell[2] = {-1, -1};
+  std::unique_ptr<testing::PipeDoorbell> doorbell;
+  bool ready;
+  explicit LocalDoorbell(const char*) {
+    ready = pipe(bell) == 0;
+    if (ready) doorbell = std::make_unique<testing::PipeDoorbell>(bell[0], bell[1]);
+  }
+  ~LocalDoorbell() {
+    doorbell.reset();
+    for (int fd : bell) {
+      if (fd >= 0) close(fd);
+    }
+  }
+  Doorbell& get() { return *doorbell; }
+  void RingFromWriter() { doorbell->Ring(); }
+};
+#endif
+
 void TestLayout() {
   EXPECT(kRingBytes == 512 + 4096 * 64);
   Mapping mapping;
@@ -109,7 +167,7 @@ void TestFullAndRefused() {
   Reader reader(mapping.base);
   uint32_t taken = 0;
   // The sink takes two and refuses the third: it stays first.
-  EXPECT(reader.Drain([&taken](const Header&) { return ++taken <= 2; }) == Reader::Drained::kStopped);
+  EXPECT(reader.Drain([&taken](const Header&) { return ++taken <= 2; }) == Reader::Drained::kRefused);
   EXPECT(cmux_host::detail::Get<uint64_t>(mapping.bytes(), kHeadOffset) == 2);
   EXPECT(writer.Write(Numbered(kCapacity + 1)) == Writer::Push::kWritten);
   EXPECT(writer.Write(Numbered(kCapacity + 2)) == Writer::Push::kWritten);
@@ -158,28 +216,140 @@ void TestPark() {
   EXPECT(writer.Write(Numbered(3)) == Writer::Push::kWritten);
 }
 
-// The reader's doorbell in the pair: the real Mach port on macOS, a pipe elsewhere.
-#if defined(__APPLE__)
-using PairDoorbell = MachDoorbell;
-#else
-class PairDoorbell {
- public:
-  explicit PairDoorbell(int read_fd) : read_fd_(read_fd) {}
-  bool Wait() {
-    if (stopped_) return false;
-    char bytes[64];
-    ssize_t count;
-    do count = read(read_fd_, bytes, sizeof bytes);
-    while (count < 0 && errno == EINTR);
-    return count > 0 && !stopped_;
+// Run ends on a stop, a failed doorbell (never as a stop: before the fix a
+// failed kqueue looked like Stop and the host lost its input with no report)
+// and a broken ring.
+void TestRunEnds() {
+  auto take = [](const Header&) { return true; };
+  auto flush = [] {};
+  {
+    Mapping mapping;
+    FixedDoorbell doorbell{Wake::kStopped};
+    EXPECT(Reader(mapping.base).Run(doorbell, take, flush) == Reader::End::kStopped);
   }
-  void Stop() { stopped_ = true; }
+  {
+    Mapping mapping;
+    FixedDoorbell doorbell{Wake::kFailed};
+    EXPECT(Reader(mapping.base).Run(doorbell, take, flush) == Reader::End::kDoorbellFailed);
+  }
+  {
+    Mapping mapping;
+    Ring(mapping.base).Tail().store(kCapacity + 1);
+    FixedDoorbell doorbell{Wake::kRung};
+    EXPECT(Reader(mapping.base).Run(doorbell, take, flush) == Reader::End::kBroken);
+  }
+}
 
- private:
-  int read_fd_;
-  bool stopped_ = false;
-};
-#endif
+// HostInput reports a reader that ended without Stop on the UI thread, and
+// nothing after Stop.
+void TestHostInputReportsItsEnd() {
+  for (const Wake wake : {Wake::kFailed, Wake::kRung}) {
+    Mapping mapping;
+    if (wake == Wake::kRung) Ring(mapping.base).Tail().store(kCapacity + 1);  // broken
+    FixedDoorbell doorbell{wake};
+    TaskThread ui;
+    std::mutex mutex;
+    std::condition_variable ready;
+    bool ended = false;
+    Reader::End end = Reader::End::kStopped;
+    HostInput<FixedDoorbell> input(mapping.base, doorbell);
+    input.Start([&ui](std::function<void()> task) { ui.Post(std::move(task)); }, [](const HostInput<FixedDoorbell>::Frames&) {},
+                [&](Reader::End reported) {
+                  std::lock_guard<std::mutex> lock(mutex);
+                  ended = true;
+                  end = reported;
+                  ready.notify_one();
+                });
+    EXPECT(testing::WaitFor(mutex, ready, kStallLimit, [&] { return ended; }));
+    EXPECT(end == (wake == Wake::kFailed ? Reader::End::kDoorbellFailed : Reader::End::kBroken));
+    input.Stop();
+    ui.Stop();  // the tasks still posted run while `input` lives
+  }
+  {
+    Mapping mapping;
+    LocalDoorbell local("stop");
+    EXPECT(local.ready);
+    if (!local.ready) return;
+    TaskThread ui;
+    std::atomic<bool> ended{false};
+    {
+      HostInput<LocalDoorbell::Doorbell> input(mapping.base, local.get());
+      input.Start([&ui](std::function<void()> task) { ui.Post(std::move(task)); }, [](const auto&) {},
+                  [&ended](Reader::End) { ended = true; });
+      input.Stop();
+      ui.Stop();
+    }
+    EXPECT(!ended);
+  }
+}
+
+// The back-pressure handshake: while a batch waits for the UI thread the
+// reader refuses and waits unparked; only the UI thread's ring after the
+// batch takes it on. 1,000,000 frames from a writer that keeps writing reach
+// the UI thread in order, with no stall.
+void TestHostInputBackPressure() {
+  constexpr uint32_t kFrames = 1000000;
+  Mapping mapping;
+  LocalDoorbell local("back-pressure");
+  EXPECT(local.ready);
+  if (!local.ready) return;
+  using Input = HostInput<LocalDoorbell::Doorbell>;
+  TaskThread ui;
+  std::mutex mutex;
+  std::condition_variable ready;
+  bool done = false;
+  uint32_t expected = 1;  // the UI thread's
+  bool ordered = true;
+  uint64_t batches = 0;
+  size_t largest = 0;
+  std::atomic<bool> ended{false};
+  Input input(mapping.base, local.get());
+  input.Start([&ui](std::function<void()> task) { ui.Post(std::move(task)); },
+              [&](const Input::Frames& frames) {
+                ++batches;
+                largest = std::max(largest, frames.size());
+                for (const Header& frame : frames) {
+                  ordered = ordered && frame.seq == expected && frame.t0 == expected;
+                  ++expected;
+                }
+                if (batches % 64 == 0) std::this_thread::yield();  // a UI thread that is sometimes busy
+                if (expected > kFrames) {
+                  std::lock_guard<std::mutex> lock(mutex);
+                  done = true;
+                  ready.notify_one();
+                }
+              },
+              [&ended](Reader::End) { ended = true; });
+  Writer writer(mapping.base);
+  uint64_t full = 0;
+  const auto deadline = std::chrono::steady_clock::now() + kStallLimit;
+  bool stalled = false;
+  for (uint32_t seq = 1; seq <= kFrames && !stalled; ++seq) {
+    for (;;) {
+      const Writer::Push push = writer.Write(Numbered(seq));
+      if (push == Writer::Push::kFull) {
+        ++full;  // cmux spills to its backlog instead; the test waits for room
+        if ((full & 0xfff) == 0 && std::chrono::steady_clock::now() > deadline) {
+          stalled = true;
+          break;
+        }
+        sched_yield();
+        continue;
+      }
+      EXPECT(push != Writer::Push::kBroken);
+      if (push == Writer::Push::kWrittenRing) local.RingFromWriter();
+      break;
+    }
+  }
+  EXPECT(!stalled);
+  EXPECT(testing::WaitFor(mutex, ready, kStallLimit, [&] { return done; }));
+  input.Stop();
+  ui.Stop();
+  EXPECT(ordered && expected == kFrames + 1);
+  EXPECT(!ended);
+  std::printf("input ring host reader: %u frames, %llu batches (largest %zu), %llu writes found the ring full\n", kFrames,
+              static_cast<unsigned long long>(batches), largest, static_cast<unsigned long long>(full));
+}
 
 void TestProcessPair() {
   constexpr uint32_t kFrames = 1000000;
@@ -190,20 +360,24 @@ void TestProcessPair() {
 #if defined(__APPLE__)
   const std::string name = "com.cmuxterm.chromium-host.input-ring-test." + std::to_string(getpid());
 #endif
+  std::fflush(stdout);  // the child must not print this process's buffered lines again
   const pid_t child = fork();
+  if (child < 0) std::abort();
   if (child == 0) {
+    close(ready[0]);
+    close(bell[1]);  // the parent's death is EOF on the bell: Wake::kFailed
 #if defined(__APPLE__)
-    PairDoorbell doorbell;
+    MachDoorbell doorbell;
     if (!doorbell.CheckIn(name.c_str())) _exit(3);
     BecomeReaderThread();
 #else
-    PairDoorbell doorbell(bell[0]);
+    testing::PipeDoorbell doorbell(bell[0], -1);
 #endif
     if (write(ready[1], "r", 1) != 1) _exit(4);
     Reader reader(mapping.base);
     uint32_t expected = 1;
     bool ordered = true;
-    const Reader::Drained end = reader.Run(
+    const Reader::End end = reader.Run(
         doorbell,
         [&](const Header& h) {
           ordered = ordered && h.seq == expected && h.t0 == expected;
@@ -211,39 +385,52 @@ void TestProcessPair() {
           return true;
         },
         [] {});
-    _exit(end == Reader::Drained::kStopped && ordered && expected == kFrames + 1 ? 0 : 1);
+    _exit(end == Reader::End::kStopped && ordered && expected == kFrames + 1 ? 0 : 1);
   }
+  // Only the child's copies stay open: its early exit is EOF here, not a hang.
+  close(ready[1]);
+  close(bell[0]);
   char byte;
-  EXPECT(read(ready[0], &byte, 1) == 1);
-#if defined(__APPLE__)
-  mach_port_t port = MACH_PORT_NULL;
-  EXPECT(bootstrap_look_up(bootstrap_port, name.c_str(), &port) == KERN_SUCCESS);
-  auto ring = [port] { RingPort(port); };
-#else
-  fcntl(bell[1], F_SETFL, O_NONBLOCK);
-  auto ring = [&bell] { (void)!write(bell[1], "d", 1); };
-#endif
-  Writer writer(mapping.base);
+  const bool started = read(ready[0], &byte, 1) == 1;
+  close(ready[0]);
+  EXPECT(started);
+  int status = 0;
+  bool reaped = false;
   uint64_t rings = 0;
   uint64_t full = 0;
-  for (uint32_t seq = 1; seq <= kFrames; ++seq) {
-    for (;;) {
-      const Writer::Push push = writer.Write(Numbered(seq));
-      if (push == Writer::Push::kFull) {
-        ++full;  // the test waits for space; cmux spills instead
-        sched_yield();
-        continue;
+  if (started) {
+#if defined(__APPLE__)
+    mach_port_t port = MACH_PORT_NULL;
+    EXPECT(bootstrap_look_up(bootstrap_port, name.c_str(), &port) == KERN_SUCCESS);
+    auto ring = [port] { RingPort(port); };
+#else
+    fcntl(bell[1], F_SETFL, O_NONBLOCK);
+    auto ring = [&bell] { (void)!write(bell[1], "d", 1); };
+#endif
+    Writer writer(mapping.base);
+    for (uint32_t seq = 1; seq <= kFrames && !reaped; ++seq) {
+      for (;;) {
+        const Writer::Push push = writer.Write(Numbered(seq));
+        if (push == Writer::Push::kFull) {
+          ++full;  // the test waits for space; cmux spills instead
+          if (waitpid(child, &status, WNOHANG) == child) {
+            reaped = true;  // the reader died: the ring never empties
+            break;
+          }
+          sched_yield();
+          continue;
+        }
+        EXPECT(push != Writer::Push::kBroken);
+        if (push == Writer::Push::kWrittenRing) {
+          ++rings;
+          ring();
+        }
+        break;
       }
-      EXPECT(push != Writer::Push::kBroken);
-      if (push == Writer::Push::kWrittenRing) {
-        ++rings;
-        ring();
-      }
-      break;
     }
   }
-  int status = 0;
-  EXPECT(waitpid(child, &status, 0) == child);
+  close(bell[1]);
+  if (!reaped) EXPECT(waitpid(child, &status, 0) == child);
   EXPECT(WIFEXITED(status) && WEXITSTATUS(status) == 0);
   std::printf("input ring pair: %u frames, %llu doorbells, %llu writes found the ring full\n", kFrames,
               static_cast<unsigned long long>(rings), static_cast<unsigned long long>(full));
@@ -252,10 +439,14 @@ void TestProcessPair() {
 }  // namespace
 
 int main() {
+  signal(SIGPIPE, SIG_IGN);  // a ring to a dead reader's pipe fails instead
   TestLayout();
   TestFullAndRefused();
   TestBroken();
   TestPark();
+  TestRunEnds();
+  TestHostInputReportsItsEnd();
+  TestHostInputBackPressure();
   TestProcessPair();
   if (failures != 0) {
     std::fprintf(stderr, "%d failures\n", failures);

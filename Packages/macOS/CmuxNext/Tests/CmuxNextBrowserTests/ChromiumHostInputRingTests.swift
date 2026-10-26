@@ -9,9 +9,11 @@ import Testing
 /// The input ring to the Chromium Host (p01-process-041): the same golden
 /// bytes as ChromiumHost/tests/chromium_host_input_ring_test.cpp
 /// (scripts/cmux-next/tests/chromium-host-input-ring.test.sh), the backlog of
-/// a full ring, a broken head, the doorbell only for a parked reader, and a
-/// reader thread on a real Mach port that takes 1,000,000 frames with none
-/// lost and in order. The C++ test runs the same pair across two processes.
+/// a full ring (keys and clicks never dropped, moves folded per page), a
+/// broken head, the doorbell only for a parked reader, and a process pair:
+/// this writer against the host's own C++ reader (HostInput over
+/// MachDoorbell, built from chromium_host_input_ring_reader.cpp) in a child
+/// process, 1,000,000 frames with none lost and in order.
 @MainActor
 @Suite(.timeLimit(.minutes(1))) struct ChromiumHostInputRingTests {
     /// The ring's first 16 bytes after format, and the golden key frame in slot 0.
@@ -78,9 +80,36 @@ import Testing
         }
 
         /// The seq of the frame at ring position `index`.
-        func seq(at index: UInt64) -> UInt32 {
+        func seq(at index: UInt64) -> UInt32 { field(at: index, offset: 60) }
+
+        /// The kind of the frame at ring position `index`.
+        func kind(at index: UInt64) -> UInt32 { field(at: index, offset: 0) }
+
+        /// v0 (x) of the frame at ring position `index`.
+        func x(at index: UInt64) -> Int32 { Int32(bitPattern: field(at: index, offset: 8)) }
+
+        private func field(at index: UInt64, offset: Int) -> UInt32 {
             let slot = ChromiumHostInputRing.framesOffset + Int(index % ChromiumHostInputRing.capacity) * ChromiumHostInputRing.frameSize
-            return UInt32(littleEndian: base.loadUnaligned(fromByteOffset: slot + 60, as: UInt32.self))
+            return UInt32(littleEndian: base.loadUnaligned(fromByteOffset: slot + offset, as: UInt32.self))
+        }
+
+        /// Plays the reader until the writer's backlog is empty: reads every
+        /// written frame, frees the slots, and lets the writer move more in.
+        /// The kinds and seqs read, oldest first.
+        func drain() -> [(kind: UInt32, seq: UInt32)] {
+            let tail = word(ChromiumHostInputRing.tailOffset)
+            let head = word(ChromiumHostInputRing.headOffset)
+            var read: [(kind: UInt32, seq: UInt32)] = []
+            var position = head.load(ordering: .acquiring)
+            repeat {
+                let written = tail.load(ordering: .acquiring)
+                while position != written {
+                    read.append((kind: kind(at: position), seq: seq(at: position)))
+                    position += 1
+                }
+                head.store(position, ordering: .releasing)
+            } while ring.flushBacklog() != .drained || position != tail.load(ordering: .acquiring)
+            return read
         }
     }
 
@@ -145,6 +174,54 @@ import Testing
         #expect(fixture.word(ChromiumHostInputRing.tailOffset).load(ordering: .acquiring) == 4_100)
     }
 
+    /// Keys are never dropped. Before the fix the backlog refused every frame
+    /// over 4,096, keys too, and moves interleaved with keys never folded (only
+    /// the last entry was tried): the 4,097th waiting frame, a key, was lost.
+    @Test func aFullRingNeverDropsAKey() throws {
+        let fixture = try Fixture()
+        let ring = fixture.ring
+        for code in 1...4_096 { ring.write(Self.key(Int32(code)), browser: 1) }
+        let pairs = ChromiumHostInputRing.coalescableLimit + 1_000
+        var keySeqs = Array(UInt32(1)...4_096)
+        var keysTaken = true
+        for index in 0..<pairs {
+            let move = ring.write(Self.move(Int32(index)), browser: 1)
+            keysTaken = keysTaken && ring.write(Self.key(Int32(index)), browser: 1) == .spilled
+            #expect(move == (index < ChromiumHostInputRing.coalescableLimit ? ChromiumHostInputRing.Push.spilled : .dropped))
+            keySeqs.append(UInt32(4_096 + 2 * index + 2))
+        }
+        #expect(keysTaken)
+        #expect(ring.stats.dropped == 1_000)
+        #expect(ring.backlogCount == pairs + ChromiumHostInputRing.coalescableLimit)
+        let read = fixture.drain()
+        let keyKind = ChromiumHostFrame.Kind.key.rawValue
+        #expect(read.filter { $0.kind == keyKind }.map { $0.seq } == keySeqs)
+        #expect(read.count == 4_096 + pairs + ChromiumHostInputRing.coalescableLimit)
+        #expect(ring.backlogCount == 0)
+    }
+
+    /// A page's moves fold into its newest waiting move even when other
+    /// pages' frames came between; a key of the page ends the fold.
+    @Test func movesFoldPerPage() throws {
+        let fixture = try Fixture()
+        let ring = fixture.ring
+        for code in 1...4_096 { ring.write(Self.key(Int32(code)), browser: 1) }
+        for x in Int32(1)...100 {
+            ring.write(Self.move(x), browser: 1)
+            ring.write(Self.key(x), browser: 2)
+        }
+        #expect(ring.backlogCount == 101)  // page 1's one move, page 2's 100 keys
+        #expect(ring.stats.coalesced == 99)
+        ring.write(Self.key(0), browser: 1)
+        #expect(ring.write(Self.move(500), browser: 1) == .spilled)
+        #expect(ring.backlogCount == 103)
+        let read = fixture.drain()
+        #expect(read.count == 4_096 + 103)
+        #expect(fixture.x(at: 4_096) == 100)  // the newest position of page 1's folded move
+        #expect(fixture.x(at: 4_096 + 102) == 500)
+        #expect(ring.stats.dropped == 0)
+    }
+
     @Test func aHeadNoReaderCanHaveBreaksTheRing() throws {
         let fixture = try Fixture()
         for code in 1...4_096 { fixture.ring.write(Self.key(Int32(code)), browser: 1) }
@@ -175,79 +252,131 @@ import Testing
         #expect(doorbell.rings.load(ordering: .relaxed) == 2)
     }
 
-    /// 1,000,000 frames to a reader thread that parks on a real Mach port
-    /// (ChromiumHostMachDoorbell): none lost, every one in order.
-    @Test func readerOnAMachDoorbellGetsEveryFrameInOrder() async throws {
+    /// The process pair: this writer against the host's own reader (HostInput
+    /// over MachDoorbell, chromium_host_input_ring.h) in a child process that
+    /// checks the doorbell in with a queue limit of 1, as the host does.
+    /// 1,000,000 keys: none lost, every one in order.
+    @Test func theHostsReaderInAChildProcessGetsEveryFrameInOrder() async throws {
         let count: UInt32 = 1_000_000
-        let task = mach_task_self_
-        var port = mach_port_t(0)
-        try #require(mach_port_allocate(task, MACH_PORT_RIGHT_RECEIVE, &port) == KERN_SUCCESS)
-        defer { mach_port_mod_refs(task, port, MACH_PORT_RIGHT_RECEIVE, -1) }
-        try #require(mach_port_insert_right(task, port, port, mach_msg_type_name_t(MACH_MSG_TYPE_MAKE_SEND)) == KERN_SUCCESS)
-        let fixture = try Fixture(doorbell: ChromiumHostMachDoorbell(port: port))
-        let (done, finished) = AsyncStream<Bool>.makeStream()
-        let address = fixture.address
-        let receivePort = port
-        Thread {
-            finished.yield(Self.read(count, address: address, port: receivePort))
-            finished.finish()
-        }.start()
+        let region = try ChromiumHostInputRingRegion.make()
+        defer { close(region.fd) }
+        let regionFD = region.fd
+        let name = region.doorbellName
+        let reader = try await Task.detached { try ReaderProcess.start(doorbell: name, frames: count, regionFD: regionFD) }.value
+        let ring = try ChromiumHostInputRing(region: regionFD, doorbell: reader.doorbell)
         var spills = 0
-        for code in 1...count {
-            switch fixture.ring.write(Self.key(Int32(bitPattern: code)), browser: 1) {
+        var readerAlive = true
+        for code in 1...count where readerAlive {
+            switch ring.write(Self.key(Int32(bitPattern: code)), browser: 1) {
             case .written: break
             case .spilled:
                 spills += 1
-                while fixture.ring.flushBacklog() != .drained {}
-            case .refused, .broken:
+                var tries = 0
+                while ring.flushBacklog() != .drained {
+                    tries += 1
+                    if tries % 4_096 == 0, !ReaderProcess.isRunning(reader.pid) {
+                        readerAlive = false
+                        break
+                    }
+                }
+            case .refused, .dropped, .broken:
                 Issue.record("write \(code) was not taken")
             }
         }
-        var results = done.makeAsyncIterator()
-        #expect(await results.next() == true)
-        print("chromium-host input ring: \(count) frames, \(fixture.ring.stats.doorbells) doorbells, \(spills) spills")
+        let pid = reader.pid
+        let status = await Task.detached { ReaderProcess.exitStatus(of: pid) }.value
+        #expect(readerAlive)
+        #expect(status == 0)  // 1: a frame lost or out of order; 4: the reader ended without Stop
+        print("chromium-host input ring pair: \(count) frames, \(ring.stats.doorbells) doorbells, \(spills) spills")
     }
 
-    /// The reader's side of the park protocol (chromium_host_input_ring.h's
-    /// Reader), receiving the doorbell with mach_msg. True when it took
-    /// `count` frames with seqs 1...count in order.
-    nonisolated static func read(_ count: UInt32, address: Int, port: mach_port_t) -> Bool {
-        guard let base = UnsafeMutableRawPointer(bitPattern: address) else { return false }
-        func word(_ offset: Int) -> AtomicPointerSlot { AtomicPointerSlot((base + offset).assumingMemoryBound(to: UInt64.self)) }
-        let tail = word(ChromiumHostInputRing.tailOffset)
-        let head = word(ChromiumHostInputRing.headOffset)
-        let parked = word(ChromiumHostInputRing.parkedOffset)
-        var position: UInt64 = 0
-        var expected: UInt32 = 1
-        while expected <= count {
-            let written = tail.load(ordering: .acquiring)
-            while position != written {
-                let slot = ChromiumHostInputRing.framesOffset
-                    + Int(position & (ChromiumHostInputRing.capacity - 1)) * ChromiumHostInputRing.frameSize
-                let seq = UInt32(littleEndian: base.loadUnaligned(fromByteOffset: slot + 60, as: UInt32.self))
-                let t0 = UInt64(littleEndian: base.loadUnaligned(fromByteOffset: slot + 40, as: UInt64.self))
-                guard seq == expected, t0 == UInt64(expected) else { return false }
-                position += 1
-                expected += 1
+    /// Why the reader child could not start.
+    nonisolated enum ReaderProcessError: Error {
+        case build(Int32)
+        case spawn
+        case notReady(Int32)
+        case noDoorbell
+    }
+
+    /// The host's C++ reader in a child process, built here from
+    /// ChromiumHost/tests/chromium_host_input_ring_reader.cpp.
+    nonisolated struct ReaderProcess: Sendable {
+        let pid: pid_t
+        let doorbell: ChromiumHostMachDoorbell
+
+        static let source = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appending(path: "ChromiumHost/tests/chromium_host_input_ring_reader.cpp")
+
+        /// Builds and starts the reader on the ring in `regionFD`, waits until
+        /// it checked the doorbell in, and looks the doorbell up. Blocks: off
+        /// the main actor.
+        static func start(doorbell name: String, frames: UInt32, regionFD: Int32) throws(ReaderProcessError) -> ReaderProcess {
+            let binary = FileManager.default.temporaryDirectory
+                .appending(path: "chromium-host-input-ring-reader-\(getpid())-\(UInt32.random(in: .min ... .max))").path
+            defer { unlink(binary) }
+            guard let compiler = spawn(["/usr/bin/xcrun", "clang++", "-std=c++20", "-O2", "-o", binary, source.path]) else {
+                throw .spawn
             }
-            head.store(position, ordering: .releasing)
-            if expected > count { break }
-            parked.store(1, ordering: .sequentiallyConsistent)
-            if tail.load(ordering: .sequentiallyConsistent) != position {
-                parked.store(0, ordering: .relaxed)
-                continue
+            let built = exitStatus(of: compiler)
+            guard built == 0 else { throw .build(built) }
+            var ready: [Int32] = [-1, -1]
+            guard pipe(&ready) == 0 else { throw .spawn }
+            let child = spawn([binary, name, String(frames)], ringFD: regionFD, stdoutFD: ready[1])
+            close(ready[1])
+            defer { close(ready[0]) }
+            guard let child else { throw .spawn }
+            var byte: UInt8 = 0
+            var count = read(ready[0], &byte, 1)
+            while count < 0 && errno == EINTR { count = read(ready[0], &byte, 1) }
+            guard count == 1, byte == UInt8(ascii: "r") else { throw .notReady(exitStatus(of: child)) }
+            guard let doorbell = ChromiumHostMachDoorbell.lookUp(name: name) else {
+                kill(child, SIGKILL)
+                _ = exitStatus(of: child)
+                throw .noDoorbell
             }
-            var message = mach_msg_empty_rcv_t()
-            let received = withUnsafeMutablePointer(to: &message) { pointer in
-                pointer.withMemoryRebound(to: mach_msg_header_t.self, capacity: 1) { header in
-                    mach_msg(header, MACH_RCV_MSG | MACH_RCV_TIMEOUT, 0, mach_msg_size_t(MemoryLayout<mach_msg_empty_rcv_t>.size),
-                             port, 10_000, mach_port_name_t(MACH_PORT_NULL))
-                }
-            }
-            guard received == MACH_MSG_SUCCESS else { return false }  // a lost doorbell times out here
-            parked.store(0, ordering: .relaxed)
+            return ReaderProcess(pid: child, doorbell: doorbell)
         }
-        return true
+
+        /// Starts `arguments[0]` with stdin from /dev/null, stderr as this
+        /// process's, stdout on `stdoutFD` (else this process's), the ring on
+        /// the host's fd 5 when `ringFD` is given, and no other descriptor.
+        static func spawn(_ arguments: [String], ringFD: Int32 = -1, stdoutFD: Int32 = -1) -> pid_t? {
+            var actions: posix_spawn_file_actions_t?
+            posix_spawn_file_actions_init(&actions)
+            defer { posix_spawn_file_actions_destroy(&actions) }
+            posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
+            if stdoutFD >= 0 {
+                posix_spawn_file_actions_adddup2(&actions, stdoutFD, 1)
+            } else {
+                posix_spawn_file_actions_addinherit_np(&actions, 1)
+            }
+            posix_spawn_file_actions_addinherit_np(&actions, 2)
+            if ringFD >= 0 { posix_spawn_file_actions_adddup2(&actions, ringFD, ChromiumHostInputRing.hostDescriptor) }
+            var attributes: posix_spawnattr_t?
+            posix_spawnattr_init(&attributes)
+            defer { posix_spawnattr_destroy(&attributes) }
+            posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT))
+            let argv = arguments.map { strdup($0) } + [nil]
+            defer { argv.forEach { free($0) } }
+            var pid: pid_t = 0
+            guard posix_spawn(&pid, arguments[0], &actions, &attributes, argv, environ) == 0 else { return nil }
+            return pid
+        }
+
+        /// Reaps `pid`: its exit status, or -1 after a signal.
+        static func exitStatus(of pid: pid_t) -> Int32 {
+            var status: Int32 = 0
+            var result = waitpid(pid, &status, 0)
+            while result < 0 && errno == EINTR { result = waitpid(pid, &status, 0) }
+            guard result == pid, status & 0x7f == 0 else { return -1 }
+            return (status >> 8) & 0xff
+        }
+
+        /// False once `pid` ended (it stays a zombie until exitStatus reaps it).
+        static func isRunning(_ pid: pid_t) -> Bool {
+            var info = siginfo_t()
+            return waitid(P_PID, id_t(pid), &info, WEXITED | WNOHANG | WNOWAIT) == 0 && info.si_pid == 0
+        }
     }
 }
 #endif

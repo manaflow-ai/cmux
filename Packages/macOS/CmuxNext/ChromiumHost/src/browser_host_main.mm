@@ -8,9 +8,8 @@
 // (host_dispatch.h). Like Chrome's browser main (content/browser/
 // browser_main_loop.cc), it runs CefRunMessageLoop itself: no external pump.
 //
-// Launched by cmux with the control socket on fd 3 and, with
-// --input-doorbell, the input ring's region on fd 5 (chromium_host_input_ring.h):
-//   <host> --framework=<CEF framework dir> [--input-doorbell=<name>]
+// Launched by cmux with the control socket on fd 3:
+//   <host> --framework=<CEF framework dir>
 // Order on the wire: each side's HELLO (the host's after the fork
 // capabilities' MIRRORs); cmux's queued preinit ops, applied in order; INITIALIZE, which runs
 // cmux_shim_initialize (CefInitialize) with an event_fn that forwards each
@@ -25,7 +24,6 @@
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <signal.h>
-#include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -44,7 +42,6 @@
 #include "include/cef_application_mac.h"
 
 #include "chromium_host_control.h"
-#include "chromium_host_input_ring.h"
 #include "chromium_host_wire.h"
 #include "cmux_cef_shim.h"
 #include "host_dispatch.h"
@@ -175,10 +172,6 @@ class HostMain : public cmux_host::HostDelegate {
     }
   }
 
-  // A batch from the input ring, oldest first. Chromium dispatch and the ack
-  // at dispatch are task 042 (ChromiumHostPageView's ack-based coalescing).
-  void Input(const std::vector<cmux_host::Header>& frames) { input_frames_ += frames.size(); }
-
   void BadMessage(const std::string& what) override {
     fprintf(stderr, "cmux-chromium-host: bad message from cmux: %s\n", what.c_str());
     exit_status_ = kExitBadMessage;
@@ -197,113 +190,6 @@ class HostMain : public cmux_host::HostDelegate {
   bool quitting_ = false;
   bool loop_quit_ = false;
   int exit_status_ = 0;
-  uint64_t input_frames_ = 0;
-};
-
-// The input ring's reader (p01-process-041): a thread at user-interactive QoS
-// that waits on the doorbell, takes the frames cmux wrote and hands them to
-// the UI thread as one batch at a time, on Chromium's user-input queue once
-// it runs (cmux_shim_post_user_input_task, BrowserTaskType::kUserInput in
-// content/public/browser/browser_task_traits.h). While a batch waits for the
-// UI thread, the reader takes no more: the frames stay in the ring, a full
-// ring makes cmux keep the rest on its side, and nothing here grows. The UI
-// thread rings the doorbell when it ran the batch.
-class HostInput {
- public:
-  using Frames = std::vector<cmux_host::Header>;
-  // Runs a batch on the UI thread, oldest first.
-  using Deliver = std::function<void(const Frames&)>;
-
-  HostInput() = default;
-  HostInput(const HostInput&) = delete;
-  HostInput& operator=(const HostInput&) = delete;
-  ~HostInput() {
-    Stop();
-    if (mapping_) munmap(mapping_, cmux_host::input_ring::kRingBytes);
-  }
-
-  // Maps the region on fd kRingFd and checks the doorbell in under `name`.
-  // False when either is missing or the region is not a ring of this layout.
-  bool Open(const std::string& name) {
-    using namespace cmux_host::input_ring;
-    struct stat region;
-    if (fstat(kRingFd, &region) != 0 || region.st_size < static_cast<off_t>(kRingBytes) ||
-        fcntl(kRingFd, F_SETFD, FD_CLOEXEC) != 0) {
-      return false;
-    }
-    void* mapping = mmap(nullptr, kRingBytes, PROT_READ | PROT_WRITE, MAP_SHARED, kRingFd, 0);
-    close(kRingFd);  // the mapping keeps the region
-    if (mapping == MAP_FAILED) return false;
-    mapping_ = mapping;
-    return Ring::Valid(mapping_, kRingBytes) && doorbell_.CheckIn(name.c_str());
-  }
-
-  // Starts the reader thread. `broken` runs on the main thread when cmux
-  // wrote a position or a frame no writer can (a bad message).
-  void Start(Deliver deliver, std::function<void()> broken) {
-    deliver_ = std::move(deliver);
-    thread_ = std::thread([this, broken = std::move(broken)] {
-      cmux_host::input_ring::BecomeReaderThread();
-      cmux_host::input_ring::Reader reader(mapping_);
-      const auto end = reader.Run(
-          doorbell_, [this](const cmux_host::Header& frame) { return Take(frame); }, [this] { Flush(); });
-      if (end == cmux_host::input_ring::Reader::Drained::kBroken) PostToMain(broken);
-    });
-  }
-
-  // Chromium's UI thread runs: batches go on its user-input queue.
-  void SetRunning() { running_.store(true, std::memory_order_release); }
-
-  // Main thread: ends the reader and drops batches that have not run.
-  void Stop() {
-    if (!thread_.joinable()) return;
-    stopped_ = true;
-    doorbell_.Stop();
-    thread_.join();
-  }
-
- private:
-  struct Batch {
-    HostInput* input;
-    Frames frames;
-  };
-
-  // The reader thread: false while a batch waits for the UI thread.
-  bool Take(const cmux_host::Header& frame) {
-    if (in_flight_.load(std::memory_order_acquire)) return false;
-    batch_.push_back(frame);
-    return true;
-  }
-
-  // The reader thread, after each drain.
-  void Flush() {
-    if (batch_.empty() || in_flight_.load(std::memory_order_acquire)) return;
-    in_flight_.store(true, std::memory_order_release);
-    auto* batch = new Batch{this, std::move(batch_)};
-    batch_ = Frames();
-    batch_.reserve(64);
-    if (!running_.load(std::memory_order_acquire) || !cmux_shim_post_user_input_task(&RunBatch, batch)) {
-      PostToMain([batch] { RunBatch(batch); });
-    }
-  }
-
-  static void RunBatch(void* context) {
-    std::unique_ptr<Batch> batch(static_cast<Batch*>(context));
-    HostInput& input = *batch->input;
-    if (input.stopped_) return;
-    input.deliver_(batch->frames);
-    input.in_flight_.store(false, std::memory_order_release);
-    input.doorbell_.Ring();
-  }
-
-  void* mapping_ = nullptr;
-  cmux_host::input_ring::MachDoorbell doorbell_;
-  std::thread thread_;
-  Deliver deliver_;
-  Frames batch_;                         // the reader thread's
-  std::atomic<bool> in_flight_{false};   // a batch waits for the UI thread
-  std::atomic<bool> running_{false};
-  bool stopped_ = false;                 // main thread
 };
 
 void ObserveActivation() {
@@ -366,20 +252,6 @@ int main(int argc, char* argv[]) {
   }
 
   HostMain host_main;
-  // The input ring, when cmux passed one: open before the HELLO, so cmux's
-  // look-up after it finds the doorbell. A named doorbell without its region
-  // is a launch without the wire cmux meant to give.
-  HostInput input;
-  const std::string doorbell = Arg(args, "input-doorbell");
-  if (!doorbell.empty()) {
-    if (!input.Open(doorbell)) {
-      fprintf(stderr, "cmux-chromium-host: no input ring on fd %d for doorbell %s\n",
-              cmux_host::input_ring::kRingFd, doorbell.c_str());
-      return cmux_host::kExitNoWire;
-    }
-    input.Start([&host_main](const HostInput::Frames& frames) { host_main.Input(frames); },
-                [&host_main] { host_main.BadMessage("the input ring is broken"); });
-  }
   cmux_host::HostPageViews page_views;
   std::unique_ptr<cmux_host::control::Channel> channel;
   cmux_host::HostContext host(
@@ -424,10 +296,8 @@ int main(int argc, char* argv[]) {
       return cmux_host::kExitInitialize;
     }
     host_main.set_running();
-    input.SetRunning();
     PostToMain([&host] { host.Resume(); });
     CefRunMessageLoop();
-    input.Stop();
     channel->Close();
     cmux_shim_shutdown();
     status = host_main.exit_status();
