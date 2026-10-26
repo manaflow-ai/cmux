@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextPalette
+import CmuxNextSettings
 import CoreFoundation
 import Foundation
 
@@ -22,7 +23,11 @@ enum LaunchWarmup {
         // daemon; capture it while AppKit starts. Nothing that connects
         // the app waits for it.
         DaemonLauncher.prewarmLoginEnvironment()
-        let thread = Thread {
+        // `SettingsSchema.all` (`swift_once`, about 20 ms cold) is the first lazy global the main thread
+        // reaches: `SettingsController.readAtLaunch` lists the managed keys from it at the top of
+        // `applicationDidFinishLaunching`. Its own thread, so the catalog build below does not delay it.
+        startThread(name: "cmux-next launch warm-up: settings schema") { _ = SettingsSchema.all }
+        startThread(name: "cmux-next launch warm-up") {
             _ = ActionCatalog.all
             PaletteController.prewarmStrings()
             // The SF Symbols catalog loads on first lookup (20 ms on the
@@ -33,11 +38,15 @@ enum LaunchWarmup {
             // was placed (`WindowPlacementFallback.displayID`).
             prewarmDisplayUUIDs()
         }
-        thread.name = "cmux-next launch warm-up"
-        thread.qualityOfService = .userInitiated
-        thread.start()
         // Its own thread: the connecting screen's strings can be read before the work above ends.
         Bundle.warmResourceBundlesInBackground()
+    }
+
+    private nonisolated static func startThread(name: String, work: @escaping @Sendable () -> Void) {
+        let thread = Thread(block: work)
+        thread.name = name
+        thread.qualityOfService = .userInitiated
+        thread.start()
     }
 }
 
