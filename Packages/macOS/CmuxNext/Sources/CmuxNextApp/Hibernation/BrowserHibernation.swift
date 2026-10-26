@@ -96,7 +96,7 @@ final class BrowserHibernation {
         didSet { agentPages?.update(setting: setting, pressure: pressure); agentPagesDidChange() }
     }
     /// The discard planner's last inputs for browser and agent pages (`debug.discards`).
-    var discards = ContentDiscardPlanner(tracking: .browser)
+    private(set) var discards = ContentDiscardPlanner(tracking: .browser)
     var restoredCount = 0
     /// Each pane's tab order and shown tab, from its `PaneController`.
     private var neighbors = NeighborTabs()
@@ -260,6 +260,18 @@ final class BrowserHibernation {
         askedBeforeUnload.remove(key)
         noteFocus(key, at: .now)
         if cache?.browsers[key] != nil { noteDiscard(.shown(key, .browser)) }
+    }
+
+    /// Records an owner's report for `debug.discards` now.
+    func noteDiscard(_ event: ContentDiscardPlanner.Event) {
+        discards.note(event, at: .now)
+    }
+
+    /// The agent page hibernation reports into the same planner.
+    private func agentPagesDidChange() {
+        guard let agentPages else { return }
+        discards.track(.agentPage)
+        agentPages.noteDiscard = { [weak self] event in self?.noteDiscard(event) }
     }
 
     /// Records a show of tab `key` for its ranking, dropping shows older than `focusWindow`.
@@ -427,7 +439,11 @@ final class BrowserHibernation {
         }
         let plan = HibernationPlanner.plan(setting, pressure: pressure, candidates: candidates)
         exemptions.merge(plan.exemptions) { $1 }
-        notePlannedDiscards(hiddenAt, now: now)
+        // Each hidden page's verdict for `debug.discards`: its exemption, else eligible.
+        for key in cache.lifecycle.keys(in: .mountedHidden) {
+            guard let at = hiddenAt[key] else { continue }
+            discards.note(.planned(key, .browser, hiddenFor: (now - at).seconds, exemptions[key].map(CanDiscardResult.init) ?? .eligible), at: now)
+        }
         if !plan.due.isEmpty { refreshMemoryIfNeeded() }
         for key in plan.due { prepare(key) }
         if let next = [plan.nextCheck, graceEnds].compactMap(\.self).min() {

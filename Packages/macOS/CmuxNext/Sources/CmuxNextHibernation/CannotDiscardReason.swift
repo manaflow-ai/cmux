@@ -82,6 +82,15 @@ package enum CanDiscardResult: Hashable, Sendable {
         }
     }
 
+    /// The result's name in `debug.discards`.
+    package var name: String {
+        switch self {
+        case .eligible: "eligible"
+        case .protected: "protected"
+        case .disallowed: "disallowed"
+        }
+    }
+
     /// Why it cannot be discarded; nil when it is eligible.
     package var reason: CannotDiscardReason? {
         switch self {

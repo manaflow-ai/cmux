@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextControl
+import CmuxNextHibernation
 import CmuxNextMemory
 import CmuxNextSettings
 
@@ -23,7 +24,10 @@ enum DebugHibernationControl {
                 guard let services else { return .value(.null) }
                 return .value(applyOverride(level, coordinator: services.memoryCoordinator, hibernation: services.cache.hibernation))
             },
-            DebugDiscardsControl.method(services),
+            // chrome://discards for every content kind (`ContentDiscardPlanner.report`).
+            .mainActor("debug.discards") { [weak services] call in
+                .value((services?.cache.hibernation?.discards ?? ContentDiscardPlanner()).report(call.params, now: .now))
+            },
         ]
     }
 

@@ -38,7 +38,7 @@ struct DebugDiscardsControlTests {
     }
 
     @Test func everyKindHasARowAndEveryNonEligibleRowHasAReason() throws {
-        let report = DebugDiscardsControl.report(plannerWithEveryKind(), now: start + .seconds(100))
+        let report = plannerWithEveryKind().report(now: start + .seconds(100))
         let rows = try #require(report["contents"].flatMap(Self.array))
         #expect(Set(rows.compactMap { $0["kind"]?.stringValue }) == Set(ContentKind.allCases.map(\.rawValue)))
         for row in rows {
@@ -66,7 +66,7 @@ struct DebugDiscardsControlTests {
 
     @Test func kindsNoOwnerReportsAreListedWithNoPolicy() throws {
         let planner = ContentDiscardPlanner(tracking: .browser, .agentPage)
-        let report = DebugDiscardsControl.report(planner, now: start)
+        let report = planner.report(now: start)
         let kinds = try #require(report["kinds"].flatMap(Self.array))
         #expect(kinds.compactMap { $0["kind"]?.stringValue } == ContentKind.allCases.map(\.rawValue))
         for kind in kinds {
@@ -101,7 +101,7 @@ struct DebugDiscardsControlTests {
         #expect(row.lastDiscardReason == .urgent, "the last discard's reason went with the wake")
         #expect(row.eligibility == .protected(.visible))
 
-        let json = DebugDiscardsControl.rowJSON(row)
+        let json = row.json
         #expect(json["last_discard_reason"] == "urgent")
         #expect(json["wake_count"] == 1)
         planner.note(.removed("tab"), at: start)
@@ -156,12 +156,12 @@ struct DebugDiscardsControlTests {
 
     @Test func theKindParameterKeepsOneKindAndRejectsAnUnknownOne() throws {
         let planner = plannerWithEveryKind()
-        let report = DebugDiscardsControl.report(planner, params: ["kind": "terminal_surface"], now: start + .seconds(90))
+        let report = planner.report(["kind": "terminal_surface"], now: start + .seconds(90))
         let rows = try #require(report["contents"].flatMap(Self.array))
         #expect(rows.count == 1)
         #expect(rows.first?["reason"] == "running_command")
         #expect(report["kinds"].flatMap(Self.array)?.count == 1)
-        let refused = DebugDiscardsControl.report(planner, params: ["kind": "tab"], now: start)
+        let refused = planner.report(["kind": "tab"], now: start)
         #expect(refused["error"]?.stringValue?.contains("sidebar_section") == true)
     }
 
