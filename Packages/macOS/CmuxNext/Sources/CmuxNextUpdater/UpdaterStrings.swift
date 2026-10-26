@@ -41,6 +41,10 @@ nonisolated enum UpdaterStrings {
     static var preparing: String { text("updater.title.preparing", "Preparing Update") }
     static var installing: String { text("updater.title.installing", "Installing…") }
     static var readyToInstall: String { text("updater.title.readyToInstall", "Update Ready") }
+    static var updateAvailableButton: String { text("updater.button.updateAvailable", "Update Available: Click to Download and Install") }
+    static func updateAvailableNamed(_ version: String) -> String {
+        format("updater.button.updateAvailableNamed", "Update Available (%@): Click to Download and Install", version)
+    }
 
     // Rollback
     static var rollbackNothingKept: String { text("updater.rollback.nothingKept", "No previous version is kept on this Mac.") }

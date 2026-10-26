@@ -120,6 +120,7 @@ impl Hub {
                     let code = params.as_ref().and_then(|p| p.get("code")).cloned();
                     let intentional =
                         matches!(tap_session.status(), SessionStatus::Idle | SessionStatus::Closed);
+                    tap_session.harness_turn.store(false, Ordering::SeqCst);
                     // Its workflows ran in the agent's process: they end with it.
                     tap_hub.workflow_index.end_session(&tap_session.id, crate::store::now_ms());
                     return tap_hub
@@ -146,6 +147,19 @@ impl Hub {
                         return true;
                     }
                     if method.starts_with("claude.") {
+                        // Claude Code's turn, its own ones too (`Session::harness_turn`).
+                        if method == "claude.system.init" {
+                            tap_session.harness_turn.store(true, Ordering::SeqCst);
+                        } else if method.starts_with("claude.result") {
+                            tap_session.harness_turn.store(false, Ordering::SeqCst);
+                        } else if (method == "claude.system.task_started"
+                            || method == "claude.system.task_notification")
+                            && let Some(line) = params.as_ref()
+                        {
+                            // A failed subagent's resume, and its end when only these lines
+                            // show it (`subagent_retry.rs`).
+                            tap_hub.observe_task_line(&tap_session, line);
+                        }
                         // Raw stream-json line; translated messages follow.
                         return tap_hub
                             .append_logged(
@@ -209,7 +223,7 @@ impl Hub {
                     .clone();
                 let mut tree = tap_session.subagents.lock().unwrap_or_else(|e| e.into_inner());
                 tree.set_own(own.as_deref());
-                subagent = tree.annotate(params);
+                subagent = tree.annotate_live(params, !kind.ends_with(".replay"));
             }
             // A live update's workflow changes feed the daemon's index of them.
             if d == "in"
@@ -228,6 +242,11 @@ impl Hub {
             if live_update {
                 tap_hub.before_agent_update(&tap_session, msg.params());
             }
+            // An update that starts or ends a subagent may change the work that runs past the
+            // chat's turn (`work_below.rs`).
+            let subagent_events = d == "in"
+                && !kind.ends_with(".replay")
+                && value.pointer("/params/_meta/acpmux/subagents").is_some();
             // A shell's output file stays in the registry, off the record.
             let output = if d == "in" && kind == "background_task_update" {
                 super::processes::take_output_file(&mut value)
@@ -238,9 +257,20 @@ impl Hub {
             if live_update {
                 tap_hub.after_agent_update(&tap_session, &rec);
             }
+            if subagent_events {
+                tap_hub.refresh_work_below(&tap_session);
+            }
             // A background shell, a subagent's too (`processes.rs`).
             if d == "in" && kind == "background_task_update" {
                 tap_hub.note_process(&tap_session, &rec, output.as_deref());
+            }
+            // A failed subagent's retry, once its end is logged (`subagent_retry.rs`).
+            if d == "in"
+                && !kind.ends_with(".replay")
+                && let Some(events) =
+                    rec.msg.pointer("/params/_meta/acpmux/subagents").and_then(Value::as_array)
+            {
+                tap_hub.observe_subagents(&tap_session, events);
             }
             logged
         })

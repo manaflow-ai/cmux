@@ -1203,7 +1203,7 @@ pre.cv-math-source {
   transition: none;
 }
 /* The thread is drawn up by a followed view's composer growth (VirtualTranscript `lift`) in the frame
-   the card grows: under Reduce Motion's 0.01ms transitions it would keep its old transform for that
+   the card grows: under Reduce Motion's 0.01ms transitions it would keep its old position for that
    frame, with the latest row under the card. */
 .acpmux-thread {
   transition: none;
@@ -2372,7 +2372,7 @@ a.cv-sha:focus-visible {
   max-width: none;
   margin: 2px 0 6px 22px;
 }
-.cv-received__details > .cv-tool-output {
+.cv-received__details .cv-tool-output {
   margin: 2px 0 0;
 }
 .cv-rotor.is-flipped {
@@ -2956,7 +2956,8 @@ a.cv-sha:focus-visible {
   margin-inline: 0;
   display: flex;
   flex-direction: column;
-  background: color-mix(in srgb, var(--agent-page-bg) 94%, transparent);
+  /* Mixed from the opaque surface: the page color is clear in a translucent window. */
+  background: color-mix(in srgb, var(--cmux-surface-solid, var(--agent-page-bg)) 94%, transparent);
   -webkit-backdrop-filter: blur(24px);
   backdrop-filter: blur(24px);
   color: var(--agent-text);
