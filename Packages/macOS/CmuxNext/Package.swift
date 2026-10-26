@@ -132,7 +132,7 @@ import PackageDescription
 //   CmuxNextServer -> Design, Icons, Wakeups (server menubar panel, pairing, approver sheet and health prototypes
 //     over a projection of `server.status`; no daemon; the App supplies the source;
 //     plans/cmux-next/server.md)
-//   CmuxNextRemoteView -> Design, Icons (remote desktop pane: decode, presenters, chrome, input capture;
+//   CmuxNextRemoteView -> Design, Icons, Input, InputCore, Wakeups (remote desktop pane: decode, presenters, chrome, input capture;
 //     no daemon; the App supplies the stream source and input sink; plans/cmux-next/remote-desktop.md)
 //   CmuxNextMacScreen -> Compat, Settings, Wakeups, Actions, Control, Design, RemoteView, Devices, CmuxScreenKit (Mac Screen tabs: another
 //     Mac's screen as a WebRTC stream, the user's devices from the device hub, pairing home page (DEV), Share This Mac host,
@@ -804,7 +804,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // no UI framework beyond AppKit; the App supplies the page and the sink.
         .target(
             name: "CmuxNextPhone",
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextWakeups"],
             resources: [.process("Localizable.xcstrings")],
             swiftSettings: daemonSwiftSettings
         ),
@@ -1137,7 +1137,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // `remote_view` tabs (cmux://remote-view records, development builds).
         .target(
             name: "CmuxNextRemoteView",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups", "CCmuxAppFFI", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextWakeups", "CCmuxAppFFI", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts"],
             exclude: ["README.md"],
             resources: [
                 .process("Resources"),
@@ -1187,7 +1187,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextRemoteViewTests",
-            dependencies: ["CmuxNextRemoteView", "CmuxNextTrace", "CmuxNextMetrics"],
+            dependencies: ["CmuxNextRemoteView", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // Remote tab client (remote-tab.md r2): the page of a browser tab
@@ -1195,7 +1195,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // CmuxNextRemoteView; session state is the Rust client reducer.
         .target(
             name: "CmuxNextRemoteBrowser",
-            dependencies: ["CmuxNextCompat", "CmuxNextRemoteView", "CmuxNextBrowser", "CmuxNextDesign", "CCmuxAppFFI", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextRemoteView", "CmuxNextBrowser", "CmuxNextDesign", "CmuxNextInput", "CmuxNextInputCore", "CCmuxAppFFI", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],

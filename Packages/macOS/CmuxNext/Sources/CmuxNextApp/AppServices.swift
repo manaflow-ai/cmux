@@ -300,6 +300,11 @@ final class AppServices {
     /// reach Ghostty on a frame interval's first event and once more at its frame. Nil while it is off: each event
     /// reaches Ghostty at once.
     private(set) lazy var terminalPointerFrames: FrameInputCoalescers? = features.isEnabled(.terminalPointerFrames) ? pointerFrames : nil
+    /// Remote panes (feature `pointerFrameRemoteInput`): remote desktop and remote browser tabs send moves, drags and
+    /// mid-gesture scrolls to the host on a frame interval's first event and once more at its frame (p04-input-035).
+    /// Nil while it is off: each event goes to the host at once.
+    private(set) lazy var remotePointerFrames: FrameInputCoalescers? =
+        features.isEnabled(.pointerFrameRemoteInput) ? pointerFrames : nil
     /// The Task Manager page and Kill Process (`TaskManagerPageService`).
     private(set) lazy var taskManager = TaskManagerPageService(services: self)
     /// The Todo page: a workspace's checklist (`workspace-checklist-v1`).
