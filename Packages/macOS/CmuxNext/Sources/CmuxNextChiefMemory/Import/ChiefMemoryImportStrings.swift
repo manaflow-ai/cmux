@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The "Import Memories" texts (Resources/Localizable.xcstrings). Product names are brand names and stay as
 /// they are in every language.
