@@ -87,6 +87,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// A top page (Home, History, Bookmarks, an app page) hidden past its page's timeout lets its view go and keeps a small record of its scroll and selection, and at most the Mac's budget of hidden top pages stay live across all windows; showing it builds the page again as the person left it.
+    public static let topPageDiscard = Feature(
+        index: 5,
+        name: "topPageDiscard",
+        owner: "PL-memory",
+        description: "A top page (Home, History, Bookmarks, an app page) hidden past its page's timeout lets its view go and keeps a small record of its scroll and selection, and at most the Mac's budget of hidden top pages stay live across all windows; showing it builds the page again as the person left it.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Every feature, by index: `registered[feature.index] == feature`.
     public static let registered: [Feature] = [
         .energySaver,
@@ -94,5 +111,6 @@ nonisolated extension Feature {
         .memorySaverBackgroundActivity,
         .renderStarvationGuard,
         .taskManagerMemorySaved,
+        .topPageDiscard,
     ]
 }

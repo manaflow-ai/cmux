@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "topPageDiscard",
+  "owner": "PL-memory",
+  "description": "A top page (Home, History, Bookmarks, an app page) hidden past its page's timeout lets its view go and keeps a small record of its scroll and selection, and at most the Mac's budget of hidden top pages stay live across all windows; showing it builds the page again as the person left it.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}
