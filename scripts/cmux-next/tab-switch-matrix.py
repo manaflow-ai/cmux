@@ -24,6 +24,7 @@ import argparse, glob, json, os, re, signal, socket, statistics, subprocess, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_idle import classify, usage  # noqa: E402
+from bench_launch import launch_app, bundle_id  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--matrix", action="store_true", help="(accepted for the tab-switch-stages.py entry)")
@@ -40,6 +41,7 @@ parser.add_argument("--out", default="/tmp")
 parser.add_argument("--profile", default="", help="kind:count scenarios (comma list) whose Ctrl-Tab phase runs under a Time Profiler")
 opts, _unknown = parser.parse_known_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
+BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
@@ -57,7 +59,7 @@ app = None
 def run(*args, timeout=30):
     env = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": TAG,
-           "CMUX_BUNDLE_ID": f"com.cmuxterm.app.debug.{TAG}", "CMUX_BUNDLED_CLI_PATH": CLI}
+           "CMUX_BUNDLE_ID": BUNDLE_ID, "CMUX_BUNDLED_CLI_PATH": CLI}
     return subprocess.run([CLI, *args], capture_output=True, text=True, timeout=timeout, env=env)
 
 
@@ -396,20 +398,23 @@ def cleanup():
         os.remove(SOCKET)
 
 
-def main():
+def started(process):
     global app
+    app = process
+    LAUNCHED.append(process.pid)
+
+
+def main():
+    global app, SOCKET
     if os.path.exists(SOCKET):
         os.remove(SOCKET)
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1400,900"}
-    log = open(os.path.join(opts.out, f"app-{TAG}.log"), "a")
-    app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    LAUNCHED.append(app.pid)
+    # One launch path (bench_launch.py): socket in the state folder, bench env, the reason when it does not come up.
+    app, SOCKET = launch_app(APP, env, os.path.join(opts.out, f"app-{TAG}.log"), timeout=120, on_start=started)
     print(f"launched pid {app.pid}", flush=True)
-    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
-        sys.exit("the tagged app did not come up")
     time.sleep(5)  # test harness: launch work settles before the baseline
     baseline = footprint()
     print(f"baseline idle {baseline}", flush=True)

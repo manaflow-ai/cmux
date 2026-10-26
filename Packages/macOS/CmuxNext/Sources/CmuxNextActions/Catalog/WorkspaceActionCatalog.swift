@@ -199,7 +199,7 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.closeOtherWorkspaces",
                 title: String(localized: "action.palette.closeOtherWorkspaces", defaultValue: "Close Other Workspaces", bundle: .module),
-                keywords: ["remove"], category: .workspace, symbol: "xmark.square.fill",
+                keywords: ["remove"], category: .workspace, symbol: "xmark.circle",
                 surfaces: [.palette, .menu, .contextMenu], targets: [.workspace], cliName: "workspace close-other",
                 mainMenu: .file, destructive: true
             ),
@@ -222,7 +222,7 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "workspace.closeAll",
                 title: String(localized: "action.workspace.closeAll", defaultValue: "Close All Workspaces", bundle: .module),
-                keywords: ["remove", "all", "window", "clear"], category: .workspace, symbol: "xmark.square.fill",
+                keywords: ["remove", "all", "window", "clear"], category: .workspace, symbol: "xmark.bin",
                 surfaces: [.palette, .menu, .contextMenu], arguments: [CatalogArgument.windowWindow.optional],
                 cliName: "workspace close-all", mainMenu: .file, destructive: true
             ),
@@ -239,6 +239,14 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 keywords: ["pin", "unpin", "favorite"], category: .workspace, symbol: "pin",
                 surfaces: [.palette, .menu, .contextMenu, .keyboard], targets: [.workspace], cliName: "workspace pin-unpin",
                 mainMenu: .file
+            ),
+            // Archive keeps the workspace in its group (or its section), last and dimmed; Unarchive puts
+            // it back (plans/cmux-next/archiving-DESIGN.md). The menu reads Archive or Unarchive.
+            ActionDescriptor(
+                id: "workspace.toggleArchive",
+                title: String(localized: "action.workspace.toggleArchive", defaultValue: "Archive/Unarchive Workspace", bundle: .module),
+                keywords: ["archive", "unarchive", "dim", "done", "end", "bottom"], category: .workspace, symbol: "archivebox",
+                surfaces: [.palette, .contextMenu, .keyboard], targets: [.workspace], cliName: "workspace archive-unarchive"
             ),
             ActionDescriptor(
                 id: "palette.markWorkspaceRead",
@@ -270,8 +278,15 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.resetWorkspaceColor",
                 title: String(localized: "action.palette.resetWorkspaceColor", defaultValue: "Reset Workspace Color", bundle: .module),
-                keywords: ["color", "tint"], category: .workspace, symbol: "paintbrush",
+                keywords: ["color", "tint"], category: .workspace, symbol: "arrow.counterclockwise.circle",
                 surfaces: [.palette, .contextMenu], targets: [.workspace], cliName: "workspace reset-color"
+            ),
+            // Lawrence 2026-10-22: "need to be able to remove all workspace colors".
+            ActionDescriptor(
+                id: "workspace.removeAllColors",
+                title: String(localized: "action.workspace.removeAllColors", defaultValue: "Remove All Workspace Colors", bundle: .module),
+                keywords: ["color", "colors", "tint", "clear", "reset", "none", "all", "group"], category: .workspace,
+                symbol: "circle.slash", surfaces: [.palette, .contextMenu], cliName: "workspace remove-all-colors"
             ),
             ActionDescriptor(
                 id: "reconnectWorkspace",
@@ -306,13 +321,13 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.copyWorkspaceID",
                 title: String(localized: "action.palette.copyWorkspaceID", defaultValue: "Copy Workspace ID", bundle: .module),
-                keywords: ["identifier", "uuid"], category: .workspace, symbol: "doc.on.doc",
+                keywords: ["identifier", "uuid"], category: .workspace, symbol: "number",
                 surfaces: [.palette, .contextMenu], targets: [.workspace], cliName: "workspace copy-id"
             ),
             ActionDescriptor(
                 id: "palette.copyWorkspaceIDAndRef",
                 title: String(localized: "action.palette.copyWorkspaceIDAndRef", defaultValue: "Copy Workspace ID and Ref", bundle: .module),
-                keywords: ["identifier", "ref"], category: .workspace, symbol: "doc.on.doc",
+                keywords: ["identifier", "ref"], category: .workspace, symbol: "number.square",
                 surfaces: [.palette, .contextMenu], targets: [.workspace], cliName: "workspace copy-id-and-ref"
             ),
             ActionDescriptor(
@@ -346,21 +361,27 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 targets: [.workspaceGroup], cliName: "workspace-group toggle-pin"
             ),
             ActionDescriptor(
+                id: "workspaceGroup.toggleArchive",
+                title: String(localized: "action.workspaceGroup.toggleArchive", defaultValue: "Archive/Unarchive Group", bundle: .module),
+                keywords: ["group", "archive", "unarchive", "dim", "done"], category: .workspace, symbol: "archivebox",
+                surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group toggle-archive"
+            ),
+            ActionDescriptor(
                 id: "workspaceGroup.markRead",
                 title: String(localized: "action.workspaceGroup.markRead", defaultValue: "Mark Group as Read", bundle: .module),
-                keywords: ["group", "notifications"], category: .workspace, symbol: "envelope.open.fill",
+                keywords: ["group", "notifications"], category: .workspace, symbol: "envelope.open",
                 surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group mark-read"
             ),
             ActionDescriptor(
                 id: "workspaceGroup.markUnread",
                 title: String(localized: "action.workspaceGroup.markUnread", defaultValue: "Mark Group as Unread", bundle: .module),
-                keywords: ["group", "notifications"], category: .workspace, symbol: "envelope.badge.fill",
+                keywords: ["group", "notifications"], category: .workspace, symbol: "envelope.badge",
                 surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group mark-unread"
             ),
             ActionDescriptor(
                 id: "workspaceGroup.clearNotifications",
                 title: String(localized: "action.workspaceGroup.clearNotifications", defaultValue: "Clear Group Notifications", bundle: .module),
-                keywords: ["group", "notifications"], category: .workspace, symbol: "bell.slash.fill",
+                keywords: ["group", "notifications"], category: .workspace, symbol: "bell.slash",
                 surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group clear-notifications"
             ),
             ActionDescriptor(

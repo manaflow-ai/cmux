@@ -16,6 +16,9 @@ use std::time::Duration;
 use tokio::sync::{Mutex, Notify, mpsc, oneshot};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
+#[path = "peer_health.rs"]
+mod health;
+
 /// Source of `Peer::generation`.
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
 
@@ -83,6 +86,13 @@ pub struct Peer {
     trust_gate: AtomicBool,
     /// Whether the peer takes `_acpmux/file_put` (`hub/file_uploads.rs`).
     file_put: AtomicBool,
+    /// Whether the peer serves `_acpmux/media_open` and `_acpmux/media_range` (`hub/media_read.rs`).
+    media_read: AtomicBool,
+    /// Bumped each time a connection to the peer ends (and at `stop`): what the peer kept for
+    /// the connection, like its media handles, went with it (`server/media_forward.rs`).
+    link_epoch: AtomicU64,
+    /// Whether the peer serves `_acpmux/subagent_transcript` (`hub/subagent_transcript.rs`).
+    subagent_transcript: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
@@ -105,6 +115,10 @@ pub struct Peer {
     timings: LinkTimings,
     /// When the hub last saved this peer's sessions (`hub/peer_cache.rs`).
     pub(crate) cache_saved_at: AtomicU64,
+    /// The peer's last `_acpmux/host_health` and when it came (`peer_health.rs`).
+    health: StdMutex<Option<(u64, Value)>>,
+    /// An ask for it is out.
+    health_asking: AtomicBool,
 }
 
 impl Peer {
@@ -134,6 +148,9 @@ impl Peer {
             person_instance: StdMutex::new(None),
             trust_gate: AtomicBool::new(false),
             file_put: AtomicBool::new(false),
+            media_read: AtomicBool::new(false),
+            link_epoch: AtomicU64::new(0),
+            subagent_transcript: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             presented: StdMutex::new(None),
             admitting: AtomicBool::new(false),
@@ -145,6 +162,8 @@ impl Peer {
             link: StdMutex::new(Link::default()),
             timings: LinkTimings::from_env(),
             cache_saved_at: AtomicU64::new(0),
+            health: StdMutex::new(None),
+            health_asking: AtomicBool::new(false),
         })
     }
 
@@ -189,6 +208,7 @@ impl Peer {
 
     pub fn stop(&self) {
         self.stop.store(true, Ordering::SeqCst);
+        self.link_ended();
         // Stores a permit when `serve` is not waiting yet.
         self.stop_signal.notify_one();
         if let Ok(mut t) = self.tunnel.try_lock() {
@@ -330,8 +350,29 @@ impl Peer {
         self.file_put.load(Ordering::SeqCst)
     }
 
+    /// Whether the peer said at its last handshake that it serves the media reader.
+    pub fn supports_media_read(&self) -> bool {
+        self.media_read.load(Ordering::SeqCst)
+    }
+
+    /// Which connection to the peer this is: it changes when a connection ends or the peer stops.
+    pub fn link_epoch(&self) -> u64 {
+        self.link_epoch.load(Ordering::SeqCst)
+    }
+
+    /// A connection to the peer ended: what the peer kept for it is gone.
+    pub(crate) fn link_ended(&self) {
+        self.link_epoch.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Whether the peer said at its last handshake that it serves subagent transcripts.
+    pub fn supports_subagent_transcript(&self) -> bool {
+        self.subagent_transcript.load(Ordering::SeqCst)
+    }
+
     pub fn summary(&self) -> Value {
         let link = self.link();
+        let (health, health_at) = self.health_summary();
         json!({
             "name": self.name,
             "url": self.url,
@@ -348,6 +389,8 @@ impl Peer {
             "lastSeen": link.last_seen,
             "downSince": link.down_since,
             "attempts": link.attempts,
+            "health": health,
+            "healthAt": health_at,
         })
     }
 
@@ -410,6 +453,7 @@ impl Peer {
         while !self.stop.load(Ordering::SeqCst) {
             let outcome = self.connect_once(&mut out_rx).await;
             self.connected.store(false, Ordering::SeqCst);
+            self.link_ended();
             // A link that held a while starts over; one that flaps (up, then
             // reset seconds later) keeps backing off, so a loaded host is
             // not hit with a reconnect every second.
@@ -566,13 +610,15 @@ impl Peer {
                     |features| features.iter().any(|f| f.as_str() == Some("trustGate")),
                 ) || init.pointer("/_meta/acpmux/trustGate").and_then(Value::as_bool) == Some(true);
             me.trust_gate.store(advertised, Ordering::SeqCst);
-            let file_put = init
-                .pointer("/_meta/acpmux/features")
-                .and_then(Value::as_array)
-                .is_some_and(|features| {
-                    features.iter().any(|f| f.as_str() == Some(crate::hub::FILE_PUT_FEATURE))
-                });
-            me.file_put.store(file_put, Ordering::SeqCst);
+            let lists = |feature: &str| {
+                init.pointer("/_meta/acpmux/features")
+                    .and_then(Value::as_array)
+                    .is_some_and(|features| features.iter().any(|f| f.as_str() == Some(feature)))
+            };
+            me.file_put.store(lists(crate::hub::FILE_PUT_FEATURE), Ordering::SeqCst);
+            me.media_read.store(lists(crate::hub::MEDIA_READ_FEATURE), Ordering::SeqCst);
+            me.subagent_transcript
+                .store(lists(crate::hub::SUBAGENT_TRANSCRIPT_FEATURE), Ordering::SeqCst);
             let watch = me.request(method::MUX_WATCH, json!({"enabled": true})).await?;
             let sessions = watch
                 .get("sessions")
@@ -592,6 +638,7 @@ impl Peer {
             for sid in attached {
                 let _ = me.request(method::MUX_ATTACH, hidden_attach(&sid)).await;
             }
+            me.refresh_health();
             Ok::<(), RpcError>(())
         });
 
@@ -608,6 +655,7 @@ impl Peer {
         ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut last_frame = tokio::time::Instant::now();
         let mut stale_settled = false;
+        let mut ticks: u64 = 0;
         let handshake_deadline = tokio::time::sleep(timings.handshake);
         tokio::pin!(handshake_deadline);
         let result = loop {
@@ -638,6 +686,10 @@ impl Peer {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => break Err(e.to_string()),
                         Err(_) => break Err(stopped_reading(budget)),
+                    }
+                    ticks += 1;
+                    if ticks.is_multiple_of(health::HEALTH_EVERY) && self.link().is_ready() {
+                        self.refresh_health();
                     }
                 }
                 frame = source.next() => {

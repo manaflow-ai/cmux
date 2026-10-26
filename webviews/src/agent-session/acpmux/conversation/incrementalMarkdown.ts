@@ -25,6 +25,7 @@ const DOLLARS_CLOSE = /\$\$/;
 export class IncrementalMarkdown {
   private source = "";
   private streaming = false;
+  private messageAt?: number;
   private closed: KeyedBlock[] = [];
   private closedEnd = 0;
   private tail: KeyedBlock[] = [];
@@ -37,11 +38,14 @@ export class IncrementalMarkdown {
   lastParsedLength = 0;
 
   /// `streaming`: the tail draws only what is safe to draw half-written (safeTail.ts).
-  update(source: string, options: { streaming?: boolean } = {}): KeyedBlock[] {
+  update(source: string, options: { streaming?: boolean; messageAt?: number } = {}): KeyedBlock[] {
     const streaming = options.streaming ?? false;
-    if (source === this.source && streaming === this.streaming) return [...this.closed, ...this.tail];
+    const messageAt = options.messageAt;
+    if (source === this.source && streaming === this.streaming && messageAt === this.messageAt)
+      return [...this.closed, ...this.tail];
     this.streaming = streaming;
-    if (!source.startsWith(this.source.slice(0, this.closedEnd))) this.reset();
+    if (messageAt !== this.messageAt || !source.startsWith(this.source.slice(0, this.closedEnd))) this.reset();
+    this.messageAt = messageAt;
     this.source = source;
     this.lastParsedLength = 0;
     const boundary = lastBlockBoundary(source, this.closedEnd);
@@ -62,6 +66,7 @@ export class IncrementalMarkdown {
 
   private reset(): void {
     this.source = "";
+    this.messageAt = undefined;
     this.closed = [];
     this.closedEnd = 0;
     this.tail = [];
@@ -70,7 +75,7 @@ export class IncrementalMarkdown {
 
   private parse(text: string, first: number): KeyedBlock[] {
     this.lastParsedLength += text.length;
-    return parseMarkdown(text).map((block, index) => {
+    return parseMarkdown(text, { messageAt: this.messageAt }).map((block, index) => {
       const key = String(first + index);
       // A tail block that closes now keeps the object it had, so it does not render again.
       const open = this.tail.find((entry) => entry.key === key);

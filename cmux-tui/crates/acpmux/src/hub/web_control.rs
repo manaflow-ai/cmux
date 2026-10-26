@@ -169,8 +169,14 @@ impl Hub {
 
     /// A steer into the running turn: checked like a prompt, and a Web steer
     /// makes that turn a Web turn (no chat allowance for what it adds).
-    pub(super) fn check_steer(&self, session: &Session, control: Control) -> Result<(), RpcError> {
+    pub(super) fn check_steer(
+        &self,
+        session: &Session,
+        control: Control,
+        device: Option<&str>,
+    ) -> Result<(), RpcError> {
         self.web_control_check(session, control)?;
+        self.full_access_hold(&session.meta(), control, device)?;
         if control != Control::Web {
             return Ok(());
         }
@@ -200,13 +206,16 @@ impl Hub {
         session: &Arc<Session>,
         control: Control,
         trust_gate: bool,
+        device: Option<&str>,
         prompt_id: &str,
         turn_id: &str,
         client: &str,
     ) -> Result<(), RpcError> {
         let refused = {
             let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            self.web_control_verdict(session, &m, control).err()
+            self.web_control_verdict(session, &m, control)
+                .and_then(|()| self.full_access_hold(&m, control, device))
+                .err()
         };
         let refused = match refused {
             Some(e) => Some(e),
@@ -227,6 +236,34 @@ impl Hub {
             json!({"promptId": prompt_id, "turnId": turn_id, "client": client, "error": e.message, "data": e.data}),
         );
         Err(e)
+    }
+
+    /// A chat a paired machine's Full-access setting moved out of its policy's mode
+    /// (`policy_mode.rs` `out_of_policy`; nothing else moves one there) is driven from the Web
+    /// only by a request that setting covers now (`device`, read again here): a prompt, a steer,
+    /// a queued prompt's dispatch. The shared dashboard token and every other machine are refused.
+    pub(crate) fn full_access_hold(
+        &self,
+        meta: &crate::store::SessionMeta,
+        control: Control,
+        device: Option<&str>,
+    ) -> Result<(), RpcError> {
+        if control != Control::Web {
+            return Ok(());
+        }
+        // The config being written: the strictest default, so the chat counts as held.
+        let default =
+            self.config.try_read().map_or(PermissionPolicy::DenyAll, |c| c.permission_policy);
+        if !super::policy_mode::out_of_policy(meta, default, &self.web_modes())
+            || device.is_some_and(|d| self.pairing.full_access(d))
+        {
+            return Ok(());
+        }
+        Err(RpcError::new(
+            -32000,
+            "this chat runs in Full access for the paired machine the person allowed; another device cannot prompt it until it is back in a mode that asks",
+        )
+        .with_data(json!({"reason": "remote.full_access_device"})))
     }
 
     /// `web_control_check` for a caller that holds the meta lock (dispatch).
