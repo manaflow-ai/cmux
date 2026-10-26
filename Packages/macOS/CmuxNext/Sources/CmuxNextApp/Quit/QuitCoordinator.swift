@@ -27,6 +27,9 @@ final class QuitCoordinator {
     private(set) var isQuitting = false
     /// The last dialog brought the app forward (`debug.quit`).
     private(set) var lastAskActivated = false
+    /// The browser tabs that held Secure Input as this quit began, before any dialog took the keyboard: they leave
+    /// no launch picture (`TabContentCache.secureInputPages`).
+    private var secureInputPages: Set<String> = []
     private unowned let services: AppServices
     /// The quit hook's participants (`AppServices.quitUnsaved`; tests replace it).
     var unsaved: QuitUnsavedRegistry
@@ -80,6 +83,7 @@ final class QuitCoordinator {
             return .terminateLater
         }
         isQuitting = true
+        secureInputPages = services.cache.secureInputPages()
         // Quit (menu, Cmd-Q, socket) never waits on another open sheet.
         SheetDismissal.endAll()
         let origin = origins.consume(appleEventReason: Self.quitReason())
@@ -145,7 +149,7 @@ final class QuitCoordinator {
 
     private func complete(_ choice: QuitSessionsChoice, remember: Bool, _ sender: NSApplication) async {
         logger.info("quit choice=\(choice.rawValue, privacy: .public) remember=\(remember)")
-        let services = services
+        let services = services, secureInputPages = secureInputPages
         // Sparkle installs a staged update as the app exits unless
         // `updates.installOnQuit` is off (then its installer is cancelled now).
         services.updater.prepareForQuit()
@@ -184,7 +188,9 @@ final class QuitCoordinator {
                 // And browser pages theirs (`browserLaunchPictures`; with it off, the last quit's pictures go).
                 if let pictures = services.environment.browserLaunchPictures {
                     var shots: [BrowserLaunchPictures.Shot] = []
-                    if services.cache.launchPictures != nil { shots = await services.cache.launchPictureShots(Self.launchPicturePanes(services)) }
+                    if services.cache.launchPictures != nil {
+                        shots = await services.cache.launchPictureShots(Self.launchPicturePanes(services), secureInput: secureInputPages)
+                    }
                     await pictures.save(shots)
                 }
                 // Browser tabs reopen at their recorded page (before any

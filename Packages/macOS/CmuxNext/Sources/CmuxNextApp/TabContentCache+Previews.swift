@@ -143,6 +143,10 @@ extension TabContentCache {
         // Over the browser installed since: its toolbar and theme color draw over anything under them.
         if pane.contentHost.subviews.last !== view { pane.contentHost.addSubview(view, positioned: .above, relativeTo: nil) }
         if let page = browsers[key]?.tab as? any BrowserFirstContentFrameReporting, view.waits(for: page) {
+            // A page in its own window (Chromium) would draw over the picture from its commit: a hole while it shows.
+            if let covered = page as? any BrowserPageCovering {
+                view.onShowsChange = { [weak covered] shows in covered?.isPageCovered = shows }
+            }
             page.whenFirstContentFrame { [weak pane, weak view] _ in
                 guard let pane, let view, pane.launchImageView === view else { return }
                 pane.clearLaunchImage()
@@ -151,30 +155,45 @@ extension TabContentCache {
         return true
     }
 
+    /// The tabs whose page holds the keyboard while Secure Input is on (a password field). The quit reads them as
+    /// it begins, before a quit dialog takes the keyboard (p08-startup 3C: their pictures are never taken).
+    func secureInputPages() -> Set<String> {
+        secureInputPages(secureInput: IsSecureEventInputEnabled(), keyWindow: NSApp.keyWindow)
+    }
+
+    /// ``secureInputPages()`` with Secure Input on or off and `keyWindow` the app's key window (seams for tests). A
+    /// Chromium page holds the keyboard as a key child window of its window (`BrowserTab.holdsKeyboard`).
+    func secureInputPages(secureInput: Bool, keyWindow: NSWindow?) -> Set<String> {
+        guard secureInput else { return [] }
+        return Set(browsers.compactMap { key, entry in
+            guard let window = entry.tab.contentView.window, entry.tab.holdsKeyboard(in: window, keyWindow: keyWindow) else { return nil }
+            return key
+        })
+    }
+
     /// The pictures of the pages `panes` show now (each its tab and its content area), for the next launch. One
     /// engine capture at a time, all within one capture deadline; nothing of a withheld page is captured.
-    func launchPictureShots(_ panes: [(key: String, host: NSView)]) async -> [BrowserLaunchPictures.Shot] {
+    /// `secureInput`: the tabs that held Secure Input when the quit began (``secureInputPages()``); the ones that
+    /// hold it now are withheld too.
+    func launchPictureShots(_ panes: [(key: String, host: NSView)], secureInput: Set<String>) async -> [BrowserLaunchPictures.Shot] {
         let deadline = ContinuousClock.now + pageCaptureDeadline
+        let secureInput = secureInput.union(secureInputPages())
         var shots: [BrowserLaunchPictures.Shot] = []
         for pane in panes {
-            if let shot = await launchPictureShot(pane.key, in: pane.host, deadline: deadline) { shots.append(shot) }
+            if let shot = await launchPictureShot(pane.key, in: pane.host, secureInput: secureInput, deadline: deadline) { shots.append(shot) }
         }
         return shots
     }
 
     /// Tab `key`'s page as `host` shows it: nil for no engine page (none yet, deferred, asleep, a cmux page), one
-    /// not on screen, or one whose picture is withheld (`BrowserLaunchPictures.Withheld`).
-    private func launchPictureShot(_ key: String, in host: NSView, deadline: ContinuousClock.Instant) async -> BrowserLaunchPictures.Shot? {
+    /// not on screen, or one that is withheld (``withholdsLaunchPicture(_:page:in:secureInput:)``).
+    private func launchPictureShot(_ key: String, in host: NSView, secureInput: Set<String>,
+                                   deadline: ContinuousClock.Instant) async -> BrowserLaunchPictures.Shot? {
         guard let page = browsers[key]?.tab, page is any BrowserFirstContentFrameReporting else { return nil }
         let view = page.contentView
         guard let window = view.window, VisiblePaneRefs.Window.isOnScreen(view), view.isDescendant(of: host),
-              view.bounds.width > 0, view.bounds.height > 0 else { return nil }
-        var withheld: BrowserLaunchPictures.Withheld = []
-        if chromium.stores.offTheRecord.isOffTheRecord(page.profileID) || browserTabs.isIncognitoTab(key) { withheld.insert(.offTheRecord) }
-        if IsSecureEventInputEnabled(), let responder = window.firstResponder as? NSView, responder.isDescendant(of: view) { withheld.insert(.secureInput) }
-        if let tab = tabModel(key), browserTabs.reopenedForProtectedMedia(tab) { withheld.insert(.protectedMedia) }
-        if window.sharingType == .none { withheld.insert(.hiddenFromCapture) }
-        guard withheld.isEmpty else { return nil }
+              view.bounds.width > 0, view.bounds.height > 0,
+              !withholdsLaunchPicture(key, page: page, in: window, secureInput: secureInput) else { return nil }
         // The geometry before the capture: the pane may change while it runs.
         let frame = view.convert(view.bounds, to: host), paneSize = host.bounds.size
         let top = host.isFlipped ? frame.minY : paneSize.height - frame.maxY
@@ -183,6 +202,16 @@ extension TabContentCache {
         }) else { return nil }
         let picture = BrowserLaunchPictures.Picture(image: image, paneSize: paneSize,
                                                     pageFrame: CGRect(x: frame.minX, y: top, width: frame.width, height: frame.height))
-        return BrowserLaunchPictures.Shot(key: key, profile: page.profileID.rawValue, withheld: withheld, picture: picture)
+        return BrowserLaunchPictures.Shot(key: key, profile: page.profileID.rawValue, picture: picture)
+    }
+
+    /// Whether tab `key`'s page must leave no picture on disk (p08-startup 3C): an incognito page (an off-the-record
+    /// profile or an incognito workspace), a page that holds Secure Input, a page with protected media, or a window
+    /// hidden from screen capture (`NSWindow.sharingType == .none`).
+    private func withholdsLaunchPicture(_ key: String, page: any BrowserTab, in window: NSWindow, secureInput: Set<String>) -> Bool {
+        if chromium.stores.offTheRecord.isOffTheRecord(page.profileID) || browserTabs.isIncognitoTab(key) { return true }
+        if secureInput.contains(key) { return true }
+        if let tab = tabModel(key), browserTabs.reopenedForProtectedMedia(tab) { return true }
+        return window.sharingType == .none
     }
 }

@@ -14,8 +14,8 @@ import UniformTypeIdentifiers
 /// One JPEG per page that was on screen, in a folder per browser profile (`<profile UUID>/<tab key>.jpg`) with an
 /// index of each picture's pane size and page frame, mode 0600 in folders of mode 0700. A save replaces the
 /// whole set. An off-the-record page (incognito), a page holding Secure Input, a page with protected media and
-/// a window hidden from screen capture are never written: their panes show the theme background, which is what
-/// the fill of a whole-window picture shows (``Withheld``).
+/// a window hidden from screen capture are never captured, so never written: their panes show the theme
+/// background, which is what the fill of a whole-window picture shows.
 ///
 /// The launch reads and decodes every picture off the main thread from its start (``prefetch(mark:)``, in
 /// the app's `main` before `NSApplication.run`). A pane asks with ``take(_:profile:)`` at its first frame and
@@ -56,31 +56,15 @@ public final class BrowserLaunchPictures {
         }
     }
 
-    /// Why a page on screen gets no picture.
-    public nonisolated struct Withheld: OptionSet, Sendable {
-        public let rawValue: Int
-        public init(rawValue: Int) { self.rawValue = rawValue }
-
-        /// An incognito page, or any page of an off-the-record profile.
-        public static let offTheRecord = Withheld(rawValue: 1 << 0)
-        /// Secure Input is on and the page holds the keyboard (a password field).
-        public static let secureInput = Withheld(rawValue: 1 << 1)
-        /// The page plays protected media.
-        public static let protectedMedia = Withheld(rawValue: 1 << 2)
-        /// The page's window is hidden from screen capture (`NSWindow.sharingType == .none`).
-        public static let hiddenFromCapture = Withheld(rawValue: 1 << 3)
-    }
-
-    /// A page on screen at the quit, as the quit saves it.
+    /// A page on screen at the quit, as the quit saves it. The quit makes none of a page whose picture must never
+    /// reach the disk (the app's `TabContentCache.launchPictureShots`), so every shot is written.
     public nonisolated struct Shot: Sendable {
         public let key: String
         public let profile: UUID
-        /// Non-empty: nothing of this page is written.
-        public let withheld: Withheld
         public let picture: Picture
 
-        public init(key: String, profile: UUID, withheld: Withheld, picture: Picture) {
-            (self.key, self.profile, self.withheld, self.picture) = (key, profile, withheld, picture)
+        public init(key: String, profile: UUID, picture: Picture) {
+            (self.key, self.profile, self.picture) = (key, profile, picture)
         }
     }
 
@@ -181,7 +165,7 @@ public final class BrowserLaunchPictures {
         return picture
     }
 
-    /// Replaces the saved pictures with `shots`; a withheld shot is never written, so with none left the folder goes.
+    /// Replaces the saved pictures with `shots`; with none, the folder goes.
     public func save(_ shots: [Shot]) async {
         guard let directory else { return }
         _ = try? await work.run(.userVisible, mayBlock: .files, shutdown: .blockShutdown) { Self.write(shots, to: directory) }
@@ -205,10 +189,10 @@ public final class BrowserLaunchPictures {
         return pictures
     }
 
-    /// Writes the shots that are not withheld, by profile, replacing whatever the folder held.
+    /// Writes the shots by profile, replacing whatever the folder held.
     nonisolated static func write(_ shots: [Shot], to directory: URL) {
         var byProfile: [UUID: [(entry: IndexEntry, data: Data)]] = [:]
-        for shot in shots.prefix(maximumPictures) where shot.withheld.isEmpty && isFileSafe(shot.key) {
+        for shot in shots.prefix(maximumPictures) where isFileSafe(shot.key) {
             let picture = shot.picture
             guard picture.paneSize.width > 0, picture.paneSize.height > 0, picture.pageFrame.width > 0,
                   let data = jpeg(picture.image) else { continue }
@@ -272,6 +256,20 @@ public final class BrowserLaunchPictureView: NSView {
     private let pageView = NSView()
     /// The page the picture waits for, once it exists (``waits(for:)``).
     private weak var awaited: AnyObject?
+    /// What ``onShowsChange`` was last told; nil: nothing yet.
+    private var reported: Bool?
+
+    /// Runs with whether the picture shows now (in a window, at its size at the quit) each time that changes, and
+    /// at once when set: a page drawn in its own window over the pane keeps a hole over all of it meanwhile
+    /// (`BrowserPageCovering`), so the picture is not under that window. A replaced closure that was told true is
+    /// told false.
+    public var onShowsChange: (@MainActor (Bool) -> Void)? {
+        didSet {
+            if reported == true { oldValue?(false) }
+            reported = nil
+            reportShows()
+        }
+    }
 
     public init(_ picture: BrowserLaunchPictures.Picture, tab: String) {
         self.tab = tab
@@ -291,12 +289,17 @@ public final class BrowserLaunchPictureView: NSView {
 
     public override var isFlipped: Bool { true }
 
-    /// Clicks and scrolls reach the live page and toolbar under the picture.
+    /// Clicks and scrolls reach the views under the picture.
     public override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     public override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         place()
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        reportShows()
     }
 
     /// Whether the picture shows now: the area has the size it had at the quit.
@@ -313,5 +316,13 @@ public final class BrowserLaunchPictureView: NSView {
         let fits = abs(bounds.width - picture.paneSize.width) < 1 && abs(bounds.height - picture.paneSize.height) < 1
         pageView.frame = picture.pageFrame
         pageView.isHidden = !fits
+        reportShows()
+    }
+
+    private func reportShows() {
+        let shows = window != nil && showsPicture
+        guard shows != reported, let onShowsChange else { return }
+        reported = shows
+        onShowsChange(shows)
     }
 }

@@ -5,15 +5,15 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The browser pages' pictures from the last quit (p08-startup-043): written per profile, private, never for an
-/// incognito, Secure Input, protected-media or capture-hidden page; read off the main thread at launch, handed out
-/// once and never waited for; the untaken ones dropped after the keep; and a pane of another size shows none.
+/// The browser pages' pictures from the last quit (p08-startup-043): written per profile, private, each save
+/// replacing the last; read off the main thread at launch, handed out once and never waited for; the untaken ones
+/// dropped after the keep; and a pane of another size shows none, nor tells its page to keep a hole for it. Which
+/// pages are never pictured the app decides (`BrowserLaunchPictureShotsTests`).
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(1)))
 struct BrowserLaunchPicturesTests {
     static let work = BackgroundWork(label: "test.browser-launch-pictures")
     static let profile = UUID()
-    static let incognitoProfile = UUID()
     static let paneSize = CGSize(width: 400, height: 300)
     static let pageFrame = CGRect(x: 0, y: 40, width: 400, height: 260)
 
@@ -31,9 +31,8 @@ struct BrowserLaunchPicturesTests {
         BrowserLaunchPictures.Picture(image: try image(), paneSize: paneSize, pageFrame: pageFrame)
     }
 
-    static func shot(_ key: String, profile: UUID = profile, withheld: BrowserLaunchPictures.Withheld = []) throws
-        -> BrowserLaunchPictures.Shot {
-        BrowserLaunchPictures.Shot(key: key, profile: profile, withheld: withheld, picture: try picture())
+    static func shot(_ key: String, profile: UUID = profile) throws -> BrowserLaunchPictures.Shot {
+        BrowserLaunchPictures.Shot(key: key, profile: profile, picture: try picture())
     }
 
     static func folder() -> URL {
@@ -54,31 +53,17 @@ struct BrowserLaunchPicturesTests {
         await BrowserLaunchPictures(directory: directory, work: work).save(try keys.map { try shot($0) })
     }
 
-    @Test func anIncognitoPageIsNeverWritten() async throws {
+    /// A save replaces the last quit's whole set; a quit with no page to picture (every page on screen withheld,
+    /// `BrowserLaunchPictureShotsTests`) leaves none of the last quit's pictures.
+    @Test func aSaveReplacesTheLastQuitsPictures() async throws {
         let directory = Self.folder()
         defer { try? FileManager.default.removeItem(at: directory) }
-        await BrowserLaunchPictures(directory: directory, work: Self.work).save([
-            try Self.shot("tab_shown"),
-            try Self.shot("tab_incognito", profile: Self.incognitoProfile, withheld: .offTheRecord),
-            try Self.shot("tab_password", withheld: .secureInput),
-            try Self.shot("tab_drm", withheld: .protectedMedia),
-            try Self.shot("tab_private_window", withheld: .hiddenFromCapture),
-        ])
+        try await Self.saved(["tab_a", "tab_b"], in: directory)
+        try await Self.saved(["tab_c"], in: directory)
         let profile = Self.profile.uuidString
-        #expect(Self.files(under: directory) == [profile, "\(profile)/pictures.json", "\(profile)/tab_shown.jpg"],
-                "a withheld page was written")
-        let index = try String(contentsOf: directory.appending(path: "\(profile)/pictures.json"), encoding: .utf8)
-        #expect(!index.contains("tab_incognito") && !index.contains("tab_password") && !index.contains("tab_drm"),
-                "the index names a withheld page")
-    }
-
-    @Test func onlyIncognitoPagesOnScreenLeaveNoPictureOfTheLastQuit() async throws {
-        let directory = Self.folder()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        try await Self.saved(["tab_a"], in: directory)
-        await BrowserLaunchPictures(directory: directory, work: Self.work).save([
-            try Self.shot("tab_incognito", profile: Self.incognitoProfile, withheld: .offTheRecord),
-        ])
+        #expect(Self.files(under: directory) == [profile, "\(profile)/pictures.json", "\(profile)/tab_c.jpg"],
+                "a picture of the last quit stayed")
+        await BrowserLaunchPictures(directory: directory, work: Self.work).save([])
         #expect(!FileManager.default.fileExists(atPath: directory.path), "the last quit's pictures stayed")
     }
 
@@ -170,6 +155,37 @@ struct BrowserLaunchPicturesTests {
         view.setFrameSize(Self.paneSize)
         #expect(view.showsPicture)
         #expect(view.hitTest(NSPoint(x: 10, y: 10)) == nil, "the picture took a click")
+    }
+
+    /// The page under the picture is told to keep a hole for it exactly while the picture shows: in a window, at
+    /// its size at the quit. A page replaced meanwhile is let go, and a pane that leaves its window lets its page go.
+    @Test func thePageKeepsAHoleOnlyWhileThePictureShows() throws {
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: Self.paneSize), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let pane = NSView(frame: NSRect(origin: .zero, size: Self.paneSize))
+        window.contentView?.addSubview(pane)
+        let view = BrowserLaunchPictureView(try Self.picture(), tab: "tab_a")
+        view.setFrameSize(Self.paneSize)
+        var first: [Bool] = [], second: [Bool] = []
+        view.onShowsChange = { first.append($0) }
+        #expect(first == [false], "a picture in no pane covered its page")
+        pane.addSubview(view)
+        #expect(first == [false, true])
+        view.setFrameSize(NSSize(width: Self.paneSize.width - 10, height: Self.paneSize.height))
+        #expect(first == [false, true, false], "a picture of another size kept its page covered")
+        view.setFrameSize(Self.paneSize)
+        #expect(first == [false, true, false, true])
+        view.onShowsChange = { second.append($0) }
+        #expect(first == [false, true, false, true, false], "the replaced page stayed covered")
+        #expect(second == [true])
+        pane.removeFromSuperview()
+        #expect(second == [true, false], "a page stayed covered by a pane out of its window")
+        window.contentView?.addSubview(pane)
+        #expect(second == [true, false, true])
+        view.removeFromSuperview()
+        #expect(second == [true, false, true, false], "the page stayed covered after the picture went")
     }
 
     @Test func aStaleIndexEntryOrAnUnsafeKeyIsNotRead() async throws {
