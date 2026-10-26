@@ -56,6 +56,9 @@ pub struct QueuedPrompt {
 #[derive(Debug)]
 pub(super) struct PromptRun {
     pub(super) blocks: Vec<Value>,
+    /// Sanitized app display metadata, keyed by ACP block index. It is persisted with queued
+    /// records and used only to rebuild the transcript; it never crosses the agent boundary.
+    pub(super) display_parts: Option<Value>,
     pub(super) control: Control,
     pub(super) trust_gate: bool,
     /// Who sent it (`prompt_provenance.rs`); an edit drops it.
@@ -65,12 +68,16 @@ pub(super) struct PromptRun {
     pub(super) agent: Option<String>,
     /// Its `_meta.acpmux.supersede` key (`supersede.rs`); an edit drops it.
     pub(super) supersede: Option<String>,
+    /// The paired machine whose Full-access setting covered its sender (`PromptOptions`); an
+    /// edit keeps it only from that machine.
+    pub(super) full_access_device: Option<String>,
 }
 
 /// A prompt asking for its turn (`queue_slot`).
 pub(super) struct Slot<'a> {
     pub(super) text: &'a str,
     pub(super) blocks: &'a [Value],
+    pub(super) display_parts: Option<&'a Value>,
     pub(super) client: &'a str,
     pub(super) prompt_id: &'a str,
     pub(super) control: Control,
@@ -78,11 +85,16 @@ pub(super) struct Slot<'a> {
     /// A steer the agent cannot take (`_meta.acpmux.interrupt`): it goes to the head of the
     /// queue and the running turn stops.
     pub(super) interrupt: bool,
+    /// The turn `interrupt` was aimed at, when it was one turn (`PromptOptions::interrupt_turn`):
+    /// another turn running now is not stopped.
+    pub(super) interrupt_turn: Option<&'a str>,
     pub(super) provenance: Option<&'a Value>,
     /// Another agent's name when it is that agent's message (`digest.rs`).
     pub(super) agent: Option<&'a str>,
     /// Its `_meta.acpmux.supersede` key (`supersede.rs`).
     pub(super) supersede: Option<&'a str>,
+    /// `PromptOptions::full_access_device`.
+    pub(super) full_access_device: Option<&'a str>,
     /// Set to the prompts it replaced when it queues (`enqueue`), for its acceptance.
     pub(super) replaced: &'a std::sync::OnceLock<Vec<String>>,
 }
@@ -184,11 +196,13 @@ impl Hub {
                     Ok(slot) => {
                         let run = PromptRun {
                             blocks: p.blocks.to_vec(),
+                            display_parts: p.display_parts.cloned(),
                             control: p.control,
                             trust_gate: p.trust_gate,
                             provenance: p.provenance.cloned(),
                             agent: p.agent.map(str::to_owned),
                             supersede: p.supersede.map(str::to_owned),
+                            full_access_device: p.full_access_device.map(str::to_owned),
                         };
                         return Ok((turn_id, false, TurnGuard::new(guard, slot), Arc::new(run)));
                     }
@@ -207,11 +221,13 @@ impl Hub {
             }
         };
         let (withdraw, joined) = withdraw;
-        // A steer the agent cannot take goes next, and stops the turn that runs now.
+        // A steer the agent cannot take goes next, and stops the turn that runs now, unless it was
+        // aimed at a turn that has ended since: the one running now is another prompt's.
         if p.interrupt {
             let running = session.turn().map(|t| t.turn_id);
             if self.put_next(session, p.prompt_id)
                 && let Some(running) = running
+                && p.interrupt_turn.is_none_or(|aimed| aimed == running)
             {
                 self.cancel_turn(session, &running).await;
             }
@@ -267,6 +283,8 @@ impl Hub {
             interrupt: true,
             provenance,
             agent: run.agent.clone(),
+            display_parts: run.display_parts.clone(),
+            full_access_device: run.full_access_device.clone(),
             ..Default::default()
         };
         Box::pin(self.run_prompt(session, run.blocks.clone(), client, true, opts)).await
@@ -320,11 +338,13 @@ impl Hub {
                 withdraw: withdraw.clone(),
                 run: Arc::new(PromptRun {
                     blocks: p.blocks.to_vec(),
+                    display_parts: p.display_parts.cloned(),
                     control: p.control,
                     trust_gate: p.trust_gate,
                     provenance: p.provenance.cloned(),
                     agent: p.agent.map(str::to_owned),
                     supersede: p.supersede.map(str::to_owned),
+                    full_access_device: p.full_access_device.map(str::to_owned),
                 }),
                 restored: false,
                 resume: false,
@@ -357,6 +377,17 @@ impl Hub {
         let images = super::prompt_images::keep(p.blocks);
         if !images.is_empty() {
             queued["images"] = Value::Array(images);
+        }
+        let inline_parts = super::prompt_images::inline_parts(
+            p.blocks,
+            queued.get("images").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default(),
+            p.display_parts,
+        );
+        if !inline_parts.is_empty() {
+            queued["inlineParts"] = Value::Array(inline_parts);
+        }
+        if let Some(display_parts) = p.display_parts {
+            queued["displayParts"] = display_parts.clone();
         }
         super::session::mark_pasted(&mut queued, p.blocks);
         self.append(
@@ -725,8 +756,21 @@ impl Hub {
                     "queue_updated" => {
                         if let Some(q) = waiting.iter_mut().find(|q| q.msg.get("turnId") == turn_id)
                         {
-                            for k in ["text", "prompt", "control", "trustGate"] {
-                                q.msg[k] = e.msg.get(k).cloned().unwrap_or(Value::Null);
+                            for k in [
+                                "text",
+                                "prompt",
+                                "control",
+                                "trustGate",
+                                "inlineParts",
+                                "displayParts",
+                                "images",
+                                "pasted",
+                            ] {
+                                if let Some(value) = e.msg.get(k) {
+                                    q.msg[k] = value.clone();
+                                } else if let Some(fields) = q.msg.as_object_mut() {
+                                    fields.remove(k);
+                                }
                             }
                             if let Some(meta) =
                                 q.msg.get_mut("_meta").and_then(Value::as_object_mut)
@@ -809,11 +853,15 @@ impl Hub {
                 withdraw: Arc::new(Notify::new()),
                 run: Arc::new(PromptRun {
                     blocks,
+                    display_parts: e.msg.get("displayParts").cloned(),
                     control,
                     trust_gate,
                     provenance,
                     agent,
                     supersede,
+                    // A restored prompt names no machine: it does not run a chat out of its
+                    // policy's mode (`Hub::full_access_hold`).
+                    full_access_device: None,
                 }),
                 restored: true,
                 resume: true,
@@ -855,7 +903,10 @@ impl Hub {
                         prompt_id: Some(q.prompt_id.clone()),
                         control: q.run.control,
                         trust_gate: q.run.trust_gate,
+                        // Who sent it: a queued agent message stays that agent's after a restart.
+                        provenance: q.run.provenance.clone(),
                         agent: q.run.agent.clone(),
+                        display_parts: q.run.display_parts.clone(),
                         ..PromptOptions::default()
                     };
                     let blocks = q.run.blocks.clone();

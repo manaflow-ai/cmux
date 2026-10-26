@@ -58,6 +58,13 @@ pub static ALLOWED_COMMANDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| 
         "resize-attached-view",
         "release-attached-view-size",
         "detach-attached-view",
+        // Shared sizing: the size state, the phone's own activity, and this
+        // Mac's sizing policy (`host-size-policy-v1`; the Mac-wide preference
+        // only, never `set-size-policy`).
+        "get-size-state",
+        "note-size-activity",
+        "get-host-size-policy",
+        "set-host-size-policy",
         // Per-client focus (never moves the Mac's view).
         "client-focus",
         "report-focus",
@@ -128,6 +135,10 @@ pub static ALLOWED_COMMANDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| 
         "reopen-saved-tab-group",
         "ack-tab-notifications",
         "notify",
+        // A reply to a terminal notification: its id and the person's text
+        // only (`notification_reply_refusal`). hostd answers it itself
+        // (`mailbox_apply::reply_to_notification`); the daemon never sees it.
+        "notification-reply",
         // Restart Shell: a dead terminal tab of the person's gets its shell
         // again, on this Mac, under the same terminal id; the surface only
         // (`creation_fields`). Verified live (cmux-next-ios/SECURITY.md "Restart Shell").
@@ -215,6 +226,7 @@ fn creation_fields(command: &str) -> Option<HashSet<&'static str>> {
         // folder the record holds; the phone names no program, folder or env.
         "reopen-saved-tab-group" => return Some(["saved", "pane", "transaction"].into_iter().collect()),
         "delete-saved-tab-group" => return Some(["saved"].into_iter().collect()),
+        "notification-reply" => return Some(["notification", "text", "reply_id"].into_iter().collect()),
         "new-tab" | "new-pane" => &["pane"],
         "new-pane-right" => &["pane", "width"],
         "split" => &["pane", "dir"],
@@ -256,6 +268,10 @@ const AGENT_SESSION_FIELDS: &[&str] = &["host", "session", "harness", "host_name
 #[derive(Debug, Clone)]
 pub struct DaemonPolicy {
     projection_subject: String,
+    /// The link's device id. Every `set-client-info` carries it as
+    /// `device_id`, with `remote: true`: a phone is never one of this Mac's
+    /// own views and never another device in the sizing order.
+    device_id: String,
     /// The `agent_session.host` this Mac's app records on its own agent tabs
     /// (`CMUX_MOBILE_AGENT_TAB_HOST`). Unset: a phone cannot create agent tabs.
     agent_tab_host: Option<String>,
@@ -263,7 +279,16 @@ pub struct DaemonPolicy {
 
 impl DaemonPolicy {
     pub fn new(device_id: &str) -> Self {
-        Self { projection_subject: format!("ios-device:{device_id}"), agent_tab_host: None }
+        Self {
+            projection_subject: format!("ios-device:{device_id}"),
+            device_id: device_id.to_string(),
+            agent_tab_host: None,
+        }
+    }
+
+    /// The phone's device id this policy was made for.
+    pub fn device_id(&self) -> &str {
+        self.projection_subject.strip_prefix("ios-device:").unwrap_or(&self.projection_subject)
     }
 
     /// Lets the phone create agent tabs recorded for `host`.
@@ -314,6 +339,11 @@ impl DaemonPolicy {
         {
             return Verdict::Refuse(error_line(id, "forbidden", &why));
         }
+        if command == "notification-reply"
+            && let Some(why) = notification_reply_refusal(&object)
+        {
+            return Verdict::Refuse(error_line(id, "forbidden", &why));
+        }
         if command == "set-personal-workspace"
             && let Err(why) = personal_workspace(&object)
         {
@@ -336,7 +366,24 @@ impl DaemonPolicy {
             let id = id.cloned();
             return self.agent_tab_verdict(object, id);
         }
+        if command == "set-client-info" {
+            return self.client_info_verdict(object);
+        }
+        if command == "resize-attached-view" && object.contains_key("identity") {
+            return sub_view_verdict(object);
+        }
         Verdict::Forward
+    }
+
+    /// `set-client-info` from a phone, marked as this link's remote device:
+    /// `remote: true` and the link's own `device_id`, whatever the phone sent.
+    fn client_info_verdict(&self, mut object: Map<String, Value>) -> Verdict {
+        object.insert("remote".into(), Value::Bool(true));
+        object.insert("device_id".into(), Value::String(self.device_id.clone()));
+        match serde_json::to_vec(&Value::Object(object)) {
+            Ok(line) => Verdict::Rewrite(line),
+            Err(_) => Verdict::Refuse(error_line(None, "bad_request", "request is not a JSON object")),
+        }
     }
 
     /// `new-conversation-tab` from a phone: an acpmux session tab of this
@@ -415,6 +462,20 @@ impl DaemonPolicy {
 /// identifier (the daemon mints `saved_<hex>`), a reopen names its `pane` (a
 /// pane number or a short public id), and `transaction` is 1-128 printable
 /// ASCII characters, as the daemon checks.
+/// A relay sub-view's `identity` from a phone, without `user_id` and
+/// `device_id`: a phone relays no other device, so its sub-views can never
+/// take another device's place in the Mac's sizing order.
+fn sub_view_verdict(mut object: Map<String, Value>) -> Verdict {
+    if let Some(Value::Object(identity)) = object.get_mut("identity") {
+        identity.remove("user_id");
+        identity.remove("device_id");
+    }
+    match serde_json::to_vec(&Value::Object(object)) {
+        Ok(line) => Verdict::Rewrite(line),
+        Err(_) => Verdict::Refuse(error_line(None, "bad_request", "request is not a JSON object")),
+    }
+}
+
 fn saved_group_refusal(object: &Map<String, Value>, reopen: bool) -> Option<String> {
     if !object.get("saved").and_then(Value::as_str).is_some_and(|saved| short_identifier(saved, 128)) {
         return Some("a saved tab group is named by its id".into());
@@ -743,6 +804,28 @@ fn web_url(url: &Value) -> bool {
     lower.starts_with("https://") || lower.starts_with("http://") || lower == "about:blank"
 }
 
+/// The longest text a reply to a terminal notification carries, in bytes.
+pub const NOTIFICATION_REPLY_MAX_BYTES: usize = 4096;
+
+/// Why a `notification-reply` is refused: it names one notification (a
+/// ledger id) and carries 1 to 4096 bytes of text.
+fn notification_reply_refusal(object: &Map<String, Value>) -> Option<String> {
+    if object.get("notification").and_then(Value::as_u64).is_none() {
+        return Some("notification-reply names a notification id".into());
+    }
+    if let Some(reply) = object.get("reply_id")
+        && !reply.as_str().is_some_and(|r| {
+            (8..=64).contains(&r.len()) && r.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+    {
+        return Some("reply_id is the reply's id (8 to 64 letters, digits or dashes)".into());
+    }
+    match object.get("text").and_then(Value::as_str) {
+        Some(text) if !text.is_empty() && text.len() <= NOTIFICATION_REPLY_MAX_BYTES => None,
+        _ => Some(format!("notification-reply carries 1 to {NOTIFICATION_REPLY_MAX_BYTES} bytes of text")),
+    }
+}
+
 /// A v12 error response line, keys sorted like the Swift policy.
 pub fn error_line(id: Option<&Value>, code: &str, message: &str) -> String {
     json!({"error": message, "error_code": code, "id": id.cloned().unwrap_or(Value::Null), "ok": false})
@@ -989,6 +1072,30 @@ mod tests {
         assert!(answer.contains("unavailable"));
     }
 
+    /// The shape of the lines a Feed reply to a terminal agent sends
+    /// (CmuxMobileLive TerminalFeed.reply): the daemon's capabilities, the
+    /// foreground program, then one `send` that pastes and submits only while
+    /// that program (its full path, as `process-info` names it) is still in
+    /// the foreground and its agent waits at its prompt in that session. All
+    /// were already on the allowlist (the phone's terminal keyboard sends
+    /// `send`); the reply opens nothing new, and `notification-reply` stays
+    /// refused.
+    #[test]
+    fn allows_the_terminal_feed_reply() {
+        for line in [
+            br#"{"cmd":"identify","id":"m0"}"#.as_slice(),
+            br#"{"cmd":"process-info","id":"m1","surface":7}"#,
+            br#"{"cmd":"send","expect_agent":{"session":"0b6c3f8e"},"expect_foreground":"/Users/me/.local/share/claude/versions/2.1.300","id":"m2","paste":true,"submit":true,"surface":7,"text":"run the tests"}"#,
+        ] {
+            assert_eq!(policy().evaluate(line), Verdict::Forward, "{}", String::from_utf8_lossy(line));
+        }
+        // A notification's own reply is PR B's narrow command, with only its notification
+        // and text (`notification_reply_takes_only_its_notification_and_text`); a stray
+        // field still refuses it.
+        let line = br#"{"cmd":"notification-reply","id":"m4","notification":1,"text":"y","surface":7}"#.as_slice();
+        assert!(matches!(policy().evaluate(line), Verdict::Refuse(_)));
+    }
+
     /// The exact lines the iOS Feed sends for terminal agents (CmuxMobileLive
     /// TerminalFeed): the notification ledger read and the per-tab read mark
     /// the Mac's own notifications panel uses. Both were already on the
@@ -1003,17 +1110,72 @@ mod tests {
         ] {
             assert_eq!(policy().evaluate(line), Verdict::Forward, "{}", String::from_utf8_lossy(line));
         }
-        // Nothing beyond the ledger: replies into a terminal, the activity
-        // stream and the session journal stay refused.
+        // Nothing beyond the ledger: the activity stream and the session
+        // journal stay refused (a reply to a terminal notification is its own
+        // narrow command, `notification_reply_takes_only_its_notification_and_text`).
         for line in [
-            br#"{"cmd":"notification-reply","id":"m5","notification":1,"text":"y"}"#.as_slice(),
-            br#"{"cmd":"subscribe-activity","id":"m6"}"#,
+            br#"{"cmd":"subscribe-activity","id":"m6"}"#.as_slice(),
             br#"{"cmd":"session.journal.subscribe","id":"m7"}"#,
         ] {
             assert!(
                 matches!(policy().evaluate(line), Verdict::Refuse(_)),
                 "{}",
                 String::from_utf8_lossy(line)
+            );
+        }
+    }
+
+    /// A reply to a terminal notification (PROTOCOL.md "Terminal replies"):
+    /// the notification's id and the person's text, nothing else. hostd
+    /// answers it itself (`mailbox_apply::reply_to_notification`): the text
+    /// goes only to the terminal that posted that notification.
+    #[test]
+    fn notification_reply_takes_only_its_notification_and_text() {
+        assert_eq!(
+            policy().evaluate(br#"{"cmd":"notification-reply","id":"m5","notification":1,"text":"y"}"#),
+            Verdict::Forward
+        );
+        let long = format!(
+            r#"{{"cmd":"notification-reply","id":"m6","notification":1,"text":"{}"}}"#,
+            "x".repeat(4097)
+        );
+        let exact = format!(
+            r#"{{"cmd":"notification-reply","id":"m6","notification":1,"text":"{}"}}"#,
+            "x".repeat(4096)
+        );
+        assert_eq!(policy().evaluate(exact.as_bytes()), Verdict::Forward);
+        // The reply's id, so a copy that also went through the mailbox is applied once.
+        assert_eq!(
+            policy().evaluate(
+                br#"{"cmd":"notification-reply","id":"m8","notification":1,"text":"y","reply_id":"0d9f5e2c-7b3a-4e61-8f20-5c4b3a291807"}"#
+            ),
+            Verdict::Forward
+        );
+        assert!(matches!(
+            policy().evaluate(
+                br#"{"cmd":"notification-reply","id":"m8","notification":1,"text":"y","reply_id":"a b"}"#
+            ),
+            Verdict::Refuse(_)
+        ));
+        for line in [
+            // Another field: a surface, a command, raw bytes, a paste flag.
+            br#"{"cmd":"notification-reply","id":"m7","notification":1,"text":"y","surface":3}"#.as_slice(),
+            br#"{"cmd":"notification-reply","id":"m7","notification":1,"text":"y","command":"ls"}"#,
+            br#"{"cmd":"notification-reply","id":"m7","notification":1,"bytes":"bHMK"}"#,
+            br#"{"cmd":"notification-reply","id":"m7","notification":1,"text":"y","paste":false}"#,
+            // Missing or ill-typed fields; empty text.
+            br#"{"cmd":"notification-reply","id":"m7","text":"y"}"#,
+            br#"{"cmd":"notification-reply","id":"m7","notification":"1","text":"y"}"#,
+            br#"{"cmd":"notification-reply","id":"m7","notification":-1,"text":"y"}"#,
+            br#"{"cmd":"notification-reply","id":"m7","notification":1}"#,
+            br#"{"cmd":"notification-reply","id":"m7","notification":1,"text":7}"#,
+            br#"{"cmd":"notification-reply","id":"m7","notification":1,"text":""}"#,
+            long.as_bytes(),
+        ] {
+            assert!(
+                matches!(policy().evaluate(line), Verdict::Refuse(_)),
+                "{}",
+                String::from_utf8_lossy(&line[..line.len().min(120)])
             );
         }
     }
@@ -1346,6 +1508,47 @@ mod tests {
         }
     }
 
+    /// `host-size-policy-v1`: the sizing commands pass; `set-client-info`
+    /// always names this link's device and marks it remote, so a phone can
+    /// neither pose as this Mac nor as another phone in the sizing order.
+    #[test]
+    fn phone_sizing_commands_pass_and_client_info_is_marked_remote() {
+        for line in [
+            br#"{"cmd":"get-size-state","id":"s1","surface":7}"#.as_slice(),
+            br#"{"cmd":"note-size-activity","id":"s2","surface":7}"#,
+            br#"{"cmd":"get-host-size-policy","id":"s3","surface":7}"#,
+            br#"{"cmd":"set-host-size-policy","id":"s4","policy":{"mode":"priority","order":["mac"]}}"#,
+        ] {
+            assert_eq!(policy().evaluate(line), Verdict::Forward, "{}", String::from_utf8_lossy(line));
+        }
+        for line in [
+            br#"{"cmd":"set-size-policy","id":"s5","surface":7,"policy":{"mode":"fixed"}}"#.as_slice(),
+            br#"{"cmd":"set-size-counts","id":"s6","surface":7,"counts":false}"#,
+        ] {
+            assert!(matches!(policy().evaluate(line), Verdict::Refuse(_)), "{}", String::from_utf8_lossy(line));
+        }
+        let line = br#"{"cmd":"set-client-info","id":"c1","device_kind":"mac","device_id":"someone-else","remote":false}"#;
+        let Verdict::Rewrite(sent) = policy().evaluate(line) else { panic!("not rewritten") };
+        let sent: Value = serde_json::from_slice(&sent).unwrap();
+        assert_eq!(sent["remote"], true);
+        assert_eq!(sent["device_id"], "phone-1");
+        assert_eq!(sent["device_kind"], "mac");
+        assert_eq!(sent["id"], "c1");
+    }
+
+    /// A relay sub-view's identity from a phone never names a user or a
+    /// device (review 2 finding 1): the daemon gives it its own key.
+    #[test]
+    fn phone_sub_view_identity_names_no_user_or_device() {
+        let line = br#"{"cmd":"resize-attached-view","id":"r1","surface":7,"view":"v","cols":40,"rows":20,"identity":{"user_id":"u","device_id":"ipad-1","device_kind":"ipad","device_name":"iPad"}}"#;
+        let Verdict::Rewrite(sent) = policy().evaluate(line) else { panic!("not rewritten") };
+        let sent: Value = serde_json::from_slice(&sent).unwrap();
+        assert_eq!(sent["identity"], serde_json::json!({"device_kind":"ipad","device_name":"iPad"}));
+        assert_eq!(sent["cols"], 40);
+        let bare = br#"{"cmd":"resize-attached-view","id":"r2","surface":7,"view":"v","cols":40,"rows":20}"#;
+        assert_eq!(policy().evaluate(bare), Verdict::Forward);
+    }
+
     #[test]
     fn mirrors_the_swift_allowlist() {
         let swift = include_str!(
@@ -1354,7 +1557,10 @@ mod tests {
         let start = swift.find("allowedCommands: Set<String> = [").expect("allowlist in Swift");
         let end = start + swift[start..].find("]\n").expect("end of allowlist");
         let swift_commands: HashSet<&str> = swift[start..end].split('"').skip(1).step_by(2).collect();
-        let rust_commands: HashSet<&str> = ALLOWED_COMMANDS.iter().copied().collect();
+        // `notification-reply` is answered by hostd itself, never by the daemon, so
+        // the Mac's own phone lane (an allowlist of daemon commands) leaves it out.
+        let rust_commands: HashSet<&str> =
+            ALLOWED_COMMANDS.iter().copied().filter(|command| *command != "notification-reply").collect();
         assert_eq!(swift_commands, rust_commands);
         let start = swift
             .find("allowedResourceOperations: [String: Set<String>] = [")

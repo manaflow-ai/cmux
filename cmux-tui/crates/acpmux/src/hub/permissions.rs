@@ -13,8 +13,27 @@ impl Hub {
     ) {
         while let Some(item) = rx.recv().await {
             match item {
-                Inbound::Notification { method: m, params } => {
+                Inbound::Notification { method: m, params, agent } => {
                     if m == method::SESSION_UPDATE {
+                        // A /context breakdown from an agent that was replaced (a failover's
+                        // dying primary answering late) is not the chat's context now. The
+                        // child lock is held while it is applied: a failover takes it to retire
+                        // the old agent, and again to detach it, before it clears the
+                        // breakdown, so the check and the write cannot straddle the failover.
+                        let breakdown = params
+                            .as_ref()
+                            .and_then(|p| p.pointer("/update/_meta/acpmux/contextBreakdown"))
+                            .is_some();
+                        if breakdown {
+                            let child = session.child.lock().await;
+                            if child
+                                .as_ref()
+                                .is_some_and(|c| c.generation == agent && !c.is_retired())
+                            {
+                                self.on_update(&session, params.as_ref());
+                            }
+                            continue;
+                        }
                         self.on_update(&session, params.as_ref());
                     }
                 }
@@ -106,6 +125,9 @@ impl Hub {
         // A mode or option change goes through the one setter below.
         let mut mode_write = None;
         let mut reported_tools = None;
+        let mut goal_write = false;
+        let mut mark_cleared = false;
+        let mut breakdown_changed = false;
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         match kind {
             "agent_message_chunk" => {
@@ -131,12 +153,24 @@ impl Hub {
             "usage_update" => m.usage = Some(update.clone()),
             "available_commands_update" => m.available_commands = Some(update.clone()),
             "current_mode_update" => {
+                // A mode the harness moves to by itself is not cmux's: the mark goes, so moving
+                // back to it later is not cmux's either (`trust_wait.rs` `full_access_by_cmux`).
+                let reported = update.get("currentModeId").and_then(Value::as_str);
+                if m.mode_set_by_cmux.is_some() && reported != m.mode_set_by_cmux.as_deref() {
+                    m.mode_set_by_cmux = None;
+                    // Saved now, so a restart does not load the mark back.
+                    mark_cleared = true;
+                }
                 mode_write = update.get("currentModeId").cloned().map(ModeWrite::CurrentMode);
             }
             "config_option_update" => {
                 mode_write = update.get("configOptions").cloned().map(ModeWrite::ConfigOptions);
             }
             "session_info_update" => {
+                if let Some(goal) = update.pointer("/_meta/goal") {
+                    m.goal = goal.as_object().map(|_| goal.clone());
+                    goal_write = true;
+                }
                 // A harness title made from the first input stops before a client context
                 // (prompt_context.rs), so a Cmd-I chat titles from the person's words.
                 if let Some(title) = update.get("title").and_then(Value::as_str) {
@@ -145,6 +179,12 @@ impl Hub {
                         m.title = Some(title.to_owned());
                         m.title_source = Some(super::titles::HARNESS.to_owned());
                     }
+                }
+                // Claude Code's /context breakdown, sent after each turn (`claude_stdio`). It comes
+                // after the turn's own save, so it is saved here (below), or a restart loses it.
+                if let Some(breakdown) = update.pointer("/_meta/acpmux/contextBreakdown") {
+                    m.context_breakdown = Some(breakdown.clone());
+                    breakdown_changed = true;
                 }
                 // Claude Code's system/init: its MCP servers, plugins and skills.
                 reported_tools = update
@@ -155,12 +195,19 @@ impl Hub {
             _ => {}
         }
         drop(m);
+        // Goal state must survive a daemon restart even when the turn has not settled yet.
+        if goal_write || breakdown_changed {
+            self.save_meta(session);
+        }
         if let Some(claude) = reported_tools {
             self.absorb_reported_tools(session, &claude);
         }
         // Default deny on drift: also a mode the harness changes by itself.
         if let Some(w) = mode_write {
             self.write_mode_state(session, [w]);
+        }
+        if mark_cleared {
+            self.save_meta(session);
         }
     }
 
@@ -413,7 +460,7 @@ impl Hub {
     ) -> Value {
         // One harness-neutral copy of any questions, before rules and the
         // record see the request (questions.rs).
-        super::questions::normalize(&mut request);
+        super::questions::normalize(&mut request, Self::preview_format(session));
         let needs_person = super::questions::needs_person(&request);
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;

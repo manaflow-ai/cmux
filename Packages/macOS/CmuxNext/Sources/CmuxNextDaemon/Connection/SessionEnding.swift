@@ -63,8 +63,8 @@ enum SessionEnding {
         // Kept tabs restart only in place (`restart-tab` of a kept tab), so a
         // daemon that cannot do that removes the tabs instead of keeping them.
         let keepsLayout = keepingLayout && !deletingWorkspaces
-            && identity?.supports(DaemonCapabilities.shared.endTerminalsKeepLayout) == true
-            && identity?.supports(DaemonCapabilities.shared.tabRestartKeptLayout) == true
+            && identity?.supports(DaemonCapability.endTerminalsKeepLayout.rawValue) == true
+            && identity?.supports(DaemonCapability.tabRestartKeptLayout.rawValue) == true
         await connection.close()
         var failures: [EndSessionsFailure] = []
         if deletingWorkspaces { failures = await closeEveryWorkspace(endpoint: await connection.endpoint) }

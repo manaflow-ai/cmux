@@ -2,10 +2,11 @@
 // of what the task printed and, when the harness reported one, its exit code. Both come from
 // acpmux's process registry (cmux-tui/crates/acpmux/docs/background-processes.md):
 // `_acpmux/process/list {sessionId}` finds the process the note's tool call started, and
-// `_acpmux/process/tail` reads the end of its output file. Read once, when the note opens; nothing
-// is polled. The registry serves only this Mac's clients and keeps output for Claude Code's shells
-// only, so a chat on another machine or a Codex process shows the event's own facts and no output.
+// `_acpmux/process/tail` reads the end of its output file. Live previews poll only while their row
+// is expanded; closing, unmounting, or the row leaving the live list stops and cleans up the timer.
+// The registry serves only this Mac's clients and keeps output for Claude Code's shells only.
 import { createContext, useContext, useEffect, useState } from "react";
+import { stripAnsi } from "./toolOutput";
 
 /// How much of the end of a task's output an opened note reads.
 export const BACKGROUND_TAIL_BYTES = 16 * 1024;
@@ -16,7 +17,17 @@ export type BackgroundTaskOutput = {
   /// Whether `output` starts after the beginning of what it printed.
   cut?: boolean;
   exitCode?: number;
+  running?: boolean;
 };
+
+/// The bounded view shown in an expanded tray row. Keeping this at the render edge means a
+/// completed process can retain its full tail in the reader without growing the row indefinitely.
+export function tailLines(output: string | undefined, maxLines = 10): string | undefined {
+  if (!output || maxLines <= 0) return undefined;
+  const lines = stripAnsi(output).replace(/\r\n/g, "\n").split("\n");
+  while (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+  return lines.slice(-maxLines).join("\n");
+}
 
 /// What the pane's acpmux client offers for a chat's background processes.
 export type BackgroundTaskOutputSource = {
@@ -30,17 +41,25 @@ export type BackgroundTaskOutputReader = { source: BackgroundTaskOutputSource; s
 export const BackgroundTaskOutputContext = createContext<BackgroundTaskOutputReader | undefined>(undefined);
 
 /// The registry's record for the process tool call `toolCallId` started, from a `process/list` reply.
-function processFor(reply: unknown, toolCallId: string): { id: string; exitCode?: number; codex: boolean } | undefined {
+function processFor(
+  reply: unknown,
+  toolCallId?: string,
+  processId?: string,
+): { id: string; exitCode?: number; codex: boolean; running: boolean } | undefined {
   const list = (reply as { processes?: unknown } | undefined)?.processes;
   if (!Array.isArray(list)) return undefined;
   // The newest one: an adapter that numbers calls per process can reuse an id (cx-jzhka).
   for (let index = list.length - 1; index >= 0; index -= 1) {
     const raw = (list[index] ?? {}) as Record<string, unknown>;
-    if (raw.toolCallId !== toolCallId || typeof raw.id !== "string" || !raw.id) continue;
+    const matches =
+      processId !== undefined ? raw.id === processId : toolCallId !== undefined && raw.toolCallId === toolCallId;
+    if (!matches) continue;
+    if (typeof raw.id !== "string" || !raw.id) continue;
     return {
       id: raw.id,
       ...(Number.isInteger(raw.exitCode) ? { exitCode: raw.exitCode as number } : {}),
       codex: raw.harness === "codex",
+      running: raw.state === "running",
     };
   }
   return undefined;
@@ -70,11 +89,15 @@ export function tailText(reply: unknown): { output: string; cut: boolean } | und
 /// What `reader` knows of the background task tool call `toolCallId` started.
 export async function readBackgroundTaskOutput(
   reader: BackgroundTaskOutputReader,
-  toolCallId: string,
+  toolCallId?: string,
+  processId?: string,
 ): Promise<BackgroundTaskOutput> {
-  const process = processFor(await reader.source.listProcesses(reader.sessionId), toolCallId);
+  const process = processFor(await reader.source.listProcesses(reader.sessionId), toolCallId, processId);
   if (!process) return {};
-  const exit = process.exitCode !== undefined ? { exitCode: process.exitCode } : {};
+  const exit = {
+    ...(process.exitCode !== undefined ? { exitCode: process.exitCode } : {}),
+    ...(process.running ? { running: true } : {}),
+  };
   // acpmux keeps no output for a Codex process yet; it refuses the read.
   if (process.codex) return exit;
   const tail = tailText(await reader.source.tailProcess(process.id, BACKGROUND_TAIL_BYTES));
@@ -103,5 +126,47 @@ export function useBackgroundTaskOutput(toolCallId: string, open: boolean): Back
       current = false;
     };
   }, [wanted, reader, toolCallId, key]);
+  return read?.key === key ? read.output : {};
+}
+
+/// A tray row's live tail. The caller's `open` is the stop predicate: the effect also cleans up
+/// its timer and ignores late replies when the row closes or unmounts.
+export function useLiveBackgroundTaskOutput(
+  toolCallId: string | undefined,
+  processId: string | undefined,
+  open: boolean,
+): BackgroundTaskOutput {
+  const reader = useContext(BackgroundTaskOutputContext);
+  const [read, setRead] = useState<{ key: string; output: BackgroundTaskOutput }>();
+  const key = reader ? `${reader.sessionId}\u0000${toolCallId ?? ""}\u0000${processId ?? ""}` : "";
+  useEffect(() => {
+    if (!reader || !open || (!toolCallId && !processId)) return;
+    let current = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let poll: () => void;
+    const schedule = () => {
+      timer = setTimeout(poll, 1200);
+    };
+    poll = () => {
+      readBackgroundTaskOutput(reader, toolCallId, processId).then(
+        (output) => {
+          if (!current) return;
+          setRead({ key, output });
+          // The row is live while mounted; its unmount/close clears this timer and stops polling.
+          schedule();
+        },
+        () => {
+          if (!current) return;
+          setRead({ key, output: {} });
+          schedule();
+        },
+      );
+    };
+    poll();
+    return () => {
+      current = false;
+      if (timer !== undefined) clearTimeout(timer);
+    };
+  }, [reader, open, toolCallId, processId, key]);
   return read?.key === key ? read.output : {};
 }

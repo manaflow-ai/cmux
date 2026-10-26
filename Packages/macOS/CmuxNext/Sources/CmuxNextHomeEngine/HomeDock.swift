@@ -63,6 +63,9 @@ public final class HomeDock {
     private let defaults: UserDefaults
     /// Set once the first launch with `pinned-dock-alone-v1` looked for the placeholder shell.
     static let placeholderCheckedKey = "cmuxNext.home.placeholderShellChecked"
+    /// Set once Home's pinned dock was let take tabs (``allowTabs``), so a dock the person later
+    /// closes to tabs (`column.update {allow_tabs: false}`) stays as they set it.
+    static let dockTakesTabsKey = "cmuxNext.home.dockTakesTabs"
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -89,7 +92,7 @@ public final class HomeDock {
     /// (logged), so the Chief conversation's own setup still runs. Reads the home from the live
     /// tree each time (it changes while this waits).
     public func ensure(_ connection: DaemonConnection, store: DaemonStore, home: ResourceID, dock: Dock) async -> String {
-        let needs = [DaemonCapabilities.shared.pageTabs, DaemonCapabilities.shared.dockColumnRole, DaemonCapabilities.shared.tabColumnRespawn]
+        let needs = [DaemonCapability.pageTabs.rawValue, DaemonCapability.dockColumnRole.rawValue, DaemonCapability.tabColumnRespawn.rawValue]
         guard needs.allSatisfy({ store.supports($0) }) else { return "no home dock: the daemon lacks page tabs, dock roles or column respawn" }
         guard !moveInFlight else { return "home dock move in flight" }
         do {
@@ -122,15 +125,16 @@ public final class HomeDock {
         let docked = Self.isDocked(placed.pane, on: placed.screen)
         // A daemon that keeps a lone pinned dock: the dock is pinned in the move, and nothing is
         // left on its right (`pinned-dock-alone-v1`).
-        let alone = store.supports(DaemonCapabilities.shared.pinnedDock) && store.supports(DaemonCapabilities.shared.pinnedDockAlone)
+        let alone = store.supports(DaemonCapability.pinnedDock.rawValue) && store.supports(DaemonCapability.pinnedDockAlone.rawValue)
         // What stays on the dock's screen once the page and the Chief tabs leave it: an older
         // daemon undocks a screen without a scrolling column, so there the move leaves a terminal.
         let stays = placed.screen.panes.flatMap(\.tabs).contains { $0.surface != placed.tab.surface && !chiefs.contains($0.surface) }
         if !chiefs.isEmpty, stays || !docked { try await connection.closeTabs(Array(chiefs), endTerminals: false) }
         if docked {
             let pinned = try await pin(connection, store: store, workspace: workspace)
+            let tabs = await allowTabsLogged(connection, store: store, workspace: workspace, fresh: pinned != nil)
             let cleared = alone ? try await closePlaceholder(connection, workspace: workspace) : nil
-            let steps = [pinned, cleared].compactMap { $0 }
+            let steps = [pinned, tabs, cleared].compactMap { $0 }
             return steps.isEmpty ? "home dock present" : steps.joined(separator: ", ")
         }
         let respawn: SplitRespawn? = stays || alone ? nil : .terminal(SpawnOptions(workspace: workspace()?.key))
@@ -143,18 +147,18 @@ public final class HomeDock {
         // Held until the tree shows the dock (or this run is cancelled), so a connect meanwhile reads it.
         _ = await shown { workspace().flatMap(Self.pageTab(in:)).flatMap { Self.isDocked($0.pane, on: $0.screen) ? true : nil } }
         _ = try await pin(connection, store: store, workspace: workspace)
+        _ = await allowTabsLogged(connection, store: store, workspace: workspace, fresh: true)
         return "home dock made"
     }
 
     /// `pinned-dock-v1` (Lawrence 2026-10-18: "I should not be able to close Home inside the Home
-    /// thing ... should not be able to create more tabs in the Home thing unless I explicitly enable
-    /// it"): the dock becomes a pinned column with the page tab first, so the daemon keeps that tab
-    /// (no close, move out or reorder away, for every client) and takes no other tab into the column
-    /// until the person turns on its `allow_tabs` (`column.update`). The column kind decides, never a
-    /// title. Nil when there is nothing to do (pinned already, an older daemon, the dock not shown).
+    /// thing"): the dock becomes a pinned column with the page tab first, so the daemon keeps that tab
+    /// (no close, move out or reorder away, for every client). ``allowTabs`` then lets the column take
+    /// other tabs (Leo 2026-10-21). The column kind decides, never a title. Nil when there is nothing
+    /// to do (pinned already, an older daemon, the dock not shown).
     private func pin(_ connection: DaemonConnection, store: DaemonStore,
                      workspace: @MainActor @Sendable () -> WorkspaceModel?) async throws -> String? {
-        guard store.supports(DaemonCapabilities.shared.pinnedDock),
+        guard store.supports(DaemonCapability.pinnedDock.rawValue),
               let placed = workspace().flatMap(Self.pageTab(in:)),
               let dock = Self.dockColumn(placed.pane, on: placed.screen)?.dock, !dock.isPinned else { return nil }
         if placed.pane.tabs.first?.surface != placed.tab.surface {
@@ -163,6 +167,45 @@ public final class HomeDock {
         }
         _ = try await connection.request(SetColumnDockRequest(pane: placed.pane.handle, dock: dock, pinned: true))
         return "home dock pinned"
+    }
+
+    /// Leo 2026-10-21: "JUST MAKE THE TAB THING SHOW UP ON THE MAIN PANE TOO". Home's pinned dock
+    /// takes tabs (`allow_tabs`, `column.update`): its pane shows its tab strip like any pane, and a
+    /// tab dragged onto it joins it and drags out again. The daemon still keeps the pinned page tab
+    /// first and in the column. New tabs, splits and chats opened from Home still open beside it
+    /// (`ChatColumnPlacement`, `NewChatPlacement`). A dock made or pinned now (`fresh`) always gets it;
+    /// a dock pinned before gets it once (``dockTakesTabsKey``, kept per app install, not per
+    /// daemon), so a person's later `allow_tabs: false` stays. Nil when there is nothing to do.
+    /// ``allowTabs``, with a failure logged and returned as the step, so the rest of the connect
+    /// (the placeholder check) still runs; the next connect tries again.
+    private func allowTabsLogged(_ connection: DaemonConnection, store: DaemonStore,
+                                 workspace: @MainActor @Sendable () -> WorkspaceModel?, fresh: Bool) async -> String? {
+        do {
+            return try await allowTabs(connection, store: store, workspace: workspace, fresh: fresh)
+        } catch {
+            logger.error("home dock allow_tabs: \(String(describing: error), privacy: .public)")
+            return "home dock allow_tabs failed: \(String(describing: error))"
+        }
+    }
+
+    private func allowTabs(_ connection: DaemonConnection, store: DaemonStore,
+                           workspace: @MainActor @Sendable () -> WorkspaceModel?, fresh: Bool) async throws -> String? {
+        guard store.supports(DaemonCapability.pinnedDock.rawValue), fresh || !defaults.bool(forKey: Self.dockTakesTabsKey),
+              let placed = workspace().flatMap(Self.pageTab(in:)),
+              let dock = Self.dockColumn(placed.pane, on: placed.screen)?.dock else { return nil }
+        // A dock just pinned may not show its pin in the tree yet; the daemon has it (the pin replied).
+        if dock.allowsTabs, dock.isPinned {
+            defaults.set(true, forKey: Self.dockTakesTabsKey)
+            return nil
+        }
+        guard let screen = placed.screen.resourceID, let pane = placed.pane.resourceID else {
+            // The key stays unset, so the next connect tries again.
+            logger.error("home dock allow_tabs: the tree has no resource id for the dock's screen or pane yet")
+            return "home dock allow_tabs waits for resource ids"
+        }
+        try await connection.setColumnAllowsTabs(true, screen: screen, pane: pane)
+        defaults.set(true, forKey: Self.dockTakesTabsKey)
+        return "home dock takes tabs"
     }
 
     /// A home restored from before `pinned-dock-alone-v1` kept the terminal the dock move left on

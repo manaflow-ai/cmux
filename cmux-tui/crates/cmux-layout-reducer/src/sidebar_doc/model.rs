@@ -20,6 +20,12 @@ pub const PINNED_IN_GROUP_KEY: &str = "pinned";
 /// `Item::extra` key: where a top-level item pinned to the Pinned band goes
 /// back on Unpin (`{"section": id, "after": id or null}`).
 pub const UNPIN_TO_KEY: &str = "unpin_to";
+/// `Item::extra` key: an archived item (plans/cmux-next/archiving-DESIGN.md):
+/// it lists after its unarchived siblings and draws dimmed.
+pub const ARCHIVED_KEY: &str = "archived";
+/// `Item::extra` key: where Unarchive puts an archived item back
+/// (`{"after": sibling id or null}`, in its own sibling list).
+pub const UNARCHIVE_TO_KEY: &str = "unarchive_to";
 /// The one Pinned section.
 pub const PINNED_SECTION_ID: &str = "sec_pinned";
 /// The prefix of a machine section id: `sec_m_<session_id>`.
@@ -27,9 +33,13 @@ pub const MACHINE_SECTION_PREFIX: &str = "sec_m_";
 /// A key longer than this renumbers its siblings.
 pub const MAX_ORDER_KEY_CHARS: usize = 32;
 pub const MAX_TITLE_CHARS: usize = 80;
-/// The most levels of groups one tree may have (host > project > branch,
-/// remote-groups-DESIGN.md R1): a top-level group is level 1.
-pub const MAX_GROUP_DEPTH: usize = 3;
+/// The most levels of groups one tree may have: a top-level group is level 1.
+/// Deep enough that nesting reads as unlimited (Lawrence 2026-10-23: "i want
+/// to see deeply nested groups"; it was 3, host > project > branch,
+/// remote-groups-DESIGN.md R1), and still a bound, so a corrupt document's
+/// walks stay finite and the view's `u8` depth never overflows. The sidebar
+/// stops indenting after a few levels (`SidebarIndent`); nesting goes on.
+pub const MAX_GROUP_DEPTH: usize = 16;
 pub const MAX_SECTIONS: usize = 64;
 pub const MAX_ITEMS: usize = 20_000;
 /// The space between a section's rows or tiles, in points (as the old
@@ -206,6 +216,10 @@ pub struct Section {
     /// sidebar is one list. Only a machine section can be one.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub host_group: bool,
+    /// A person explicitly removed this machine's remote-group header. This
+    /// survives the false `host_group` value being omitted on older wires.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub host_group_opt_out: bool,
     #[serde(default, skip_serializing_if = "Map::is_empty")]
     pub extra: Map<String, Value>,
 }
@@ -244,6 +258,8 @@ struct SectionWire {
     #[serde(default)]
     host_group: bool,
     #[serde(default)]
+    host_group_opt_out: bool,
+    #[serde(default)]
     extra: Map<String, Value>,
 }
 
@@ -267,6 +283,7 @@ impl From<SectionWire> for Section {
             order: wire.order,
             keeps_closed: wire.keeps_closed,
             host_group: wire.host_group,
+            host_group_opt_out: wire.host_group_opt_out,
             extra: wire.extra,
         }
     }
@@ -296,6 +313,7 @@ impl Section {
             order: String::new(),
             keeps_closed,
             host_group: false,
+            host_group_opt_out: false,
             extra: Map::new(),
         }
     }
@@ -444,6 +462,12 @@ impl Item {
             && self.extra.get(PINNED_IN_GROUP_KEY).and_then(Value::as_bool) == Some(true)
     }
 
+    /// Whether this item is archived (`extra.archived`): it lists after its
+    /// unarchived siblings and draws dimmed, with its subtree.
+    pub fn archived(&self) -> bool {
+        self.extra.get(ARCHIVED_KEY).and_then(Value::as_bool) == Some(true)
+    }
+
     /// The label stored with the item (an old tile's workspace name), drawn
     /// while the workspace is closed.
     pub fn label(&self) -> Option<&str> {
@@ -572,6 +596,8 @@ pub struct SectionPatch {
     pub scroll: Option<Scroll>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_group: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_group_opt_out: Option<bool>,
 }
 
 /// An item's own fields; a group's fields go through `group.update`.
@@ -639,6 +665,14 @@ pub enum Op {
     Pin { items: Vec<ItemId> },
     #[serde(rename = "unpin")]
     Unpin { items: Vec<ItemId> },
+    /// Mark `items` archived and move each to the end of its own sibling list
+    /// (its group, or its section's top level); it draws dimmed.
+    #[serde(rename = "archive")]
+    Archive { items: Vec<ItemId> },
+    /// Clear the archive mark and put each item back after the sibling it
+    /// followed when it was archived, else last among the unarchived ones.
+    #[serde(rename = "unarchive")]
+    Unarchive { items: Vec<ItemId> },
     #[serde(rename = "item.add")]
     ItemAdd { item: NewItem, to: Target },
     #[serde(rename = "item.remove")]
