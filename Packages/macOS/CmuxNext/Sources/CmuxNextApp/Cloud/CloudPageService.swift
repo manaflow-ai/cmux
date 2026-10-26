@@ -10,15 +10,31 @@ extension InternalPageID {
 }
 
 /// Owns the Cloud page as a pane tab (plans/cmux-next/cloud-app.md L7): the React Cloud page
-/// (``PageFactory/cloudWebPage()``) in an internal page tab, one per window. `palette.openCloudPane`
+/// (``PageFactory/cloudWebPage(_:route:)``) in an internal page tab, one per window. `palette.openCloudPane`
 /// (the palette, the Window menu, `cmux pane open-cloud-as` and MCP) shows it.
 @MainActor
 final class CloudPageService: InternalPageProvider {
-    private weak var services: AppServices?
-    /// Each tab's `cmux.cloud.` provider while its page lives, for its keep reasons.
-    private var providers: [String: CloudPageProvider] = [:]
+    /// A tab's page with its `cmux.cloud.` provider.
+    typealias MadePage = (page: PageWebView, provider: CloudPageProvider)
 
-    init(services: AppServices) { self.services = services }
+    private weak var services: AppServices?
+    /// Each tab's page while it lives (the provider for its keep reasons).
+    private var pages: [String: MadePage] = [:]
+    /// The place each discarded Cloud tab showed, for the page its next show makes.
+    private let discardedRoutes = DiscardedPageRoutes()
+    /// Makes a tab's page on a route (default: ``PageFactory/cloudWebPage(_:route:)``; tests pass
+    /// their own engine).
+    private let makePage: (String?) -> MadePage?
+
+    init(services: AppServices, makePage: ((String?) -> MadePage?)? = nil) {
+        self.services = services
+        self.makePage = makePage ?? { [weak services] route in
+            guard let services else { return nil }
+            let factory = PageFactory(services: services)
+            let cloud = factory.cloudPageProvider()
+            return factory.cloudWebPage(cloud, route: route).map { (page: $0, provider: cloud) }
+        }
+    }
 
     /// Selects the active window's Cloud tab, or opens one after the focused pane's selected tab,
     /// showing `route` (a URL fragment such as `/get`, the storefront) when given.
@@ -36,15 +52,16 @@ final class CloudPageService: InternalPageProvider {
     var icon: IconName? { .cloud }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        guard let services else { return NSView() }
-        let factory = PageFactory(services: services)
-        let cloud = factory.cloudPageProvider()
-        guard let page = factory.cloudWebPage(cloud) else { return NSView() }
-        providers[key] = cloud
-        return page
+        // A rebuilt page opens on the place its discarded one showed.
+        guard let made = makePage(discardedRoutes.take(key)) else { return NSView() }
+        pages[key] = made
+        return made.page
     }
 
-    func tabClosed(_ key: String) { providers[key] = nil }
+    func tabClosed(_ key: String) {
+        discardedRoutes.forget(key)
+        close(key)
+    }
 
     // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-028)
 
@@ -55,21 +72,25 @@ final class CloudPageService: InternalPageProvider {
     /// A create (or any change the person approved) that has not answered keeps the page: only it
     /// shows the result, and its watch stream turns the answer into the new machine's row.
     func keepReasons(for key: String) -> [CannotDiscardReason] {
-        (providers[key]?.confirmedCallsInFlight ?? 0) > 0 ? [.inProgress] : []
+        (pages[key]?.provider.confirmedCallsInFlight ?? 0) > 0 ? [.inProgress] : []
     }
 
-    /// The route the page was asked to show (the storefront's `/get`), so the next page opens on it.
+    /// Its document scroll (the machine list), and the place the page shows now (the storefront's
+    /// `/get`, or wherever its own links moved it).
     func saveViewState(for key: String, content: NSView) async -> ContentViewState {
-        guard let route = (content as? PageWebView)?.route else { return ContentViewState() }
-        return ContentViewState(values: [Self.routeValue: route])
+        guard let page = content as? PageWebView else { return ContentViewState() }
+        return await discardedRoutes.save(key, page: page)
     }
 
-    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {
-        guard let route = state.values[Self.routeValue], let page = content as? PageWebView else { return }
-        page.open(route: route)
+    /// The tab stays and its page goes, closed as at ``tabClosed(_:)``.
+    func viewDiscarded(_ key: String) {
+        if let page = pages[key]?.page { discardedRoutes.discarded(key, page: page) }
+        close(key)
     }
 
-    func viewDiscarded(_ key: String) { providers[key] = nil }
-
-    static let routeValue = "route"
+    /// Ends tab `key`'s page: its routes, bridge, engine page and pool claim.
+    private func close(_ key: String) {
+        guard let page = pages.removeValue(forKey: key)?.page else { return }
+        if let services { services.webUI.close(page) } else { page.close() }
+    }
 }

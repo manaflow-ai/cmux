@@ -21,7 +21,7 @@ enum CodeRouterPageTab {
 
     static func make(_ services: AppServices) -> WebPageTab {
         WebPageTab(.coderouter, symbol: "arrow.triangle.branch", icon: .accountRouted, title: CodeRouterPageStrings.title,
-                   hiddenPolicy: hiddenPolicy) { [weak services] in
+                   discardPolicy: hiddenPolicy) { [weak services] in
             services.flatMap { PageFactory(services: $0).coderouterWebPage() }
         }
     }

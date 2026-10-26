@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextHibernation
+import CmuxNextMacScreen
 import CmuxNextPhone
 
 extension InternalPageID {
@@ -49,9 +50,11 @@ final class PhonePageTab: InternalPageProvider {
 
     // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-028)
 
-    /// Released at hide: its frames stop while it is hidden (``PhoneTabView``), so a hidden view
-    /// shows nothing live, and the next one reads the phone again.
-    static let hiddenPolicy = ContentDiscardPolicy.afterHidden(.zero)
+    /// Released once its stream stopped for 20 s, a hidden Mac screen's grace
+    /// (``MacScreenPane/defaultHiddenGrace``): its frames stop at hide (``PhoneTabView``), and
+    /// switching tabs back and forth keeps the view and runs no `xcrun` on show. Chrome discards
+    /// nothing at hide either (proactive_discarding_policy.cc waits a minimum hidden time).
+    static let hiddenPolicy = ContentDiscardPolicy.afterHidden(MacScreenPane.defaultHiddenGrace)
 
     func discardPolicy(for key: String) -> ContentDiscardPolicy { Self.hiddenPolicy }
 

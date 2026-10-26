@@ -87,17 +87,18 @@ struct PageFactory {
     /// The Cloud app page (cmux.cloud) with the machine list layout from Debug Settings. Its
     /// namespace runs on the Cloud app server through the local daemon (``CloudPageProvider``);
     /// sign-in and sign-out run the app's own account flow after the native sheet. `cloud` serves
-    /// its namespace (default: a new ``cloudPageProvider()``).
-    func cloudWebPage(_ cloud: CloudPageProvider? = nil) -> PageWebView? {
+    /// its namespace (default: a new ``cloudPageProvider()``); the page opens on `route` (a URL
+    /// fragment), else its default place.
+    func cloudWebPage(_ cloud: CloudPageProvider? = nil, route: String? = nil) -> PageWebView? {
         let native = AppPageNativeProvider(services: services, page: .cloud)
         let cloud = cloud ?? cloudPageProvider()
         native.forward = { op, params, context in try await cloud.call(op, params: params, context: context) }
         let routes = [PageRoute(prefix: "cmux.cloud.", provider: cloud), PageRoute(prefix: "cmux.app.", provider: native)]
         let attributes = ["cloud-machines-layout": PageTunables.cloudMachinesLayout.value.rawValue]
-        let page = services.pageHostPool.claim(.cloud, routes: routes,
+        let page = services.pageHostPool.claim(.cloud, routes: routes, route: route,
                                                documentAttributes: attributes,
                                                window: services.windows.active?.window, focus: false)
-            ?? services.webUI.open(PageOpenRequest(descriptor: .cloud, routes: routes, documentAttributes: attributes))
+            ?? services.webUI.open(PageOpenRequest(descriptor: .cloud, routes: routes, route: route, documentAttributes: attributes))
         native.anchor = { [weak page] in page }
         if let page { PageConnectionWatch(page: page, store: services.machines.local.store).start() }
         return page

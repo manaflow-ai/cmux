@@ -31,14 +31,14 @@ final class MobilePairingPageService: InternalPageProvider {
     }
 
     private weak var services: AppServices?
-    /// Each tab's `cmux.mobilePairing.` provider while its page lives: it holds the code shown.
-    private var providers: [String: MobilePairingPageProvider] = [:]
-    /// The wall clock the codes' expiry is read on (tests set it).
-    private let now: () -> Date
+    /// Each tab's page while it lives, with its `cmux.mobilePairing.` provider (for its keep reasons).
+    private var pages: [String: (page: PageWebView, provider: MobilePairingPageProvider)] = [:]
+    /// Opens a tab's page (default: `services.webUI`; tests pass their own engine).
+    private let openPage: ((PageOpenRequest) -> PageWebView?)?
 
-    init(services: AppServices, now: @escaping () -> Date = { Date() }) {
+    init(services: AppServices, openPage: ((PageOpenRequest) -> PageWebView?)? = nil) {
         self.services = services
-        self.now = now
+        self.openPage = openPage
     }
 
     /// Opens the page in the active window; automation (`focus` false) opens it without moving focus.
@@ -58,30 +58,34 @@ final class MobilePairingPageService: InternalPageProvider {
         let native = AppPageNativeProvider(services: services, page: .mobilePairing)
         let routes = [PageRoute(prefix: "cmux.mobilePairing.", provider: provider),
                       PageRoute(prefix: "cmux.app.", provider: native)]
-        guard let page = services.webUI.open(PageOpenRequest(descriptor: .mobilePairing, routes: routes)) else { return NSView() }
+        let request = PageOpenRequest(descriptor: .mobilePairing, routes: routes)
+        guard let page = openPage?(request) ?? services.webUI.open(request) else { return NSView() }
         native.anchor = { [weak page] in page }
-        providers[key] = provider
+        pages[key] = (page, provider)
         return page
     }
 
-    func tabClosed(_ key: String) { providers[key] = nil }
+    func tabClosed(_ key: String) { close(key) }
 
     // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-028)
 
-    /// Ten minutes hidden, as a browser tab (Chrome's proactive_discarding_policy.cc), the life of
-    /// the code it shows (``MobilePairingPageProvider/ticketLifetime``).
+    /// Ten minutes hidden, as a browser tab (Chrome's proactive_discarding_policy.cc). A hidden
+    /// page's code cannot be scanned, and the page reads the status and mints a code when it is
+    /// made, so the code it showed is not worth its memory.
     func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
 
-    /// Pairing keeps the page: while the code it showed still works a phone may be scanning it, and a
-    /// new page would show another code. The page reads the status again when it is made.
+    /// A pairing step the person started in the page (Phone Access on or off) keeps it until it
+    /// answers: a discard would cancel the call and the page that shows its end.
     func keepReasons(for key: String) -> [CannotDiscardReason] {
-        Self.keepReasons(codeExpiresAt: providers[key]?.codeExpiresAt, now: now())
+        (pages[key]?.provider.personCallsInFlight ?? 0) > 0 ? [.inProgress] : []
     }
 
-    static func keepReasons(codeExpiresAt: Date?, now: Date) -> [CannotDiscardReason] {
-        guard let codeExpiresAt, codeExpiresAt > now else { return [] }
-        return [.inProgress]
-    }
+    /// The tab stays and its page goes, closed as at ``tabClosed(_:)``.
+    func viewDiscarded(_ key: String) { close(key) }
 
-    func viewDiscarded(_ key: String) { providers[key] = nil }
+    /// Ends tab `key`'s page: its routes (the `changes` watch), bridge and engine page.
+    private func close(_ key: String) {
+        guard let page = pages.removeValue(forKey: key)?.page else { return }
+        if let services { services.webUI.close(page) } else { page.close() }
+    }
 }

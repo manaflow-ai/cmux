@@ -31,8 +31,8 @@ final class MobilePairingPageProvider: PageProvider {
         self.services = services
     }
 
-    /// When the attach code the page shows stops working; nil before the page showed one.
-    var codeExpiresAt: Date? { ticket?.expiresAt }
+    /// The person's own steps from the page (Phone Access on or off) that have not answered.
+    private(set) var personCallsInFlight = 0
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let services else { throw PageError.closed }
@@ -47,6 +47,8 @@ final class MobilePairingPageProvider: PageProvider {
             guard let settings = services.settings else {
                 throw PageError(code: "cmux.mobilePairing.unavailable", message: MobilePairingStrings.settingsNotLoaded, retryable: true)
             }
+            personCallsInFlight += 1
+            defer { personCallsInFlight -= 1 }
             try await settings.setSetting(at: SessionSettings.allowConnectionsPath, to: .bool(on), by: .user)
             return .object([:])
         default:

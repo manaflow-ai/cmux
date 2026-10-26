@@ -86,6 +86,9 @@ public final class MacScreenPages {
     private var confirmed: [String: MacScreenRecord] = [:]
     /// Tab key -> the record it shows, set before its view is made.
     private var records: [String: MacScreenRecord] = [:]
+    /// Tab key -> the device and scope a discarded tab streamed, which its next view asks for
+    /// again. Never another tab's: ``pendingScopes`` is what a person chose on the home page.
+    private(set) var resumeScopes: [String: (deviceID: String, scope: SessionScope)] = [:]
     /// Open tabs (made views), by key.
     private(set) var tabs: [String: MacScreenTab] = [:]
     private var termination: (any NSObjectProtocol)?
@@ -306,6 +309,7 @@ public final class MacScreenPages {
         tabs.removeValue(forKey: key)?.clear()
         records[key] = nil
         confirmed[key] = nil
+        resumeScopes[key] = nil
         systemShortcuts.update()
     }
 
@@ -318,8 +322,7 @@ public final class MacScreenPages {
         records[key] = tab.record
         if let device = tab.record.deviceID, let hub = tab.pane?.model.hub,
            let scope = hub.phase.streamingScope ?? hub.resumeScope {
-            pendingScopes[device] = scope
-            confirmed[key] = tab.record
+            resumeScopes[key] = (device, scope)
         }
         tab.clear()
         systemShortcuts.update()
@@ -383,7 +386,11 @@ public final class MacScreenPages {
     private func makeHubPane(deviceID: String, record: MacScreenRecord, key: String) -> MacScreenPane {
         let viewer = MacScreenHubViewer(deviceID: deviceID) { [weak self] in self?.hub }
         let pane = MacScreenPane(hubDevice: viewer, name: deviceName(deviceID), preferences: ScreenPreferences())
-        if confirmed[key] == record, let scope = pendingScopes.removeValue(forKey: deviceID) { viewer.resumeScope = scope }
+        if let resume = resumeScopes.removeValue(forKey: key), resume.deviceID == deviceID {
+            viewer.resumeScope = resume.scope
+        } else if confirmed[key] == record, let scope = pendingScopes.removeValue(forKey: deviceID) {
+            viewer.resumeScope = scope
+        }
         #if DEBUG
         if relayOnly { pane.setRelayOnly(true) }
         #endif
