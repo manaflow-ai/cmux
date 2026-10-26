@@ -495,3 +495,40 @@ async fn the_chat_allowance_never_answers_an_ask_rule() {
     r.request(RESPOND, decision(&id, &g, "asked", "allow_once")).await.unwrap();
     assert!(c.response(rid).await.0.is_ok());
 }
+
+/// An `ask` rule beats approve-reads and the chat allowance together: a read-only
+/// `git status` (#24155) that a rule sends to the person still asks after "allow for this chat".
+#[tokio::test]
+async fn an_ask_rule_asks_under_approve_reads_and_a_chat_allowance() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveReads).await;
+    let repo = git_repo(&[]);
+    let id = session_in(&mut c, "ask-reads", &repo).await;
+    let mut r = connect(&hub).await;
+    // Rules first: changing them withdraws a chat allowance.
+    r.request(method::MUX_SET_RULES, json!({"sessionId": id, "rules": {"ask": ["git"]}}))
+        .await
+        .unwrap();
+    let autos = |hub: &Arc<Hub>| find(&hub.events(&id, 0, 5000).unwrap(), "permission_auto").len();
+    let rid =
+        c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: shell-reads", None)).await;
+    let g = ready(&mut c).await;
+    assert_eq!(g["items"].as_array().unwrap().len(), 2, "the rule asks for git status too: {g}");
+    assert_eq!(autos(&hub), 0);
+    r.request(RESPOND, decision(&id, &g, "grant", "allow_chat")).await.unwrap();
+    assert!(c.response(rid).await.0.is_ok());
+    let state = r.request(GROUPS, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(state["chatAllowance"]["active"], true, "{state}");
+    let before = autos(&hub);
+    let rid =
+        c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: shell-reads", None)).await;
+    let g = ready(&mut c).await;
+    assert_eq!(g["items"].as_array().unwrap().len(), 2, "{g}");
+    assert_eq!(
+        autos(&hub),
+        before,
+        "the chat allowance answered what the ask rule sends to the person"
+    );
+    r.request(RESPOND, decision(&id, &g, "asked", "deny")).await.unwrap();
+    assert!(c.response(rid).await.0.is_ok());
+    std::fs::remove_dir_all(repo).unwrap();
+}

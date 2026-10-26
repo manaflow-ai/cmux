@@ -16145,6 +16145,530 @@
         }
       }
     },
+    "cloud.cli.noSuchMachineWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine `%1$@` has no workspace `%2$@`. `cmux cloud new-terminal-on-machine --target machine:%1$@` makes one."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン `%1$@` にワークスペース `%2$@` はありません。`cmux cloud new-terminal-on-machine --target machine:%1$@` で作成できます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يحتوي الجهاز `%1$@` على مساحة العمل `%2$@`. ينشئ ‎`cmux cloud new-terminal-on-machine --target machine:%1$@`‎ واحدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mašina `%1$@` nema radni prostor `%2$@`. `cmux cloud new-terminal-on-machine --target machine:%1$@` pravi jedan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinen `%1$@` har intet arbejdsområde `%2$@`. `cmux cloud new-terminal-on-machine --target machine:%1$@` opretter et."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Maschine `%1$@` hat keinen Arbeitsbereich `%2$@`. `cmux cloud new-terminal-on-machine --target machine:%1$@` erstellt einen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La máquina `%1$@` no tiene el espacio de trabajo `%2$@`. `cmux cloud new-terminal-on-machine --target machine:%1$@` crea uno."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La machine `%1$@` n’a pas d’espace de travail `%2$@`. `cmux cloud new-terminal-on-machine --target machine:%1$@` en crée un."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La macchina `%1$@` non ha lo spazio di lavoro `%2$@`. `cmux cloud new-terminal-on-machine --target machine:%1$@` ne crea uno."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីន `%1$@` គ្មានកន្លែងធ្វើការ `%2$@` ទេ។ `cmux cloud new-terminal-on-machine --target machine:%1$@` បង្កើតមួយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신 `%1$@`에 워크스페이스 `%2$@`이(가) 없습니다. `cmux cloud new-terminal-on-machine --target machine:%1$@`로 만드세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinen `%1$@` har ikke arbeidsområdet `%2$@`. `cmux cloud new-terminal-on-machine --target machine:%1$@` lager et."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maszyna `%1$@` nie ma obszaru roboczego `%2$@`. `cmux cloud new-terminal-on-machine --target machine:%1$@` tworzy nowy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A máquina `%1$@` não tem o espaço de trabalho `%2$@`. `cmux cloud new-terminal-on-machine --target machine:%1$@` cria um."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На машине `%1$@` нет рабочего пространства `%2$@`. `cmux cloud new-terminal-on-machine --target machine:%1$@` создаёт его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่อง `%1$@` ไม่มีเวิร์กสเปซ `%2$@` ใช้ `cmux cloud new-terminal-on-machine --target machine:%1$@` เพื่อสร้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`%1$@` makinesinde `%2$@` çalışma alanı yok. `cmux cloud new-terminal-on-machine --target machine:%1$@` bir tane oluşturur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На машині `%1$@` немає робочого простору `%2$@`. `cmux cloud new-terminal-on-machine --target machine:%1$@` створює його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy `%1$@` không có không gian làm việc `%2$@`. `cmux cloud new-terminal-on-machine --target machine:%1$@` sẽ tạo một cái."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器 `%1$@` 没有工作区 `%2$@`。运行 `cmux cloud new-terminal-on-machine --target machine:%1$@` 新建一个。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器 `%1$@` 沒有工作區 `%2$@`。執行 `cmux cloud new-terminal-on-machine --target machine:%1$@` 新增一個。"
+          }
+        }
+      }
+    },
+    "cloud.cli.machineWorkspaceRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass the workspace id after --workspace: the workspace_id `cmux cloud new-terminal-on-machine --target machine:%1$@` answered. Leave --workspace out to make a new workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--workspace の後にワークスペース ID を指定してください（`cmux cloud new-terminal-on-machine --target machine:%1$@` が返した workspace_id）。新しいワークスペースを作るには --workspace を省略してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرّر معرّف مساحة العمل بعد ‎--workspace‎: قيمة workspace_id التي أعادها ‎`cmux cloud new-terminal-on-machine --target machine:%1$@`‎. احذف ‎--workspace‎ لإنشاء مساحة عمل جديدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navedite ID radnog prostora nakon --workspace: workspace_id koji je vratio `cmux cloud new-terminal-on-machine --target machine:%1$@`. Izostavite --workspace da napravite novi radni prostor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv arbejdsområdets id efter --workspace: det workspace_id, `cmux cloud new-terminal-on-machine --target machine:%1$@` svarede. Udelad --workspace for at oprette et nyt arbejdsområde."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib die Arbeitsbereich-ID nach --workspace an: die workspace_id, die `cmux cloud new-terminal-on-machine --target machine:%1$@` geantwortet hat. Lass --workspace weg, um einen neuen Arbeitsbereich zu erstellen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica el id del espacio de trabajo después de --workspace: el workspace_id que respondió `cmux cloud new-terminal-on-machine --target machine:%1$@`. Omite --workspace para crear un espacio de trabajo nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez l’id de l’espace de travail après --workspace : le workspace_id renvoyé par `cmux cloud new-terminal-on-machine --target machine:%1$@`. Omettez --workspace pour créer un nouvel espace de travail."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passa l’id dello spazio di lavoro dopo --workspace: il workspace_id restituito da `cmux cloud new-terminal-on-machine --target machine:%1$@`. Ometti --workspace per creare un nuovo spazio di lavoro."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ជូន id កន្លែងធ្វើការបន្ទាប់ពី --workspace៖ workspace_id ដែល `cmux cloud new-terminal-on-machine --target machine:%1$@` បានឆ្លើយ។ លុប --workspace ចេញ ដើម្បីបង្កើតកន្លែងធ្វើការថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--workspace 뒤에 워크스페이스 ID를 전달하세요: `cmux cloud new-terminal-on-machine --target machine:%1$@`이 응답한 workspace_id입니다. 새 워크스페이스를 만들려면 --workspace를 빼세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppgi arbeidsområdets id etter --workspace: workspace_id som `cmux cloud new-terminal-on-machine --target machine:%1$@` svarte. Utelat --workspace for å lage et nytt arbeidsområde."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podaj id obszaru roboczego po --workspace: workspace_id zwrócone przez `cmux cloud new-terminal-on-machine --target machine:%1$@`. Pomiń --workspace, aby utworzyć nowy obszar roboczy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passe o id do espaço de trabalho depois de --workspace: o workspace_id que `cmux cloud new-terminal-on-machine --target machine:%1$@` retornou. Omita --workspace para criar um novo espaço de trabalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите id рабочего пространства после --workspace: workspace_id, который вернула `cmux cloud new-terminal-on-machine --target machine:%1$@`. Чтобы создать новое рабочее пространство, не указывайте --workspace."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่ง id ของเวิร์กสเปซหลัง --workspace คือ workspace_id ที่ `cmux cloud new-terminal-on-machine --target machine:%1$@` ตอบกลับ ละ --workspace ไว้เพื่อสร้างเวิร์กสเปซใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--workspace ardından çalışma alanı kimliğini verin: `cmux cloud new-terminal-on-machine --target machine:%1$@` komutunun döndürdüğü workspace_id. Yeni bir çalışma alanı oluşturmak için --workspace'i kullanmayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкажіть id робочого простору після --workspace: workspace_id, який повернула `cmux cloud new-terminal-on-machine --target machine:%1$@`. Щоб створити новий робочий простір, не вказуйте --workspace."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Truyền id không gian làm việc sau --workspace: workspace_id mà `cmux cloud new-terminal-on-machine --target machine:%1$@` đã trả về. Bỏ --workspace để tạo không gian làm việc mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在 --workspace 后传入工作区 id：即 `cmux cloud new-terminal-on-machine --target machine:%1$@` 返回的 workspace_id。省略 --workspace 则新建工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請在 --workspace 後傳入工作區 id：即 `cmux cloud new-terminal-on-machine --target machine:%1$@` 傳回的 workspace_id。省略 --workspace 則新增工作區。"
+          }
+        }
+      }
+    },
+    "cloud.cli.machineWorkspaceHasNoPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace `%2$@` on machine `%1$@` has no pane to open a terminal in yet. Run the command again, or `cmux cloud new-terminal-on-machine --target machine:%1$@` makes a new workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン `%1$@` のワークスペース `%2$@` には、ターミナルを開けるペインがまだありません。もう一度実行するか、`cmux cloud new-terminal-on-machine --target machine:%1$@` で新しいワークスペースを作成してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تحتوي مساحة العمل `%2$@` على الجهاز `%1$@` على جزء لفتح طرفية فيه بعد. شغّل الأمر مرة أخرى، أو ينشئ ‎`cmux cloud new-terminal-on-machine --target machine:%1$@`‎ مساحة عمل جديدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Radni prostor `%2$@` na mašini `%1$@` još nema okno za otvaranje terminala. Pokrenite naredbu ponovo ili `cmux cloud new-terminal-on-machine --target machine:%1$@` pravi novi radni prostor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbejdsområdet `%2$@` på maskinen `%1$@` har endnu ingen rude at åbne en terminal i. Kør kommandoen igen, eller `cmux cloud new-terminal-on-machine --target machine:%1$@` opretter et nyt arbejdsområde."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Arbeitsbereich `%2$@` auf der Maschine `%1$@` hat noch keinen Bereich für ein Terminal. Führe den Befehl erneut aus, oder `cmux cloud new-terminal-on-machine --target machine:%1$@` erstellt einen neuen Arbeitsbereich."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El espacio de trabajo `%2$@` de la máquina `%1$@` aún no tiene un panel donde abrir una terminal. Vuelve a ejecutar el comando, o `cmux cloud new-terminal-on-machine --target machine:%1$@` crea un espacio de trabajo nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’espace de travail `%2$@` de la machine `%1$@` n’a pas encore de volet où ouvrir un terminal. Relancez la commande, ou `cmux cloud new-terminal-on-machine --target machine:%1$@` crée un nouvel espace de travail."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo spazio di lavoro `%2$@` sulla macchina `%1$@` non ha ancora un riquadro in cui aprire un terminale. Esegui di nuovo il comando, oppure `cmux cloud new-terminal-on-machine --target machine:%1$@` crea un nuovo spazio di lavoro."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការ `%2$@` លើម៉ាស៊ីន `%1$@` មិនទាន់មានផ្ទាំងសម្រាប់បើក terminal ទេ។ ដំណើរការពាក្យបញ្ជាម្តងទៀត ឬ `cmux cloud new-terminal-on-machine --target machine:%1$@` បង្កើតកន្លែងធ្វើការថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신 `%1$@`의 워크스페이스 `%2$@`에 아직 터미널을 열 패널이 없습니다. 명령을 다시 실행하거나 `cmux cloud new-terminal-on-machine --target machine:%1$@`로 새 워크스페이스를 만드세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeidsområdet `%2$@` på maskinen `%1$@` har ennå ingen rute å åpne en terminal i. Kjør kommandoen igjen, eller `cmux cloud new-terminal-on-machine --target machine:%1$@` lager et nytt arbeidsområde."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obszar roboczy `%2$@` na maszynie `%1$@` nie ma jeszcze panelu, w którym można otworzyć terminal. Uruchom polecenie ponownie albo `cmux cloud new-terminal-on-machine --target machine:%1$@` utworzy nowy obszar roboczy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O espaço de trabalho `%2$@` na máquina `%1$@` ainda não tem um painel para abrir um terminal. Execute o comando de novo, ou `cmux cloud new-terminal-on-machine --target machine:%1$@` cria um novo espaço de trabalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В рабочем пространстве `%2$@` на машине `%1$@` ещё нет панели для терминала. Запустите команду снова или создайте новое рабочее пространство: `cmux cloud new-terminal-on-machine --target machine:%1$@`."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวิร์กสเปซ `%2$@` บนเครื่อง `%1$@` ยังไม่มีแผงสำหรับเปิดเทอร์มินัล รันคำสั่งอีกครั้ง หรือใช้ `cmux cloud new-terminal-on-machine --target machine:%1$@` เพื่อสร้างเวิร์กสเปซใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`%1$@` makinesindeki `%2$@` çalışma alanında henüz terminal açılacak bir bölme yok. Komutu yeniden çalıştırın veya `cmux cloud new-terminal-on-machine --target machine:%1$@` yeni bir çalışma alanı oluşturur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У робочому просторі `%2$@` на машині `%1$@` ще немає панелі для термінала. Запустіть команду знову або створіть новий робочий простір: `cmux cloud new-terminal-on-machine --target machine:%1$@`."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không gian làm việc `%2$@` trên máy `%1$@` chưa có ô để mở terminal. Hãy chạy lại lệnh, hoặc `cmux cloud new-terminal-on-machine --target machine:%1$@` sẽ tạo không gian làm việc mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器 `%1$@` 上的工作区 `%2$@` 还没有可打开终端的窗格。请再次运行该命令，或运行 `cmux cloud new-terminal-on-machine --target machine:%1$@` 新建工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器 `%1$@` 上的工作區 `%2$@` 還沒有可開啟終端機的窗格。請再次執行該指令，或執行 `cmux cloud new-terminal-on-machine --target machine:%1$@` 新增工作區。"
+          }
+        }
+      }
+    },
+    "cloud.cli.machineWorkspacesNotLoaded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine `%1$@` did not report its workspaces in time, so workspace `%2$@` can't be found yet. Run the command again, or `cmux cloud new-terminal-on-machine --target machine:%1$@` makes a new workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン `%1$@` がワークスペースを時間内に報告しなかったため、ワークスペース `%2$@` をまだ確認できません。もう一度実行するか、`cmux cloud new-terminal-on-machine --target machine:%1$@` で新しいワークスペースを作成してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُبلغ الجهاز `%1$@` عن مساحات عمله في الوقت المحدد، لذا لا يمكن العثور على مساحة العمل `%2$@` بعد. شغّل الأمر مرة أخرى، أو ينشئ ‎`cmux cloud new-terminal-on-machine --target machine:%1$@`‎ مساحة عمل جديدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mašina `%1$@` nije na vrijeme prijavila svoje radne prostore, pa radni prostor `%2$@` još nije moguće pronaći. Pokrenite naredbu ponovo ili `cmux cloud new-terminal-on-machine --target machine:%1$@` pravi novi radni prostor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinen `%1$@` rapporterede ikke sine arbejdsområder i tide, så arbejdsområdet `%2$@` kan ikke findes endnu. Kør kommandoen igen, eller `cmux cloud new-terminal-on-machine --target machine:%1$@` opretter et nyt arbejdsområde."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Maschine `%1$@` hat ihre Arbeitsbereiche nicht rechtzeitig gemeldet, daher ist der Arbeitsbereich `%2$@` noch nicht auffindbar. Führe den Befehl erneut aus, oder `cmux cloud new-terminal-on-machine --target machine:%1$@` erstellt einen neuen Arbeitsbereich."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La máquina `%1$@` no informó de sus espacios de trabajo a tiempo, así que aún no se encuentra el espacio de trabajo `%2$@`. Vuelve a ejecutar el comando, o `cmux cloud new-terminal-on-machine --target machine:%1$@` crea un espacio de trabajo nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La machine `%1$@` n’a pas signalé ses espaces de travail à temps, l’espace de travail `%2$@` est donc introuvable pour l’instant. Relancez la commande, ou `cmux cloud new-terminal-on-machine --target machine:%1$@` crée un nouvel espace de travail."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La macchina `%1$@` non ha segnalato i suoi spazi di lavoro in tempo, quindi lo spazio di lavoro `%2$@` non si trova ancora. Esegui di nuovo il comando, oppure `cmux cloud new-terminal-on-machine --target machine:%1$@` crea un nuovo spazio di lavoro."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីន `%1$@` មិនបានរាយការណ៍កន្លែងធ្វើការរបស់វាទាន់ពេលទេ ដូច្នេះមិនទាន់រកឃើញកន្លែងធ្វើការ `%2$@` នៅឡើយ។ ដំណើរការពាក្យបញ្ជាម្តងទៀត ឬ `cmux cloud new-terminal-on-machine --target machine:%1$@` បង្កើតកន្លែងធ្វើការថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신 `%1$@`이(가) 워크스페이스를 제때 보고하지 않아 워크스페이스 `%2$@`을(를) 아직 찾을 수 없습니다. 명령을 다시 실행하거나 `cmux cloud new-terminal-on-machine --target machine:%1$@`로 새 워크스페이스를 만드세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinen `%1$@` rapporterte ikke arbeidsområdene sine i tide, så arbeidsområdet `%2$@` kan ikke finnes ennå. Kjør kommandoen igjen, eller `cmux cloud new-terminal-on-machine --target machine:%1$@` lager et nytt arbeidsområde."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maszyna `%1$@` nie zgłosiła na czas swoich obszarów roboczych, więc obszaru roboczego `%2$@` nie da się jeszcze znaleźć. Uruchom polecenie ponownie albo `cmux cloud new-terminal-on-machine --target machine:%1$@` utworzy nowy obszar roboczy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A máquina `%1$@` não informou seus espaços de trabalho a tempo, então o espaço de trabalho `%2$@` ainda não pode ser encontrado. Execute o comando de novo, ou `cmux cloud new-terminal-on-machine --target machine:%1$@` cria um novo espaço de trabalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Машина `%1$@` не сообщила о своих рабочих пространствах вовремя, поэтому рабочее пространство `%2$@` пока не найти. Запустите команду снова или создайте новое рабочее пространство: `cmux cloud new-terminal-on-machine --target machine:%1$@`."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่อง `%1$@` ไม่ได้รายงานเวิร์กสเปซทันเวลา จึงยังหาเวิร์กสเปซ `%2$@` ไม่ได้ รันคำสั่งอีกครั้ง หรือใช้ `cmux cloud new-terminal-on-machine --target machine:%1$@` เพื่อสร้างเวิร์กสเปซใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`%1$@` makinesi çalışma alanlarını zamanında bildirmedi, bu yüzden `%2$@` çalışma alanı henüz bulunamıyor. Komutu yeniden çalıştırın veya `cmux cloud new-terminal-on-machine --target machine:%1$@` yeni bir çalışma alanı oluşturur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Машина `%1$@` не повідомила про свої робочі простори вчасно, тож робочий простір `%2$@` поки не знайти. Запустіть команду знову або створіть новий робочий простір: `cmux cloud new-terminal-on-machine --target machine:%1$@`."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy `%1$@` chưa báo các không gian làm việc kịp lúc, nên chưa tìm được không gian làm việc `%2$@`. Hãy chạy lại lệnh, hoặc `cmux cloud new-terminal-on-machine --target machine:%1$@` sẽ tạo không gian làm việc mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器 `%1$@` 未及时报告其工作区，因此暂时找不到工作区 `%2$@`。请再次运行该命令，或运行 `cmux cloud new-terminal-on-machine --target machine:%1$@` 新建工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器 `%1$@` 未及時回報其工作區，因此暫時找不到工作區 `%2$@`。請再次執行該指令，或執行 `cmux cloud new-terminal-on-machine --target machine:%1$@` 新增工作區。"
+          }
+        }
+      }
+    },
     "cloud.progress.stage.paused": {
       "extractionState": "manual",
       "localizations": {

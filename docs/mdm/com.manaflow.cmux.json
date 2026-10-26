@@ -78,6 +78,12 @@
       "title" : "Session Info",
       "type" : "string"
     },
+    "agentPane.display.vscodeMinimap" : {
+      "default" : false,
+      "description" : "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll.",
+      "title" : "VS Code Minimap",
+      "type" : "boolean"
+    },
     "agentPane.display.width" : {
       "default" : 800,
       "description" : "The widest the chat's column gets. On a wider pane the chat stays centered.",
@@ -4144,6 +4150,17 @@
       "description" : "A mark while an agent works in the workspace.",
       "title" : "Agent Working",
       "type" : "boolean"
+    },
+    "ssh.linkAllowedHosts" : {
+      "default" : [
+
+      ],
+      "description" : "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Always Allowed SSH Link Hosts",
+      "type" : "array"
     },
     "status.inferCommandBusy" : {
       "default" : false,
