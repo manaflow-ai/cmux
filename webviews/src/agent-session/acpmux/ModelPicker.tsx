@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useContext,
   useEffect,
   useId,
   useLayoutEffect,
@@ -20,6 +21,7 @@ import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPic
 import { curatedSections, modelSections } from "./modelSections";
 import { effortWords, fitsQuery, modelEffort, parseQuery, type ParsedQuery } from "./modelQuery";
 import { registerPicker } from "./pickerOpeners";
+import { OnNewTab } from "./newTabComposer";
 import { QuickModelMenu, type QuickAccount, type QuickFamily, type QuickModel } from "./QuickModelMenu";
 import type { PickerProfile } from "./pickerProfiles";
 import { useUiAnchor } from "../../ui/anchor";
@@ -330,6 +332,7 @@ export function ModelPicker(props: ModelPickerProps) {
   /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
   const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
   const t = useT();
+  const newTab = useContext(OnNewTab);
   /// The chat's agent CLI has an update (hq#2569 #12): a row in the menu and the picker and a line
   /// in the chip's tooltip, never a banner over the chat. Never a dot on the chip: drawn between the
   /// model and its effort it read "Opus 5.5 • Medium" (Leo 2026-10-21: "WE FUCKING HATE THE DOT").
@@ -467,9 +470,10 @@ export function ModelPicker(props: ModelPickerProps) {
     if (catalogRefresh?.status && catalogRefresh.status !== "idle") setLocalRefreshStatus(undefined);
   }, [catalogRefresh?.date, catalogRefresh?.status]);
   // Opens on the side that has room for the picker's floor, not only for what it measures before its
-  // models load: above the chip, else below it (Leo: the menu stays inside the page).
+  // models load: above the chip, else below it (Leo: the menu stays inside the page). On New Tab,
+  // below first (newTabComposer.ts).
   const menuStyle = useUiAnchor(trigger, menu, open, {
-    side: "above",
+    side: newTab ? "below" : "above",
     align: "start",
     minHeight: MODEL_PICKER_MIN_HEIGHT,
     // Inside the chat column, never over the session rail or sidebar beside it.

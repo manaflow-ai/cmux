@@ -8,8 +8,8 @@ import Testing
 /// The tab bar's trailing end. Leo (2026-10-19) had its controls show muted at rest; Lawrence
 /// (2026-10-20) wants the plus and "…" hidden until the pointer is over the tab bar, and the Search Tabs
 /// chevron gone from the bar ("i dont like the down arrow"), its action kept in "…"'s menu. The
-/// controls keep their room, so nothing moves when they appear; "…" slides right into its slot as it
-/// fades in (no slide under Reduce Motion).
+/// controls keep their room, so nothing moves when they appear. Leo (2026-10-26): the pane’s ⋮
+/// fades in place; its normal hover fade must never slide the glyph sideways.
 @MainActor @Suite(.serialized) struct TabBarRestingControlsTests {
     private static func strip() -> (TabStripView, NSWindow) {
         let model = TabStripModel(tabs: (0..<4).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)") }, selectedID: TabID("t0"))
@@ -91,20 +91,24 @@ import Testing
         #expect(toolbar.view.reservedCount == 0)
     }
 
-    /// "…" slides right into its trailing slot as it fades in; Reduce Motion keeps it in place (fade only).
-    @Test func moreSlidesRightIntoItsSlotOnReveal() {
-        Motion.reduceMotionOverride = false
+    /// New Tab and the chat pane share this toolbar. Revealing it changes opacity alone,
+    /// including the exit and Reduce Motion.
+    @Test(arguments: [PaneToolbar.Kind.newTab, .terminal], [false, true])
+    func moreFadesInPlace(kind: PaneToolbar.Kind, reduceMotion: Bool) {
+        Motion.reduceMotionOverride = reduceMotion
         defer { Motion.reduceMotionOverride = nil }
         let toolbar = PaneToolbar(registry: { nil }, newTabMenu: { nil })
-        toolbar.update(target: "tab0", kind: .terminal)
+        toolbar.update(target: "tab0", kind: kind)
         let view = toolbar.view
         view.frame = NSRect(x: 0, y: 0, width: view.intrinsicContentSize.width, height: 30)
         view.layoutSubtreeIfNeeded()
-        let shown = view.moreFrame(revealed: true), resting = view.moreFrame(revealed: false)
-        #expect(shown.maxX <= view.bounds.width, "\"…\" sits in the trailing slot")
-        #expect(resting.minX < shown.minX, "at rest \"…\" waits left of its slot, so revealing moves it right")
-        #expect(view.moreButton.frame == resting)
-        Motion.reduceMotionOverride = true
-        #expect(view.moreFrame(revealed: false) == view.moreFrame(revealed: true), "Reduce Motion: no slide")
+        let resting = view.moreButton.frame
+        #expect(resting.maxX <= view.bounds.width, "⋮ sits inside its trailing slot")
+        #expect(resting.minX >= 0, "⋮ never waits outside its hit target")
+        view.reveal.setPointerInside(true)
+        #expect(view.moreButton.frame == resting, "revealing ⋮ must not move it right")
+        view.reveal.setPointerInside(false)
+        #expect(view.moreButton.frame == resting, "fading out ⋮ must not move it left")
+        #expect(view.moreButton.alphaValue == view.reveal.restAlpha, "the normal fade still hides ⋮")
     }
 }

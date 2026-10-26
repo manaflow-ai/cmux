@@ -344,6 +344,12 @@ def handle_prompt(rid, params):
         net_flaky.discard(sid)
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
         return
+    # "cap-fail-once: X" fails that prompt once per session with the SR2 gateway's capacity
+    # error (every pooled account exhausted for a moment); the session's next prompt runs.
+    if text.startswith("cap-fail-once:") and sid not in failed_once:
+        failed_once.add(sid)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (127.0.0.1:4016). (error type server_error, HTTP 503)"}})
+        return
     if text.startswith("net-down"):
         net_down.add(sid)
     if sid in net_down or (text.startswith("net-fail-once:") and sid not in failed_once):
@@ -387,7 +393,8 @@ def handle_prompt(rid, params):
                 asks.append({"jsonrpc":"2.0", "id":aid, "method":"session/request_permission", "params":{
                     "sessionId":sid,
                     "toolCall":{"toolCallId":str(aid), "title":item["title"], "kind":item["kind"],
-                                "rawInput":{"fixture":item["title"]},
+                                "rawInput":({"command":item["command"]} if "command" in item
+                                             else {"fixture":item["title"]}),
                                 "_meta":{"acpmux":{"interactive":item.get("interactive", False)}}},
                     "options":[{"optionId":f"yes-{aid}", "kind":allow_kind, "name":"Allow"}] +
                               ([{"optionId":f"no-{aid}", "kind":"reject_once", "name":"Deny"}]
@@ -404,7 +411,8 @@ def handle_prompt(rid, params):
         return
     # "work-gate: PATH [| TITLE]" reports a plan step in progress and a running
     # tool call (TITLE, else "Run cargo test"), then blocks on the FIFO at PATH
-    # (as "gate:") and ends.
+    # (as "gate:") and ends: "worked" and end_turn, or cancelled when a
+    # session/cancel came while it was blocked.
     if text.startswith("work-gate:"):
         path, _, title = text[len("work-gate:"):].partition(" | ")
         update(sid, {"sessionUpdate": "plan", "entries": [
@@ -414,6 +422,14 @@ def handle_prompt(rid, params):
                      "kind": "execute", "status": "in_progress"})
         with open(path.strip()) as gate:
             gate.read()
+        # A session/cancel that came while the tool ran ends the turn cancelled, never "worked".
+        with lock:
+            was_cancelled = sid in cancelled
+            cancelled.discard(sid)
+        if was_cancelled:
+            update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "wg-1", "status": "failed"})
+            send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+            return
         update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "wg-1", "status": "completed"})
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "worked"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
@@ -475,6 +491,31 @@ def handle_prompt(rid, params):
         answers = res.get("_meta", {}).get("updatedInput", {}).get("answers")
         update(sid, {"sessionUpdate": "agent_message_chunk",
                      "content": {"type": "text", "text": f"chose {chosen} {json.dumps(answers, sort_keys=True)}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "preview-question: Q" asks Q with an option preview (its text ends in a line break the
+    # card trims) and echoes the answers and annotations acpmux put into the tool input.
+    if text.startswith("preview-question:"):
+        res = request(
+            "session/request_permission",
+            {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": "pq1", "title": "Question", "kind": "other", "status": "pending",
+                             "rawInput": {"questions": [{"question": text[17:].strip(), "header": "Pick",
+                                                         "multiSelect": False,
+                                                         "options": [{"label": "A", "preview": "[ A ]\n"},
+                                                                     {"label": "B", "preview": "[ B ]\n"}]}]},
+                             "_meta": {"claude": {"tool": "AskUserQuestion", "interactive": True}}},
+                "options": [
+                    {"optionId": "allow_once", "name": "Answer", "kind": "allow_once"},
+                    {"optionId": "reject_once", "name": "Reject", "kind": "reject_once"},
+                ],
+            },
+        )
+        updated = (res or {}).get("_meta", {}).get("updatedInput", {})
+        said = json.dumps({"answers": updated.get("answers"), "annotations": updated.get("annotations")},
+                          sort_keys=True)
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"got {said}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "tool-question: TOOL KIND" asks to run tool TOOL (`_meta.claude.tool`)
@@ -732,6 +773,15 @@ def handle_prompt(rid, params):
         sys.stderr.write(text[10:].strip() + "\n")
         sys.stderr.flush()
         os._exit(3)
+    # "overloaded: X": the provider's overload with no HTTP status in the text.
+    if text.startswith("overloaded:"):
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}"}})
+        return
+    # "cap-fail-then-exit": the SR2 gateway's capacity error, then the agent exits.
+    if text == "cap-fail-then-exit":
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: 503 no non-exhausted claude accounts available. (error type server_error, HTTP 503)"}})
+        time.sleep(0.05)
+        os._exit(0)
     if text.startswith("limit:"):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
         return
