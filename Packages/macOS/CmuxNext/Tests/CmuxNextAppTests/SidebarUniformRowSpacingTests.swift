@@ -169,6 +169,25 @@ struct SidebarUniformRowSpacingTests {
         #expect(abs(with.totalHeight - without.totalHeight) < 0.01, "the empty status list adds \(with.totalHeight - without.totalHeight) pt")
     }
 
+    /// The same empty status list with Earlier chat history under the computers: a block after them starts below
+    /// the history, not over it (a block that starts the list takes back its top padding).
+    @Test func aBlockAfterTheEarlierHistoryStartsBelowIt() throws {
+        let m = SidebarLayoutMetrics.standard
+        let docs = CmuxNextSidebar.SidebarSection(kind: .custom(SidebarCustomSection(id: "itm_docs")), nodes: [])
+        let machine = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [])
+        var options = SidebarLayoutOptions()
+        options.grouping.setByStatus(true)
+        options.blockHeights = ["itm_docs": 24]
+        options.sessionTree = SidebarSessionTreeState()
+        let history = SidebarChatHistoryState(earlier: [SidebarHistoryChat(id: "e", title: "e", updatedAt: Date(timeIntervalSince1970: 0))],
+                                              hasEarlier: true)
+        options.chatHistory = history
+        let layout = SidebarLayout.make(sections: [machine, docs], metrics: m, options: options)
+        let earlierY = try #require(layout.earlierChatsY)
+        let block = try #require(layout.row(for: .block("itm_docs")))
+        #expect(block.y >= earlierY + history.earlierHeight(m), "the block starts at \(block.y), the history ends at \(earlierY + history.earlierHeight(m))")
+    }
+
     @Test func theFirstWorkspaceRowFollowsTheLastPinnedChat() throws {
         let m = SidebarLayoutMetrics.standard
         var options = SidebarLayoutOptions()
