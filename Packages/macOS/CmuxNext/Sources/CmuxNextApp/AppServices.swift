@@ -629,7 +629,7 @@ final class AppServices {
          crashKeys: CrashKeySlots? = nil, appearance: AppearanceSignals = DesignSettings.shared.signals,
          features: FeatureList? = nil) {
         self.appearance = appearance
-        let work = work ?? BackgroundWork(hangs: hangWatch)
+        let work = work ?? BackgroundWork(hangs: hangWatch, inputTurns: mainWork.budget.board)
         self.work = work
         self.energyMonitor = energyMonitor
         // First: the black-box ring is attached to TraceRuntime.shared, so every trace point records from here
