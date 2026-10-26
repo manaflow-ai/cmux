@@ -13,8 +13,8 @@ and `cmux cloud file-read` also work from the Mac, each with `--target machine:v
 
 ```bash
 cmux action list --category cloud --available
-cmux cloud open-machine --target machine:vm-…              # a shell on the machine
-cmux cloud new-terminal-on-machine --target machine:vm-…   # another terminal there
+cmux cloud new-terminal-on-machine --target machine:vm-…   # a new workspace with a shell on the machine
+cmux cloud ssh --target machine:vm-…                       # another terminal tab in its first workspace
 ```
 
 Creating a machine (`cmux cloud new-machine`) asks the person in the app first and
@@ -102,7 +102,7 @@ domains; publishing a public HTTPS domain has no CLI path now.
 ## 7. Showing the human
 
 ```bash
-cmux cloud open-machine --target machine:vm-…
+cmux cloud new-terminal-on-machine --target machine:vm-… --focus   # opens a workspace on the machine and shows it
 cmux notify --title "Review ready" --body "tests tab has the results"
 ```
 
