@@ -4,15 +4,17 @@ import CmuxNextDaemon
 import CmuxNextInput
 import CmuxNextSidebar
 import CmuxNextTabs
+import CmuxNextWakeups
 
 /// A screen tab dragged out of the screen bar. Reordering inside the bar is
 /// the strip's own drag; once the pointer leaves the bar the strip hands the
 /// drag here. Released over a workspace row in any window's sidebar, the
 /// screen moves into that workspace; over a sidebar gap, into a new
 /// workspace; outside every window, into a new window (tear-off).
-/// Anywhere else, on Escape, or at a press after a lost release, it returns
-/// to its slot. Event-driven: an input tap intercept for the drag's events,
-/// alive for the drag only, no timers.
+/// Anywhere else, on Escape, at a press after a lost release, or when the app
+/// goes inactive, it returns to its slot. Event-driven: an input tap intercept
+/// for the drag's events and an app-resign observer, alive for the drag only,
+/// no timers.
 @MainActor
 final class ScreenDragSession {
     private let services: AppServices
@@ -23,13 +25,19 @@ final class ScreenDragSession {
     private let tabID: StripTabID
     /// The drag's input tap intercept; cancelled when the drag ends (and when the session goes).
     private var input: InputSubscription?
+    /// Ends the drag when the app goes inactive (a release in another app never reaches the tap).
+    private var resign: EventSubscription?
+    /// The app's fan-out of app-wide notices (`AppServices.appEvents`; tests pass their own).
+    private let appEvents: AppEvents
     private var targets: [ObjectIdentifier: SidebarTabDropTarget] = [:]
     private var lastTarget: SidebarTabDropTarget?
     /// Called once the drag ended (the bar drops its reference).
     var onEnd: (() -> Void)?
 
-    init(services: AppServices, screen: ScreenModel, daemon: DaemonService, source: WorkspaceModel, strip: TabStripView, tabID: StripTabID) {
+    init(services: AppServices, screen: ScreenModel, daemon: DaemonService, source: WorkspaceModel, strip: TabStripView, tabID: StripTabID,
+         appEvents: AppEvents) {
         self.services = services
+        self.appEvents = appEvents
         self.screen = screen
         self.daemon = daemon
         self.source = source
@@ -40,6 +48,9 @@ final class ScreenDragSession {
     func begin() {
         input = services.inputTap.subscribe(class: TabDragSession.dragInput, phase: .intercept(order: .dragSession)) { [weak self] event in
             self?.handle(event) ?? .pass
+        }
+        resign = appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "ScreenDragSession") { [weak self] in
+            self?.finish(at: nil)
         }
     }
 
@@ -100,6 +111,8 @@ final class ScreenDragSession {
         guard let input else { return }
         input.cancel()
         self.input = nil
+        resign?.cancel()
+        resign = nil
         let hit = point.flatMap { track($0) }
         for target in targets.values { target.dropEnded(committed: nil) }
         strip?.restoreDetachedTab(tabID)

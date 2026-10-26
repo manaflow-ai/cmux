@@ -18,14 +18,19 @@ struct DragTapTrackingLoopTests {
         var monitor: [NSEvent.EventType] = []
     }
 
-    /// A press on a push button, sent the way `CmuxApplication.sendEvent` sends it, with its release
-    /// queued for the button's tracking loop: the tap and a local monitor both hear the press only.
+    /// A press on a push button, sent through `CmuxApplication.dispatchThroughTap` (the stages
+    /// `CmuxApplication.sendEvent` runs around AppKit) with AppKit's own `sendEvent`, and its release
+    /// queued for the button's tracking loop: a drag-order intercept and a local monitor both hear the
+    /// press only.
     @Test func aReleaseAButtonTrackingLoopTakesReachesNeitherTheTapNorALocalMonitor() throws {
         let fixture = ButtonWindow()
         defer { fixture.close() }
         let tap = InputEventTap()
         let log = Log()
-        let observer = tap.subscribe(class: .button) { log.tap.append($0.type) }
+        let intercept = tap.subscribe(class: .button, phase: .intercept(order: .dragSession)) { event in
+            log.tap.append(event.type)
+            return .pass
+        }
         // input-monitor-allow: the reference the tap must match (the old drag sessions' monitor kind)
         let monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { event in
             log.monitor.append(event.type)
@@ -34,13 +39,13 @@ struct DragTapTrackingLoopTests {
         defer { if let monitor { NSEvent.removeMonitor(monitor) } }
 
         try fixture.queueRelease()
-        let result = tap.send(try fixture.event(.leftMouseDown)) { NSApp.sendEvent($0) }
+        let result = CmuxApplication.dispatchThroughTap(try fixture.event(.leftMouseDown), tap: tap) { NSApp.sendEvent($0) }
 
         #expect(result == .pass)
         #expect(fixture.target.clicks == 1, "the button's tracking loop did not take the queued release")
         #expect(log.tap == [.leftMouseDown], "the tap heard \(log.tap)")
         #expect(log.monitor == log.tap, "the tap heard \(log.tap), a local monitor \(log.monitor)")
-        withExtendedLifetime(observer) {}
+        withExtendedLifetime(intercept) {}
     }
 
     /// A drag whose release a nested tracking loop took stays alive (its intercept never heard the
@@ -149,17 +154,15 @@ struct DragEvents {
 }
 
 extension InputEventTap {
-    /// Sends `event` through the tap as `CmuxApplication.sendEvent` does: observers, then intercepts,
-    /// then `dispatch` (AppKit's `NSApplication.sendEvent`, local monitors included) unless an intercept
-    /// consumed it, then after-dispatch observers, all in one dispatch scope.
+    /// Sends `event` through the tap in one dispatch scope: observers, then the production stages around
+    /// AppKit (`CmuxApplication.dispatchThroughTap`: intercepts, `superSend` unless one consumed it,
+    /// after-dispatch observers). `superSend` stands in for `-[NSApplication sendEvent:]`.
     @discardableResult
-    func send(_ event: NSEvent, dispatch: (NSEvent) -> Void = { _ in }) -> InterceptResult {
+    func send(_ event: NSEvent, superSend: (NSEvent) -> Void = { _ in }) -> InterceptResult {
         var result = InterceptResult.pass
         dispatching {
             deliverObserve(event)
-            result = deliverIntercepts(event)
-            if result == .pass { dispatch(event) }
-            deliverAfterDispatch(event)
+            result = CmuxApplication.dispatchThroughTap(event, tap: self, superSend: superSend)
         }
         return result
     }

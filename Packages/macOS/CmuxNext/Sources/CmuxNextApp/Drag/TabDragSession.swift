@@ -99,7 +99,10 @@ final class TabDragSession: NSObject {
         })
         let drag = Drag(source: source, lifecycle: lifecycle, ghost: ghost, motion: motion, point: point)
         // The drag's events, for the drag only: an intercept in the drag order (after the key router, before
-        // AppKit dispatches), in every window, since the ghost crosses them.
+        // AppKit dispatches), in every window, since the ghost crosses them. Chrome's Mac tab drag does the
+        // same with a local monitor that lives for the move loop and ends it at the release or Escape
+        // (components/remote_cocoa/app_shim/window_move_loop.mm, CocoaWindowMoveLoop::Run); here that
+        // drag-lifetime monitor is routed through the one input tap.
         drag.input = services.inputTap.subscribe(class: Self.dragInput, phase: .intercept(order: .dragSession)) { [weak self] event in
             self?.handle(event) ?? .pass
         }
