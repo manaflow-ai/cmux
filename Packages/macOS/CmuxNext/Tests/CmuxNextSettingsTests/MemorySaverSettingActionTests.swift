@@ -34,7 +34,8 @@ import Testing
         #expect(took < .milliseconds(10), "\(mode.actionID.rawValue) took \(took), past the 10 ms action budget")
         let write = try #require(rig.writes.last)
         #expect(write.0 == ["memory", "saver"])
-        #expect(write.1 == (mode == .medium ? nil : .string(mode.rawValue)), "the default is written as no key")
+        let expected: JSONValue? = mode == .medium ? nil : .string(mode.rawValue)
+        #expect(write.1 == expected, "the default is written as no key")
     }
 
     @Test func aManagedKeyRefusesAndChangesNothing() {
