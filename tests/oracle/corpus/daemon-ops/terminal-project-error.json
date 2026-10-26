@@ -23,6 +23,9 @@
   "requires": [
     "resource_api"
   ],
+  "switches": [
+    "terminal-holder"
+  ],
   "platforms": [
     "linux",
     "mac"
@@ -49,28 +52,6 @@
       }
     },
     {
-      "id": "fx-split",
-      "op": "resource.call",
-      "target": {
-        "machine": "current",
-        "session": "current",
-        "workspace": "$step:fx-workspace#/value/workspace_id",
-        "screen": "$step:fx-workspace#/value/screen_id",
-        "pane": "$step:fx-workspace#/value/pane_id"
-      },
-      "args": {
-        "method": "pane.split",
-        "params": {
-          "direction": "right"
-        },
-        "idempotencyKey": "terminal-project-error.fx-split"
-      },
-      "expect": {
-        "outcome": "ok",
-        "receipt": "mutation_result"
-      }
-    },
-    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -81,22 +62,26 @@
       "args": {
         "method": "terminal.project",
         "params": {
-          "destination_workspace": 7,
+          "destination_workspace": "ws_00000000000000000000000000000000",
           "destination_screen": "$step:fx-workspace#/value/screen_id",
-          "destination_pane": "$step:fx-split#/value/pane_id",
+          "destination_pane": "$step:fx-workspace#/value/pane_id",
           "index": 0
         },
         "idempotencyKey": "terminal-project-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "selector.not_found",
+        "errorDetails": {
+          "scope": "workspace",
+          "selector": "ws_00000000000000000000000000000000"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "destination_workspace breaks its catalog type (selector must be a string); the daemon's catalog check refuses it"
+      "note": "a well-formed workspace id that names no workspace: no view is added"
     }
   ],
   "invariants": [
