@@ -42,6 +42,10 @@ public final class ThemeStore {
     public private(set) var accentFollowsArt = false
     /// `appearance.machineColors`: the colors people picked for machines (`MachineColor.color`).
     public private(set) var machineColors = MachineColorOverrides.none
+    /// The glass mode pages draw (`data-glass`), as the App resolves it from the `glass.lens` choice,
+    /// Reduce Transparency and its energy monitor's Low Power Mode (`GlassModeWatch`). Web pages read
+    /// it through `WebTheme` (``GlassLensMode/current``).
+    public private(set) var glassMode: GlassLensMode = .plain
 
     @ObservationIgnored private let publishesGlobally: Bool
     /// The root scope of this store's tree (``ThemeScope/app`` for the app's store): it tells its
@@ -165,6 +169,16 @@ public final class ThemeStore {
         machineColors = colors
         generation += 1
         if publishesGlobally { repaintAll(crossfade: true) }
+        return true
+    }
+
+    /// Sets the glass mode pages draw and repaints, so every web view pushes its theme and its
+    /// wallpaper still again. Returns false when it did not change.
+    @discardableResult
+    public func setGlassMode(_ mode: GlassLensMode) -> Bool {
+        guard mode != glassMode else { return false }
+        glassMode = mode
+        if publishesGlobally { repaintAll() }
         return true
     }
 
