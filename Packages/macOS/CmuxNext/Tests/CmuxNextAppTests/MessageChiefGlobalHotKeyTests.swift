@@ -5,6 +5,7 @@ import CmuxNextDesign
 import Foundation
 import Testing
 import CmuxNextFocusUI
+import CmuxNextWakeups
 
 /// Message the Chief from Any App (`home.messageChiefFromAnyApp`): Message the Chief's system-wide
 /// key, Ctrl-Opt-Cmd-C by default. GlobalHotKeyService registers it like Show/Hide All Windows and
@@ -61,7 +62,7 @@ import CmuxNextFocusUI
         #expect(registry.globalHotKeys()[Self.action] == Self.key)
 
         let recorder = Recorder()
-        let service = GlobalHotKeyService(registry: registry, registrar: recorder, layout: { .ansi },
+        let service = GlobalHotKeyService(registry: registry, mainWork: MainWorkScheduler(budget: MainFrameBudget()), registrar: recorder, layout: { .ansi },
                                           showHideEnabled: { false }, startAgentEnabled: { false })
         service.start()
         defer { service.stop() }
@@ -78,7 +79,7 @@ import CmuxNextFocusUI
         let registry = ActionRegistry.standard()
         HomeChiefPetSetting().bindMessage(into: registry, settings: { settings }, unavailable: "not ready") { _ in }
         let recorder = Recorder()
-        let service = GlobalHotKeyService(registry: registry, registrar: recorder, layout: { .ansi },
+        let service = GlobalHotKeyService(registry: registry, mainWork: MainWorkScheduler(budget: MainFrameBudget()), registrar: recorder, layout: { .ansi },
                                           showHideEnabled: { false }, startAgentEnabled: { false })
         service.apply()
         #expect(registry.globalHotKeys()[Self.action] == nil)

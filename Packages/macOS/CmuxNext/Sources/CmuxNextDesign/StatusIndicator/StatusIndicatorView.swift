@@ -50,6 +50,7 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         visibilityNode = VisibilityNode("statusIndicator", own: .hidden, parent: offWindow)
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         layer?.addSublayer(indicator.layer)
         indicator.hostIsFlipped = isFlipped
         isHidden = true

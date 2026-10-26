@@ -100,6 +100,7 @@ extension CloudHandlers {
             // nothing shows in the window.
             let byPerson = invocation.origin == .user
             // task-owner: the action run; a capturing caller awaits it through the registry.
+            // main-hop-allow: the action's userBlocking rest (p06 rule 2), tracked for a capturing caller: the report reads main-actor Cloud sessions between their awaits; post has no userBlocking class (task 208)
             let task: ActionResultWork = Task { @MainActor in
                 let report = await diagnostics(context)
                 if byPerson { CloudPresenter.show(CloudStrings.diagnosticsTitle, summary: report.summary, details: report.details, in: window(context)) }

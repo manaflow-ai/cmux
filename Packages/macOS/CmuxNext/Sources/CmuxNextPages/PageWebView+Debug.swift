@@ -33,7 +33,8 @@ extension PageWebView {
         });
         """
         // Whether a first click in an inactive window reaches this page (the view's own answer).
-        let firstMouse = JSONValue.bool(webView.acceptsFirstMouse(for: nil))
+        let firstMouse = JSONValue.bool(webKitPieces?.view.acceptsFirstMouse(for: nil)
+            ?? (descriptor.acceptsFirstMouse || engineOptions.acceptsFirstMouse))
         // Opened hidden and not shown yet: no document and no renderer (PageWebView+FirstShow.swift).
         if awaitsFirstShow { return ["error": "page not shown yet", "awaits_first_show": true, "accepts_first_mouse": firstMouse] }
         guard let text = await callPageFunction(script) as? String,
@@ -96,7 +97,7 @@ extension PageWebView {
     /// verb only.
     public func debugKillWebContent() -> Bool {
         let selector = NSSelectorFromString("_killWebContentProcess")
-        guard webView.responds(to: selector) else { return false }
+        guard let webView = webKitPieces?.view, webView.responds(to: selector) else { return false }
         webView.perform(selector)
         return true
     }
@@ -302,6 +303,7 @@ extension PageWebView {
                   let png = Data(base64Encoded: base64) else { return false }
             return (try? png.write(to: url)) != nil
         }
+        guard let webView = webKitPieces?.view else { return false } // a Chromium page on its way drew nothing
         keepRenderingWhenCovered()
         let image: NSImage? = await withCheckedContinuation { continuation in
             webView.takeSnapshot(with: nil) { image, _ in continuation.resume(returning: image) }
@@ -326,9 +328,9 @@ extension PageWebView {
     /// `-[WKWebView _setWindowOcclusionDetectionEnabled:]`, when this WebKit has it, so a tagged
     /// build behind other windows still renders (`debug.agent_pane` asks it of the chat it drives).
     /// A Chromium page follows the view's own visibility (``PageChromiumPage/setVisible(_:)``), so
-    /// only the WebKit view needs it.
+    /// only the WebKit view needs it; a Chromium page with no WebKit engine has none to ask.
     public func keepRenderingWhenCovered() {
-        Self.keepRenderingWhenCovered(webView)
+        if let webView = webKitPieces?.view { Self.keepRenderingWhenCovered(webView) }
     }
 
     /// The same for a web view no `PageWebView` owns.

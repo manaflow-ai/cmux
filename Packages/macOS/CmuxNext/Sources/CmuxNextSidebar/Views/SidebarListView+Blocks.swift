@@ -77,6 +77,7 @@ final class SidebarBlockRowView: SidebarRowView {
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
+        layerContentsRedrawPolicy = .never // a container: its region paints, the row draws nothing
         layer?.cornerRadius = 0
         addSubview(region)
     }

@@ -35,6 +35,7 @@ extension CEFPaneHost {
         // The page's focus follows the view's first responder state (``CEFTab/applyFocus(_:browser:)``).
         page.onFocusChange = { [weak self] focused in self?.visibleTab?.hostedPageFocusChanged(focused) }
         hostView.addSubview(page, positioned: .below, relativeTo: nil)
+        hostView.showOcclusion(in: page)
         hostedPageView = page
         return page
     }

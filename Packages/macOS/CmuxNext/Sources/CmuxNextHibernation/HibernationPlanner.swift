@@ -96,6 +96,20 @@ package nonisolated struct HibernationPlanner: Sendable {
         return planner.plan(setting, for: reason, threshold: threshold, pace: pace(at: pressure), candidates: candidates)
     }
 
+    /// The hidden browser pages the critical event's one urgent pass may take (``UrgentDiscardRanker``):
+    /// hidden at least the critical pace's minimum, and nothing in the urgent eligibility keeps them
+    /// (hibernation off keeps every page). A page the probe kept lately is protected, so it goes after
+    /// the others, as in ``ContentDiscardPlanner/plan(_:for:threshold:pace:candidates:)``.
+    package static func urgentCandidates(_ setting: BrowserHibernationSetting, candidates: [Candidate]) -> [UrgentDiscardRanker.Candidate] {
+        let planner = ContentDiscardPlanner()
+        return candidates.compactMap { candidate in
+            guard candidate.hiddenFor >= criticalPace.minimumHidden,
+                  planner.eligibility(of: candidate, setting: setting, for: .urgent).reason == nil else { return nil }
+            return UrgentDiscardRanker.Candidate(key: candidate.key, kind: candidate.kind, hiddenFor: candidate.hiddenFor,
+                                                 estimatedBytes: candidate.memoryBytes, isProtected: candidate.recentlyKept)
+        }
+    }
+
     // The browser's own paces. Other kinds use Chrome's (`Pace.chromeUrgent`); these stay for
     // browser pages until task 114 measures both (p07-memory.md section 3.C).
 

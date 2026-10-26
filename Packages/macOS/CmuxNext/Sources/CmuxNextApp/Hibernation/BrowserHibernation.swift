@@ -101,6 +101,26 @@ final class BrowserHibernation {
     var memoryLimit = MemoryLimit.default
     /// Urgent passes the coordinator's critical release slices ran (`debug.surfaces`).
     var urgentPasses = 0
+    /// The critical limit's release slice runs one urgent pass ranked over tabs, chats and pages
+    /// (``urgentPass()``, feature `memoryUrgentDiscardRanking`, set by the App); off, it runs the
+    /// browser's own pass (up to `criticalPace.perPass` tabs) and the chats and pages discard on their own.
+    var ranksUrgentDiscards = false {
+        didSet { updateFollowers() }
+    }
+    /// Ranks the urgent pass over tabs, chats and pages (``urgentPass()``).
+    let urgentRanker = UrgentDiscardRanker()
+    /// What the last urgent pass discarded (`debug.surfaces` and tests).
+    var lastUrgentPass = UrgentDiscardRanker.Pass()
+    /// Until when the paced passes discard no tab (``ranksUrgentDiscards``): the critical event's
+    /// discard is the urgent pass's.
+    var urgentHoldEnds: ContinuousClock.Instant?
+    /// The urgent pass's other owners, ranked with the browser tabs: agent chats and cmux pages.
+    lazy var urgentDiscardOwners: @MainActor () -> [any UrgentDiscardOwner] = { [weak self] in
+        let owners: [(any UrgentDiscardOwner)?] = [self?.agentPages, self?.cache?.pageLifecycle]
+        return owners.compactMap(\.self)
+    }
+    /// The clock of hidden times, graces and probe answers (a seam for tests).
+    var now: @MainActor () -> ContinuousClock.Instant = { .now }
     /// Pinned state of a tab (the daemon record); injected by the App.
     var isPinned: (String) -> Bool = { _ in false }
     private(set) var exemptions: [String: HibernationPlanner.Exemption] = [:]
@@ -116,7 +136,7 @@ final class BrowserHibernation {
     }
     var restoredCount = 0
     /// Each pane's tab order and shown tab, from its `PaneController`.
-    private var neighbors = NeighborTabs()
+    private(set) var neighbors = NeighborTabs()
     /// Tabs kept awake now because they sit beside a shown tab.
     private(set) var awakeNeighbors: Set<String> = []
     /// When the pointer last rested on each hidden tab's strip cell (`noteHover`).
@@ -126,8 +146,9 @@ final class BrowserHibernation {
     /// Pages woken early (neighbors and hovers): `debug.surfaces` and the bench read it.
     var prewarmedCount = 0
     /// The intent prewarm with this hibernation as its weak warmer, and its power feed (`intentPrewarmHover`'s
-    /// hover dwell, `directionalPrewarm`'s key steps).
+    /// hover dwell, `directionalPrewarm`'s key steps, `intentPrewarmPress`'s presses).
     var intentPrewarm: (service: IntentPrewarmService<String>, power: MainActorHandlerRegistration<EnergyInputs>)?
+    var prewarmKinds = IntentPrewarmKinds() // the intent prewarm's cover decodes and target sizes
     /// The longest a woken page's last frame stands in for it before it paints (Chrome has no
     /// picture; a page that paints later than this shows itself loading rather than look frozen).
     static let standInCap: Duration = .milliseconds(500)
@@ -271,6 +292,8 @@ final class BrowserHibernation {
     /// Hands the setting, pressure and Energy Saver to the hidden pages that follow them: agent chats, and
     /// every cmux page's lifecycle (`pageLifecycle`; the cache holds none while it is off).
     private func updateFollowers() {
+        agentPages?.leavesCriticalEventToUrgentPass = ranksUrgentDiscards
+        cache?.pageLifecycle?.leavesCriticalEventToUrgentPass = ranksUrgentDiscards
         agentPages?.update(setting: setting, pressure: pressure)
         cache?.pageLifecycle?.setConditions(.init(setting: setting, pressure: pressure, energySaver: energySaver))
     }
@@ -288,6 +311,7 @@ final class BrowserHibernation {
     /// critical release slice, `releaseMemory(within:)`).
     func pressureDidChange(_ level: MemoryPressureLevel, replans: Bool = true) {
         guard level != pressure else { return }
+        if level == .critical, ranksUrgentDiscards { holdPacedDiscards() } else { urgentHoldEnds = nil }
         pressure = level
         logger.info("memory pressure \(level.rawValue, privacy: .public)")
         updateFollowers()
@@ -307,7 +331,7 @@ final class BrowserHibernation {
             guard leased.remove(key) != nil else { return }
             if exemptions[key] == .agentLease { exemptions[key] = nil }
             // The agent left it: its hidden clock starts now.
-            if cache?.lifecycle.phase(key) == .mountedHidden { hiddenAt[key] = .now }
+            if cache?.lifecycle.phase(key) == .mountedHidden { hiddenAt[key] = now() }
         }
         replan()
     }
@@ -317,7 +341,7 @@ final class BrowserHibernation {
     func tabDidHide(_ key: String) {
         guard let tab = cache?.browsers[key]?.tab else { return }
         _ = markOffScreen(key, false)
-        hiddenAt[key] = .now
+        hiddenAt[key] = now()
         watchActivity(key, tab)
         replan()
     }
@@ -336,7 +360,7 @@ final class BrowserHibernation {
         probeKeptAt[key] = nil
         askedBeforeUnload.remove(key)
         activity.forget(key)
-        noteFocus(key, at: .now)
+        noteFocus(key, at: now())
     }
 
     /// Records a show of tab `key` for its ranking, dropping shows older than `focusWindow`.
@@ -358,16 +382,16 @@ final class BrowserHibernation {
     /// agent woke sleeps again once the agent leaves it alone that long.
     func noteAgentUse(_ key: String) {
         guard let cache, cache.browsers[key] != nil else { return }
-        agentUsedAt[key] = .now
+        agentUsedAt[key] = now()
         // Before the agent's call goes out: a frozen page runs no script.
         thaw(key)
         guard cache.lifecycle.phase(key) == .mountedHidden else { return }
-        hiddenAt[key] = .now
+        hiddenAt[key] = now()
         replan()
     }
 
     func forget(_ key: String) {
-        intentPrewarm?.service.forget(key)
+        forgetPrewarm(key)
         agentPages?.forget(key)
         cache?.dormantTabs.set(key, false)
         hiddenAt[key] = nil
@@ -429,7 +453,7 @@ final class BrowserHibernation {
     private func markOffScreen(_ key: String, _ offScreen: Bool) -> Bool {
         if offScreen {
             guard offScreenShown.insert(key).inserted else { return false }
-            hiddenAt[key] = .now
+            hiddenAt[key] = now()
         } else {
             guard offScreenShown.remove(key) != nil else { return false }
             hiddenAt[key] = nil
@@ -447,7 +471,7 @@ final class BrowserHibernation {
         hoverDwell.cancel()
         guard let key, neighborRadius > 0, let cache, cache.browsers[key] != nil,
               cache.lifecycle.phase(key) != .mountedVisible else { return }
-        hoveredAt[key] = .now
+        hoveredAt[key] = now()
         thaw(key, prewarm: true)
         if cache.lifecycle.phase(key) == .hibernated {
             // Justified delay: a dwell, not a poll; the next hover change cancels it.
@@ -470,7 +494,7 @@ final class BrowserHibernation {
         let left = awakeNeighbors.subtracting(next)
         let joined = next.subtracting(awakeNeighbors)
         awakeNeighbors = next
-        let now = ContinuousClock.now
+        let now = self.now()
         for key in left where cache.lifecycle.phase(key) == .mountedHidden {
             hiddenAt[key] = now
             if exemptions[key] == .neighbor { exemptions[key] = nil }
@@ -490,12 +514,14 @@ final class BrowserHibernation {
 
     // MARK: Planning
 
-    /// Hibernates every due page and arms one deadline for the next.
+    /// Hibernates every due page and arms one deadline for the next. While the urgent pass holds the
+    /// paced discards (``urgentHoldEnds``) the due pages wait for the hold's end.
     func replan() {
-        guard let cache else { return }
-        let now = ContinuousClock.now
-        let shownOffScreen = offScreenShown.filter { cache.lifecycle.phase($0) == .mountedVisible }
-        let hidden = (cache.lifecycle.keys(in: .mountedHidden) + shownOffScreen).compactMap { hiddenCandidate($0, now: now) }
+        guard cache != nil else { return }
+        let now = self.now()
+        if let ends = urgentHoldEnds, now >= ends { urgentHoldEnds = nil }
+        let holdLeft = urgentHoldEnds.map { ($0 - now).seconds }
+        let hidden = hiddenCandidates(now: now)
         let candidates = hidden.map { $0.facts }
         let graceEnds = hidden.compactMap { $0.graceEnds }.min()
         let plan = HibernationPlanner.plan(setting, pressure: pressure, candidates: candidates)
@@ -503,15 +529,25 @@ final class BrowserHibernation {
             exemptions[key] = nil
         }
         exemptions.merge(plan.exemptions) { $1 }
-        if !plan.due.isEmpty { refreshMemoryIfNeeded() }
-        for key in plan.due { prepare(key, for: HibernationPlanner.discardReason(at: pressure)) }
-        nextCheck = [plan.nextCheck, graceEnds].compactMap(\.self).min()
+        let held = holdLeft != nil && !plan.due.isEmpty
+        if !held, !plan.due.isEmpty {
+            refreshMemoryIfNeeded()
+            for key in plan.due { prepare(key, for: HibernationPlanner.discardReason(at: pressure)) }
+        }
+        nextCheck = [plan.nextCheck, graceEnds, held ? holdLeft : nil].compactMap(\.self).min()
         if let next = nextCheck {
             deadline.scheduleOnMain(after: .milliseconds(Int64(next * 1000) + 50)) { [weak self] in self?.replan() }
         } else {
             deadline.cancel()
         }
         replanFreeze(candidates.filter { !$0.isNeighbor && !$0.isAgentDriving && !$0.isActiveTab })
+    }
+
+    /// Every hidden page, and every page shown in an off-screen window, that could go now.
+    private func hiddenCandidates(now: ContinuousClock.Instant) -> [(facts: HibernationPlanner.Candidate, graceEnds: Double?)] {
+        guard let cache else { return [] }
+        let shownOffScreen = offScreenShown.filter { cache.lifecycle.phase($0) == .mountedVisible }
+        return (cache.lifecycle.keys(in: .mountedHidden) + shownOffScreen).compactMap { hiddenCandidate($0, now: now) }
     }
 
     /// The planner's facts of hidden page `key` (or of a page shown in an off-screen window, kept as
@@ -547,7 +583,7 @@ final class BrowserHibernation {
     /// Frozen pages whose memory grew (`FrozenGrowthRule.record`) go with the frozen hidden pages of
     /// their opener group; the lead rule and the person's choices still keep any of them.
     func discardGrowing(_ growing: [String]) {
-        let now = ContinuousClock.now
+        let now = self.now()
         let members = Set(growing.flatMap { openerGroup($0).union([$0]) })
         let hidden = members.reduce(into: [String: HibernationPlanner.Candidate]()) { $0[$1] = hiddenCandidate($1, now: now)?.facts }
         let plan = frozenGrowth.plan(growing: growing, groups: openerGroup, candidates: hidden, setting: setting)
@@ -564,7 +600,7 @@ final class BrowserHibernation {
     /// for the next (`HibernationPlanner.freezePlan`). Events only, as for hibernation.
     private func replanFreeze(_ hidden: [HibernationPlanner.Candidate]) {
         guard let cache else { return }
-        let now = ContinuousClock.now
+        let now = self.now()
         let threshold = setting.freezeSeconds
         var recheck: Double?
         let candidates = hidden.filter { candidate in
@@ -603,7 +639,7 @@ final class BrowserHibernation {
             let doubted = self.probeHistory.record(probe, for: key, step: .freeze)
             if probe.audible { self.audible?.heard(key) }
             if probe.stopsWhenFrozen || doubted {
-                self.freezeKeptAt[key] = .now
+                self.freezeKeptAt[key] = self.now()
                 self.replan()
                 return
             }
@@ -614,20 +650,20 @@ final class BrowserHibernation {
     /// No agent drives the hidden page (`isAgentDriven`), it showed no background activity (its
     /// updates stay live), and it is no neighbor or hovered tab.
     private func mayFreeze(_ key: String) -> Bool {
-        !isAgentDriven(key) && !activity.contains(key) && !awakeNeighbors.contains(key) && hoverLeft(key, now: .now) == nil
+        !isAgentDriven(key) && !activity.contains(key) && !awakeNeighbors.contains(key) && hoverLeft(key, now: now()) == nil
     }
 
     private func freeze(_ key: String, _ page: any BrowserFreezing) {
         // The engine refuses a page it still counts visible: it stays awake and is asked again
         // after `freezeSeconds` (a hidden page's visibility reaches the engine within a frame).
         guard page.setFrozen(true) else {
-            freezeKeptAt[key] = .now
+            freezeKeptAt[key] = now()
             cache?.trace(key, "freeze refused")
             replan()
             return
         }
         frozen.insert(key)
-        cache?.trace(key, "frozen")
+        noteFrozen(key)
         trackGrowth(key)
     }
 
@@ -708,7 +744,7 @@ final class BrowserHibernation {
             }
             if let exemption {
                 self.exemptions[key] = exemption
-                self.probeKeptAt[key] = .now
+                self.probeKeptAt[key] = self.now()
                 return
             }
             guard let state = viewState.map(BrowserRestoreState.appPage) ?? source.hibernationState() else {
@@ -744,7 +780,7 @@ final class BrowserHibernation {
             favicon: page.favicon, restoreState: saved.state, snapshot: { [weak self] in self?.snapshotImage(key) }
         )
         placeholder.onWake = { [weak self] wake in self?.wakeForNavigation(key, wake) }
-        if let snapshot = saved.snapshot { keep(snapshot, for: key) }
+        keepAsleep(key, picture: saved.snapshot, size: page.contentView.frame.size)
         cache.swapPage(key, with: placeholder)
         cache.dormantTabs.set(key, true)
         savedBytes[key] = memoryBytes[key].flatMap { $0 > 0 ? $0 : nil }
@@ -765,13 +801,56 @@ final class BrowserHibernation {
         guard let cache, cache.browsers[key]?.tab === tab, cache.lifecycle.record(key)?.generation == generation,
               cache.lifecycle.phase(key) == .mountedHidden else { return .stale }
         if user { return .go }
-        if awakeNeighbors.contains(key) || hoverLeft(key, now: .now) != nil { return .keep(.neighbor) }
-        if let used = agentUsedAt[key], (ContinuousClock.now - used).seconds < Self.agentGrace { return .keep(.agentDriving) }
+        if awakeNeighbors.contains(key) || hoverLeft(key, now: now()) != nil { return .keep(.neighbor) }
+        if let used = agentUsedAt[key], (now() - used).seconds < Self.agentGrace { return .keep(.agentDriving) }
         return .go
     }
 
     private enum DiscardCheck: Equatable {
         case go, stale
         case keep(HibernationPlanner.Exemption)
+    }
+}
+
+// The critical memory event's one urgent pass over tabs, chats and pages (p13-webui-092, feature
+// `memoryUrgentDiscardRanking`), as Chrome's `UrgentPageDiscardingPolicy` discards one page per
+// critical event (chrome/browser/performance_manager/policies/urgent_page_discarding_policy.cc) in
+// `PageDiscardingHelper`'s order (page_discarding_helper.cc). The browser hibernation is one owner
+// (its tabs); the agent chats and the cmux page lifecycle are the others (`urgentDiscardOwners`).
+extension BrowserHibernation: UrgentDiscardOwner {
+    /// Ranks every owner's hidden pages once and lets the first go (``UrgentDiscardRanker/run(_:)``):
+    /// a browser tab through its probe, a chat after its wake state, a page at once. Every owner's own
+    /// paced discards then wait one of its pace intervals.
+    func urgentPass() {
+        guard let cache else { return }
+        lastUrgentPass = urgentRanker.run([self] + urgentDiscardOwners())
+        for candidate in lastUrgentPass.discards {
+            cache.trace(candidate.key, "discard (\(DiscardReason.urgent.rawValue), ranked \(candidate.kind.rawValue))")
+        }
+    }
+
+    /// The paced passes discard no tab for one critical pace interval from now: the critical event's
+    /// discard is the urgent pass's.
+    func holdPacedDiscards() {
+        urgentHoldEnds = now() + .seconds(HibernationPlanner.criticalPace.interval)
+    }
+
+    /// The hidden browser tabs the urgent pass may take now (``HibernationPlanner/urgentCandidates(_:candidates:)``).
+    func urgentCandidates() -> [UrgentDiscardRanker.Candidate] {
+        HibernationPlanner.urgentCandidates(setting, candidates: hiddenCandidates(now: now()).map(\.facts))
+    }
+
+    /// Starts tab `key`'s discard probe (the discard finishes on its own turn); false when a probe
+    /// already runs for it or it is no hidden browser tab now.
+    func urgentDiscard(_ key: String) -> Bool {
+        guard !probing.contains(key) else { return false }
+        prepare(key, for: .urgent)
+        return probing.contains(key)
+    }
+
+    /// The paced passes wait one critical pace interval; the next look is armed for its end.
+    func urgentPassDidRun() {
+        holdPacedDiscards()
+        replan()
     }
 }

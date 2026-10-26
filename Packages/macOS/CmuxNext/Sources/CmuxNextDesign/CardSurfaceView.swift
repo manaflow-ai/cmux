@@ -22,6 +22,7 @@ public final class CardSurfaceView: NSView {
         self.reduceTransparency = reduceTransparency
         super.init(frame: .zero)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         layer?.cornerRadius = cornerRadius
         layer?.cornerCurve = .continuous
         setAccessibilityElement(false)

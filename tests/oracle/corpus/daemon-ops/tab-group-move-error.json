@@ -29,6 +29,48 @@
   ],
   "steps": [
     {
+      "id": "fx-workspace",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "workspace.create",
+        "params": {
+          "initial_content": "terminal",
+          "name": "oracle"
+        },
+        "idempotencyKey": "tab-group-move-error.fx-workspace"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "fx-tab-group",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "tab_group.create",
+        "params": {
+          "tabs": [
+            "$step:fx-workspace#/value/tab_id"
+          ],
+          "name": "oracle"
+        },
+        "idempotencyKey": "tab-group-move-error.fx-tab-group"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -38,19 +80,24 @@
       "args": {
         "method": "tab_group.move",
         "params": {
-          "tab_group": ""
+          "tab_group": "$step:fx-tab-group#/value/id",
+          "pane_id": "pane_00000000000000000000000000000000"
         },
         "idempotencyKey": "tab-group-move-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "selector.not_found",
+        "errorDetails": {
+          "scope": "pane",
+          "selector": "pane_00000000000000000000000000000000"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "tab_group breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a pane id that names no live pane (tabs.rs state_move_tab_group): the group stays"
     }
   ],
   "invariants": [

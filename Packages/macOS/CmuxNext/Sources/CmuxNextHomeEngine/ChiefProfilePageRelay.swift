@@ -1,4 +1,5 @@
 public import CmuxNextDaemon
+import CmuxNextIPC
 public import Foundation
 import os
 
@@ -193,17 +194,14 @@ public final class ChiefProfilePageRelay {
     }
 
     /// `origin.confirmation.issue` on the app's trusted main connection to the owner: a
-    /// single-use token for exactly this op, its params (canonical SHA-256 as sent) and `stream`.
+    /// single-use token for exactly this op, its params (canonical SHA-256 as sent) and `stream`'s
+    /// connection (its epoch's hello id).
     private func confirmationToken(owner: any ChiefProfileRelayOwner, stream: any PageRelayStream, operation: String,
                                    params: [String: JSONValue]) async throws -> String {
-        var request = stream.confirmationBinding
-        request["operation"] = .string(operation)
-        request["params_sha256"] = .string(try ResourceRelayClient.paramsDigest(params, operation: operation))
-        let issued = try await owner.issueConfirmation(request)
-        guard case .object(let members) = issued, case .string(let token)? = members["token"] else {
-            throw DaemonError.malformedResponse("origin.confirmation.issue")
-        }
-        return token
+        let request = V2OriginConfirmationIssueRequest(
+            operation: operation, paramsSha256: try ResourceRelayClient.paramsDigest(params, operation: operation),
+            relayConnectionID: stream.epoch.connectionID)
+        return try await owner.issueConfirmation(request).token
     }
 }
 
@@ -213,8 +211,8 @@ public final class ChiefProfilePageRelay {
 protocol ChiefProfileRelayOwner: AnyObject {
     /// The owner process the main connection is attached to now; nil while it is not.
     func attachedOwner() async -> ChiefProfilePageRelay.OwnerKey?
-    /// `origin.confirmation.issue` with `params` on the trusted main connection.
-    func issueConfirmation(_ params: [String: JSONValue]) async throws -> JSONValue
+    /// `origin.confirmation.issue` on the trusted main connection.
+    func issueConfirmation(_ request: V2OriginConfirmationIssueRequest) async throws -> V2OriginConfirmation
     /// The page-relay connection of the owner daemon at `socket`.
     func pageRelay(socket: String) -> any PageRelayStreamOpening
 }
@@ -225,10 +223,9 @@ extension ChiefConversationOwner: ChiefProfileRelayOwner {
         return ChiefProfilePageRelay.OwnerKey(socket: socket, pid: identity.pid, generation: identity.generation)
     }
 
-    func issueConfirmation(_ params: [String: JSONValue]) async throws -> JSONValue {
+    func issueConfirmation(_ request: V2OriginConfirmationIssueRequest) async throws -> V2OriginConfirmation {
         guard let connection else { throw DaemonError.notConnected }
-        return try await ResourceRelayClient(connection: connection).send(
-            operation: "origin.confirmation.issue", params: params, idempotencyKey: nil)
+        return try await ResourceOperationClient(connection: connection).read(request, as: V2OriginConfirmation.self)
     }
 
     func pageRelay(socket: String) -> any PageRelayStreamOpening {

@@ -80,7 +80,7 @@ struct ControlSnapshotLazyPublishTests {
 
     /// One workspace with one tab and a started publisher; its first (background) publish done unless `launching`,
     /// which holds background work as the app's launch does until reveal.
-    private static func rig(launching: Bool = false) async -> Rig {
+    private static func rig(launching: Bool = false, appEvents: AppEvents? = nil) async -> Rig {
         _ = NSApplication.shared
         let clock = LazyPublishClock()
         // The reveal deadline is out of the test's reach: only the test's own steps move the phase.
@@ -101,7 +101,7 @@ struct ControlSnapshotLazyPublishTests {
         let router = ControlRouter(identity: ControlIdentity(version: "test", build: "1", bundleID: nil, tag: nil, processID: 0),
                                    executor: Executor(), configuration: .init(requestDeadline: .seconds(30)),
                                    frameSource: BudgetedSoonFrames(budget: work.budget))
-        let publisher = ControlSnapshotPublisher(router: router, services: services)
+        let publisher = ControlSnapshotPublisher(router: router, services: services, appEvents: appEvents)
         publisher.start()
         let rig = Rig(clock: clock, work: work, keeper: keeper, services: services, router: router, publisher: publisher)
         #expect(publisher.builds == 0, "start built the snapshot in its own turn")
@@ -168,6 +168,29 @@ struct ControlSnapshotLazyPublishTests {
         await rig.hops()
         rig.frame()
         #expect(rig.builds - builds == 1, "the publish queued another build with nothing changed")
+    }
+
+    /// Key windows are not observable: their notices reach the publisher through the app's one AppEvents (FG307,
+    /// recipe R-notif), one subscription per name while it runs. A burst of notices gives one background build on the
+    /// next frame, none in the notices' own turn; `stop` ends the subscriptions.
+    @Test func keyWindowNoticesQueueOnePublishThroughAppEvents() async {
+        let center = NotificationCenter()
+        let events = AppEvents(center: center)
+        let rig = await Self.rig(appEvents: events)
+        #expect(events.subscriberCount(NSWindow.didBecomeKeyNotification) == 1, "the publisher did not subscribe to the key-window notice")
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10), styleMask: [], backing: .buffered, defer: true)
+        let builds = rig.builds
+        for _ in 0..<10 {
+            center.post(name: NSWindow.didBecomeKeyNotification, object: window)
+            center.post(name: NSWindow.didResignKeyNotification, object: window)
+        }
+        #expect(rig.builds == builds, "a notice built the snapshot in its own turn")
+        await rig.hops()
+        rig.frame()
+        #expect(rig.builds - builds == 1, "\(rig.builds - builds) builds for one turn of notices (want 1)")
+        rig.stop()
+        #expect(events.subscriberCount(NSWindow.didBecomeKeyNotification) == 0, "stop kept the subscription")
+        #expect(!events.isObserving(NSApplication.didResignActiveNotification), "stop kept the app's observer")
     }
 
     /// A change while the person's key waits for its frame: the publish yields through that frame and runs after it.
