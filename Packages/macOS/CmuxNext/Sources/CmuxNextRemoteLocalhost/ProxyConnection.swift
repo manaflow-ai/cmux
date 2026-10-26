@@ -100,6 +100,7 @@ final class ProxyConnection: Sendable {
         } catch {
             proxy.count(\.failures)
             proxy.note("tunnel \(head.host):\(head.port) failed: \(error)")
+            if case .unavailable = error, machineListener { proxy.noteStranded(listenerPort: localPort, host: head.host, port: head.port) }
             let page = ProxyErrorPage(host: head.host, port: head.port, machine: route.machineName, failure: error)
             try? await client.sendAll(head.kind == .forward ? page.response() : ProxyResponses.status(502, "Bad Gateway"))
             return

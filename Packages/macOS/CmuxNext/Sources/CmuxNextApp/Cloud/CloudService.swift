@@ -335,6 +335,8 @@ final class CloudService {
     /// after the account's machines were dropped (sign-out, another account),
     /// or after this app added or removed a machine, is stale.
     @ObservationIgnored private var listGeneration = 0
+    /// A failed list read again on a capped backoff (``CloudListRetry``).
+    @ObservationIgnored private let listRetry = CloudListRetry()
 
     /// Fetches `/api/vm` and reconciles sessions: new live machines connect,
     /// gone machines disconnect, records update in place. A stale list (see
@@ -362,6 +364,7 @@ final class CloudService {
             guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
             machines.cloudLimits = limits
             lastError = nil
+            listRetry.succeeded()
             reconcile(list)
             hasLoadedMachines = true
             loadedAccount = account
@@ -370,6 +373,7 @@ final class CloudService {
             guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
             lastError = CloudStrings.errorText(error)
             logger.error("machine list failed: \(String(describing: error), privacy: .public)")
+            listRetry.failed { [weak self] in await self?.refresh() }
         }
     }
 
@@ -391,11 +395,6 @@ final class CloudService {
     /// signed in now: a failed or superseded refresh, or another team's list, is not one.
     func hasCurrentList(within age: Duration) -> Bool {
         Self.listIsCurrent(loadedAt: hasLoadedMachines ? listLoadedAt : nil, loadedFor: loadedAccount, account: listAccount, now: .now, within: age)
-    }
-
-    nonisolated static func listIsCurrent(loadedAt: ContinuousClock.Instant?, loadedFor: [String?]?, account: [String?], now: ContinuousClock.Instant, within age: Duration) -> Bool {
-        guard let loadedAt, loadedFor == account else { return false }
-        return loadedAt.duration(to: now) < age
     }
 
     private func reconcile(_ list: [CloudMachine]) {
@@ -454,6 +453,7 @@ final class CloudService {
     private func dropAllMachines() {
         // A list in flight belongs to the machines dropped here.
         listGeneration += 1
+        listRetry.cancel()
         for creation in creations.all { creations.remove(creation) }
         for session in machines.cloud { machines.remove(session.machineID)?.disconnect() }
         machines.cloudLimits = nil

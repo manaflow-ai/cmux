@@ -145,7 +145,8 @@ extension BrowserTabOpen {
                 generation: request.generation,
                 proxyPort: request.proxyPort,
                 proxyUsername: request.credential.username,
-                proxyPassword: request.credential.password
+                proxyPassword: request.credential.password,
+                refetch: refetch(machine: request.machine, name: request.machineName, services: services)
             )
         } catch {
             throw .proxyInvalid
@@ -164,7 +165,7 @@ extension BrowserTabOpen {
         // The daemon tab adopts the page (TabContentCache.install records
         // its tab id). The record starts blank: a page made from the record
         // before the adoption lands must not load the URL unproxied.
-        services.cache.pageRequests.proxiedTabs.expect(store)
+        services.cache.pageRequests.proxiedTabs.expect(store, machine: .init(id: request.machine, name: request.machineName))
         let open = { pane.newBrowserTab(url: nil, engine: BrowserEngineTag.cef.rawValue, adopting: page, background: background, then: then) }
         guard reportsRefusal else {
             open()

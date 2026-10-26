@@ -84,8 +84,8 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     private var hiddenOn: Link?
     /// This view's claims the stream has not echoed yet, oldest first (a live resize claims every frame).
     public private(set) var echoesDue: [CellSize] = []
-    /// The grid the stream last announced on the live link: a claim of it changes nothing, so the
-    /// stream echoes nothing and no echo is due (a stale one held the next drag's grids).
+    /// The grid the stream last announced (the live link, or a pending attach's replay, #25595): a claim of
+    /// it changes nothing, so the stream echoes nothing and no echo is due (a stale one held the next grids).
     public private(set) var announcedSize: CellSize?
     /// Last status the view was told (it starts connected: nothing shown).
     public private(set) var status: LinkStatus = .connected
@@ -231,7 +231,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     /// The stream announced `size`. Another client's grid means this view no longer holds
     /// geometry; its next key press or focus claims again. Its own earlier reports are not.
     private mutating func gridAnnounced(_ link: Link, size: CellSize) -> [Effect] {
-        guard liveLink == link else { return [] }
+        guard liveLink == link else { if pendingAttach?.link == link { announcedSize = size }; return [] }
         announcedSize = size
         if let mine = echoesDue.firstIndex(of: size) { echoesDue.removeFirst(mine + 1); return [] }
         guard claimed, size != reportedSize else { return [] }
