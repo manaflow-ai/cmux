@@ -20,7 +20,7 @@ const rows = turnView(
       assistant("The receipt matches the current branch.\n\nThe next pass can proceed.", 59 - index * 2),
       summary(59 - index * 2, { status: "completed" }),
     ]).flat(),
-    user("Check the handoff and report the spacing.", 6),
+    user("Check the handoff and report the spacing.", 6, { id: "spacing-tail-prompt" }),
     assistant("The handoff is ready for review.\n\nEach paragraph keeps its normal rhythm.", 5, {
       id: "spacing-answer-a",
     }),
@@ -34,21 +34,29 @@ const rows = turnView(
   ],
   new Set(),
 );
+const tailStart = rows.findIndex((row) => row.id === "spacing-tail-prompt");
+const emptyRows = [
+  ...rows.slice(0, tailStart),
+  user("A quiet turn without an answer.", 7),
+  summary(7, { id: "spacing-empty-middle", durationMs: 0, status: "completed" }),
+  ...rows.slice(tailStart),
+  summary(1, { id: "spacing-empty-last", durationMs: 0, status: "completed" }),
+];
 
 type SpacingProps = { gap?: number; emptyFooter?: boolean };
 
 function TranscriptSpacing({ gap, emptyFooter }: SpacingProps) {
-  const shown = emptyFooter
-    ? rows.map((row) =>
-        row.id === "spacing-footer-a" ? { ...row, text: undefined, durationMs: 0, folded: false } : row,
-      )
-    : rows;
   return (
     <div
       className="acpmux-shell"
       style={gap === undefined ? undefined : ({ "--cv-turn-gap": `${gap}px` } as CSSProperties)}
     >
-      <VirtualTranscript rows={shown} sessionId="transcript-spacing" expanded={new Set()} onToggleActivity={() => {}} />
+      <VirtualTranscript
+        rows={emptyFooter ? emptyRows : rows}
+        sessionId="transcript-spacing"
+        expanded={new Set()}
+        onToggleActivity={() => {}}
+      />
     </div>
   );
 }
@@ -66,12 +74,10 @@ const checkSpacing =
     await ctx.scroll({ selector: ".acpmux-scroll" }, "bottom");
     await ctx.waitFor(() => rect(footer("a")).height > 0 && rect(chip("b")).height > 0);
     const before = measure();
-    for (const [index, value] of before.entries()) {
-      const expected = emptyFooter && index === 0 ? 5 : gap + 5;
+    for (const value of before) {
+      const expected = gap + 5;
       if (Math.abs(value - expected) > 0.5) throw new Error(`Footer-to-sender gap ${value}px; expected ${expected}px`);
     }
-    if (emptyFooter && rect('[data-row-id="spacing-footer-a"]').height !== rect(footer("a")).height)
-      throw new Error("Empty footer clips its hover controls or reserves an extra line");
 
     const visible = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-row")]
       .map((node) => node.getBoundingClientRect())
@@ -81,17 +87,34 @@ const checkSpacing =
         throw new Error("Consecutive virtual transcript rows overlap");
     if (visible.length >= rows.length) throw new Error("Fixture did not exercise virtualization");
 
-    const held = rect(chip("b")).top;
     if (emptyFooter) {
-      await ctx.hover({ selector: footer("a") });
-      if (rect(footer("a")).bottom > rect(chip("a")).top) throw new Error("Empty footer actions overlap sender");
+      const middle = '[data-row-id="spacing-empty-middle"]';
+      const controls = `${middle} .cv-turn-actions`;
+      await ctx.waitFor(() => rect(controls).height > 0);
+      if (rect(middle).height !== 24 || rect(middle).height !== rect(controls).height)
+        throw new Error("Empty footer clips its hover controls or reserves an extra line");
+      await ctx.hover({ selector: controls });
+      if (rect(controls).bottom > rect('[data-row-id="spacing-tail-prompt"]').top + 0.5)
+        throw new Error("Empty footer actions overlap the next prompt");
+      const last = '[data-row-id="spacing-empty-last"]';
+      if (rect(last).height !== 24 || rect(`${last} .cv-turn-actions`).height !== 0)
+        throw new Error("Last empty footer no longer keeps its gap with hidden controls");
+      await ctx.scroll({ selector: ".acpmux-scroll" }, "bottom");
     }
+    const held = rect(chip("b")).top;
     await ctx.hover({ selector: footer("b") });
     if (Math.abs(rect(chip("b")).top - held) > 0.5) throw new Error("Revealing footer actions moved the sender");
+    const oldFooter = ctx.find({ selector: footer("a") });
+    const oldChip = ctx.find({ selector: chip("a") });
     await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
     await ctx.waitFor(() => ctx.document.querySelector('[data-row-id="spacing-prompt-0"]'));
+    await ctx.waitFor(() => !oldFooter.isConnected && !oldChip.isConnected);
     await ctx.scroll({ selector: ".acpmux-scroll" }, "bottom");
-    await ctx.waitFor(() => ctx.document.querySelector(chip("b")));
+    await ctx.waitFor(() => {
+      const nextFooter = ctx.document.querySelector(footer("a"));
+      const nextChip = ctx.document.querySelector(chip("a"));
+      return nextFooter !== null && nextChip !== null && nextFooter !== oldFooter && nextChip !== oldChip;
+    });
     await ctx.waitFor(() => measure().every((value, index) => Math.abs(value - before[index]!) < 0.5));
   };
 
