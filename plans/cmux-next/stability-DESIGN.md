@@ -334,7 +334,7 @@ GitHub CI job.
 ### Schedule (72 h)
 - H0-12: lab core and shared APIs (002, 003, 012, 013, 016, 017, 036, 037, 198, 199, 172, 083, 101, 103, 100, 152, 211).
 - H12-60: all queues in parallel; lab lanes running continuously; Q15/Q16 fix tasks are part of the push.
-- H36 and H58: app-ffi pin republishes (153).
+- H36 and H58: app-ffi pin republishes (153; procedure in section 4, rule 5).
 - H60-66: error flips (079 strict memory safety, 045 MessagesLab v6 if not already), final bans in the local tier.
 - H66-72: test phase on the final tip; `stability-final.sh` (151).
 
@@ -358,7 +358,21 @@ GitHub CI job.
    `cmux-blocking` / `cmux-panic-log` dependencies to every consumer crate up front, plus the `cmux-stability` feature for
    033) and 103 change it; fuzz, scanner, loom and lab tools have their own workspaces and locks.
 5. **FFI pins.** A change under any path listed by `check-app-ffi-pin.sh --list-inputs` lands only through the pin lander
-   (153), which batches sources and republishes CCmuxAppFFI in the same PR.
+   (153), which batches sources and republishes CCmuxAppFFI in the same PR. Task branches with FFI inputs stay unmerged
+   until a lander window (H36, H58). In each window the lander:
+   1. Lists the queue: `scripts/cmux-next/check-app-ffi-pin.sh --batch $(git for-each-ref --format='%(refname:short)'
+      refs/remotes/origin/cp/)`. It prints each branch whose own commits (since its merge-base with HEAD) change an FFI
+      input, with the files.
+   2. Merges those branches into one lander branch from the newest big branch, with the Rust tests of the touched FFI
+      crates green on a Testbox (`cargo test -p cmux-app-ffi -p cmux-rd-ffi -p cmux-layout-reducer-ffi
+      -p cmux-palette-ranker`), and commits the merged sources as source sha S.
+   3. Publishes `cmux-app-ffi-S`. The publish job and the `ffi-release` environment admit only `feat-cmux-next`, so S
+      lands on `feat-cmux-next` first (its push runs app-ffi-release.yml), or the CI lead publishes it by hand
+      (docs/ci/app-ffi-release.md). A tag is immutable: a wrong release cannot be replaced, only superseded.
+   4. Pins it in the same lander PR: `scripts/cmux-next/repin-app-ffi.sh S CHECKSUM`, then
+      `scripts/cmux-next/check-app-ffi-pin.sh --verify-release` passes and `git merge-base --is-ancestor <152's commit> S`
+      exits 0. Then `cmux-ci build cmux --ref <lander head>` and the child-crash-e2e smoke.
+   A branch that misses H36 waits for H58; after H58, FFI input changes wait for the push's test phase.
 6. **Ownership.** Before a mechanical change in an owned area (OWNERS.md: PL-daemon for cmux-tui-core/cmux-server/
    cmux-pty, PL-acpmux for acpmux, PL-arch for CmuxNextApp, PL-cefhost/PL-cef for CEF, PL-ghostty for Terminal), take a
    per-file lease in COORDINATION.md; if the owner's perf task on that file is in flight, rebase onto it after it lands.
