@@ -296,6 +296,8 @@ final class CEFDevToolsController {
 
     private func makeViews(in tab: CEFTab) -> (host: CEFHostView, divider: CEFDevToolsDivider) {
         let host = CEFHostView()
+        // Docked DevTools shows with its page's tab (`CEFTab.setContentVisible`).
+        host.layerHosting.isPageVisible = { [weak tab] in tab.map { !$0.isContentHidden } ?? false }
         let divider = CEFDevToolsDivider()
         divider.devTools = self
         tab.container.addSubview(host)

@@ -57,6 +57,7 @@ final class CEFPaneHost {
         self.contextMenus = contextMenus
         hostView.liveResizeWillStart = { [weak self] in self?.visibleTab?.samplePageBackdrop() }
         hostView.fileDrag.target = { [weak self] in self?.visibleTab }
+        hostView.layerHosting.isPageVisible = { [weak self] in self?.visibleTab.map { !$0.isContentHidden } ?? false }
     }
 
     /// The viewport of a tab no pane has shown (Playwright's default page

@@ -251,29 +251,24 @@ import Testing
         #expect(layerFork.syncs.isEmpty)
     }
 
-    /// A hidden page (a hidden tab, a parked pane) draws no frame at the new size: its resize never
-    /// holds the window, during a live resize either.
+    /// A page its content lifecycle hid (a hidden tab, a parked pane) draws no frame at the new size:
+    /// its resize never holds the window, during a live resize either; shown again, it joins.
     @Test func aHiddenPageDoesNotHoldTheWindow() {
         let hosting = makeHosting(enabled: true)
+        var visible = false
+        hosting.isPageVisible = { visible }
         hosting.pageWindowCreated(browser: 5, fork: fork)
-        view.isHidden = true
         hosting.viewDidResize()
         hosting.windowLiveResize(active: true)
         hosting.viewDidResize()
         #expect(fenceFork.calls.isEmpty)
         #expect(ca.made.isEmpty)
         #expect(ca.held.isEmpty)
-    }
-
-    @Test func aPageUnderAHiddenAncestorDoesNotHoldTheWindow() {
-        let hosting = makeHosting(enabled: true)
-        hosting.pageWindowCreated(browser: 5, fork: fork)
-        let parked = NSView(frame: view.frame)
-        parked.addSubview(view)
-        parked.isHidden = true
+        visible = true
         hosting.viewDidResize()
-        #expect(fenceFork.calls.isEmpty)
-        #expect(ca.made.isEmpty)
+        ca.commitTransaction()
+        #expect(fenceFork.calls.map(\.browser) == [5])
+        #expect(ca.released == ca.made)
     }
 
     @Test func aViewOutOfEveryWindowMakesNoFence() {

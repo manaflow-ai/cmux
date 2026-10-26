@@ -113,6 +113,9 @@ final class CEFLayerHosting {
     static let resizeFenceForkAPI: Int32 = 31
 
     weak var view: NSView?
+    /// Whether the content lifecycle shows the page over the view (`CEFTab.isContentHidden` of the
+    /// shown tab, set by the view's owner); a hidden page never joins a resize fence.
+    var isPageVisible: () -> Bool = { true }
     /// The page's pixels in this window's layer tree; nil while the page
     /// draws in its own window.
     private(set) var page: ChromiumHostPageView?
@@ -244,12 +247,12 @@ final class CEFLayerHosting {
     /// The view's size changed (`CEFHostView.setFrameSize`: a divider drag, a step of the window's
     /// live resize, a spring start). With the fork's resize fence the page window's next frame at
     /// the new size joins this transaction's fence: a hosted page on every resize, a page in its
-    /// own window during the window's live resize only (the API 27 deadlines' rule). A hidden page
-    /// (a hidden tab, a parked pane, a hidden DevTools) draws no frame to wait for, and a view out
-    /// of every window has no context to hold.
+    /// own window during the window's live resize only (the API 27 deadlines' rule). A page its
+    /// content lifecycle hid (``isPageVisible``: a hidden tab, a parked pane, a hidden DevTools)
+    /// draws no frame to wait for, and a view out of every window has no context to hold.
     func viewDidResize() { // perf-hot: 0.05ms cef-geometry (each resize of a page's host view)
         guard let resizeFence = fork?.resizeFence, let browser, let view, page != nil || inLiveResize,
-              !view.isHiddenOrHasHiddenAncestor else { return }
+              isPageVisible() else { return }
         resizeFence.fences.join(view, browser: browser, setFence: resizeFence.set)
     }
 
