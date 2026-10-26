@@ -1915,6 +1915,7 @@ export function VirtualTranscript({
   canLoadOlder = false,
   historyFrom,
   earlierPrompts,
+  onLoadThrough,
   githubRepository,
   fallbackRepository,
   sourceRows,
@@ -1976,6 +1977,8 @@ export function VirtualTranscript({
   onLoadOlder?: () => Promise<void>;
   /// The chat's prompts older than `rows`, for the rail (the client's `earlier`).
   earlierPrompts?: EarlierPromptsStore;
+  /// Pages older history in until prompt `seq` is drawn: the rail's jump to an earlier prompt.
+  onLoadThrough?: (seq: number) => Promise<void>;
   /// How many prompts this pane has sent: each new one puts the view at the latest message.
   sends?: number;
   githubRepository?: string;
@@ -3844,6 +3847,7 @@ export function VirtualTranscript({
             placed={minimapPlaced}
             change={rowsChange.current}
             earlier={earlierPrompts}
+            loadThrough={onLoadThrough}
           />
         )}
         {find?.open && <ChatFindBar find={find} />}
@@ -8219,6 +8223,12 @@ function AcpmuxPane() {
                                                     directClient.current?.loadOlder() ?? Promise.resolve()
                                                   }
                                                   earlierPrompts={childRows ? undefined : directClient.current?.earlier}
+                                                  onLoadThrough={
+                                                    childRows
+                                                      ? undefined
+                                                      : (seq) =>
+                                                          directClient.current?.loadThrough(seq) ?? Promise.resolve()
+                                                  }
                                                   openAt={
                                                     !childRows &&
                                                     shownSessionId &&

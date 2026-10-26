@@ -23,6 +23,7 @@ import { useT } from "../i18n";
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { usePromptMarks } from "./promptMarks";
 import type { EarlierPromptsStore } from "./earlierPrompts";
+import { markSeq } from "./bookmarks";
 import { useHoverIntent } from "../../../ui/hoverIntent";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { animateScroll, highlightBubble, reducedMotion, settleScroll, stopScroll } from "./scrollMotion";
@@ -119,6 +120,7 @@ export function ThreadMinimap({
   placed,
   change,
   earlier,
+  loadThrough,
 }: {
   rows: AcpmuxRow[];
   sessionId?: string;
@@ -139,8 +141,9 @@ export function ThreadMinimap({
   /// reads only the rows from there (model.ts minimapTurns).
   change?: RowsChange;
   /// The chat's prompts older than `rows` (earlierPrompts.ts): the rail shows them above the loaded
-  /// turns.
+  /// turns, and a jump to one pages the transcript in through it first (`loadThrough`).
   earlier?: EarlierPromptsStore;
+  loadThrough?: (seq: number) => Promise<void>;
 }) {
   const t = useT();
   /// The compact Codex rail below (the wave, the default), the full-height map (ScrollMap.tsx), or
@@ -232,6 +235,7 @@ export function ThreadMinimap({
     sessionId,
     shown,
     hovered,
+    loadThrough,
   });
   useLayoutEffect(() => {
     live.current = {
@@ -244,8 +248,28 @@ export function ThreadMinimap({
       sessionId,
       shown,
       hovered,
+      loadThrough,
     };
   });
+  /// A jump to an earlier prompt waits for its turn to load (`loadThrough`), by key: it lands once the
+  /// transcript draws the turn, after the transcript placed the reader's view over the older rows.
+  /// The reader's own input, another jump, the load ending without the turn, or a chat switch ends it.
+  const awaiting = useRef<{ key: string; how: Jump; sessionId?: string } | undefined>(undefined);
+  /// `jump`, below, for `land`.
+  const jumpTo = useRef<(index: number, how: Jump) => number | undefined>(() => undefined);
+  /// Lands a jump waiting for its turn to load, once the transcript draws it. `settled`: the load is
+  /// done, so a turn still not drawn will not be (the history ended, or the chat moved on).
+  const [land] = useState(() => (settled = false) => {
+    const want = awaiting.current;
+    if (!want) return;
+    const { turns: all, sessionId: session } = live.current;
+    const at = want.sessionId === session ? all.findIndex((turn) => turn.key === want.key) : -1;
+    if (at >= 0 && all[at]!.index >= 0) {
+      awaiting.current = undefined;
+      jumpTo.current(at, want.how);
+    } else if (settled || at < 0) awaiting.current = undefined;
+  });
+
   // The band follows the scroll on its own frame: a scroll that moves it renders the rail at once
   // (only the rows whose state changed draw again); one that does not renders nothing.
   useEffect(() => {
@@ -277,6 +301,7 @@ export function ThreadMinimap({
       const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
       domTop.current = { sessionId: session, top: node.scrollTop };
       restoring.current = undefined;
+      land();
       if (!live.current.shown) return;
       const next = visibleTurns(all, tops, total, node.scrollTop, height);
       if (next.first !== drawn.first || next.last !== drawn.last) setBandMoves((count) => count + 1);
@@ -284,7 +309,13 @@ export function ThreadMinimap({
     return () => {
       placed.current = undefined;
     };
-  }, [placed, scroller]);
+  }, [placed, scroller, land]);
+
+  // Without the transcript's placement hook (a replay, a test), a waiting jump lands after the commit.
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs after every commit on purpose; it does nothing unless a jump waits.
+  useLayoutEffect(() => {
+    if (!placed) land();
+  });
 
   // A jump still under way belongs to the chat it started in: another chat in the reused scroller,
   // or the rail going away, ends it. In the commit itself, before the jump's next frame can run.
@@ -302,12 +333,26 @@ export function ThreadMinimap({
     const node = scroller.current;
     const turn = live.current.turns[index];
     if (!node || !turn) return undefined;
-    // A prompt older than the transcript holds goes to the top, where the transcript pages older
-    // turns in itself.
+    awaiting.current = undefined;
+    // A prompt older than the transcript holds: its turn loads first, then the jump lands (`land`).
+    // A scrub passing over one goes to the top, where the transcript pages older turns in itself.
     if (turn.index < 0) {
       stopScroll(node);
-      node.scrollTop = 0;
-      return 0;
+      const seq = markSeq(turn.id);
+      if (how === "scrub" || seq === undefined || !live.current.loadThrough) {
+        node.scrollTop = 0;
+        return 0;
+      }
+      const want = { key: turn.key, how, sessionId: live.current.sessionId };
+      awaiting.current = want;
+      live.current.loadThrough(seq).then(
+        // The last page's snapshot commits on the next frame; a turn not drawn by then will not be.
+        () => requestAnimationFrame(() => requestAnimationFrame(() => land(true))),
+        () => {
+          if (awaiting.current === want) awaiting.current = undefined;
+        },
+      );
+      return undefined;
     }
     const target = () =>
       Math.min(turnScrollTop(turn, live.current.tops), Math.max(0, live.current.total - node.clientHeight));
@@ -341,6 +386,7 @@ export function ThreadMinimap({
     }
     return to;
   });
+  jumpTo.current = jump;
 
   // Previous Turn and Next Turn (the app's Ctrl-Opt-Up and Ctrl-Opt-Down) and Previous and Next
   // Bookmarked Prompt (palette actions) are bridge commands that raise these events. They work
@@ -385,9 +431,10 @@ export function ThreadMinimap({
       ["cmux-acpmux-previousBookmarkedPrompt", () => go(target(-1, marked), "bookmark")],
       ["cmux-acpmux-nextBookmarkedPrompt", () => go(target(1, marked), "bookmark")],
     ];
-    // The reader's own scroll ends a pending step.
+    // The reader's own scroll ends a pending step, and a jump waiting for its turn to load.
     const reader = () => {
       pending.key = undefined;
+      awaiting.current = undefined;
     };
     const node = scroller.current;
     const inputs = ["wheel", "pointerdown", "touchstart", "keydown"] as const;

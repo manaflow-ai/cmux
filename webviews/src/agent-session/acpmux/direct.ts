@@ -5496,6 +5496,19 @@ export class AcpmuxDirectClient {
     this.loadingOlder = loading;
     return loading;
   }
+  /// Pages older history in until the prompt `seq` (a `user_message` record) is drawn: a jump on the
+  /// rail to a prompt the transcript has not loaded yet. Stops once it is, once acpmux has nothing
+  /// older, when a page moves nothing, or on a chat switch.
+  async loadThrough(seq: number): Promise<void> {
+    const generation = this.selectionGeneration;
+    for (let asks = 0; asks < 1000; asks++) {
+      if (generation !== this.selectionGeneration || this.closed) return;
+      const drawnFrom = Math.min(this.turnOpener?.seq ?? Infinity, this.firstSeq ?? Infinity);
+      if (drawnFrom <= seq || this.historyExhausted || (this.firstSeq ?? 1) <= 1) return;
+      await this.loadOlder();
+      if ((this.turnOpener?.seq ?? Infinity) >= drawnFrom && (this.firstSeq ?? Infinity) >= drawnFrom) return;
+    }
+  }
   private async fetchOlder(): Promise<void> {
     if (!this.selectedSessionId || !this.firstSeq || this.firstSeq <= 1 || this.historyExhausted) return;
     const sessionId = this.selectedSessionId;

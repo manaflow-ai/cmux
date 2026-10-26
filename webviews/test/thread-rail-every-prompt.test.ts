@@ -4,7 +4,8 @@
 // 2026-10-25: "if you haven't loaded in chats ... the session rails ... should be able to still,
 // like, gradually load that stuff in"). A long chat opens on its tail; the pane then reads the
 // chat's older turn-start records from acpmux, a page per idle callback, and the rail grows a
-// tick for each prompt that opens a turn.
+// tick for each prompt that opens a turn. A click on a tick whose turn is not loaded pages the
+// transcript in through it and lands on its prompt.
 //
 // Before: a 500-prompt chat opened on its last 50 turns drew 50 ticks until the reader scrolled up.
 //
@@ -89,6 +90,46 @@ await requireBrowserLane("thread-rail-every-prompt.test.ts", async () => {
     expect(labels[0]).toContain("Question 1");
     expect(labels[TURNS - TAIL]).toContain(`Question ${TURNS - TAIL + 1}`);
     expect(labels.at(-1)).toContain(`Question ${TURNS}`);
+    await page.close();
+  });
+
+  test("a click on an earlier prompt's tick loads its turn and lands on it", async () => {
+    const page = await pane!.open({ width: 1200, height: 800 });
+    await page.waitForFunction((count) => document.querySelectorAll(".acpmux-minimap__tick").length === count, TURNS, {
+      timeout: 30_000,
+    });
+    // Question 400, well above the 50 turns loaded.
+    const target = 399;
+    await page.evaluate((index) => {
+      const tick = document.querySelector<HTMLElement>(`.acpmux-minimap__tick[data-tick="${index}"]`)!;
+      tick.click();
+    }, target);
+    const bubble = page.locator(".cv-user__bubble", { hasText: /^Question 400$/ });
+    await bubble.waitFor({ timeout: 30_000 });
+    // It lands near the top of the transcript (LANDING_OFFSET below it), and the rail lights it.
+    await page.waitForFunction(
+      () => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
+        const bubble = [...document.querySelectorAll<HTMLElement>(".cv-user__bubble")].find(
+          (node) => node.textContent?.trim() === "Question 400",
+        );
+        if (!bubble) return false;
+        const top = bubble.getBoundingClientRect().top - scroller.top;
+        return Math.abs(top - 35) < 4;
+      },
+      undefined,
+      { timeout: 30_000 },
+    );
+    const current = await page.evaluate(
+      (index) =>
+        document
+          .querySelector<HTMLElement>(`.acpmux-minimap__tick[data-tick="${index}"]`)
+          ?.getAttribute("aria-current"),
+      target,
+    );
+    expect(current).toBe("true");
+    // Still every prompt, once each.
+    expect(await page.locator(".acpmux-minimap__tick").count()).toBe(TURNS);
     await page.close();
   });
 });
