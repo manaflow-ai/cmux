@@ -433,14 +433,21 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             println!("{}", web_line(Some(&url), show_token));
             // The browser gets the whole link: without its token the page cannot connect.
+            // The opener's own output stays out of the terminal: `xdg-open` with no
+            // browser prints the link it was given, token and all.
             if !no_open {
-                let _ = std::process::Command::new(if cfg!(target_os = "macos") {
-                    "open"
-                } else {
-                    "xdg-open"
-                })
-                .arg(&url)
-                .spawn();
+                let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+                if let Err(e) = std::process::Command::new(opener)
+                    .arg(&url)
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
+                {
+                    eprintln!(
+                        "acpmux: could not run {opener} ({e}); `acpmux web --no-open --show-token` prints the link"
+                    );
+                }
             }
             Ok(())
         }
@@ -684,14 +691,14 @@ fn web_line(url: Option<&str>, show_token: bool) -> String {
 /// What a hidden token reads as in `daemon config`.
 const HIDDEN_TOKEN: &str = "(token hidden: add --show-token)";
 
-/// config.json as `daemon config` prints it: the file as written, with the
-/// bearer tokens in it (`websocket.token`, a peer's `token` and `peerToken`)
-/// replaced by [`HIDDEN_TOKEN`] (ergo-walk4, 2026-10-26: "`acpmux daemon config`
-/// human output prints websocket.token in full"). The file's own layout stays
-/// unless the text with the tokens replaced does not read back as the redacted
-/// config (a token spelled with other escapes than serde_json writes): then the
-/// redacted config is printed anew. A file that is not JSON is named, not
-/// printed: it may hold a token all the same.
+/// config.json as `daemon config` prints it: its JSON printed anew (keys
+/// sorted) with the bearer tokens in it replaced by [`HIDDEN_TOKEN`]: the
+/// listener's `websocket.token`, a peer's `token` and `peerToken`, and the
+/// userinfo, query and fragment of a peer's `url` (ergo-walk4, 2026-10-26:
+/// "`acpmux daemon config` human output prints websocket.token in full").
+/// Never the file's own text: a duplicate key or an escaped spelling keeps a
+/// token there that the parsed config no longer shows. A file that is not
+/// JSON is named, not printed: it may hold a token all the same.
 fn config_text_without_tokens(text: &str) -> String {
     let mut value = match serde_json::from_str::<Value>(text) {
         Ok(value) => value,
@@ -701,35 +708,27 @@ fn config_text_without_tokens(text: &str) -> String {
             );
         }
     };
-    let mut secrets = Vec::new();
-    let mut take = |slot: Option<&mut Value>| {
+    let hide = |slot: Option<&mut Value>| {
         if let Some(slot) = slot
-            && let Some(secret) = slot.as_str().filter(|s| !s.is_empty())
+            && slot.as_str().is_some_and(|s| !s.is_empty())
         {
-            secrets.push(secret.to_owned());
             *slot = Value::String(HIDDEN_TOKEN.into());
         }
     };
-    take(value.pointer_mut("/websocket/token"));
+    hide(value.pointer_mut("/websocket/token"));
     if let Some(peers) = value.get_mut("peers").and_then(Value::as_object_mut) {
         for peer in peers.values_mut() {
-            take(peer.get_mut("token"));
-            take(peer.get_mut("peerToken"));
+            hide(peer.get_mut("token"));
+            hide(peer.get_mut("peerToken"));
+            if let Some(url) = peer.get_mut("url")
+                && let Some(text) = url.as_str()
+            {
+                let bare = crate::server::url_without_secrets(text);
+                if bare != text {
+                    *url = Value::String(format!("{bare} {HIDDEN_TOKEN}"));
+                }
+            }
         }
-    }
-    if secrets.is_empty() {
-        return text.to_owned();
-    }
-    let hidden = serde_json::to_string(HIDDEN_TOKEN).unwrap_or_default();
-    let mut out = text.to_owned();
-    for secret in &secrets {
-        if let Ok(quoted) = serde_json::to_string(secret) {
-            out = out.replace(&quoted, &hidden);
-        }
-    }
-    // Kept only when it reads back as the redacted config: no spelling of a token is left.
-    if serde_json::from_str::<Value>(&out).ok().as_ref() == Some(&value) {
-        return out;
     }
     serde_json::to_string_pretty(&value).unwrap_or_else(|_| HIDDEN_TOKEN.into())
 }

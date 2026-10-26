@@ -326,6 +326,43 @@ fn web_no_open_prints_the_link_without_its_token_unless_asked() {
     assert!(shown.contains(&format!("/?token={token}")), "{shown}");
     let json: Value = serde_json::from_str(&cli(&["--json", "web"])).unwrap();
     assert!(json["url"].as_str().unwrap().ends_with(&format!("/?token={token}")), "{json}");
+    // Plain `acpmux web` hands the browser opener the whole link, and the opener's own
+    // output (`xdg-open` with no browser prints the link) stays out of the terminal.
+    use std::os::unix::fs::PermissionsExt;
+    let bin = home.join("fake-bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let got = home.join("opened.txt");
+    for name in ["open", "xdg-open"] {
+        let script = bin.join(name);
+        let g = got.display();
+        let body = format!(
+            "#!/bin/sh\necho \"opener: $1\"\necho \"opener: $1\" >&2\n\
+             printf '%s' \"$1\" > {g}.tmp && mv {g}.tmp {g}\n"
+        );
+        std::fs::write(&script, body).unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let mut opened = daemon_env::acpmux(&home);
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+    let out = opened
+        .arg("web")
+        .env("ACPMUX_HOME", &home)
+        .env("ACPMUX_SOCKET", home.join("s.sock"))
+        .env("PATH", path)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let printed =
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert!(!printed.contains(&token), "acpmux web printed the token: {printed}");
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !got.exists() {
+        assert!(std::time::Instant::now() < deadline, "the opener never ran");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let url = std::fs::read_to_string(&got).unwrap();
+    assert!(url.ends_with(&format!("/?token={token}")), "the browser gets the whole link: {url}");
     stop(child);
     let _ = std::fs::remove_dir_all(&home);
 }
@@ -340,12 +377,16 @@ fn daemon_config_prints_the_file_without_its_tokens_unless_asked() {
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(&home).unwrap();
     const WS_PEER_TOKEN: &str = "ws-peer-bearer-token-55555";
+    const URL_USER_TOKEN: &str = "url-userinfo-token-77777";
+    const URL_QUERY_TOKEN: &str = "url-query-token-88888";
     let file = serde_json::to_string_pretty(&json!({
         "permissionPolicy": "ask",
         "websocket": {"listen": "127.0.0.1:0", "token": TOKEN, "tokenRotated": 1},
         "peers": {
             "box": {"url": "ssh://box", "peerToken": PEER_TOKEN},
             "web": {"url": "ws://10.0.0.2:47811", "token": WS_PEER_TOKEN},
+            // A token a user wrote into a peer's URL.
+            "typed": {"url": format!("wss://me:{URL_USER_TOKEN}@10.0.0.3/x?token={URL_QUERY_TOKEN}#f")},
         },
     }))
     .unwrap();
@@ -362,12 +403,13 @@ fn daemon_config_prints_the_file_without_its_tokens_unless_asked() {
         String::from_utf8(out.stdout).unwrap()
     };
     let plain = cli(&["daemon", "config"]);
-    for secret in [TOKEN, PEER_TOKEN, WS_PEER_TOKEN] {
+    for secret in [TOKEN, PEER_TOKEN, WS_PEER_TOKEN, URL_USER_TOKEN, URL_QUERY_TOKEN] {
         assert!(!plain.contains(secret), "daemon config printed {secret}: {plain}");
     }
     assert!(plain.contains("--show-token"), "{plain}");
     // Everything else stays as the file has it.
     assert!(plain.contains("\"listen\": \"127.0.0.1:0\""), "{plain}");
+    assert!(plain.contains("wss://10.0.0.3/x (token hidden"), "{plain}");
     assert!(plain.contains("\"url\": \"ssh://box\""), "{plain}");
     assert!(plain.contains("\"tokenRotated\": 1"), "{plain}");
     let shown = cli(&["daemon", "config", "--show-token"]);
@@ -384,6 +426,17 @@ fn daemon_config_prints_the_file_without_its_tokens_unless_asked() {
     let escaped = cli(&["daemon", "config"]);
     assert!(!escaped.contains("aved-listener-token"), "{escaped}");
     assert!(escaped.contains("127.0.0.1:0"), "{escaped}");
+    // Nor a token in a peer that a later duplicate key hides from the parsed config.
+    std::fs::write(
+        home.join("config.json"),
+        format!(
+            r#"{{"peers": {{"a": {{"url": "ssh://a", "peerToken": "{PEER_TOKEN}"}}, "a": {{"url": "ssh://a"}}}}}}"#
+        ),
+    )
+    .unwrap();
+    let duplicate = cli(&["daemon", "config"]);
+    assert!(!duplicate.contains(PEER_TOKEN), "{duplicate}");
+    assert!(duplicate.contains("ssh://a"), "{duplicate}");
     // A file that does not parse is not printed: it may hold a token.
     std::fs::write(home.join("config.json"), format!("{{\"websocket\": {{\"token\": \"{TOKEN}\""))
         .unwrap();
