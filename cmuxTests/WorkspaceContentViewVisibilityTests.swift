@@ -574,6 +574,17 @@ final class WorkspaceContentViewVisibilityTests {
             workspace.objectWillChange.sink { _ in workspacePublishes += 1 }
         }
         defer { publishes.forEach { $0.cancel() } }
+        // Count handled notifications so the zero counts below can't pass
+        // because the observers never ran.
+        var handledChanges = 0
+        for workspace in tabManager.tabs {
+            workspace.sharedLiveAgentIndexChangeHandledForTesting = { handledChanges += 1 }
+        }
+        defer {
+            for workspace in tabManager.tabs {
+                workspace.sharedLiveAgentIndexChangeHandledForTesting = nil
+            }
+        }
         // The post a full reload makes (SharedLiveAgentIndex.startReload).
         NotificationCenter.default.post(
             name: .sharedLiveAgentIndexDidChange,
@@ -581,6 +592,11 @@ final class WorkspaceContentViewVisibilityTests {
         )
         await Self.drainMainRunLoop(for: window)
         counts.isMeasuringInvalidations = false
+
+        try #require(
+            handledChanges == tabManager.tabs.count,
+            "Every workspace must handle the reload (\(handledChanges) of \(tabManager.tabs.count))."
+        )
 
         #expect(
             workspacePublishes == 0,
