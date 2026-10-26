@@ -14,7 +14,7 @@ import Darwin
 /// only. ``processes(_:)`` reads the footprints off the main actor.
 @MainActor
 struct AppMemoryModel: MemorySnapshotModel {
-    unowned let services: AppServices
+    let services: AppServices
     /// The budgets the report shows (``DebugMemoryControl/budget``).
     let budget: SubsystemBudget
 
