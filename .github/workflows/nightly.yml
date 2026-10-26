@@ -3564,10 +3564,11 @@ jobs:
   pick-nightly-sign-runner:
     needs: [decide, prepare-nightly-variant]
     if: ${{ !cancelled() && needs.prepare-nightly-variant.result == 'success' }}
-    # A failed pick (a runner that never started, say) reads as success to the signing jobs,
-    # whose runs-on then falls back to vars.MACOS_RUNNER_26: a pick never blocks signing.
+    # A failed pick reads as success to the signing jobs, whose runs-on then falls back to
+    # vars.MACOS_RUNNER_26: a pick never blocks signing. It runs on GitHub's hosted runner, as
+    # prepare-nightly-variant does, so it never waits on a queue of its own before that fallback.
     continue-on-error: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       # The queue janitor's pool snapshot (an artifact).
