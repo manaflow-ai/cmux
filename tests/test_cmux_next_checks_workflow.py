@@ -2552,7 +2552,16 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
         spec = importlib.util.spec_from_file_location(
             "next_macos_cascade", WORKFLOW.parents[2] / "scripts/ci/next_macos_cascade.py")
         module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        # @dataclass reads its module from sys.modules while the module executes.
+        previous = sys.modules.get(spec.name)
+        sys.modules[spec.name] = module
+        try:
+            spec.loader.exec_module(module)
+        finally:
+            if previous is None:
+                sys.modules.pop(spec.name, None)
+            else:
+                sys.modules[spec.name] = previous
         return module.CASCADE_JOBS
 
     def context(self, event: str, attempt: int, reading: tuple[str, str] | None) -> dict:
