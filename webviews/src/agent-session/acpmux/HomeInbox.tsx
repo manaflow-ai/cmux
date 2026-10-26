@@ -42,10 +42,12 @@ export type HomeInboxActions = {
 /// Answers another chat's ask from the home's inbox (`chat.asks.answer`, CmuxNextAgentPane
 /// AgentPaneAskAnswer): the host takes it only on the person's own click or key, for an ask still
 /// pending in a chat on this Mac's acpmux, with that ask's allow once or deny once. A host that does
-/// not answer it here (`unsupported`: another computer's chat or daemon; `unknown_op` on the shared
-/// page host, or `unsupported` from the pane's own, before the op) opens the chat, whose card
-/// answers it; any other refusal rejects, and the row says so.
-const NOT_ANSWERED_HERE = new Set(["unsupported", "cmux.protocol.unknown_op"]);
+/// not answer it here opens the chat, whose card answers it: `unsupported` (another computer's chat
+/// or daemon, or the pane's own host before the op) and `native.invalid_request` (the shared page
+/// host before the op: `callPageHost` reports its `cmux.protocol.unknown_op` so; the op's own
+/// refusals of a bad request are `unsupported`, so nothing the op answers lands here). Any other
+/// refusal rejects, and the row says so.
+const NOT_ANSWERED_HERE = new Set(["unsupported", "native.invalid_request"]);
 
 export async function answerFromHome(
   call: (method: string, params: Record<string, unknown>) => Promise<unknown>,

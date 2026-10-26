@@ -261,7 +261,7 @@ test("an answer the host can't give here opens the chat and keeps its row", asyn
   await inbox.unmount();
 });
 
-test("answerFromHome: answered, opened on unsupported or unknown_op, and any other refusal rejects", async () => {
+test("answerFromHome: answered, opened on unsupported or invalid_request, and any other refusal rejects", async () => {
   const item = { sessionId: "tests", permissionId: "p-tests" } as NeedsYouItem;
   const choice = { id: "p-tests-yes", label: "Allow once", tone: "allow" } as const;
   const calls: unknown[] = [];
@@ -283,7 +283,7 @@ test("answerFromHome: answered, opened on unsupported or unknown_op, and any oth
     { sessionId: "tests", permissionId: "p-tests", optionId: "p-tests-yes" },
   ]);
   expect(await answer("unsupported")).toBe("opened");
-  expect(await answer("cmux.protocol.unknown_op")).toBe("opened");
+  expect(await answer("native.invalid_request")).toBe("opened");
   expect(opened).toEqual(["tests", "tests"]);
   await expect(answer("refused")).rejects.toThrow();
   expect(opened).toHaveLength(2);
