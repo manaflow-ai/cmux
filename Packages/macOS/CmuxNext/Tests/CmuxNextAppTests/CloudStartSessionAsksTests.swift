@@ -159,7 +159,7 @@ struct CloudStartSessionAsksTests {
     /// A caller's wait that never ends by itself (the run's end cancels it).
     static let waits: @MainActor (Duration) async -> Void = { _ in try? await Task.sleep(for: .seconds(3600)) }
 
-    static func answer(_ runs: CloudStartSessionRuns, _ key: CloudStartSessionRuns.Key = Self.key, within: Duration = .seconds(190),
+    static func answer(_ runs: CloudStartSessionRuns, key: CloudStartSessionRuns.Key = Self.key, within: Duration = .seconds(190),
                        _ work: @escaping @MainActor () async throws -> CloudStartSessionRuns.Fields) async throws -> CloudStartSessionRuns.Fields {
         try await runs.answer(key, within: within, pending: Self.pending, forgotten: Self.forgotten, work)
     }
@@ -313,7 +313,7 @@ struct CloudStartSessionAsksTests {
         let gates = keys.map { _ in AsyncStream<Void>.makeStream() }
         defer { for gate in gates { gate.continuation.finish() } }
         for (key, gate) in zip(keys, gates) {
-            _ = try await Self.answer(runs, key) {
+            _ = try await Self.answer(runs, key: key) {
                 for await _ in gate.stream { break }
                 return ["session_id": .string("s")]
             }
@@ -334,7 +334,7 @@ struct CloudStartSessionAsksTests {
         defer { open.finish() }
         runs.sleep = { _ in }
         // Mine answers pending, then ends with nobody waiting: kept for my next ask.
-        _ = try await Self.answer(runs, mine) {
+        _ = try await Self.answer(runs, key: mine) {
             for await _ in gate { break }
             return ["session_id": .string("mine")]
         }
@@ -343,7 +343,7 @@ struct CloudStartSessionAsksTests {
         #expect(runs.keptCount == 1)
         runs.sleep = Self.waits
         let started = Box(0)
-        let fields = try await Self.answer(runs, theirs) {
+        let fields = try await Self.answer(runs, key: theirs) {
             started.value += 1
             return ["session_id": .string("theirs")]
         }
