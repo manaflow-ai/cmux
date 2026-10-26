@@ -326,7 +326,7 @@ struct MacMessageLayout {
 @MainActor
 final class MacMessageLayoutCache {
     private var layouts: [String: (MacMessageRowModel, CGFloat, MacMessageLayout)] = [:]
-    private var texts: [String: (String, Bool, [ConversationMention], [ConversationTextRun], NSAttributedString)] = [:]
+    private var texts: [String: (String, Bool, [ConversationMention], [ConversationTextRun], [ConversationTextLink], NSAttributedString)] = [:]
 
     func layout(_ model: MacMessageRowModel, width: CGFloat) -> MacMessageLayout {
         if let (cachedModel, cachedWidth, layout) = layouts[model.rowID], cachedModel == model, cachedWidth == width {
@@ -345,12 +345,13 @@ final class MacMessageLayoutCache {
         let body = isAudio ? model.message.macBodyText : model.bodyText
         let mentions = isAudio ? [] : model.linkSplit.map { $0.bodyMentions(model.message.mentions) } ?? model.message.mentions
         let runs = isAudio ? [] : model.linkSplit.map { $0.bodyRuns(model.message.textRuns) } ?? model.message.textRuns
-        if let (text, outgoing, cachedMentions, cachedRuns, value) = texts[model.rowID], text == body, outgoing == model.isOutgoing,
-           cachedMentions == mentions, cachedRuns == runs {
+        let links = isAudio ? [] : ConversationTextLink.bubbleLinks(model.message.links, offset: model.linkSplit?.bodyOffset ?? 0, bodyLength: body.utf16.count)
+        if let (text, outgoing, cachedMentions, cachedRuns, cachedLinks, value) = texts[model.rowID], text == body, outgoing == model.isOutgoing,
+           cachedMentions == mentions, cachedRuns == runs, cachedLinks == links {
             return value
         }
-        let value = MacMessageLayout.attributedBody(body, outgoing: model.isOutgoing, mentions: mentions, meID: model.meID, runs: runs)
-        texts[model.rowID] = (body, model.isOutgoing, mentions, runs, value)
+        let value = MacMessageLayout.attributedBody(body, outgoing: model.isOutgoing, mentions: mentions, meID: model.meID, runs: runs, links: links)
+        texts[model.rowID] = (body, model.isOutgoing, mentions, runs, links, value)
         return value
     }
 
@@ -379,7 +380,8 @@ extension MacMessageLayout {
         outgoing: Bool,
         mentions: [ConversationMention] = [],
         meID: String? = nil,
-        runs: [ConversationTextRun] = []
+        runs: [ConversationTextRun] = [],
+        links: [ConversationTextLink] = []
     ) -> NSAttributedString {
         let t = MacConversationTheme.self
         let result = NSMutableAttributedString(string: text, attributes: [
@@ -394,6 +396,11 @@ extension MacMessageLayout {
         for item in ConversationDataDetection.items(in: text) {
             result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: item.range)
             if let url = item.url { result.addAttribute(.macConversationLink, value: url, range: item.range) }
+        }
+        // Markdown links (an agent's `[label](url)`): the label, underlined, opens the URL.
+        for link in links where NSMaxRange(link.range) <= result.length {
+            result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: link.range)
+            result.addAttribute(.macConversationLink, value: link.url, range: link.range)
         }
         MacMentionStyle.apply(to: result, mentions: mentions, meID: meID, outgoing: outgoing, font: t.bodyFont)
         return result
