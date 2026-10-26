@@ -1,5 +1,6 @@
 import CmuxNextBridge
 import CmuxNextCompat
+import CmuxNextMemory
 import CmuxNextSettings
 
 // Browser hibernation and the memory-budgeted warm sets
@@ -30,4 +31,18 @@ extension AppServices {
         // Critical keeps only what shows, the parked workspaces too.
         if level == .critical { windows.controllers.forEach { $0.releaseParked() } }
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Sets the memory coordinator's pressure override (`nil` clears it) and hands the coordinator's
+    /// resulting level to browser hibernation in the same turn, so both act on one level.
+    ///
+    /// - Parameter level: The level to hold, or nil for the kernel's level.
+    /// - Returns: The coordinator's level after the change.
+    @discardableResult
+    func overrideMemoryPressure(_ level: MemoryPressureLevel?) -> MemoryPressureLevel {
+        memoryCoordinator.pressureOverride = level
+        cache.hibernation?.pressureDidChange(memoryCoordinator.level)
+        return memoryCoordinator.level
+    }
+    #endif
 }

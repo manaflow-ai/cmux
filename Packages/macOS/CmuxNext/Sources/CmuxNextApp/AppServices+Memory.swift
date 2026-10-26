@@ -7,6 +7,15 @@
 // package name order, so parallel changes add lines and do not edit the same ones. It is its own type,
 // not an AppServices extension, so these lines never grow the AppServices god type.
 
+import CmuxNextMemory
+import CmuxNextWakeups
+
+/// A budgeted frame queue runs the coordinator's release slices: on a later frame, after input and visible
+/// work, never in the turn that asks (Chrome posts memory release as BEST_EFFORT tasks).
+extension FrameBatchQueue: MemoryReleaseSlicer {
+    public func scheduleSlice(_ slice: @escaping @MainActor () -> Void) { enqueue(slice) }
+}
+
 /// Registers every package's memory consumers with the app's memory coordinator.
 struct AppMemoryConsumers {
     /// The services whose subsystems own the consumers.
@@ -15,6 +24,7 @@ struct AppMemoryConsumers {
     /// AppServices' init calls this once, after the services the consumers belong to are built. Each
     /// consumer's owner keeps its registration token; nothing here stores one.
     func registerMemoryConsumers() {
+        _ = services.memoryCoordinator  // follows pressure from launch, before any consumer registers
         // One line per package, sorted by package name, for example:
         // registerTabs()  // CmuxNextTabs
     }
