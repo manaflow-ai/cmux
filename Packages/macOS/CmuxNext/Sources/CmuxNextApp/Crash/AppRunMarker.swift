@@ -6,6 +6,7 @@ import Foundation
 import os
 
 /// Descriptor the fatal-signal handler writes the signal number into.
+// crash-allow: signal-handler state, an aligned Int32 with a constant initial value (an Atomic would run its lazy initializer in the handler); set on the main thread before installHandlers, then cleared once by the handler or a clean exit.
 nonisolated(unsafe) private var fatalSignalDescriptor: Int32 = -1
 
 /// Writes the signal number ("11\n") with one async-signal-safe write(2),

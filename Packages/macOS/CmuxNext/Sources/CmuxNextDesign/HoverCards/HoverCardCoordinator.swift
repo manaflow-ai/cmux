@@ -447,7 +447,7 @@ public final class HoverCardCoordinator {
             "pending_target": { if case .pending(let target, _) = machine.phase { target.id.rawValue } else { "-" } }(),
             "shown_target": machine.shownTarget?.id.rawValue ?? "-",
             "quiet": "\(machine.quiet)",
-            "card_windows": "\(HoverCardPanel.liveInstances)",
+            "card_windows": "\(HoverCardPanel.liveInstances.load(ordering: .relaxed))",
             "card_showing": "\(panel?.isShowingCard == true)",
             "card_frame": panel.map { NSStringFromRect($0.cardFrame) } ?? "-",
             "anchor_frame": panel.map { NSStringFromRect($0.anchorFrame) } ?? "-",
