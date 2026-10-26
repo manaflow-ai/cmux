@@ -575,3 +575,53 @@ fn shutdown_raises_the_worker_of_a_running_best_effort_block_item_once() {
     let stats = lane_stats(&work, Lane::Files);
     assert_eq!(stats.shutdown_raises + stats.shutdown_raise_refusals, 1, "{stats:?}");
 }
+
+/// What a counting [`boost::Booster`] saw: the workers it raised and the classes the raises ended at.
+#[derive(Default)]
+struct BoostLog {
+    raised: Vec<boost::Target>,
+    ended: Vec<ThreadQos>,
+}
+
+fn counting_booster(log: &Arc<Mutex<BoostLog>>) -> boost::Booster {
+    let log = Arc::clone(log);
+    boost::Booster::new(move |target| {
+        log.lock().unwrap().raised.push(target);
+        let log = Arc::clone(&log);
+        Some(Box::new(move |class| log.lock().unwrap().ended.push(class)))
+    })
+}
+
+/// Task 118, on every platform and user: the raise starts on the block item's own worker while it
+/// runs, and the worker ends it after the item with its own class's QoS (so the worker does not stay
+/// at UserInitiated for later items).
+#[test]
+fn shutdown_raise_starts_on_the_item_worker_and_ends_after_it_at_the_worker_class() {
+    let log = Arc::new(Mutex::new(BoostLog::default()));
+    let work =
+        Work::with_booster(config("t-sb", 2, Duration::from_secs(30), 0), counting_booster(&log))
+            .unwrap();
+    let (release, hold) = channel::<()>();
+    let (worker_tx, worker) = channel();
+    work.post(Priority::BestEffort, Lane::Files, Shutdown::BlockShutdown, move || {
+        worker_tx.send(boost::Target::current()).unwrap();
+        let _ = hold.recv();
+    })
+    .unwrap();
+    let worker = worker.recv_timeout(WAIT).unwrap();
+    let report = work.shutdown_until(Instant::now() + Duration::from_millis(20));
+    assert_eq!(report, ShutdownReport { dropped: 0, unfinished: 1 });
+    {
+        let log = log.lock().unwrap();
+        assert_eq!(log.raised, vec![worker], "the raise is not on the item's worker");
+        assert!(log.ended.is_empty(), "the raise ended before the item");
+    }
+    let stats = lane_stats(&work, Lane::Files);
+    assert_eq!((stats.shutdown_raises, stats.shutdown_raise_refusals), (1, 0), "{stats:?}");
+    drop(release);
+    // The worker ends the raise before the item stops holding shutdown.
+    assert_eq!(work.shutdown(), ShutdownReport::default());
+    let log = log.lock().unwrap();
+    assert_eq!(log.ended, vec![WorkerClass::BestEffort.qos()]);
+    assert_eq!(log.raised.len(), 1);
+}

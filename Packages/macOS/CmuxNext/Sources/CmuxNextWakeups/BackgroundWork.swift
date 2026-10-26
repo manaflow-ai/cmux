@@ -50,9 +50,10 @@ import Dispatch
 /// (Chrome DCHECKs such a post): nothing would wait for it, and Debug records its site.
 ///
 /// Quit waits for block-shutdown lane items, so shutdown raises them, as Chrome runs BLOCK_SHUTDOWN tasks at a
-/// normal thread priority once shutdown starts: a queued one moves to ``WorkPriority/userBlocking`` and starts at
-/// `.userInitiated`, a running one below that gets one `.userInitiated` override on its thread until it ends,
-/// and one submitted later is queued at ``WorkPriority/userBlocking``. A block-shutdown
+/// normal thread priority once shutdown starts: a queued one, and one submitted later, starts at `.userInitiated`,
+/// and a running one below that gets one `.userInitiated` override on its thread until it ends. On
+/// ``BlockingLane/files`` a block-shutdown item keeps its level's slot, so each level stays serial (a later save
+/// never overtakes an earlier one) and the levels still run side by side. A block-shutdown
 /// ``task(_:shutdown:fileID:line:_:)`` keeps its priority: raising a running Swift task needs
 /// `Task.escalatePriority`, which macOS 14 and 15 lack (see the escalation note above).
 public final class BackgroundWork: Sendable {
@@ -329,7 +330,7 @@ public final class BackgroundWork: Sendable {
     /// new items other than block-shutdown ones (a refused ``task(_:shutdown:fileID:line:_:)`` throws
     /// `CancellationError`, and so does a continue-on-shutdown task that had not started), lifts the
     /// best-effort fence so held block-shutdown items run, and raises block-shutdown lane items to
-    /// `.userInitiated` (queued ones move to ``WorkPriority/userBlocking``, running ones get one override each).
+    /// `.userInitiated` (queued ones start at it, running ones get one override each).
     /// Started continue-on-shutdown items run on. A second
     /// call does nothing more. Quit calls it before the engines stop, so the lanes drain alongside them
     /// (QuitCompletion).

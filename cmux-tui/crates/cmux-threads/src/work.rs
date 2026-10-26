@@ -371,11 +371,23 @@ impl Work {
     /// Builds the lanes. On Linux it also starts the launcher thread, which keeps the calling thread's
     /// nice value: build the `Work` on a thread at the process's base nice (the composition root).
     pub fn new(config: WorkConfig) -> io::Result<Work> {
+        Work::with_booster(config, boost::Booster::system())
+    }
+
+    /// [`Work::new`] with the seam that raises a running block item's worker at shutdown; tests
+    /// count its raises and ends.
+    fn with_booster(config: WorkConfig, booster: boost::Booster) -> io::Result<Work> {
         let config = Arc::new(config);
         let launcher = Launcher::start(&config)?.map(Arc::new);
         Ok(Work {
-            lanes: Lane::ALL
-                .map(|lane| Arc::new(LaneShared::new(lane, Arc::clone(&config), launcher.clone()))),
+            lanes: Lane::ALL.map(|lane| {
+                Arc::new(LaneShared::new(
+                    lane,
+                    Arc::clone(&config),
+                    launcher.clone(),
+                    booster.clone(),
+                ))
+            }),
         })
     }
 
@@ -580,53 +592,7 @@ struct LaneState {
     spawn_failures: u64,
     panics: u64,
     /// Block items running on a BestEffort or Idle worker: the ones shutdown raises.
-    raisable: Vec<RunningBlock>,
-    next_raisable: u64,
-    shutdown_raises: u64,
-    shutdown_raise_refusals: u64,
-}
-
-/// A block item running on a BestEffort or Idle worker.
-struct RunningBlock {
-    id: u64,
-    worker: boost::Target,
-    /// Shutdown raised it (at most once); the worker ends the raise after the item.
-    raised: bool,
-    boost: Option<boost::Boost>,
-}
-
-impl LaneState {
-    /// Raises the worker of every tracked block item shutdown has not raised yet.
-    fn raise_running(&mut self) {
-        for running in self.raisable.iter_mut().filter(|running| !running.raised) {
-            running.raised = true;
-            // Under the lock: the worker untracks its item under it, so the raise never outlives it.
-            running.boost = boost::start(running.worker);
-            if running.boost.is_some() {
-                self.shutdown_raises += 1;
-            } else {
-                self.shutdown_raise_refusals += 1;
-            }
-        }
-    }
-
-    /// Tracks a block item the calling worker takes below the foreground class; raised at once when
-    /// shutdown has started. Returns its id.
-    fn track(&mut self, worker: boost::Target) -> u64 {
-        let id = self.next_raisable;
-        self.next_raisable += 1;
-        self.raisable.push(RunningBlock { id, worker, raised: false, boost: None });
-        if self.closed {
-            self.raise_running();
-        }
-        id
-    }
-
-    /// Stops tracking item `id`; returns its raise, which the worker ends.
-    fn untrack(&mut self, id: u64) -> Option<boost::Boost> {
-        let index = self.raisable.iter().position(|running| running.id == id)?;
-        self.raisable.swap_remove(index).boost
-    }
+    raises: boost::Raises,
 }
 
 struct LaneShared {
@@ -634,6 +600,8 @@ struct LaneShared {
     limits: [usize; 4],
     config: Arc<WorkConfig>,
     launcher: Option<Arc<Launcher>>,
+    /// Raises the worker of a running block item at shutdown.
+    booster: boost::Booster,
     // Lock carve-out: a short critical section over the queues and counters; no I/O, no item body and
     // no thread spawn runs under it.
     state: Mutex<LaneState>,
@@ -642,12 +610,18 @@ struct LaneShared {
 }
 
 impl LaneShared {
-    fn new(lane: Lane, config: Arc<WorkConfig>, launcher: Option<Arc<Launcher>>) -> LaneShared {
+    fn new(
+        lane: Lane,
+        config: Arc<WorkConfig>,
+        launcher: Option<Arc<Launcher>>,
+        booster: boost::Booster,
+    ) -> LaneShared {
         LaneShared {
             lane,
             limits: lane.limits(config.cpu_width),
             config,
             launcher,
+            booster,
             state: Mutex::new(LaneState {
                 pending: Default::default(),
                 ready: Default::default(),
@@ -662,10 +636,7 @@ impl LaneShared {
                 wakeups: 0,
                 spawn_failures: 0,
                 panics: 0,
-                raisable: Vec::new(),
-                next_raisable: 0,
-                shutdown_raises: 0,
-                shutdown_raise_refusals: 0,
+                raises: boost::Raises::default(),
             }),
             ready_signal: [Condvar::new(), Condvar::new(), Condvar::new()],
             drained: Condvar::new(),
@@ -824,15 +795,18 @@ impl LaneShared {
                 // A block item below the foreground class is tracked, so shutdown can raise this worker.
                 let raisable = (job.shutdown == Shutdown::BlockShutdown
                     && class != WorkerClass::Foreground)
-                    .then(|| state.track(boost::Target::current()));
+                    .then(|| {
+                        let closed = state.closed;
+                        state.raises.track(boost::Target::current(), closed, &self.booster)
+                    });
                 drop(state);
                 CURRENT_LANE.with(|current| *current.borrow_mut() = Some(Arc::clone(&self)));
                 let panicked = catch_unwind(AssertUnwindSafe(job.body)).is_err();
                 CURRENT_LANE.with(|current| current.borrow_mut().take());
                 state = self.lock();
-                if let Some(raise) = raisable.and_then(|id| state.untrack(id)) {
+                if let Some(end) = raisable.and_then(|id| state.raises.untrack(id)) {
                     drop(state);
-                    boost::end(raise, class.qos());
+                    end(class.qos());
                     state = self.lock();
                 }
                 state.panics += u64::from(panicked);
@@ -892,6 +866,25 @@ impl LaneShared {
         let mut state = self.lock();
         state.closed = true;
         let mut dropped = Vec::new();
+        let mut unadmitted = 0;
+        // Items admitted to a BestEffort or Idle worker that has not taken them go back to the front
+        // of their own priority's queue (they were admitted before the queued ones), so the merge
+        // below keeps highest priority first.
+        for class in [WorkerClass::BestEffort, WorkerClass::Idle] {
+            let admitted = std::mem::take(&mut state.ready[class.index()]);
+            unadmitted += admitted.len();
+            for job in admitted.into_iter().rev() {
+                state.pending[job.priority.index()].push_front(job);
+            }
+        }
+        let foreground = WorkerClass::Foreground.index();
+        let (keep, refused): (VecDeque<Job>, VecDeque<Job>) = state.ready[foreground]
+            .drain(..)
+            .partition(|job| job.shutdown == Shutdown::BlockShutdown);
+        state.ready[foreground] = keep;
+        unadmitted += refused.len();
+        dropped.extend(refused);
+        state.running -= unadmitted;
         let mut raised = VecDeque::new();
         for priority in Priority::ALL.into_iter().rev() {
             let (keep, drop): (VecDeque<Job>, VecDeque<Job>) = state.pending[priority.index()]
@@ -900,30 +893,11 @@ impl LaneShared {
             raised.extend(keep);
             dropped.extend(drop);
         }
-        let mut unadmitted = 0;
-        // Idle first, so BestEffort's admitted items end up at the very front.
-        for class in WorkerClass::ALL.into_iter().rev() {
-            let (keep, drop): (VecDeque<Job>, VecDeque<Job>) = state.ready[class.index()]
-                .drain(..)
-                .partition(|job| job.shutdown == Shutdown::BlockShutdown);
-            unadmitted += drop.len();
-            dropped.extend(drop);
-            if class == WorkerClass::Foreground {
-                state.ready[class.index()] = keep;
-            } else {
-                // Back to the queue, ahead of the queued ones: they were admitted first.
-                unadmitted += keep.len();
-                for job in keep.into_iter().rev() {
-                    raised.push_front(job);
-                }
-            }
-        }
-        state.running -= unadmitted;
         for job in &mut raised {
             job.priority = Priority::UserBlocking;
         }
         state.pending[Priority::UserBlocking.index()] = raised;
-        state.raise_running();
+        state.raises.raise_all(&self.booster);
         for signal in &self.ready_signal {
             signal.notify_all();
         }
@@ -980,8 +954,8 @@ impl LaneShared {
             wakeups: state.wakeups,
             spawn_failures: state.spawn_failures,
             panics: state.panics,
-            shutdown_raises: state.shutdown_raises,
-            shutdown_raise_refusals: state.shutdown_raise_refusals,
+            shutdown_raises: state.raises.raised,
+            shutdown_raise_refusals: state.raises.refused,
         }
     }
 }

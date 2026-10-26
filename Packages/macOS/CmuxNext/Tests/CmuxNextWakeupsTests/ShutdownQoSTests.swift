@@ -7,7 +7,8 @@ import Testing
 /// Shutdown raises block-shutdown work (plans/cmux-next/chrome-parity/p02-threads.md, task 118): quit waits for
 /// it, so once shutdown starts a queued block-shutdown item runs at `.userInitiated` and a running one below
 /// that gets one override on its thread, as Chrome runs BLOCK_SHUTDOWN tasks at a normal thread priority after
-/// `TaskTracker::StartShutdown` (base/task/thread_pool/task_tracker.cc). Skip and continue items are untouched.
+/// `TaskTracker::StartShutdown` (base/task/thread_pool/task_tracker.cc). The raise changes the QoS only: on the
+/// files lane each level stays serial and the levels still run side by side. Skip and continue items are untouched.
 @Suite(.timeLimit(.minutes(1))) struct ShutdownQoSTests {
     /// Lane bodies (synchronous) report; the async test awaits the reports (no polling, no sleep).
     struct Signal<Value: Sendable>: Sendable {
@@ -24,6 +25,15 @@ import Testing
             var iterator = stream.makeAsyncIterator()
             return await iterator.next()
         }
+    }
+
+    /// A flag lane bodies set and read.
+    final class Flag: Sendable {
+        private let value = Mutex(false)
+
+        var isSet: Bool { value.withLock { $0 } }
+
+        func set() { value.withLock { $0 = true } }
     }
 
     /// Counts the overrides the lanes start and end, and the threads they start them on.
@@ -56,12 +66,12 @@ import Testing
     /// The QoS class the calling lane thread runs at.
     private static func currentQoS() -> UInt32 { qos_class_self().rawValue }
 
-    @Test func aQueuedIdleBlockItemRunsAtUserInitiatedOnceShutdownStarts() async {
+    @Test func aQueuedIdleBlockItemRunsAtUserInitiatedOnItsOwnSlotOnceShutdownStarts() async {
         let overrides = OverrideLog()
         let work = makeWork("test.shutdown-qos.queued", overrides: overrides)
         let holding = Signal<Void>(), seen = Signal<UInt32>()
         let release = DispatchSemaphore(value: 0)
-        // The idle slot of the files lane is busy until the end of the test.
+        // The idle slot of the files lane is busy until the test releases it.
         work.post(.idle, mayBlock: .files, shutdown: .continueOnShutdown) {
             holding.send(())
             release.wait()  // a lane may block; it holds the files lane's idle slot
@@ -69,13 +79,86 @@ import Testing
         await holding.next()
         work.post(.idle, mayBlock: .files, shutdown: .blockShutdown) { seen.send(Self.currentQoS()) }
         work.beginShutdown()
-        // It runs while the idle slot still holds: shutdown moved it to the user-blocking list.
+        // It keeps its level's slot, so it starts when the idle item ends, at .userInitiated.
+        release.signal()
         let qos = await seen.next()
         #expect(qos == QOS_CLASS_USER_INITIATED.rawValue)
-        // It never ran below user-blocking, so its thread needed no override.
+        // It started after shutdown, already at .userInitiated, so its thread needed no override.
         #expect(overrides.starts == 0)
+        await work.shutdown()
+    }
+
+    /// A save posted after an earlier one at the same level never overtakes it at quit: the files lane promises
+    /// one item per level at a time (``BlockingLane/files``), and Chrome raises the thread, not the sequence.
+    @Test func aQueuedBlockItemStillWaitsForTheRunningOneOfItsLevel() async {
+        let overrides = OverrideLog()
+        let work = makeWork("test.shutdown-qos.order", overrides: overrides)
+        let firstRunning = Signal<Void>(), second = Signal<(firstEnded: Bool, qos: UInt32)>()
+        let firstEnded = Flag()
+        let release = DispatchSemaphore(value: 0)
+        work.post(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) {
+            firstRunning.send(())
+            release.wait()  // a lane may block; the older save holds the best-effort slot
+            firstEnded.set()
+        }
+        await firstRunning.next()
+        work.post(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) {
+            second.send((firstEnded.isSet, Self.currentQoS()))
+        }
+        work.beginShutdown()
+        // A user-blocking item runs on its own slot meanwhile; had shutdown moved the queued save to that slot,
+        // the save would have run (beside the older one) before this item.
+        let userBlocking = Signal<Void>()
+        work.post(.userBlocking, mayBlock: .files, shutdown: .blockShutdown) { userBlocking.send(()) }
+        await userBlocking.next()
+        release.signal()
+        let seen = await second.next()
+        #expect(seen?.firstEnded == true, "the newer save started while the older one still ran")
+        #expect(seen?.qos == QOS_CLASS_USER_INITIATED.rawValue)
+        await work.shutdown()
+    }
+
+    /// A raised block item does not queue behind unrelated work on the user-blocking slot.
+    @Test func aFencedIdleBlockItemRunsWhileTheUserBlockingSlotHangs() async {
+        let overrides = OverrideLog()
+        let work = makeWork("test.shutdown-qos.hung", overrides: overrides)
+        let holding = Signal<Void>(), seen = Signal<UInt32>()
+        let release = DispatchSemaphore(value: 0)
+        work.post(.userBlocking, mayBlock: .files, shutdown: .continueOnShutdown) {
+            holding.send(())
+            release.wait()  // a lane may block; a hung read holds the files lane's user-blocking slot
+        }
+        await holding.next()
+        work.beginBestEffortFence()
+        work.post(.idle, mayBlock: .files, shutdown: .blockShutdown) { seen.send(Self.currentQoS()) }
+        work.beginShutdown()
+        #expect(await seen.next() == QOS_CLASS_USER_INITIATED.rawValue)
         release.signal()
         await work.shutdown()
+    }
+
+    /// Block items queued at two levels run side by side after shutdown, each on its own level's slot.
+    @Test func blockItemsQueuedAtTwoLevelsRunAtTheSameTime() async {
+        let overrides = OverrideLog()
+        let work = makeWork("test.shutdown-qos.parallel", overrides: overrides)
+        let running = Signal<UInt32>()
+        let release = DispatchSemaphore(value: 0)
+        work.beginBestEffortFence()
+        for priority in [WorkPriority.idle, .bestEffort] {
+            work.post(priority, mayBlock: .files, shutdown: .blockShutdown) {
+                running.send(Self.currentQoS())
+                release.wait()  // a lane may block; each holds its level's slot until both run
+            }
+        }
+        work.beginShutdown()
+        // Both start while neither has ended: one serial slot for both would never send the second.
+        let first = await running.next(), second = await running.next()
+        #expect(first == QOS_CLASS_USER_INITIATED.rawValue)
+        #expect(second == QOS_CLASS_USER_INITIATED.rawValue)
+        release.signal()
+        release.signal()
+        await work.shutdown()
+        #expect(overrides.starts == 0)
     }
 
     @Test func aFencedBestEffortBlockItemRunsAtUserInitiatedOnceShutdownStarts() async {
@@ -121,6 +204,34 @@ import Testing
         await overrides.ended.next()
         #expect(overrides.ends == 1)
         #expect(overrides.starts == 1)
+    }
+
+    /// Shutdown starts between the claim of a best-effort block item and its begin on the slot thread: close() does
+    /// not know the thread yet, so the begin puts the override on.
+    @Test func anItemClaimedButNotBegunAtShutdownIsRaisedWhenItBegins() async {
+        let overrides = OverrideLog()
+        let claimed = Signal<Void>(), ran = Signal<UInt>()
+        let hold = DispatchSemaphore(value: 0)
+        let scheduler = LaneScheduler(label: "test.shutdown-qos.claimed", policy: .perPriority, mayBlock: true,
+                                      qosOverride: overrides.seam, hooks: .init(beforeBegin: { _ in
+                                          claimed.send(())
+                                          hold.wait()  // a test seam: holds the slot thread before the begin
+                                      }))
+        let job = LaneJob(id: 1, shutdown: .blockShutdown, work: { ran.send(UInt(bitPattern: pthread_self())) },
+                          abandoned: {}, done: {})
+        guard case .started = scheduler.submit(job, at: .bestEffort, posted: true, unless: { false }) else {
+            Issue.record("the item did not start on the free best-effort slot")
+            return
+        }
+        await claimed.next()
+        #expect(scheduler.close().isEmpty)
+        #expect(overrides.starts == 0, "close() raised a thread it cannot know yet")
+        hold.signal()
+        let thread = await ran.next()
+        await overrides.ended.next()
+        #expect(overrides.starts == 1)
+        #expect(overrides.threads.first == thread, "the override is not on the item's thread")
+        #expect(overrides.ends == 1)
     }
 
     @Test func runningSkipContinueAndUserBlockingItemsGetNoOverride() async {
