@@ -442,6 +442,7 @@ int main() {
 
   // A restarted host gets HELLO, the replay log with the latest values (each verdict asked
   // once) and INITIALIZE, then new posts.
+  cmux_shim_set_focus(browser, 0);  // detached: dropped, and takes no control seq
   Host second;
   CHECK(AttachNew(&second) == 1);
   {
@@ -471,6 +472,14 @@ int main() {
       TlvReader gone(got[5].fields);
       CHECK(gone.Str() == std::optional<std::string>("gone") && got[5].token != 0);
     }
+  }
+  {
+    // The focus posted while detached took no seq: the new host's first ordered op is seq 1,
+    // after input 1.
+    cmux_shim_set_focus(browser, 1);
+    const std::vector<Message> got = second.Read(1);
+    CHECK(got.size() == 1 && got[0].op == cmux_remote::kOpSetFocus && got[0].ctl_seq == 1 &&
+          got[0].after_input == 1);
   }
   // Its HELLO from another generation of the op table ends it.
   seen.ended = -1;

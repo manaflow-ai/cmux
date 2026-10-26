@@ -266,7 +266,9 @@ class Runtime {
   bool Post(uint16_t op, uint32_t token, const TlvWriter& args) {
     CMUX_REMOTE_ASSERT_MAIN();
     Message message = MakeMessage(op, token, args.fields());
-    if (IsOrderedOp(op)) {
+    // Detached, the op is dropped: a seq it took would never reach the next host, and input
+    // stamped with it would wait there.
+    if (IsOrderedOp(op) && link_ != Link::kDetached) {
       ctl_seq_ = cmux_host::NextSeq(ctl_seq_);
       message.ctl_seq = ctl_seq_;
       message.after_input = input_seq_;
