@@ -205,8 +205,9 @@ export function PermissionCard({
   // (another before it, then it) while its answer is still out, so each ask is answered once. A
   // refusal from acpmux (the promise `onAnswer` returns rejects) frees it again: that answer was
   // never heard. A taken answer is kept: the card can show that ask again before the snapshot
-  // drops it. Only the newest asks are kept, so a long chat's card stays small.
-  const answers = useRef(new Map<string, number>());
+  // drops it. Only the newest taken answers are kept, so a long chat's card stays small; an answer
+  // still out is kept until it settles, so its reply always finds it.
+  const answers = useRef(new Map<string, { attempt: number; out: boolean }>());
   const attempts = useRef(0);
   /// The ask shown now, read when an answer settles: only its own outcome changes what the card shows.
   const shown = useRef(permission.permissionId);
@@ -219,16 +220,25 @@ export function PermissionCard({
     const permissionId = permission.permissionId;
     if (answers.current.has(permissionId)) return undefined;
     const attempt = ++attempts.current;
-    answers.current.set(permissionId, attempt);
-    for (const id of answers.current.keys()) {
-      if (answers.current.size <= KEPT_ANSWERS) break;
-      answers.current.delete(id);
-    }
+    answers.current.set(permissionId, { attempt, out: true });
     setRefused(undefined);
     return { permissionId, attempt };
   };
   /// Whether `sent` is still its ask's answer: no newer attempt for that ask has replaced it.
-  const owns = (sent: Sent) => answers.current.get(sent.permissionId) === sent.attempt;
+  const owns = (sent: Sent) => answers.current.get(sent.permissionId)?.attempt === sent.attempt;
+  /// acpmux took the answer: it stays taken, among the newest KEPT_ANSWERS taken ones.
+  const taken = (sent: Sent) => {
+    if (!owns(sent)) return;
+    answers.current.set(sent.permissionId, { attempt: sent.attempt, out: false });
+    let settled = 0;
+    for (const answer of answers.current.values()) if (!answer.out) settled += 1;
+    for (const [id, answer] of answers.current) {
+      if (settled <= KEPT_ANSWERS) break;
+      if (answer.out) continue;
+      answers.current.delete(id);
+      settled -= 1;
+    }
+  };
   /// The ask's answer was refused: its keys and buttons answer it again, and the card says so.
   const refuse = (sent: Sent) => {
     if (!owns(sent)) return;
@@ -248,7 +258,10 @@ export function PermissionCard({
     }
     focusComposer?.();
     // A refusal is never silent, and never leaves the ask unanswerable while it still waits.
-    Promise.resolve(reply).then(undefined, () => refuse(sent));
+    Promise.resolve(reply).then(
+      () => taken(sent),
+      () => refuse(sent),
+    );
   };
   const answerByKey = answer;
   /// Deny: the field for what to do instead when the pane can send it, else the deny itself.
@@ -329,6 +342,7 @@ export function PermissionCard({
     const mine = owns(sent);
     const onCard = shown.current === permissionId;
     if (denied) {
+      taken(sent);
       if (mine) setDraft((draft) => (draft?.permissionId === permissionId ? undefined : draft));
       // The keyboard goes back to the composer, as a plain deny's does.
       if (mine && onCard) focusComposer?.();
