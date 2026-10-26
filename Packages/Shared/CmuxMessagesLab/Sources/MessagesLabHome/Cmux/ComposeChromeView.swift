@@ -35,6 +35,12 @@ final class ComposeChromeView: NSView {
     private var hoverArea: NSTrackingArea?
     /// The shown controls' tool tip strings (their owners; AppKit does not keep them).
     private var toolTipLabels: [NSString] = []
+    /// The window's key changes: the focus ring shows only in the key window.
+    private var keyObservers: [MainQueueObservation] = []
+    /// Whether Full Keyboard Access is on (the system setting; tests turn it on).
+    var fullKeyboardAccess: @MainActor () -> Bool = { NSApp.isFullKeyboardAccessEnabled }
+    /// How often the controls moved, showed or hid (tests: a plain key changes none of them).
+    private(set) var controlsChanges = 0
 
     enum Control: Equatable { case send, mic, finish }
 
@@ -93,6 +99,7 @@ final class ComposeChromeView: NSView {
     /// A control moved, showed or hid: the cursor, tool tip and hover rects follow (none of them is a
     /// layout or a display of this view), and VoiceOver hears a change of the controls shown.
     func controlsChanged(visibility: Bool) {
+        controlsChanges += 1
         window?.invalidateCursorRects(for: self)
         removeAllToolTips()
         // AppKit shows a tool tip owner's description (here the control's label) and does not keep
@@ -127,7 +134,13 @@ final class ComposeChromeView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if let s = window?.backingScaleFactor { rescale(s) }
+        keyObservers = []
+        if let window {
+            rescale(window.backingScaleFactor)
+            keyObservers = [(NSWindow.didBecomeKeyNotification, true), (NSWindow.didResignKeyNotification, false)].map { name, key in
+                MainQueueObservation(name, object: window) { [weak self] _ in self?.placeFocusRing(windowIsKey: key) }
+            }
+        }
         controlsChanged(visibility: false)
     }
     override func viewDidChangeBackingProperties() {
@@ -207,15 +220,53 @@ final class ComposeChromeView: NSView {
     // MARK: Accessibility and keyboard
 
     /// The shown controls, each its own element (the view itself is no element).
-    override func accessibilityChildren() -> [Any]? { shownControls.map(\.element) }
+    override func accessibilityChildren() -> [Any]? { shownControls.map { adopted($0.element) } }
+
+    /// The element AppKit reports as focused while this view is the first responder: the send
+    /// button's, not the view's unignored ancestor (Chromium: BridgedContentView's
+    /// accessibilityFocusedUIElement, components/remote_cocoa/app_shim/bridged_content_view.mm).
+    override func accessibilityFocusedUIElement() -> Any? {
+        focusedElement.map { adopted($0) } ?? super.accessibilityFocusedUIElement()
+    }
+
+    /// The control under a screen point (VoiceOver's mouse tracking, Voice Control, Accessibility
+    /// Inspector), as BridgedContentView's accessibilityHitTest: hands the hit views::View's element.
+    override func accessibilityHitTest(_ point: NSPoint) -> Any? {
+        guard !isHidden, let window, let c = control(at: convert(window.convertPoint(fromScreen: point), from: nil)) else {
+            return super.accessibilityHitTest(point)
+        }
+        return adopted(element(of: c))
+    }
+
+    /// The send button's element while this view has the keyboard focus; nil otherwise.
+    var focusedElement: ComposeChromeElement? {
+        window?.firstResponder === self && send.isShown ? send.element : nil
+    }
+
+    private func element(of c: Control) -> ComposeChromeElement {
+        switch c {
+        case .send: return send.element
+        case .mic: return voice.mic.element
+        case .finish: return voice.finish.element
+        }
+    }
+
+    /// `e` with its parent the nearest element above this view (the view itself is ignored).
+    private func adopted(_ e: ComposeChromeElement) -> ComposeChromeElement {
+        e.setAccessibilityParent(NSAccessibility.unignoredAncestor(of: self))
+        return e
+    }
 
     /// Full Keyboard Access: Tab reaches the send button while it shows, Space or Return presses it;
     /// the focus ring is a ring layer around its disc.
-    override var acceptsFirstResponder: Bool { send.isShown && NSApp.isFullKeyboardAccessEnabled }
+    override var acceptsFirstResponder: Bool { send.isShown && fullKeyboardAccess() }
     override var canBecomeKeyView: Bool { acceptsFirstResponder }
     override func becomeFirstResponder() -> Bool {
         let ok = super.becomeFirstResponder()
-        placeFocusRing()
+        placeFocusRing(focused: ok)
+        // The window makes this view its first responder after this returns; the clients read the
+        // focused element after the notification.
+        if ok, send.isShown { NSAccessibility.post(element: adopted(send.element), notification: .focusedUIElementChanged) }
         return ok
     }
     override func resignFirstResponder() -> Bool {
@@ -229,22 +280,24 @@ final class ComposeChromeView: NSView {
         super.keyDown(with: event)
     }
 
-    /// The ring shows around the disc while this view has the keyboard focus and the button shows.
-    private func placeFocusRing(focused: Bool? = nil) {
-        let on = (focused ?? (window?.firstResponder === self)) && send.isShown
+    /// The ring shows around the disc while this view has the keyboard focus in the key window and
+    /// the button shows (AppKit draws its focus ring only in the key window).
+    private func placeFocusRing(focused: Bool? = nil, windowIsKey: Bool? = nil) {
+        let key = windowIsKey ?? (window?.isKeyWindow == true)
+        let on = key && (focused ?? (window?.firstResponder === self)) && send.isShown
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         if focusRing.isHidden == on { focusRing.isHidden = !on }
         guard on else { return }
         focusRing.strokeColor = cgColor(.keyboardFocusIndicatorColor)
-        focusRing.path = CGPath(ellipseIn: send.discFrame.insetBy(dx: -2.5, dy: -2.5), transform: nil)
+        focusRing.path = CGPath.ellipse(in: send.discFrame.insetBy(dx: -2.5, dy: -2.5))
     }
 }
 
 /// One control of `ComposeChromeView` for VoiceOver and the accessibility API: a button with its
 /// label, identifier and enabled state, its frame the control's, and a press that runs the control.
 final class ComposeChromeElement: NSAccessibilityElement {
-    /// The view the control is drawn in (its accessibility parent).
+    /// The view the control is drawn in (its parent is that view's unignored ancestor, set by the view).
     weak var view: NSView?
     /// The control's frame in `view`'s coordinates.
     var frameInView: CGRect = .zero
@@ -257,8 +310,15 @@ final class ComposeChromeElement: NSAccessibilityElement {
         setAccessibilityRole(.button)
     }
 
-    override func accessibilityParent() -> Any? { view }
     override func isAccessibilityElement() -> Bool { true }
+    /// Focused while its view has the keyboard focus on it (Full Keyboard Access on the send button).
+    override func isAccessibilityFocused() -> Bool {
+        guard Thread.isMainThread else { return false }  // AppKit calls accessibility on main
+        let view = self.view, me = ObjectIdentifier(self)
+        return MainActor.assumeIsolated {  // main-proof: guarded by Thread.isMainThread above
+            (view as? ComposeChromeView)?.focusedElement.map { ObjectIdentifier($0) } == me
+        }
+    }
     /// On screen, from the view's geometry at the time of the call.
     override func accessibilityFrame() -> NSRect {
         guard Thread.isMainThread else { return .zero }  // AppKit calls accessibility on main

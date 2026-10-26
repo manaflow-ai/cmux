@@ -212,45 +212,148 @@ import Testing
 
     /// p03-rendering-074 (Chromium's one NSView per widget, components/remote_cocoa/app_shim/
     /// bridged_content_view.mm): the send button, the voice controls and "Listening…" are layers of
-    /// one view, and a key that keeps the field's height and the button's state dirties no view outside
-    /// the field: no layout and no display is pending anywhere else after it, so the only damage of the
-    /// key's frame is the text's line.
+    /// one view that covers the pane, so no NSView of the compose bar's own lies in the field. On the
+    /// base there were 9: the send button, the voice controls with their waveform, finish and mic
+    /// buttons and those buttons' glyphs, and "Listening…" with its label.
+    @Test func theComposeBarsControlsAreNoViewsInTheField() async throws {
+        let h = try await makeHarness()
+        defer { close(h) }
+        let maybeCompose = h.view.controller.demo?.compose
+        try #require(maybeCompose != nil)
+        let compose = maybeCompose!
+        let host = h.view.controller.host
+        let skipping: [NSView] = [host.fieldChrome, compose.textView.clip, host.scrollView, host.paneHeader]
+        for text in ["", "typed"] {
+            if !text.isEmpty { await type(h, text) }
+            let inField = Self.viewsInField(host, field: compose.fieldRect, skipping: skipping)
+            let chromeViews = Self.viewCount(host.composeChrome)
+            #expect(inField.isEmpty, "draft '\(text)': NSViews in the field (the base had 9): \(inField)")
+            #expect(chromeViews == 1, "draft '\(text)': the controls view has \(chromeViews - 1) subviews")
+        }
+    }
+
+    /// A plain key (the field keeps its height, the button its state) does only the text's work: no
+    /// layout of the pane, no view outside the field asks for a layout or a display, the controls
+    /// do not move, show or hide, and their layer tree commits no change. Every view is clean before
+    /// each key, so whatever is dirty after it is the key's.
     @Test func aKeyDirtiesNoComposerViewOutsideTheField() async throws {
         let h = try await makeHarness()
         defer { close(h) }
         let host = h.view.controller.host
-        let chromeSubviews = host.composeChrome.subviews.count
-        #expect(chromeSubviews == 0, "the compose bar's controls are layers, not views")
+        let chrome = host.composeChrome
         await type(h, "first")  // the button shows (one change); each key after it is a plain key
         var dirty: [String] = []
         for c in " more keys on the same line" {
-            h.window.displayIfNeeded()
-            CATransaction.flush()
-            // What was dirty before the key (an offscreen window may keep a view dirty) is not the key's.
-            let before = Set(Self.dirtyViews(host, outside: h.field))
+            host.layoutSubtreeIfNeeded()  // sync-layout: the key's own layout is measured from a clean tree
+            Self.markClean(host, outside: h.field)
+            let layouts = host.layoutPasses, changes = chrome.controlsChanges
+            let layers = Self.layerStates(chrome.layer)
             h.field.insertText(String(c), replacementRange: h.field.selectedRange())
             for _ in 0..<8 { await Task.yield() }
-            dirty += Self.dirtyViews(host, outside: h.field).filter { !before.contains($0) }.map { "'\(c)': \($0)" }
+            if host.layoutPasses != layouts { dirty.append("'\(c)': the pane laid out \(host.layoutPasses - layouts) times") }
+            if chrome.controlsChanges != changes { dirty.append("'\(c)': the controls changed \(chrome.controlsChanges - changes) times") }
+            let after = Self.layerStates(chrome.layer)
+            if after.count != layers.count { dirty.append("'\(c)': \(layers.count) layers -> \(after.count)") }
+            dirty += zip(layers, after).filter { pair in pair.0 != pair.1 }.map { pair in "'\(c)': layer \(pair.0) -> \(pair.1)" }
+            dirty += Self.dirtyViews(host, outside: h.field).map { "'\(c)': \($0)" }
         }
         let report = dirty.joined(separator: "\n")
-        #expect(report.isEmpty, "views outside the field asked for a layout or a display after a key:\n\(report)")
+        #expect(report.isEmpty, "a plain key did work outside the field:\n\(report)")
     }
 
-    /// The views under `root`, outside the field (its text view, scroll view and clip) and its caret,
-    /// that ask for a layout or a display now.
-    private static func dirtyViews(_ root: NSView, outside field: NSView) -> [String] {
+    /// VoiceOver's mouse tracking, Voice Control and Accessibility Inspector find the send button
+    /// under the pointer through the window's hit test, and Full Keyboard Access's focus on it is the
+    /// button's element, not the controls view's ancestor (Chromium: BridgedContentView's
+    /// accessibilityHitTest and accessibilityFocusedUIElement).
+    @Test func theWindowsHitTestAndFocusReachTheSendButtonsElement() async throws {
+        let h = try await makeHarness()
+        defer { close(h) }
+        let host = h.view.controller.host
+        let chrome = host.composeChrome
+        chrome.fullKeyboardAccess = { true }
+        await type(h, "hi")
+        let f = host.sendButton.frame
+        let screen = h.window.convertPoint(toScreen: chrome.convert(CGPoint(x: f.midX, y: f.midY), to: nil))
+        let hit = (h.window.accessibilityHitTest(screen) as? NSAccessibilityElement)?.accessibilityIdentifier()
+        #expect(hit == Self.identifier, "the window's hit test at the button's centre found \(hit ?? "no element")")
+        let focused = h.window.makeFirstResponder(chrome)
+        #expect(focused, "Full Keyboard Access: the send button takes the keyboard focus")
+        let element = h.window.accessibilityFocusedUIElement() as? NSAccessibilityElement
+        let focusedID = element?.accessibilityIdentifier()
+        let isFocused = element?.isAccessibilityFocused() == true
+        let parentIsChrome = element?.accessibilityParent().map { $0 as AnyObject } === chrome
+        #expect(focusedID == Self.identifier, "the focused element is \(focusedID ?? "no element")")
+        #expect(isFocused, "the send button's element says it is focused")
+        #expect(!parentIsChrome, "its parent is an element, not the ignored controls view")
+    }
+
+    /// Views under `root`, outside the `skipping` subtrees, whose frame lies in the field.
+    private static func viewsInField(_ root: NSView, field: CGRect, skipping: [NSView]) -> [String] {
+        var found: [String] = []
+        var views = root.subviews
+        while let v = views.popLast() {
+            if skipping.contains(where: { $0 === v }) { continue }
+            let frame = v.convert(v.bounds, to: root)
+            if !frame.isEmpty, field.insetBy(dx: -1, dy: -1).contains(frame) { found.append("\(type(of: v)) \(frame)") }
+            views += v.subviews
+        }
+        return found
+    }
+
+    private static func viewCount(_ root: NSView) -> Int {
+        1 + root.subviews.reduce(0) { $0 + viewCount($1) }
+    }
+
+    /// The field's own views (its text view, scroll view and clip) and its caret (it moves with the
+    /// text: it is part of the text's line).
+    private static func isFieldView(_ v: NSView, _ field: NSView) -> Bool {
         let fieldViews: [NSView] = [field.enclosingScrollView?.superview, field.enclosingScrollView, field].compactMap { $0 }
+        return v is CaretView || fieldViews.contains { v === $0 || v.isDescendant(of: $0) }
+    }
+
+    /// Marks every view under `root` outside the field displayed (an offscreen window keeps a view
+    /// dirty), so a view that asks for a display afterwards asked for it then.
+    private static func markClean(_ root: NSView, outside field: NSView) {
+        var views: [NSView] = [root]
+        while let v = views.popLast() {
+            if isFieldView(v, field) { continue }
+            v.needsDisplay = false
+            views += v.subviews
+        }
+    }
+
+    /// The views under `root`, outside the field, that ask for a layout or a display now.
+    private static func dirtyViews(_ root: NSView, outside field: NSView) -> [String] {
         var found: [String] = []
         var views: [NSView] = [root]
         while let v = views.popLast() {
-            if fieldViews.contains(where: { v === $0 || v.isDescendant(of: $0) }) { continue }
-            // The caret moves with the text: it is part of the text's line.
-            if v is CaretView { continue }
+            if isFieldView(v, field) { continue }
             let id = "\(type(of: v)) \(ObjectIdentifier(v).hashValue)"
             if v.needsLayout { found.append("\(id) needs layout") }
             if v.needsDisplay { found.append("\(id) needs display") }
             views += v.subviews
         }
         return found
+    }
+
+    /// What a commit of `root`'s layer tree would show: each layer's geometry, visibility, colours,
+    /// contents, mask and path (by identity: a new image or path is a change even when it looks the same).
+    private static func layerStates(_ root: CALayer) -> [String] {
+        var out: [String] = []
+        var stack: [(layer: CALayer, path: String)] = [(root, "root")]
+        while let item = stack.popLast() {
+            let l = item.layer, t = l.transform
+            let contents = l.contents.map { "\(ObjectIdentifier($0 as AnyObject))" } ?? "nil"
+            let mask = l.mask.map { "\(ObjectIdentifier($0))" } ?? "nil"
+            var line = "\(item.path) frame \(l.frame) hidden \(l.isHidden) opacity \(l.opacity) scale \(t.m11) \(t.m22)"
+            line += " background \(String(describing: l.backgroundColor)) contents \(contents) mask \(mask)"
+            if let s = l as? CAShapeLayer {
+                let path = s.path.map { "\(ObjectIdentifier($0))" } ?? "nil"
+                line += " path \(path) stroke \(String(describing: s.strokeColor))"
+            }
+            out.append(line)
+            for (i, sub) in (l.sublayers ?? []).enumerated() { stack.append((sub, "\(item.path).\(i)")) }
+        }
+        return out
     }
 }

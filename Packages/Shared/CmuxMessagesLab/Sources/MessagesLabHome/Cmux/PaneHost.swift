@@ -148,8 +148,12 @@ final class HostView: NSView {
         needsLayout = true
     }
 
+    /// How often the pane laid out (tests: a plain key in the field lays it out no more).
+    private(set) var layoutPasses = 0
+
     override func layout() {
         super.layout()
+        layoutPasses += 1
         for v in [below, morphHost, composeHost, composeChrome, above] where v.frame != bounds { v.frame = bounds }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         if let demo, demo.frame != bounds {
