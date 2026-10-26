@@ -15,14 +15,7 @@ final class TerminalStatusBanner: NSView {
         label.font = .systemFont(ofSize: 12, weight: .medium)
         label.ink = .secondary
         label.lineBreakMode = .byTruncatingTail
-        label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            label.topAnchor.constraint(equalTo: topAnchor, constant: 6),
-            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
-        ])
         isHidden = true
         setAccessibilityRole(.staticText)
     }
@@ -52,6 +45,31 @@ final class TerminalStatusBanner: NSView {
     /// Clicks go to the terminal below (a click there re-attaches).
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    // MARK: Frame layout
+
+    /// The label 12 pt from the sides and 6 pt from the top and bottom; a narrow banner truncates it.
+    var chipLayout: ChipLayout {
+        ChipLayout(items: [ChipLayout.Item(label.intrinsicContentSize, flexible: true)],
+                   insets: ChipLayout.Insets(horizontal: 12, vertical: 6))
+    }
+
+    /// The host frames the banner at this size, no wider than its room (`TerminalHostView.layoutStatus`).
+    override var fittingSize: NSSize { chipLayout.preferredSize }
+
+    override var intrinsicContentSize: NSSize { chipLayout.preferredSize }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let oldSize = frame.size
+        super.setFrameSize(newSize)
+        if newSize != oldSize { needsLayout = true } // invalidate: a new size (the check above) re-frames the label
+    }
+
+    override func layout() {
+        super.layout()
+        let frames = chipLayout.frames(in: bounds.size, rightToLeft: userInterfaceLayoutDirection == .rightToLeft)
+        if let frame = frames.first { label.setAlignmentFrame(frame) }
+    }
+
     func show(_ status: TerminalConnectionStatus, hostLoss: TerminalHostLoss? = nil,
               cause: TerminalHostLossCause? = nil, stall: TerminalShellStall? = nil) {
         guard let text = Self.text(for: status, hostLoss: hostLoss, cause: cause, stall: stall) else {
@@ -59,7 +77,11 @@ final class TerminalStatusBanner: NSView {
             isHidden = true
             return
         }
-        label.stringValue = text
+        if label.stringValue != text {
+            label.stringValue = text
+            invalidateIntrinsicContentSize()
+            needsLayout = true // invalidate: new text (the check above) at another width
+        }
         setAccessibilityLabel(text)
         let restoring = status == .restoring && stall == nil
         if restoring, isHidden { beginReveal() } else if !restoring { endReveal() }
