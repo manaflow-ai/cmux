@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextCompat
-import CmuxNextInput
+public import CmuxNextInput
 public import CmuxNextWakeups
 public import CmuxNextDesignTokens
 
