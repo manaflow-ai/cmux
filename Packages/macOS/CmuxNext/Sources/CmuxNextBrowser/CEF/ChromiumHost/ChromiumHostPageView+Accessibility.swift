@@ -37,9 +37,8 @@ extension ChromiumHostPageView {
     /// hit test on NSObject, nonisolated; assistive clients' reads arrive on the main thread, and a
     /// call from any other thread gets AppKit's own answer.
     public nonisolated override func accessibilityHitTest(_ point: NSPoint) -> Any? {
-        guard Thread.isMainThread else { return super.accessibilityHitTest(point) }
-        let hit = MainActor.assumeIsolated { AccessibilityHit(element: pageHitTest(point)) } // main-proof: checked Thread.isMainThread above
-        return hit.element
+        ChromiumHostAccessibilityHit.answer(onMain: { self.pageHitTest(point) },
+                                            otherwise: { super.accessibilityHitTest(point) })
     }
 
     private func pageHitTest(_ point: NSPoint) -> Any? {
@@ -144,8 +143,16 @@ struct ChromiumHostAccessibilityBridge {
         layoutChanged: { element in NSAccessibility.post(element: element, notification: .layoutChanged) })
 }
 
-/// The hit test's element handed out of `MainActor.assumeIsolated` on the same main thread.
-// crash-allow: one `let` made and read on the main thread inside one accessibilityHitTest call; it never crosses threads.
-private nonisolated struct AccessibilityHit: @unchecked Sendable {
+/// The seam between AppKit's accessibility hit test, a nonisolated NSObject category method that
+/// assistive clients reach on the main thread, and the page view's main-actor answer: the answer
+/// runs on the main thread and its element comes back out of `MainActor.assumeIsolated`.
+// crash-allow: one immutable `let` made and read on the main thread inside one accessibilityHitTest call; it never crosses threads.
+nonisolated struct ChromiumHostAccessibilityHit: @unchecked Sendable {
     let element: Any?
+
+    /// `onMain`'s element on the main thread; `otherwise`'s (AppKit's own answer) on any other.
+    static func answer(onMain: @MainActor () -> Any?, otherwise: () -> Any?) -> Any? {
+        guard Thread.isMainThread else { return otherwise() }
+        return MainActor.assumeIsolated { Self(element: onMain()) }.element // main-proof: checked Thread.isMainThread above
+    }
 }
