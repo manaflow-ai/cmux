@@ -531,6 +531,74 @@ struct CMUXCLIForkVerbRegressionTests {
         )
     }
 
+    @Test
+    func cliForkVerbRefusesMissingSavedWorkingDirectory() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-fork-verb-missing-cwd-\(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("fork-agent", isDirectory: false)
+        let marker = root.appendingPathComponent("fork-agent-output", isDirectory: false)
+        // Never created: the checkpoint's saved directory is gone.
+        let savedDirectory = root.appendingPathComponent("deleted", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+        try """
+        #!/bin/sh
+        printf 'pwd=%s\\n' "$PWD" > "$FORK_TEST_MARKER"
+        """.write(to: executable, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+
+        let surfaceID = UUID().uuidString.lowercased()
+        let checkpointID = "fork-missing-cwd-checkpoint"
+        let responseData = try JSONSerialization.data(withJSONObject: [
+            "ok": true,
+            "result": [
+                "restore_record": [
+                    "mode": "resumeAgent",
+                    "kind": "custom-agent",
+                    "checkpoint_id": checkpointID,
+                    "source": "session-snapshot",
+                    "working_directory": savedDirectory.path,
+                    "launch_command": [
+                        "arguments": [executable.path],
+                        "executable_path": executable.path,
+                        "working_directory": savedDirectory.path,
+                    ],
+                    "fork_arguments": NSNull(),
+                    "prepared_fork_arguments": [executable.path, "--fork", checkpointID],
+                ],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-fork-missing-cwd-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: String(decoding: responseData, as: UTF8.self)
+        )
+        defer { responder.stop() }
+
+        let home = try isolatedCLIHome()
+        defer { try? fileManager.removeItem(at: home) }
+        var environment = isolatedCLIEnvironment(socketPath: socketPath, home: home)
+        environment["FORK_TEST_MARKER"] = marker.path
+        environment["PATH"] = "/usr/bin:/bin"
+
+        let result = try runCLI(
+            arguments: ["fork", "--surface", surfaceID, "custom-agent", checkpointID],
+            environment: environment
+        )
+        // Forking into the caller's directory would start the copy against a
+        // different checkout, so fork refuses before launching anything.
+        #expect(result.status != 0, Comment(rawValue: result.description))
+        #expect(
+            result.stderr.contains(
+                "fork: the saved working directory is missing or is not a directory. "
+                    + "Recreate or remount it as a directory, then run 'cmux fork --surface'."
+            ),
+            Comment(rawValue: result.description)
+        )
+        #expect(!fileManager.fileExists(atPath: marker.path), Comment(rawValue: result.description))
+    }
+
     private struct ProcessResult: CustomStringConvertible {
         let status: Int32
         let stdout: String
