@@ -264,11 +264,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         }
         if let state = pendingRestore {
             pendingRestore = nil
-            // 1 = restored; fork API 10 reports why not (-1 committed entries,
-            // -2 navigation not dropped, -3 state does not decode).
-            let code = state.withCString { runtime.shim?.tabRestoreNavigation(browser, $0) } ?? 0
-            host.lifecycleTrace.record(id, "restore-navigation \(code == 1 ? "ok" : "failed(\(code))")")
-            if code != 1, let url = pendingURL { runtime.shim?.loadURL(browser, url.absoluteString) }
+            // Set only on a fork that restores (`CEFEngine`, mirrored). One-way, as Chrome's
+            // NavigationController::Restore (content/public/browser/navigation_controller.h).
+            state.withCString { _ = runtime.shim?.tabRestoreNavigation(browser, $0) }
+            host.lifecycleTrace.record(id, "restore-navigation sent")
         }
         refreshExtensionActions()
     }

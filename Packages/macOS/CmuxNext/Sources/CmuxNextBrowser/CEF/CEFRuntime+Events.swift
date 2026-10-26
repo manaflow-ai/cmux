@@ -335,21 +335,9 @@ extension CEFRuntime {
     /// throws `timedOut` when no result arrives within `timeout`.
     func devTools(_ browser: Int32, method: String, params: [String: Any] = [:],
                   timeout: Duration = CEFRuntime.devToolsTimeout) async throws -> String {
-        guard let shim else { throw BrowserTabError.closed }
-        // Chromium answers some methods inside ExecuteDevToolsMethod, before a
-        // waiter exists; without this the result was dropped and the call
-        // timed out after `timeout` (every device emulation lost 5 s on
-        // Emulation.setEmitTouchEventsForMouse).
-        // A nested run loop inside the call may start another call: keep the outer one's table.
-        let outer = synchronousDevToolsResults
-        synchronousDevToolsResults = [:]
-        let message = shim.devToolsCall(browser, method, CEFDevToolsResult.params(params))
-        let answered = synchronousDevToolsResults
-        synchronousDevToolsResults = outer.map { $0.merging(answered ?? [:]) { first, _ in first } }
-        guard message != 0 else { throw BrowserTabError.closed }
-        let key = CEFDevToolsKey(browser: browser, message: message)
-        if let result = answered?[key] { return try result.get() }
-        return try await devToolsCalls.reply(for: key, timeout: timeout) {
+        guard let sent = sendDevTools(browser, method: method, params: params) else { throw BrowserTabError.closed }
+        if let result = sent.answered { return try result.get() }
+        return try await devToolsCalls.reply(for: sent.key, timeout: timeout) {
             BrowserTabError.timedOut("DevTools \(method) (\(timeout))")
         }
     }

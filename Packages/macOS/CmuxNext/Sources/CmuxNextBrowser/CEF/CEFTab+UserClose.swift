@@ -15,7 +15,11 @@ extension CEFTab: BrowserUserClosing {
         guard !isClosed, let browserID, let shim = runtime.shim, state.processExit == nil else { return false }
         // A second close while the page asks: the question stays, and so does the tab.
         if asksBeforeUnload { return true }
-        return shim.tryClose(browserID) == 0
+        // One-way, as Chrome's WebContents::DispatchBeforeUnload (content/browser/web_contents/
+        // web_contents_impl.cc): the page decides in every outcome. A close that goes on, asked
+        // or not, ends in BEFORE_CLOSE (`browserDidClose`), which closes the tab; Stay keeps it.
+        _ = shim.tryClose(browserID)
+        return true
     }
 
     /// The page asks before it unloads (a close, a navigation or a reload).

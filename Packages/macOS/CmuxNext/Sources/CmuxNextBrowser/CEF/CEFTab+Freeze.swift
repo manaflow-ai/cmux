@@ -13,7 +13,7 @@ extension CEFTab: BrowserFreezing {
         if runtime.forkFeatures.rendererPaths, let setFrozen = shim.tabSetFrozen { return setFrozen(browserID, frozen ? 1 : 0) == 1 }
         // Sent now, not from a Task: an agent call queued right after a thaw must not reach a frozen page.
         // No one waits for the reply (the runtime drops a reply without a waiter).
-        return shim.devToolsCall(browserID, "Page.setWebLifecycleState", CEFDevToolsResult.params(["state": frozen ? "frozen" : "active"])) != 0
+        return runtime.sendDevTools(browserID, method: "Page.setWebLifecycleState", params: ["state": frozen ? "frozen" : "active"]) != nil
     }
 
     /// The spare window's placeholder made with no renderer (`CEFPaneHost.placeholderHasNoRenderer`), as
@@ -29,7 +29,6 @@ extension CEFTab: BrowserFreezing {
     /// placeholder counted visible and ran rAF at ~98/s at idle (fleet probe 4e065838, macOS 27). It is
     /// never thawed: a take closes it on the next turn (`CEFPaneHost.closeSparePlaceholder`).
     func freezeNeverShownPage(_ browser: Int32) {
-        guard let shim = runtime.shim else { return }
-        _ = shim.devToolsCall(browser, "Page.setWebLifecycleState", CEFDevToolsResult.params(["state": "frozen"]))
+        runtime.sendDevTools(browser, method: "Page.setWebLifecycleState", params: ["state": "frozen"])
     }
 }
