@@ -4,6 +4,7 @@ import AppKit
 @testable import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextTerminal
 import CmuxNextWakeups
 import Foundation
 import Testing

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import GhosttyNextKit
 
@@ -75,7 +76,7 @@ extension GhosttyRuntime {
     /// Ghostty's `ssh` wrapper runs as `$GHOSTTY_BIN +ssh`. Nil when this
     /// build does not ship it. `isExecutable` is the disk check (a test's own).
     public nonisolated static func cliHelperPath(bundle: Bundle = .main,
-                                                 isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }) -> String? {
+                                                 isExecutable: (String) -> Bool = { FileManager.checked.isExecutableFile(atPath: $0) }) -> String? {
         guard let path = bundle.resourceURL?.appendingPathComponent("bin/ghostty").path, isExecutable(path) else { return nil }
         return path
     }

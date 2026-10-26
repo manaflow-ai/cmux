@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Where libghostty and the shells find Ghostty's resources (themes, shell integration):
@@ -21,7 +22,7 @@ extension GhosttyRuntime {
     public nonisolated static func resourcesDirectory(
         bundle: Bundle = .main,
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+        fileExists: (String) -> Bool = { FileManager.checked.fileExists(atPath: $0) }
     ) -> String? {
         let bundled = bundle.resourceURL?.appendingPathComponent("ghostty")
         let inherited = environment["GHOSTTY_RESOURCES_DIR"]
