@@ -29,9 +29,10 @@ import { ccRoute } from "../chief-brain-cc/vm.ts"
 import { ccNotes } from "../chief-brain-cc/turn.ts"
 import { toolFiles, toolsCall } from "../chief-brain-cc/tools.ts"
 import { wakeFire } from "../chief-brain-cc/wake.ts"
+import { chiefJobWake, type ChiefJob, type JobDelivery } from "../chief-brain-cc/jobs.ts"
 import { githubCall, githubDump, type GithubHost, githubPoll, type GithubStatus, githubTurn } from "../chief-brain-cc/github.ts"
 import { ccSandbox, ccSandboxPurge, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
-import { type AppendBody, type AppendResult, IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, appendBatch, importBatch, importing, importStatus } from "./memory-import.ts"
+import { type AppendBody, type AppendResult, type UndoBody, type UndoResult, IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, appendBatch, undoBatch, importBatch, importing, importStatus } from "./memory-import.ts"
 
 /**
  * ChiefBrainDO, one per chief (name = the chief's agent id): a Chief that answers in Cloud
@@ -56,6 +57,15 @@ import { type AppendBody, type AppendResult, IMPORT_SCHEMA, type ImportBody, typ
 /** Post retries after the loop guard's agent_rate (another agent spoke under 2 s ago). */
 export const POST_RETRY_MS = 2_500
 export const MAX_POST_TRIES = 6
+/**
+ * The loop guard's 2 s gap is per conversation, for every agent: in a group with several Chiefs (and their
+ * subagents' reports) a ready reply can meet agent_rate more than MAX_POST_TRIES times in a row. agent_rate
+ * is "wait", never "no": it is retried until this long after the turn ended, then the reply is refused.
+ */
+export const AGENT_RATE_WINDOW_MS = 120_000
+/** Whether a post refused with `code` is tried again (pure, for tests). */
+export const retryPost = (code: string, tries: number, endedAt: number | null, now: number): boolean =>
+  code === "agent_rate" ? now - (endedAt ?? now) < AGENT_RATE_WINDOW_MS || tries + 1 < MAX_POST_TRIES : code === "owner.unreachable" && tries + 1 < MAX_POST_TRIES
 export const HOST = "cloud-chief"
 /**
  * A turn waits at most this long for every message before its new ones to be summarized (the reference
@@ -361,9 +371,17 @@ export class ChiefBrainDO extends DurableObject<Env> {
   }
 
   /** One batch of the memory copy; after the last one the view is folded again from the copied nodes. */
-  async memoryImport(body: ImportBody | AppendBody, brainOn: boolean): Promise<ImportStatus | ImportFail | (AppendResult & { ok: true })> {
+  async memoryImport(body: ImportBody | AppendBody | UndoBody, brainOn: boolean): Promise<ImportStatus | ImportFail | (AppendResult & { ok: true }) | (UndoResult & { ok: true })> {
     if ("mode" in body) {
       if (this.childOf()) return { ok: false, status: 400, code: "validation.invalid", message: "a subagent has no memory" }
+      if (body.mode === "undo") {
+        const u = undoBatch(this.sql, this.ctx.storage, body)
+        if (u.ok) {
+          this.memory.rewound()
+          this.compactor.pump()
+        }
+        return u
+      }
       const r = await appendBatch(this.sql, this.ctx.storage, body, (text) => void this.memory.append("note", text))
       if (r.ok && r.added > 0) this.compactor.pump()
       return r
@@ -504,6 +522,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
   /** The Chief was deleted: its sandboxes are deleted and its Freestyle identity goes. */
   async ccSandboxPurge(): Promise<{ deleted: number; left: number; revoked: boolean }> {
     return ccSandboxPurge(this)
+  }
+
+  /** A run of one of this Chief's jobs (chief-brain-cc/jobs.ts, AutomationRunWorkflow): its note starts a turn here. */
+  async chiefJob(j: ChiefJob): Promise<JobDelivery> {
+    return chiefJobWake(this, j)
   }
 
   /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */

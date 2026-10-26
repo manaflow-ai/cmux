@@ -18,7 +18,11 @@ nonisolated enum AcpmuxVersionHandoff {
     }
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
-    /// Bundled builds this app process already handed off to: never twice.
+    /// The handoffs this app process already made, by socket and bundled build: never twice on
+    /// one socket. One key per socket, not per build: two homes (the app's and a Chief home's own
+    /// acpmux) can each run a daemon from one replaced bundle, and with a key per build alone the
+    /// first handoff barred the second, whose chats stayed refused until a relaunch (cosmic-gray,
+    /// 2026-10-25).
     private static let handedOff = Mutex<Set<String>>([])
 
     /// `acpmux 0.1.0 (<build>)` -> `<build>`.
@@ -95,7 +99,11 @@ nonisolated enum AcpmuxVersionHandoff {
         guard decide(status.build, bundled, status.agentHosts, replaced: isReplaced) == .restart, let pid = status.pid else {
             return false
         }
-        guard handedOff.withLock({ $0.insert(bundled ?? "pid \(pid)").inserted }) else { return false }
+        let key = "\(environment.socketPath) \(bundled ?? "pid \(pid)")"
+        guard handedOff.withLock({ $0.insert(key).inserted }) else {
+            logger.error("acpmux \(pid) at \(environment.socketPath, privacy: .public) still runs build \(status.build ?? "?", privacy: .public) after this app handed that socket off to \(bundled ?? "?", privacy: .public) once")
+            return false
+        }
         logger.info("acpmux \(pid) runs build \(status.build ?? "?", privacy: .public)\(isReplaced ? " from a replaced bundle" : "", privacy: .public); handing off to \(bundled ?? "?", privacy: .public)")
         do {
             try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home)
@@ -126,7 +134,12 @@ public nonisolated struct AgentPaneProcessExit: Sendable {
     }
 
     /// True at the exit; false when `timeout` passes first. A nil `timeout` waits for the exit only.
-    public func event(within timeout: Duration?) async -> Bool {
+    /// `armed` runs once the exit watch is resumed and before the check for an exit that came
+    /// first, so a signal sent there cannot end the process unseen. The watch's registration with
+    /// the kernel may still be in flight then: a caller that must signal only the process it
+    /// found registers its own watch first (``AcpmuxUnresponsiveWatch/signal(_:_:process:)``).
+    /// It returns the answer when there is nothing to wait for (nil: wait).
+    public func event(within timeout: Duration?, armed: () -> Bool? = { nil }) async -> Bool {
         let pid = self.pid
         return await withCheckedContinuation { continuation in
             let once = Once()
@@ -149,6 +162,10 @@ public nonisolated struct AgentPaneProcessExit: Sendable {
             }
             source.setEventHandler { finish(true) }
             source.resume()
+            if let answer = armed() {
+                finish(answer)
+                return
+            }
             if kill(pid, 0) != 0 && errno == ESRCH { finish(true) }
         }
     }

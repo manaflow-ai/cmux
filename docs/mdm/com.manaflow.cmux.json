@@ -1,6 +1,16 @@
 {
   "description" : "Managed settings for cmux (every channel). Keys are cmux.json key paths; capitalized keys are policy keys. Forced values lock the setting; non-forced values replace its default. Exception: agents.chats.roots adds locked roots to the user list; agents.chats.enabled and agents.chats.discovery can only be forced off.",
   "properties" : {
+    "agentPane.attachmentView" : {
+      "default" : "inline",
+      "description" : "How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same.",
+      "enum" : [
+        "inline",
+        "strip"
+      ],
+      "title" : "Attachment View",
+      "type" : "string"
+    },
     "agentPane.display.code.family" : {
       "description" : "The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font.",
       "title" : "Chat Code Font",
@@ -12,6 +22,17 @@
       "minimum" : 0.6,
       "title" : "Chat Code Size",
       "type" : "number"
+    },
+    "agentPane.display.environment.placement" : {
+      "default" : "left",
+      "description" : "Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it.",
+      "enum" : [
+        "left",
+        "right",
+        "off"
+      ],
+      "title" : "Session Info Chip",
+      "type" : "string"
     },
     "agentPane.display.font.lineHeight" : {
       "default" : 1.625,
@@ -56,6 +77,12 @@
       ],
       "title" : "Session Info",
       "type" : "string"
+    },
+    "agentPane.display.vscodeMinimap" : {
+      "default" : false,
+      "description" : "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll.",
+      "title" : "VS Code Minimap",
+      "type" : "boolean"
     },
     "agentPane.display.width" : {
       "default" : 800,
@@ -173,7 +200,7 @@
     },
     "agents.defaultPermissionMode" : {
       "default" : "fullAccess",
-      "description" : "What a new chat may do without asking. Picking a mode in a chat sets it too, until you change this setting again.",
+      "description" : "What a new chat may do without asking. A mode you pick in a chat applies to that chat only.",
       "enum" : [
         "fullAccess",
         "standard",
@@ -1230,6 +1257,12 @@
       "title" : "Theme Edits",
       "type" : "object"
     },
+    "appearance.wallpaperTint" : {
+      "default" : true,
+      "description" : "The glass takes the colors of your desktop picture and follows it when the picture or Space changes.",
+      "title" : "Tint with Desktop Wallpaper",
+      "type" : "boolean"
+    },
     "browser.agentMouse.maxMoveMs" : {
       "default" : 350,
       "description" : "The longest time one agent pointer move takes with human motion. Short moves take less.",
@@ -1329,6 +1362,12 @@
       },
       "title" : "Hosts to Open in Embedded Browser",
       "type" : "array"
+    },
+    "browser.import.enabled" : {
+      "default" : true,
+      "description" : "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays.",
+      "title" : "Import from Other Browsers",
+      "type" : "boolean"
     },
     "browser.keepNeighborTabsAwake" : {
       "default" : 1,
@@ -2324,6 +2363,17 @@
         "theme"
       ],
       "title" : "Bubble Style",
+      "type" : "string"
+    },
+    "home.chiefEngine" : {
+      "default" : "auto",
+      "description" : "Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud.",
+      "enum" : [
+        "auto",
+        "local",
+        "hosted"
+      ],
+      "title" : "Engine",
       "type" : "string"
     },
     "home.chiefPetEnabled" : {
@@ -4118,6 +4168,17 @@
       "title" : "Agent Working",
       "type" : "boolean"
     },
+    "ssh.linkAllowedHosts" : {
+      "default" : [
+
+      ],
+      "description" : "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Always Allowed SSH Link Hosts",
+      "type" : "array"
+    },
     "status.inferCommandBusy" : {
       "default" : false,
       "description" : "A shell command that runs a while shows as busy.",
@@ -4554,13 +4615,13 @@
       "type" : "number"
     },
     "updates.downloadAutomatically" : {
-      "default" : true,
-      "description" : "Off: a found update waits, and one click downloads and installs it.",
-      "title" : "Download Updates Automatically",
+      "default" : false,
+      "description" : "Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds.",
+      "title" : "Download and Install Updates Automatically",
       "type" : "boolean"
     },
     "updates.idleInstallMaxWaitSeconds" : {
-      "default" : 900,
+      "default" : 600,
       "description" : "A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart.",
       "maximum" : 7200,
       "minimum" : 60,
@@ -4645,6 +4706,27 @@
         "always"
       ],
       "title" : "Titlebar Buttons",
+      "type" : "string"
+    },
+    "workspaces.autoArchive.idleDays" : {
+      "default" : 3,
+      "description" : "A workspace counts as idle when you have not opened it and nothing in it changed for this many days. Pinned workspaces, running commands and workspaces that need you never archive.",
+      "maximum" : 365,
+      "minimum" : 1,
+      "title" : "Idle For",
+      "type" : "number"
+    },
+    "workspaces.autoArchive.style" : {
+      "default" : "suggest",
+      "description" : "What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them.",
+      "enum" : [
+        "suggest",
+        "quiet",
+        "groups",
+        "manual",
+        "off"
+      ],
+      "title" : "Idle Workspaces",
       "type" : "string"
     },
     "workspaces.autoName" : {

@@ -9,6 +9,8 @@ import CmuxNextActions
 typealias WorkspaceSpawn = CmuxNextAppCore.WorkspaceSpawn
 typealias WorkspaceClose = CmuxNextAppCore.WorkspaceClose
 typealias WorkspaceSpawnSidebar = CmuxNextAppCore.WorkspaceSpawnSidebar
+typealias WorkspaceSelectionCloseFlow = CmuxNextAppCore.WorkspaceSelectionCloseFlow
+typealias BulkClosePlan<Object> = CmuxNextAppCore.BulkClosePlan<Object>
 
 @MainActor extension SidebarBridge: WorkspaceSpawnSidebar {
     var sections: [SidebarRowSection] { model.sections }

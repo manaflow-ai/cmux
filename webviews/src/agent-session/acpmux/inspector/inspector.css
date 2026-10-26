@@ -85,6 +85,13 @@
 .acpmux-main > .acpmux-dock > * {
   translate: calc(-1 * var(--acpmux-chat-shift, 0px)) 0;
 }
+/* The thread rail stays at the pane's left edge while the conversation moves (Leo, 2026-10-25: "when
+   that session rail is there, the session rail ends up pushing it to the side"): it draws inside the
+   moved scroller, so it moves back by the same amount, on the same frames. The shift always leaves the
+   rail's room in the left gutter (ChatInspector.tsx inspectorChatShift), so no row slides under it. */
+.acpmux-main > .acpmux-stage > .acpmux-scroll > .acpmux-minimap {
+  translate: var(--acpmux-chat-shift, 0px) 0;
+}
 /* A part that joins the stack while the chat is moved rises from below its moved place
    (bottomStack.css ui-enter), not from the unmoved one. Only the dock's own animated parts (the same
    list as bottomStack.css): the parts nested in them enter inside a part already moved. */
@@ -93,6 +100,7 @@
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll,
+  .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll > .acpmux-minimap,
   .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-dock > *,
   .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage .acpmux-handoff-review {
     transition: translate var(--agent-motion-move, var(--cmux-motion-quick, 80ms))
@@ -100,14 +108,17 @@
   }
 }
 :root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll,
+:root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll > .acpmux-minimap,
 :root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-dock > *,
 :root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage .acpmux-handoff-review,
 :root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll,
+:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll > .acpmux-minimap,
 :root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-dock > *,
 :root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage .acpmux-handoff-review {
   transition: none;
 }
 .acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-stage > .acpmux-scroll,
+.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-stage > .acpmux-scroll > .acpmux-minimap,
 .acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-dock > *,
 .acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-stage .acpmux-handoff-review {
   transition: none;
@@ -282,7 +293,6 @@ button.acpmux-chat-inspector-port:hover,
 .acpmux-chat-inspector .acpmux-summary-link:hover:not(:disabled),
 .acpmux-chat-inspector .acpmux-summary-link:active:not(:disabled),
 .acpmux-chat-inspector .acpmux-summary-more:hover,
-.acpmux-chat-inspector-subagents__more:hover,
 .acpmux-chat-inspector .acpmux-summary-agent[aria-current="true"],
 .acpmux-chat-inspector .acpmux-summary-subagent-rows button.cv-subagent:hover {
   background: var(--acpmux-inspector-row-hover);
@@ -521,6 +531,7 @@ button.acpmux-chat-inspector-port:hover,
 }
 /* Changes: a pull request per row, its menu at the end. */
 .acpmux-chat-inspector-pr {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 4px;
@@ -539,6 +550,22 @@ button.acpmux-chat-inspector-port:hover,
   color: inherit;
   text-decoration: none;
   cursor: default;
+}
+/* The row lights as a whole, so its gap and padding are the link's too (a click there was dead,
+   #24116's audit). The ⋯ button, positioned and later in the row, paints above it. */
+.acpmux-chat-inspector-pr__link::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+/* The link's own content paints above that overlay, so the glyph's and the check dot's titles and
+   the line counts' by-kind tooltip still get the pointer; a click there bubbles to the link. */
+.acpmux-chat-inspector-pr__link > * {
+  position: relative;
+}
+.acpmux-chat-inspector-pr__more {
+  position: relative;
 }
 .acpmux-chat-inspector-pr__link:focus-visible {
   outline: 1.5px solid var(--agent-text);
@@ -774,6 +801,7 @@ button.acpmux-chat-inspector-port:focus-visible {
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
   height: 26px;
   padding: 0 8px;
   border: 0;
@@ -782,15 +810,13 @@ button.acpmux-chat-inspector-port:focus-visible {
   color: var(--agent-muted);
   font: inherit;
   font-size: var(--text-detail);
+  text-align: left;
+  appearance: none;
   cursor: default;
 }
-.acpmux-chat-inspector-fold:hover {
-  color: var(--agent-text);
-}
-.acpmux-chat-inspector-fold:focus-visible {
-  outline: 1.5px solid var(--agent-text);
-  outline-offset: -1.5px;
-}
+/* No hover fill (Leo: plain text, no hover pill) and no focus rule of its own: keyboard focus takes
+   the agent pane's soft pill (agent-session/shared/styles.css), the wider ring under Increase
+   Contrast (pages/shared/desktop.css). test/chat-inspector-fold-rows.test.ts. */
 /* Subagents (SubagentsSection.tsx): the running ones' lines, "Show more" under them, then the one
    row of the ended ones, which opens into their lines. */
 .acpmux-chat-inspector-subagents__more {

@@ -53,14 +53,31 @@ Claude Code's own "Not logged in · Please run /login".
 FAKE_CLAUDE_SKILLS=1 has one skill installed and sends system/init every turn.
 FAKE_CLAUDE_INIT (a JSON object) adds its fields to system/init (`mcp_servers`,
 `skills`, ...); with FAKE_CLAUDE_CONTROL_LOG set, the subtype of every
-control request is appended to that file, one per line. "env: NAME"
+control request is appended to that file, one per line.
+FAKE_CLAUDE_CONTEXT=1 answers get_context_usage with a /context breakdown
+(=error refuses it). FAKE_CLAUDE_LATE_CONTEXT=<path> makes a FAKE_CLAUDE_DIE_IF prompt a
+usage limit instead (the process lives on, and answers no more get_context_usage), and leaves a
+process outside its own (forked twice, so a kill of its group and descendants misses it) that 1 s
+later writes a /context answer and a rate_limit_event, then a `system/late_probe` line, then creates <path>: a replaced
+Claude Code's answer that arrives after the failover. FAKE_CLAUDE_MCP_DOWN=<name> fails mcp_reconnect of that
+server, and every other reconnect succeeds. "env: NAME"
 replies with that environment variable. Any plain prompt
 replies with the process's argv (spawn flags such as `--disallowedTools`).
+"agent-503" starts a background agent (agent id A503) whose task fails on SR2's 503 after the
+turn; Claude Code then runs a turn of its own for the notification ("agent-503-held: PATH"
+holds that turn until PATH exists; "agent-400" fails on a bad request instead, "agent-reset" on
+a dropped connection). A prompt naming SendMessage to that agent resumes it: its task starts
+again under the SendMessage call (with FAKE_CLAUDE_RESUME_FAILS=1 it fails on the 503 again; with
+FAKE_CLAUDE_FORGET_AGENTS=1, 64 other agents fail first; with FAKE_CLAUDE_RESUME_COMPLETES=1 it
+completes).
 "cost-probe" ends its turn the way Claude Code reports spend: the turn's own
 token usage, and `total_cost_usd` as the process's running total (0.25 more
 per cost-probe turn, from 0 at each start). "cost-restore X" first restores
 the running total X, as a resumed Claude Code does; "cost-zero" reports a
 zeroed total, as a crashed one's last result can.
+"rate-limits-probe" sends two rate_limit_event lines as Claude Code 2.1.307 does
+(`utilization` a 0-1 fraction): the session and weekly windows, then the
+session window alone, moved. FAKE_CLAUDE_LIMITS=1 sends them on every prompt.
 """
 import json
 import os
@@ -113,6 +130,30 @@ COMMANDS = [
 ]
 
 
+# Claude Code's get_context_usage answer (detail "summary"), with what acpmux leaves out.
+# Set once a FAKE_CLAUDE_LATE_CONTEXT prompt hit its usage limit.
+LIMITED = False
+CONTEXT_USAGE = {
+    "categories": [
+        {"id": "system_prompt", "name": "System prompt", "tokens": 3000, "color": "promptBorder", "kind": "used"},
+        {"name": "MCP tools (deferred)", "tokens": 900, "color": "inactive", "isDeferred": True, "kind": "deferred"},
+        {"id": "messages", "name": "Messages", "tokens": 1500, "color": "purple", "kind": "used"},
+        {"id": "free_space", "name": "Free space", "tokens": 195500, "color": "promptBorder", "kind": "free"},
+    ],
+    "totalTokens": 4500, "maxTokens": 200000, "rawMaxTokens": 200000, "percentage": 2,
+    "gridRows": [[{"color": "purple", "isFilled": True, "categoryName": "Messages", "tokens": 1500,
+                   "percentage": 1, "squareFullness": 1}]],
+    "model": "fake",
+    "memoryFiles": [{"path": "/repo/CLAUDE.md", "type": "Project", "tokens": 120}],
+    "mcpTools": [{"name": "mcp__cmux__a", "serverName": "cmux", "tokens": 40, "isLoaded": True},
+                 {"name": "mcp__cmux__b", "serverName": "cmux", "tokens": 60, "isLoaded": False}],
+    "agents": [],
+    "skills": {"totalSkills": 1, "includedSkills": 1, "tokens": 30,
+               "skillFrontmatter": [{"name": "demo-skill", "source": "user", "tokens": 30}]},
+    "isAutoCompactEnabled": True,
+}
+
+
 def init():
     line = {"type": "system", "subtype": "init", "session_id": SESSION, "model": "fake",
             "permissionMode": MODE, "tools": [], "mcp_servers": []}
@@ -121,6 +162,44 @@ def init():
         line["skills"] = ["demo-skill"]
     line.update(json.loads(os.environ.get("FAKE_CLAUDE_INIT") or "{}"))
     return line
+
+
+AGENT_503 = "a503a503a503a503"
+RESUMES = [0]  # SendMessage resumes so far
+AGENT_ERRORS = {
+    "agent-503": "API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, "
+                 "usually temporary (error type server_error, HTTP 503)",
+    "agent-400": "API Error: 400 invalid_request_error: prompt is too long",
+    "agent-reset": "API Error: Connection error.",
+}
+
+
+def agent_failure(tool, kind="agent-503"):
+    send({"type": "system", "subtype": "task_notification", "task_id": AGENT_503, "tool_use_id": tool,
+          "status": "failed", "output_file": "",
+          "summary": "Agent terminated early due to an API error: " + AGENT_ERRORS[kind]})
+
+
+def extra_agents():
+    """FAKE_CLAUDE_EXTRA_503=N: "agent-503" starts N more agents, which fail on the 503 too."""
+    n = int(os.environ.get("FAKE_CLAUDE_EXTRA_503") or "0")
+    return [("toolu_c%d" % i, "c%015d" % i) for i in range(n)]
+
+
+def agent_failed(said):
+    """The end of "agent-503"'s agent, after its turn, and Claude Code's own turn for it."""
+    agent_failure("toolu_a503", next(k for k in AGENT_ERRORS if said.startswith(k)))
+    for tool, task in extra_agents():
+        send({"type": "system", "subtype": "task_notification", "task_id": task, "tool_use_id": tool,
+              "status": "failed", "output_file": "", "summary": AGENT_ERRORS["agent-503"]})
+    send(init())
+    if said.startswith("agent-503-held: "):
+        import time
+        path = said[len("agent-503-held: "):].split("<", 1)[0].split()[0]
+        while not os.path.exists(path):
+            time.sleep(0.02)
+    send({"type": "result", "subtype": "success", "result": "noted", "num_turns": 1, "duration_api_ms": 1,
+          "usage": {"input_tokens": 1, "output_tokens": 1}})
 
 
 def ask(rid, tool):
@@ -398,9 +477,25 @@ while True:
         # Like Claude Code, the next init reports the mode the session was switched to.
         if request.get("subtype") == "set_permission_mode" and isinstance(request.get("mode"), str):
             MODE = request["mode"]
+        # FAKE_CLAUDE_CONTEXT=1 answers get_context_usage as Claude Code 2.1.305 does (grid and
+        # colors included); =error refuses it as a Claude Code that cannot answer. A reconnect of
+        # the MCP server FAKE_CLAUDE_MCP_DOWN names fails as Claude Code's does.
+        refusal = None
+        if request.get("subtype") == "get_context_usage" and os.environ.get("FAKE_CLAUDE_CONTEXT") == "error":
+            refusal = "get_context_usage is not supported in this context (onGetContextUsage callback not registered)"
+        if (request.get("subtype") == "mcp_reconnect"
+                and request.get("serverName") == os.environ.get("FAKE_CLAUDE_MCP_DOWN")):
+            refusal = "Server status: failed"
+        if refusal:
+            send({"type": "control_response", "response": {"subtype": "error", "request_id": msg.get("request_id"),
+                  "error": refusal}})
+            continue
         answer = {}
         if request.get("subtype") == "initialize" and SKILLS:
             answer = {"commands": COMMANDS}
+        if (request.get("subtype") == "get_context_usage" and os.environ.get("FAKE_CLAUDE_CONTEXT") == "1"
+                and not LIMITED):
+            answer = CONTEXT_USAGE
         send({"type": "control_response", "response": {"subtype": "success", "request_id": msg.get("request_id"), "response": answer}})
         if request.get("subtype") == "apply_flag_settings":
             FLAG_SETTINGS.append(request.get("settings"))
@@ -466,6 +561,32 @@ while True:
                   "duration_api_ms": 0, "usage": {"input_tokens": 0, "output_tokens": 0}})
     elif kind == "user":
         die_if = os.environ.get("FAKE_CLAUDE_DIE_IF")
+        late = os.environ.get("FAKE_CLAUDE_LATE_CONTEXT")
+        if late and die_if and os.path.exists(die_if):
+            LIMITED = True
+            first = os.fork()
+            if first == 0:
+                # Forked twice and in its own session: no longer this process's descendant or in its
+                # group by the time the failover kills those.
+                os.setsid()
+                if os.fork() != 0:
+                    os._exit(0)
+                import time
+                time.sleep(1.0)
+                send({"type": "control_response", "response": {"subtype": "success", "request_id": "ctx-late",
+                      "response": CONTEXT_USAGE}})
+                send({"type": "rate_limit_event", "uuid": "rl-late", "session_id": SESSION, "rate_limit_info": {
+                      "status": "rejected", "rateLimitType": "five_hour", "utilization": 1.0, "resetsAt": 1}})
+                send({"type": "system", "subtype": "late_probe"})
+                open(late, "w").close()
+                os._exit(0)
+            os.waitpid(first, 0)
+            said = "You've hit your usage limit"
+            send({"type": "assistant", "error": "rate_limit", "message": {"model": "<synthetic>",
+                  "content": [{"type": "text", "text": said}]}})
+            send({"type": "result", "subtype": "success", "is_error": True, "result": said, "num_turns": 1,
+                  "duration_api_ms": 0, "usage": {"input_tokens": 0, "output_tokens": 0}})
+            continue
         if os.environ.get("FAKE_CLAUDE_DIE") == "1" or (die_if and os.path.exists(die_if)):
             sys.stderr.write("proxy down\n")
             sys.stderr.flush()
@@ -653,6 +774,15 @@ while True:
         if said.strip() == "compact-probe":
             send({"type": "system", "subtype": "compact_boundary",
                   "compact_metadata": {"trigger": "manual", "pre_tokens": 4500}})
+        # "rate-limits-probe": the account's plan usage limits, then a later event for one window.
+        if said.strip() == "rate-limits-probe" or os.environ.get("FAKE_CLAUDE_LIMITS") == "1":
+            send({"type": "rate_limit_event", "uuid": "rl-1", "session_id": SESSION, "rate_limit_info": {
+                "status": "allowed", "isUsingOverage": False, "unifiedWindows": {
+                    "five_hour": {"utilization": 0.12, "resetsAt": 1790000000},
+                    "seven_day": {"utilization": 0.4, "resetsAt": 1790500000}}}})
+            send({"type": "rate_limit_event", "uuid": "rl-2", "session_id": SESSION, "rate_limit_info": {
+                "status": "allowed_warning", "rateLimitType": "five_hour", "utilization": 0.9,
+                "resetsAt": 1790000000}})
         # "bg-probe": the turn starts two shells in the background (Bash run_in_background); Claude
         # Code reports each as a local_bash task, and one is killed while the other finishes.
         if said.strip() == "bg-probe":
@@ -676,6 +806,46 @@ while True:
             send({"type": "user", "parent_tool_use_id": "toolu_ag1", "message": {"content": [
                   {"type": "tool_result", "tool_use_id": "toolu_ag2", "content": "fn t() {}"}]}})
             send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_ag1", "content": "one test file"}]}})
+        if said.strip().startswith(tuple(AGENT_ERRORS)):
+            send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_a503", "name": "Agent",
+                  "input": {"description": "Push relay", "prompt": "Push the relay", "run_in_background": True}}]}})
+            send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_a503",
+                  "content": "Async agent launched"}]}})
+            send({"type": "system", "subtype": "task_started", "task_id": AGENT_503, "tool_use_id": "toolu_a503",
+                  "description": "Push relay", "task_type": "local_agent", "is_backgrounded": True})
+            for i, (tool, task) in enumerate(extra_agents()):
+                send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": tool, "name": "Agent",
+                      "input": {"description": "Extra %d" % i, "prompt": "Extra", "run_in_background": True}}]}})
+                send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": tool,
+                      "content": "Async agent launched"}]}})
+                send({"type": "system", "subtype": "task_started", "task_id": task, "tool_use_id": tool,
+                      "description": "Extra %d" % i, "task_type": "local_agent", "is_backgrounded": True})
+        if 'SendMessage to "%s"' % AGENT_503 in said:
+            send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_send", "name": "SendMessage",
+                  "input": {"to": AGENT_503, "message": "Continue where you stopped."}}]}})
+            # FAKE_CLAUDE_FORGET_AGENTS=1: 64 other agents fail first (a bad request each), so the
+            # translator forgot A503 by its resume.
+            RESUMES[0] += 1
+            for i in range(64 if os.environ.get("FAKE_CLAUDE_FORGET_AGENTS") == "1" else 0):
+                tool, task = "toolu_other%d_%d" % (RESUMES[0], i), "b%02d%013d" % (RESUMES[0], i)
+                send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": tool, "name": "Agent",
+                      "input": {"description": "Other %d" % i, "prompt": "Other", "run_in_background": True}}]}})
+                send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": tool,
+                      "content": "Async agent launched"}]}})
+                send({"type": "system", "subtype": "task_started", "task_id": task, "tool_use_id": tool,
+                      "description": "Other %d" % i, "task_type": "local_agent", "is_backgrounded": True})
+                send({"type": "system", "subtype": "task_notification", "task_id": task, "tool_use_id": tool,
+                      "status": "failed", "output_file": "", "summary": AGENT_ERRORS["agent-400"]})
+            send({"type": "system", "subtype": "task_started", "task_id": AGENT_503, "tool_use_id": "toolu_send",
+                  "description": "Push relay", "task_type": "local_agent", "is_backgrounded": True})
+            send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_send",
+                  "content": '{"success":true,"resumedAgentId":"%s"}' % AGENT_503}]}})
+            if os.environ.get("FAKE_CLAUDE_RESUME_FAILS") == "1":
+                agent_failure("toolu_send")
+            if os.environ.get("FAKE_CLAUDE_RESUME_COMPLETES") == "1":
+                send({"type": "system", "subtype": "task_notification", "task_id": AGENT_503,
+                      "tool_use_id": "toolu_send", "status": "completed", "output_file": "",
+                      "summary": "Pushed the relay"})
         # "late-agent-ask": a background subagent (Agent with run_in_background) that is still
         # running when the turn ends, and asks for permission after it (cx-jo8yo, below).
         if said.strip() == "late-agent-ask":
@@ -812,6 +982,8 @@ while True:
             result["modelUsage"] = {"claude-opus-1m": {"inputTokens": 90000, "contextWindow": 1000000},
                                     "claude-sonnet-x": {"inputTokens": 1200, "contextWindow": 200000}}
         send(result)
+        if said.strip().startswith(tuple(AGENT_ERRORS)):
+            agent_failed(said.strip())
         if said.strip() == "late-agent-ask":
             send({"type": "control_request", "request_id": "late-1", "request": {"subtype": "can_use_tool",
                   "tool_name": "Write", "tool_use_id": "toolu_late_w", "input": {"file_path": "late.txt", "content": "x"}}})

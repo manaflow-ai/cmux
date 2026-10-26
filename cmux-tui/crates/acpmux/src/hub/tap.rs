@@ -11,6 +11,9 @@ use super::*;
 /// headers_ms and ttft_ms): every `message_start`, and the first `content_block_delta` after it.
 const RAW_STREAM_EVENT: &str = "claude.stream_event";
 
+/// A raw Claude `control_response` line.
+const RAW_CONTROL_RESPONSE: &str = "claude.control_response";
+
 /// The `session/update` kinds that show the model at work: what it says or does (a message, a
 /// thought, a tool call and its progress, a plan), a compaction (the model summarizing) and a
 /// subagent's progress.
@@ -117,6 +120,7 @@ impl Hub {
                     let code = params.as_ref().and_then(|p| p.get("code")).cloned();
                     let intentional =
                         matches!(tap_session.status(), SessionStatus::Idle | SessionStatus::Closed);
+                    tap_session.harness_turn.store(false, Ordering::SeqCst);
                     // Its workflows ran in the agent's process: they end with it.
                     tap_hub.workflow_index.end_session(&tap_session.id, crate::store::now_ms());
                     return tap_hub
@@ -133,12 +137,29 @@ impl Hub {
                     let mut kind = method.clone();
                     let timing = method == RAW_STREAM_EVENT
                         && params.as_ref().is_some_and(|p| times_request(p, &awaiting_first_delta));
-                    if method == RAW_STREAM_EVENT && !timing {
+                    // Claude Code's whole /context answer (its grid, every MCP tool) is not
+                    // logged either: the breakdown translated from it follows.
+                    let context = method == RAW_CONTROL_RESPONSE
+                        && params.as_ref().is_some_and(crate::claude_stdio::is_context_answer);
+                    if (method == RAW_STREAM_EVENT && !timing) || context {
                         // Kept nowhere: the entry counts as logged, so the host drops it.
                         tap_hub.touch(&tap_session);
                         return true;
                     }
                     if method.starts_with("claude.") {
+                        // Claude Code's turn, its own ones too (`Session::harness_turn`).
+                        if method == "claude.system.init" {
+                            tap_session.harness_turn.store(true, Ordering::SeqCst);
+                        } else if method.starts_with("claude.result") {
+                            tap_session.harness_turn.store(false, Ordering::SeqCst);
+                        } else if (method == "claude.system.task_started"
+                            || method == "claude.system.task_notification")
+                            && let Some(line) = params.as_ref()
+                        {
+                            // A failed subagent's resume, and its end when only these lines
+                            // show it (`subagent_retry.rs`).
+                            tap_hub.observe_task_line(&tap_session, line);
+                        }
                         // Raw stream-json line; translated messages follow.
                         return tap_hub
                             .append_logged(
@@ -234,6 +255,14 @@ impl Hub {
             // A background shell, a subagent's too (`processes.rs`).
             if d == "in" && kind == "background_task_update" {
                 tap_hub.note_process(&tap_session, &rec, output.as_deref());
+            }
+            // A failed subagent's retry, once its end is logged (`subagent_retry.rs`).
+            if d == "in"
+                && !kind.ends_with(".replay")
+                && let Some(events) =
+                    rec.msg.pointer("/params/_meta/acpmux/subagents").and_then(Value::as_array)
+            {
+                tap_hub.observe_subagents(&tap_session, events);
             }
             logged
         })

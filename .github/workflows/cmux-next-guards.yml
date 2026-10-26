@@ -154,7 +154,7 @@ jobs:
       - name: Set up Bun for guard tests
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Set up Python 3.9 for nightly prune compatibility
         id: python39
@@ -550,7 +550,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: The web lint pre-push hook
         run: python3 tests/test_web_lint_prepush.py

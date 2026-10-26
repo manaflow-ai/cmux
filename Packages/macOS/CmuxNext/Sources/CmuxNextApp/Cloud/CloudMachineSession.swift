@@ -119,7 +119,7 @@ final class CloudMachineSession {
                     await self?.noteLink(.up, since: suspendsBefore)
                     return path
                 } catch {
-                    if !(error is CancellationError) { await self?.noteLink(.failed(String(describing: error)), since: suspendsBefore) }
+                    if !(error is CancellationError) { await self?.noteLink(.failed(CloudStrings.errorText(error)), since: suspendsBefore) }
                     throw error
                 }
             })
@@ -146,7 +146,7 @@ final class CloudMachineSession {
                 try await resumer(machineID)
             } catch {
                 guard !disconnected else { return }
-                resumeFailure = RefusalStrings.describe(error)
+                resumeFailure = CloudStrings.errorText(error)
                 return
             }
             // The resume's refresh connects a record that turned live; a
@@ -215,6 +215,7 @@ final class CloudMachineSession {
 
     /// "Disconnected, click to connect": no connection until the next connect.
     private func showEnded(_ error: any Error) {
+        CloudAppLinks.logEnded(error)
         let message = CloudAppLinks.endedMessage(error)
         daemon.shutdownConnection()
         daemon.store.markFailed(message)

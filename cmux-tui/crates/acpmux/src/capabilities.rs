@@ -74,6 +74,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // Metadata-only paths for a focused chat's config and state files. The
     // daemon serves this surface on its local Unix socket only.
     Capability { id: "session-files-v1", wire: &[method::MUX_SESSION_FILES] },
+    // Who has a shared chat open and who types in it (`hub/presence.rs`); the attach reply's
+    // `presence` comes with it.
+    Capability { id: "chat-presence-v1", wire: &[method::MUX_TYPING, method::MUX_PRESENCE] },
     // Edit or remove a queued prompt, and send a steer now (`hub/queue_edit.rs`).
     Capability { id: "queue-edit-v1", wire: &[method::MUX_QUEUE_EDIT, method::MUX_QUEUE_REMOVE] },
     // One answer for a group of permission asks, and revoking a chat's grants.
@@ -118,6 +121,13 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "folder-trust-v1", wire: &[method::ACP_TRUST_GET, method::ACP_TRUST_SET] },
     // Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
     Capability { id: "agent-pairs-v1", wire: &[method::MUX_AGENT_PAIR_RESUME] },
+    // Retry a chat's failed last turn now: the Retry button (`hub/auto_resume/retry_turn.rs`).
+    Capability { id: "turn-retry-v1", wire: &[method::MUX_RETRY] },
+    // `_acpmux/retry` with `subagentId`: resume a failed subagent now
+    // (`hub/subagent_retry_manual.rs`). A daemon without this id does not
+    // retry a subagent, so the pane shows a subagent's Retry button only
+    // under it.
+    Capability { id: "subagent-retry-v1", wire: &[method::MUX_RETRY] },
     // Stop one of a chat's background subagents. acpmux takes the method for
     // every harness, but only the Claude stdio adapter acts on it
     // (`claude_stdio/outbound.rs`); others pass it on to the agent.
@@ -131,10 +141,16 @@ pub const CAPABILITIES: &[Capability] = &[
     // agent's or background agent's, from the files Claude Code writes
     // (`claude_stdio/agent_transcript.rs`).
     Capability { id: "subagent-transcript-v1", wire: &[method::MUX_SUBAGENT_TRANSCRIPT] },
+    Capability {
+        id: "durable-watches-v1",
+        wire: &[method::MUX_WATCH_ADD, method::MUX_WATCH_LS, method::MUX_WATCH_RM],
+    },
     // Every Claude workflow of this daemon's chats, duplicates marked (`hub/workflow_index.rs`).
     Capability { id: "workflows-index-v1", wire: &[method::MUX_WORKFLOWS] },
     // Answer an agent's offer to start a session (`offer_mcp.rs`).
     Capability { id: "session-offers-v1", wire: &[method::MUX_OFFER_RESPOND] },
+    // Reconnect a Claude Code chat's MCP server (`hub/tools.rs`).
+    Capability { id: "mcp-reconnect-v1", wire: &[method::MUX_MCP_RECONNECT] },
 ];
 
 /// The ids of [`CAPABILITIES`], in its order.
