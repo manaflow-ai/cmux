@@ -11,7 +11,7 @@ extension PageHostPool {
         guard shouldBuild else { return }
         watchMemoryPressure()
         activityMark = activity()
-        timer.schedule(after: policy.idleInput) { @MainActor [weak self] in
+        timer.scheduleOnMain(after: policy.idleInput) { [weak self] in
             self?.idleDeadline()
         }
     }

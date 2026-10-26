@@ -165,7 +165,7 @@ extension PageWebView {
         page.load(descriptor.url(route: route))
         let wait = chromiumDeadline
         // The page's first message cancels the deadline (onFirstMessage); ending the session too.
-        session.deadline.schedule(after: wait) { @MainActor [weak self, weak session] in
+        session.deadline.scheduleOnMain(after: wait) { [weak self, weak session] in
             guard let self, let session, self.chromiumSession === session else { return }
             self.fallBackToWebKit(.chromiumFailed, detail: "no message from the page within \(wait)")
         }
