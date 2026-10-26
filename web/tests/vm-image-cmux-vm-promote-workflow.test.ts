@@ -153,6 +153,7 @@ describe("key handling in the run scripts", () => {
       mkdirSync(path.join(seed, "images/cmux-vm/channels"), { recursive: true });
       mkdirSync(path.join(seed, "backend/apps/api"), { recursive: true });
       writeFileSync(path.join(seed, "images/cmux-vm/channels/dev.json"), "{}\n");
+      writeFileSync(path.join(seed, "images/cmux-vm/channels/staging.json"), '{ "snapshot_id": "x" }\n');
       writeFileSync(path.join(seed, "backend/apps/api/wrangler.jsonc"), "{}\n");
       await git(["init", "-q", "-b", "feat-cmux-next", seed]);
       await git(["add", "-A"], seed);
@@ -178,6 +179,7 @@ describe("key handling in the run scripts", () => {
       if (name === "Delete the spare snapshot") {
         expect(argv).toBe(`argv ../images/cmux-vm/cleanup.ts --snapshot ${ID(2)} --also-root ${dir}/branch-tip`);
         expect(readFileSync(path.join(dir, "branch-tip/images/cmux-vm/channels/dev.json"), "utf8")).toBe("{}\n");
+        expect(readFileSync(path.join(dir, "branch-tip/images/cmux-vm/channels/staging.json"), "utf8")).toBe('{ "snapshot_id": "x" }\n');
         expect(existsSync(path.join(dir, "branch-tip/backend/apps/api/wrangler.jsonc"))).toBe(true);
       }
       expect(inEnv).toBe("0");
