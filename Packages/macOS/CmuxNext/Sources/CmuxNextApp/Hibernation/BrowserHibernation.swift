@@ -124,7 +124,8 @@ final class BrowserHibernation {
     static let hoverGrace: Double = 30
     /// Pages woken early (neighbors and hovers): `debug.surfaces` and the bench read it.
     var prewarmedCount = 0
-    /// The hover-dwell prewarm with this hibernation as its weak warmer, and its power feed (`intentPrewarmHover`).
+    /// The intent prewarm with this hibernation as its weak warmer, and its power feed (`intentPrewarmHover`'s
+    /// hover dwell, `directionalPrewarm`'s key steps).
     var intentPrewarm: (service: IntentPrewarmService<String>, power: MainActorHandlerRegistration<EnergyInputs>)?
     /// The longest a woken page's last frame stands in for it before it paints (Chrome has no
     /// picture; a page that paints later than this shows itself loading rather than look frozen).

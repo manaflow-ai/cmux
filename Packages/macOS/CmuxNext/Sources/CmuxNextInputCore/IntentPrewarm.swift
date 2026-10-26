@@ -1,4 +1,4 @@
-// Intent prewarm's pure state (p04-input-042/043): the held prewarms and what started them (its inputs
+// Intent prewarm's pure state (p04-input-042/043/044): the held prewarms and what started them (its inputs
 // and counters are in IntentPrewarmInputs.swift). The main-actor service (CmuxNextInput's IntentPrewarmService) owns the dwell timer,
 // the pressure and power gating and the calls into the warmer; the decisions are here.
 
@@ -10,6 +10,23 @@ public enum IntentPrewarmTrigger: String, Sendable, CaseIterable {
     case pointerDown
     /// The pointer rested on a target for the service's dwell (p04-input-043).
     case hoverDwell
+    /// A next/previous key stepped toward the target (p04-input-044).
+    case keyStep
+}
+
+/// Which way a next/previous key stepped (p04-input-044): a step the other way cancels what the old
+/// direction prewarmed.
+public enum IntentPrewarmDirection: Sendable, Equatable {
+    /// Next.
+    case forward
+    /// Previous.
+    case backward
+
+    /// The direction of a step by `offset` (`+1` Next, `-1` Previous); nil for no step.
+    public init?(offset: Int) {
+        guard offset != 0 else { return nil }
+        self = offset > 0 ? .forward : .backward
+    }
 }
 
 /// The held prewarms, oldest first, at most ``limit``: a new one past the limit evicts the oldest, as
