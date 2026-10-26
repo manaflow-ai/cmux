@@ -255,8 +255,17 @@ prompts the cut turn held (`hub/auto_resume.rs`). While it waits the session row
 `retry_session`) retries a failed last turn now, under the caller's rules, taking over a waiting
 retry: the failed prompt goes again as its next `~resume-<n>` (a continuation when the turn had
 output, joined agent messages or hidden context); `retry.busy` while a turn or a retry runs,
-`retry.stopped` when Stop comes before it starts, `retry.nothing_failed` when nothing failed,
-and `retry.subagent_unsupported` for a `subagentId` (never the chat's own turn instead). A
+`retry.stopped` when Stop comes before it starts, `retry.nothing_failed` when nothing failed.
+With `subagentId` (`acpmux retry NAME --subagent ID`, `retry_session {subagent}`; capability
+`subagent-retry-v1`) it resumes that failed subagent instead, by its id or agent id: a waiting
+automatic retry fires now, else one more goes, as the prompt the automatic one sends
+(provenance `subagent_retry` with `manual: true`, prompt id `subagent-retry-...`); it answers
+once that turn started and never queues. It refuses `retry.busy` while a turn runs or is about to
+start (Claude Code's own too), a prompt waits, a continuation may fire, the chat moves, a
+sub-session's run slots are full, or that subagent's retry is under way;
+`retry.nothing_failed` (`data.why`: `closed`, `running`, `resumed`, `replaced`, `ended`,
+`forgotten`, `not_retryable`, `skipped`) and `retry.unknown_subagent`, never the chat's own
+turn. A
 `notifyCommand` in the config runs on a permission request and on a turn that ends
 unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 `agentStartTimeoutMs` (default 90000) bounds a cold agent start (spawn, `initialize`,
