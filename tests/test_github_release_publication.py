@@ -157,7 +157,9 @@ class PublicationTests(unittest.TestCase):
     def test_null_digest_uses_the_authenticated_api_asset_url(self):
         client = publisher.GitHub("owner/repo", "fake-token")
         remote_asset = {"name": "draft.bin", "url": "https://api.github.com/assets/1", "browser_download_url": "https://github.com/draft.bin"}
-        with patch("publisher.urllib.request.urlopen") as urlopen:
+        # The opener keeps the token off a redirect to another host (publisher._SameHostAuthRedirect).
+        with patch("publisher._OPENER") as opener:
+            urlopen = opener.open
             response = urlopen.return_value.__enter__.return_value
             response.read.side_effect = [b"draft-content", b""]
             response.__iter__ = lambda self: iter([b"draft-content"])

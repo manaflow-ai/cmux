@@ -1264,6 +1264,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_gh_budget_wait.py
 
+      - name: Validate publish gh calls go out as the release App first, github.token as fallback
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_gh_app_token.py
+
       - name: Validate a feat-cmux-next push stops deferring to a publisher whose daemon tests are stuck
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_publisher_testing.py
