@@ -361,6 +361,66 @@
         }
       }
     },
+    "runs.error.taskInvalid": {
+      "comment": "cmux run --sandboxed refusal: the task is empty or too long.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A sandboxed run needs a task of at most 16,000 characters."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Sandbox-Lauf braucht eine Aufgabe mit höchstens 16.000 Zeichen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une exécution isolée a besoin d’une tâche de 16 000 caractères au plus."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج التشغيل المعزول إلى مهمة لا تتجاوز 16000 حرف."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una ejecución aislada necesita una tarea de 16.000 caracteres como máximo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沙箱執行需要一項不超過 16,000 個字元的任務。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沙箱运行需要一个不超过 16,000 个字符的任务。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "샌드박스 실행에는 16,000자 이하의 작업이 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サンドボックス実行には 16,000 文字以内のタスクが必要です。"
+          }
+        }
+      }
+    },
     "runs.error.taskRequired": {
       "comment": "cmux run --sandboxed refusal when no task text was given.",
       "extractionState": "manual",
@@ -417,6 +477,66 @@
           "stringUnit": {
             "state": "translated",
             "value": "サンドボックス実行にはタスクが必要です。"
+          }
+        }
+      }
+    },
+    "runs.error.timeoutInvalid": {
+      "comment": "cmux run --sandboxed refusal: the timeout is out of range.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The timeout must be 30 to 720 seconds."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Zeitlimit muss zwischen 30 und 720 Sekunden liegen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le délai doit être compris entre 30 et 720 secondes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون المهلة بين 30 و720 ثانية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El tiempo límite debe estar entre 30 y 720 segundos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "逾時必須介於 30 到 720 秒之間。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "超时必须在 30 到 720 秒之间。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제한 시간은 30~720초여야 합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイムアウトは 30 秒から 720 秒の間で指定してください。"
           }
         }
       }

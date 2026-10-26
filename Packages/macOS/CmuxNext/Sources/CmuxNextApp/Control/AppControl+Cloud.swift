@@ -168,6 +168,11 @@ extension AppControl {
             case .http(_, "run_sandbox_unavailable", _): throw ControlError(code: "run_sandbox_unavailable", message: String(localized: "runs.error.sandboxUnavailable", defaultValue: "Sandboxed runs are not enabled for this cmux Cloud account yet.", table: "Runs", bundle: .module))
             case .http(_, "run_image_invalid", _): throw ControlError(code: "run_image_invalid", message: String(localized: "runs.error.imageInvalid", defaultValue: "That image isn't a cmux Cloud VM image. Leave out --image to use the base image.", table: "Runs", bundle: .module))
             case .http(_, "run_agent_invalid", _): throw ControlError(code: "run_agent_invalid", message: String(localized: "runs.error.agentInvalid", defaultValue: "Unknown agent. Use claude, codex, opencode or pi.", table: "Runs", bundle: .module))
+            case .http(_, "run_task_required", _): throw ControlError(code: "run_task_required", message: String(localized: "runs.error.taskInvalid", defaultValue: "A sandboxed run needs a task of at most 16,000 characters.", table: "Runs", bundle: .module))
+            case .http(_, "run_timeout_invalid", _): throw ControlError(code: "run_timeout_invalid", message: String(localized: "runs.error.timeoutInvalid", defaultValue: "The timeout must be 30 to 720 seconds.", table: "Runs", bundle: .module))
+            // A server or rate-limit refusal says nothing about the run: the caller may wait again.
+            case .http(let status, let code, _) where status >= 500 || status == 429:
+                throw ControlError(code: "unavailable", message: error.description, data: .object(["status": .number(Double(status)), "code": code.map(JSONValue.string) ?? .null]))
             case .http(let status, let code, _): throw ControlError(code: code ?? "http_\(status)", message: error.description)
             case .noBackend, .transport: throw ControlError(code: "unavailable", message: error.description)
             case .decoding: throw ControlError(code: "bad_response", message: error.description)
