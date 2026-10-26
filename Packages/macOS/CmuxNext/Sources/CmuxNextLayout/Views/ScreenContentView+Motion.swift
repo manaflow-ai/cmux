@@ -7,7 +7,7 @@ extension ScreenContentView {
     /// (the screen's kinds: ``RenderMotionKind``). A task that moves a kind to the render server writes
     /// its variant in its own file and adds its one line here; a kind not listed, or every kind while
     /// `motion.renderServer` is off (the default), steps on the main thread in ``step(_:policy:)``.
-    static var renderServerMotions: [any RenderServerMotion<ScreenContentView>] { [SplitRenderMotion()] }
+    static var renderServerMotions: [any RenderServerMotion<ScreenContentView>] { [SplitRenderMotion(), ZoomRenderMotion()] }
 
     /// What an open change turn held back from ``applyPresentation(force:)``.
     struct HeldPresentation {
