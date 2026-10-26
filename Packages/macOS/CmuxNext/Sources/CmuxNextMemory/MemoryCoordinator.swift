@@ -1,4 +1,5 @@
 public import CmuxNextCompat
+public import CmuxNextWakeups
 
 /// The app's one memory coordinator: it sets each registered ``MemoryConsumer``'s limit from the
 /// memory pressure level and the Memory Saver mode, and releases what is above the limits in short
@@ -24,12 +25,23 @@ public import CmuxNextCompat
 ///   joins the release when that limit is under 100 %.
 /// - A ``MemoryLevelConsumer`` (a lossy planner with its own pace) also gets the level: at
 ///   registration and after the limits of each level change.
+/// - Hysteresis (p07-memory-070): after the level falls, lossless consumers keep the limits of the
+///   stricter ``limitLevel`` until the level has not changed for ``limitRiseDelay`` (30 s, one
+///   ``MainDeadline`` one-shot that each change resets); a rise back cancels the wait. Warning/normal
+///   flaps then make one release pass and no refill between them. Lossy consumers (page discards,
+///   snapshots) follow ``level`` at once, so their release stops when the pressure does. Chromium
+///   damps repeated moderate signals with a cooldown (`kModeratePressureCooldown`,
+///   components/memory_pressure/system_memory_pressure_evaluator_win.cc); cmux damps the limits
+///   instead, since macOS WARN flaps (p07-memory.md section 3.A).
+/// - Working set: a limit applies only to a consumer's entries not used in the last 2 s
+///   (``MemoryLimit/workingSet``); the consumer reports its in-use entries to
+///   ``MemoryLimit/scale(_:inUse:)``.
 ///
 /// The level is the debug override when set (`debug.hibernation.pressure`), else the kernel's level
 /// from ``MemoryPressureEvents`` (read at init, then each change). Nothing here waits or reads on a
-/// schedule: the pressure events and the slicer's frames are its only inputs. The level is also its
-/// vote in in-process Chromium's pressure aggregator (``pressureVote``, p07-memory-051), next to
-/// Chromium's own platform voter.
+/// schedule: the pressure events, the slicer's frames and the hysteresis one-shot are its only
+/// inputs. The level is also its vote in in-process Chromium's pressure aggregator (``pressureVote``,
+/// p07-memory-051), next to Chromium's own platform voter.
 ///
 /// ```swift
 /// let coordinator = MemoryCoordinator(pressure: memoryPressure, mode: .medium, slicer: frameSlicer)
@@ -40,11 +52,18 @@ public import CmuxNextCompat
 public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVoteSource {
     /// The main-thread time one release slice may take (p07-memory.md section 3.A).
     public nonisolated static let sliceBudget: Duration = .milliseconds(2)
+    /// How long the level must stay below ``limitLevel`` before lossless limits rise
+    /// (p07-memory.md section 3.A).
+    public nonisolated static let limitRiseDelay: Duration = .seconds(30)
 
-    /// The level the limits come from: ``pressureOverride`` when set, else ``kernelLevel``.
+    /// The level: ``pressureOverride`` when set, else ``kernelLevel``. Lossy limits, level consumers
+    /// and the vote follow it at once; lossless limits follow ``limitLevel``.
     public private(set) var level: MemoryPressureLevel
     /// The kernel's level, as ``MemoryPressureEvents`` last reported it.
     public private(set) var kernelLevel: MemoryPressureLevel
+    /// The level lossless consumers' limits come from: ``level``, or the stricter level it fell from,
+    /// held until the level has not changed for ``limitRiseDelay``.
+    public private(set) var limitLevel: MemoryPressureLevel
 
     /// A level that replaces the kernel's until it is set back to nil (`debug.hibernation.pressure`).
     public var pressureOverride: MemoryPressureLevel? {
@@ -80,6 +99,8 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
     private let clock: any Clock<Duration>
     private let sliceDuration: Duration
     private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
+    /// Ends a hold of ``limitLevel``; nil raises limits with the level.
+    private let limitRiseDeadline: MainDeadline?
     private let voteHandlers = MainActorHandlers<MemoryPressureLevel>()
 
     /// Makes the coordinator and starts following `pressure`, from its current level.
@@ -90,16 +111,22 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
     ///   - slicer: Runs release slices on later frames.
     ///   - clock: Measures each slice's budget (`ContinuousClock` in the app, a fake in tests).
     ///   - sliceBudget: The time one slice may take.
+    ///   - limitRiseDeadline: The one-shot that ends a hold of ``limitLevel`` after ``limitRiseDelay`` (the
+    ///     app's is a background-class deadline on its one placer). Nil raises limits with the level: no
+    ///     hysteresis.
     public init(
         pressure: MemoryPressureEvents,
         mode: MemorySaverMode = .medium,
         slicer: any MemoryReleaseSlicer,
         clock: any Clock<Duration> = ContinuousClock(),
-        sliceBudget: Duration = MemoryCoordinator.sliceBudget
+        sliceBudget: Duration = MemoryCoordinator.sliceBudget,
+        limitRiseDeadline: MainDeadline? = nil
     ) {
         let initial = pressure.currentLevel
         level = initial
         kernelLevel = initial
+        limitLevel = initial
+        self.limitRiseDeadline = limitRiseDeadline
         policy = MemoryLimitPolicy(mode: mode)
         self.slicer = slicer
         self.clock = clock
@@ -108,12 +135,13 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
         pressureObservation = pressure.observe { [weak self] level in self?.kernelLevelDidChange(level) }
     }
 
-    /// The limit a consumer with `traits` has at the current level and mode.
+    /// The limit a consumer with `traits` has at the current level and mode: at ``limitLevel`` when it
+    /// is lossless, at ``level`` when it is lossy.
     ///
     /// - Parameter traits: The consumer's traits.
     /// - Returns: Its limit.
     public func limit(for traits: MemoryConsumerTraits) -> MemoryLimit {
-        policy.limit(for: traits, at: level)
+        policy.limit(for: traits, at: traits.retention == .lossless ? limitLevel : level)
     }
 
     /// What every live consumer holds now, with the limit it has and the level and mode the limits
@@ -166,11 +194,24 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
         let newLevel = pressureOverride ?? kernelLevel
         guard newLevel != level else { return }
         level = newLevel
+        if let limitRiseDeadline, newLevel.severity < limitLevel.severity {
+            limitRiseDeadline.schedule(after: Self.limitRiseDelay) { [weak self] in self?.limitHoldDidEnd() }
+        } else {
+            limitRiseDeadline?.cancel()
+            limitLevel = newLevel
+        }
         applyLimits()
         for entry in consumers.liveEntries() {
             (entry.liveConsumer as? any MemoryLevelConsumer)?.memoryLevelDidChange(newLevel)
         }
         voteHandlers.call(newLevel)
+    }
+
+    /// The level stayed under the held ``limitLevel`` for ``limitRiseDelay``: lossless limits rise.
+    private func limitHoldDidEnd() {
+        guard limitLevel != level else { return }
+        limitLevel = level
+        applyLimits()
     }
 
     /// Hands each consumer whose limit changed its new limit, and asks for a slice when one fell.
@@ -253,6 +294,17 @@ extension MemoryCoordinator {
         /// Records a finished release down to `released`; a limit given during the call still counts.
         func didRelease(to released: MemoryLimit) {
             heldBound = max(released, limit)
+        }
+    }
+}
+
+extension MemoryPressureLevel {
+    /// How strict the level is: ``MemoryCoordinator`` holds lossless limits through a fall in it.
+    fileprivate var severity: Int {
+        switch self {
+        case .normal: 0
+        case .warning: 1
+        case .critical: 2
         }
     }
 }
