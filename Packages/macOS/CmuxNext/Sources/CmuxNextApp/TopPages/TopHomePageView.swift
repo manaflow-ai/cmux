@@ -364,6 +364,36 @@ final class TopHomePageView: NSView {
         host?.takeKeyboardOnOpen()
     }
 
+    // MARK: View state (`memoryDiscardInternalPages`)
+
+    /// What this page shows that Home's store does not keep: the shown conversation and the New
+    /// Message page (each conversation's draft and scroll stay in the store). A Home tab or dock
+    /// whose view was discarded gives it to its next view.
+    struct ViewState: Equatable {
+        var shown: ConversationID?
+        /// The New Message page's draft, nil when there is none or it is empty.
+        var newMessage: HomeNewMessageView.Saved?
+        /// The New Message page is the one on screen.
+        var composing = false
+    }
+
+    var viewState: ViewState {
+        ViewState(shown: shown, newMessage: newMessage.flatMap { $0.isEmpty ? nil : $0.saved }, composing: isComposingNewMessage)
+    }
+
+    /// Shows `state` on this new page: its conversation, and a kept New Message draft with its
+    /// row, on screen when it was.
+    func restore(_ state: ViewState) {
+        if let shown = state.shown { show(shown) }
+        guard let saved = state.newMessage, let services else { return }
+        let page = newMessage ?? makeNewMessage(services)
+        page.restore(saved)
+        if state.composing { return presentNewMessage() }
+        page.isHidden = true
+        list.setDraftRow(HomeNewMessageDraft.rowTitle)
+        if let shown { list.select(shown) }
+    }
+
     // MARK: New Message
 
     /// New Message (the compose button, the palette, the

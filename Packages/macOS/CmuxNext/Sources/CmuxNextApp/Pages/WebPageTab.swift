@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextPages
 
@@ -12,14 +13,18 @@ final class WebPageTab: InternalPageProvider {
     let icon: IconName?
     /// Read once, when the tab registers: page titles do not change while the app runs.
     let title: String
+    /// How long a hidden tab keeps its page (`memoryDiscardInternalPages`); its next show makes a new one.
+    let policy: ContentDiscardPolicy
     private let make: () -> PageWebView?
     private var pages: [String: PageWebView] = [:]
 
-    init(_ page: InternalPageID, symbol: String, icon: IconName? = nil, title: String, make: @escaping () -> PageWebView?) {
+    init(_ page: InternalPageID, symbol: String, icon: IconName? = nil, title: String,
+         discardPolicy: ContentDiscardPolicy = .standard, make: @escaping () -> PageWebView?) {
         self.page = page
         self.symbol = symbol
         self.icon = icon
         self.title = title
+        self.policy = discardPolicy
         self.make = make
     }
 
@@ -30,4 +35,9 @@ final class WebPageTab: InternalPageProvider {
     }
 
     func tabClosed(_ key: String) { pages.removeValue(forKey: key)?.close() }
+
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { policy }
+
+    /// The discard closed the page with its view; the tab's next show makes a new one.
+    func viewDiscarded(_ key: String) { pages[key] = nil }
 }

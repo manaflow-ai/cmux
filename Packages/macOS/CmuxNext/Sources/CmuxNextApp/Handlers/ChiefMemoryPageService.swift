@@ -3,6 +3,7 @@ import typealias CmuxNextBridge.StripTabID
 import CmuxNextChiefMemory
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHibernation
 import CmuxNextIcons
 import SwiftUI
 
@@ -66,6 +67,18 @@ final class ChiefMemoryPageService: InternalPageProvider {
     private var routes: [String: ChiefMemoryRoute] = [:]
     /// The route the next new tab shows (set right before it opens).
     private var nextRoute: ChiefMemoryRoute?
+    /// Each tab's live model, by key, while its view exists.
+    private var models: [String: ChiefMemoryInspectorModel] = [:]
+    /// Tabs whose delete dialog waits for the person (scoped to the tab's view).
+    private var confirming: Set<String> = []
+    /// What a tab whose view was discarded showed, given to its next view.
+    private var saved: [String: SavedView] = [:]
+
+    /// The opened nodes and the search of a discarded tab (its Chief is the route, kept anyway).
+    struct SavedView: Equatable {
+        var trail: [String]
+        var query: String
+    }
 
     init(services: AppServices) {
         self.services = services
@@ -152,11 +165,14 @@ final class ChiefMemoryPageService: InternalPageProvider {
         let source = DaemonChiefMemorySource(chief: chief) { [weak self] in self?.connection(for: route) }
         // A delete asks first, in a cmux dialog over this tab only.
         let anchor = WeakView()
-        let model = ChiefMemoryInspectorModel(source: source) { target, _ in
+        let model = ChiefMemoryInspectorModel(source: source) { [weak self] target, _ in
             let spec = ChiefMemoryInspectorView.deleteDialog(for: target)
             let scope: CmuxDialogScope = if let view = anchor.view { .tab(view) } else { .app }
+            self?.confirming.insert(key)
+            defer { self?.confirming.remove(key) }
             return await CmuxDialogCenter.shared.present(spec, in: scope).button == ChiefMemoryInspectorView.deleteButton
         }
+        models[key] = model
         let view = NSHostingView(rootView: ChiefMemoryInspectorView(model: model))
         anchor.view = view
         return view
@@ -164,6 +180,43 @@ final class ChiefMemoryPageService: InternalPageProvider {
 
     func tabClosed(_ key: String) {
         routes[key] = nil
+        models[key] = nil
+        confirming.remove(key)
+        saved[key] = nil
+    }
+
+    /// Tab `key`'s live model; nil while it has no view.
+    func model(for key: String) -> ChiefMemoryInspectorModel? { models[key] }
+
+    // MARK: Discard (`memoryDiscardInternalPages`)
+
+    /// Ten minutes hidden: every read comes from the Chief's daemon again, and each change is
+    /// written when it is made.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// An edit not saved yet, or a delete waiting on its dialog in this tab, keeps the view: a
+    /// rebuilt one could show neither (Chrome's `kUserEdits`).
+    func keepReasons(for key: String) -> [CannotDiscardReason] {
+        guard models[key]?.editing != nil || confirming.contains(key) else { return [] }
+        return [.unsavedEdits]
+    }
+
+    /// The tab stays with its route (its Chief); its opened nodes and search wait for its next view.
+    func viewDiscarded(_ key: String) {
+        guard let model = models.removeValue(forKey: key) else { return }
+        saved[key] = SavedView(trail: model.trail, query: model.query)
+    }
+
+    /// The rebuilt view searches and opens the nodes again, outermost first, as the person did.
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {
+        guard let view = saved.removeValue(forKey: key), let model = models[key] else { return }
+        model.query = view.query
+        guard !view.trail.isEmpty || !view.query.isEmpty else { return }
+        // task-owner: one read per saved node and one search; ends with the last answer
+        Task { @MainActor in
+            for name in view.trail { await model.open(name) }
+            if !view.query.isEmpty { await model.search() }
+        }
     }
 
     func route(for key: String) -> String? { routes[key]?.description }

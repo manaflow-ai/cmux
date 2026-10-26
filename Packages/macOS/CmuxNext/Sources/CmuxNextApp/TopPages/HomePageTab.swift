@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextHibernation
 import CmuxNextHome
 import CmuxNextHomeEngine
 
@@ -37,13 +38,35 @@ final class HomePageTab: InternalPageProvider {
         guard let services else { return NSView() }
         let view = TopHomePageView(services: services, windowKey: { Self.widthKey })
         views[key] = view
-        order.append(key)
+        // A view made again after a discard keeps its tab's place.
+        if !order.contains(key) { order.append(key) }
         return view
     }
 
     func tabClosed(_ key: String) {
         views[key] = nil
+        saved[key] = nil
         order.removeAll { $0 == key }
+    }
+
+    // MARK: Discard (`memoryDiscardInternalPages`)
+
+    /// What each tab whose view was discarded showed, given to its next view.
+    private var saved: [String: TopHomePageView.ViewState] = [:]
+
+    /// Ten minutes hidden: conversations, their drafts and scroll live in Home's store, and the
+    /// rest of what the tab shows is its view state.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// The tab stays: its shown conversation and New Message draft wait for its next view.
+    func viewDiscarded(_ key: String) {
+        guard let view = views.removeValue(forKey: key) else { return }
+        saved[key] = view.viewState
+    }
+
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {
+        guard let view = content as? TopHomePageView, let state = saved.removeValue(forKey: key) else { return }
+        view.restore(state)
     }
 
     /// Open Home tabs by provider key, in the order they opened.

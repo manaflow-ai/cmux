@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextHibernation
 import CmuxNextHomeEngine
 import CmuxNextPages
 import CmuxNextSettings
@@ -46,7 +47,42 @@ final class HomeDockTab: InternalPageProvider {
 
     func tabClosed(_ key: String) {
         views.removeValue(forKey: key)?.close()
+        saved[key] = nil
         services?.home.dockMode = .messages // no dock view shows Channels now
+    }
+
+    // MARK: Discard (`memoryDiscardInternalPages`)
+
+    /// What a discarded dock showed: its view and its Messages page's state.
+    struct SavedView: Equatable {
+        var mode: HomeDockMode
+        var messages: TopHomePageView.ViewState?
+    }
+
+    /// What each tab whose view was discarded showed, given to its next view.
+    private var saved: [String: SavedView] = [:]
+
+    /// Ten minutes hidden, as a Home tab (``HomePageTab``).
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// A dock that made its Channels page keeps it: that page's composers hold unsent text only in
+    /// the page (``HomeChannelsPageTab/discardPolicy``; Chrome's `kFormInteractions`).
+    func keepReasons(for key: String) -> [CannotDiscardReason] {
+        views[key]?.channels == nil ? [] : [.formInput]
+    }
+
+    /// The tab stays: its view and Messages state wait for its next view.
+    func viewDiscarded(_ key: String) {
+        guard let view = views.removeValue(forKey: key) else { return }
+        saved[key] = SavedView(mode: view.mode, messages: view.messages?.viewState)
+        view.close()
+        if view.mode == .channels { services?.home.dockMode = .messages } // its next view opens on Messages
+    }
+
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {
+        guard let view = content as? HomeDockView, let state = saved.removeValue(forKey: key) else { return }
+        if let messages = state.messages { view.messages?.restore(messages) }
+        if state.mode == .channels, state.mode.isEnabled { view.switchTo(.channels) }
     }
 
     /// Runs `body` on store tab `tabID`'s view now, or once the tab first shows.

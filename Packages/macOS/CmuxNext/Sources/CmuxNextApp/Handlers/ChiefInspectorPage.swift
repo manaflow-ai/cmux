@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextHibernation
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -44,11 +45,19 @@ final class ChiefInspectorPageService: InternalPageProvider {
         return services?.pages.show(.chiefInspector, in: window, focus: focus) != nil
     }
 
+    /// The server each tab inspects, by key: a view made again after a discard keeps its server.
+    private var tabMachines: [String: String] = [:]
+    /// Each tab's page, while its view exists.
+    private var pages: [String: PageWebView] = [:]
+    /// The route a tab whose view was discarded opens on again.
+    private var restoredRoutes: [String: String] = [:]
+
     func makeView(for key: String, in window: WindowController?) -> NSView {
         // Each tab keeps the server it was opened for; a tab restored at
         // launch (no open request yet) takes the first server that serves
         // chief-inspect.
-        let opened = machineID
+        let opened = tabMachines[key] ?? machineID
+        if let opened { tabMachines[key] = opened }
         let provider = ChiefInspectorPageProvider { [weak self] in
             guard let machines = self?.services?.machines else { return nil }
             let server = opened.flatMap(machines.server)
@@ -56,7 +65,27 @@ final class ChiefInspectorPageService: InternalPageProvider {
             return server?.daemon.connection
         }
         let routes = [PageRoute(prefix: "cmux.chief_inspector.", provider: provider)]
-        return services?.webUI.open(PageOpenRequest(descriptor: .chiefInspector, routes: routes)) ?? NSView()
+        let request = PageOpenRequest(descriptor: .chiefInspector, routes: routes, route: restoredRoutes.removeValue(forKey: key))
+        guard let page = services?.webUI.open(request) else { return NSView() }
+        pages[key] = page
+        return page
+    }
+
+    func tabClosed(_ key: String) {
+        tabMachines[key] = nil
+        restoredRoutes[key] = nil
+        pages.removeValue(forKey: key)?.close()
+    }
+
+    // MARK: Discard (`memoryDiscardInternalPages`)
+
+    /// Ten minutes hidden: the page only reads, and a new page asks the brain again.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// The discard closed the page with its view; the tab keeps its server and the page's route.
+    func viewDiscarded(_ key: String) {
+        guard let page = pages.removeValue(forKey: key) else { return }
+        restoredRoutes[key] = page.route
     }
 }
 

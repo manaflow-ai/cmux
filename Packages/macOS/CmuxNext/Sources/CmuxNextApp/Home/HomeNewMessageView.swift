@@ -98,6 +98,23 @@ final class HomeNewMessageView: NSView {
     /// leaving drops the draft (and its row in the list).
     var isEmpty: Bool { field.draft.isEmpty && messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
+    /// What the person put on the page: the To: field and the message box's text. A conversation's
+    /// own draft also stays in Home's store; the blank page's lives only here.
+    struct Saved: Equatable {
+        var recipients: HomeNewMessageDraft
+        var text: String
+    }
+
+    var saved: Saved { Saved(recipients: field.draft, text: messageText) }
+
+    /// Puts `saved` back on a new page (its Home view was discarded): the box takes the text, then
+    /// the To: field's people show their conversation with it, as when the person chose them.
+    func restore(_ saved: Saved) {
+        showComposer(carrying: saved.text)
+        field.setDraft(saved.recipients)
+        recipientsChanged()
+    }
+
     /// The message box's text (the blank page's, or the shown conversation's draft).
     var messageText: String {
         if let existing { return services?.home.homeStore.draft(for: existing) ?? "" }
