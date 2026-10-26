@@ -63,7 +63,7 @@ import CmuxNextWakeups
     }
 
     @Test func aTabOfAnOldNightlyChiefHomeOpensItsChat() async throws {
-        let (base, _, old) = try homes()
+        let (base, current, old) = try homes()
         defer { try? FileManager.default.removeItem(at: base.deletingLastPathComponent()) }
         let chiefHost = ChiefHomeAcpmux.host(muxHome: current.muxHome), oldHost = ChiefHomeAcpmux.host(muxHome: old)
         let record = AgentSessionRef(host: oldHost, session: kept, harness: "claude")
@@ -104,7 +104,7 @@ import CmuxNextWakeups
     }
 
     @Test func anOldChiefHomeWarmsItsRestoredChatThroughItsAcpmux() async throws {
-        let (base, current, old) = try homes()
+        let (base, _, old) = try homes()
         defer { try? FileManager.default.removeItem(at: base.deletingLastPathComponent()) }
         let warm = WarmHost()
         let directory = ChiefHomeDirectory(parents: [base], work: BackgroundWork(), environment: { _ in nil }) { _, _ in warm }
