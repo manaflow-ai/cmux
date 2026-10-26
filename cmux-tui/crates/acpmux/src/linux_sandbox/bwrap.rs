@@ -4,7 +4,12 @@
 #![allow(dead_code)] // Staged API: G1/G2 supply the production callers.
 
 use std::fmt;
+use std::io::{self, Read};
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::time::Duration;
+use wait_timeout::ChildExt;
 
 /// Canonical absolute UTF-8 paths, validated and created by the caller.
 /// `claude_project/memory` must already exist, too.
@@ -18,7 +23,16 @@ pub(crate) struct Paths {
 }
 
 /// HOME-relative Linux additions; the shared deny list comes from Seatbelt.
-pub(crate) const LINUX_READ_DENIES: &[&str] = &[];
+pub(crate) const LINUX_READ_DENIES: &[&str] = &[
+    ".local/share/keyrings",
+    ".password-store",
+    ".mozilla",
+    ".config/google-chrome",
+    ".config/chromium",
+    ".config/BraveSoftware",
+    ".pki",
+    ".claude/.credentials.json",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Mask {
@@ -27,13 +41,87 @@ pub(crate) enum Mask {
 }
 
 /// Select existing absolute read-denied paths plus the Linux HOME additions.
-pub(crate) fn masks(_home: &Path, _read_denies: &[PathBuf]) -> Vec<Mask> {
-    Vec::new() // Red-first stub.
+/// Resolve symlinks so both the symlink and its canonical target are masked.
+/// Only ENOENT is omitted; other metadata failures retain a file mask so
+/// bwrap either conceals the path or refuses setup. Iteration ends after
+/// the supplied denies and the fixed Linux additions have been visited.
+pub(crate) fn masks(home: &Path, read_denies: &[PathBuf]) -> Vec<Mask> {
+    read_denies
+        .iter()
+        .cloned()
+        .chain(LINUX_READ_DENIES.iter().map(|p| home.join(p)))
+        .filter_map(|path| {
+            let path = std::fs::canonicalize(&path).unwrap_or(path);
+            match std::fs::metadata(&path) {
+                Ok(meta) if meta.is_dir() => Some(Mask::Directory(path)),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+                _ => Some(Mask::File(path)),
+            }
+        })
+        .collect()
 }
 
 /// Pure argv construction, including the command prefix after `--`.
-pub(crate) fn bwrap_args(_paths: &Paths, _masks: &[Mask], _cmd_prefix: &[String]) -> Vec<String> {
-    Vec::new() // Red-first stub.
+/// The loops end after four writable roots and the supplied masks.
+pub(crate) fn bwrap_args(paths: &Paths, masks: &[Mask], cmd_prefix: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = [
+        "--new-session",
+        "--die-with-parent",
+        "--unshare-user",
+        "--unshare-pid",
+        "--unshare-ipc",
+        "--unshare-net",
+        "--unshare-uts",
+        "--unshare-cgroup-try",
+        "--disable-userns",
+        "--ro-bind",
+        "/",
+        "/",
+        "--dev",
+        "/dev",
+        "--proc",
+        "/proc",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect();
+    for path in [&paths.cwd, &paths.tmp, &paths.claude_tmp_project, &paths.claude_project] {
+        let path = path_arg(path);
+        out.extend(["--bind".into(), path.clone(), path]);
+    }
+    let memory = path_arg(&paths.claude_project.join("memory"));
+    out.extend(["--ro-bind".into(), memory.clone(), memory]);
+    for mask in masks {
+        match mask {
+            Mask::Directory(path) => {
+                let path = path_arg(path);
+                out.extend(["--tmpfs".into(), path.clone(), "--remount-ro".into(), path]);
+            }
+            Mask::File(path) => {
+                out.extend(["--ro-bind".into(), "/dev/null".into(), path_arg(path)]);
+            }
+        }
+    }
+    out.extend([
+        "--chdir".into(),
+        path_arg(&paths.cwd),
+        "--cap-drop".into(),
+        "ALL".into(),
+        "--".into(),
+    ]);
+    out.extend_from_slice(cmd_prefix);
+    out
+}
+
+/// Fail closed on invalid caller data; lossy conversion could mask a
+/// different path or grant writes to a different directory.
+fn path_arg(path: &Path) -> String {
+    assert!(path.is_absolute(), "sandbox paths must be absolute");
+    assert!(
+        !path.components().any(|c| c == std::path::Component::ParentDir),
+        "sandbox paths must not contain .."
+    );
+    path.to_str().expect("sandbox paths must be UTF-8").to_owned()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,17 +134,94 @@ pub(crate) enum Unavailable {
 
 impl fmt::Display for Unavailable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "bwrap probe not implemented") // Red-first stub.
+        f.write_str(match self {
+            Self::NotInstalled => "bwrap not installed (Debian/Ubuntu: apt install bubblewrap)",
+            Self::TooOld => "bwrap older than 0.8 (missing --disable-userns)",
+            Self::UserNamespacesRestricted => "unprivileged user namespaces are restricted (kernel.apparmor_restrict_unprivileged_userns=1) and /usr/bin/bwrap has no AppArmor profile; install it: Ubuntu's apparmor package ships /etc/apparmor.d/bwrap-userns-restrict",
+            Self::Other(stderr) => stderr,
+        })
     }
 }
 
 /// Classify a completed probe; `None` means the child died by signal.
-fn classify(_status: Option<i32>, _stderr: &str) -> Result<(), Unavailable> {
-    Err(Unavailable::Other("red-first stub".into()))
+fn classify(status: Option<i32>, stderr: &str) -> Result<(), Unavailable> {
+    if status == Some(0) {
+        return Ok(());
+    }
+    let stderr = stderr.trim();
+    let lower = stderr.to_ascii_lowercase();
+    if lower.contains("--disable-userns")
+        && (lower.contains("unknown option") || lower.contains("unrecognized option"))
+    {
+        return Err(Unavailable::TooOld);
+    }
+    if lower.contains("no permissions to create new namespace")
+        || ((lower.contains("setting up uid map") || lower.contains("creating new namespace"))
+            && (lower.contains("permission denied") || lower.contains("operation not permitted")))
+    {
+        return Err(Unavailable::UserNamespacesRestricted);
+    }
+    Err(Unavailable::Other(if stderr.is_empty() {
+        match status {
+            Some(code) => format!("bwrap probe failed (exit status {code}, no stderr)"),
+            None => "bwrap probe terminated by signal (no stderr)".into(),
+        }
+    } else {
+        stderr.to_owned()
+    }))
 }
 
-pub(crate) fn probe(_bwrap: &Path) -> Result<(), Unavailable> {
-    Err(Unavailable::Other("red-first stub".into()))
+/// Stop after the probe exits or 10 seconds elapse; kill and reap on timeout
+/// or wait failure. Stderr reads end at EOF, WouldBlock, or 16 KiB: even an
+/// inherited stderr writer cannot hold the probe open after its child exits.
+pub(crate) fn probe(bwrap: &Path) -> Result<(), Unavailable> {
+    let mut child = Command::new(bwrap)
+        .args([
+            "--unshare-user",
+            "--unshare-net",
+            "--disable-userns",
+            "--ro-bind",
+            "/",
+            "/",
+            "true",
+        ])
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .current_dir("/")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| {
+            if e.kind() == io::ErrorKind::NotFound {
+                Unavailable::NotInstalled
+            } else {
+                Unavailable::Other(format!("bwrap probe did not start: {e}"))
+            }
+        })?;
+    let status = match child.wait_timeout(Duration::from_secs(10)) {
+        Ok(Some(status)) => status,
+        result => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(Unavailable::Other(match result {
+                Err(e) => format!("bwrap probe wait failed: {e}"),
+                _ => "bwrap probe did not finish in 10 s".into(),
+            }));
+        }
+    };
+    let stderr = child.stderr.take().expect("stderr was piped");
+    // SAFETY: stderr owns a live pipe fd. F_SETFL changes only its status flags.
+    if unsafe { libc::fcntl(stderr.as_raw_fd(), libc::F_SETFL, libc::O_NONBLOCK) } == -1 {
+        return Err(Unavailable::Other(format!("bwrap stderr: {}", io::Error::last_os_error())));
+    }
+    let mut bytes = Vec::new();
+    if let Err(e) = stderr.take(16 * 1024).read_to_end(&mut bytes)
+        && e.kind() != io::ErrorKind::WouldBlock
+    {
+        return Err(Unavailable::Other(format!("bwrap stderr: {e}")));
+    }
+    classify(status.code(), &String::from_utf8_lossy(&bytes))
 }
 
 #[cfg(test)]
@@ -183,6 +348,39 @@ mod tests {
         assert!(masks(&fixture.0.join("missing-home"), &[]).is_empty());
     }
 
+    #[test]
+    fn masks_resolve_symlinks_and_do_not_omit_inspection_errors() {
+        use std::os::unix::fs::symlink;
+        let fixture = Fixture::new();
+        let home = fixture.0.join("home");
+        fs::create_dir(&home).unwrap();
+        let directory = fixture.0.join("secret-directory");
+        let file = fixture.0.join("secret-file");
+        fs::create_dir(&directory).unwrap();
+        fs::write(&file, "synthetic credential").unwrap();
+        symlink(&directory, home.join(".ssh")).unwrap();
+        symlink(&file, home.join(".netrc")).unwrap();
+        symlink("loop", home.join("loop")).unwrap();
+        symlink("absent", home.join("dangling")).unwrap();
+        assert_eq!(
+            masks(
+                &home,
+                &[home.join(".ssh"), home.join(".netrc"), home.join("loop"), home.join("dangling"),]
+            ),
+            vec![Mask::Directory(directory), Mask::File(file), Mask::File(home.join("loop"))],
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "sandbox paths must be UTF-8")]
+    fn argv_refuses_lossy_path_conversion() {
+        use std::os::unix::ffi::OsStringExt;
+        let fixture = Fixture::new();
+        let mut p = fixture.paths();
+        p.cwd = std::ffi::OsString::from_vec(b"/invalid-\xff".to_vec()).into();
+        let _ = bwrap_args(&p, &[], &strings(&["true"]));
+    }
+
     /// Stops after the fixed Linux additions have each been created.
     #[test]
     fn linux_secret_masks_are_home_relative_and_added_to_shared_denies() {
@@ -228,6 +426,10 @@ mod tests {
             Err(Unavailable::TooOld),
         );
         assert_eq!(
+            classify(Some(1), "bwrap: unrecognized option '--disable-userns'"),
+            Err(Unavailable::TooOld),
+        );
+        assert_eq!(
             classify(Some(1), "bwrap: Unknown option --unrelated"),
             Err(Unavailable::Other("bwrap: Unknown option --unrelated".into())),
         );
@@ -268,9 +470,14 @@ mod tests {
     async fn real_bwrap_isolates_mounts_processes_and_network() {
         let bwrap = Path::new("/usr/bin/bwrap");
         if let Err(reason) = probe(bwrap) {
+            assert!(
+                std::env::var_os("ACPMUX_REQUIRE_BWRAP").is_none(),
+                "real bwrap required but probe failed: {reason}"
+            );
             eprintln!("skipped: {reason}");
             return;
         }
+        eprintln!("running: real bwrap isolation test ({})", bwrap.display());
         let fixture = Fixture::new();
         let p = fixture.create_paths();
         let outside = fixture.0.join("outside");
@@ -339,5 +546,6 @@ done < /proc/net/dev
         assert_eq!(fs::read_to_string(outside).unwrap(), "unchanged");
         assert_eq!(fs::read_to_string(memory).unwrap(), "unchanged");
         assert_eq!(fs::read_to_string(p.cwd.join("inside")).unwrap(), "inside");
+        eprintln!("passed: real bwrap mount, PID, and network isolation");
     }
 }
