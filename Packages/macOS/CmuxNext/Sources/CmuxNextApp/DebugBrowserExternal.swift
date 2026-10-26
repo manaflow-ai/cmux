@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextControl
+import CmuxNextOnboarding
 import CmuxNextSettings
 import Foundation
 
@@ -14,6 +15,16 @@ enum DebugBrowserExternal {
         #if DEBUG
         router?.register([
             .mainActor("debug.browser.external_opens") { call in .value(opens(call.params)) },
+            // `{id, title?, harness?, host}`: the cmux://session question for that session, in the
+            // active window, without a link (captures; a capture host has no acpmux sessions).
+            .mainActor("debug.session_link_ask") { [weak services] call in
+                let p = call.params
+                let subject = SessionLinkSubject(id: p["id"]?.stringValue ?? "ses-capture", title: p["title"]?.stringValue,
+                                                 harness: p["harness"]?.stringValue, host: p["host"]?.stringValue ?? SessionLinkSubject.thisMac)
+                let window = services?.windows.active?.window
+                Task { _ = await SessionLinkGate.ask(subject, in: window) }
+                return .value(.bool(window != nil))
+            },
             .mainActor("debug.browser.prompts") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(prompts(call.params, services: services))
