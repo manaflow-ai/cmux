@@ -26,14 +26,19 @@ public final class AgentAvatars {
         self.openPanel = openPanel
     }
 
-    /// Session `session`'s avatar as a data URL, drawn down off the main actor; nil for none.
+    /// Session `session`'s avatar as a data URL, drawn down off the main actor; nil for none. A
+    /// picture replaced or removed during the draw-down is not answered: the newest one is.
     public func avatar(_ session: String) async -> String? {
-        guard let still = uploads.uploads[ChiefAvatarUploads.key(agent: session)]?.still else { return nil }
-        if let known = made[still] { return known }
-        // task-owner: one small read and draw-down of a 512 px PNG; ends with it
-        let src = await Task.detached(priority: WorkPriority.userVisible.taskPriority) { Self.dataURL(still) }.value
-        if let src { made[still] = src }
-        return src
+        let key = ChiefAvatarUploads.key(agent: session)
+        while let still = uploads.uploads[key]?.still {
+            if let known = made[still] { return known }
+            // task-owner: one small read and draw-down of a 512 px PNG; ends with it
+            let src = await Task.detached(priority: WorkPriority.userVisible.taskPriority) { Self.dataURL(still) }.value
+            guard uploads.uploads[key]?.still == still else { continue }
+            if let src { made[still] = src }
+            return src
+        }
+        return nil
     }
 
     /// Set Avatar…: the open panel over `window`, then the upload. The new avatar; nil when the

@@ -13,6 +13,8 @@ let call: Call = postNative;
 /// Each session's avatar: a data URL, or null for none.
 const avatars = new Map<string, string | null>();
 const pending = new Map<string, Promise<string | null>>();
+/// Each session's change count: a read that started before a Set or Remove keeps nothing.
+const changes = new Map<string, number>();
 const listeners = new Set<() => void>();
 
 /// Tests replace the host; replacing it forgets every answer.
@@ -20,6 +22,7 @@ export function setAgentAvatarHost(next: Call | undefined): void {
   call = next ?? postNative;
   avatars.clear();
   pending.clear();
+  changes.clear();
 }
 
 function src(reply: unknown): string | null {
@@ -28,6 +31,8 @@ function src(reply: unknown): string | null {
 }
 
 function changed(sessionId: string, value: string | null): void {
+  changes.set(sessionId, (changes.get(sessionId) ?? 0) + 1);
+  pending.delete(sessionId);
   avatars.set(sessionId, value);
   for (const listener of listeners) listener();
 }
@@ -35,17 +40,21 @@ function changed(sessionId: string, value: string | null): void {
 function load(sessionId: string): Promise<string | null> {
   const started = pending.get(sessionId);
   if (started) return started;
-  const request = Promise.resolve()
+  const asked = changes.get(sessionId) ?? 0;
+  const request: Promise<string | null> = Promise.resolve()
     .then(() => call("agent.avatar", { sessionId }))
     .then(
       (reply) => {
+        if ((changes.get(sessionId) ?? 0) !== asked) return avatars.get(sessionId) ?? null;
         const value = src(reply);
         avatars.set(sessionId, value);
         return value;
       },
       () => null,
     )
-    .finally(() => pending.delete(sessionId));
+    .finally(() => {
+      if (pending.get(sessionId) === request) pending.delete(sessionId);
+    });
   pending.set(sessionId, request);
   return request;
 }
