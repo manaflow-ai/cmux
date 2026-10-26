@@ -4,29 +4,35 @@ public import Foundation
 /// The app builds one for each window and merges the pairs where
 /// `isCrashDuplicate(of:)` holds: the same window written twice by a crash.
 public struct CrashWindowSignature: Equatable, Sendable {
-    public var windowId: UUID?
-    public var workspaceCount: Int
+    public let windowId: UUID?
+    public let workspaceCount: Int
     /// Every workspace's ID, in order, or nil when any workspace has none.
-    public var workspaceIDs: [UUID]?
+    public let workspaceIDs: [UUID]?
     /// Agent session checkpoints of the window's panels. Shared multiplexer
     /// sessions (tmux, herdr) must not be included: two real windows can
     /// attach the same one.
-    public var checkpointIDs: Set<String>
+    public let checkpointIDs: Set<String>
     /// Non-blank custom workspace titles, trimmed.
-    public var workspaceTitles: [String]
+    public let workspaceTitles: [String]
 
-    public init(
+    private let sortedWorkspaceTitles: [String]
+    private let dock: CrashDockSignature?
+
+    public nonisolated init(
         windowId: UUID?,
         workspaceCount: Int,
         workspaceIDs: [UUID]?,
         checkpointIDs: Set<String>,
-        workspaceTitles: [String]
+        workspaceTitles: [String],
+        dock: CrashDockSignature? = nil
     ) {
         self.windowId = windowId
         self.workspaceCount = workspaceCount
         self.workspaceIDs = workspaceIDs
         self.checkpointIDs = checkpointIDs
         self.workspaceTitles = workspaceTitles
+        self.sortedWorkspaceTitles = workspaceTitles.sorted()
+        self.dock = dock
     }
 
     /// Two windows are one when:
@@ -41,12 +47,13 @@ public struct CrashWindowSignature: Equatable, Sendable {
     ///   window's checkpoints (at least two) is in the other. One agent
     ///   session runs in one place, so a window whose sessions all live in
     ///   another window is a crash replay of it that was given a new ID.
-    public func isCrashDuplicate(of other: CrashWindowSignature) -> Bool {
+    public nonisolated func isCrashDuplicate(of other: CrashWindowSignature) -> Bool {
+        guard dock == other.dock else { return false }
         guard mayShareIdentity(with: other) else {
             return isReplayWithNewWindowID(of: other)
         }
         if let ownIDs = workspaceIDs, let otherIDs = other.workspaceIDs,
-           !ownIDs.isEmpty, ownIDs == otherIDs, checkpointIDs.isEmpty, other.checkpointIDs.isEmpty {
+           !ownIDs.isEmpty, ownIDs.count == otherIDs.count, Set(ownIDs) == Set(otherIDs), checkpointIDs.isEmpty, other.checkpointIDs.isEmpty {
             return true
         }
         guard !checkpointIDs.isEmpty, !other.checkpointIDs.isEmpty else { return false }
@@ -64,7 +71,7 @@ public struct CrashWindowSignature: Equatable, Sendable {
 }
 
 extension CrashWindowSignature {
-    private func isReplayWithNewWindowID(of other: CrashWindowSignature) -> Bool {
+    private nonisolated func isReplayWithNewWindowID(of other: CrashWindowSignature) -> Bool {
         guard workspaceCount == other.workspaceCount,
               hasSameTitleMultiset(as: other) else {
             return false
@@ -75,13 +82,13 @@ extension CrashWindowSignature {
         return smaller.count >= 2 && smaller.isSubset(of: larger)
     }
 
-    private func hasSameTitleMultiset(as other: CrashWindowSignature) -> Bool {
+    private nonisolated func hasSameTitleMultiset(as other: CrashWindowSignature) -> Bool {
         workspaceTitles.count >= max(3, workspaceCount - 2)
             && workspaceTitles.count == other.workspaceTitles.count
-            && workspaceTitles.sorted() == other.workspaceTitles.sorted()
+            && sortedWorkspaceTitles == other.sortedWorkspaceTitles
     }
 
-    private func mayShareIdentity(with other: CrashWindowSignature) -> Bool {
+    private nonisolated func mayShareIdentity(with other: CrashWindowSignature) -> Bool {
         switch (windowId, other.windowId) {
         case let (ownID?, otherID?): return ownID == otherID
         case (nil, nil): return true

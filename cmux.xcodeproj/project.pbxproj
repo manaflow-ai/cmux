@@ -1954,6 +1954,9 @@
 		C11538000000000000000001 /* CopyOnlyTextSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11538000000000000000002 /* CopyOnlyTextSelectionTests.swift */; };
 		C65930010000000000000002 /* CrashDiagnosticSessionPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */; };
 		9265332223B5CDF1D682913B /* CrashDuplicateMergeRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38511CA80DDBF24B42BA634C /* CrashDuplicateMergeRegressionTests.swift */; };
+		F2C23A44C5EC9D25B868010B /* CrashWindowMergeFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEEFF51C8352E2C535D2D675 /* CrashWindowMergeFixtures.swift */; };
+		CEAEE1C80B47ED9DA61AABC9 /* CrashWindowMergePolicyTests1.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47801401CCAE9752C335A829 /* CrashWindowMergePolicyTests1.swift */; };
+		8A04E02189E40D112161D972 /* CrashWindowMergePolicyTests2.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8430A1938FEA9C4AA13E58F /* CrashWindowMergePolicyTests2.swift */; };
 		46FF4C2573735348394EB428 /* CurrentWorkCommandPaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D2A0A1060BF9D77B71CE803 /* CurrentWorkCommandPaletteTests.swift */; };
 		4968BF255B858F36FB675B22 /* CurrentWorkPalettePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFBCA7B529B723C1525D40DB /* CurrentWorkPalettePresentation.swift */; };
 		A83CEB14BF353C5152590A0E /* CurrentWorkQueryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E83BB2716EBCA8C2F0A93DA /* CurrentWorkQueryService.swift */; };
@@ -3374,6 +3377,7 @@
 		481D7BF878AB38DA5642D1C9 /* SessionPersistence+Todos.swift in Sources */ = {isa = PBXBuildFile; fileRef = 769F7D1FD3622B7D06998B0F /* SessionPersistence+Todos.swift */; };
 		A5001610 /* SessionPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001611 /* SessionPersistence.swift */; };
 		A74770010000000000000009 /* SessionPersistencePolicy+ConfigFrames.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7477001000000000000000A /* SessionPersistencePolicy+ConfigFrames.swift */; };
+		2BA75A9A5F2AB3107FCF4599 /* SessionPersistencePolicy+CrashDuplicates.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD1BEF40000320B94762EFFA /* SessionPersistencePolicy+CrashDuplicates.swift */; };
 		C65930020000000000000002 /* SessionPersistencePolicy+CrashStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65930020000000000000001 /* SessionPersistencePolicy+CrashStorage.swift */; };
 		F6572002A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572003A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift */; };
 		F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */; };
@@ -6639,6 +6643,9 @@
 		C11538000000000000000002 /* CopyOnlyTextSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopyOnlyTextSelectionTests.swift; sourceTree = "<group>"; };
 		C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashDiagnosticSessionPolicyTests.swift; sourceTree = "<group>"; };
 		38511CA80DDBF24B42BA634C /* CrashDuplicateMergeRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CrashDuplicateMergeRegressionTests.swift"; sourceTree = "<group>"; };
+		EEEFF51C8352E2C535D2D675 /* CrashWindowMergeFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CrashWindowMergeFixtures.swift"; sourceTree = "<group>"; };
+		47801401CCAE9752C335A829 /* CrashWindowMergePolicyTests1.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CrashWindowMergePolicyTests1.swift"; sourceTree = "<group>"; };
+		B8430A1938FEA9C4AA13E58F /* CrashWindowMergePolicyTests2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CrashWindowMergePolicyTests2.swift"; sourceTree = "<group>"; };
 		8D2A0A1060BF9D77B71CE803 /* CurrentWorkCommandPaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CurrentWorkCommandPaletteTests.swift"; sourceTree = "<group>"; };
 		AFBCA7B529B723C1525D40DB /* CurrentWorkPalettePresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CommandPalette/CurrentWorkPalettePresentation.swift"; sourceTree = "<group>"; };
 		9E83BB2716EBCA8C2F0A93DA /* CurrentWorkQueryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CurrentWorkQueryService.swift"; sourceTree = "<group>"; };
@@ -8037,6 +8044,7 @@
 		769F7D1FD3622B7D06998B0F /* SessionPersistence+Todos.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPersistence+Todos.swift"; sourceTree = "<group>"; };
 		A5001611 /* SessionPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistence.swift; sourceTree = "<group>"; };
 		A7477001000000000000000A /* SessionPersistencePolicy+ConfigFrames.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPersistencePolicy+ConfigFrames.swift"; sourceTree = "<group>"; };
+		BD1BEF40000320B94762EFFA /* SessionPersistencePolicy+CrashDuplicates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPersistencePolicy+CrashDuplicates.swift"; sourceTree = "<group>"; };
 		C65930020000000000000001 /* SessionPersistencePolicy+CrashStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPersistencePolicy+CrashStorage.swift"; sourceTree = "<group>"; };
 		F6572003A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceResumeBindingTests.swift; sourceTree = "<group>"; };
 		F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceTests.swift; sourceTree = "<group>"; };
@@ -12643,6 +12651,7 @@
 				F1C6800D38EC5F238A2994FC /* DockSplitStore+ChiefPane.swift */,
 				7947118FF892144AE54C82D2 /* ChiefPaneDragPayload.swift */,
 				0D10F73113F55349CE0E475D /* ChiefHomeConversationRows.swift */,
+				BD1BEF40000320B94762EFFA /* SessionPersistencePolicy+CrashDuplicates.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -14284,6 +14293,9 @@
 				E5E915CF2237052FDE02EE05 /* WorkspaceTitleRecoveryTests.swift */,
 				AD2084D340B702301EBB1356 /* SurfaceSocketCommandTests+NewDisplay.swift */,
 				38511CA80DDBF24B42BA634C /* CrashDuplicateMergeRegressionTests.swift */,
+				EEEFF51C8352E2C535D2D675 /* CrashWindowMergeFixtures.swift */,
+				47801401CCAE9752C335A829 /* CrashWindowMergePolicyTests1.swift */,
+				B8430A1938FEA9C4AA13E58F /* CrashWindowMergePolicyTests2.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16922,6 +16934,7 @@
 				481D7BF878AB38DA5642D1C9 /* SessionPersistence+Todos.swift in Sources */,
 				A5001610 /* SessionPersistence.swift in Sources */,
 				A74770010000000000000009 /* SessionPersistencePolicy+ConfigFrames.swift in Sources */,
+				2BA75A9A5F2AB3107FCF4599 /* SessionPersistencePolicy+CrashDuplicates.swift in Sources */,
 				C65930020000000000000002 /* SessionPersistencePolicy+CrashStorage.swift in Sources */,
 				E30780000000000000000014 /* SessionRemoteWorkspaceSnapshot+Restore.swift in Sources */,
 				3042D5DC7CAA74E5701F26EB /* SessionRemoteWorkspaceSnapshot+TuiSSH.swift in Sources */,
@@ -18882,6 +18895,9 @@
 				C11538000000000000000001 /* CopyOnlyTextSelectionTests.swift in Sources */,
 				C65930010000000000000002 /* CrashDiagnosticSessionPolicyTests.swift in Sources */,
 				9265332223B5CDF1D682913B /* CrashDuplicateMergeRegressionTests.swift in Sources */,
+				F2C23A44C5EC9D25B868010B /* CrashWindowMergeFixtures.swift in Sources */,
+				CEAEE1C80B47ED9DA61AABC9 /* CrashWindowMergePolicyTests1.swift in Sources */,
+				8A04E02189E40D112161D972 /* CrashWindowMergePolicyTests2.swift in Sources */,
 				46FF4C2573735348394EB428 /* CurrentWorkCommandPaletteTests.swift in Sources */,
 				7657BE6E69D9F4E6DAE62072 /* CurrentWorkQueryServiceTests.swift in Sources */,
 				A229999BB6C8A757F54AB35F /* CurrentWorkReducerTests.swift in Sources */,

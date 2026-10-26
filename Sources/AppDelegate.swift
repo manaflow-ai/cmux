@@ -3904,20 +3904,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // After a crash the primary snapshot comes from the 8 s autosave, which
         // never carries scrollback; recover it from the latest checkpoints. A
         // clean exit already wrote scrollback and discarded them above.
-        // Crash-duplicate windows merge after scrollback recovery, so the copy
-        // that wins keeps the recovered scrollback. This covers the primary,
-        // the `-previous` copy and the history fallback alike.
         if previousSessionLaunchWasUnclean,
            let sanitizedStartupSnapshot,
            let checkpointStore = sessionScrollbackCheckpointStore() {
-            startupSessionSnapshot = SessionPersistencePolicy.snapshotForLiveRestore(
-                sanitizedStartupSnapshot,
-                recoveringScrollback: { checkpointStore.merging(into: $0) }
-            )
+            startupSessionSnapshot = SessionPersistencePolicy.snapshotForLiveRestore(sanitizedStartupSnapshot, recoveringScrollback: checkpointStore.merging(into:))
         } else {
-            startupSessionSnapshot = sanitizedStartupSnapshot.flatMap {
-                SessionPersistencePolicy.snapshotForLiveRestore($0)
-            }
+            startupSessionSnapshot = sanitizedStartupSnapshot.flatMap(SessionPersistencePolicy.snapshotForLiveRestore)
         }
     }
 
@@ -4268,9 +4260,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ snapshot: AppSessionSnapshot,
         shouldActivate: Bool = true
     ) -> Bool {
-        // Prunes crash-diagnostic windows and merges windows a crash wrote
-        // twice. Nothing is written here; the restored layout is saved
-        // later like any other.
         guard let snapshot = SessionPersistencePolicy.snapshotForLiveRestore(snapshot) else {
             return false
         }

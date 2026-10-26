@@ -84,7 +84,7 @@ extension CrashDiagnosticSessionPolicyTests {
             crashTestWorkspace("docs", agents: ["b", "d"], richDirectories: false),
             crashTestWorkspace("infra", agents: ["c"], richDirectories: false)
         ], id: id)
-        supplemental.tabManager.workspaces[0].groupId = orphanID
+        supplemental.tabManager.workspaces[0].groupId = groupID
         supplemental.tabManager.workspaces[1].groupId = groupID
         supplemental.tabManager.workspaceGroups = [
             SessionWorkspaceGroupSnapshot(id: orphanID, name: "old", isCollapsed: false),
