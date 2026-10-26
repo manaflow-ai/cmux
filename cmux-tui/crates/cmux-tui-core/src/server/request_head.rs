@@ -5,13 +5,18 @@
 //! (`mojo/public/cpp/bindings/lib/multiplex_router.cc`, `Accept`); the
 //! payload is decoded once, by that receiver. A line here gets the same
 //! two steps: [`RequestHead::parse`] reads its routing members, borrowing
-//! `cmd` and `operation` from the line, and skips every other member
-//! without building it; then one handler decodes the line (the `Command`
-//! parse, the v2 envelope, the page router or a feature route's entry).
+//! `cmd` and `operation` from the line, keeping `params` and `stream` as
+//! unread JSON text, and skips every other member without building it;
+//! then one handler decodes the line (the `Command` parse, the v2
+//! envelope, the page router or a feature route's entry). Every parse is
+//! counted where it starts (crate::line_parses).
 //!
 //! The head never refuses a member's type: a `cmd` that is not a string is
 //! no command name, and the typed decode that follows answers the line as
-//! it always did. Only a line that is not one JSON object has no head.
+//! it always did. Only a line that is not one JSON object has no head. A
+//! skipped member is checked for syntax only, so the head also reads a line
+//! whose full decode fails (a number past `f64`, a lone surrogate): error
+//! replies take their `id` from that full decode, never from the head.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -20,6 +25,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde::de::{self, Deserializer, IgnoredAny, MapAccess, Visitor};
 use serde_json::Value;
+use serde_json::value::RawValue;
 
 use super::Command;
 use super::request_spans::{RequestArrival, RequestMethod, RequestSpan, request_id_hash};
@@ -38,11 +44,27 @@ pub(super) struct RequestHead<'a> {
     /// Whether the line has a `protocol` member: a `cmux.protocol/2` line,
     /// answered by the resource router whatever its other members say.
     protocol: bool,
+    /// The `stream` member as written: the stream a request runs on.
+    stream: Option<&'a RawValue>,
+    /// The `params` member as written, for the one handler that decodes it.
+    params: Option<&'a RawValue>,
 }
 
 impl<'a> RequestHead<'a> {
     pub(super) fn parse(message: &'a str) -> Self {
-        serde_json::from_str::<Self>(message).unwrap_or_default()
+        crate::line_parses::parse::<Self>(message).unwrap_or_default()
+    }
+
+    /// The line's `stream` member, unread.
+    #[cfg_attr(not(test), expect(dead_code, reason = "read by the typed handlers of 063-070"))]
+    pub(super) fn stream(&self) -> Option<&'a RawValue> {
+        self.stream
+    }
+
+    /// The line's `params` member, unread.
+    #[cfg_attr(not(test), expect(dead_code, reason = "read by the typed handlers of 063-070"))]
+    pub(super) fn params(&self) -> Option<&'a RawValue> {
+        self.params
     }
 
     /// The line's `cmd`, when it is a string.
@@ -110,6 +132,8 @@ impl<'de> Visitor<'de> for HeadVisitor {
                 "id" => head.id = map.next_value::<Option<Value>>()?,
                 "cmd" => head.cmd = map.next_value::<Member<'de>>()?.text(),
                 "operation" => head.operation = map.next_value::<Member<'de>>()?.text(),
+                "stream" => head.stream = Some(map.next_value::<&'de RawValue>()?),
+                "params" => head.params = Some(map.next_value::<&'de RawValue>()?),
                 "protocol" => {
                     map.next_value::<IgnoredAny>()?;
                     head.protocol = true;
@@ -224,23 +248,6 @@ impl<'de: 'a, 'a> Deserialize<'de> for Member<'a> {
             }
         }
         deserializer.deserialize_any(MemberVisitor)
-    }
-}
-
-/// How many times one frame's line was parsed as JSON on its way to its
-/// handler: the head, then the one decode that answers it. The frame
-/// handler counts each parse it starts (a feature route's entry parses the
-/// line once); `json_parses_per_request` in the p05-ipc plan is this count.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) struct JsonParses(u8);
-
-impl JsonParses {
-    pub(super) fn count(&mut self, parses: u8) {
-        self.0 = self.0.saturating_add(parses);
-    }
-
-    pub(super) fn get(self) -> u8 {
-        self.0
     }
 }
 

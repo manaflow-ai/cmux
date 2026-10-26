@@ -8,30 +8,60 @@
 //!
 //! A module that has not moved to typed handlers yet (p05-ipc-063..070)
 //! is reached through its entry, `try_handle`, which still parses the line
-//! once itself. A migration edits only its module's `ROUTES`.
+//! once itself; a typed handler reads its params from the head instead
+//! ([`RequestHead::params`]). A migration edits only its module's `ROUTES`.
+//!
+//! Most route names are not in spec/sdk-schema.json yet, so the generated
+//! v12 table (`cmux_ipc::methods`) cannot resolve them: [`find`] looks a
+//! `cmd` up in a name map built once from every route's exact names, and
+//! only a `cmd` no exact name holds tries the prefixes of the families
+//! whose names are open (`agent-session-`, `apps-`, ...).
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock};
 
-use super::{FrameStage, MessageWriter, Mux};
+use super::{FrameStage, MessageWriter, Mux, RequestHead};
+
+/// The line a route's entry answers, with the head the frame read.
+pub(super) struct RouteLine<'l> {
+    pub(super) mux: &'l Arc<Mux>,
+    pub(super) client: u64,
+    pub(super) message: &'l str,
+    pub(super) writer: &'l MessageWriter,
+    #[expect(dead_code, reason = "read by the typed handlers of p05-ipc-063..070")]
+    pub(super) head: &'l RequestHead<'l>,
+}
 
 /// A route's entry: answers the line and returns `Some(keep_open)`, or
 /// `None` when the line is not one of its requests after all (the `Command`
 /// parse then answers it).
-pub(super) type RouteEntry = fn(&Arc<Mux>, u64, &str, &MessageWriter) -> Option<bool>;
+pub(super) type RouteEntry = fn(&RouteLine<'_>) -> Option<bool>;
 
 /// The `cmd` names a route answers.
 #[derive(Clone, Copy, Debug)]
 pub(super) enum RouteName {
     Exact(&'static str),
-    /// Every `cmd` that starts with this family prefix.
+    /// Every name of a module's command list.
+    OneOf(&'static [&'static str]),
+    /// Every `cmd` that starts with this family prefix and that no exact
+    /// name holds.
     Prefix(&'static str),
 }
 
 impl RouteName {
-    fn matches(self, cmd: &str) -> bool {
+    /// The exact names this holds (none for a prefix).
+    pub(super) fn exact(&self) -> &[&'static str] {
         match self {
-            Self::Exact(name) => cmd == name,
-            Self::Prefix(prefix) => cmd.starts_with(prefix),
+            Self::Exact(name) => std::slice::from_ref(name),
+            Self::OneOf(names) => names,
+            Self::Prefix(_) => &[],
+        }
+    }
+
+    fn prefix(self) -> Option<&'static str> {
+        match self {
+            Self::Prefix(prefix) => Some(prefix),
+            Self::Exact(_) | Self::OneOf(_) => None,
         }
     }
 }
@@ -44,8 +74,8 @@ pub(super) struct Route {
     pub(super) entry: RouteEntry,
 }
 
-/// Every module's routes. A `cmd` names at most one route
-/// (`routes_names_are_disjoint` in the tests).
+/// Every module's routes. An exact name belongs to one route and two
+/// prefixes never overlap (`connection_frame_routes_names_are_disjoint`).
 pub(super) const MODULE_ROUTES: &[&[Route]] = &[
     #[cfg(any(debug_assertions, feature = "oracle"))]
     super::oracle_state_command::ROUTES,
@@ -53,7 +83,13 @@ pub(super) const MODULE_ROUTES: &[&[Route]] = &[
     #[cfg(unix)]
     super::browser_runtime::ROUTES,
     #[cfg(unix)]
+    super::agent_session_attach::agent_session_observe::ROUTES,
+    #[cfg(unix)]
     super::agent_session_attach::ROUTES,
+    #[cfg(unix)]
+    super::agent_transfer::access_requests::ROUTES,
+    #[cfg(unix)]
+    super::agent_transfer::agent_update::ROUTES,
     #[cfg(unix)]
     super::agent_transfer::ROUTES,
     #[cfg(unix)]
@@ -74,16 +110,28 @@ pub(super) const MODULE_ROUTES: &[&[Route]] = &[
     super::fs_wire::ROUTES,
 ];
 
-/// The route `cmd` names, if any.
+/// The route `cmd` names, if any: the one that holds it exactly, else the
+/// one whose family prefix it starts with.
 pub(super) fn find(cmd: &str) -> Option<&'static Route> {
-    MODULE_ROUTES
-        .iter()
-        .flat_map(|routes| routes.iter())
-        .find(|route| route.names.iter().any(|name| name.matches(cmd)))
+    static EXACT: LazyLock<HashMap<&'static str, &'static Route>> = LazyLock::new(|| {
+        all()
+            .flat_map(|route| {
+                route.names.iter().flat_map(RouteName::exact).map(move |name| (*name, route))
+            })
+            .collect()
+    });
+    EXACT.get(cmd).copied().or_else(|| {
+        all().find(|route| {
+            route
+                .names
+                .iter()
+                .filter_map(|name| name.prefix())
+                .any(|prefix| cmd.starts_with(prefix))
+        })
+    })
 }
 
-/// Every route, for the tests.
-#[cfg(test)]
+/// Every route.
 pub(super) fn all() -> impl Iterator<Item = &'static Route> {
     MODULE_ROUTES.iter().flat_map(|routes| routes.iter())
 }

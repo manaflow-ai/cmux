@@ -244,7 +244,7 @@ pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
             crate::server::routes::RouteName::Exact("cancel-request"),
         ],
         stage: crate::server::FrameStage::Apps,
-        entry: try_handle,
+        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
     }];
 
 /// Handles an `apps-*` command or `cancel-request`; `None` when the message
@@ -258,7 +258,7 @@ pub(super) fn try_handle(
     if !message.contains("\"apps-") && !message.contains("\"cancel-request\"") {
         return None;
     }
-    let value: Value = serde_json::from_str(message).ok()?;
+    let value: Value = crate::line_parses::parse(message).ok()?;
     let cmd = value.get("cmd").and_then(Value::as_str)?;
     if cmd == "cancel-request" {
         return Some(cancel_request(mux, client, value, writer));

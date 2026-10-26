@@ -13,7 +13,7 @@ pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
     &[crate::server::routes::Route {
         names: &[crate::server::routes::RouteName::Exact("machine-catalog-publish")],
         stage: crate::server::FrameStage::MachineCatalog,
-        entry: try_handle,
+        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
     }];
 
 pub(super) fn try_handle(
@@ -25,7 +25,9 @@ pub(super) fn try_handle(
     if !message.contains("machine-catalog-publish") {
         return None;
     }
-    let Ok(Value::Object(mut fields)) = serde_json::from_str::<Value>(message) else { return None };
+    let Ok(Value::Object(mut fields)) = crate::line_parses::parse::<Value>(message) else {
+        return None;
+    };
     if fields.remove("cmd").as_ref().and_then(Value::as_str) != Some("machine-catalog-publish") {
         return None;
     }

@@ -46,7 +46,9 @@ cmux-api-compat.workspace = true
 cmux-terminal-iface.workspace = true
 cmux-terminal-sizing.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+# raw_value: the request head borrows a line's `params` and `stream` unread
+# (server/request_head.rs).
+serde_json = { workspace = true, features = ["raw_value"] }
 anyhow.workspace = true
 base64.workspace = true
 libc.workspace = true

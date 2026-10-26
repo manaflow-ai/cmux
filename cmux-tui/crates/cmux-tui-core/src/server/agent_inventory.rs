@@ -109,7 +109,7 @@ pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
             crate::server::routes::RouteName::Exact("agent-inventory-refresh"),
         ],
         stage: crate::server::FrameStage::AgentInventory,
-        entry: try_handle,
+        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
     }];
 
 /// The owner fence (required for refresh) only verifies this daemon; it never selects or
@@ -124,7 +124,7 @@ pub(super) fn try_handle(
     if !message.contains("agent-inventory") {
         return None;
     }
-    let Ok(Value::Object(mut fields)) = serde_json::from_str::<Value>(message) else {
+    let Ok(Value::Object(mut fields)) = crate::line_parses::parse::<Value>(message) else {
         return None;
     };
     let mode = match fields.remove("cmd").as_ref().and_then(Value::as_str) {

@@ -7,6 +7,7 @@ use super::super::Command;
 use super::super::command_names::MethodClass;
 use super::super::request_spans::RequestMethod;
 use super::RequestHead;
+use serde_json::value::RawValue;
 
 #[test]
 fn request_head_borrows_cmd_from_the_line() {
@@ -62,4 +63,22 @@ fn request_head_marks_a_protocol_line_whatever_its_value() {
 fn request_head_keeps_the_last_of_a_repeated_member() {
     let head = RequestHead::parse(r#"{"cmd":"ping","cmd":"apps-list"}"#);
     assert_eq!(head.cmd(), Some("apps-list"), "as the Value parse of the routes does");
+}
+
+#[test]
+fn request_head_keeps_params_and_stream_unread() {
+    let line = r#"{"protocol":"cmux.protocol/2","operation":"pane.split","stream":"s-1","params":{"pane":"p_1","direction":"right"}}"#;
+    let head = RequestHead::parse(line);
+    assert_eq!(head.params().map(RawValue::get), Some(r#"{"pane":"p_1","direction":"right"}"#));
+    assert_eq!(head.stream().map(RawValue::get), Some(r#""s-1""#));
+    let bare = RequestHead::parse(r#"{"id":1,"cmd":"ping"}"#);
+    assert!(bare.params().is_none() && bare.stream().is_none());
+}
+
+#[test]
+fn request_head_is_one_counted_parse() {
+    let parses = crate::line_parses::LineParses::enter();
+    let head = RequestHead::parse(r#"{"id":1,"cmd":"ping","params":[1,{"a":2}]}"#);
+    assert_eq!(parses.count(), 1);
+    assert_eq!(head.cmd(), Some("ping"));
 }

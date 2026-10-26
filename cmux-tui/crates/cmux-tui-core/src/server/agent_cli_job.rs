@@ -86,7 +86,7 @@ pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
             crate::server::routes::RouteName::Exact(RESOLVE_COMMAND),
         ],
         stage: crate::server::FrameStage::AgentCliJob,
-        entry: try_handle,
+        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
     }];
 
 pub(super) fn try_handle(
@@ -98,7 +98,7 @@ pub(super) fn try_handle(
     if !message.contains(COMMAND) {
         return None;
     }
-    let Ok(Value::Object(mut fields)) = serde_json::from_str::<Value>(message) else {
+    let Ok(Value::Object(mut fields)) = crate::line_parses::parse::<Value>(message) else {
         return None;
     };
     if !matches!(fields.get("cmd").and_then(Value::as_str), Some(COMMAND | RESOLVE_COMMAND)) {

@@ -734,7 +734,7 @@ pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
     &[crate::server::routes::Route {
         names: &[crate::server::routes::RouteName::Prefix("loopback-")],
         stage: crate::server::FrameStage::LoopbackForward,
-        entry: try_handle,
+        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
     }];
 
 /// Handles a `loopback-*` message on the connection's reader thread, apart
@@ -752,7 +752,7 @@ pub(super) fn try_handle(
     if !message.contains("\"loopback-") {
         return None;
     }
-    let request = serde_json::from_str::<LoopbackRequest>(message).ok()?;
+    let request = crate::line_parses::parse::<LoopbackRequest>(message).ok()?;
     let forwarder = &mux.control_clients.loopback;
     let LoopbackRequest { id, command } = request;
     let allowed = mux.control_clients.is_unix(client)

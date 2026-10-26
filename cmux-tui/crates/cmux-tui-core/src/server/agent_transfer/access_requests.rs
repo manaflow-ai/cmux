@@ -129,6 +129,17 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
+    &[crate::server::routes::Route {
+        names: &[
+            crate::server::routes::RouteName::Exact("access-request"),
+            crate::server::routes::RouteName::Prefix("access-request-"),
+        ],
+        stage: crate::server::FrameStage::AgentTransfer,
+        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
+    }];
+
 /// Handles an `access-request*` line; None for any other line.
 pub(super) fn try_handle(
     mux: &Mux,
@@ -139,7 +150,7 @@ pub(super) fn try_handle(
     if !message.contains("\"access-request") {
         return None;
     }
-    let Ok(Value::Object(mut object)) = serde_json::from_str::<Value>(message) else {
+    let Ok(Value::Object(mut object)) = crate::line_parses::parse::<Value>(message) else {
         return None;
     };
     let cmd = match object.remove("cmd") {

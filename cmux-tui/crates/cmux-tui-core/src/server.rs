@@ -2734,7 +2734,7 @@ use connection_frame::{
 };
 #[cfg(test)]
 use connection_frame::{handle_connection_frame, handle_request};
-use request_head::{JsonParses, RequestHead};
+use request_head::RequestHead;
 use request_spans::{AsyncReply, RequestArrival, RequestMethod, RequestSpan, request_id_hash};
 
 /// One layout node. `split_ids`: the public ids of the splits

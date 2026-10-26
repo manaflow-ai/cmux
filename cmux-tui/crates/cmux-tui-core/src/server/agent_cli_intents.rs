@@ -13,7 +13,7 @@ pub(super) const CAPABILITY: &str = "agent-cli-intents-v1";
 
 /// The wire names of [`Command`], matched before admission so other
 /// commands pass through untouched.
-const COMMANDS: [&str; 4] = [
+pub(in crate::server) const COMMANDS: [&str; 4] = [
     "agent-cli-intents-record",
     "agent-cli-intents-list",
     "agent-cli-intents-settle",
@@ -55,14 +55,9 @@ impl Command {
 /// The `cmd` names this module answers (server/routes.rs).
 pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
     &[crate::server::routes::Route {
-        names: &[
-            crate::server::routes::RouteName::Exact(COMMANDS[0]),
-            crate::server::routes::RouteName::Exact(COMMANDS[1]),
-            crate::server::routes::RouteName::Exact(COMMANDS[2]),
-            crate::server::routes::RouteName::Exact(COMMANDS[3]),
-        ],
+        names: &[crate::server::routes::RouteName::OneOf(&COMMANDS)],
         stage: crate::server::FrameStage::AgentCliIntents,
-        entry: try_handle,
+        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
     }];
 
 pub(super) fn try_handle(
@@ -74,7 +69,7 @@ pub(super) fn try_handle(
     if !message.contains("agent-cli-intents-") {
         return None;
     }
-    let Ok(Value::Object(mut fields)) = serde_json::from_str::<Value>(message) else {
+    let Ok(Value::Object(mut fields)) = crate::line_parses::parse::<Value>(message) else {
         return None;
     };
     if !fields.get("cmd").and_then(Value::as_str).is_some_and(|cmd| COMMANDS.contains(&cmd)) {

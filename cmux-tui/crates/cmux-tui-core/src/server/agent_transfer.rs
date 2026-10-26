@@ -548,17 +548,13 @@ impl From<LinkError> for Failure {
     }
 }
 
-/// The `cmd` names this module answers (server/routes.rs).
+/// The `cmd` names this module answers (server/routes.rs); access requests
+/// and agent updates have their own routes.
 pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
     &[crate::server::routes::Route {
-        names: &[
-            crate::server::routes::RouteName::Prefix("agent-transfer-"),
-            crate::server::routes::RouteName::Exact("access-request"),
-            crate::server::routes::RouteName::Prefix("access-request-"),
-            crate::server::routes::RouteName::Prefix("agent-update-"),
-        ],
+        names: &[crate::server::routes::RouteName::Prefix("agent-transfer-")],
         stage: crate::server::FrameStage::AgentTransfer,
-        entry: try_handle,
+        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
     }];
 
 /// Handles an `agent-transfer-*` frame of a local connection; `None` for any
@@ -569,15 +565,10 @@ pub(super) fn try_handle(
     message: &str,
     writer: &MessageWriter,
 ) -> Option<bool> {
-    if let Some(keep_open) = access_requests::try_handle(mux, client, message, writer)
-        .or_else(|| agent_update::try_handle(mux, client, message, writer))
-    {
-        return Some(keep_open);
-    }
     if !message.contains("\"agent-transfer-") {
         return None;
     }
-    let Ok(Value::Object(mut object)) = serde_json::from_str::<Value>(message) else {
+    let Ok(Value::Object(mut object)) = crate::line_parses::parse::<Value>(message) else {
         return None;
     };
     let cmd = match object.remove("cmd") {

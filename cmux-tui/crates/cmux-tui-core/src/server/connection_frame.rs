@@ -86,9 +86,9 @@ pub(super) fn handle_connection_frame_at(
         arrived,
         watched: watched.as_ref(),
     };
-    let mut parses = JsonParses::default();
-    let keep_open = dispatch_line(&line, &mut parses);
-    cmux_trace::trace_instant!(daemon, "daemon.frame.json_parses", u64::from(parses.get()));
+    let parses = crate::line_parses::LineParses::enter();
+    let keep_open = dispatch_line(&line);
+    cmux_trace::trace_instant!(daemon, "daemon.frame.json_parses", u64::from(parses.count()));
     keep_open
 }
 
@@ -119,13 +119,13 @@ impl LineFrame<'_> {
 /// Reads the line's head once, then hands the line to the one handler the
 /// head names: a v2 line to the page router or the resource router, a
 /// feature route's `cmd` to its route (server/routes.rs), anything else to
-/// the `Command` parse. Each handler parses the line once more.
-pub(super) fn dispatch_line(line: &LineFrame<'_>, parses: &mut JsonParses) -> bool {
+/// the `Command` parse. The handler a request reaches parses the line once
+/// more; an error reply may parse it again for its `id`.
+pub(super) fn dispatch_line(line: &LineFrame<'_>) -> bool {
     let LineFrame { mux, client, message, writer, scheduler, arrived, watched } = *line;
     let head = RequestHead::parse(message);
-    parses.count(1);
     if head.is_resource()
-        && let Some(keep_open) = resource_line(line, &head, parses)
+        && let Some(keep_open) = resource_line(line, &head)
     {
         return keep_open;
     }
@@ -136,10 +136,8 @@ pub(super) fn dispatch_line(line: &LineFrame<'_>, parses: &mut JsonParses) -> bo
         (!head.is_command()).then(|| head.open(stats, RequestArrival::parsed_now(arrived)));
     if let Some(route) = head.cmd().and_then(routes::find) {
         line.stage(route.stage);
-        // An entry that has not moved to a typed handler parses the line
-        // itself, once (p05-ipc-063..070).
-        parses.count(1);
-        if let Some(keep_open) = (route.entry)(mux, client, message, writer) {
+        let route_line = routes::RouteLine { mux, client, message, writer, head: &head };
+        if let Some(keep_open) = (route.entry)(&route_line) {
             return match routed.as_mut() {
                 Some(span) => span.answered(keep_open),
                 None => keep_open,
@@ -147,8 +145,7 @@ pub(super) fn dispatch_line(line: &LineFrame<'_>, parses: &mut JsonParses) -> bo
         }
     }
     line.stage(FrameStage::Route);
-    parses.count(1);
-    let request = match serde_json::from_str::<Request>(message) {
+    let request = match crate::line_parses::parse::<Request>(message) {
         Ok(request) => request,
         Err(error) => {
             let mut span =
@@ -188,17 +185,12 @@ pub(super) fn dispatch_line(line: &LineFrame<'_>, parses: &mut JsonParses) -> bo
 /// goes to the page router without the catalog parse; a line the page
 /// router refuses gets the catalog parse's answer, as every other v2 line.
 /// `None` only when the resource router does not take the line.
-fn resource_line(
-    line: &LineFrame<'_>,
-    head: &RequestHead<'_>,
-    parses: &mut JsonParses,
-) -> Option<bool> {
+fn resource_line(line: &LineFrame<'_>, head: &RequestHead<'_>) -> Option<bool> {
     let LineFrame { mux, client, message, writer, arrived, .. } = *line;
     let stats = mux.request_stats();
     let mut page_span = None;
     if head.operation().is_some_and(|operation| page_router_table::routed(operation).is_some()) {
         line.stage(FrameStage::PageRouter);
-        parses.count(1);
         let mut span = head.open(stats, RequestArrival::parsed_now(arrived));
         if let Some(keep_open) = page_router::try_handle(mux, client, message, writer) {
             return Some(span.answered(keep_open));
@@ -206,8 +198,6 @@ fn resource_line(
         page_span = Some(span);
     }
     let request = crate::resource_router::parse_resource_line(message)?;
-    // A refused envelope is probed once more for `protocol`.
-    parses.count(if request.is_ok() { 1 } else { 2 });
     match &request {
         Ok(envelope) => line.watch(WatchedMethod::resource(envelope.operation)),
         Err(_) => line.stage(FrameStage::PageRouter),
@@ -478,3 +468,6 @@ mod event_cause_tests;
 
 #[cfg(all(test, unix))]
 mod dispatch_tests;
+
+#[cfg(all(test, unix))]
+mod dispatch_golden_tests;
