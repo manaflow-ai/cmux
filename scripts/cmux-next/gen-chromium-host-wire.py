@@ -24,6 +24,10 @@ Inputs (paths relative to --root, the repository by default):
                          "reason": "", "channel": "control"}, ...],
             "events": [{"kind": "CMUX_SHIM_ADDRESS", "value": 4,
                         "refreshes": ["tab.navigation_state[browser_id]"]}, ...]}
+            "optional_exports": [...], "optional_events": [...],
+            "host_mode_rewrites": [{"site": "CmuxNextBrowser/CEF/File.swift: Type.function(_:)",
+                                    "exports": ["cmux_shim_x"], "needs": "reply", "change": "...",
+                                    "task": "p01-process-021"}, ...]}
          `args`, `returns` and an event's `value` repeat the header (`--dump-header` prints them),
          so a signature change shows as drift. CLASS is one of
            post     one-way: the remote returns at once (1 for an int); a Swift caller that reads
@@ -31,23 +35,33 @@ Inputs (paths relative to --root, the repository by default):
            mirror   served from cmux's main-thread cache; `mirror_key` is scope.field[args], its
                     params the export's arguments (out-parameters excluded); `refresh_events` are
                     event kinds, KIND:<request> (a CMUX_SHIM_TAB_EVENT sub-kind) or a pseudo event
-           async    sent with a token; `reply_event` is the event that answers it (the remote returns
-                    1 once sent) or wire:REPLY (the REPLY frame: the synchronous C ABI cannot return
-                    it, so the remote starts nothing and every Swift site moves to the token API)
-           mint     the client mints the id (returned at once, or 1 when the export takes a
-                    `request`) and sends it first; `reply_event` reports it
+           async    sent with a token and awaited by it: the REPLY frame carries the result and the
+                    out-parameters (the start result, when `reply_event` is an event that answers it
+                    later). The remote returns 1 once sent (a string result: NULL) and zeroes the
+                    out-parameters; Swift sites move to the token API (task 018)
+           mint     the client mints the id and sends it first; `mint_returns` names the C return:
+                    `id` (the minted id) or `sent` (1 once sent; `reply_event` carries the id with
+                    the export's `request`)
            policy   a callback setter: the client keeps the callback, the host installs its own
                     handler (hand-written InstallPolicy<Name> in HOST/src) and pushes events
            view     like post; NSView* arguments travel as ChromiumHostPageView tokens
            local    hand-written client code (HOST/client, outside generated/)
-           preinit  queued in the client and applied in order before CefInitialize
+           preinit  queued in the client and applied in order before CefInitialize. A non-void one
+                    returns the client's own check and names `reply_event` wire:REPLY: the host's
+                    verdict, sent by token when it applies the op
          `pending_keys` are mirror keys a post changes, `*` for a param the post does not name:
          the client marks them pending under the op's token until the host's ack. `local` and
          `policy` need a `reason`. `channel` "input" sends the op on the input ring.
+         `optional_exports` are fork API symbols CEFShimLibrary binds with r.optional that the
+         header does not declare yet (with a `fork_api`); they take op ids after the header's, and
+         the host calls them through ctx.OptionalExport. `optional_events` are event kinds
+         CEFShimEvent.swift decodes that cmux_shim_event_kind_t does not list yet.
+         `host_mode_rewrites` are Swift sites the remote shim cannot keep as they are;
+         --check-return-use and --check-pre-attach accept a listed site's calls of its exports.
 
 Outputs (written by a run without a check flag; --check fails when one is stale):
 
-  HOST/src/generated/host_dispatch.inc       cmux_host::DispatchOp, ProduceMirror,
+  HOST/src/generated/host_dispatch.inc       cmux_host::DispatchOp, ProduceMirror, kOptionalExports,
                                              kMirrorRefreshes, ForEachMirrorRefreshedBy, EncodeEvent
   HOST/client/generated/remote_shim.inc      every cmux_shim_* export of a generated class, and
                                              cmux_shim_abi_id (the header's SHA-256)
@@ -57,44 +71,61 @@ Outputs (written by a run without a check flag; --check fails when one is stale)
                                              (record decoder, mirrors each event refreshes)
 
   HOST = Packages/macOS/CmuxNext/ChromiumHost, CEFS = .../Sources/CmuxNextBrowser/CEF. Op ids are
-  1..N in header order; the wire is versioned by the header's identity, as the shim ABI is.
+  1..N in header order, then optional_exports. kShimAbiID is the header's identity, as the shim
+  ABI's; kWireID (in both HELLOs) hashes the op table, so either side refuses another generation.
 
-The .inc files are included after the code that defines their interface (tasks 013 and 014):
+The .inc files are included after the code that defines their interface (tasks 013 and 014). Every
+C argument is `arg_<name>` in generated code and no generator local starts with `arg_`, so a header
+argument named `reply` or `token` never collides with a generated local:
 
   namespace cmux_remote (client):
     TlvWriter: I32(int32_t) U32(uint32_t) I64(int64_t) F64(double) Str(const char*) (NULL kept
       apart from "") Bytes(const void*, size_t) View(void* ns_view) StrList(const char* const*, int)
     TlvReader (a cached mirror value): present() I32() U32() I64() Str() -> std::optional<std::string>
       Bytes() -> std::string  I32Array(int* out, int capacity)
-    void Post(uint16_t op, uint32_t token, const TlvWriter&)        control channel, never blocks
-    void PostInput(uint16_t op, uint32_t token, const TlvWriter&)   input ring, never blocks
-    void PostPreinit(uint16_t op, const TlvWriter&)                 queued until attach
+    Never blocking; each returns whether the op was accepted for sending (false: no channel):
+      bool Post(uint16_t op, uint32_t token, const TlvWriter&)               control channel
+      bool PostInput(uint16_t op, uint32_t token, const TlvWriter&)          input ring
+      bool PostAwaitingReply(uint16_t op, uint32_t token, const TlvWriter&)  registers the token
+        for the reply waiter (task 018) before it sends, and drops it when the op is not sent
+    int32_t PostPreinit(uint16_t op, uint32_t token, const TlvWriter&)  queued until attach, a post
+      after initialize; returns the client's check of the arguments (1 queued, 0 refused). A token
+      other than 0 is registered as PostAwaitingReply registers it, for the host's verdict
     uint32_t NextToken()   int32_t MintID(uint16_t op) (the op picks the id range)
     char* Dup(const std::string&)  (malloc)
     void MarkPending(uint16_t mirror_op, uint32_t token, const TlvWriter& key, uint32_t wildcards)
       (bit i of wildcards: param i is `*` and absent from key)
     TlvReader MirrorLookup(uint16_t mirror_op, const TlvWriter& key)
-    void SetPolicy(uint16_t op, void* fn)   void UnmigratedAsync(uint16_t op)
+    void SetPolicy(uint16_t op, void* fn)
   namespace cmux_host (host):
     TlvReader: I32() U32() I64() F64() Str() -> std::optional<std::string>  Bytes() -> std::string
       View() -> uint64_t  StrList() -> std::vector<std::string>  ok()  AtEnd()
     TlvWriter: as the client's, plus I32Array(const int*, size_t)
     HostContext: int Browser(int32_t client_id)  void* PageView(uint64_t token)  Ack(uint32_t)
+      void* OptionalExport(uint16_t op) (the host shim's symbol, or NULL)
       Reply(uint32_t token, const TlvWriter&)  BindMinted(uint16_t op, int32_t minted, int64_t result)
+      BindMintedOnEvent(uint16_t op, int32_t minted, int event_kind, int32_t request, int64_t started)
+        (the event of that kind and request reports Chromium's id; started 0: it never comes)
       PushMirror(uint16_t op, const TlvWriter& key, const TlvWriter& value)
     void Wipe(std::vector<std::string>&)
+  scripts/cmux-next/tests/gen-chromium-host-wire.test.sh declares this interface and compiles both
+  .inc files against it (c++ -fsyntax-only -Wshadow -Werror).
 
 Commands:
 
   gen-chromium-host-wire.py                 write the generated files
   ... --check                               ops complete and valid, generated files current, every
                                             export implemented on both sides (exit 1 otherwise)
-  ... --check-ops                           only the ops JSON against the header
+  ... --check-ops                           only the ops JSON, against the header and CEFShimLibrary
   ... --list-missing                        the live queue: export, class, missing side
   ... --swift-sites [--by-file]             Swift call sites that change in host mode: async,
                                             mint, view, local, and post-like results read
   ... --check-return-use                    exit 1 when a Swift caller binds, guards, compares or
-                                            returns the result of a post, view, preinit or policy
+                                            returns the result of a post, view, preinit or policy,
+                                            outside host_mode_rewrites
+  ... --check-pre-attach                    exit 1 for a mirror read on the startup path
+                                            (STARTUP_ROOTS and the functions they pass the shim to)
+                                            that no host_mode_rewrites entry (after_attach) lists
   ... --check-view-parity [--list-unmapped] every method of the vendored remote_cocoa mojoms
                                             (plans/cmux-next/remote_cocoa_mojom/) maps to an op,
                                             an event, a wire message or a not-needed reason in
@@ -138,13 +169,23 @@ GENERATED_CLIENT = {"post", "mirror", "async", "mint", "policy", "view", "preini
 POST_LIKE = {"post", "view", "preinit", "policy"}  # the remote returns a stand-in result
 SITE_CLASSES = {"async", "mint", "view", "local"}
 SCHEMA_VERSION = 1
+TOP_LISTS = ("optional_exports", "optional_events", "host_mode_rewrites")
 TOP_FIELDS = {"version", "header", "sources_root", "design", "classes", "fields", "pseudo_events", "exports",
-              "events"}
+              "events", *TOP_LISTS}
 REQUIRED_EXPORT_FIELDS = {"name", "class", "args", "returns", "result_used_by", "mirror_key", "refresh_events",
                           "pending_keys", "reply_event", "reason"}
-EXPORT_FIELDS = REQUIRED_EXPORT_FIELDS | {"channel"}
+EXPORT_FIELDS = REQUIRED_EXPORT_FIELDS | {"channel", "mint_returns"}
+OPTIONAL_EXPORT_FIELDS = EXPORT_FIELDS | {"fork_api"}  # fork_api: the fork API that adds the symbol
+DOCUMENTED_FIELDS = EXPORT_FIELDS | set(TOP_LISTS)  # what `fields` in the ops JSON explains
 EVENT_FIELDS = {"kind", "value", "refreshes", "reason"}
+REWRITE_FIELDS = {"site", "exports", "needs", "change", "task"}
+REWRITE_NEEDS = ("after_attach", "reply", "pending_tab", "host_exit")
+MINT_RETURNS = ("id", "sent")  # the minted id at once, or 1 when sent (the id arrives in reply_event)
 REPLY_WIRE = "wire:REPLY"  # the control channel's REPLY frame answers the call
+ARG_PREFIX = "arg_"  # every C argument in generated code; generator locals never start with it
+# Functions that run before CefInitialize returns; --check-pre-attach follows the CEFShimLibrary they pass on.
+STARTUP_ROOTS = (("CmuxNextBrowser/CEF/CEFRuntime.swift", "CEFRuntime", "loadLibrary"),
+                 ("CmuxNextBrowser/CEF/CEFRuntime.swift", "CEFRuntime", "initialize"))
 CHANNELS = ("control", "input")
 MAX_RECORDS = 1 << 16
 MAX_OUT_CAPACITY = 1 << 16
@@ -185,6 +226,23 @@ class Arg:
     def decl(self) -> str:
         return self.ctype if self.kind == "F" and "(*" in self.ctype else f"{self.ctype} {self.name}"
 
+    @property
+    def var(self) -> str:
+        """The argument's name in generated code: never one of the generator's own locals."""
+        return ARG_PREFIX + self.name
+
+    @property
+    def generated_decl(self) -> str:
+        """The parameter as a generated function declares it (named `var`)."""
+        if self.kind == "F" and self.pointer_type:
+            return self.pointer_type.replace("(*)", f"(*{self.var})", 1)
+        return f"{self.ctype} {self.var}"
+
+    @property
+    def c_type(self) -> str:
+        """The parameter's type without its name, for a function pointer type."""
+        return self.pointer_type or self.ctype
+
     def as_json(self) -> dict:
         """The argument as the ops JSON lists it."""
         entry: dict = {"name": self.name, "type": self.pointer_type or self.ctype}
@@ -201,6 +259,12 @@ class Export:
     owned_free: bool  # its char* result is freed with cmux_shim_free_owned
     index: int = 0
     wire: list[Arg] = field(default_factory=list)  # args in wire order, pairs folded
+    optional: bool = False  # an optional_exports entry: not in the header; the host resolves it at run time
+
+    @property
+    def c_signature(self) -> str:
+        """The export's function pointer type: `int (*)(int, const char*)`."""
+        return f"{self.returns} (*)({', '.join(a.c_type for a in self.args) or 'void'})"
 
     @property
     def short(self) -> str:
@@ -218,6 +282,7 @@ class Header:
     events: list[tuple[str, int]]
     structs: dict[str, list[Arg]]
     identity: str
+    fn_types: set[str] = field(default_factory=set)  # typedef'd function pointer types
 
 
 def blank_out(text: str) -> str:
@@ -376,7 +441,7 @@ def parse_header(path: Path) -> Header:
     if not em:
         raise Failure("the header has no cmux_shim_event_kind_t")
     events: list[tuple[str, int]] = []
-    value = 0
+    value = -1  # a C enum's first enumerator without an initializer is 0
     for item in em.group(1).split(","):
         item = item.strip()
         if not item:
@@ -386,7 +451,7 @@ def parse_header(path: Path) -> Header:
             raise Failure(f"cannot parse the event kind '{item}'")
         value = int(km.group(2)) if km.group(2) else value + 1
         events.append((km.group(1), value))
-    return Header(exports, events, structs, hashlib.sha256(raw).hexdigest())
+    return Header(exports, events, structs, hashlib.sha256(raw).hexdigest(), fn_types)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -440,15 +505,32 @@ class Op:
     reply_event: str | None
     reason: str
     channel: str
+    mint_returns: str | None = None
+
+
+@dataclass
+class Rewrite:
+    """A host_mode_rewrites entry: the calls of `exports` in `functions` of `path` (under sources_root)
+    that the remote shim cannot keep as they are; --check-return-use and --check-pre-attach accept them."""
+
+    path: str  # relative to sources_root
+    functions: list[tuple[str, str]]  # (type, or "" when the entry names none; function name)
+    exports: list[str]
+    needs: str
+    site: str
 
 
 @dataclass
 class Model:
     header: Header
-    ops: dict[str, Op]  # by export name, header order
+    exports: list[Export]  # op id order: the header's exports, then optional_exports
+    ops: dict[str, Op]  # by export name, op id order
     refreshes: dict[str, list[str]]  # event kind -> mirror bases, as the events list them
     mirror_ops: dict[str, Op]  # mirror base ("tab.navigation_state") -> op
     pseudo_events: list[str]
+    events: list[tuple[str, int]]  # the header's event kinds, then optional_events
+    rewrites: list[Rewrite]
+    wire_identity: str  # SHA-256 of the header and the ops JSON: one value per generated wire
 
 
 def key_args(export: Export) -> list[Arg]:
@@ -456,21 +538,57 @@ def key_args(export: Export) -> list[Arg]:
     return [a for a in export.wire if a.kind not in OUT_KINDS]
 
 
-def load_ops(header: Header, path: Path) -> tuple[Model | None, list[str], dict[str, str]]:
+def optional_export(entry: dict, header: Header, index: int) -> Export:
+    """An optional_exports entry as an Export: its args and returns stand in for the header's."""
+    args = []
+    for listed in entry.get("args") or []:
+        if not isinstance(listed, dict) or not isinstance(listed.get("name"), str) \
+                or not isinstance(listed.get("type"), str):
+            raise Failure("args must be objects with a name and a type")
+        ctype, name = listed["type"], listed["name"]
+        args.append(parse_decl(ctype.replace("(*)", f"(*{name})", 1) if "(*)" in ctype else f"{ctype} {name}"))
+    returns = entry.get("returns")
+    if not isinstance(returns, str):
+        raise Failure("returns must be a C type")
+    export = Export(entry["name"], normalize_type(returns), args, False, index, optional=True)
+    export.wire = classify_args(export.args, header.fn_types, header.structs)
+    if [a.as_json() for a in export.args] != entry.get("args"):
+        raise Failure(f"args are not written as the generator normalizes them: "
+                      f"{json.dumps([a.as_json() for a in export.args])}")
+    return export
+
+
+def rewrite_functions(site: str) -> tuple[str, list[tuple[str, str]]] | None:
+    """`File.swift: Type.function(_:), more text` -> (path, [(type, function)]); None when malformed."""
+    m = re.fullmatch(r"([\w+./-]+\.swift): (.+)", site, re.S)
+    if not m:
+        return None
+    head = m.group(2).split(", ")[0]
+    functions = re.findall(r"(?:\b([A-Z]\w*)\.)?\b([a-z_]\w*)\(", head)
+    return (m.group(1), functions) if functions else None
+
+
+def load_ops(header: Header, root: Path) -> tuple[Model | None, list[str], dict[str, str]]:
     """The model (None when the file is missing or unreadable), the problems, and per-export problems."""
+    path = root / OPS
     problems: list[str] = []
     per_export: dict[str, str] = {}
     if not path.exists():
         return None, [f"{OPS} is missing: classify every export (task p01-process-010)"], {}
+    raw = path.read_bytes()
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as error:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
         return None, [f"{OPS}: {error}"], {}
     if not isinstance(data, dict) or data.get("version") != SCHEMA_VERSION:
         return None, [f'{OPS}: expected an object with "version": {SCHEMA_VERSION}'], {}
     extra = set(data) - TOP_FIELDS
     if extra:
         problems.append(f"{OPS}: unknown top-level keys {sorted(extra)}")
+    for key in ("exports", "events", *TOP_LISTS):
+        if not isinstance(data.get(key, []), list):
+            problems.append(f"{OPS}: {key} must be a list")
+            data[key] = []
     if data.get("header", SHIMH) != SHIMH:
         problems.append(f"{OPS}: header {data.get('header')!r} is not {SHIMH}")
     if data.get("sources_root", APP) != APP:
@@ -480,30 +598,68 @@ def load_ops(header: Header, path: Path) -> tuple[Model | None, list[str], dict[
         listed = sorted(classes) if isinstance(classes, dict) else classes
         problems.append(f"{OPS}: classes must document exactly {', '.join(CLASSES)} (no sync), not {listed}")
     fields = data.get("fields")
-    if fields is not None and (not isinstance(fields, dict) or set(fields) != EXPORT_FIELDS):
-        problems.append(f"{OPS}: fields must document exactly {sorted(EXPORT_FIELDS)}")
+    if fields is not None and (not isinstance(fields, dict) or set(fields) != DOCUMENTED_FIELDS):
+        problems.append(f"{OPS}: fields must document exactly {sorted(DOCUMENTED_FIELDS)}")
     pseudo = data.get("pseudo_events") or {}
     if not isinstance(pseudo, dict) or not all(re.fullmatch(r"[a-z_]+", k) for k in pseudo):
         problems.append(f"{OPS}: pseudo_events must map lowercase names to their meaning")
         pseudo = {}
     pseudo_events = sorted(pseudo)
     by_name = {e.name: e for e in header.exports}
-    event_values = dict(header.events)
-    entries: dict[str, dict] = {}
-    for entry in data.get("exports") or []:
-        name = entry.get("name") if isinstance(entry, dict) else None
-        if not isinstance(name, str):
-            problems.append(f"{OPS}: an export entry without a name: {entry!r}")
+
+    # Event kinds: the header's, then optional_events (decoded by CEFShimEvent.swift, not yet in the header).
+    events = list(header.events)
+    if any(value < 0 for _, value in events):
+        problems.append(f"{SHIMH}: an event kind below 0 (pseudo events take the negative values)")
+    for entry in data.get("optional_events") or []:
+        kind = entry.get("kind") if isinstance(entry, dict) else None
+        if not isinstance(kind, str) or not re.fullmatch(r"CMUX_SHIM_\w+", kind):
+            problems.append(f"{OPS}: optional event {entry!r} has no CMUX_SHIM_* kind")
             continue
-        if name in entries:
-            problems.append(f"{name}: classified twice")
-        elif name not in by_name:
-            problems.append(f"{name}: classified but not exported by the header (stale entry)")
-        entries[name] = entry
+        value = entry.get("value")
+        if kind in dict(header.events):
+            problems.append(f"{kind}: the header lists it now: move the entry from optional_events into events")
+        elif kind in dict(events):
+            problems.append(f"{kind}: listed twice")
+        elif not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            problems.append(f"{kind}: an optional event needs its value, an int >= 0")
+        elif value in {v for _, v in events}:
+            problems.append(f"{kind}: value {value} is also {dict((v, k) for k, v in events)[value]}'s")
+        else:
+            events.append((kind, value))
+    event_values = dict(events)
+
+    entries: dict[str, dict] = {}
+    optional_entries: list[dict] = []
+    for key, listed in (("exports", data.get("exports") or []), ("optional_exports", data.get("optional_exports") or [])):
+        for entry in listed:
+            name = entry.get("name") if isinstance(entry, dict) else None
+            if not isinstance(name, str) or not re.fullmatch(r"cmux_shim_\w+", name):
+                problems.append(f"{OPS}: an {key} entry without a cmux_shim_* name: {entry!r}")
+                continue
+            if name in entries:
+                problems.append(f"{name}: classified twice")
+                continue
+            if key == "exports" and name not in by_name:
+                problems.append(f"{name}: classified but not exported by the header (stale entry)")
+            elif key == "optional_exports" and name in by_name:
+                problems.append(f"{name}: the header declares it now: move the entry from optional_exports "
+                                f"into exports")
+                continue
+            elif key == "optional_exports":
+                optional_entries.append(entry)
+            entries[name] = entry
 
     def bad(name: str, message: str) -> None:
         problems.append(f"{name}: {message}")
         per_export.setdefault(name, message)
+
+    exports = list(header.exports)
+    for entry in optional_entries:
+        try:
+            exports.append(optional_export(entry, header, len(exports) + 1))
+        except Failure as error:
+            bad(entry["name"], str(error))
 
     def refresh(name: str, text: object) -> Refresh | None:
         if isinstance(text, str) and text in pseudo:
@@ -515,12 +671,12 @@ def load_ops(header: Header, path: Path) -> tuple[Model | None, list[str], dict[
         return Refresh(m.group(1), int(m.group(2)) if m.group(2) else None, False)
 
     ops: dict[str, Op] = {}
-    for export in header.exports:
+    for export in exports:
         entry = entries.get(export.name)
         if entry is None:
             bad(export.name, "unclassified (no entry in the ops JSON)")
             continue
-        unknown = set(entry) - EXPORT_FIELDS
+        unknown = set(entry) - (OPTIONAL_EXPORT_FIELDS if export.optional else EXPORT_FIELDS)
         if unknown:
             bad(export.name, f"unknown fields {sorted(unknown)}")
         missing = REQUIRED_EXPORT_FIELDS - set(entry)
@@ -563,6 +719,9 @@ def load_ops(header: Header, path: Path) -> tuple[Model | None, list[str], dict[
         if channel not in CHANNELS:
             bad(export.name, f"channel {channel!r} is not one of {', '.join(CHANNELS)}")
             channel = "control"
+        fork_api = entry.get("fork_api")
+        if export.optional and (not isinstance(fork_api, int) or isinstance(fork_api, bool) or fork_api < 1):
+            bad(export.name, "an optional export names the fork API that adds it (fork_api, an int)")
         mirror_key = None
         if entry.get("mirror_key") is not None:
             mirror_key = parse_mirror_key(entry["mirror_key"])
@@ -576,7 +735,7 @@ def load_ops(header: Header, path: Path) -> tuple[Model | None, list[str], dict[
             else:
                 pending.append(parsed)
         refreshes = [r for r in (refresh(export.name, t) for t in lists["refresh_events"]) if r is not None]
-        op = Op(export, cls, mirror_key, refreshes, pending, reply_event, reason, channel)
+        op = Op(export, cls, mirror_key, refreshes, pending, reply_event, reason, channel, entry.get("mint_returns"))
         for message in class_problems(op):
             bad(export.name, message)
         ops[export.name] = op
@@ -615,27 +774,30 @@ def load_ops(header: Header, path: Path) -> tuple[Model | None, list[str], dict[
 
     refreshes: dict[str, list[str]] = {}
     seen_events: set[str] = set()
-    for entry in data.get("events") or []:
-        kind = entry.get("kind") if isinstance(entry, dict) else None
-        if kind not in event_values:
-            problems.append(f"{OPS}: event entry {entry!r} names no event kind of the header")
-            continue
-        if kind in seen_events:
-            problems.append(f"{kind}: listed twice")
-        seen_events.add(kind)
-        if set(entry) - EVENT_FIELDS:
-            problems.append(f"{kind}: unknown fields {sorted(set(entry) - EVENT_FIELDS)}")
-        if "value" in entry and entry["value"] != event_values[kind]:
-            problems.append(f"{kind}: value {entry['value']!r} drifted from the header ({event_values[kind]})")
-        bases = []
-        for text in entry.get("refreshes") or []:
-            key = parse_mirror_key(text)
-            target = mirror_ops.get(key.base) if key else None
-            if target is None or key.text != target.mirror_key.text:
-                problems.append(f"{kind}: refreshes {text!r}, which is no mirror's key")
-                continue
-            bases.append(key.base)
-        refreshes[kind] = bases
+    optional_kinds = set(event_values) - set(dict(header.events))
+    for key, listed in (("events", data.get("events") or []), ("optional_events", data.get("optional_events") or [])):
+        for entry in listed:
+            kind = entry.get("kind") if isinstance(entry, dict) else None
+            if kind not in event_values or (key == "events") == (kind in optional_kinds):
+                if key == "events":
+                    problems.append(f"{OPS}: event entry {entry!r} names no event kind of the header")
+                continue  # a bad optional event is reported above
+            if kind in seen_events:
+                problems.append(f"{kind}: listed twice")
+            seen_events.add(kind)
+            if set(entry) - EVENT_FIELDS:
+                problems.append(f"{kind}: unknown fields {sorted(set(entry) - EVENT_FIELDS)}")
+            if "value" in entry and entry["value"] != event_values[kind]:
+                problems.append(f"{kind}: value {entry['value']!r} drifted from the header ({event_values[kind]})")
+            bases = []
+            for text in entry.get("refreshes") or []:
+                parsed = parse_mirror_key(text)
+                target = mirror_ops.get(parsed.base) if parsed else None
+                if target is None or parsed.text != target.mirror_key.text:
+                    problems.append(f"{kind}: refreshes {text!r}, which is no mirror's key")
+                    continue
+                bases.append(parsed.base)
+            refreshes[kind] = bases
     for kind, _ in header.events:
         if kind not in seen_events:
             problems.append(f"{kind}: event kind missing from the ops JSON")
@@ -645,13 +807,73 @@ def load_ops(header: Header, path: Path) -> tuple[Model | None, list[str], dict[
         if listed != own:
             bad(op.export.name, f"refresh_events name {sorted(own)}, but the events that refresh "
                                 f"{op.mirror_key.text!r} are {sorted(listed)}")
-    return Model(header, ops, refreshes, mirror_ops, pseudo_events), problems, per_export
+
+    rewrites: list[Rewrite] = []
+    for entry in data.get("host_mode_rewrites") or []:
+        site = entry.get("site") if isinstance(entry, dict) else None
+        if not isinstance(site, str):
+            problems.append(f"{OPS}: a host_mode_rewrites entry without a site: {entry!r}")
+            continue
+        label = f"host_mode_rewrites {site!r}"
+        if set(entry) != REWRITE_FIELDS:
+            problems.append(f"{label}: fields must be exactly {sorted(REWRITE_FIELDS)}")
+        parsed_site = rewrite_functions(site)
+        if parsed_site is None:
+            problems.append(f"{label}: site is 'File.swift: Type.function(...)' under {APP}")
+            continue
+        rel, functions = parsed_site
+        if (root / SHIM_LIBRARY).is_file() and not (root / APP / rel).is_file():  # a tree with the sources
+            problems.append(f"{label}: {APP}/{rel} does not exist")
+        names = entry.get("exports")
+        if not isinstance(names, list) or not names or not all(isinstance(n, str) for n in names):
+            problems.append(f"{label}: exports must be a non-empty list of export names")
+            names = []
+        for name in names:
+            if name not in entries:
+                problems.append(f"{label}: {name!r} is no classified export")
+            elif entry.get("needs") == "after_attach" and name in ops and ops[name].cls != "mirror":
+                problems.append(f"{label}: needs after_attach is for mirror reads; {name} is {ops[name].cls}")
+        if entry.get("needs") not in REWRITE_NEEDS:
+            problems.append(f"{label}: needs {entry.get('needs')!r} is not one of {', '.join(REWRITE_NEEDS)}")
+        if not isinstance(entry.get("change"), str) or not entry["change"].strip():
+            problems.append(f"{label}: change says what the site becomes")
+        if not isinstance(entry.get("task"), str) or not re.fullmatch(r"p\d{2}-[a-z0-9]+-\d{3}[a-z]?", entry["task"]):
+            problems.append(f"{label}: task {entry.get('task')!r} is not a task id (p01-process-015)")
+        rewrites.append(Rewrite(rel, functions, names, str(entry.get("needs")), site))
+
+    # What the generated code depends on (op ids, classes, wire kinds, events), not reasons or prose.
+    def op_wire(e: Export) -> list:
+        op = ops.get(e.name)
+        shape = [e.name, e.returns, [[a.name, a.kind] for a in e.wire]]
+        if op is None:
+            return shape
+        return shape + [op.cls, op.reply_event, op.channel, op.mint_returns,
+                         op.mirror_key.text if op.mirror_key else None, [k.text for k in op.pending_keys],
+                         [[r.kind, r.request] for r in op.refresh_events]]
+
+    wire = {"abi": header.identity, "events": events, "ops": [op_wire(e) for e in exports]}
+    wire_identity = hashlib.sha256(json.dumps(wire, sort_keys=True).encode()).hexdigest()
+    return (Model(header, exports, ops, refreshes, mirror_ops, pseudo_events, events, rewrites, wire_identity),
+            problems, per_export)
+
+
+def request_arg(e: Export) -> Arg | None:
+    """The `request` token a mint_returns sent export passes on to its reply_event."""
+    return next((a for a in e.wire if a.name == "request" and a.kind == "i"), None)
+
+
+DERIVED_SUFFIXES = ("_n", "_s", "_p", "_capacity", "_value")  # locals the generator derives from an argument
 
 
 def class_problems(op: Op) -> list[str]:
     e, cls = op.export, op.cls
     kinds = [a.kind for a in e.wire]
     out: list[str] = []
+    names = {a.name for a in e.args}
+    for a in e.args:
+        clash = next((a.name + s for s in DERIVED_SUFFIXES if a.name + s in names), None)
+        if clash:
+            out.append(f"argument '{clash}' has the name of a local generated for '{a.name}': rename one")
     if cls not in ("local", "policy") and "F" in kinds:
         fn = next(a for a in e.wire if a.kind == "F")
         out.append(f"function-pointer argument '{fn.name}' in a {cls} export (only local or policy)")
@@ -704,12 +926,24 @@ def class_problems(op: Op) -> list[str]:
     elif cls == "mint":
         if op.reply_event is None or op.reply_event == REPLY_WIRE:
             out.append("a mint export names the event that reports the minted id (reply_event)")
+    elif cls == "preinit":
+        if e.ret_kind and op.reply_event != REPLY_WIRE:
+            out.append(f"a non-void preinit returns the client's own check; the host's verdict is "
+                       f"reply_event {REPLY_WIRE}")
+        elif not e.ret_kind and op.reply_event is not None:
+            out.append("a void preinit has no verdict to send back: no reply_event")
     elif op.reply_event == REPLY_WIRE:
-        out.append(f"a {cls} export returns at once: {REPLY_WIRE} is for async exports")
+        out.append(f"a {cls} export returns at once: {REPLY_WIRE} is for async and non-void preinit exports")
     elif op.reply_event is not None and cls not in ("post", "view"):
         out.append(f"reply_event is for async, mint and post exports, not {cls}")
     if op.channel == "input" and cls not in ("post", "view"):
         out.append("the input channel carries one-way ops (post or view) only")
+    if cls == "mint" and op.mint_returns not in MINT_RETURNS:
+        out.append(f"a mint export names its C return: mint_returns is {' or '.join(MINT_RETURNS)}")
+    elif cls == "mint" and op.mint_returns == "sent" and not request_arg(e):
+        out.append("mint_returns sent needs an int `request` argument: reply_event carries it with the id")
+    elif cls != "mint" and op.mint_returns is not None:
+        out.append("mint_returns is for mint exports")
     return out
 
 
@@ -749,32 +983,45 @@ def is_browser_arg(a: Arg) -> bool:
     return a.kind == "i" and a.name.endswith("browser_id")
 
 
-def fallback(export: Export, cls: str) -> str:
+def stand_in(export: Export) -> str:
+    """What a post-like export's remote returns: the call is sent, so it reports success."""
     k = export.ret_kind
-    if not k:
-        return ""
+    return {"": "", "s": "nullptr", "S": "nullptr", "u": "1u"}.get(k, "1")
+
+
+def zero(export: Export) -> str:
+    """The C zero value of the export's result: a mirror read before attach, a call not sent."""
+    k = export.ret_kind
+    return {"": "", "s": "nullptr", "S": "nullptr", "u": "0u"}.get(k, "0")
+
+
+def sent_result(export: Export, sent: str) -> str:
+    """An async export's immediate return: 1 when `sent`, else 0; a string result arrives in the reply."""
+    k = export.ret_kind
     if k in ("s", "S"):
         return "nullptr"
-    if cls in POST_LIKE:
-        return "1u" if k == "u" else "1"
-    return "0u" if k == "u" else "0"
+    one, nil = ("1u", "0u") if k == "u" else ("1", "0")
+    return f"{sent} ? {one} : {nil}"
+
+
+WIRE_NUMBER = {"i": "I32", "u": "U32", "l": "I64", "d": "F64"}
 
 
 def client_encode(a: Arg, w: str, structs: dict[str, list[Arg]], lines: list[str], ind: str) -> None:
-    k, n = a.kind, a.name
-    if k in ("i", "u", "l", "d"):
-        lines.append(f"{ind}{w}.{ {'i': 'I32', 'u': 'U32', 'l': 'I64', 'd': 'F64'}[k] }({n});")
+    k, n = a.kind, a.var
+    if k in WIRE_NUMBER:
+        lines.append(f"{ind}{w}.{WIRE_NUMBER[k]}({n});")
     elif k == "s":
         lines.append(f"{ind}{w}.Str({n});")
     elif k == "b":
-        lines.append(f"{ind}{w}.Bytes({n}, static_cast<size_t>({a.pair.name}));")
+        lines.append(f"{ind}{w}.Bytes({n}, static_cast<size_t>({a.pair.var}));")
     elif k == "v":
         lines.append(f"{ind}{w}.View({n});")
     elif k == "L":
-        lines.append(f"{ind}{w}.StrList({n}, {a.pair.name});")
+        lines.append(f"{ind}{w}.StrList({n}, {a.pair.var});")
     elif k == "R":
         fields = structs[a.ctype[6:-1]]
-        lines.append(f"{ind}const int {n}_n = {n} != nullptr && {a.pair.name} > 0 ? {a.pair.name} : 0;")
+        lines.append(f"{ind}const int {n}_n = {n} != nullptr && {a.pair.var} > 0 ? {a.pair.var} : 0;")
         lines.append(f"{ind}{w}.I32({n}_n);")
         lines.append(f"{ind}for (int i = 0; i < {n}_n; ++i) {{")
         for f in record_fields(fields):
@@ -784,7 +1031,7 @@ def client_encode(a: Arg, w: str, structs: dict[str, list[Arg]], lines: list[str
                 lines.append(f"{ind}  {w}.I64({n}[i].{f[1]});")
         lines.append(f"{ind}}}")
     elif k in ("A", "B"):
-        lines.append(f"{ind}{w}.I32(static_cast<int32_t>({a.pair.name}));")
+        lines.append(f"{ind}{w}.I32(static_cast<int32_t>({a.pair.var}));")
 
 
 def record_fields(fields: list[Arg]) -> list[tuple[str, str, str]]:
@@ -804,124 +1051,126 @@ def record_fields(fields: list[Arg]) -> list[tuple[str, str, str]]:
     return out
 
 
+def clear_outputs(e: Export, body: list[str]) -> None:
+    """Out-parameters of a call answered later hold zero, never stale memory, until the reply comes."""
+    for a in e.wire:
+        if a.kind == "I":
+            body.append(f"  if ({a.var} != nullptr) *{a.var} = 0;")
+        elif a.kind in ("A", "B"):
+            body.append(f"  if ({a.var} != nullptr && {a.pair.var} > 0) {a.var}[0] = 0;")
+
+
 def client_function(op: Op, model: Model) -> list[str]:
     e, cls = op.export, op.cls
-    sig = f"CMUX_SHIM_EXPORT {e.returns} {e.name}({', '.join(a.decl for a in e.args) or 'void'})"
+    sig = f"CMUX_SHIM_EXPORT {e.returns} {e.name}({', '.join(a.generated_decl for a in e.args) or 'void'})"
     const = op_const(e)
     body: list[str] = []
-    ret = fallback(e, cls)
-    if cls == "async" and not answered_by_event(op):
-        unused = [a.name for a in e.args]
-        if unused:
-            body.append("  " + " ".join(f"(void){n};" for n in unused))
-        body.append(f"  UnmigratedAsync({const});")
-        body.append(f"  return {ret};" if ret else "  return;")
-    elif cls == "mirror":
-        body.append("  TlvWriter key;")
+    if cls == "mirror":
+        body.append("  TlvWriter key_w;")
         for a in e.wire:
             if a.kind not in OUT_KINDS:
-                client_encode(a, "key", model.header.structs, body, "  ")
-        body.append(f"  TlvReader value = MirrorLookup({const}, key);")
-        body.append(f"  if (!value.present()) return {fallback(e, 'mirror')};")
+                client_encode(a, "key_w", model.header.structs, body, "  ")
+        body.append(f"  TlvReader value_r = MirrorLookup({const}, key_w);")
+        body.append(f"  if (!value_r.present()) return {zero(e)};")
         k = e.ret_kind
-        result = {"i": "value.I32()", "u": "value.U32()", "l": "value.I64()"}.get(k)
-        if k == "s":
-            body.append("  const std::optional<std::string> result = value.Str();")
+        if k in ("s", "S"):
+            body.append("  const std::optional<std::string> mirror_result = value_r.Str();")
         else:
-            body.append(f"  const auto result = {result};")
+            body.append(f"  const auto mirror_result = value_r.{WIRE_NUMBER[k]}();")
         for a in e.wire:
             if a.kind == "I":
-                body.append(f"  const int32_t {a.name}_value = value.I32();")
-                body.append(f"  if ({a.name} != nullptr) *{a.name} = {a.name}_value;")
+                body.append(f"  const int32_t {a.var}_value = value_r.I32();")
+                body.append(f"  if ({a.var} != nullptr) *{a.var} = {a.var}_value;")
             elif a.kind == "A":
-                body.append(f"  value.I32Array({a.name}, {a.pair.name});")
+                body.append(f"  value_r.I32Array({a.var}, {a.pair.var});")
             elif a.kind == "B":
-                body.append(f"  const std::string {a.name}_value = value.Bytes();")
-                body.append(f"  if ({a.name} != nullptr) std::memcpy({a.name}, {a.name}_value.data(), "
-                            f"std::min({a.name}_value.size(), static_cast<size_t>({a.pair.name})));")
-        body.append("  return result ? Dup(*result) : nullptr;" if k == "s" else "  return result;")
-    else:
-        body.append("  TlvWriter w;")
-        if cls == "mint":
-            body.append(f"  const int32_t minted = MintID({const});")
-            body.append("  w.I32(minted);")
-        if cls == "policy":
-            fn = next(a for a in e.wire if a.kind == "F")
-            body.append(f"  SetPolicy({const}, reinterpret_cast<void*>({fn.name}));")
-            body.append(f"  w.I32({fn.name} != nullptr ? 1 : 0);")
-        for a in e.wire:
-            if a.kind == "C":
-                body.append(f"  (void){a.name};")
-            elif a.kind != "F":
-                client_encode(a, "w", model.header.structs, body, "  ")
-        token = "0"
-        if op.pending_keys:
-            body.append("  const uint32_t token = NextToken();")
-            token = "token"
-            own = {a.name: a for a in key_args(e)}
-            for pattern in op.pending_keys:
-                target = model.mirror_ops[pattern.base]
-                var = f"pending_{pattern.ident}"
-                body.append(f"  TlvWriter {var};")
-                wildcards = 0
-                for index, param in enumerate(pattern.params):
-                    if param == "*":
-                        wildcards |= 1 << index
-                    else:
-                        client_encode(own[param], var, model.header.structs, body, "  ")
-                body.append(f"  MarkPending({op_const(target.export)}, token, {var}, {wildcards:#x}u);  "
-                            f"// {pattern.text}")
-        if cls == "preinit":
-            body.append(f"  PostPreinit({const}, w);")
-        elif op.channel == "input":
-            body.append(f"  PostInput({const}, {token}, w);")
-        elif cls == "async":
-            body.append(f"  Post({const}, NextToken(), w);")
+                body.append(f"  const std::string {a.var}_value = value_r.Bytes();")
+                body.append(f"  if ({a.var} != nullptr) std::memcpy({a.var}, {a.var}_value.data(), "
+                            f"std::min({a.var}_value.size(), static_cast<size_t>({a.pair.var})));")
+        body.append("  return mirror_result ? Dup(*mirror_result) : nullptr;" if k in ("s", "S")
+                    else "  return mirror_result;")
+        return [sig + " {", *body, "}"]
+    body.append("  TlvWriter op_w;")
+    if cls == "mint":
+        body.append(f"  const int32_t minted_id = MintID({const});")
+        body.append("  op_w.I32(minted_id);")
+    if cls == "policy":
+        fn = next(a for a in e.wire if a.kind == "F")
+        body.append(f"  SetPolicy({const}, reinterpret_cast<void*>({fn.var}));")
+        body.append(f"  op_w.I32({fn.var} != nullptr ? 1 : 0);")
+    for a in e.wire:
+        if a.kind == "C":
+            body.append(f"  (void){a.var};")
+        elif a.kind != "F":
+            client_encode(a, "op_w", model.header.structs, body, "  ")
+    replies = cls == "async" or op.reply_event == REPLY_WIRE  # a REPLY frame answers the token
+    token = "op_token" if op.pending_keys or replies else "0"
+    if token != "0":
+        body.append("  const uint32_t op_token = NextToken();")
+    own = {a.name: a for a in key_args(e)}
+    for pattern in op.pending_keys:
+        target = model.mirror_ops[pattern.base]
+        var = f"pending_{pattern.ident}"
+        body.append(f"  TlvWriter {var};")
+        wildcards = 0
+        for index, param in enumerate(pattern.params):
+            if param == "*":
+                wildcards |= 1 << index
+            else:
+                client_encode(own[param], var, model.header.structs, body, "  ")
+        body.append(f"  MarkPending({op_const(target.export)}, op_token, {var}, {wildcards:#x}u);  "
+                    f"// {pattern.text}")
+    if cls == "preinit":
+        # The client's own check (1 queued, 0 refused); with a token the host's verdict comes as REPLY.
+        call = f"PostPreinit({const}, {token}, op_w)"
+        body.append(f"  return {call};" if e.ret_kind else f"  (void){call};")
+        return [sig + " {", *body, "}"]
+    if cls == "async":
+        clear_outputs(e, body)
+        send = f"PostAwaitingReply({const}, op_token, op_w)"
+        if e.ret_kind:
+            body.append(f"  const bool op_sent = {send};")
+            if e.ret_kind in ("s", "S"):
+                body.append("  (void)op_sent;")
+            body.append(f"  return {sent_result(e, 'op_sent')};")
         else:
-            body.append(f"  Post({const}, {token}, w);")
-        if cls == "mint":
-            body.append("  return 1;" if mint_by_request(e) else "  return minted;")
-        elif cls == "async":
-            body.append("  return 1;")
-        elif ret:
-            body.append(f"  return {ret};")
+            body.append(f"  (void){send};")
+        return [sig + " {", *body, "}"]
+    send = f"{'PostInput' if op.channel == 'input' else 'Post'}({const}, {token}, op_w)"
+    if cls == "mint":
+        body.append(f"  const bool op_sent = {send};")
+        body.append("  return op_sent ? 1 : 0;" if op.mint_returns == "sent" else "  return op_sent ? minted_id : 0;")
+    else:
+        body.append(f"  (void){send};")
+        if e.ret_kind:
+            body.append(f"  return {stand_in(e)};")
     return [sig + " {", *body, "}"]
 
 
-def mint_by_request(export: Export) -> bool:
-    """A mint export with a `request` token returns 1 (started); the minted id comes in AFTER_CREATED."""
-    return any(a.name == "request" for a in export.wire)
-
-
-def answered_by_event(op: Op) -> bool:
-    """An async export whose answer already arrives as an event (CMUX_SHIM_REPLY with the caller's reply
-    id, FIND_RESULT, ...): the client posts it and returns 1. One answered by wire:REPLY cannot return its
-    result through the synchronous C ABI, so its Swift sites move to the token API (task 018)."""
-    return op.cls == "async" and op.reply_event not in (None, REPLY_WIRE)
-
-
-def op_enum(header: Header) -> list[str]:
+def op_enum(model: Model) -> list[str]:
     lines = ["enum Op : uint16_t {"]
-    lines += [f"  {op_const(e)} = {e.index}," for e in header.exports]
-    lines += ["};", f"inline constexpr uint16_t kOpCount = {len(header.exports)};",
+    lines += [f"  {op_const(e)} = {e.index},{'  // optional' if e.optional else ''}" for e in model.exports]
+    lines += ["};", f"inline constexpr uint16_t kOpCount = {len(model.exports)};",
               f"inline constexpr uint16_t kOpEvent = {EVENT_OP:#x};  // host -> cmux: one shim event",
               f"inline constexpr uint16_t kOpReply = {REPLY_OP:#x};  // host -> cmux: an async op's result",
               f"inline constexpr uint16_t kOpMirror = {MIRROR_OP:#x};  // host -> cmux: a mirror value",
               f"inline constexpr uint16_t kOpAck = {ACK_OP:#x};  // host -> cmux: a token's op ran",
-              f"inline constexpr int kEventKindCount = {len(header.events)};",
-              f'inline constexpr char kShimAbiID[] = "{header.identity}";']
+              f"inline constexpr int kEventKindCount = {len(model.events)};",
+              f'inline constexpr char kShimAbiID[] = "{model.header.identity}";',
+              "// Both sides' HELLO carries it: the op ids, classes and wire types of this generation.",
+              f'inline constexpr char kWireID[] = "{model.wire_identity}";']
     return lines
 
 
 def render_client(model: Model) -> str:
-    h = model.header
     out = [BANNER.format(gen=GENERATOR, shimh=SHIMH, ops=OPS),
            "// The remote shim (libcmux_cef_shim_remote.dylib): the same C ABI as the in-process shim,",
            "// each export a non-blocking op to the Chromium Host. Included by HOST/client/remote_shim.mm",
            "// after cmux_cef_shim.h and the cmux_remote wire interface; local exports are hand-written",
-           "// in HOST/client outside generated/.",
+           "// in HOST/client outside generated/. Optional exports (fork API symbols the header does not",
+           "// declare yet) are defined here too, so CEFShimLibrary's r.optional finds them.",
            "",
-           "namespace cmux_remote {", *op_enum(h), "}  // namespace cmux_remote", "",
+           "namespace cmux_remote {", *op_enum(model), "}  // namespace cmux_remote", "",
            'extern "C" {', "using namespace cmux_remote;", "",
            "CMUX_SHIM_EXPORT const char* cmux_shim_abi_id(void) {", "  return kShimAbiID;", "}"]
     for op in model.ops.values():
@@ -933,9 +1182,9 @@ def render_client(model: Model) -> str:
 
 def host_decode(a: Arg, structs: dict[str, list[Arg]], lines: list[str]) -> str:
     """Appends the decoding of one wire argument; returns the C argument text for the call."""
-    k, n = a.kind, a.name
-    if k in ("i", "u", "l", "d"):
-        lines.append(f"      const auto {n} = r.{ {'i': 'I32', 'u': 'U32', 'l': 'I64', 'd': 'F64'}[k] }();")
+    k, n = a.kind, a.var
+    if k in WIRE_NUMBER:
+        lines.append(f"      const auto {n} = r.{WIRE_NUMBER[k]}();")
         return f"ctx.Browser({n})" if is_browser_arg(a) else n
     if k == "s":
         lines.append(f"      const std::optional<std::string> {n} = r.Str();")
@@ -986,57 +1235,76 @@ def host_decode(a: Arg, structs: dict[str, list[Arg]], lines: list[str]) -> str:
     raise Failure(f"cannot decode '{a.decl}'")
 
 
-def host_value(e: Export, w: str, lines: list[str], free: bool = True) -> None:
-    """Writes the result (`result`) and the out-parameters into writer `w`."""
+def host_value(e: Export, w: str, lines: list[str], result: str, free: bool = True) -> None:
+    """Writes the result (the local `result`) and the out-parameters into writer `w`."""
     k = e.ret_kind
     if k in ("i", "u", "l"):
-        lines.append(f"      {w}.{ {'i': 'I32', 'u': 'U32', 'l': 'I64'}[k] }(result);")
+        lines.append(f"      {w}.{WIRE_NUMBER[k]}({result});")
     elif k in ("s", "S"):
-        lines.append(f"      {w}.Str(result);")
+        lines.append(f"      {w}.Str({result});")
         if k == "s" and free:
-            lines.append(f"      {'cmux_shim_free_owned' if e.owned_free else 'cmux_shim_free'}(result);")
+            lines.append(f"      if ({result} != nullptr) "
+                         f"{'cmux_shim_free_owned' if e.owned_free else 'cmux_shim_free'}({result});")
     for a in e.wire:
         if a.kind == "I":
-            lines.append(f"      {w}.I32({a.name});")
+            lines.append(f"      {w}.I32({a.var});")
         elif a.kind == "A":
-            lines.append(f"      {w}.I32Array({a.name}.data(), {a.name}.size());")
+            lines.append(f"      {w}.I32Array({a.var}.data(), {a.var}.size());")
         elif a.kind == "B":
-            lines.append(f"      {w}.Bytes({a.name}.data(), {a.name}.size());")
+            lines.append(f"      {w}.Bytes({a.var}.data(), {a.var}.size());")
+
+
+def host_call(e: Export, call_args: list[str], lines: list[str], result: str | None) -> None:
+    """Calls the export (an optional one through the host shim's symbol, when it defines it)."""
+    args = ", ".join(call_args)
+    if not e.optional:
+        call = f"{e.name}({args})"
+        lines.append(f"      const auto {result} = {call};" if result else f"      {call};")
+        return
+    lines.append(f"      const auto optional_fn = reinterpret_cast<{e.c_signature}>(ctx.OptionalExport({op_const(e)}));")
+    if result:
+        lines.append(f"      const {e.returns} {result} = optional_fn != nullptr ? optional_fn({args}) : {zero(e)};")
+    else:
+        lines.append(f"      if (optional_fn != nullptr) optional_fn({args});")
 
 
 def host_case(op: Op, model: Model) -> list[str]:
     e, cls = op.export, op.cls
     lines = [f"    case {op_const(e)}: {{"]
     if cls == "mint":
-        lines.append("      const int32_t minted = r.I32();")
+        lines.append("      const int32_t minted_id = r.I32();")
     if cls == "policy":
-        lines.append("      const bool installed = r.I32() != 0;")
+        lines.append("      const bool policy_installed = r.I32() != 0;")
     call_args = []
     for a in e.wire:
         if a.kind in ("F", "C"):
             continue
         call_args.append(host_decode(a, model.header.structs, lines))
     lines.append("      if (!r.ok() || !r.AtEnd()) return false;")
-    call = f"{e.name}({', '.join(call_args)})"
     if cls == "policy":
-        lines.append(f"      InstallPolicy{pascal(e.short)}(ctx, installed{''.join(', ' + p for p in call_args)});")
-        lines.append("      ctx.Ack(token);")
-    elif cls == "async":
-        lines.append(f"      {'const auto result = ' if e.ret_kind else ''}{call};")
-        lines.append("      TlvWriter reply;")
-        host_value(e, "reply", lines)
-        lines.append("      ctx.Reply(token, reply);")
+        lines.append(f"      InstallPolicy{pascal(e.short)}(ctx, policy_installed"
+                     f"{''.join(', ' + p for p in call_args)});")
+        lines.append("      ctx.Ack(wire_token);")
+    elif cls == "async" or (cls == "preinit" and op.reply_event == REPLY_WIRE):
+        host_call(e, call_args, lines, "call_result" if e.ret_kind else None)
+        lines.append("      TlvWriter reply_w;")
+        host_value(e, "reply_w", lines, "call_result")
+        lines.append("      ctx.Reply(wire_token, reply_w);")
     elif cls == "mint":
-        lines.append(f"      const int result = {call};")
-        lines.append(f"      ctx.BindMinted({op_const(e)}, minted, result);")
-        lines.append("      ctx.Ack(token);")
+        host_call(e, call_args, lines, "call_result")
+        if op.mint_returns == "sent":
+            kind = dict(model.events)[op.reply_event]
+            lines.append(f"      ctx.BindMintedOnEvent({op_const(e)}, minted_id, {kind} /* {op.reply_event} */, "
+                         f"{request_arg(e).var}, call_result);")
+        else:
+            lines.append(f"      ctx.BindMinted({op_const(e)}, minted_id, call_result);")
+        lines.append("      ctx.Ack(wire_token);")
     else:
-        lines.append(f"      {'(void)' if e.ret_kind else ''}{call};")
-        if any(a.kind == "R" for a in e.wire):
-            lines += [f"      Wipe({a.name}_s);" for a in e.wire if a.kind == "R"]
-        lines.append("      ctx.Ack(token);")
-    if cls == "async" and any(a.kind == "R" for a in e.wire):
-        lines += [f"      Wipe({a.name}_s);" for a in e.wire if a.kind == "R"]
+        host_call(e, call_args, lines, "call_result" if e.ret_kind else None)
+        if e.ret_kind:
+            lines.append("      (void)call_result;")
+        lines.append("      ctx.Ack(wire_token);")
+    lines += [f"      Wipe({a.var}_s);" for a in e.wire if a.kind == "R"]
     lines += ["      return true;", "    }"]
     return lines
 
@@ -1046,31 +1314,37 @@ def mirror_case(op: Op, model: Model) -> list[str]:
     lines = [f"    case {op_const(e)}: {{"]
     call_args = [host_decode(a, model.header.structs, lines) for a in e.wire]
     lines.append("      if (!r.ok() || !r.AtEnd()) return false;")
-    lines.append(f"      const auto result = {e.name}({', '.join(call_args)});")
-    lines.append("      TlvWriter key;")
+    host_call(e, call_args, lines, "call_result")
+    lines.append("      TlvWriter key_w;")
     for a in e.wire:
-        if a.kind in ("i", "u", "l", "d"):
-            lines.append(f"      key.{ {'i': 'I32', 'u': 'U32', 'l': 'I64', 'd': 'F64'}[a.kind] }({a.name});")
+        if a.kind in WIRE_NUMBER:
+            lines.append(f"      key_w.{WIRE_NUMBER[a.kind]}({a.var});")
         elif a.kind == "s":
-            lines.append(f"      key.Str({a.name} ? {a.name}->c_str() : nullptr);")
+            lines.append(f"      key_w.Str({a.var} ? {a.var}->c_str() : nullptr);")
         elif a.kind in ("A", "B"):
-            lines.append(f"      key.I32({a.name}_capacity);")
-    lines.append("      TlvWriter value;")
-    host_value(e, "value", lines)
-    lines += [f"      ctx.PushMirror({op_const(e)}, key, value);", "      return true;", "    }"]
+            lines.append(f"      key_w.I32({a.var}_capacity);")
+    lines.append("      TlvWriter value_w;")
+    host_value(e, "value_w", lines, "call_result")
+    lines += [f"      ctx.PushMirror({op_const(e)}, key_w, value_w);", "      return true;", "    }"]
     return lines
 
 
 def render_host(model: Model) -> str:
-    h = model.header
     out = [BANNER.format(gen=GENERATOR, shimh=SHIMH, ops=OPS),
            "// The Chromium Host's side of every generated op. Included by HOST/src/host_dispatch.mm after",
            "// cmux_cef_shim.h and the cmux_host wire interface. A malformed op returns false: the caller",
            "// ends the connection (p01-process section 4, rule 2).",
            "",
-           "namespace cmux_host {", *op_enum(h),
+           "namespace cmux_host {", *op_enum(model),
            f"inline constexpr int32_t kMaxRecords = {MAX_RECORDS};",
            f"inline constexpr int32_t kMaxOutCapacity = {MAX_OUT_CAPACITY};", ""]
+    optional = [e for e in model.exports if e.optional]
+    out += ["// Exports the header does not declare yet (fork API symbols): the host resolves each in its shim,",
+            "// lists the ones it found in the HELLO, and answers an op whose symbol is missing with zero.",
+            "struct OptionalExport {", "  uint16_t op;", "  const char* name;", "};",
+            "inline constexpr OptionalExport kOptionalExports[] = {"]
+    out += [f'    {{{op_const(e)}, "{e.name}"}},' for e in optional] or ['    {0, ""},  // none']
+    out += ["};", ""]
     policies = [op for op in model.ops.values() if op.cls == "policy"]
     if policies:
         out.append("// Hand-written in HOST/src: install the host's own handler and push its policy.")
@@ -1078,8 +1352,8 @@ def render_host(model: Model) -> str:
             extra = "".join(f", {host_param(a)}" for a in op.export.wire if a.kind not in ("F", "C"))
             out.append(f"void InstallPolicy{pascal(op.export.short)}(HostContext& ctx, bool installed{extra});")
         out.append("")
-    out += ["// Runs one op from cmux on the UI thread.",
-            "inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t token, TlvReader& r) {",
+    out += ["// Runs one op from cmux on the UI thread; wire_token is the frame's token.",
+            "inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvReader& r) {",
             "  switch (op) {"]
     for op in model.ops.values():
         if op.cls in GENERATED_CLIENT and op.cls != "mirror":
@@ -1092,8 +1366,8 @@ def render_host(model: Model) -> str:
             out += mirror_case(op, model)
     out += ["    default:", "      return false;", "  }", "}", "",
             "// The mirrors an event kind refreshes; the host pushes them before the event.",
-            "// kind is an event kind or a pseudo event (kEvent<Name>, <= 0); request -1 matches any request,",
-            "// otherwise only an event with that request (CMUX_SHIM_TAB_EVENT's sub-kind).",
+            "// kind is an event kind (>= 0) or a pseudo event (kEvent<Name>, < 0); request -1 matches any",
+            "// request, otherwise only an event with that request (CMUX_SHIM_TAB_EVENT's sub-kind).",
             "struct MirrorRefresh {", "  int kind;", "  int request;", "  uint16_t op;", "};"]
     out += [f"inline constexpr int kEvent{pascal(name)} = {value};  // pseudo event"
             for name, value in pseudo_event_values(model)]
@@ -1118,13 +1392,13 @@ def render_host(model: Model) -> str:
 
 
 def pseudo_event_values(model: Model) -> list[tuple[str, int]]:
-    """Pseudo events (attach) as kind values 0, -1, ... in name order: event kinds start at 1."""
-    return [(name, -index) for index, name in enumerate(model.pseudo_events)]
+    """Pseudo events (attach) as kind values -1, -2, ... in name order: event kinds are >= 0."""
+    return [(name, -1 - index) for index, name in enumerate(model.pseudo_events)]
 
 
 def mirror_refresh_rows(model: Model) -> list[tuple[int, int, Op, str]]:
-    """(kind value, request or -1, mirror op, label) for every refresh event of every mirror, in header order."""
-    kinds = dict(model.header.events)
+    """(kind value, request or -1, mirror op, label) for every refresh event of every mirror, in op order."""
+    kinds = dict(model.events)
     pseudo = dict(pseudo_event_values(model))
     rows = []
     for op in model.ops.values():
@@ -1165,18 +1439,26 @@ def swift_types(export: Export, cls: str) -> tuple[list[str], list[str]]:
 
 def render_swift(model: Model) -> str:
     h = model.header
-    names = [swift_name(e.short) for e in h.exports]
+    names = [swift_name(e.short) for e in model.exports]
     if len(set(names)) != len(names):
         raise Failure("two exports map to one Swift case name")
-    ev_names = [swift_name(k[len("CMUX_SHIM_"):]) for k, _ in h.events]
+    ev_names = [swift_name(k[len("CMUX_SHIM_"):]) for k, _ in model.events]
+    optional_rows = pack(["." + swift_name(e.short).strip("`") for e in model.exports if e.optional], "        ")
+    optional_ops = (["    static let optionalOps: Set<ChromiumHostOp> = ["]
+                    + [row + "," for row in optional_rows] + ["    ]"]) if optional_rows else \
+        ["    static let optionalOps: Set<ChromiumHostOp> = []"]
     out = [BANNER.format(gen=GENERATOR, shimh=SHIMH, ops=OPS),
            "/// Every `cmux_shim_*` export as a Chromium Host control op; `rawValue` is the wire id",
            "/// (plans/cmux-next/chrome-parity/p01-process.md, section 3.2).",
            "nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {"]
-    out += pack([f"{n} = {e.index}" for n, e in zip(names, h.exports)], "    case ")
+    out += pack([f"{n} = {e.index}" for n, e in zip(names, model.exports)], "    case ")
     out += ["",
             "    /// The SHA-256 of the cmux_cef_shim.h this table was generated from (`CEFShimABI`).",
             f'    static let abiIdentity = "{h.identity}"',
+            "    /// This generation's op ids, classes and wire types; both HELLOs carry it.",
+            f'    static let wireIdentity = "{model.wire_identity}"',
+            "    /// Ops of fork API symbols the header does not declare yet (`r.optional` in CEFShimLibrary).",
+            *optional_ops,
             "    /// Host -> cmux control ops: a shim event, an async result, a mirror value, an ack.",
             f"    static let eventOp: UInt16 = {EVENT_OP:#x}, replyOp: UInt16 = {REPLY_OP:#x}",
             f"    static let mirrorOp: UInt16 = {MIRROR_OP:#x}, ackOp: UInt16 = {ACK_OP:#x}",
@@ -1254,7 +1536,7 @@ def render_swift(model: Model) -> str:
             "    }",
             "",
             "    private static let rows: [Row] = ["]
-    for e in h.exports:
+    for e in model.exports:
         op = model.ops[e.name]
         args, reply = swift_types(e, op.cls)
         out.append(f"        Row(.{op.cls}, [{', '.join(args)}], [{', '.join(reply)}]),")
@@ -1294,7 +1576,7 @@ def render_swift(model: Model) -> str:
             "    }",
             ""]
     for name, value in pseudo_event_values(model):
-        out += [f"    /// The pseudo event `{name}` as a refresh kind (event kinds start at 1).",
+        out += [f"    /// The pseudo event `{name}` as a refresh kind (event kinds are >= 0).",
                 f"    static let {swift_name(name + '_event')}: Int32 = {value}"]
     out.append("    static let refreshes: [Refresh] = [")
     for kind, request, op, label in mirror_refresh_rows(model):
@@ -1309,7 +1591,7 @@ def render_swift(model: Model) -> str:
             "",
             "/// `cmux_shim_event_kind_t`, as the host forwards it in an `eventOp` frame.",
             "nonisolated enum ChromiumHostEventKind: Int32, CaseIterable, Sendable {"]
-    out += pack([f"{n} = {v}" for n, (_, v) in zip(ev_names, h.events)], "    case ")
+    out += pack([f"{n} = {v}" for n, (_, v) in zip(ev_names, model.events)], "    case ")
     out += ["",
             "    /// The mirrors this event refreshes; the host pushes them before the event. `request` is the",
             "    /// event's request (CMUX_SHIM_TAB_EVENT's sub-kind).",
@@ -1410,7 +1692,7 @@ def missing_sides(model: Model | None, header: Header, per_export: dict[str, str
     rows = []
     client = hand_written(root, CLIENT_SRC)
     host = hand_written(root, HOST_SRC)
-    for e in header.exports:
+    for e in model.exports if model else header.exports:
         op = model.ops.get(e.name) if model else None
         if op is None or e.name in per_export:
             rows.append((e.name, op.cls if op else "-", "classification"))
@@ -1420,6 +1702,28 @@ def missing_sides(model: Model | None, header: Header, per_export: dict[str, str
         if op.cls == "policy" and not defines(host, "InstallPolicy" + pascal(e.short)):
             rows.append((e.name, op.cls, f"host (InstallPolicy{pascal(e.short)} in {HOST_SRC})"))
     return rows
+
+
+def shim_library_problems(model: Model, root: Path) -> list[str]:
+    """CEFShimLibrary binds header exports with r(...) and optional exports with r.optional(...)."""
+    path = root / SHIM_LIBRARY
+    if not path.exists():
+        return []
+    code = re.sub(r"//[^\n]*", "", path.read_text(encoding="utf-8"))
+    bound = re.findall(r'\br(\.optional)?\(\s*"(cmux_shim_\w+)"\s*\)', code)
+    in_header = {e.name for e in model.header.exports}
+    optional = {e.name for e in model.exports if e.optional}
+    problems = []
+    seen = set()
+    for how, name in bound:
+        seen.add(name)
+        if name in optional and not how:
+            problems.append(f"{SHIM_LIBRARY}: {name} is an optional export: bind it with r.optional")
+        elif name not in in_header and name not in optional:
+            problems.append(f"{SHIM_LIBRARY}: {name} is neither a header export nor in optional_exports")
+    for name in sorted(optional - seen):
+        problems.append(f"{OPS}: optional export {name} is not bound in {SHIM_LIBRARY} (stale entry)")
+    return problems
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1433,6 +1737,9 @@ class Site:
     export: str
     prop: str
     used: bool
+    owner: str = ""  # the innermost type declaration around the call ("" at file scope)
+    function: str = ""  # the innermost func, init or computed var around the call
+    offset: int = 0  # in the file's text
 
 
 def shim_properties(root: Path) -> dict[str, str]:
@@ -1560,18 +1867,71 @@ def enclosing_brace(text: str, index: int) -> int:
     return -1
 
 
+@dataclass
+class Scope:
+    kind: str  # "type" or "func"
+    name: str  # the type's name, or the func's ("init" for an initializer, a computed var's name)
+    head: str  # the declaration text before `{`
+    open: int
+    close: int
+
+
+DECL_MODIFIERS = r"(?:(?:@\w+(?:\([^)]*\))?|private|fileprivate|internal|public|package|open|static|class|final|" \
+                 r"override|nonisolated|mutating|nonmutating|dynamic|lazy|convenience|required|indirect)" \
+                 r"(?:\([^)]*\))?\s+)*"
+DECL_FUNC = re.compile(rf"^\s*{DECL_MODIFIERS}(?:func\s+([A-Za-z_]\w*)|(init)[?!]?\s*[(<]|"
+                       rf"var\s+([A-Za-z_]\w*)\s*:[^=]*$)", re.S)
+DECL_TYPE = re.compile(rf"^\s*{DECL_MODIFIERS}(?:class|struct|enum|extension|actor|protocol)\s+([A-Z]\w*)")
+
+
+def declaration_head(masked: str, brace: int) -> str:
+    """The text before `{` from the start of its declaration: its line, or the line where its
+    parameter list opens."""
+    start = masked.rfind("\n", 0, brace) + 1
+    while start > 0 and masked.count(")", start, brace) > masked.count("(", start, brace):
+        start = masked.rfind("\n", 0, start - 1) + 1
+    return masked[start:brace].lstrip(" \t}")
+
+
+def swift_scopes(masked: str) -> list[Scope]:
+    """Every type and function body of a masked Swift file, outermost first."""
+    scopes: list[Scope] = []
+    stack: list[Scope | None] = []
+    for i, ch in enumerate(masked):
+        if ch == "{":
+            head = declaration_head(masked, i)
+            func, typ = DECL_FUNC.match(head), DECL_TYPE.match(head)
+            scope = None
+            if func:
+                scope = Scope("func", next(g for g in func.groups() if g), head, i, len(masked))
+            elif typ:
+                scope = Scope("type", typ.group(1), head, i, len(masked))
+            if scope:
+                scopes.append(scope)
+            stack.append(scope)
+        elif ch == "}" and stack:
+            scope = stack.pop()
+            if scope:
+                scope.close = i
+    return scopes
+
+
+def context_at(scopes: list[Scope], index: int) -> tuple[str, str]:
+    """(innermost type, innermost function) around `index`."""
+    owner = function = ""
+    for scope in scopes:
+        if scope.open < index < scope.close:
+            if scope.kind == "type":
+                owner = scope.name
+            else:
+                function = scope.name
+    return owner, function
+
+
 def swift_sites(root: Path) -> list[Site]:
     props = shim_properties(root)
     sites: list[Site] = []
-    base = root / APP
-    for path in sorted(base.rglob("*.swift")):
-        rel = path.relative_to(root).as_posix()
-        if rel == SHIM_LIBRARY or "/Generated/" in rel:
-            continue
-        source = path.read_text(encoding="utf-8", errors="replace")
-        if "shim" not in source:
-            continue
-        masked = mask_swift_source(source)
+    for rel, masked, scopes in swift_files(root):
         for m in re.finditer(r"\bshim[?!]?\.([A-Za-z_]\w*)\s*\(", masked):
             export = props.get(m.group(1))
             if export is None:
@@ -1579,10 +1939,74 @@ def swift_sites(root: Path) -> list[Site]:
             open_index = m.end() - 1
             close = matching_close(masked, open_index, "(", ")")
             start = expression_start(masked, m.start())
+            owner, function = context_at(scopes, m.start())
             sites.append(Site(rel, masked.count("\n", 0, m.start()) + 1, export, m.group(1),
-                              result_used(masked, start, close + 1)))
+                              result_used(masked, start, close + 1), owner, function, m.start()))
     return sites
 
+
+def swift_files(root: Path) -> list[tuple[str, str, list[Scope]]]:
+    """(path, masked source, scopes) of every app Swift file that mentions the shim."""
+    out = []
+    for path in sorted((root / APP).rglob("*.swift")):
+        rel = path.relative_to(root).as_posix()
+        if rel == SHIM_LIBRARY or "/Generated/" in rel:
+            continue
+        source = path.read_text(encoding="utf-8", errors="replace")
+        if "shim" not in source and "CEFShimLibrary" not in source:
+            continue
+        masked = mask_swift_source(source)
+        out.append((rel, masked, swift_scopes(masked)))
+    return out
+
+
+def rewrite_for(model: Model, site: Site, needs: tuple[str, ...] | None = None) -> Rewrite | None:
+    """The host_mode_rewrites entry that accepts this call site, if any."""
+    for rewrite in model.rewrites:
+        if f"{APP}/{rewrite.path}" != site.path or site.export not in rewrite.exports:
+            continue
+        if needs is not None and rewrite.needs not in needs:
+            continue
+        if any(fn == site.function and owner in ("", site.owner) for owner, fn in rewrite.functions):
+            return rewrite
+    return None
+
+
+def startup_bodies(root: Path) -> tuple[dict[str, list[tuple[int, int]]], list[str]]:
+    """The bodies that run before CefInitialize returns: STARTUP_ROOTS and every function they hand the
+    CEFShimLibrary to (`f(shim)`, `Type(shim)`), transitively. Returns {path: [(open, close)]}, problems."""
+    files = swift_files(root)
+    functions: dict[tuple[str, str], list[tuple[str, Scope]]] = {}  # (owner, name) -> scopes
+    takes_shim: dict[str, list[tuple[str, str, Scope]]] = {}  # name -> (path, owner, scope) of shim takers
+    for rel, _, scopes in files:
+        for scope in scopes:
+            if scope.kind != "func":
+                continue
+            owner, _ = context_at(scopes, scope.open)
+            functions.setdefault((owner, scope.name), []).append((rel, scope))
+            if "CEFShimLibrary" in scope.head:
+                key = owner if scope.name == "init" else scope.name
+                takes_shim.setdefault(key, []).append((rel, owner, scope))
+    sources = {rel: masked for rel, masked, _ in files}
+    problems: list[str] = []
+    queue: list[tuple[str, Scope]] = []
+    for path, owner, name in STARTUP_ROOTS:
+        found = [(rel, s) for rel, s in functions.get((owner, name), []) if rel == f"{APP}/{path}"]
+        if not found:
+            problems.append(f"startup root {owner}.{name} is not in {APP}/{path}: update STARTUP_ROOTS")
+        queue += found
+    bodies: dict[str, list[tuple[int, int]]] = {}
+    seen: set[tuple[str, int]] = set()
+    while queue:
+        rel, scope = queue.pop()
+        if (rel, scope.open) in seen:
+            continue
+        seen.add((rel, scope.open))
+        bodies.setdefault(rel, []).append((scope.open, scope.close))
+        body = sources[rel][scope.open:scope.close]
+        for m in re.finditer(r"\b([A-Za-z_]\w*)\s*\(\s*(?:[a-z]\w*\.)*shim\s*[,)]", body):
+            queue += [(path, s) for path, _, s in takes_shim.get(m.group(1), [])]
+    return bodies, problems
 
 # ---------------------------------------------------------------------------------------------
 # View parity
@@ -1681,6 +2105,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--swift-sites", action="store_true")
     parser.add_argument("--by-file", action="store_true")
     parser.add_argument("--check-return-use", action="store_true")
+    parser.add_argument("--check-pre-attach", action="store_true")
     parser.add_argument("--check-view-parity", action="store_true")
     parser.add_argument("--list-unmapped", action="store_true")
     parser.add_argument("--dump-header", action="store_true")
@@ -1703,12 +2128,16 @@ def main(argv: list[str]) -> int:
             for p in problems:
                 print(f"view parity: {p}", file=sys.stderr)
             return 1 if problems and args.check_view_parity else 0
-        model, problems, per_export = load_ops(header, root / OPS)
-        if args.swift_sites or args.check_return_use:
+        model, problems, per_export = load_ops(header, root)
+        if args.swift_sites or args.check_return_use or args.check_pre_attach:
             if model is None:
                 raise Failure("; ".join(problems))
+            if args.check_pre_attach:
+                return report_pre_attach(model, root)
             return report_sites(model, root, args)
         if args.list_missing or args.check or args.check_ops:
+            if model is not None:
+                problems += shim_library_problems(model, root)
             if args.list_missing:
                 for row in missing_sides(model, header, per_export, root):
                     print("\t".join(row))
@@ -1727,8 +2156,11 @@ def main(argv: list[str]) -> int:
                         print(f"missing: {name} ({cls}): {side}", file=sys.stderr)
                         failed = True
             if not failed and (args.check or args.check_ops):
-                print(f"chromium host wire: {len(header.exports)}/{len(header.exports)} exports classified, "
-                      f"{len(header.events)}/{len(header.events)} event kinds, 0 sync")
+                n_opt = sum(1 for e in model.exports if e.optional)
+                e_opt = len(model.events) - len(header.events)
+                print(f"chromium host wire: {len(header.exports)}/{len(header.exports)} exports classified "
+                      f"(+{n_opt} optional), {len(header.events)}/{len(header.events)} event kinds "
+                      f"(+{e_opt} optional), {len(model.rewrites)} host-mode rewrites, 0 sync")
             return 1 if failed and (args.check or args.check_ops) else 0
         if model is None or problems:
             for p in problems:
@@ -1746,22 +2178,31 @@ def main(argv: list[str]) -> int:
         return 1
 
 
+def site_reasons(op: Op, site: Site) -> list[str]:
+    """Why a call site changes in host mode: its class, and result-read when it reads a stand-in result."""
+    reasons = [op.cls] if op.cls in SITE_CLASSES else []
+    if site.used and op.cls in POST_LIKE:
+        reasons.append("result-read")
+    return reasons
+
+
 def report_sites(model: Model, root: Path, args: argparse.Namespace) -> int:
     rows = []
     for site in swift_sites(root):
         op = model.ops.get(site.export)
         if op is None:
             continue
-        reason = op.cls if op.cls in SITE_CLASSES else ("result-read" if site.used and op.cls in POST_LIKE else None)
-        if reason:
-            rows.append((site, op.cls, reason))
+        reasons = site_reasons(op, site)
+        if reasons:
+            rows.append((site, op.cls, reasons))
     if args.check_return_use:
-        bad = [r for r in rows if r[2] == "result-read"]
-        for site, cls, _ in bad:
+        bad = [(site, cls) for site, cls, reasons in rows if "result-read" in reasons and rewrite_for(model, site) is None]
+        for site, cls in bad:
             print(f"{site.path}:{site.line}: {site.export} is {cls}; this caller reads its result "
-                  f"(shim.{site.prop}): drop the read or reclassify", file=sys.stderr)
+                  f"(shim.{site.prop}): drop the read, reclassify, or list the site in host_mode_rewrites",
+                  file=sys.stderr)
         if not bad:
-            print("chromium host wire: 0 post results read")
+            print("chromium host wire: 0 stand-in results read outside host_mode_rewrites")
         return 1 if bad else 0
     if args.by_file:
         files: dict[str, list[str]] = {}
@@ -1770,9 +2211,34 @@ def report_sites(model: Model, root: Path, args: argparse.Namespace) -> int:
         for path, names in sorted(files.items()):
             print(f"{path}\t{len(names)}\t{','.join(sorted(set(names)))}")
     else:
-        for site, cls, reason in rows:
-            print(f"{site.path}:{site.line}\t{site.export}\t{cls}\t{reason}")
+        for site, cls, reasons in rows:
+            print(f"{site.path}:{site.line}\t{site.export}\t{cls}\t{','.join(reasons)}")
     return 0
+
+
+def report_pre_attach(model: Model, root: Path) -> int:
+    """Exit 1 for a mirror read on the startup path that no host_mode_rewrites entry (after_attach) moves
+    after the attach await: in host mode it would read the empty cache."""
+    bodies, problems = startup_bodies(root)
+    for p in problems:
+        print(f"pre-attach: {p}", file=sys.stderr)
+    bad = []
+    for site in swift_sites(root):
+        op = model.ops.get(site.export)
+        if op is None or op.cls != "mirror":
+            continue
+        if not any(open_ < site.offset < close for open_, close in bodies.get(site.path, [])):
+            continue
+        if rewrite_for(model, site, ("after_attach",)) is None:
+            bad.append(site)
+    for site in bad:
+        owner = f"{site.owner}." if site.owner else ""
+        print(f"{site.path}:{site.line}: {site.export} is a mirror read in {owner}{site.function}, which runs "
+              f"before the host attaches: list it in host_mode_rewrites (needs after_attach) or read it later",
+              file=sys.stderr)
+    if not bad and not problems:
+        print("chromium host wire: 0 mirror reads before attach outside host_mode_rewrites")
+    return 1 if bad or problems else 0
 
 
 if __name__ == "__main__":
