@@ -70,7 +70,7 @@ import Testing
     /// build). Its adoption shows a page, as a standalone chat (onboarding, the quick composer) does;
     /// the spare made in the background does not.
     @Test func anAdoptedSpareAndAStandaloneChatAreShownPages() throws {
-        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), webUI: .agentTabsTestHost(), input: InputEventTap(),
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), work: BackgroundWork(label: "test.agent-pane"), webUI: .agentTabsTestHost(), input: InputEventTap(),
                                  environment: AgentPageAppTestRoot.environment, showcase: true)
         tabs.localHost = "install:this-mac"
         try #require(tabs.canHostChat, "no agent page source")
