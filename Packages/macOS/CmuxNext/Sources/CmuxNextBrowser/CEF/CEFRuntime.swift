@@ -71,11 +71,12 @@ final class CEFRuntime {
     private(set) lazy var swipeNavigation = CEFSwipeNavigation(runtime: self)
     /// The input tap of the last `CEFEngine` made (`attachInput`): link clicks and swipes hear it.
     var input: InputEventTap?
-    /// The windows' frame-aligned pointer input of the last `CEFEngine` made (feature
-    /// `pointerFrameDrags`): the DevTools divider's drag. Nil: each drag event moves it.
+    /// The last `CEFEngine`'s frame-aligned pointer input (feature `pointerFrameDrags`): the DevTools divider's drag.
     var pointerFrames: FrameInputCoalescers?
     /// The last `CEFEngine`'s Chromium features (`CEFSwitches.chromiumFeatures`), read at start.
     var chromiumFeatures: [String] = []
+    /// The last `CEFEngine`'s feature `cefLayerHosting`: nil while off, else the Track A calls the app makes.
+    var layerHostingTrackA: CEFLayerHosting.TrackA?
     /// A tab registered with no input tap: logged once.
     var reportedMissingInput = false
 
@@ -140,8 +141,7 @@ final class CEFRuntime {
     /// Runs when a start fails. `CefInitialize` resets the signal actions
     /// before it can fail, so the App re-installs its handlers here too.
     var onStartFailed: (() -> Void)?
-    /// Hides or closes top-level Chromium windows that slip through (see
-    /// `ChromiumWindowGuard`).
+    /// Hides or closes top-level Chromium windows that slip through (`ChromiumWindowGuard`).
     private(set) lazy var windowGuard = ChromiumWindowGuard(logger: logger) { [weak self] window in
         self?.isPlacedDevToolsWindow(window) ?? false
     }
