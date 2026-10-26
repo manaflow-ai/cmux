@@ -133,6 +133,26 @@ fn path_arg(path: &Path) -> Result<String, String> {
     path.to_str().map(str::to_owned).ok_or_else(|| "sandbox paths must be UTF-8".to_owned())
 }
 
+/// Red-first stub: snapshot HOME's allowed children before writable binds.
+fn home_view(_home: &Path, _read_denies: &[PathBuf]) -> Result<Vec<String>, String> {
+    Ok(Vec::new())
+}
+
+/// Red-first stub: identify alternate mount views of protected paths.
+pub(crate) fn mount_aliases(_protected: &[PathBuf], _mountinfo: &str) -> Vec<String> {
+    Vec::new()
+}
+
+/// The caller supplies a fresh /proc/self/mountinfo snapshot at spawn time.
+pub(crate) fn plan(
+    paths: &Paths,
+    read_denies: &[PathBuf],
+    _mountinfo: &str,
+    cmd_prefix: &[String],
+) -> Result<Vec<String>, String> {
+    bwrap_args(paths, &masks(&paths.home, read_denies), cmd_prefix)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Unavailable {
     NotInstalled,
@@ -279,6 +299,111 @@ mod tests {
 
     fn strings(args: &[&str]) -> Vec<String> {
         args.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    fn optional_skip(reason: &Unavailable, required: bool) -> bool {
+        let _ = reason;
+        !required // Red-first: mirrors the current overly broad skip policy.
+    }
+
+    /// Stops after the fixed classification table has been checked.
+    #[test]
+    fn regression_optional_skip_only_for_supported_unavailable_environments() {
+        for (reason, allowed) in [
+            (Unavailable::NotInstalled, true),
+            (Unavailable::UserNamespacesRestricted, true),
+            (Unavailable::TooOld, false),
+            (Unavailable::Other("unknown failure".into()), false),
+            (Unavailable::Other("bwrap probe did not finish in 10 s".into()), false),
+        ] {
+            assert_eq!(optional_skip(&reason, false), allowed, "{reason}");
+            assert!(!optional_skip(&reason, true), "{reason}");
+        }
+    }
+
+    #[test]
+    fn regression_ci_requires_real_bwrap() {
+        let workflow = include_str!("../../../../../.github/workflows/cmux-tui.yml");
+        let job = workflow.split("\n  test:\n").nth(1).unwrap();
+        let install = job.split("- name: Install Linux build dependencies").nth(1).unwrap();
+        let install = install.split("- name:").next().unwrap();
+        assert!(install.contains("pkg-config bubblewrap"));
+        assert!(install.contains("echo \"ACPMUX_REQUIRE_BWRAP=1\" >> \"$GITHUB_ENV\""));
+    }
+
+    /// Stops after the canned mount table has been checked for each path.
+    #[test]
+    fn regression_mount_aliases_and_plan_refusal() {
+        let f = Fixture::new();
+        let p = f.create_paths();
+        let memory = p.claude_project.join("memory");
+        let info = format!(
+            "1 0 8:1 / / rw - ext4 /dev/root rw\n2 1 8:1 {} /alias rw - ext4 /dev/root rw\n",
+            memory.display(),
+        );
+        assert_eq!(
+            mount_aliases(std::slice::from_ref(&memory), &info),
+            vec![format!("{} is also visible at /alias", memory.display())]
+        );
+        assert!(plan(&p, &[], &info, &strings(&["true"])).unwrap_err().contains("also visible"));
+        let info = "1 0 8:1 / / rw - ext4 root rw\n2 1 8:1 /home /mnt/home rw - ext4 root rw\n";
+        assert_eq!(
+            mount_aliases(&["/home/u/.ssh".into()], info),
+            vec!["/home/u/.ssh is also visible at /mnt/home"]
+        );
+        let info = "1 0 0:32 /@home /home rw - btrfs root rw\n2 0 0:32 /@other /other rw - btrfs root rw\n";
+        assert!(mount_aliases(&["/home/u/.ssh".into()], info).is_empty());
+        let info = "1 0 8:1 / / rw - ext4 root rw\n2 1 8:1 /home/u/.ssh/aws /alias\\040space rw - ext4 root rw\n";
+        assert_eq!(
+            mount_aliases(&["/home/u/.ssh".into()], info),
+            vec!["/home/u/.ssh is also visible at /alias space"]
+        );
+    }
+
+    #[test]
+    fn regression_home_rebuild_omits_absent_and_nested_denies() {
+        use std::os::unix::fs::symlink;
+        let f = Fixture::new();
+        let p = f.create_paths();
+        fs::create_dir_all(p.home.join(".ssh/aws")).unwrap();
+        symlink(".ssh/aws", p.home.join(".aws")).unwrap();
+        symlink("absent-target", p.home.join("ordinary-link")).unwrap();
+        fs::write(p.home.join(".claude/settings.json"), "{}").unwrap();
+        let view = home_view(&p.home, &[p.home.join(".ssh"), p.home.join(".aws")]).unwrap();
+        let home = p.home.to_str().unwrap();
+        let claude = p.home.join(".claude").to_str().unwrap().to_owned();
+        assert!(view.windows(2).any(|w| w == ["--tmpfs", home]));
+        assert!(view.windows(2).any(|w| w == ["--tmpfs", &claude]));
+        assert!(!view.iter().any(|a| a.ends_with("/.ssh")
+            || a.ends_with("/.ssh/aws")
+            || a.ends_with("/.aws")
+            || a.ends_with("/.credentials.json")));
+        assert!(
+            view.windows(3).any(|w| w
+                == ["--symlink", "absent-target", p.home.join("ordinary-link").to_str().unwrap()])
+        );
+        assert_eq!(
+            view.iter().filter(|a| a.as_str() == "--tmpfs").count(),
+            view.windows(2)
+                .filter(|w| w[0] == "--tmpfs")
+                .map(|w| &w[1])
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+        );
+        let args = plan(&p, &[], "1 0 8:1 / / rw - ext4 root rw\n", &strings(&["true"])).unwrap();
+        let rebuilt = args.iter().position(|s| s == "--tmpfs").unwrap();
+        let writable = args.iter().position(|s| s == "--bind").unwrap();
+        assert!(rebuilt < writable, "HOME must be rebuilt before writable roots return");
+    }
+
+    #[test]
+    fn regression_external_secret_symlink_is_refused() {
+        let f = Fixture::new();
+        let p = f.create_paths();
+        fs::write(f.0.join("secret"), "credential").unwrap();
+        std::os::unix::fs::symlink(f.0.join("secret"), p.home.join(".netrc")).unwrap();
+        let error = home_view(&p.home, &[p.home.join(".netrc")]).unwrap_err();
+        assert!(error.contains("outside HOME"), "{error}");
     }
 
     #[test]
@@ -477,6 +602,57 @@ mod tests {
         assert_eq!(probe(&fixture.0.join("absent-bwrap")), Err(Unavailable::NotInstalled));
     }
 
+    /// Both the ready handshake and child lifetime end at a 20-second
+    /// deadline; kill_on_drop stops the child if either deadline expires.
+    #[tokio::test]
+    async fn regression_real_bwrap_hides_credentials_created_during_session() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        if let Err(reason) = probe(Path::new("/usr/bin/bwrap")) {
+            assert!(
+                optional_skip(&reason, std::env::var_os("ACPMUX_REQUIRE_BWRAP").is_some()),
+                "{reason}"
+            );
+            eprintln!("skipped: {reason}");
+            return;
+        }
+        let f = Fixture::new();
+        let p = f.create_paths();
+        let credential = p.home.join(".claude/.credentials.json");
+        let script = "echo ready; read -r go; if [ -e \"$1\" ]; then echo 'late credential visible' >&2; exit 49; fi";
+        let command =
+            strings(&["/bin/sh", "-c", script, "late-secret", credential.to_str().unwrap()]);
+        let args =
+            plan(&p, &[], &fs::read_to_string("/proc/self/mountinfo").unwrap(), &command).unwrap();
+        let mut child = tokio::process::Command::new("/usr/bin/bwrap")
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let mut stdout = BufReader::new(child.stdout.take().unwrap());
+        let mut ready = String::new();
+        tokio::time::timeout(Duration::from_secs(20), stdout.read_line(&mut ready))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(ready, "ready\n");
+        fs::write(credential, "credential-created-after-sandbox-start").unwrap();
+        child.stdin.take().unwrap().write_all(b"go\n").await.unwrap();
+        let output = tokio::time::timeout(Duration::from_secs(20), child.wait_with_output())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        eprintln!("passed: credentials created during a session stay hidden");
+    }
+
     /// The child is killed on the 20-second deadline. Shell loops exhaust
     /// finite /proc snapshots and network tables; no background jobs are made.
     #[tokio::test]
@@ -484,7 +660,7 @@ mod tests {
         let bwrap = Path::new("/usr/bin/bwrap");
         if let Err(reason) = probe(bwrap) {
             assert!(
-                std::env::var_os("ACPMUX_REQUIRE_BWRAP").is_none(),
+                optional_skip(&reason, std::env::var_os("ACPMUX_REQUIRE_BWRAP").is_some()),
                 "real bwrap required but probe failed: {reason}"
             );
             eprintln!("skipped: {reason}");
