@@ -58,7 +58,8 @@ public final class WorkspaceAutoNamer {
     private let selection: @MainActor (WorkspaceModel, PaneModel) -> String?
     /// Sends `rename-workspace` with source and revision guards. The App owns
     /// the connection and must reject missing capabilities without writing.
-    private let rename: @MainActor (Target, String, @escaping @MainActor @Sendable () -> Bool) -> Bool
+    private let rename: @MainActor (Target, String, @escaping @MainActor @Sendable () -> Bool,
+                                    @escaping @MainActor @Sendable () -> Void) -> Bool
     /// Only live targets' current revisions remain here. Bookkeeping never wakes
     /// the observer: an immediate queue refusal waits for real input to change.
     @ObservationIgnored private var submitted: Set<Submission> = []
@@ -81,7 +82,8 @@ public final class WorkspaceAutoNamer {
     ///     Its final argument must be checked after scheduling, immediately before sending.
     public init(names: WorkspaceAutoNameReader, workspaces: @escaping @MainActor () -> [Target],
                 selection: @escaping @MainActor (WorkspaceModel, PaneModel) -> String?,
-                rename: @escaping @MainActor (Target, String, @escaping @MainActor @Sendable () -> Bool) -> Bool) {
+                rename: @escaping @MainActor (Target, String, @escaping @MainActor @Sendable () -> Bool,
+                                               @escaping @MainActor @Sendable () -> Void) -> Bool) {
         self.names = names
         self.workspaces = workspaces
         self.selection = selection
@@ -164,7 +166,7 @@ public final class WorkspaceAutoNamer {
                                         daemonGeneration: candidate.daemonGeneration, nameRevision: candidate.nameRevision)
             guard !submitted.contains(submission), let target = currentTarget(for: candidate) else { continue }
             submitted.insert(submission)
-            let queued = rename(target, candidate.name) { [weak self] in
+            let maySend: @MainActor @Sendable () -> Bool = { [weak self] in
                 guard let self else { return false }
                 guard currentTarget(for: candidate) != nil else {
                     if submitted.remove(submission) != nil { retryRevision &+= 1 }
@@ -172,6 +174,7 @@ public final class WorkspaceAutoNamer {
                 }
                 return true
             }
+            let queued = rename(target, candidate.name, maySend) { _ in }
             if !queued { submitted.remove(submission) }
         }
     }

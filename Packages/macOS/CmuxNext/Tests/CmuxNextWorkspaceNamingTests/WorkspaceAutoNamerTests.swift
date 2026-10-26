@@ -25,6 +25,8 @@ struct WorkspaceAutoNamerTests {
         var isNewTabPage = false
         var sent: [String] = []
         var defersSend = false
+        var acceptsThenFails = false
+        var acceptedFailures: [@MainActor @Sendable () -> Void] = []
         var rejectsQueue = false
         var cancelsFirstQueue = false
         var includesWorkspace = true
@@ -77,7 +79,7 @@ struct WorkspaceAutoNamerTests {
                                   nameSource: workspace.nameSource, nameRevision: workspace.nameRevision)]
                 },
                 selection: { [weak self] _, _ in self?.selectedTab },
-                rename: { [weak self] _, name, maySend in
+                rename: { [weak self] _, name, maySend, onFailure in
                     guard let self else { return false }
                     attempts.append(name)
                     onAttempt?(name)
@@ -91,6 +93,7 @@ struct WorkspaceAutoNamerTests {
                     }
                     if defersSend { queued.append((name, maySend)); return true }
                     guard maySend() else { return false }
+                    if acceptsThenFails { acceptedFailures.append(onFailure); return true }
                     sent.append(name)
                     return true
                 })
@@ -213,6 +216,26 @@ struct WorkspaceAutoNamerTests {
         fixture.defersSend = false
         fixture.namer.apply(fixture.namer.pending())
         #expect(fixture.sent == ["Chat one"])
+    }
+
+    @Test func aFailedAcceptedSendReleasesOnlyItsOlderCandidate() {
+        let fixture = Fixture()
+        fixture.title("First title")
+        fixture.acceptsThenFails = true
+        let first = fixture.namer.pending()
+        fixture.namer.apply(first)
+        #expect(fixture.acceptedFailures.count == 1)
+
+        fixture.title("Second title")
+        fixture.acceptsThenFails = false
+        let second = fixture.namer.pending()
+        #expect(second.first?.name == "Second title")
+        fixture.namer.apply(second)
+        #expect(fixture.sent == ["Second title"])
+
+        fixture.acceptedFailures.removeFirst()()
+        #expect(fixture.namer.pending().isEmpty,
+                "a late failure for First title must not shed the newer Second title submission")
     }
 
     @Test(.timeLimit(.minutes(1)))
