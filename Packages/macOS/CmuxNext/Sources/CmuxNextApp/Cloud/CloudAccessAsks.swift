@@ -84,10 +84,11 @@ final class CloudAccessAsks {
         guard let rounds else { return }
         let mainWork = rounds.mainWork
         // task-owner: one triage round; the next one starts from nextRound after its pause. R-hop: the round is
-        // awaited off main; its end is one background task (nobody waits on a triage).
+        // awaited off main; its end is one background task, posted and not awaited (nobody waits on a triage, and
+        // a launch still holds background work).
         round = rounds.work.task(.bestEffort) { [weak self] in
             let pause = await poll()
-            await mainWork.apply(.background, owner: "CloudAccessAsks.roundEnded") { [weak self] in self?.roundEnded(pause, poll) }
+            mainWork.postFromAnyThread(.background, owner: "CloudAccessAsks.roundEnded") { [weak self] in self?.roundEnded(pause, poll) }
         }
     }
 

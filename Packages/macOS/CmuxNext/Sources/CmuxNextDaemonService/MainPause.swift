@@ -1,4 +1,4 @@
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// A pause of a main-actor async flow (a backoff between two retries) on a ``MainDeadline`` (recipe R-timer,
 /// plans/cmux-next/chrome-parity/p06-scheduler.md): the wake is an entry of the main thread's one wake-up queue,

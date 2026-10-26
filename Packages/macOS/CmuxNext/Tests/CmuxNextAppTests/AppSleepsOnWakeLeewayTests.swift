@@ -243,9 +243,35 @@ struct AppSleepsOnWakeLeewayTests {
         #expect(poll.started == 1, "a released CloudAccessAsks ran its next round")
     }
 
-    /// Runs the rig's frames until the round in flight ended: its end is one background task on the rig's scheduler.
-    private static func settleRound(_ asks: CloudAccessAsks?, _ rig: MainDeadlineRig) async {
-        for _ in 0..<400 where asks?.isTriaging == true {
+    /// p06-scheduler-312: a round that ends while the app still launches posts its end and awaits nothing the launch
+    /// holds (the app's held-await report is a Debug assertion); the end runs once the reveal opens background work.
+    @Test func aRoundEndingWhileLaunchingAwaitsNoHeldWork() async throws {
+        let held = HeldAwaits()
+        let startup = StartupPhase(clock: ManualClock(), ledger: WakeupLedger()) { held.owners.append($0.owner) }
+        let rig = MainDeadlineRig(startup: startup)
+        let asks = CloudAccessAsks()
+        let poll = RoundGate()
+        let work = BackgroundWork(label: "test.triage")
+
+        asks.startRounds(deadlines: rig.deadlines, work: work, energy: EnergyPolicySource(), poll: poll.round)
+        await poll.waitForRounds(1)
+        poll.answer(.seconds(30))
+        await Self.settleRound(asks, rig, passes: 40)
+        #expect(held.owners.isEmpty, "the round's end awaited background work the launch holds: \(held.owners)")
+        #expect(asks.isTriaging, "the round's end ran before the reveal opened background work")
+
+        startup.noteFirstFrame()
+        await Self.settleRound(asks, rig)
+        #expect(!asks.isTriaging, "the round's end never ran after the reveal")
+        #expect(asks.isTriageScheduled, "the round's pause planned no next round")
+        #expect(held.owners.isEmpty)
+    }
+
+    /// Runs the rig's frames until the round in flight ended: its end is one background task posted from off main,
+    /// so each pass also runs the main run loop, where that post arrives.
+    private static func settleRound(_ asks: CloudAccessAsks?, _ rig: MainDeadlineRig, passes: Int = 400) async {
+        for _ in 0..<passes where asks?.isTriaging == true {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
             rig.frame()
             await Task.yield()
         }
@@ -386,6 +412,12 @@ private final class RoundGate: Sendable {
         guard started < count else { return }
         await withCheckedContinuation { watchers.append((count, $0)) }
     }
+}
+
+/// The owners of the held-class awaits a launching phase reported.
+@MainActor
+private final class HeldAwaits {
+    var owners: [String] = []
 }
 
 @Observable @MainActor
