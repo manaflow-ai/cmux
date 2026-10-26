@@ -31,7 +31,8 @@ A session that fails (STRESS refuses a window under the Dock, a launch fails) is
 code (`session_exits` in the report) and the others still run; the script exits 0 unless --gate.
 
 Roles (D16 of plans/cmux-next/chrome-parity/p14-energy.md): at the window's end each process's `ps`
-priority, nice and flags and the kernel's darwinbg bit give its role (darwinbg, low, default, foreground).
+priority, nice and flags and the kernel's darwinbg bit give its role (darwinbg, low, default, background-app,
+foreground; the session's `shown` and `chromium_tabs_shown` in SESSIONS say what it expects).
 The app is napped while no window shows; hidden Chromium renderers and the extension process are
 best-effort (Chrome's kBestEffort); the daemon and terminal hosts are never backgrounded while a terminal
 shows; pooled acpmux agents are PRIO_DARWIN_BG. Each mismatch is an `IDLE-BUDGET-OVER ... owner=role` line.
@@ -49,7 +50,7 @@ Use (fleet only, a host with a GUI console session; never on a laptop in use):
 Output: one `IDLE-BUDGET-MACHINE {json}` line, one `IDLE-BUDGET-ROW {json}` line per session and process
 kind, a Markdown table, and --json with every sample.
 """
-import argparse, ctypes, json, os, platform, re, shutil, subprocess, sys, time
+import argparse, ctypes, fcntl, glob, json, os, platform, re, shutil, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -159,8 +160,8 @@ def measure(app, instance, seconds):
     last_pids = process_set(instance)
     last = {pid: (procs.counters(pid), procs.overhead(pid), threads(pid)) for pid in last_pids}
     priority = procs.priorities(last_pids)
-    pooled = pool_pids(last_pids, procs.process_table(), acpmux_homes())
-    hangs1 =read_rpc(app, "debug.hangs", {"limit": 0})
+    pooled = pool_pids(last_pids, procs.process_table(), acpmux_homes(app.launched_env))
+    hangs1 = read_rpc(app, "debug.hangs", {"limit": 0})
     ledger1 = read_rpc(app, "debug.wakeups", {"run_loop": True})
     counters1 = app_counters(app)
     rows = []
@@ -346,17 +347,21 @@ def over_budget(session, kinds, budget):
 # the same way. The audit reads each process's role at the window's end and compares it with D16.
 
 def observed_role(priority):
-    """The scheduling role of one process from `procs.priorities()`: `darwinbg` (the kernel's darwin-background
-    bit: PRIO_DARWIN_BG, Chrome's kBestEffort), `low` (priority lowered below the default 31: App Nap or task
-    suppression, MAXPRI_SUPPRESSED 28 in osfmk/kern/sched.h, or nice), `foreground` (an app's foreground or
-    background-application role, 46 and up), `default`, or None when it could not be read."""
+    """The scheduling role of one process from `procs.priorities()`, by the base priorities of osfmk/kern/sched.h:
+    `darwinbg` (the kernel's darwin-background bit: PRIO_DARWIN_BG, Chrome's kBestEffort), `low` (below the
+    default 31: App Nap or task suppression, MAXPRI_SUPPRESSED 28, or nice), `background-app` (46,
+    BASEPRI_BACKGROUND: TASK_BACKGROUND_APPLICATION, Chrome's kUserVisible, not suppressed), `foreground` (47 and
+    up, BASEPRI_FOREGROUND: TASK_FOREGROUND_APPLICATION, Chrome's kUserBlocking), `default`, or None when it
+    could not be read."""
     if not priority or priority.get("pri") is None:
         return None
     if priority.get("darwinbg"):
         return "darwinbg"
     if priority["pri"] < 31:
         return "low"
-    return "foreground" if priority["pri"] >= 46 else "default"
+    if priority["pri"] >= 47:
+        return "foreground"
+    return "background-app" if priority["pri"] == 46 else "default"
 
 
 # An expectation and the observed roles that meet it.
@@ -364,35 +369,51 @@ ROLE_EXPECTATIONS = {
     "best-effort": {"darwinbg", "low"},  # Chrome kBestEffort
     "napped": {"darwinbg", "low"},       # App Nap
     "darwinbg": {"darwinbg"},            # PRIO_DARWIN_BG exactly (pooled acpmux agents, task 038)
-    "not-background": {"default", "foreground"},
-}
-
-# What each session shows: `shown` is whether any app window can be seen (a terminal is visible in each
-# shown session), `chromium_tabs_shown` how many Chromium tabs are on screen (None: not counted, as in light,
-# where Home's pages run in Chromium). Sessions not listed get only the rules that hold in every session.
-ROLE_SESSIONS = {
-    "light": {"shown": True, "chromium_tabs_shown": None},
-    "light-webkit": {"shown": True, "chromium_tabs_shown": 0},
-    "light-hidden": {"shown": False},
-    "minimized": {"shown": False},
-    "occluded": {"shown": False},
-    "tabs-static": {"shown": True, "chromium_tabs_shown": 1},
-    "stress": {"shown": True, "chromium_tabs_shown": None},
-    "stress-static": {"shown": True, "chromium_tabs_shown": None},
+    "not-background": {"default", "background-app", "foreground"},
 }
 
 
-def expected_role(session, kind_name, pooled, budget=None):
-    """The role D16 expects of one process in `session`, or None when its role is not judged there. A
-    budget v2 `sessions.<session>.kinds.<kind>.role` overrides the default."""
-    override = (((budget or {}).get("sessions") or {}).get(session) or {}).get("kinds", {}).get(kind_name, {})
-    if isinstance(override, dict) and override.get("role") in ROLE_EXPECTATIONS:
-        return override["role"]
+class RoleBudgetError(ValueError):
+    """A budget `sessions.<session>.kinds.<kind>.role` names no role of ROLE_EXPECTATIONS."""
+
+
+def role_override(session, kind_name, budget):
+    """The budget v2 `sessions.<session>.kinds.<kind>.role`, or None. Raises RoleBudgetError for an unknown role."""
+    override = (((budget or {}).get("sessions") or {}).get(session) or {}).get("kinds", {}).get(kind_name)
+    role = override.get("role") if isinstance(override, dict) else None
+    if role is not None and role not in ROLE_EXPECTATIONS:
+        raise RoleBudgetError(f"sessions.{session}.kinds.{kind_name}.role is {role!r}, not one of "
+                              f"{', '.join(ROLE_EXPECTATIONS)}")
+    return role
+
+
+def role_budget_errors(budget):
+    """Every unknown role override of `budget`, so a typo refuses the run instead of judging by the default."""
+    errors = []
+    for session, entry in ((budget or {}).get("sessions") or {}).items():
+        for kind_name in ((entry or {}).get("kinds") or {}):
+            try:
+                role_override(session, kind_name, budget)
+            except RoleBudgetError as error:
+                errors.append(str(error))
+    return errors
+
+
+def expected_role(session, kind_name, pooled, budget=None, sessions=None):
+    """The role D16 expects of one process in `session`, or None when no single process is judged there. The
+    session's facts (`shown`, `chromium_tabs_shown`) come from SESSIONS; a budget role override wins. In a
+    session that counts its shown Chromium tabs, renderers are judged together by role_mismatches()."""
+    facts = (SESSIONS if sessions is None else sessions).get(session, {})
+    if kind_name == "cef-renderer" and not pooled and facts.get("chromium_tabs_shown") is not None:
+        return None
+    override = role_override(session, kind_name, budget)
+    if override:
+        return override
     if pooled:
         return "darwinbg"
     if kind_name == "cef-extension":
         return "best-effort"
-    shown = ROLE_SESSIONS.get(session, {}).get("shown")
+    shown = facts.get("shown")
     if shown is False and kind_name == "app":
         return "napped"
     if shown is False and kind_name == "cef-renderer":
@@ -402,24 +423,25 @@ def expected_role(session, kind_name, pooled, budget=None):
     return None
 
 
-def role_mismatches(session, rows, budget=None):
+def role_mismatches(session, rows, budget=None, sessions=None):
     """[{kind, pids, observed, expected}] for every process whose role does not meet D16. In a session that
-    shows N Chromium tabs, at most N renderers may be above best-effort (the shown tabs' renderers can not be
-    told apart by pid until per-tab renderer attribution, task 124): any more are one mismatch naming all."""
+    shows N Chromium tabs, at most N renderers may be above best-effort (or the budget's cef-renderer role):
+    the shown tabs' renderers can not be told apart by pid until per-tab renderer attribution (task 124), so
+    any more are one mismatch naming all."""
     out = []
     for row in rows:
-        want = expected_role(session, row["kind"], row.get("pooled"), budget)
+        want = expected_role(session, row["kind"], row.get("pooled"), budget, sessions)
         if want is None or row.get("role") is None or row["role"] in ROLE_EXPECTATIONS[want]:
             continue
         out.append({"kind": row["kind"], "pids": [row["pid"]], "observed": row["role"], "expected": want})
-    shown_tabs = ROLE_SESSIONS.get(session, {}).get("chromium_tabs_shown")
+    shown_tabs = (SESSIONS if sessions is None else sessions).get(session, {}).get("chromium_tabs_shown")
     if shown_tabs is not None:
+        want = role_override(session, "cef-renderer", budget) or "best-effort"
         above = [row for row in rows if row["kind"] == "cef-renderer" and not row.get("pooled")
-                 and row.get("role") is not None and row["role"] not in ROLE_EXPECTATIONS["best-effort"]]
+                 and row.get("role") is not None and row["role"] not in ROLE_EXPECTATIONS[want]]
         if len(above) > shown_tabs:
             out.append({"kind": "cef-renderer", "pids": sorted(row["pid"] for row in above),
-                        "observed": f"{len(above)}-above-best-effort",
-                        "expected": f"best-effort-beyond-{shown_tabs}-shown"})
+                        "observed": f"{len(above)}-above-{want}", "expected": f"{want}-beyond-{shown_tabs}-shown"})
     return out
 
 
@@ -435,22 +457,74 @@ def role_counts(entry):
     return ", ".join(f"{role} {count}" for role, count in sorted((entry.get("roles") or {}).items())) or "-"
 
 
-def acpmux_homes(user_home=None):
-    """Every acpmux home of this user: `~/.acpmux` (NIGHTLY and a standalone acpmux) and each build's
-    `~/.acpmux/builds/<key>` (AcpmuxEnvironment, per-build isolation)."""
-    root = os.path.join(user_home or os.path.expanduser("~"), ".acpmux")
-    builds = os.path.join(root, "builds")
-    found = [root]
-    if os.path.isdir(builds):
-        found += [os.path.join(builds, name) for name in sorted(os.listdir(builds))]
-    return found
+def acpmux_homes(env=None, user_home=None):
+    """Every acpmux home the launched app can run a daemon in, resolved as the app does: the root is
+    `CMUX_NEXT_ACPMUX_ROOT` (Debug) or `.acpmux` in the password-database home (AcpmuxEnvironment uses
+    `homeDirectoryForCurrentUser`; a fleet step's $HOME is a scratch folder), with each build's `builds/<key>`;
+    an explicit `ACPMUX_HOME`; and the Chief's own daemons (ChiefHome.acpmuxHome, `<chief root>/acpmux`): the
+    launch's `CMUX_NEXT_CHIEF_HOME` and every Chief home under `CMUX_NEXT_CHIEF_ROOT` or `~/.cmux/chief`."""
+    env = env or {}
+    if user_home is None:
+        from bench_launch import account_home
+        user_home = account_home()
+    root = env.get("CMUX_NEXT_ACPMUX_ROOT") or os.path.join(user_home, ".acpmux")
+    found = [root, *sorted(glob.glob(os.path.join(glob.escape(root), "builds", "*")))]
+    if env.get("ACPMUX_HOME"):
+        found.append(env["ACPMUX_HOME"])
+    chief = env.get("CMUX_NEXT_CHIEF_HOME") or env.get("CMUX_NEXT_MUX_HOME")
+    if chief:
+        found.append(os.path.join(chief, "acpmux"))
+    chief_base = glob.escape(env.get("CMUX_NEXT_CHIEF_ROOT") or os.path.join(user_home, ".cmux", "chief"))
+    found += sorted(glob.glob(os.path.join(chief_base, "*", "acpmux"))
+                    + glob.glob(os.path.join(chief_base, "isolated", "*", "acpmux")))
+    return list(dict.fromkeys(os.path.normpath(home) for home in found))
+
+
+_START_NONCE = re.compile(r"[0-9a-f]+")
+
+
+def live_lock_held(path):
+    """Whether the host liveness lock at `path` is held now, probed as acpmux agent_host::liveness does: a held
+    flock is that host incarnation alive, whatever its pid became. False when missing, free or unreadable."""
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError:
+        return False
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    except OSError:
+        return False
+    else:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(fd)
+
+
+def live_pool_host(record, pool, commands):
+    """The `host_pid` of a pool record (acpmux HostRecord) whose host is live now, or None: its
+    `<session>.<start_nonce>.live` lock is held and the pid runs `__agent-host`. A stale record (a reboot, a
+    SIGKILL, an old tag's daemon that never reaps it) whose pid was reused names nothing."""
+    if not isinstance(record, dict):
+        return None
+    session, nonce, host = record.get("session_id"), record.get("start_nonce"), record.get("host_pid")
+    if not isinstance(session, str) or not session or "/" in session or session.startswith("."):
+        return None
+    if not isinstance(nonce, str) or not _START_NONCE.fullmatch(nonce) or type(host) is not int:
+        return None
+    if "__agent-host" not in commands.get(host, ""):
+        return None
+    return host if live_lock_held(os.path.join(pool, f"{session}.{nonce}.live")) else None
 
 
 def pool_pids(pids, table, homes):
-    """The pids of `pids` that are pooled acpmux agents: each record in `<home>/hosts/pool/*.json`
-    (acpmux agent_host POOL_DIR_NAME) names its `__agent-host` pid and harness pid; their descendants
-    (the harness's own children) are pooled too."""
+    """The pids of `pids` that are pooled acpmux agents: the live `__agent-host` of each record in
+    `<home>/hosts/pool/*.json` (acpmux agent_host POOL_DIR_NAME, live_pool_host()) and its descendants (the
+    harness and the harness's own children)."""
     wanted = set(pids)
+    commands = {pid: cmd for pid, _ppid, cmd in table}
     roots = set()
     for home in homes:
         pool = os.path.join(home, "hosts", "pool")
@@ -466,9 +540,9 @@ def pool_pids(pids, table, homes):
                     record = json.load(handle)
             except (OSError, ValueError):
                 continue
-            for key in ("host_pid", "harness_pid"):
-                if isinstance(record.get(key), int) and record[key] in wanted:
-                    roots.add(record[key])
+            host = live_pool_host(record, pool, commands)
+            if host in wanted:
+                roots.add(host)
     children = {}
     for pid, ppid, _cmd in table:
         children.setdefault(ppid, []).append(pid)
@@ -571,12 +645,17 @@ BASE_CONFIG = {"appearance": {"backgroundOpacity": 1}}  # BenchApp's default con
 # The sessions: light (the launch window: one terminal, Home's pages in Chromium by default), light-webkit (the
 # same with `browser.defaultEngine: webkit`, so no Chromium runs at all), light-hidden (the app hidden: no window
 # can be seen), stress (STRESS, its busy terminals stopped).
+# Each session also states what the role audit needs: `shown`, whether any app window can be seen (a terminal is
+# visible in each shown session), and `chromium_tabs_shown`, how many Chromium tabs are on screen (None: not
+# counted, as in light, where Home's pages run in Chromium). A session that leaves them out gets only the rules
+# that hold in every session.
 SESSIONS = {
-    "light": {},
-    "light-webkit": {"config": {**BASE_CONFIG, "browser": {"defaultEngine": "webkit"}}},
-    "light-hidden": {"hide": True},
-    "stress": {},
-    "stress-static": {},
+    "light": {"shown": True, "chromium_tabs_shown": None},
+    "light-webkit": {"config": {**BASE_CONFIG, "browser": {"defaultEngine": "webkit"}}, "shown": True,
+                     "chromium_tabs_shown": 0},
+    "light-hidden": {"hide": True, "shown": False},
+    "stress": {"shown": True, "chromium_tabs_shown": None},
+    "stress-static": {"shown": True, "chromium_tabs_shown": None},
 }
 
 
@@ -632,6 +711,9 @@ def main():
     opts, _unknown = parser.parse_known_args()
     from bench_launch import BenchApp
     budget = json.load(open(opts.budget))
+    role_errors = role_budget_errors(budget)
+    if role_errors:
+        raise SystemExit(f"idle-budget: {opts.budget}: " + "; ".join(role_errors))
     out = opts.out or os.path.join(os.getcwd(), "artifacts", "idle-budget")
     os.makedirs(out, exist_ok=True)
     machine = host_facts()

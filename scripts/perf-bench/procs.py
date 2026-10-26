@@ -152,14 +152,15 @@ def parse_priorities(text: str) -> dict[int, dict]:
     return found
 
 
-def priorities(pids) -> dict[int, dict]:
+def priorities(pids, ps_output: str | None = None, darwinbg_of=darwinbg) -> dict[int, dict]:
     """{pid: {pri, nice, flags, darwinbg}} of `pids` now: one `ps` call plus the kernel's darwinbg bit per pid
-    (None when unreadable). Neither read wakes the processes."""
+    (None when unreadable). Neither read wakes the processes. Tests pass the `ps` output and the darwinbg read."""
     wanted = set(pids)
-    out = subprocess.run(["ps", "-axo", "pid=,pri=,nice=,flags="], capture_output=True, text=True).stdout
-    found = {pid: values for pid, values in parse_priorities(out).items() if pid in wanted}
+    if ps_output is None:
+        ps_output = subprocess.run(["ps", "-axo", "pid=,pri=,nice=,flags="], capture_output=True, text=True).stdout
+    found = {pid: values for pid, values in parse_priorities(ps_output).items() if pid in wanted}
     for pid, values in found.items():
-        values["darwinbg"] = darwinbg(pid)
+        values["darwinbg"] = darwinbg_of(pid)
     return found
 
 
