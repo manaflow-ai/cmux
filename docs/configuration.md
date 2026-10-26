@@ -37,6 +37,22 @@ button that opens the file at the offending line. The notice appears once per di
 of errors: reloads that keep the same errors stay quiet, fixing them hides the notice, and
 reintroducing an error shows it again. `cmux config doctor` validates `cmux.json` only.
 
+## `mobile.iOSPairingHost.enabled`
+
+Lets the cmux iPhone and iPad apps pair with and connect to this Mac. It is the same setting as **Settings > Mobile > Enable iOS pairing**, and it is off on every Mac until you turn it on there or here.
+
+```json
+{
+  "mobile": {
+    "iOSPairingHost": {
+      "enabled": true
+    }
+  }
+}
+```
+
+Use this on a Mac you reach only over SSH, such as a headless Mac mini. cmux applies the change when you save the file, without a relaunch, as long as cmux is running and signed in on that Mac. The iPhone must be signed in to the same cmux account and have the same team selected. A configuration profile that disables incoming device access still keeps pairing off.
+
 ## `mobile.artifactFolderAccess`
 
 Controls which files and folders cmux on iOS may browse after a chat references a directory or a directory path appears in a terminal.
