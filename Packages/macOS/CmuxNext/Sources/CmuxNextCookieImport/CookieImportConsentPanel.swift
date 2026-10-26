@@ -2,6 +2,9 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextWakeups
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The consent panel of an agent's cookie import: a glass panel centered on a
 /// shell window (a child window, so it stays above Chromium page windows),
@@ -47,14 +50,15 @@ final class CookieImportConsentPanel {
         panel.contentView = makeContent()
     }
 
-    /// Shows the panel on `window` and returns the person's answer (Deny on close or after ``limit``).
+    /// Shows the panel on `window` and returns the person's answer (Deny on close or after ``limit``, or when
+    /// the panel went away without one).
     func ask(on window: NSWindow, limit: Duration = CookieImportConsentPanel.limit) async -> CookieImportAnswer {
-        await withCheckedContinuation { continuation in
+        (try? await withOnceContinuation { (continuation: OnceContinuation<CookieImportAnswer, OnceContinuationError>) in
             finish = { continuation.resume(returning: $0) }
             limitNote.stringValue = CookieImportStrings.deadline(Int(limit.components.seconds))
             show(on: window)
             deadline.scheduleOnMain(after: limit) { [weak self] in self?.answer(.timedOut) }
-        }
+        }) ?? .deny
     }
 
     var isShown: Bool { panel.parent != nil }

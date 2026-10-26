@@ -1,5 +1,7 @@
 import Foundation
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// A helper call or a `pmset` run took longer than its limit.
 public nonisolated struct ServerHelperTimedOut: Error, Equatable {
@@ -23,7 +25,7 @@ public struct ServerHelperDeadline {
         onTimeout: @escaping @Sendable () -> Void
     ) async throws -> T {
         let race = Race<T>()
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await withOnceThrowingContinuation { (continuation: OnceContinuation<T, any Error>) in
             race.begin(continuation)
             let work = Task {
                 do {
@@ -47,14 +49,14 @@ public struct ServerHelperDeadline {
 
     private final class Race<T: Sendable>: Sendable {
         private struct State {
-            var continuation: CheckedContinuation<T, any Error>?
+            var continuation: OnceContinuation<T, any Error>?
             var done = false
             var cleanup: (@Sendable () -> Void)?
         }
 
         private let state = Mutex(State())
 
-        func begin(_ continuation: CheckedContinuation<T, any Error>) {
+        func begin(_ continuation: OnceContinuation<T, any Error>) {
             state.withLock { $0.continuation = continuation }
         }
 
@@ -71,7 +73,7 @@ public struct ServerHelperDeadline {
         /// True for the first caller, which resumes the waiter.
         @discardableResult
         func finish(_ result: Result<T, any Error>) -> Bool {
-            let (continuation, cleanup) = state.withLock { state -> (CheckedContinuation<T, any Error>?, (@Sendable () -> Void)?) in
+            let (continuation, cleanup) = state.withLock { state -> (OnceContinuation<T, any Error>?, (@Sendable () -> Void)?) in
                 guard !state.done else { return (nil, nil) }
                 state.done = true
                 defer {
@@ -117,7 +119,7 @@ final nonisolated class FixChild: Sendable {
     }
 
     func start() async throws -> FixRunResult {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<FixRunResult, any Error>) in
             Process.runOnOwnThread(qos: .utility, name: "com.cmuxterm.server-helper.fix",
                                    { [self] in makeProcess(reportingTo: continuation) },
                                    launched: { [self] pid in spawned(pid) },
@@ -127,7 +129,7 @@ final nonisolated class FixChild: Sendable {
 
     /// The configured child, made on the spawn thread: no shell, an empty environment, stdout to a pipe
     /// whose output the termination handler hands to `continuation`.
-    private func makeProcess(reportingTo continuation: CheckedContinuation<FixRunResult, any Error>) -> Process {
+    private func makeProcess(reportingTo continuation: OnceContinuation<FixRunResult, any Error>) -> Process {
         let process = Process()
         let pipe = Pipe()
         process.executableURL = executable
