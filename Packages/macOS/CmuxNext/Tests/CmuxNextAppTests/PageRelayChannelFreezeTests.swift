@@ -92,6 +92,11 @@ import Testing
             daemon = FakeRelayDaemon(socket: socket.path)
         }
 
+        /// Ends the socket; the daemon lives until here, as the app's outlives its pages' relays.
+        func stop() {
+            withExtendedLifetime(daemon) { socket.stop() }
+        }
+
         func page() -> Page {
             let deadline = deadline
             let relay = DaemonPageRelay(daemon: daemon, channels: channels, work: work) { deadline }
@@ -126,7 +131,7 @@ import Testing
     /// re-read opens one connection again, and the resumed listener hears the next event.
     @Test func aFrozenPageClosesItsRelayConnectionWhenIdleAndReopensOnThaw() async throws {
         let rig = try Rig()
-        defer { rig.socket.stop() }
+        defer { rig.stop() }
         let frozen = rig.page()
         let other = rig.page()
         try await Self.subscribe(frozen, "cmux.history.changed", id: 1)
@@ -177,7 +182,7 @@ import Testing
     /// page-relay client; the thaw resumes them with one resync each.
     @Test func aStreamOfAFrozenPagesNewDocumentStartsPaused() async throws {
         let rig = try Rig()
-        defer { rig.socket.stop() }
+        defer { rig.stop() }
         let page = rig.page()
         try await Self.subscribe(page, "cmux.history.changed", id: 1)
         page.router.pageWillFreeze()
@@ -203,7 +208,7 @@ import Testing
     /// and the thaw restarts nothing for it.
     @Test func streamsAddedOrEndedWhileFrozen() async throws {
         let rig = try Rig()
-        defer { rig.socket.stop() }
+        defer { rig.stop() }
         let page = rig.page()
         try await Self.subscribe(page, "cmux.history.changed", id: 1)
         page.router.pageWillFreeze()
@@ -222,7 +227,7 @@ import Testing
     /// daemon with no page-relay client, and the next call opens one again.
     @Test func aCallAloneHoldsTheConnectionOnlyUntilIdle() async throws {
         let rig = try Rig()
-        defer { rig.socket.stop() }
+        defer { rig.stop() }
         let page = rig.page()
         try await Self.historyList(page)
         #expect(rig.socket.openNow == 1)
@@ -238,7 +243,7 @@ import Testing
     /// nothing listens for it again and it gets no resync.
     @Test func closingAFrozenPageEndsItsListensWithNoResync() async throws {
         let rig = try Rig()
-        defer { rig.socket.stop() }
+        defer { rig.stop() }
         let page = rig.page()
         try await Self.subscribe(page, "cmux.history.changed", id: 1)
         page.router.pageWillFreeze()

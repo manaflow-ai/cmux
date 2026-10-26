@@ -117,7 +117,8 @@ final class AppPageNativeProvider: PageProvider {
 /// channel then closes its daemon connection when idle (``PageRelayIdleClose``).
 @MainActor
 final class DaemonPageRelay: PageProvider {
-    private let daemon: any PageRelayDaemon
+    /// The process root's local daemon service (AppServices.machines.local), as `services` was before.
+    private unowned let daemon: any PageRelayDaemon
     /// The page host's channels, shared by every page of the host.
     let channels: PageRelayChannels
     private let work: BackgroundWork
