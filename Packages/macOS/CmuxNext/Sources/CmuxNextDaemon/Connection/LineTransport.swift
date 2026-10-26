@@ -186,11 +186,13 @@ final class LineTransport: Sendable {
             readLoop(fd: fd, onEvent: onEvent, onClose: onClose)
         }
         thread.name = "cmux-tui reader \(path)"
-        thread.qualityOfService = .userInteractive
+        thread.qualityOfService = role.readerQoS
         thread.start()
     }
 
     var isClosed: Bool { state.withLock { $0.closed != nil } }
+    /// The writer queue's class (``DaemonWireStats/Role/writerQoS``; tests).
+    var writerQoS: DispatchQoS { writer.queueQoS }
     func setStreamHandler(_ handler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?) { state.withLock { $0.streamHandler = handler } }
 
     /// Counts `streamID`'s lines as stream-0 events until its `stream_end`;
