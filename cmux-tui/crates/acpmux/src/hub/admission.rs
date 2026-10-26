@@ -40,8 +40,19 @@ const NO_REGISTRY: &str = "no fleet registry";
 /// Why a create is refused, with what the refusal names.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Refusal {
-    UnderFloor { flag: PathBuf },
-    MaxLanes { live: usize, max: u64, machine: String, source: PathBuf },
+    UnderFloor {
+        flag: PathBuf,
+    },
+    MaxLanes {
+        live: usize,
+        max: u64,
+        machine: String,
+        source: PathBuf,
+    },
+    /// The registry is there but cannot be read, and no good copy was read before.
+    RegistryUnreadable {
+        source: PathBuf,
+    },
 }
 
 impl Refusal {
@@ -49,6 +60,7 @@ impl Refusal {
         match self {
             Self::UnderFloor { .. } => "under_floor",
             Self::MaxLanes { .. } => "max_lanes",
+            Self::RegistryUnreadable { .. } => "registry_unreadable",
         }
     }
 
@@ -73,6 +85,10 @@ impl Refusal {
                     "lanes.max_lanes in the fleet registry".into()
                 }
             ),
+            Self::RegistryUnreadable { source } => format!(
+                "{host}'s fleet registry cannot be read ({}), so its lane cap is unknown",
+                if local { source.display().to_string() } else { "the fleet registry".into() }
+            ),
         };
         let mut data = json!({"reason": REASON, "why": self.why(), "retryable": true});
         if let Self::MaxLanes { live, max, machine, .. } = self {
@@ -94,6 +110,8 @@ impl Refusal {
 pub(crate) struct Inputs<'a> {
     pub flag: Option<&'a Path>,
     pub registry: Option<&'a Value>,
+    /// The registry file is there but could not be read, with no good copy.
+    pub unreadable: bool,
     /// Where the registry was read, for the refusal.
     pub source: &'a Path,
     pub machine: Option<&'a str>,
@@ -107,6 +125,10 @@ pub(crate) fn check(inputs: &Inputs<'_>) -> (Option<Refusal>, Option<String>) {
         return (Some(Refusal::UnderFloor { flag: flag.to_path_buf() }), None);
     }
     let Some(registry) = inputs.registry else {
+        if inputs.unreadable {
+            let source = inputs.source.to_path_buf();
+            return (Some(Refusal::RegistryUnreadable { source }), None);
+        }
         return (None, Some(NO_REGISTRY.into()));
     };
     let Some(machine) = inputs.machine else {
@@ -172,10 +194,11 @@ fn registry_path() -> Option<PathBuf> {
         .find(|p| p.exists())
 }
 
-/// The registry at `source`. One that is there but cannot be read or parsed
-/// (a partial write, a permission error) answers with the last copy read from
-/// the same path, so a bad read never lifts the cap; with none, no registry.
-fn read_registry(source: &Path) -> Option<Value> {
+/// The registry at `source`, and whether it is there but unreadable. One that
+/// cannot be read or parsed (a partial write, a permission error) answers with
+/// the last copy read from the same path; with none it is unreadable, which
+/// refuses (`Refusal::RegistryUnreadable`): a bad read never lifts the cap.
+fn read_registry(source: &Path) -> (Option<Value>, bool) {
     static LAST: StdMutex<Option<(PathBuf, Value)>> = StdMutex::new(None);
     let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
     let read = std::fs::read(source)
@@ -184,18 +207,20 @@ fn read_registry(source: &Path) -> Option<Value> {
     match read {
         Ok(registry) => {
             *last = Some((source.to_owned(), registry.clone()));
-            Some(registry)
+            (Some(registry), false)
         }
         Err(e) => {
             let kept = last.as_ref().filter(|(p, _)| p == source).map(|(_, r)| r.clone());
-            if source.try_exists().unwrap_or(true) {
+            let there = !source.as_os_str().is_empty() && source.try_exists().unwrap_or(true);
+            if there {
                 tracing::warn!(
                     path = %source.display(),
                     kept = kept.is_some(),
                     "fleet registry unreadable: {e}"
                 );
             }
-            kept
+            let unreadable = there && kept.is_none();
+            (kept, unreadable)
         }
     }
 }
@@ -273,6 +298,9 @@ impl Drop for Admitted<'_> {
 impl Hub {
     /// This host's sessions whose harness runs (`hosted`: those with a running
     /// agent host), plus the admitted creates whose session is not (yet) one of them.
+    /// `hosted` is read before the lock: a session whose host comes back after it is
+    /// a resume of an existing session, which the cap never refuses either, so no
+    /// later snapshot could hold it back.
     fn live_sessions(
         &self,
         open: &[Arc<Making>],
@@ -307,7 +335,7 @@ impl Hub {
         let flag = user_home().map(|h| h.join(".cache/worktree-reclaim/under-floor"));
         let read = tokio::task::spawn_blocking(move || {
             let source = registry_path().unwrap_or_default();
-            let registry = read_registry(&source);
+            let (registry, unreadable) = read_registry(&source);
             let origin = std::env::var("FLEET_ORIGIN").ok();
             let machine = registry
                 .as_ref()
@@ -315,9 +343,9 @@ impl Hub {
             // Running agent hosts: after a restart a session reads Idle until a
             // prompt reattaches its host, but the host runs all the same.
             let hosted = Hub::live_host_sessions();
-            (flag, registry, source, machine, hosted)
+            (flag, registry, unreadable, source, machine, hosted)
         });
-        let (flag, registry, source, machine, hosted) =
+        let (flag, registry, unreadable, source, machine, hosted) =
             read.await.map_err(|e| RpcError::internal(e.to_string()))?;
         let holds = |open: &[Arc<Making>], name: &String| {
             open.iter().any(|m| m.name.as_ref() == Some(name))
@@ -330,6 +358,7 @@ impl Hub {
             let (refusal, uncapped) = check(&Inputs {
                 flag: flag.as_deref(),
                 registry: registry.as_ref(),
+                unreadable,
                 source: &source,
                 machine: machine.as_deref(),
                 live,
@@ -440,11 +469,23 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("fleet-registry.json");
         std::fs::write(&path, br#"{"machines":{"m":{"max_lanes":1}}}"#).unwrap();
-        let good = read_registry(&path).unwrap();
+        let fresh = dir.join("first-read-truncated.json");
+        std::fs::write(&fresh, br#"{"machines":"#).unwrap();
+        assert_eq!(read_registry(&fresh), (None, true), "no good copy yet: unreadable refuses");
+        let good = read_registry(&path).0.unwrap();
         std::fs::write(&path, br#"{"machines":{"m":"#).unwrap();
-        assert_eq!(read_registry(&path), Some(good));
+        assert_eq!(read_registry(&path), (Some(good), false));
+        assert_eq!(read_registry(&dir.join("never-there.json")), (None, false));
         let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(read_registry(&dir.join("never-there.json")), None);
+        let unreadable = check(&Inputs {
+            flag: None,
+            registry: None,
+            unreadable: true,
+            source: &fresh,
+            machine: None,
+            live: 0,
+        });
+        assert!(matches!(unreadable.0, Some(Refusal::RegistryUnreadable { .. })));
     }
 
     #[test]
@@ -509,8 +550,15 @@ mod tests {
         let r = registry();
         let source = Path::new("/r/fleet-registry.json");
         let at = |machine: &str, live| {
-            check(&Inputs { flag: None, registry: Some(&r), source, machine: Some(machine), live })
-                .0
+            check(&Inputs {
+                flag: None,
+                registry: Some(&r),
+                unreadable: false,
+                source,
+                machine: Some(machine),
+                live,
+            })
+            .0
         };
         let capped = |machine: &str, live, max| {
             Some(Refusal::MaxLanes { live, max, machine: machine.into(), source: source.into() })
@@ -541,22 +589,42 @@ mod tests {
     fn the_flag_refuses_before_the_cap_and_no_registry_admits() {
         let r = registry();
         let source = Path::new("");
-        let none = check(&Inputs { flag: None, registry: None, source, machine: None, live: 99 });
+        let none = check(&Inputs {
+            flag: None,
+            registry: None,
+            unreadable: false,
+            source,
+            machine: None,
+            live: 99,
+        });
         assert_eq!(none.0, None, "no registry: admitted");
-        let stray =
-            check(&Inputs { flag: None, registry: Some(&r), source, machine: None, live: 99 });
+        let stray = check(&Inputs {
+            flag: None,
+            registry: Some(&r),
+            unreadable: false,
+            source,
+            machine: None,
+            live: 99,
+        });
         assert_eq!(stray.0, None, "not a registry machine: admitted");
         let dir = std::env::temp_dir().join(format!("acpmux-admission-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let flag = dir.join("under-floor");
         std::fs::write(&flag, "").unwrap();
-        let (refusal, _) =
-            check(&Inputs { flag: Some(&flag), registry: None, source, machine: None, live: 0 });
+        let (refusal, _) = check(&Inputs {
+            flag: Some(&flag),
+            registry: None,
+            unreadable: false,
+            source,
+            machine: None,
+            live: 0,
+        });
         assert_eq!(refusal, Some(Refusal::UnderFloor { flag: flag.clone() }));
         let missing = dir.join("absent");
         let (refusal, _) = check(&Inputs {
             flag: Some(&missing),
             registry: Some(&r),
+            unreadable: false,
             source,
             machine: Some("huge-blue"),
             live: 0,
