@@ -159,6 +159,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             changeCauses = LayoutChangeCauses(workspace, causes: services.mainWork.causes)
         }
         _ = layoutView  // built here, then the bar and the content view, as before
+        // Divider, column-edge and row-edge drags move the layout once per frame (feature `pointerFrameDrags`).
+        layoutView.dragFrameInput = services.dragFrameInput
         // A scroll the layout took is timed as the layout's (`key.scroll_frame target=layout`).
         layoutView.onScrollTaken = { [inputDispatch = services.inputDispatch] in inputDispatch.noteLayoutTookScroll() }
         // A link dragged in from another app or a page: the drop zones a dragged tab has (LinkDropPlan).
