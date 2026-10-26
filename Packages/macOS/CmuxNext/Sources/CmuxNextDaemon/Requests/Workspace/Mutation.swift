@@ -22,7 +22,8 @@ struct MutationFields: Encodable {
     var identity: MutationIdentity?
 
     enum CodingKeys: String, CodingKey {
-        case origin, mutationID, expectedGeneration, expectedRevision
+        case origin, mutationID = "mutation_id", expectedGeneration = "expected_generation"
+        case expectedRevision = "expected_revision"
     }
 
     func encode(to encoder: any Encoder) throws {
