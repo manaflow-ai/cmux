@@ -7,18 +7,29 @@ import os
 // frame builds no `String`.
 extension Signposter {
     /// Begins one window's ``SignpostName/motionFrame``: a display tick to its presentation applied
-    /// (`panes=<moved panes> dt_us=<the tick's dt in us>`). The ring's thread slice (B) holds `movedPanes` in
-    /// `arg0` and `dtMicros` in `arg1`. End it on this thread with ``end(_:_:)``.
+    /// (`dt_us=<the tick's dt in us>`). The ring's thread slice (B) holds `dtMicros` in `arg0`. End it on this
+    /// thread with ``endMotionFrame(_:movedPanes:)``.
+    ///
+    /// - Parameter dtMicros: The tick's dt in microseconds.
+    /// - Returns: The state to pass to ``endMotionFrame(_:movedPanes:)``.
+    public func beginMotionFrame(dtMicros: UInt64) -> SignpostInterval {
+        openInterval(.motionFrame, arg0: dtMicros) {
+            signposter.beginInterval(SignpostName.motionFrame.staticName, id: $0, "dt_us=\(dtMicros, privacy: .public)")
+        }
+    }
+
+    /// Ends a ``SignpostName/motionFrame`` begun with ``beginMotionFrame(dtMicros:)``: the log system's end carries
+    /// `panes=<moved panes>`, and the ring's E holds `movedPanes` in `arg0`.
     ///
     /// - Parameters:
-    ///   - movedPanes: The panes the frame moves.
-    ///   - dtMicros: The tick's dt in microseconds.
-    /// - Returns: The state to pass to ``end(_:_:)``.
-    public func beginMotionFrame(movedPanes: UInt64, dtMicros: UInt64) -> SignpostInterval {
-        openInterval(.motionFrame, arg0: movedPanes, arg1: dtMicros) {
-            signposter.beginInterval(SignpostName.motionFrame.staticName, id: $0,
-                                     "panes=\(movedPanes, privacy: .public) dt_us=\(dtMicros, privacy: .public)")
-        }
+    ///   - interval: The state ``beginMotionFrame(dtMicros:)`` returned.
+    ///   - movedPanes: The panes the frame stepped (counted by the step itself, not by a pass of its own).
+    public func endMotionFrame(_ interval: SignpostInterval, movedPanes: Int) {
+        let name = SignpostName.motionFrame
+        let panes = UInt64(max(movedPanes, 0))
+        signposter.endInterval(name.staticName, interval.state, "panes=\(panes, privacy: .public)")
+        if let id = interval.metricKitID { mirror.end(name, id: id) }
+        closeInterval(name, interval, arg0: panes)
     }
 
     /// Ends a ``SignpostName/motionRun`` begun with ``begin(_:_:)``, with what its frames measured: the log

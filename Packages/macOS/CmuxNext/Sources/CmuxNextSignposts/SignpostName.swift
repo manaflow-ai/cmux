@@ -15,8 +15,8 @@
 /// ``actionPerform``, ``actionCommit``, ``actionGate``, ``keyToFrame``, ``keyFlow``, ``scrollToFrame``,
 /// ``stallMainTask``, ``stallOverBudget``, ``stallMainTurn`` (the trace ring's), ``stallRenderStarved``,
 /// ``launchStartupTask``, ``launchStartupComplete``, ``launchReadDone``, ``stallPaletteOpen``, ``stallIconPickerOpen``,
-/// ``webuiOpen``, ``webuiScheme``, ``stallCreateSurface``, ``daemonStep``, ``webuiAgentPaneStep`` and
-/// ``stallGhosttyRuntimePhase`` have an emitter today. The
+/// ``webuiOpen``, ``webuiScheme``, ``stallCreateSurface``, ``daemonStep``, ``webuiAgentPaneStep``,
+/// ``stallGhosttyRuntimePhase``, ``motionFrame``, ``motionRun`` and ``motionDragFrame`` have an emitter today. The
 /// other cases are **reserved**: the task and owner named on each add the emitter. Until then no build records them,
 /// and no bench or report may quote them. "Ring" on a reserved case gives its record phases and the
 /// meaning of `arg0` and `arg1` (the ring v1 record, plans/cmux-next/trace.md).
@@ -48,11 +48,11 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// ``actionPerform``.
     case actionGate = 3
 
-    // MARK: motion (reserved: PL-motion-core, DisplayLinkDriver)
+    // MARK: motion (PL-motion-core)
 
     /// One layout motion frame: the display-link tick to its presentation applied (`LayoutMotionTrace`,
-    /// `Signposter.beginMotionFrame`). Ring: B/E, one per window per tick; begin arg0 the panes the frame moves
-    /// (all of a screen whose frame or camera springs), arg1 the tick's dt in us.
+    /// `Signposter.beginMotionFrame`). Ring: B/E, one per window per tick; begin arg0 the tick's dt in us, end arg0
+    /// the panes the frame stepped (all of a screen whose frame or camera springs).
     case motionFrame = 4
     /// A whole layout motion: the structural change to the motion at rest, on the CPU step or the render server
     /// (`LayoutMotionTrace`), one per window at a time; mirrored to MetricKit. Ring: AB/AE; end arg0 the CPU

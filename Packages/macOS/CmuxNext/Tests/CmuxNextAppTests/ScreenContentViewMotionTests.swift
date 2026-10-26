@@ -9,9 +9,10 @@ import Testing
 /// The layout's motion signposts (p09-observability task 026): a pane close springs its neighbours, and the
 /// window's trace ring decodes one `motion.frame` slice per tick and one `motion.run` async slice from the close
 /// to the frame the springs rest in, whose end holds the frame count and the longest frame. A split the render
-/// server runs records its run too, a screen switch or a reveal counts the panes it moves, and the run reaches
-/// the MetricKit mirror. Frames step at a fixed 120 Hz dt; each test records into its own ``TraceRuntime`` and
-/// mirror, passed to the root through its init.
+/// server runs records its run too, a screen switch or a reveal counts the panes it moves (the frame's E), and the
+/// run reaches the MetricKit mirror. Reduce Motion landing a motion mid-flight ends its run on that frame, and
+/// render-server springs that land while a CPU spring runs leave the run to the CPU's last frame. Frames step at a
+/// fixed 120 Hz dt; each test records into its own ``TraceRuntime`` and mirror, passed to the root through its init.
 @MainActor
 struct ScreenContentViewMotionTests {
     final class Panes: LayoutPaneContentProvider {
@@ -117,8 +118,8 @@ struct ScreenContentViewMotionTests {
         let log = window.log
         let begins = log.records(.motionFrame, .begin), ends = log.records(.motionFrame, .end)
         #expect(begins.count == ticks && ends.count == ticks, "\(begins.count) B and \(ends.count) E for \(ticks) ticks")
-        #expect(begins.allSatisfy { $0.arg1 == LayoutMotionTrace.micros(seconds: Self.dt) }, "a frame's dt is not the tick's")
-        #expect(begins.first.map { $0.arg0 >= 2 } == true, "the first frame moved no pane: \(begins.first?.arg0 ?? 0)")
+        #expect(begins.allSatisfy { $0.arg0 == LayoutMotionTrace.micros(seconds: Self.dt) }, "a frame's dt is not the tick's")
+        #expect(ends.first.map { $0.arg0 >= 2 } == true, "the first frame moved no pane: \(ends.first?.arg0 ?? 0)")
 
         let runBegins = log.records(.motionRun, .asyncBegin), runEnds = log.records(.motionRun, .asyncEnd)
         #expect(runBegins.count == 1 && runEnds.count == 1, "\(runBegins.count) AB and \(runEnds.count) AE")
@@ -194,7 +195,7 @@ struct ScreenContentViewMotionTests {
         window.root.syncWithModel()
         #expect(window.isRunOpen, "the screen switch opened no motion.run")
         _ = window.settle()
-        let first = try #require(window.log.records(.motionFrame, .begin).first)
+        let first = try #require(window.log.records(.motionFrame, .end).first)
         #expect(first.arg0 > 0, "the switch's first frame moved no pane")
     }
 
@@ -204,12 +205,58 @@ struct ScreenContentViewMotionTests {
         })
         let window = Window(screens: [LayoutScreen(id: "s", name: "s", layout: columns)])
         _ = window.settle()
-        let before = window.log.records(.motionFrame, .begin).count
+        let before = window.log.records(.motionFrame, .end).count
         window.model.focus("p3", notify: false)
         window.root.syncWithModel()
         #expect(window.isRunOpen, "the reveal opened no motion.run")
         _ = window.settle()
-        let first = try #require(window.log.records(.motionFrame, .begin).dropFirst(before).first)
+        let first = try #require(window.log.records(.motionFrame, .end).dropFirst(before).first)
         #expect(first.arg0 > 0, "the reveal's first frame moved no pane: the strip's camera carries them all")
+    }
+
+    @Test func reduceMotionMidFlightEndsTheRunOnThatFrame() throws {
+        let window = Window()
+        window.close("p2")
+        for _ in 1...3 { #expect(window.root.advanceFrame(Self.dt), "the close rested before Reduce Motion turned on") }
+        window.root.context.reduceMotionOverride = true
+        #expect(!window.root.advanceFrame(Self.dt), "Reduce Motion did not land the motion in one frame")
+        #expect(!window.isRunOpen, "the run stayed open after Reduce Motion landed the motion")
+        let ends = window.log.records(.motionRun, .asyncEnd)
+        #expect(ends.count == 1, "\(ends.count) AE")
+        let end = try #require(ends.first)
+        #expect(end.arg0 & 0xFFFF_FFFF == 4, "the run's end holds \(end.arg0 & 0xFFFF_FFFF) frames of 4")
+        #expect(window.log.records(.motionFrame, .end).last?.arg0 == 0, "the landing frame reported panes it never stepped")
+    }
+
+    @Test func renderSpringsLandingDuringACPUSpringLeaveTheRunToItsLastFrame() throws {
+        func columns(_ third: SplitNode) -> ScreenLayout {
+            .columns([LayoutColumn(id: ColumnID("c1"), width: 0.5, root: .leaf("p1")),
+                      LayoutColumn(id: ColumnID("c2"), width: 0.5, root: .leaf("p2")),
+                      LayoutColumn(id: ColumnID("c3"), width: 0.5, root: third)])
+        }
+        let window = Window(screens: [LayoutScreen(id: "s", name: "s", layout: columns(.leaf("p3")))], renderServer: true)
+        _ = window.settle()
+        let log = window.log
+        let runsBefore = log.records(.motionRun, .asyncBegin).count, endsBefore = log.records(.motionRun, .asyncEnd).count
+        let framesBefore = log.records(.motionFrame, .begin).count
+        // The reveal's camera springs on the CPU; the split in the column it reveals springs on the render server,
+        // whose springs land in this window at once (it draws no frames), while the camera still moves.
+        window.model.focus("p3", notify: false)
+        window.root.syncWithModel()
+        for _ in 1...2 { #expect(window.root.advanceFrame(Self.dt), "the reveal's camera rested in two frames") }
+        let split: SplitNode = .split("d", axis: .vertical, ratio: 0.5, a: .leaf("p3"), b: .leaf("p4"))
+        window.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: columns(split))])
+        window.root.syncWithModel()
+        let screen = try #require(window.root.screenViews["s"])
+        #expect(screen.renderSpringsInFlight == 0 && screen.hasMotion, "the render springs did not land during the CPU spring")
+        #expect(window.isRunOpen, "the render server's landing ended the run while the camera still springs")
+        let ticks = 2 + window.settle()
+        #expect(!window.isRunOpen, "the run stayed open after every spring rested")
+        #expect(log.records(.motionRun, .asyncBegin).count - runsBefore == 1, "the motion opened more than one run")
+        let ends = log.records(.motionRun, .asyncEnd)
+        #expect(ends.count - endsBefore == 1, "\(ends.count - endsBefore) AE for one motion")
+        let end = try #require(ends.last)
+        #expect(log.records(.motionFrame, .begin).count - framesBefore == ticks)
+        #expect(end.arg0 & 0xFFFF_FFFF == UInt64(ticks), "the run's end holds \(end.arg0 & 0xFFFF_FFFF) frames of \(ticks)")
     }
 }

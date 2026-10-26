@@ -59,33 +59,28 @@ extension ScreenContentView {
         return paneFrames.values.contains { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }
             || dividerFrames.values.contains { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }
     }
-    /// The panes the next ``step(_:policy:)`` moves (`motion.frame`'s `arg0`, read only while something takes
-    /// `motion` signposts): every pane while a camera that carries them all springs (the strip's scroll, a row
-    /// column's or scroll area's, the canvas camera), else the panes whose own frame springs or fades.
-    var movingPaneCount: Int {
-        let camerasMove = (!isUserScrolling && (scroll.value != scroll.target || scroll.velocity != 0)) || rowsMoving || areasMoving
-            || canvasState.camera.isMoving
-        if camerasMove { return paneFrames.count }
-        return paneFrames.values.count { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }
-    }
     /// Advances springs by `dt` with the frame's motion `policy`. Returns
     /// true while anything still moves. A screen at rest (a drag frame that
-    /// moved nothing, a still pointer) does no work.
+    /// moved nothing, a still pointer) does no work. Counts the panes it moves in the same pass
+    /// (`motionState.steppedPanes`): every pane while a camera that carries them all springs (the strip's
+    /// scroll, a row column's or scroll area's, the canvas camera), else those whose own frame springs or fades.
     func step(_ dt: Double, policy: MotionPolicy = Motion.panes.policy) -> Bool { // perf-hot: 4ms motion-frame
         // The canvas camera, when the main thread steps it (not on the render server: `CanvasRenderMotion`).
         let cameraMoving = stepCanvasCamera(dt, policy: policy)
         guard hasMotion || reportScrollOnSettle else {
             // A close on the render server keeps the camera on its spring until it lands (`renderSpringLanded`).
             if renderClose == nil { scrollRidesFrames = false }
+            motionState.steppedPanes = cameraMoving ? paneFrames.count : 0
             return cameraMoving
         }
-        var moving = false
+        var moving = false, steppedPanes = 0
         let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear)
         // The panes and dividers are one motion: none settles on its own (an edge with a shorter
         // travel would snap frames before the others and change the gap beside it); they all land
         // in the frame the last one comes within a quarter point of rest.
         for key in Array(paneFrames.keys) {
             let token = zoomMotion.spring(for: key, fallback: motionState.frameSpring)
+            if let frame = paneFrames[key], frame.rect != frame.targetRect || frame.alpha.value != frame.alpha.target { steppedPanes += 1 }
             if paneFrames[key]?.advanceUnsettled(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token),
                                                  alphaParameters: appear) == true { moving = true }
         }
@@ -102,8 +97,9 @@ extension ScreenContentView {
         // the panes move: closing the last column moves no pane, and a switch to the scroll spring
         // when the panes land changes the curve mid-motion (Lawrence 2026-10-20).
         let cameraSpring = scrollRidesFrames ? frameSpring : policy.spring(.scroll)
-        if stepRows(dt, spring: cameraSpring) { moving = true }
-        if stepAreas(dt, policy: policy) { moving = true }
+        let rowsStepped = stepRows(dt, spring: cameraSpring), areasStepped = stepAreas(dt, policy: policy)
+        var camerasStepped = cameraMoving || rowsStepped || areasStepped
+        if rowsStepped || areasStepped { moving = true }
         if MotionTrace.isEnabled { MotionTrace.sample("layout.travel", Double(travelLeft)) }
         let panesMoving = paneFrames.values.contains { $0.rect != $0.targetRect }
         // The panes landed: their terminals' grids go to the PTY once, now.
@@ -111,6 +107,7 @@ extension ScreenContentView {
         if !isUserScrolling {
             if scrollState.spring.advance(dt, parameters: cameraSpring, epsilon: 0.25) {
                 moving = true
+                camerasStepped = true
                 scrollbarFlash = true
             } else if reportScrollOnSettle {
                 reportScrollOnSettle = false
@@ -118,6 +115,7 @@ extension ScreenContentView {
             }
         }
         if !moving { scrollRidesFrames = false }
+        motionState.steppedPanes = camerasStepped ? paneFrames.count : steppedPanes
         applyPresentation()
         // A zoom that landed in this frame lets go of the panes it covered.
         releaseCovered()

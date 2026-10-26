@@ -36,24 +36,26 @@ final class LayoutMotionTrace {
         run = Run(interval: signposter.begin(.motionRun))
     }
 
-    /// One display tick of the window: `body` steps its springs and presents the frame inside a `motion.frame`
-    /// interval that holds `movedPanes` and the tick's `dt` in us. The open run counts the frame and keeps the
-    /// longest. While nothing takes `motion` signposts and no run is open, the tick only runs `body`.
+    /// One display tick of the window: `body` steps its springs, presents the frame and returns the panes it
+    /// stepped, inside a `motion.frame` interval that holds the tick's `dt` in us and that count. The open run
+    /// counts the frame and keeps the longest. A tick costs `body`, two clock reads and one `OSSignposter`
+    /// interval: the log system takes signposts unless a logging profile turns the subsystem off, so the
+    /// interval is nearly always written, and nothing is counted for it alone (the panes come from `body`'s step).
     ///
-    /// - Returns: What `body` returns (whether the window needs another tick).
-    func frame(dt: Double, movedPanes: () -> Int, _ body: () -> Bool) -> Bool { // perf-hot: 4ms motion-frame
-        guard run != nil || signposter.isEnabled else { return body() }
-        let interval = signposter.beginMotionFrame(movedPanes: UInt64(clamping: movedPanes()), dtMicros: Self.micros(seconds: dt))
+    /// - Returns: Whether the window needs another tick, as `body` says.
+    func frame(dt: Double, _ body: () -> (needsTick: Bool, movedPanes: Int)) -> Bool { // perf-hot: 4ms motion-frame
+        guard run != nil || signposter.isEnabled else { return body().needsTick }
+        let interval = signposter.beginMotionFrame(dtMicros: Self.micros(seconds: dt))
         let result = body()
         let end = signposter.nowNanos()
-        signposter.end(.motionFrame, interval)
+        signposter.endMotionFrame(interval, movedPanes: result.movedPanes)
         if var open = run {
             open.frames = open.frames == .max ? .max : open.frames + 1
             let length = end >= interval.beginUptimeNanos ? end - interval.beginUptimeNanos : 0
             open.longestFrameNanos = max(open.longestFrameNanos, length)
             run = open
         }
-        return result
+        return result.needsTick
     }
 
     /// The motion rested, or the window stopped it (Reduce Motion landed it, the root parked or went away): ends

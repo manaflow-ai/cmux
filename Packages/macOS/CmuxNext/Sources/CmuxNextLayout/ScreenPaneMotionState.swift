@@ -4,6 +4,8 @@ import CmuxNextDesign
 struct ScreenPaneMotionState {
     let provider: () -> PaneMotionVariant
     var frameSpring: MotionSpring = .move
+    /// The panes the screen's last `step` moved, counted by that step (`motion.frame`'s end `arg0`).
+    var steppedPanes = 0
 
     init(provider: @escaping () -> PaneMotionVariant) { self.provider = provider }
     var current: PaneMotionVariant { provider() }

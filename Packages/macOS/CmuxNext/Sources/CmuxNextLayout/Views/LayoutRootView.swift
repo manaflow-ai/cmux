@@ -533,26 +533,18 @@ public final class LayoutRootView: NSView {
     ///
     /// - Returns: Whether the window needs another tick.
     func advanceFrame(_ dt: Double) -> Bool { // perf-hot: 4ms motion-frame
-        let moving = motionTrace.frame(dt: dt, movedPanes: { movingPaneCount }) { stepFrame(dt) }
+        let moving = motionTrace.frame(dt: dt) { stepFrame(dt) }
         if !moving, !rendersMotion { motionTrace.endRun() }
         return moving
-    }
-
-    /// Panes the next frame moves in the screens shown: every pane of a screen whose frame springs (a screen
-    /// switch), else the screen's own (`ScreenContentView.movingPaneCount`).
-    private var movingPaneCount: Int {
-        var count = 0
-        for (id, view) in screenViews where !view.isHidden {
-            let switching = screenFrames[id].map { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target } ?? false
-            count += switching ? view.paneFrames.count : view.movingPaneCount
-        }
-        return count
     }
 
     /// Render-server springs of a screen have not landed (`ScreenContentView.renderSpringsInFlight`).
     private var rendersMotion: Bool { screenViews.values.contains { $0.renderSpringsInFlight > 0 } }
 
-    private func stepFrame(_ dt: Double) -> Bool {
+    /// Steps the shown screens' springs and presents the frame. Returns whether the window needs another tick,
+    /// and the panes the frame moved, counted by the steps: every pane of a screen whose frame springs (a
+    /// screen switch), else the panes the screen's own step moved (`ScreenPaneMotionState.steppedPanes`).
+    private func stepFrame(_ dt: Double) -> (needsTick: Bool, movedPanes: Int) {
         // Reduce Motion (or the no-animation switch) turned on mid-flight: the final layout now, no more frames.
         if context.reduceMotion {
             // A resampled pan's event that waited for this frame shows now, unresampled.
@@ -563,19 +555,22 @@ public final class LayoutRootView: NSView {
             updateVisibility()
             flushOverlaySync()
             setLayoutInMotion(false)
-            return false
+            return (false, 0)
         }
         // One motion policy per frame (it reads the animation settings), not one per spring.
         let policy = Motion.panes.policy
-        var moving = false, panning = false
+        var moving = false, panning = false, movedPanes = 0
         for view in screenViews.values where !view.isHidden {
             // Pan events that waited in the last frame show first (resampled at the frame's time), then the springs step.
             if view.displayFrameBegan(at: driver.frameTime) { panning = true }
             if view.step(dt, policy: policy) { moving = true }
+            movedPanes += view.motionState.steppedPanes
         }
         let screenSpring = policy.spring(.screen)
         for id in Array(screenFrames.keys) {
-            if screenFrames[id]?.advance(dt, parameters: screenSpring) == true { moving = true }
+            guard screenFrames[id]?.advance(dt, parameters: screenSpring) == true else { continue }
+            moving = true
+            if let view = screenViews[id], !view.isHidden { movedPanes += view.paneFrames.count - view.motionState.steppedPanes }
         }
         applyScreenFrames()
         if highlightStepsOnFrames, highlight.step(dt) { moving = true }
@@ -589,7 +584,7 @@ public final class LayoutRootView: NSView {
         if !moving && !gesturing { setLayoutInMotion(false) }
         // A strip pan that moves the frames keeps the ticks until its finger lifts
         // (`ScreenContentView.displayFrameBegan`); a pan on the motion container keeps them only resampled.
-        return moving || panning
+        return (moving || panning, movedPanes)
     }
 
     /// Tells the layout motion observers when the first spring starts and when the last one lands.

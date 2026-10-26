@@ -40,6 +40,11 @@ event went on to the pane):
   key.scroll_input_to_frame key.scroll_frame plus the begin's age_ms (the event's wait in the queue), for
                             events with an age: input to frame, the number Chrome reports for scrolls
 
+What the motion section means (with --category motion; JSON key `motion_runs`):
+  motion.run                one window's layout motion, structural change to rest: p50/p95/p99/max of its length
+                            (ms), of the CPU frames it stepped (end frames=, 0 for a render-server motion) and of
+                            its longest frame (end longest_us=)
+
 Categories (SignpostCategory.swift): action, motion, key, switch, create, cef, launch, stall, and
 burst (events, not intervals: scripts/cmux-next/burst-bench.py reads those; this script pairs
 intervals only, so --category burst prints no rows).
@@ -192,6 +197,25 @@ def summarize(intervals: list[dict]) -> list[dict]:
     return rows
 
 
+def distribution(values: list[float]) -> dict:
+    return {"p50": round(statistics.median(values), 3), "p95": round(percentile(values, 0.95), 3),
+            "p99": round(percentile(values, 0.99), 3), "max": round(max(values), 3)}
+
+
+def motion_runs(intervals: list[dict]) -> dict | None:
+    """The `motion.run` intervals (one layout motion of a window, structural change to rest; LayoutMotionTrace),
+    or None when the stream has none: their count, and p50/p95/p99/max of the run's length in ms, of the CPU
+    frames it stepped (end `frames=`, 0 for a motion the render server ran) and of its longest frame in us (end
+    `longest_us=`). The ring's AE holds the same two numbers in arg0 (`Signposter.motionRunResult`)."""
+    runs = [i for i in intervals if i["name"] == "motion.run"]
+    if not runs:
+        return None
+    frames = [float(r["end_fields"].get("frames", 0)) for r in runs]
+    longest = [float(r["end_fields"].get("longest_us", 0)) for r in runs]
+    return {"count": len(runs), "ms": distribution([r["ms"] for r in runs]), "frames": distribution(frames),
+            "longest_us": distribution(longest)}
+
+
 class Recording:
     """`log stream` of cmux's signposts for one process, drained on a reader thread (a full pipe would block
     `log stream` and logd would drop events). Use it around a scenario a script runs itself:
@@ -284,6 +308,16 @@ Filtering the log data using "subsystem == ..."
 """
 
 
+MOTION_SAMPLE = """#timebase 1/1
+{"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"motion","signpostName":"motion.run","signpostID":30,"signpostType":"begin","processID":1,"machTimestamp":1000000000,"timestamp":"2026-10-23 04:55:41.000000-0700","eventMessage":""}
+{"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"motion","signpostName":"motion.frame","signpostID":31,"signpostType":"begin","processID":1,"machTimestamp":1001000000,"timestamp":"2026-10-23 04:55:41.001000-0700","eventMessage":"dt_us=8333"}
+{"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"motion","signpostName":"motion.frame","signpostID":31,"signpostType":"end","processID":1,"machTimestamp":1004000000,"timestamp":"2026-10-23 04:55:41.004000-0700","eventMessage":"panes=3"}
+{"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"motion","signpostName":"motion.run","signpostID":30,"signpostType":"end","processID":1,"machTimestamp":1350000000,"timestamp":"2026-10-23 04:55:41.350000-0700","eventMessage":"frames=42 longest_us=3125"}
+{"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"motion","signpostName":"motion.run","signpostID":32,"signpostType":"begin","processID":1,"machTimestamp":2000000000,"timestamp":"2026-10-23 04:55:42.000000-0700","eventMessage":""}
+{"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"motion","signpostName":"motion.run","signpostID":32,"signpostType":"end","processID":1,"machTimestamp":2300000000,"timestamp":"2026-10-23 04:55:42.300000-0700","eventMessage":"frames=0 longest_us=0"}
+"""
+
+
 def missing_input_age(intervals: list[dict]) -> bool:
     """User action.commit runs exist and none carries an input age: the App's input wiring broke, or the
     runs came from outside a key or click dispatch (input to commit would be empty and look healthy)."""
@@ -322,6 +356,14 @@ def self_test() -> int:
     assert abs(rows[("key.scroll_input_to_frame", "layout")]["p50_ms"] - 6.0) < 1e-6, rows
     assert rows[("key.scroll_input_to_frame", "layout")]["count"] == 1, rows
     assert abs(rows[("key.scroll_input_to_frame", "content")]["p50_ms"] - 2.0) < 1e-6, rows
+    # motion.run: the frames and the longest frame come from the end message; a render-server run steps 0 frames.
+    assert motion_runs(parsed["intervals"]) is None
+    motion = parse(MOTION_SAMPLE.splitlines(), None)
+    runs = motion_runs(motion["intervals"])
+    assert runs is not None and runs["count"] == 2, runs
+    assert runs["frames"] == {"p50": 21.0, "p95": 42.0, "p99": 42.0, "max": 42.0}, runs
+    assert runs["longest_us"]["max"] == 3125.0 and runs["longest_us"]["p50"] == 1562.5, runs
+    assert abs(runs["ms"]["max"] - 350.0) < 1e-6, runs
     print("self-test ok")
     return 0
 
@@ -358,13 +400,23 @@ def main() -> int:
     parsed = parse(lines, timebase)
     rows = summarize(parsed["intervals"])
     status = 2 if parsed["lost"] and not args.allow_loss else 0
+    runs = motion_runs(parsed["intervals"])
     if args.json:
-        print(json.dumps({"rows": rows, "lost": parsed["lost"], "unpaired": parsed["unpaired"]}))
+        report = {"rows": rows, "lost": parsed["lost"], "unpaired": parsed["unpaired"]}
+        if runs:
+            report["motion_runs"] = runs
+        print(json.dumps(report))
     else:
         print(f"lost-message reports: {parsed['lost']}  unpaired begins: {parsed['unpaired']}")
         print(f"{'name':28} {'detail':36} {'n':>5} {'p50':>9} {'p95':>9} {'max':>9}")
         for row in rows:
             print(f"{row['name']:28} {row['detail'][:36]:36} {row['count']:5} {row['p50_ms']:9.3f} {row['p95_ms']:9.3f} {row['max_ms']:9.3f}")
+        if runs:
+            print(f"motion.run: {runs['count']} run(s)")
+            print(f"  {'':12} {'p50':>9} {'p95':>9} {'p99':>9} {'max':>9}")
+            for key in ("ms", "frames", "longest_us"):
+                d = runs[key]
+                print(f"  {key:12} {d['p50']:9.3f} {d['p95']:9.3f} {d['p99']:9.3f} {d['max']:9.3f}")
     if missing_input_age(parsed["intervals"]):
         print("perf-signposts: WARNING: user action runs carry no input age (input_age_ms -1 on every one): "
               "input to commit is empty; the App's dispatchingInputEvent wiring or the scenario is wrong", file=sys.stderr)
