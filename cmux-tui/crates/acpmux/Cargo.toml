@@ -90,3 +90,7 @@ windows-sys = { workspace = true, features = [
 # Paused time for the media handle sweeper's tests (`hub/media_handles_tests.rs`).
 tokio = { version = "1.52", features = ["test-util"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
+
+[lints.clippy]
+# cmux-tui/clippy.toml disallows std thread spawns and sleep; this package has not opted in.
+disallowed_methods = "allow"
