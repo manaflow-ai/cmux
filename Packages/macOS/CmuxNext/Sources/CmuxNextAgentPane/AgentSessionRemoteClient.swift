@@ -26,11 +26,18 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     func children() async throws -> Data
     /// Reads one image from the attached chat's host, as `{mimeType, data}` with base64 bytes.
     func media(path: String) async throws -> Data
+    /// The person starts or stops typing in the chat (`agent-session-presence-v1`).
+    func typing(_ on: Bool) async throws
+    /// Whether the person's window shows the chat now (`agent-session-presence-v1`).
+    func view(_ visible: Bool) async throws
 }
 
 extension AgentSessionRemoteClient {
     /// A daemon without `agent-session-children-v1` lists none.
     public func children() async throws -> Data { Data(#"{"sessions":[]}"#.utf8) }
+    /// A daemon without `agent-session-presence-v1` shows no one: typing and view go nowhere.
+    public func typing(_ on: Bool) async throws {}
+    public func view(_ visible: Bool) async throws {}
     /// Older daemons have no host media command; callers turn this into a refused image.
     public func media(path: String) async throws -> Data {
         throw AgentSessionRemoteError(code: "agent_session.media_unsupported", message: "the daemon does not serve agent session media")
@@ -60,6 +67,8 @@ public nonisolated enum AgentSessionRemoteEvent: Sendable, Equatable {
     case permission(Data)
     /// The session's status or queue changed (`_acpmux/session_changed` params).
     case changed(Data)
+    /// Who is in the chat now (`_acpmux/presence` params, the whole set on every change).
+    case presence(Data)
     /// The attachment ended (`lagged`, `overflow`, `acpmux_closed`, `detached`, or the daemon
     /// connection dropped); the page reconnects and replays from the newest seq it holds.
     case closed(String)

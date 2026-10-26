@@ -109,6 +109,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.settings_read")
         // Chrome colors derive from the Ghostty theme; load it before any window.
         ThemeBridge.start(store: ThemeScope.app.store)
+        // The glass tint and the Desktop Wallpaper background follow the desktop picture.
+        BackdropImageStore.shared.desktop.start()
         // The diff page's files live in the app bundle (markdown-viewer/webviews-app).
         PageDescriptor.registerDiffRoot()
         PageDescriptor.registerFilePageRoots()

@@ -1,6 +1,268 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.appearance.wallpaperTint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tint with Desktop Wallpaper"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التلوين بخلفية سطح المكتب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nijansiraj prema pozadini radne površine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farv efter skrivebordsbaggrund"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit Schreibtischhintergrund einfärben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teñir con el fondo de escritorio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teinter avec le fond d’écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colora con lo sfondo della scrivania"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップピクチャで色付け"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លាបពណ៌តាមផ្ទាំងរូបភាពផ្ទៃតុ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "데스크탑 배경화면으로 색조 적용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farg etter skrivebordsbakgrunn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barwienie tapetą biurka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tingir com a imagem da mesa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тонировать по обоям рабочего стола"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แต้มสีตามภาพพื้นหลังเดสก์ท็อป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masaüstü duvar kâğıdıyla renklendir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тонувати за шпалерами робочого столу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phủ màu theo hình nền màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟随桌面墙纸着色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟隨桌面背景著色"
+          }
+        }
+      }
+    },
+    "settings.appearance.wallpaperTint.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The glass takes the colors of your desktop picture and follows it when the picture or Space changes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يأخذ الزجاج ألوان صورة سطح المكتب ويتبعها عند تغيير الصورة أو المساحة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staklo preuzima boje slike radne površine i prati je kada se slika ili Space promijeni."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glasset får farverne fra dit skrivebordsbillede og følger med, når billedet eller Space skifter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Glas übernimmt die Farben deines Schreibtischbilds und folgt ihm, wenn sich das Bild oder der Space ändert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El cristal toma los colores de tu imagen de escritorio y la sigue cuando cambian la imagen o el Space."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le verre prend les couleurs de votre image de bureau et la suit quand l’image ou le Space change."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il vetro prende i colori dell’immagine della scrivania e la segue quando cambiano l’immagine o lo Space."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ガラスがデスクトップピクチャの色を取り込み、ピクチャや操作スペースが変わると追従します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កញ្ចក់យកពណ៌ពីរូបភាពផ្ទៃតុរបស់អ្នក ហើយធ្វើតាមវា នៅពេលរូបភាព ឬ Space ផ្លាស់ប្តូរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유리가 데스크탑 사진의 색상을 따르며, 사진이나 Space가 바뀌면 함께 바뀝니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glasset tar fargene fra skrivebordsbildet ditt og følger det når bildet eller Space endres."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szkło przyjmuje kolory obrazka biurka i podąża za nim, gdy zmienia się obrazek lub Space."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O vidro assume as cores da sua imagem de mesa e a acompanha quando a imagem ou o Space muda."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стекло берёт цвета картинки рабочего стола и следует за ней при смене картинки или Space."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กระจกจะใช้สีจากภาพเดสก์ท็อปของคุณ และเปลี่ยนตามเมื่อภาพหรือ Space เปลี่ยน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cam, masaüstü resminizin renklerini alır ve resim ya da Space değiştiğinde onu izler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скло бере кольори зображення робочого столу й стежить за ним, коли змінюється зображення або Space."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lớp kính lấy màu từ ảnh màn hình nền của bạn và đổi theo khi ảnh hoặc Space thay đổi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "玻璃会采用桌面图片的颜色，并在图片或空间更改时随之变化。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "玻璃會採用桌面圖片的顏色，並在圖片或空間變更時隨之改變。"
+          }
+        }
+      }
+    },
     "settings.group.sshLinks": {
       "extractionState": "manual",
       "localizations": {

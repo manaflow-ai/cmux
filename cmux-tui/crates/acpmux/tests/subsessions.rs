@@ -221,7 +221,7 @@ async fn agents_start_children_within_their_width_and_depth_limits() {
     let e = p.refused("_acpmux/subsession/retry", json!({"sessionId": a})).await;
     assert_eq!(e["data"]["reason"], "retry.nothing_failed", "{e}");
     let e = p.refused("_acpmux/subsession/retry", json!({"sessionId": a, "subagentId": "x"})).await;
-    assert_eq!(e["data"]["reason"], "retry.subagent_unsupported", "{e}");
+    assert_eq!(e["data"]["reason"], "retry.unknown_subagent", "{e}");
     // Nor its own parent: a session retries only its own sub-sessions.
     let e = pa.refused("_acpmux/subsession/retry", json!({"sessionId": parent})).await;
     assert_eq!(e["data"]["reason"], "subsessions.not_family", "{e}");

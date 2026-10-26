@@ -1603,23 +1603,17 @@ jobs:
       attestations: write
       id-token: write
     needs: [decide, resolve-nightly-cmux-tui-client]
-    # Build slot. Attempt 1 of a nightly-next push that takes the dedicated
-    # warm runner (the same condition as its runs-on below) shares one slot:
-    # one build runs, at most one waits, and a newer push replaces the waiting
-    # build, so the newest promoted head builds next and older heads are skipped
-    # instead of queuing. Per-run slots (de5912c9fe41) queued every push FIFO
-    # on the one runner; at a push every ~10 min, a waiting build passed the
-    # owned-pool rescue's 930 s stuck limit, was cancelled and re-run on
-    # Blacksmith, and waited there over an hour (2026-10-19: runs 39318999424,
-    # 39320477722 and 39329116254). A slot-held job is "pending", never
-    # "queued", so the rescue does not see it; it watches only the running
-    # holder. The first shared slot (#21917) failed because its holder sat
-    # queued on Blacksmith before the warm runner existed: every other route
-    # (Blacksmith, retries, dispatch, fast, main, a missing variable) keeps a
-    # slot per run, so a rescued re-run on Blacksmith never holds this slot.
-    # report-nightly-failure drops a build replaced here before it started.
+    # One build slot per run: a newer nightly-next push builds alongside an
+    # older one and never replaces it while it waits. A shared warm slot
+    # ('nightly-next-build-app-warm', 2026-10-19) evicted waiting builds, which
+    # the nightly rule forbids, and once its holder sat on a dead label
+    # (2026-10-26: blacksmith-12vcpu-macos-26 served nothing for 7 h) every
+    # newer promotion waited behind it. The runner is a pool (the owned side
+    # label, then Blacksmith), so per-run builds no longer queue FIFO on one
+    # host. The feeds stay ordered at publication: publish-nightly's
+    # check-build recheck refuses a build no newer than both feeds.
     concurrency:
-      group: ${{ github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && vars.CI_SIDE_LANE_RUNNER != '' && 'nightly-next-build-app-warm' || format('nightly-build-app-{0}', github.run_id) }}
+      group: ${{ format('nightly-build-app-{0}', github.run_id) }}
       cancel-in-progress: false
     outputs:
       daemon_build: ${{ steps.resume.outputs.build || steps.remote_daemon.outputs.build }}
@@ -6152,14 +6146,14 @@ jobs:
     if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && (needs.decide.outputs.notary_paused != 'true' || needs.legacy-identity-target.outputs.action == 'continue') && needs.legacy-identity-target.result == 'success' && needs.legacy-identity-target.outputs.build != '' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
     continue-on-error: true
     environment: release-next
-    # One signing attempt at a time across runs (a nightly_next_continue_only
-    # run has its own workflow group). publish-nightly-identity-legacy writes the
-    # old feed under its own group. Accepted race (cx-vws1x): a newer run's
-    # signing job can start while this run's publish job is still pending, and
-    # then submits the same build to Apple again; the publish job's order check
-    # keeps the old feed right, the extra submission only costs Apple time.
+    # One signing slot per run: a newer run signs alongside an older one and
+    # never replaces its waiting signer (a shared group evicted pending
+    # signers, which the nightly rule forbids). Two runs can then submit the
+    # same build to Apple; the "Skip a build the old feed already has" step
+    # here and the publish job's order check keep the old feed right, and the
+    # extra submission only costs Apple time (cx-vws1x).
     concurrency:
-      group: nightly-next-legacy-identity
+      group: nightly-next-legacy-identity-${{ github.run_id }}
       cancel-in-progress: false
     # Signs and notarizes only. It holds signing and notarization secrets, so
     # it runs no bundle code: verify-nightly-identity-legacy statically verifies
@@ -6723,8 +6717,12 @@ jobs:
     if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && (needs.decide.outputs.notary_paused != 'true' || needs.legacy-identity-target.outputs.action == 'continue') && ((needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.build == needs.legacy-identity-target.outputs.build) || (needs.publish-nightly.result == 'skipped' && needs.legacy-identity-target.outputs.action == 'continue')) && needs.legacy-identity-target.result == 'success' && needs.legacy-identity-target.outputs.build != '' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off' && needs.sign-nightly-identity-legacy.result != 'cancelled'"
     continue-on-error: true
     environment: release-next
-    # One old-feed writer at a time across runs (its own group: a second
-    # pending job in the signing group would cancel the first).
+    # One old-feed writer at a time across runs. A feed writer, not a build:
+    # GitHub replacing a pending writer drops only an older run's publish in
+    # favour of a newer run's (runs reach this job in tip order, and its order
+    # check refuses a build the feed already has or passed), so no newer build
+    # waits behind it. tests/test_nightly_delivery_concurrency.py lists the
+    # writer groups allowed to be shared.
     concurrency:
       group: nightly-next-legacy-identity-publish
       cancel-in-progress: false
