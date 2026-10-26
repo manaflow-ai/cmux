@@ -53,6 +53,19 @@ Sessions (--sessions):
                 value under the field's noise floor counts as the floor, `:floor` on the field). A row whose two
                 sessions did not both run uBlock Origin, or whose Chrome pages are not tabs-static's shape, is
                 `unequal`: reported, not judged; --gate refuses a failed or unequal chrome-static run.
+  power-visible the launch pane with 1 shown static Chromium tab and nothing else, settled 120 s, its window's power
+                attributed (scripts/perf-bench/power_attribution.py, p14-energy-096): per process own + billed -
+                serviced energy, split per thread by CPU time, summed into owners `<kind>/<thread>`, `<kind>/billed`
+                and `<kind>/serviced` that must sum to within 10% of the app's coalition total; WindowServer's own
+                energy (with `sudo -n`); unnamed threads summed per kind (`<kind>/unnamed threads`), and while that
+                is >= 2 mW a stack sample of the process with the most of it names its threads; the FrameClients
+                that ticked (debug.wakeups `frame` ledger owners and FrameScheduler frames) and the infinite Core
+                Animation loops and playing video layers at both ends (debug.layers `frame_sources`). Reported, not
+                judged: no budget row.
+  chrome-power-visible  the same 1 tab in the chrome-static browser, attributed the same way. With both sessions
+                measured, POWER-OVER lines list each owner group >= 2 mW (Chrome's kinds: the app and cef-host are
+                `browser`) that spends more than Chrome's same group, or that Chrome does not have: reported, not
+                judged.
 
 Per window the report also has, per session: `energy_mw` (CPU and billed energy, summed per kind and over the
 tree), `assertions` (`pmset -g assertions` held by or created for a pid of the set), `saver` (asked by the
@@ -96,48 +109,26 @@ Use (fleet only, a host with a GUI console session; never on a laptop in use):
 
 Output: one `IDLE-BUDGET-MACHINE {json}` line, one `IDLE-BUDGET-ROW {json}` line per session and process
 kind, IDLE-BUDGET-ENERGY / -STATE / -ASSERTION / -ANIM / -CHROME lines, IDLE-BUDGET-REFUSED for a saver mismatch, an
-unread rAF rate or a failed or unequal chrome-static, IDLE-BUDGET-THERMAL for a marked session, a Markdown table,
-and --json with every sample.
+unread rAF rate or a failed or unequal chrome-static, IDLE-BUDGET-THERMAL for a marked session, IDLE-BUDGET-FRAME-CLIENTS
+when the build has debug.wakeups, POWER-BREAKDOWN / -OWNER / -UNNAMED / -WINDOWSERVER for the power sessions and
+POWER-OVER <owner> <mW>, a Markdown table, and --json with every sample.
 """
-import argparse, ctypes, fnmatch, hashlib, json, os, platform, plistlib, re, shutil, subprocess, sys, threading, time
+import argparse, fnmatch, hashlib, json, os, platform, plistlib, re, shutil, subprocess, sys, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "perf-bench"))
 import procs  # noqa: E402  (process set of one app: descendants, bundle processes, responsible XPC processes)
 import tab_pages  # noqa: E402  (the tab-page server and the Chromium process classifier)
+import power_attribution  # noqa: E402  (who spends the idle power: owners, breakdown, POWER-OVER)
 
 BUDGET_FILE = os.path.join(HERE, "idle-budget.json")
 STRESS_FILE = os.path.join(HERE, "perf-stress-session.py")
 
 # ---------------------------------------------------------------------------------------------------------
-# Per-thread counters (libproc, same user, no root)
+# Per-thread counters (libproc, same user, no root): {thread id: (cpu ns, name)} of a pid now, {} when it is gone
 
-PROC_PIDLISTTHREADIDS = 28
-PROC_PIDTHREADID64INFO = 15
-
-
-class _ThreadInfo(ctypes.Structure):
-    _fields_ = [("user_time", ctypes.c_uint64), ("system_time", ctypes.c_uint64), ("cpu_usage", ctypes.c_int32),
-                ("policy", ctypes.c_int32), ("run_state", ctypes.c_int32), ("flags", ctypes.c_int32),
-                ("sleep_time", ctypes.c_int32), ("curpri", ctypes.c_int32), ("priority", ctypes.c_int32),
-                ("maxpriority", ctypes.c_int32), ("name", ctypes.c_char * 64)]
-
-
-def threads(pid):
-    """{thread id: (cpu ns, name)} of `pid` now; {} when it is gone."""
-    libproc = procs._darwin().libproc
-    ids = (ctypes.c_uint64 * 8192)()
-    size = libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(PROC_PIDLISTTHREADIDS), ctypes.c_uint64(0),
-                                ctypes.byref(ids), ctypes.c_int(ctypes.sizeof(ids)))
-    out = {}
-    for index in range(max(0, size) // 8):
-        info = _ThreadInfo()
-        got = libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(PROC_PIDTHREADID64INFO), ctypes.c_uint64(ids[index]),
-                                   ctypes.byref(info), ctypes.c_int(ctypes.sizeof(info)))
-        if got == ctypes.sizeof(info):
-            out[ids[index]] = (info.user_time + info.system_time, info.name.decode(errors="replace"))
-    return out
+threads = power_attribution.thread_cpu
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -230,27 +221,39 @@ def saver_state(reply):
     return saver, policy.get("reason") or inputs.get("reason")
 
 
-def measure(app, instance, seconds, read_anim=None):
+def measure(app, instance, seconds, read_anim=None, attribute=False):
     """Counters of every process of the app over `seconds` with no input. The window's end reads (window_end) sit
-    outside every counter bracket, the app's own counters included, so the bench's reads are never counted."""
+    outside every counter bracket, the app's own counters included, so the bench's reads are never counted. With
+    `attribute`, `power` has the window's power owners: power_attribution.PowerWindow's subprocesses (ps, sudo)
+    run before `first` and after `last`, outside this bracket and its own; only its libproc reads sit inside."""
     pids = process_set(instance)
     start = window_end(app, pids, read_anim)
+    window = power_attribution.PowerWindow(instance.pid, lambda: process_set(instance), kind) if attribute else None
+    if window:
+        window.prepare()
     time.sleep(QUIET_GAP_S)  # bench: the start reads' aftermath (the page's POST, the RPC's reply) ends before the counters
     hangs0 = read_rpc(app, "debug.hangs", {"limit": 0})
     ledger0 = read_rpc(app, "debug.wakeups")
+    sources0 = frame_sources(app) if attribute else None
     counters0 = app_counters(app)
     first = snapshot(pids)
     gpu0 = procs.gpu_ns_by_pid()
+    if window:
+        window.begin()
     coalition0 = procs.coalition_of(instance.pid)
     began = time.monotonic()
     time.sleep(seconds)  # bench: the idle window itself (nothing is sent to the app in it)
     elapsed = time.monotonic() - began
     coalition1 = procs.coalition_of(instance.pid)
+    if window:
+        window.end()
     gpu1 = procs.gpu_ns_by_pid()
     last_pids = process_set(instance)
     last = snapshot(last_pids)
+    power = window.finish() if window else None
     hangs1 = read_rpc(app, "debug.hangs", {"limit": 0})
     ledger1 = read_rpc(app, "debug.wakeups", {"run_loop": True})
+    sources1 = frame_sources(app) if attribute else None
     counters1 = app_counters(app)
     end = window_end(app, last_pids, read_anim)
     rows = process_rows(first, last, elapsed, gpu0, gpu1, kind)
@@ -261,6 +264,11 @@ def measure(app, instance, seconds, read_anim=None):
     owners = ledger_rates(ledger0, ledger1, elapsed)
     if owners is not None:
         result["ledger"] = owners
+    if owners is not None or attribute:
+        result["frame_clients"] = power_attribution.frame_clients(ledger0, ledger1, elapsed,
+                                                                  (sources0, sources1) if attribute else None)
+    if power is not None:
+        result["power"] = power_attribution.attribute(power)
     rates = {key: round((counters1[key] - counters0[key]) / elapsed, 3) for key in counters1
              if key in counters0 and counters1[key] != counters0[key]}
     if rates:
@@ -268,6 +276,13 @@ def measure(app, instance, seconds, read_anim=None):
     if ledger1.get("main_run_loop"):
         result["main_run_loop_timers"] = run_loop_timers(ledger1["main_run_loop"])
     return result
+
+
+def frame_sources(app):
+    """The app's frame sources no FrameScheduler sees (debug.layers `frame_sources`: infinite Core Animation loops
+    and playing video layers per owner view), or None when the build does not report them."""
+    got = read_rpc(app, "debug.layers", {"frame_sources": True}).get("frame_sources")
+    return got if isinstance(got, dict) else None
 
 
 def snapshot(commands):
@@ -509,6 +524,10 @@ def summarize(session, result, budget):
              "thermal": {"start": start.get("thermal"), "end": end.get("thermal"), "worst": thermal, "marked": marked}}
     if spec.get("anim"):
         entry["anim"] = anim_rate(start.get("anim"), end.get("anim"))
+    if spec.get("power"):
+        # A power session is reported, never judged: it has no budget row, and the default kinds are not its budget.
+        entry["over"], entry["not_judged"] = [], []
+        return entry
     entry["over"] = [list(o) for o in over_budget(session, kinds, budget, window_facts(entry))]
     entry["not_judged"] = sum_notes(session, kinds, budget)
     return entry
@@ -1003,7 +1022,7 @@ def judge_across(report, budget, chrome_asked=False):
     if chrome:
         chrome["parity"] = {}
         for name, kinds in measured.items():
-            if name != CHROME_SESSION:
+            if not SESSIONS.get(name, {}).get("chrome"):
                 chrome["parity"][name], unequal[name] = chrome_unequal(kinds, chrome)
         report["chrome"] = chrome
     overs, notes = cross_overs(budget, measured, unequal)
@@ -1205,10 +1224,16 @@ FREEZE_HIDDEN_TABS_S = 30
 FREEZE_GRACE_S = 15
 TABS_CONFIG = {"browser": {"freezeHiddenTabs": FREEZE_HIDDEN_TABS_S}}
 TABS_STATIC = {"webkit_hidden": 5, "chromium_hidden": 10, "shown": "static"}
+# The power sessions (p14-energy-096): one shown static Chromium tab and nothing else, in cmux and in the reference
+# browser, every owner of the window's power attributed; settled past Chromium's two minutes of post-load work.
+ONE_TAB = {"webkit_hidden": 0, "chromium_hidden": 0, "shown": "static"}
+POWER_SESSION, CHROME_POWER_SESSION = "power-visible", "chrome-power-visible"
+POWER_SETTLE_S = 120
 # The sessions (the docstring describes each). Keys: config (adds to BASE_CONFIG: session_config), hide, minimize,
 # stress, static (STRESS without its rAF spinner), tabs (build_tabs's plan), settle_min (seconds), saver (the energy
 # saver state the session asks for; --gate refuses a window that shows another), anim (read the animated page's rAF
-# count at both ends).
+# count at both ends), power (attribute the window's power: power_attribution), chrome (the reference browser with
+# the session's tabs).
 SESSIONS = {
     "light": {},
     "light-webkit": {"config": {"browser": {"defaultEngine": "webkit"}}},
@@ -1219,8 +1244,10 @@ SESSIONS = {
     "tabs-static": {"config": TABS_CONFIG, "tabs": TABS_STATIC, "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S},
     "energy-saver": {"config": {**TABS_CONFIG, "energy": {"saver": "always"}}, "tabs": {**TABS_STATIC, "shown": "anim"},
                      "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S, "saver": True, "anim": True},
-    # The reference (run_chrome_static): tabs-static's pages in a Chromium, settled as long as tabs-static.
-    CHROME_SESSION: {"chrome": True, "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S},
+    # The references (run_chrome_static): the cmux session's pages in a Chromium, settled as long as it.
+    CHROME_SESSION: {"chrome": True, "tabs": TABS_STATIC, "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S},
+    POWER_SESSION: {"tabs": ONE_TAB, "power": True, "settle_min": POWER_SETTLE_S},
+    CHROME_POWER_SESSION: {"chrome": True, "tabs": ONE_TAB, "power": True, "settle_min": POWER_SETTLE_S},
 }
 
 
@@ -1274,18 +1301,21 @@ def build_template(browser, template, settle):
     return True
 
 
-def run_chrome_static(opts, out):
-    """The chrome-static entry: the --chrome-app browser through xbench's launcher (an APFS clone of a template
-    profile keyed on the browser build and uBlock Origin, --user-data-dir, xbench's switches, tabs over CDP
-    /json/new) with tabs-static's tab_plan pages from the shared page server in its order, every page loaded, the
-    last shown, and the uBlock Origin the cmux app bundles; settled and measured as the cmux sessions are, its processes
-    classified by chrome_kind. Raises before launch when the browser cannot run that uBlock Origin."""
+def run_chrome_static(opts, out, session=CHROME_SESSION):
+    """A reference session (chrome-static, chrome-power-visible): the --chrome-app browser through xbench's launcher
+    (an APFS clone of a template profile keyed on the browser build and uBlock Origin, --user-data-dir, xbench's
+    switches, tabs over CDP /json/new) with the session's tab_plan pages (tabs-static's for chrome-static) from the
+    shared page server in its order, every page loaded, the last shown, and the uBlock Origin the cmux app bundles;
+    settled and measured as the cmux sessions are, its processes classified by chrome_kind; a `power` session's
+    window attributed as a cmux one is (`power`). Raises before launch when the browser cannot run that uBlock
+    Origin."""
     import xbench  # scripts/perf-bench (on sys.path): the Chrome launcher the cross-browser bench uses
+    spec = SESSIONS[session]
     bundle = os.path.abspath(opts.chrome_app)
     if not os.path.isdir(bundle):
-        raise RuntimeError(f"{CHROME_SESSION}: no {bundle}")
+        raise RuntimeError(f"{session}: no {bundle}")
     if procs.main_pid(bundle):
-        raise RuntimeError(f"{CHROME_SESSION}: {bundle} is already running; its processes would be measured too")
+        raise RuntimeError(f"{session}: {bundle} is already running; its processes would be measured too")
     with open(os.path.join(bundle, "Contents/Info.plist"), "rb") as handle:
         info = plistlib.load(handle)
     bundle_id, version = info.get("CFBundleIdentifier"), xbench.bundle_version(bundle)
@@ -1295,14 +1325,14 @@ def run_chrome_static(opts, out):
     if manifest:
         refusal = reference_refusal(bundle_id, version, manifest)
         if refusal:
-            raise RuntimeError(f"{CHROME_SESSION}: {refusal}; pass --chrome-app a Chromium that runs MV2 "
+            raise RuntimeError(f"{session}: {refusal}; pass --chrome-app a Chromium that runs MV2 "
                                "(ungoogled-chromium of cmux's Chromium major)")
     chrome_version = (manifest or {}).get("version")
-    work = os.path.join(out, CHROME_SESSION)
+    work = os.path.join(out, CHROME_SESSION)  # the keyed template profile, shared by every reference session
     helper = xbench.Helper(opts.chrome_helper_cache)
     pages = IdlePages()
     browser = xbench.ChromiumBrowser("chrome", bundle, helper, None, extensions=[ublock] if manifest else [])
-    profile = os.path.join(work, "run")
+    profile = os.path.join(out, session, "run")
     try:
         template = os.path.join(work, "template-" + template_key(bundle, version, ublock if manifest else None,
                                                                  chrome_version))
@@ -1312,36 +1342,50 @@ def run_chrome_static(opts, out):
         browser.ready()
         # DevTools answers before the startup browser opens its first tab (the handler starts in
         # PreMainMessageLoopRun, StartupBrowserCreator opens the window after it): wait for that tab, then every
-        # page that is not one of tabs-static's closes, as xbench's adopt_first does.
+        # page that is not one of the session's closes, as xbench's adopt_first does.
         wait_for(lambda: browser.pages(), 30, "no startup page target")
-        # tabs-static's own plan and pages, in its order; each new tab is selected, so the last one is shown.
-        plan = tab_plan(pages, TABS_STATIC)
+        # The session's own plan and pages, in its order; each new tab is selected, so the last one is shown.
+        plan = tab_plan(pages, spec["tabs"])
         urls = [url for _engine, url, _key in plan]
         for _engine, url, key in plan:
             browser.new_tab(url, key)
             if not pages.wait_loaded(key, 90):
-                raise SessionShapeError(f"{CHROME_SESSION}: tab {url} did not load in 90 s")
+                raise SessionShapeError(f"{session}: tab {url} did not load in 90 s")
         for target in browser.pages():
             if target.get("url") not in urls:
                 browser.close(target["id"])
         browser.activate(browser.tabs[-1])
-        settle = settle_seconds(CHROME_SESSION, opts.settle)
+        settle = settle_seconds(session, opts.settle)
         time.sleep(settle)  # bench: the pages settle and hidden tabs pass Chrome's background throttling
+        # As measure: PowerWindow's subprocesses before `first` and after `last`, its libproc reads around the sleep.
+        window = (power_attribution.PowerWindow(browser.instance.pid, browser.instance.pids, chrome_kind)
+                  if spec.get("power") else None)
+        if window:
+            window.prepare()
         first = snapshot(browser.instance.pids())
         gpu0 = procs.gpu_ns_by_pid()
+        if window:
+            window.begin()
         began = time.monotonic()
         time.sleep(opts.measure)  # bench: the idle window itself (nothing is sent to Chrome in it)
         elapsed = time.monotonic() - began
+        if window:
+            window.end()
         gpu1 = procs.gpu_ns_by_pid()
         last = snapshot(browser.instance.pids())
+        power = window.finish() if window else None
         targets = browser.extension_targets()
         page_targets = len(browser.pages())
         result = {"seconds": round(elapsed, 1), "processes": process_rows(first, last, elapsed, gpu0, gpu1, chrome_kind)}
+        if power is not None:
+            # Named while the browser still runs: a stack sample of each process with an unnamed owner over the floor.
+            result["power"] = name_power_owners(power_attribution.attribute(power), opts.sample, os.path.join(out, session))
         visibility = dict(pages.visibility)
         running = any(t.get("url", "").startswith(f"chrome-extension://{UBLOCK_ID}/") for t in targets)
         chrome = {"app": bundle, "bundle_id": bundle_id, "version": version, "build": info.get("CFBundleVersion"),
                   "switches": browser.switches(), "settle_s": settle, "template_built": built,
-                  "pages": {"tabs": len(urls), "page_targets": page_targets, "shown": 1, "set": "tabs-static",
+                  "pages": {"tabs": len(urls), "page_targets": page_targets, "shown": 1,
+                            "set": "tabs-static" if session == CHROME_SESSION else session,
                             "loaded": len(pages.loaded), "visibility": visibility},
                   "ublock": {"cmux_version": manifest_version(cmux_ublock), "chrome_version": chrome_version,
                              "running": running},
@@ -1355,21 +1399,75 @@ def run_chrome_static(opts, out):
 
 
 def chrome_static_entry(opts, out, session, markdown):
-    """Runs chrome-static and prints its rows; a failure is recorded as a cmux session's failure is."""
+    """Runs a reference session (run_chrome_static) and prints its rows; a failure is recorded as a cmux session's
+    failure is."""
     try:
-        entry = run_chrome_static(opts, out)
+        entry = run_chrome_static(opts, out, session)
         entry["kinds"] = aggregate(entry["result"])
         entry["over"] = []
         entry["exit"] = 0
         for name, values in entry["kinds"].items():
             print("IDLE-BUDGET-ROW " + json.dumps({"session": session, "kind": name, **values}), flush=True)
         print("IDLE-BUDGET-CHROME " + json.dumps({k: v for k, v in entry["chrome"].items() if k != "switches"}), flush=True)
-        markdown.append(table(session, entry["kinds"], []))
+        if entry["result"].get("power"):
+            entry["power"] = entry["result"]["power"]
+            for line in power_attribution.report_lines(session, entry["power"]):
+                print(line, flush=True)
+        markdown.append(table(session, entry["kinds"], []) + power_table(entry.get("power")))
     except Exception as error:  # noqa: BLE001 - as a cmux session's failure: recorded, the others still run
         entry = {"exit": 1, "error": f"{type(error).__name__}: {error}"[:500]}
         print(f"IDLE-BUDGET-SESSION-FAILED {session} exit=1 {entry['error'][:300]}", flush=True)
         markdown.append(f"\n### {session}\n\nnot measured: {entry['error'][:300]}")
     return entry
+
+
+def name_power_owners(power, sample_seconds, folder, samples=None, sampler=None):
+    """Names the unnamed thread owners at or above the floor from one stack sample of each process that has one
+    (`samples`: {pid: text} already taken, as the app's after its window; `sampler` defaults to /usr/bin/sample);
+    returns `power`. No new sample with `sample_seconds` 0. The process with the most unnamed thread mW goes
+    first, and sampling stops once no `unnamed threads` owner at or above the floor is left."""
+    sampler = sampler or power_attribution.sample_text
+    tried = set()
+    while True:
+        weight = {}
+        for entry in power_attribution.unnamed(power["owners"]):
+            for thread in entry.get("threads") or []:
+                if thread["pid"] not in tried:
+                    weight[thread["pid"]] = weight.get(thread["pid"], 0.0) + thread["mw"]
+        if not weight:
+            return power
+        pid = max(sorted(weight), key=weight.get)
+        tried.add(pid)
+        text = (samples or {}).get(pid)
+        if text is None and sample_seconds:
+            os.makedirs(folder, exist_ok=True)
+            text = sampler(pid, sample_seconds, os.path.join(folder, f"sample-power-{pid}.txt"))
+        if text:
+            power_attribution.name_threads(power["owners"], pid, power_attribution.sample_labels(text))
+
+
+def power_table(power, floor=power_attribution.FLOOR_MW):
+    """The session's power owners under its process table (empty without `power`)."""
+    if not power:
+        return ""
+    got = power["breakdown"]
+    lines = [f"\n\npower owners: sum {got['sum_mw']} mW of {got['total_mw']} mW measured (ratio {got['ratio']}, "
+             f"within {power_attribution.TOLERANCE:.0%}: {got['within']}); WindowServer {power['window_server']}\n",
+             "| owner | mW | named |", "|---|---|---|"]
+    lines += [f"| {e['owner']} | {e['mw']} | {'yes' if e['named'] else '**no**'} |" for e in power["owners"]
+              if abs(e["mw"]) >= floor]
+    return "\n".join(lines)
+
+
+def power_overs(report):
+    """POWER-OVER rows (power_attribution.power_over) of power-visible against chrome-power-visible, when both have
+    an attributed window; None when either is missing (nothing to compare)."""
+    sessions = report["sessions"]
+    mine = (sessions.get(POWER_SESSION) or {}).get("power")
+    reference = (sessions.get(CHROME_POWER_SESSION) or {}).get("power")
+    if not mine or not reference:
+        return None
+    return power_attribution.power_over(mine["owners"], reference["owners"])
 
 
 def chrome_reference(report):
@@ -1633,12 +1731,25 @@ def main(argv=None):
             if mismatch:
                 print(f"IDLE-BUDGET-DRAW-MISMATCH {session}: {mismatch}", flush=True)
             window_before = window_state(app)
-            result = measure(app, instance, opts.measure, pages.read_anim if spec.get("anim") else None)
+            result = measure(app, instance, opts.measure, pages.read_anim if spec.get("anim") else None,
+                             attribute=spec.get("power", False))
             result["window_state"] = {"start": window_before, "end": window_state(app)}
             print(f"IDLE-BUDGET-WINDOW {session} " + json.dumps(result["window_state"]), flush=True)
+            app_sample = os.path.join(out, session, "sample-app.txt")
             if opts.sample:
-                result["sample"] = sample_threads(app.process.pid, opts.sample, os.path.join(out, session, "sample-app.txt"))
+                result["sample"] = sample_threads(app.process.pid, opts.sample, app_sample)
+            if result.get("power"):
+                # Named while the app runs: the app's sample above, and one sample of each other process with an
+                # unnamed owner over the floor.
+                taken = {app.process.pid: open(app_sample, errors="replace").read()} if os.path.exists(app_sample) else {}
+                name_power_owners(result["power"], opts.sample, os.path.join(out, session), samples=taken)
             entry.update(summarize(session, result, budget))
+            if result.get("power"):
+                entry["power"] = result["power"]
+                for line in power_attribution.report_lines(session, entry["power"]):
+                    print(line, flush=True)
+            if result.get("frame_clients"):
+                print(f"IDLE-BUDGET-FRAME-CLIENTS {session} " + json.dumps(result["frame_clients"]), flush=True)
             kinds, overs, notes = entry["kinds"], [tuple(o) for o in entry["over"]], entry["not_judged"]
             for name, values in kinds.items():
                 print("IDLE-BUDGET-ROW " + json.dumps({"session": session, "kind": name, **values}), flush=True)
@@ -1675,7 +1786,8 @@ def main(argv=None):
             if entry["thermal"]["marked"]:
                 print(f"IDLE-BUDGET-THERMAL {session} rows taken at {entry['thermal']['worst']}: not comparable", flush=True)
             all_overs += [(session, *o) for o in overs]
-            markdown.append(table(session, kinds, overs, entry) + "\n\n" + coalition_line(result.get("coalition")))
+            markdown.append(table(session, kinds, overs, entry) + "\n\n" + coalition_line(result.get("coalition"))
+                            + power_table(entry.get("power")))
             print(f"IDLE-BUDGET-COALITION {session} " + json.dumps(result.get("coalition")), flush=True)
             entry["exit"] = 0
         except BaseException as error:  # noqa: BLE001 - one session's failure (a STRESS shape refusal, a launch
@@ -1706,6 +1818,14 @@ def main(argv=None):
             [f"- {over_line(session, over)}" for session, over in cross] + [f"- {note}" for note in cross_notes]))
     if report.get("ratio_to_chrome"):
         markdown.append(ratio_table(report["ratio_to_chrome"]))
+    over_power = power_overs(report)
+    if over_power is not None:
+        # Q9's work list for visible power (p14-energy.md): reported, never a budget over (D6 judges the total).
+        report["power_over"] = over_power
+        lines = power_attribution.over_lines(over_power)
+        for line in lines:
+            print(line, flush=True)
+        markdown.append(f"\n### {POWER_SESSION} over {CHROME_POWER_SESSION}\n\n" + ("\n".join(f"- {l}" for l in lines) or "none"))
     report["over"] = [list(o) for o in all_overs]
     report["refused"] = refused
     report["session_exits"] = {name: entry.get("exit") for name, entry in report["sessions"].items()}

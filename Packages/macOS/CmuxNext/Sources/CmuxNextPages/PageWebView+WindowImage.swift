@@ -1,5 +1,4 @@
 public import AppKit
-import ImageIO
 
 /// What a window image (`debug.window_snapshot`, `cmux window screenshot`) needs of the React
 /// pages a window shows on the Chromium engine. Chromium's GPU process draws such a page into its
@@ -10,12 +9,9 @@ extension PageWebView {
     /// The page as Chromium drew it (`Page.captureScreenshot`); nil on a WebKit page or when
     /// Chromium gives no image.
     public func chromiumImage() async -> CGImage? {
-        guard let page = chromiumSession?.page,
-              let json = try? await page.devTools("Page.captureScreenshot", params: ["format": "png"]),
-              let object = ChromiumPageHostWire.object(json), let base64 = object["data"] as? String,
-              let png = Data(base64Encoded: base64),
-              let source = CGImageSourceCreateWithData(png as CFData, nil) else { return nil }
-        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+        guard let session = chromiumSession,
+              let json = try? await session.page.devTools("Page.captureScreenshot", params: ["format": "png"]) else { return nil }
+        return await Self.capturedPageImage(json, on: session.work)
     }
 }
 

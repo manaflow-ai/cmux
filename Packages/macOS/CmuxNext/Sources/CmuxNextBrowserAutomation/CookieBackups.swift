@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CryptoKit
 public import Foundation
 import Security
@@ -160,7 +161,7 @@ public nonisolated struct CookieBackups: Sendable {
     private func record(_ url: URL, key: SymmetricKey) -> [String: Any]? {
         let id = Self.restorePrefix + url.deletingPathExtension().lastPathComponent
         guard let data = FileManager.default.contents(atPath: url.path), let plain = try? open(data, id: id, key: key) else { return nil }
-        return try? JSONSerialization.jsonObject(with: plain) as? [String: Any]
+        return try? JSONSerialization.blockingJSONObject(with: plain) as? [String: Any]
     }
 
     /// Whether a backed-up cookie (`expires` in seconds since 1970, -1 for a

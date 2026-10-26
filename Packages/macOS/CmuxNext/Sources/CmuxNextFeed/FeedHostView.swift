@@ -47,6 +47,26 @@ public final class FeedHostView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    /// The reports basket holds a reply typed and not sent. It lives only in the basket's view; the
+    /// inbox's drafts live in the model and outlive this view.
+    public var hasTypedReply: Bool { reportsBasket.map { !$0.draft.isEmpty } ?? false }
+    /// The reports basket waits on a reply it sent: the retry of a reply that failed keeps its id in
+    /// the basket's view.
+    public var isSendingReply: Bool { reportsBasket.map { !$0.sending.isEmpty } ?? false }
+
+    /// The reports basket this host shows, if it shows one (first found, breadth first).
+    var reportsBasket: ReportsBasketView? {
+        var queue: [NSView] = [self]
+        var index = 0
+        while index < queue.count {
+            let next = queue[index]
+            index += 1
+            if let basket = next as? ReportsBasketView { return basket }
+            queue.append(contentsOf: next.subviews)
+        }
+        return nil
+    }
+
     nonisolated public override var wantsUpdateLayer: Bool { true }
 
     public override func updateLayer() {

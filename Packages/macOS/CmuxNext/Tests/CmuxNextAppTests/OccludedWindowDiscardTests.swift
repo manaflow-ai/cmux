@@ -4,6 +4,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextEnergy
 import CmuxNextHibernation
 import CmuxNextSettings
 import Foundation

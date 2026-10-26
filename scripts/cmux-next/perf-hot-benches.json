@@ -2,7 +2,7 @@
   "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after; never add it to CI.",
   "paths": {
     "cef-host-input": {
-      "what": "one input event forwarded to the Chromium host app (prototype, browserHost.helperPrototype): encode and one non-blocking write",
+      "what": "one input event forwarded to the Chromium host app (prototype, browserHost.helper): encode and one non-blocking write",
       "bench": "scripts/cmux-next/chromium-host-bench.py (hop_us, ping_us)",
       "owner": "PL-cef-helper"
     },
@@ -75,6 +75,11 @@
       "what": "new terminal or Chromium tab to its first frame",
       "bench": "scripts/cmux-next/instant-new-surfaces-bench.py",
       "owner": "PL-cef-tab"
+    },
+    "action-perform": {
+      "what": "every ActionRegistry.perform turn's oracle hook: one nil check of the registry's immutable turnObserver (Release), or the depth count and one ActionRunObserver call at the end of the outermost turn (DEV, bench)",
+      "bench": "scripts/cmux-next/action-perform-ab.py run --base BASE_SHA --head HEAD_SHA (ActionPerformBench at both SHAs alternately on one host: what Release adds over the base per perform, 95% interval over paired runs), and CMUX_ORACLE_TURNS_BENCH=1 swift test -c release -Xswiftc -DCMUX_BENCH_HOOKS --filter OracleActionTurnsBench (the disarmed OracleActionTurns against no observer, interleaved rounds), on macOS 26 and 27",
+      "owner": "p15-oracle"
     },
     "action-budget": {
       "what": "every action run's always-on budget record: two clock reads and one ring-slot write (ActionBudgetMonitor.record)",

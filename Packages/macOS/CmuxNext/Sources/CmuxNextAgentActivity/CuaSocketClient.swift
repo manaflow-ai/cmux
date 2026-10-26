@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The local CUA host socket: each request writes a line out, reads one reply
@@ -18,7 +19,7 @@ public struct CuaSocketClient: Sendable {
         let data = try await AgentActivityLineConnection.oneShot(path: configuration.socketPath, send: line,
                                                                  deadline: deadline,
                                                                  acceptsServer: CuaHelperIdentity.isHelperServer)
-        guard let reply = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        guard let reply = try JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else {
             throw AgentActivitySourceError.malformed
         }
         guard reply["ok"] as? Bool == true else {

@@ -8,19 +8,19 @@ import CmuxNextWakeups
 
 /// One-shot launch event: the first live terminal frame is drawn (the
 /// first terminal content reached a surface and the frame showing it
-/// committed), or the daemon is unavailable so no terminal will draw.
+/// committed), or the daemon is unavailable so no terminal will draw. It
+/// reveals the pane region and ends the agent pages' warm-up page.
 ///
-/// Deferrable warm-up work waits for it, so it never runs in an idle
-/// moment between the first window and its first terminal: the palette's
-/// warm-up steps (15-40 ms each on the main thread) used to run there,
-/// while the presentation scheduler waited one display frame to create the
-/// first surface, and delayed that surface and its first frame. A launch
-/// whose first window shows no terminal never settles; the palette then
-/// does its first-open work when it first opens, as without warm-up.
+/// Deferrable warm-up work (the palette's steps, 15-40 ms each on the main
+/// thread) is an afterStartup post of the launch's `StartupScheduler`, which
+/// completes only once the visible page loaded and the launch images went, so
+/// it never runs between the first window and its first content (p08-startup
+/// task 016). The control socket still starts at ``settled(within:images:)``
+/// until task 019 binds it off main.
 @MainActor
 final class LaunchSettle {
-    private var waiters: [@MainActor () -> Void] = []
     private(set) var isSettled = false
+    private var waiters: [@MainActor () -> Void] = []
     private var unavailableWatch: Task<Void, Never>?
     /// The launch load-in: the pane region comes in on the first terminal
     /// frame, and everything shows if the daemon is unavailable.
@@ -28,51 +28,66 @@ final class LaunchSettle {
     /// The restore's and the visible panes' startup refs (p08-startup task 013), made at the root.
     let paneRefs: VisiblePaneRefs
     private var sawTerminalContent = false
+    /// The clock of ``settled(within:images:)``'s limit.
+    private let clock: any Clock<Duration>
+    /// The agent pages' WebKit warm-up, whose empty page goes at the settle (``install(daemon:warmup:)``).
+    private weak var warmup: AgentPageWarmup?
 
     /// - Parameters:
     ///   - reveal: The app's launch load-in (`AppServices.launchReveal`).
     ///   - paneRefs: The startup refs a terminal's content is a content signal for.
-    init(reveal: LaunchReveal, paneRefs: VisiblePaneRefs) {
+    ///   - clock: The clock of ``settled(within:images:)``'s limit (tests pass a manual one).
+    init(reveal: LaunchReveal, paneRefs: VisiblePaneRefs, clock: any Clock<Duration> = ContinuousClock()) {
         self.reveal = reveal
         self.paneRefs = paneRefs
+        self.clock = clock
     }
 
-    /// Runs `work` once the launch settled and no agent page waits behind
-    /// its last frame (at once when both hold).
-    func whenSettled(_ work: @escaping @MainActor () -> Void) {
-        if isSettled { LaunchImageHold.shared.whenClear(work) } else { waiters.append(work) }
-    }
-
-    /// Returns once `whenSettled` work would run, or after `limit` (a launch
-    /// with no window never settles).
-    func settled(within limit: Duration) async {
+    /// Returns once the launch settled and no agent page waits behind its last
+    /// frame, or after `limit` (a launch with no window never settles). With
+    /// the daemon unavailable the launch settles at once, so only the launch
+    /// images are waited for. The control socket starts here (cx-z9kz0).
+    ///
+    /// - Parameters:
+    ///   - limit: The longest wait.
+    ///   - images: The launch's image hold (`AppDelegate.launchImageHold`).
+    func settled(within limit: Duration, images: LaunchImageHold) async {
         let (settled, done) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        let backstop = DemandTimer(owner: "LaunchSettle.settled")
+        // timer-class-allow: one launch backstop that only finishes this stream; task 019 deletes it with this wait
+        let backstop = DemandTimer(owner: "LaunchSettle.settled", clock: clock)
         backstop.schedule(after: limit) { done.finish() }
-        whenSettled { done.finish() }
+        whenSettled { images.whenClear { done.finish() } }
         for await _ in settled {}
         backstop.cancel()
     }
 
-    /// Settles (first call only) and runs the waiters in order.
+    /// Settles (first call only) and runs the ``settled(within:images:)`` waiters.
     func settle() {
         guard !isSettled else { return }
         isSettled = true
         unavailableWatch?.cancel()
         unavailableWatch = nil
-        // The agent pages' warm-up page is done: their first page made its own process by now.
-        AgentPaneView.finishWarmup()
+        // The agent pages' warm-up page goes; a warm-up still queued (afterStartup) runs later.
+        warmup?.settle()
         let waiting = waiters
-        waiters.removeAll()
-        // An agent page still loading behind its last frame paints first (LaunchImageHold).
-        LaunchImageHold.shared.whenClear { for work in waiting { work() } }
+        waiters = []
+        for work in waiting { work() }
+    }
+
+    private func whenSettled(_ work: @escaping @MainActor () -> Void) {
+        if isSettled { work() } else { waiters.append(work) }
     }
 
     /// Listens for the first terminal content (`TerminalTimings`), for the
     /// pane region becoming ready any other way (a page or an agent shown
     /// first, `PaneController`; or the reveal deadline), and for the local
     /// daemon becoming unavailable.
-    func install(daemon: DaemonService) {
+    ///
+    /// - Parameters:
+    ///   - daemon: The local daemon.
+    ///   - warmup: The agent pages' WebKit warm-up (`AppServices.agentPageWarmup`).
+    func install(daemon: DaemonService, warmup: AgentPageWarmup) {
+        self.warmup = warmup
         reveal.whenReady(.pane) { [weak self] in self?.settle() }
         TerminalTimings.onContentApplied = { [weak self] in self?.terminalContentApplied() }
         // task-owner: ends when the daemon is unavailable or the launch settled (cancelled in settle)

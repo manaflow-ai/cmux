@@ -41,6 +41,17 @@ public enum BlockingKind: String, Sendable, CaseIterable {
     /// (`DisallowUnresponsiveTasks()` also clears `AssertLongCPUWorkAllowed()`, base/threading/thread_restrictions.h):
     /// on a lane or the pool it is the work they are for, so it is never a pool or wrong-lane site.
     case cpuIntensive = "cpu-intensive"
+    /// A file system metadata call (`stat`, `lstat`, `access`, `realpath`, `chmod`, `mkdir`, `rmdir`, `rename`,
+    /// `unlink`): it waits for the volume, which on a network, FUSE or sleeping disk takes seconds.
+    case fsMetadata = "fs-metadata"
+    /// A SQLite open, prepare, step, exec, backup step or close: it reads and writes the database file and waits out
+    /// another connection's lock for the busy timeout.
+    case sqlite
+    /// A `waitpid` or `waitid` that waits for a child to exit (without `WNOHANG`).
+    case processReap = "process-reap"
+    /// A kernel or directory query (`sysctl`, `proc_pidinfo`, `proc_pidpath`, `proc_listpids`, `getpwuid`):
+    /// usually short, but it waits on a kernel lock or for opendirectoryd.
+    case systemQuery = "system-query"
 
     /// The longest contended ``Mutex`` wait the main thread may do before the detector records
     /// it (2 ms, lead decision 2026-10-24: a short critical section is allowed, as Chrome allows

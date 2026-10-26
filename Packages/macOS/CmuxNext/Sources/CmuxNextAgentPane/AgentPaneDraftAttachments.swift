@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextSettings
 import CryptoKit
 public import Foundation
@@ -69,13 +70,13 @@ public final class AgentPaneDraftAttachments {
         // A NaN or infinite number would raise, not throw.
         guard case .array = list, JSONSerialization.isValidJSONObject(object),
               let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
-        return try? JSONDecoder().decode([AgentPaneWakeState.Attachment].self, from: data)
+        return try? JSONDecoder().blockingDecode([AgentPaneWakeState.Attachment].self, from: data)
     }
 
     /// The chips as the page's JSON.
     nonisolated static func json(_ attachments: [AgentPaneWakeState.Attachment]) -> JSONValue {
         guard let data = try? JSONEncoder().encode(attachments),
-              let object = try? JSONSerialization.jsonObject(with: data) else { return .array([]) }
+              let object = try? JSONSerialization.blockingJSONObject(with: data) else { return .array([]) }
         return JSONValue(foundation: object) ?? .array([])
     }
 
@@ -94,7 +95,7 @@ public final class AgentPaneDraftAttachments {
     private nonisolated static func saved(in folder: URL) -> Saved? {
         // concurrency-allow: one small list file, read off the main actor
         guard let data = try? Data(contentsOf: folder.appending(path: listName)) else { return nil }
-        return try? JSONDecoder().decode(Saved.self, from: data)
+        return try? JSONDecoder().blockingDecode(Saved.self, from: data)
     }
 
     private nonisolated static func read(_ folder: URL, limit: Int) -> [AgentPaneWakeState.Attachment] {

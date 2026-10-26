@@ -417,7 +417,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextAgentPane",
             dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextErrorJournal", "CmuxNextActions", "CmuxNextDictation", "CmuxNextPages", "CmuxNextRemoteFetch", "CmuxNextSettings", "CmuxNextWakeups",
-                           "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts",
+                           "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextInput",
                            .product(name: "CmuxAppAttest", package: "CmuxAppAttest")],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
@@ -427,7 +427,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextAgentPaneTests",
-            dependencies: ["CmuxNextAgentPane", "CmuxNextDaemon", "CmuxNextActions", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextRemoteFetch", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics"],
+            dependencies: ["CmuxNextAgentPane", "CmuxNextDaemon", "CmuxNextActions", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextInput", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextRemoteFetch", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics"],
             swiftSettings: uiSwiftSettings
         ),
         // Dictation (the composer's mic): the on-device speech engines and
@@ -527,6 +527,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextImportSuggestions", "CmuxNextBrowserImport"],
             swiftSettings: daemonSwiftSettings
         ),
+        // Corrupted Chrome, Firefox and Safari profiles through every import reader (p10-stability-025).
+        .testTarget(
+            name: "CmuxNextBrowserImportTests",
+            dependencies: ["CmuxNextBrowserImport", "CmuxNextCompat", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
+            swiftSettings: daemonSwiftSettings
+        ),
         // The cards' center: the scan schedule, the job runner and the `import.*` actions, for
         // Settings › Import (no Home or New Tab suggestion). The App supplies `ImportCardsHost`.
         .target(
@@ -537,7 +543,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextOnboarding",
-            dependencies: ["CmuxNextDesign", "CmuxNextIcons", "CmuxNextBrowserImport", "CmuxNextTrace", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextBrowserImport", "CmuxNextTrace", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -693,7 +699,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // the per-profile page visit log (SQLite), and the cmux://history page.
         .target(
             name: "CmuxNextHistory",
-            dependencies: ["CmuxNextDesign", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -720,12 +726,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // protocol's own tests (a private copy in CmuxNextAgentPaneTests broke the test build).
         .target(
             name: "CmuxNextPagesTestSupport",
-            dependencies: ["CmuxNextPages", "CmuxNextSettings"],
+            dependencies: ["CmuxNextCompat", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextPagesTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts"],
+            dependencies: ["CmuxNextCompat", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Settings > Agents > Agent integrations: the coding-agent hooks the bundled CLI
@@ -746,7 +752,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // edit bubble.
         .target(
             name: "CmuxNextBookmarks",
-            dependencies: ["CmuxNextDesign", "CmuxNextIcons"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons"],
             resources: [
                 .process("Resources"),
             ],
@@ -758,7 +764,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // resolver and the layer host.
         .target(
             name: "CmuxNextAgentCursor",
-            dependencies: ["CmuxNextDesign", .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor")],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor")],
             swiftSettings: uiSwiftSettings
         ),
         // Agent cursor visibility (agent-cursor.md section 3, decisions
@@ -993,7 +999,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The Screenshots pane (cmux://screenshots): macOS and screenshot-tool folders, live.
         .target(
             name: "CmuxNextScreenshots",
-            dependencies: ["CmuxNextFileGrid", "CmuxNextFiles"],
+            dependencies: ["CmuxNextCompat", "CmuxNextFileGrid", "CmuxNextFiles"],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
             ],
@@ -1009,7 +1015,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // over its daemon connection); model and SwiftUI view, no daemon or AppKit types.
         .target(
             name: "CmuxNextChiefMemory",
-            dependencies: ["CmuxNextDesign"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign"],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
             ],
@@ -1096,7 +1102,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // confirmed mirror + intent log; the App supplies the source.
         .target(
             name: "CmuxNextTasks",
-            dependencies: ["CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI", "CmuxNextTrace"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI", "CmuxNextTrace"],
             resources: [
                 .process("Resources"),
             ],
@@ -1107,7 +1113,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // feed owner; the App supplies the source.
         .target(
             name: "CmuxNextFeed",
-            dependencies: ["CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -1188,7 +1194,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // projection of `server.status`. The App supplies the source.
         .target(
             name: "CmuxNextServer",
-            dependencies: ["CmuxNextDesign", "CmuxNextIcons"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons"],
             resources: [
                 .process("Resources"),
             ],
@@ -1507,6 +1513,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWireDigest",
                 // MethodTableTests counts allocations through a malloc_logger hook.
                 .product(name: "Atomics", package: "swift-atomics"),
+                // FrameFuzzTests runs on FuzzRun (seeded replay, long mode).
+                .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -1610,7 +1618,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextActions",
             // Wakeups: the main-thread task board, where an action run is published as a span so the
             // watchdog samples a run past its 10 ms budget (ActionBudgetMonitor).
-            dependencies: ["CmuxNextSignposts", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics"],
+            dependencies: ["CmuxNextCompat", "CmuxNextSignposts", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics"],
             resources: [
                 .process("AccountsActions.xcstrings"),
                 .process("ActionCatalog.xcstrings"),
@@ -1686,8 +1694,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // whole App build. libghostty needs libc++, as in CmuxNextAppTests.
         .testTarget(
             name: "CmuxNextTerminalTests",
-            // Compat for Mutex and GhosttyKit for ghostty_surface_t (TerminalOutputLaneHangScopeTests).
-            dependencies: ["CmuxNextCompat", "CmuxNextTerminal", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore",
+            // Compat for Mutex and GhosttyKit for ghostty_surface_t (TerminalOutputLaneHangScopeTests); Wakeups for
+            // the typing probe a lane marks (TerminalOutputLaneKeyFlowTests).
+            dependencies: ["CmuxNextCompat", "CmuxNextTerminal", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore", "CmuxNextWakeups",
                            .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit")],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]
@@ -1763,7 +1772,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // (plans/cmux-next/tab-lifecycle.md). Pure values; no engine, no I/O.
         .target(
             name: "CmuxNextHibernation",
-            dependencies: ["CmuxNextCompat", "CmuxNextSettings"],
+            // Wakeups: the one-shot deadline of ContentDiscardScheduler (DemandTimer).
+            dependencies: ["CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -1803,7 +1813,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The WebKit driver for the Rust browser host (plans/cmux-next/browser-host.md).
         .target(
             name: "CmuxNextBrowserAutomation",
-            dependencies: ["CmuxNextBrowser", "CmuxNextWakeups", "CmuxNextTrace"],
+            dependencies: ["CmuxNextCompat", "CmuxNextBrowser", "CmuxNextWakeups", "CmuxNextTrace"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -1939,6 +1949,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextMetrics",
                 "CmuxNextNowPlaying",
                 "CmuxNextOracle",
+                // InternalPageDiscardTests shows a page in a fake Chromium host.
+                "CmuxNextPagesTestSupport",
                 "CmuxNextPalette",
                 "CmuxNextProcessEnvironment",
                 "CmuxNextRemote",
@@ -2078,3 +2090,229 @@ let package = Package(
     ],
     targets: packageTargets,
 )
+
+#if os(Linux)
+// The Linux mode (plans/cmux-next/chrome-parity/p15-oracle.md section H): only the Linux tier scripts
+// (scripts/cmux-next/linux/) set CMUX_SWIFTPM_TARGET_LINUX. A build for an Apple platform, here or on a
+// Linux host, never sets it, so the Apple manifest above, its dump-package and Package.resolved are the
+// same with or without this block. The mode keeps the tier's targets and only the packages they use.
+// The tier is a literal in this file, never a file read: SwiftPM's manifest cache is keyed on this text.
+import Foundation
+
+if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
+    /// The Linux tier as scripts/cmux-next/linux/linux-tier.py renders it from linux-tier.json.
+    struct LinuxTier {
+        struct FFI {
+            let replaces: String
+            let target: String
+            let library: String
+            let libraryDirectory: String
+        }
+
+        struct Generated {
+            let targets: [String]
+            let testTargets: [String]
+            let products: [String]
+            let pathDependencies: [String]
+            let remoteDependencies: [String]
+            let linuxDependencies: [String: [String]]
+        }
+
+        let ffi: FFI
+        let generated: Generated
+
+        var zlibTarget: String { "CZlib" }
+        var cryptoPackage: String { "swift-crypto" }
+
+        /// SwiftPM's identity of a package location: its last path component without `.git`, lowercased.
+        func identity(_ location: String) -> String {
+            let last = location.split(separator: "/").last.map(String.init) ?? location
+            return (last.hasSuffix(".git") ? String(last.dropLast(4)) : last).lowercased()
+        }
+
+        /// The Linux-only targets the tier lists: the FFI module map in place of the xcframework, and zlib.
+        func linuxTargets(packageDirectory: String) -> [Target] {
+            var targets: [Target] = []
+            if generated.targets.contains(ffi.target) {
+                targets.append(Target.target(
+                    name: ffi.target,
+                    path: "Sources/" + ffi.target,
+                    publicHeadersPath: ".",
+                    linkerSettings: [
+                        .unsafeFlags(["-L", packageDirectory + "/" + ffi.libraryDirectory]),
+                        .linkedLibrary(ffi.library),
+                    ]
+                ))
+            }
+            if generated.targets.contains(zlibTarget) {
+                targets.append(Target.systemLibrary(name: zlibTarget, path: "Sources/" + zlibTarget))
+            }
+            return targets
+        }
+
+        /// A dependency as the Linux mode keeps it: the FFI target in place of the xcframework, nil for a
+        /// target outside the tier or a product of a package the tier does not use.
+        func linuxDependency(_ dependency: Target.Dependency, kept: Set<String>, packages: Set<String>) -> Target.Dependency? {
+            switch dependency {
+            case .targetItem(let name, let condition), .byNameItem(let name, let condition):
+                if name == ffi.replaces {
+                    return kept.contains(ffi.target) ? .target(name: ffi.target, condition: condition) : nil
+                }
+                return kept.contains(name) ? dependency : nil
+            case .productItem(_, let package, _, _):
+                return packages.contains(identity(package ?? "")) ? dependency : nil
+            @unknown default:
+                return dependency
+            }
+        }
+
+        /// The stand-ins a target's imports need on Linux (linux-tier.py reads them from its sources).
+        func standIns(of target: String) -> [Target.Dependency] {
+            (generated.linuxDependencies[target] ?? []).map { name in
+                name == zlibTarget ? .target(name: name) : .product(name: name, package: cryptoPackage)
+            }
+        }
+
+        func apply(to package: Package, crypto: Package.Dependency, packageDirectory: String) {
+            let kept = Set(generated.targets + generated.testTargets)
+            let packages = Set(generated.pathDependencies.map(identity) + generated.remoteDependencies)
+            var targets = package.targets.filter { kept.contains($0.name) }
+            for target in targets {
+                target.dependencies = target.dependencies.compactMap {
+                    linuxDependency($0, kept: kept, packages: packages)
+                } + standIns(of: target.name)
+            }
+            targets += linuxTargets(packageDirectory: packageDirectory)
+            package.targets = targets
+            package.products = package.products.filter { generated.products.contains($0.name) }
+            package.dependencies = package.dependencies.filter { dependency in
+                switch dependency.kind {
+                case .fileSystem(_, let path): packages.contains(identity(path))
+                case .sourceControl(_, let location, _): packages.contains(identity(location))
+                default: false
+                }
+            }
+            if generated.remoteDependencies.contains(cryptoPackage) {
+                package.dependencies.append(crypto)
+            }
+        }
+    }
+
+    // BEGIN linux-tier.py: generated from linux-tier.json by scripts/cmux-next/linux/linux-tier.py; do not edit.
+    let linuxTier = LinuxTier(
+        ffi: LinuxTier.FFI(
+            replaces: "CCmuxAppFFI",
+            target: "CCmuxAppFFILinux",
+            library: "cmux_app_ffi",
+            libraryDirectory: ".build-linux/ffi/lib",
+        ),
+        generated: LinuxTier.Generated(
+            targets: [
+                "CmuxNextCompat",
+                "CmuxNextTrace",
+                "CmuxNextMetrics",
+                "CmuxNextFeatures",
+                "CmuxNextSignposts",
+                "CmuxNextWakeups",
+                "CmuxNextWakeupsTestSupport",
+                "CmuxNextProcessEnvironment",
+                "CCmuxAppFFILinux",
+                "CmuxNextActions",
+                "CmuxNextDaemon",
+                "CmuxNextFocus",
+                "CmuxNextTerminalGeometry",
+                "CmuxNextCopyMode",
+                "CmuxNextTerminalFind",
+                "CmuxNextHostPressure",
+                "CmuxNextDesignTokens",
+                "CmuxNextErrorJournal",
+                "CmuxNextHangReports",
+                "CmuxNextFiles",
+                "CmuxNextBrowserImport",
+                "CmuxNextImportSuggestions",
+                "CmuxNextChromiumRuntime",
+                "CmuxNextDevices",
+                "CmuxNextVSCodeServer",
+                "CmuxNextRemoteFetch",
+                "CmuxNextBrowserCore",
+                "CmuxNextBridge",
+                "CmuxNextWorkspaceNaming",
+                "CmuxNextCloud",
+                "CmuxNextCodeRouter",
+                "CmuxNextRemote",
+                "CmuxNextMobile",
+                "CmuxNextSettings",
+                "CmuxNextControl",
+                "CmuxNextHibernation",
+                "CmuxNextWorkspaceRepair",
+                "CmuxNextKeepAwake",
+                "CmuxNextRemoteLocalhost",
+                "CmuxNextServerHelper",
+                "CmuxNextCLIInstall",
+                "CZlib",
+            ],
+            testTargets: [
+                "CmuxNextActionsTests",
+                "CmuxNextChromiumRuntimeTests",
+                "CmuxNextCodeRouterTests",
+                "CmuxNextCompatTests",
+                "CmuxNextControlTests",
+                "CmuxNextDaemonTests",
+                "CmuxNextDevicesTests",
+                "CmuxNextErrorJournalTests",
+                "CmuxNextFeaturesTests",
+                "CmuxNextFilesTests",
+                "CmuxNextHangReportsTests",
+                "CmuxNextHostPressureTests",
+                "CmuxNextImportSuggestionsTests",
+                "CmuxNextKeepAwakeTests",
+                "CmuxNextMetricsTests",
+                "CmuxNextMobileTests",
+                "CmuxNextSignpostsTests",
+                "CmuxNextTraceTests",
+                "CmuxNextVSCodeServerTests",
+                "CmuxNextWakeupsTests",
+                "CmuxNextWorkspaceRepairTests",
+            ],
+            products: [],
+            pathDependencies: [
+                "Packages/Shared/CMUXAuthCore",
+                "Packages/Shared/CMUXMobileCore",
+                "Packages/Shared/CmuxAgentBrands",
+                "Packages/Shared/CmuxAuthRuntime",
+                "Packages/Shared/CmuxInstallAuthCore",
+                "Packages/Shared/CmuxIrxTransport",
+                "Packages/Shared/CmuxTheme",
+                "Packages/iOS/CmuxMobileRPC",
+                "Packages/iOS/CmuxMobileSSH",
+            ],
+            remoteDependencies: ["swift-atomics", "swift-crypto"],
+            linuxDependencies: [
+                "CmuxNextBrowserCore": ["Crypto"],
+                "CmuxNextBrowserImport": ["CZlib"],
+                "CmuxNextChromiumRuntime": ["Crypto"],
+                "CmuxNextChromiumRuntimeTests": ["Crypto"],
+                "CmuxNextCloud": ["Crypto"],
+                "CmuxNextCodeRouter": ["Crypto"],
+                "CmuxNextDaemon": ["CZlib", "Crypto"],
+                "CmuxNextDaemonTests": ["Crypto"],
+                "CmuxNextDesignTokens": ["Crypto"],
+                "CmuxNextDevices": ["Crypto"],
+                "CmuxNextDevicesTests": ["Crypto"],
+                "CmuxNextMobile": ["Crypto"],
+                "CmuxNextRemote": ["Crypto"],
+                "CmuxNextRemoteFetch": ["CZlib"],
+                "CmuxNextRemoteLocalhost": ["Crypto"],
+                "CmuxNextSettings": ["Crypto"],
+            ],
+        ),
+    )
+    // END linux-tier.py
+
+    linuxTier.apply(
+        to: package,
+        crypto: .package(url: "https://github.com/apple/swift-crypto.git", exact: "3.15.1"),
+        packageDirectory: Context.packageDirectory
+    )
+}
+#endif

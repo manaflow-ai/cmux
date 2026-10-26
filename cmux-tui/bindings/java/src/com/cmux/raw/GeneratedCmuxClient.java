@@ -29,9 +29,104 @@ public abstract class GeneratedCmuxClient {
         return TabGroupOutcome.fromWire(result);
     }
 
+    public final AgentCliIntentsAttachResult agentCliIntentsAttach(AgentCliIntentsAttachRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_CLI_INTENTS_ATTACH, request.toWire());
+        return AgentCliIntentsAttachResult.fromWire(result);
+    }
+
+    public final AgentCliIntentsListResult agentCliIntentsList(AgentCliIntentsListRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_CLI_INTENTS_LIST, request.toWire());
+        return AgentCliIntentsListResult.fromWire(result);
+    }
+
+    public final AgentCliIntentsRecordResult agentCliIntentsRecord(AgentCliIntentsRecordRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_CLI_INTENTS_RECORD, request.toWire());
+        return AgentCliIntentsRecordResult.fromWire(result);
+    }
+
+    public final AgentCliIntentsSettleResult agentCliIntentsSettle(AgentCliIntentsSettleRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_CLI_INTENTS_SETTLE, request.toWire());
+        return AgentCliIntentsSettleResult.fromWire(result);
+    }
+
+    public final AgentCLIJobReceipt agentCliUpdateJob(AgentCliUpdateJobRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_CLI_UPDATE_JOB, request.toWire());
+        return AgentCLIJobReceipt.fromWire(result);
+    }
+
+    public final AgentCLIJobResolution agentCliUpdateJobResolve(AgentCliUpdateJobResolveRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_CLI_UPDATE_JOB_RESOLVE, request.toWire());
+        return AgentCLIJobResolution.fromWire(result);
+    }
+
     public final ApplyLayoutResult applyLayout(ApplyLayoutRequest request) throws CmuxException {
         Object result = execute(Commands.APPLY_LAYOUT, request.toWire());
         return ApplyLayoutResult.fromWire(result);
+    }
+
+    public final EmptyResult appsAgentInventoryChanged(AppsAgentInventoryChangedRequest request) throws CmuxException {
+        Object result = execute(Commands.APPS_AGENT_INVENTORY_CHANGED, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
+    public final EmptyResult appsDispatch(AppsDispatchRequest request) throws CmuxException {
+        Object result = execute(Commands.APPS_DISPATCH, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
+    public final AppsLinkChangedResult appsLinkChanged(AppsLinkChangedRequest request) throws CmuxException {
+        Object result = execute(Commands.APPS_LINK_CHANGED, request.toWire());
+        return AppsLinkChangedResult.fromWire(result);
+    }
+
+    public final AppsListResult appsList(AppsListRequest request) throws CmuxException {
+        Object result = execute(Commands.APPS_LIST, request.toWire());
+        return AppsListResult.fromWire(result);
+    }
+
+    public final AppsLogsResult appsLogs(AppsLogsRequest request) throws CmuxException {
+        Object result = execute(Commands.APPS_LOGS, request.toWire());
+        return AppsLogsResult.fromWire(result);
+    }
+
+    public final EmptyResult appsMount(AppsMountRequest request) throws CmuxException {
+        Object result = execute(Commands.APPS_MOUNT, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
+    public final AppsProviderRegisterResult appsProviderRegister(AppsProviderRegisterRequest request) throws CmuxException {
+        Object result = execute(Commands.APPS_PROVIDER_REGISTER, request.toWire());
+        return AppsProviderRegisterResult.fromWire(result);
+    }
+
+    public final EmptyResult appsProviderResult(AppsProviderResultRequest request) throws CmuxException {
+        Object result = execute(Commands.APPS_PROVIDER_RESULT, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
+    public final AppsRunResult appsRun(AppsRunRequest request) throws CmuxException {
+        Object result = execute(Commands.APPS_RUN, request.toWire());
+        return AppsRunResult.fromWire(result);
+    }
+
+    public final AppRecord appsSet(AppsSetRequest request) throws CmuxException {
+        Object result = execute(Commands.APPS_SET, request.toWire());
+        return AppRecord.fromWire(result);
+    }
+
+    public final Object appsStore(AppsStoreRequest request) throws CmuxException {
+        Object result = execute(Commands.APPS_STORE, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final AppsTerminalLinksResult appsTerminalLinks(AppsTerminalLinksRequest request) throws CmuxException {
+        Object result = execute(Commands.APPS_TERMINAL_LINKS, request.toWire());
+        return AppsTerminalLinksResult.fromWire(result);
+    }
+
+    public final EmptyResult appsUnmount(AppsUnmountRequest request) throws CmuxException {
+        Object result = execute(Commands.APPS_UNMOUNT, request.toWire());
+        return EmptyResult.fromWire(result);
     }
 
     public final CmuxStream<ProtocolEvent> attachSurface(AttachSurfaceRequest request) throws CmuxException {
@@ -110,6 +205,11 @@ public abstract class GeneratedCmuxClient {
 
     public final EmptyResult browserWheelGuarded(BrowserWheelGuardedRequest request) throws CmuxException {
         Object result = execute(Commands.BROWSER_WHEEL_GUARDED, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
+    public final EmptyResult cancelRequest(CancelRequestRequest request) throws CmuxException {
+        Object result = execute(Commands.CANCEL_REQUEST, request.toWire());
         return EmptyResult.fromWire(result);
     }
 
@@ -1317,6 +1417,21 @@ public abstract class GeneratedCmuxClient {
     public final TerminalResumeCommandResult terminalResumeCommand(TerminalResumeCommandRequest request) throws CmuxException {
         Object result = execute(Commands.TERMINAL_RESUME_COMMAND, request.toWire());
         return TerminalResumeCommandResult.fromWire(result);
+    }
+
+    public final Object traceStart(TraceStartRequest request) throws CmuxException {
+        Object result = execute(Commands.TRACE_START, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object traceStatus() throws CmuxException {
+        Object result = execute(Commands.TRACE_STATUS, Map.of());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object traceStop() throws CmuxException {
+        Object result = execute(Commands.TRACE_STOP, Map.of());
+        return Wire.immutableJson(result);
     }
 
     public final LayoutUndoResult undoLayout(UndoLayoutRequest request) throws CmuxException {

@@ -91,8 +91,13 @@ public nonisolated struct Signposter: Sendable {
 
     /// Whether anything takes this category's signposts: the log system (true unless a logging profile
     /// turns the subsystem off; it does not mean a recorder is attached) or the trace ring (the category's
-    /// flag is on). Skip work that only feeds signposts when it is false.
-    public var isEnabled: Bool { signposter.isEnabled || trace.isEnabled(categoryBit: category.traceBit) }
+    /// flag is on). Skip work that only feeds signposts when it is false. Always false for the key category
+    /// while the keystroke-timing gate is closed (``TraceRuntime/isKeyTimingSuppressed``, task 128): the log
+    /// system and the MetricKit mirror then take no key timing either, as the ring does not.
+    public var isEnabled: Bool {
+        if category == .key, trace.isKeyTimingSuppressed { return false }
+        return signposter.isEnabled || trace.isEnabled(categoryBit: category.traceBit)
+    }
 
     /// Begins an interval named `name` with a public message.
     ///

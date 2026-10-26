@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextSettings
+public import CmuxNextWakeups
 public import Foundation
 
 /// Makes Chromium pages for the page host (``PageWebView``). The app implements it with its CEF
@@ -12,6 +13,9 @@ public protocol PageChromiumHosting: AnyObject {
     /// Whether Chromium can host a page now: false when the build has no Chromium or it failed to
     /// start.
     var isAvailable: Bool { get }
+    /// The app's lanes: what a page answers that costs CPU by its size (a `Page.captureScreenshot` reply, megabytes
+    /// of base64 image) is parsed and decoded on their `.cpu` lane, never on the main thread.
+    var work: BackgroundWork { get }
     /// Whether Chromium's `cmux-page://` scheme serves `page` (its bundled folder is registered).
     ///
     /// - Parameter page: The page to show.
@@ -47,6 +51,10 @@ public protocol PageChromiumPage: AnyObject {
     /// leaves these rects uncovered: the native view under them shows there and takes the mouse
     /// (a chat's pane tabs while the chat shares the tab row, ``PageWebView/nativeRects``).
     var occlusionRects: [CGRect] { get set }
+    /// Whether `window` is the Chromium window that draws this page now: a child of
+    /// ``contentView``'s window, over it. An event in that window is this page's input and no other
+    /// page's, even when another page's window sits at the same frame (a hidden tab of the same pane).
+    func isPageWindow(_ window: NSWindow) -> Bool
     /// Runs a DevTools protocol method and returns its JSON result.
     ///
     /// - Parameters:

@@ -37,7 +37,7 @@
   "daemon": {
    "id": 1,
    "description": "Daemon identity, liveness, configuration and machine state.",
-   "next_ordinal": 14
+   "next_ordinal": 17
   },
   "clients": {
    "id": 2,
@@ -101,8 +101,8 @@
   },
   "agents": {
    "id": 14,
-   "description": "Agents in terminals and the local feed.",
-   "next_ordinal": 7
+   "description": "Agents in terminals, the local feed and agent CLI updates.",
+   "next_ordinal": 13
   },
   "conversations": {
    "id": 15,
@@ -153,6 +153,11 @@
    "id": 198,
    "description": "cmux Cloud session, conversations and inbox.",
    "next_ordinal": 12
+  },
+  "apps": {
+   "id": 18,
+   "description": "The app supervisor (apps-v1, server/apps.rs): installs, mounts, runs, logs and app op providers.",
+   "next_ordinal": 14
   }
  },
  "types": {
@@ -9991,6 +9996,860 @@
     "offset is the frame address minus the image load address (the address itself when image is null), for offline symbolication.",
     "symbol is the nearest exported symbol, mangled, or null for a local function."
    ]
+  },
+  "AgentCLIIntent": {
+   "kind": "object",
+   "fields": {
+    "key": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "root_key": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "machine": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "session": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "cli": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "profiles": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "AgentCLIJobPath": {
+   "kind": "object",
+   "fields": {
+    "kind": {
+     "type": {
+      "kind": "literal",
+      "value": "terminal"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "workspace_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "screen_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "pane_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "tab_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "terminal_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "AgentCLIJobReceipt": {
+   "kind": "object",
+   "fields": {
+    "machine": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "session": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "cli": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "path": {
+     "type": {
+      "kind": "ref",
+      "name": "AgentCLIJobPath"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "replayed": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "AgentCLIStoredIntent": {
+   "kind": "object",
+   "fields": {
+    "key": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "root_key": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "machine": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "session": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "cli": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "profiles": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "receipt": {
+     "type": {
+      "kind": "ref",
+      "name": "AgentCLIJobReceipt"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false
+  },
+  "AgentCLIJobResolution": {
+   "kind": "tagged_union",
+   "tag": "state",
+   "variants": {
+    "not_found": {
+     "kind": "object",
+     "fields": {
+      "state": {
+       "type": {
+        "kind": "literal",
+        "value": "not_found"
+       },
+       "presence": "required",
+       "nullable": false
+      }
+     },
+     "additional_properties": false
+    },
+    "prepared": {
+     "kind": "object",
+     "fields": {
+      "state": {
+       "type": {
+        "kind": "literal",
+        "value": "prepared"
+       },
+       "presence": "required",
+       "nullable": false
+      }
+     },
+     "additional_properties": false
+    },
+    "pending": {
+     "kind": "object",
+     "fields": {
+      "state": {
+       "type": {
+        "kind": "literal",
+        "value": "pending"
+       },
+       "presence": "required",
+       "nullable": false
+      }
+     },
+     "additional_properties": false
+    },
+    "indeterminate": {
+     "kind": "object",
+     "fields": {
+      "state": {
+       "type": {
+        "kind": "literal",
+        "value": "indeterminate"
+       },
+       "presence": "required",
+       "nullable": false
+      }
+     },
+     "additional_properties": false
+    },
+    "failed": {
+     "kind": "object",
+     "fields": {
+      "state": {
+       "type": {
+        "kind": "literal",
+        "value": "failed"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "code": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "required",
+       "nullable": false
+      }
+     },
+     "additional_properties": false
+    },
+    "created": {
+     "kind": "object",
+     "fields": {
+      "state": {
+       "type": {
+        "kind": "literal",
+        "value": "created"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "receipt": {
+       "type": {
+        "kind": "ref",
+        "name": "AgentCLIJobReceipt"
+       },
+       "presence": "required",
+       "nullable": false
+      }
+     },
+     "additional_properties": false
+    }
+   }
+  },
+  "AppOrigin": {
+   "kind": "enum",
+   "values": [
+    "user",
+    "cli",
+    "mcp",
+    "script",
+    "remote"
+   ]
+  },
+  "AppTier": {
+   "kind": "enum",
+   "values": [
+    "first-party",
+    "verified",
+    "unverified"
+   ]
+  },
+  "AppSource": {
+   "kind": "enum",
+   "values": [
+    "default",
+    "user",
+    "bundled",
+    "local"
+   ]
+  },
+  "AppScopeClass": {
+   "kind": "enum",
+   "values": [
+    "standard",
+    "sensitive",
+    "restricted",
+    "elevated",
+    "unknown"
+   ]
+  },
+  "AppHiddenAccess": {
+   "kind": "object",
+   "fields": {
+    "cli": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "mcp": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "automations": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Which callers still reach a hidden app: the CLI, MCP and automations."
+   ]
+  },
+  "AppGrant": {
+   "kind": "object",
+   "fields": {
+    "scope": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "granted": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "AppPaletteCommand": {
+   "kind": "object",
+   "fields": {
+    "op": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "title": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "The manifest's palette title, or op when the manifest has none."
+     ]
+    },
+    "when": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    }
+   },
+   "additional_properties": false
+  },
+  "AppRecord": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "version": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "Empty when the package is not in the catalog."
+     ]
+    },
+    "tier": {
+     "type": {
+      "kind": "ref",
+      "name": "AppTier"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "installed": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "enabled": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "hidden": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "hidden_access": {
+     "type": {
+      "kind": "ref",
+      "name": "AppHiddenAccess"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "source": {
+     "type": {
+      "kind": "ref",
+      "name": "AppSource"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "grants": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "scope_classes": {
+     "type": {
+      "kind": "map",
+      "values": {
+       "kind": "ref",
+       "name": "AppScopeClass"
+      }
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The class of every scope the manifest asks for."
+     ]
+    },
+    "sandboxed": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "hide_only": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "First-party apps offer hide and show only, never remove."
+     ]
+    },
+    "available": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The package is in the catalog."
+     ]
+    },
+    "bundle_dir": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "The package directory; local connections only."
+     ]
+    },
+    "commands": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "AppPaletteCommand"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "manifest": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "constraints": [
+      "Only in the apps-set reply: the install mirror revision after the commit."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "AppsListResult": {
+   "kind": "object",
+   "fields": {
+    "revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "apps": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "AppRecord"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "AppTerminalLink": {
+   "kind": "object",
+   "fields": {
+    "channel": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "app": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "target": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "socket": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "The link's local relay socket; null when it has none."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "AppsTerminalLinksResult": {
+   "kind": "object",
+   "fields": {
+    "links": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "AppTerminalLink"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "AppLogLine": {
+   "kind": "object",
+   "fields": {
+    "level": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "message": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "ts_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "AppsLogsResult": {
+   "kind": "object",
+   "fields": {
+    "lines": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "AppLogLine"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "AppsLinkChangedResult": {
+   "kind": "object",
+   "fields": {
+    "servers": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "App servers told about the change."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "AppsInventoryDemand": {
+   "kind": "object",
+   "fields": {
+    "sequence": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "enabled": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "AppsProviderRegisterResult": {
+   "kind": "object",
+   "fields": {
+    "families": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "inventory_demand": {
+     "type": {
+      "kind": "ref",
+      "name": "AppsInventoryDemand"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "agent-cli-app-invalidation-v1",
+     "constraints": [
+      "Only when the request set inventory_watch."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "AppsRunResult": {
+   "kind": "object",
+   "fields": {
+    "value": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "The op's result; null when it returned none."
+     ]
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -18128,6 +18987,104 @@
    "durability": "read_only",
    "clients": [
     "cli",
+    "sdk"
+   ]
+  },
+  "trace-start": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {
+     "categories": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "keys": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false
+     }
+    },
+    "additional_properties": true
+   },
+   "result": {
+    "kind": "opaque_json",
+    "reason": "Per-process trace reports (daemon, holder, terminal hosts, acpmux) whose set depends on the live children; see spec/commands.md trace-start."
+   },
+   "stream": null,
+   "constraints": [
+    "Owner-only (trusted local connection); a remote client is refused before anything runs.",
+    "No parameter is a path or a command: each process records into its own directory under the daemon's state root.",
+    "The key category records per-key records and needs keys: true."
+   ],
+   "method_id": 270,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "trace-stop": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "opaque_json",
+    "reason": "Per-process trace reports (daemon, holder, terminal hosts, acpmux) whose set depends on the live children; see spec/commands.md trace-start."
+   },
+   "stream": null,
+   "constraints": [
+    "Owner-only (trusted local connection); a remote client is refused before anything runs.",
+    "No parameter is a path or a command: each process records into its own directory under the daemon's state root."
+   ],
+   "method_id": 271,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "trace-status": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "opaque_json",
+    "reason": "Per-process trace reports (daemon, holder, terminal hosts, acpmux) whose set depends on the live children; see spec/commands.md trace-start."
+   },
+   "stream": null,
+   "constraints": [
+    "Owner-only (trusted local connection); a remote client is refused before anything runs.",
+    "No parameter is a path or a command: each process records into its own directory under the daemon's state root."
+   ],
+   "method_id": 272,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
     "sdk"
    ]
   },
@@ -27934,6 +28891,421 @@
     "sdk"
    ]
   },
+  "agent-cli-intents-record": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-cli-intents-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "expected_machine_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "expected_session_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "intents": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "AgentCLIIntent"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "intents": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "AgentCLIStoredIntent"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "changed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Needs the verified cmux app on a local Unix connection with no terminal or agent binding; any other connection is refused with agent_cli_intents.not_trusted.",
+    "expected_machine_id and expected_session_id must name this daemon's machine and session; a parse failure is agent_cli_intents.bad_request and another owner is agent_cli_intents.owner_mismatch.",
+    "A stored intent is non-secret identity, never an execution grant: it holds no argv or credentials.",
+    "Records 1-64 intents before any update starts; cli is one of claude, codex, opencode, pi, chief, gemini, amp, copilot, cursor and profiles holds at most 128 labels.",
+    "Recording the same intent again is a no-op and a different intent under a stored key is refused with agent_cli_intents.refused; rows older than seven days and rows past 256 per actor are pruned. The reply lists every stored intent of the actor."
+   ],
+   "method_id": 3591,
+   "priority": "control",
+   "durability": "reply_after_journal",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-cli-intents-list": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-cli-intents-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "expected_machine_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "expected_session_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "intents": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "AgentCLIStoredIntent"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Needs the verified cmux app on a local Unix connection with no terminal or agent binding; any other connection is refused with agent_cli_intents.not_trusted.",
+    "expected_machine_id and expected_session_id must name this daemon's machine and session; a parse failure is agent_cli_intents.bad_request and another owner is agent_cli_intents.owner_mismatch.",
+    "A stored intent is non-secret identity, never an execution grant: it holds no argv or credentials.",
+    "Lists the actor's intents recorded in the last seven days."
+   ],
+   "method_id": 3592,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-cli-intents-settle": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-cli-intents-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "expected_machine_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "expected_session_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "keys": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "intents": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "AgentCLIStoredIntent"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "changed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Needs the verified cmux app on a local Unix connection with no terminal or agent binding; any other connection is refused with agent_cli_intents.not_trusted.",
+    "expected_machine_id and expected_session_id must name this daemon's machine and session; a parse failure is agent_cli_intents.bad_request and another owner is agent_cli_intents.owner_mismatch.",
+    "Deletes 1-64 settled intents so they stop blocking another update; a key already gone is not an error."
+   ],
+   "method_id": 3593,
+   "priority": "control",
+   "durability": "reply_after_journal",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-cli-intents-attach": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-cli-intents-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "expected_machine_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "expected_session_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "key": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "receipt": {
+      "type": {
+       "kind": "ref",
+       "name": "AgentCLIJobReceipt"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "intent": {
+      "type": {
+       "kind": "ref",
+       "name": "AgentCLIStoredIntent"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "changed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Needs the verified cmux app on a local Unix connection with no terminal or agent binding; any other connection is refused with agent_cli_intents.not_trusted.",
+    "expected_machine_id and expected_session_id must name this daemon's machine and session; a parse failure is agent_cli_intents.bad_request and another owner is agent_cli_intents.owner_mismatch.",
+    "Attaches the terminal receipt of agent-cli-update-job to a stored intent; its machine, session and cli must equal the intent's. The stored receipt has replayed true.",
+    "A second attach with the same receipt is a no-op; a different receipt is refused with agent_cli_intents.refused."
+   ],
+   "method_id": 3594,
+   "priority": "control",
+   "durability": "reply_after_journal",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-cli-update-job": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-cli-update-job-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "expected_machine_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "expected_session_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "cli": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "idempotency_key": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "AgentCLIJobReceipt"
+   },
+   "stream": null,
+   "constraints": [
+    "Needs the verified cmux app on a local Unix connection with no terminal or agent binding; any other connection is refused with agent_cli_job.not_trusted.",
+    "expected_machine_id must name this daemon's machine (else agent_cli_job.owner_mismatch) and expected_session_id its session (else agent_cli_job.session_mismatch).",
+    "cli is 1-128 ASCII letters, digits, '_', '.' or '-'; idempotency_key is the original intent key and is reused after a lost reply.",
+    "Creates a workspace whose terminal runs the owner's fixed update plan for cli, prepared by acpmux; the caller never chooses argv. The receipt names that terminal, not a finished update.",
+    "The same idempotency_key replays the original receipt without preparing again. One job prepares at a time: another is refused with agent_cli_job.busy."
+   ],
+   "method_id": 3595,
+   "priority": "control",
+   "durability": "reply_after_journal",
+   "spawns_terminal": true,
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-cli-update-job-resolve": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-cli-update-job-resolve-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "expected_machine_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "expected_session_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "cli": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "idempotency_key": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "AgentCLIJobResolution"
+   },
+   "stream": null,
+   "constraints": [
+    "Needs the verified cmux app on a local Unix connection with no terminal or agent binding; any other connection is refused with agent_cli_job.not_trusted.",
+    "expected_machine_id must name this daemon's machine (else agent_cli_job.owner_mismatch) and expected_session_id its session (else agent_cli_job.session_mismatch).",
+    "cli is 1-128 ASCII letters, digits, '_', '.' or '-'; idempotency_key is the original intent key and is reused after a lost reply.",
+    "Reads the creation journal of the original idempotency_key without preparing, reconciling or starting anything; no state authorizes execution."
+   ],
+   "method_id": 3596,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
   "new-remote-terminal-tab": {
    "authority": "control",
    "since": 12,
@@ -28183,6 +29555,844 @@
    "priority": "control",
    "durability": "reply_before_journal",
    "clients": [
+    "sdk"
+   ]
+  },
+  "apps-list": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "apps-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "origin": {
+      "type": {
+       "kind": "ref",
+       "name": "AppOrigin"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": "cli",
+      "constraints": [
+       "Who asked; absent means cli. user needs the verified cmux app connection that is not bound to an agent."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "AppsListResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Every catalog app and every installed app, with the install mirror revision.",
+    "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise).",
+    "Any apps-* request subscribes the connection to apps-changed and apps-host events."
+   ],
+   "method_id": 4608,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "apps-set": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "apps-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "idempotency_key": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "A replay with the same key changes nothing and answers the same record."
+      ]
+     },
+     "app": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "installed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "enabled": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "hidden": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "hidden_access": {
+      "type": {
+       "kind": "ref",
+       "name": "AppHiddenAccess"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "sandboxed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "grant": {
+      "type": {
+       "kind": "ref",
+       "name": "AppGrant"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "origin": {
+      "type": {
+       "kind": "ref",
+       "name": "AppOrigin"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": "cli",
+      "constraints": [
+       "Who asked; absent means cli. user needs the verified cmux app connection that is not bound to an agent."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "AppRecord"
+   },
+   "stream": null,
+   "constraints": [
+    "One validated commit of the install mirror; the reply is the app's record with the commit's revision.",
+    "Every change needs the verified cmux app connection, whatever origin says (origin.forbidden otherwise).",
+    "apps.json is written before the change applies; a failed write rejects with apps.persist.",
+    "The caller receives request-settled for every request, rejects and no-ops included.",
+    "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise)."
+   ],
+   "method_id": 4609,
+   "priority": "control",
+   "durability": "reply_after_journal",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "apps-store": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "apps-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "op": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "An App Store op (cmux.apps.*); spec/page-router.md lists them."
+      ]
+     },
+     "args": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "origin": {
+      "type": {
+       "kind": "ref",
+       "name": "AppOrigin"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": "cli",
+      "constraints": [
+       "Who asked; absent means cli. user needs the verified cmux app connection that is not bound to an agent."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Runs one App Store op; the result is the op's own result.",
+    "Mutating ops need the verified cmux app connection.",
+    "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise)."
+   ],
+   "method_id": 4610,
+   "priority": "control",
+   "durability": "reply_after_journal",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "apps-mount": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "apps-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "app": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "interface": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "mount_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "context": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "origin": {
+      "type": {
+       "kind": "ref",
+       "name": "AppOrigin"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": "cli",
+      "constraints": [
+       "Who asked; absent means cli. user needs the verified cmux app connection that is not bound to an agent."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Mounts an app interface; mount events go to this connection only.",
+    "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise)."
+   ],
+   "method_id": 4611,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "apps-unmount": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "apps-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "mount_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "origin": {
+      "type": {
+       "kind": "ref",
+       "name": "AppOrigin"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": "cli",
+      "constraints": [
+       "Who asked; absent means cli. user needs the verified cmux app connection that is not bound to an agent."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "apps.mount.unknown when this connection has no such mount.",
+    "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise)."
+   ],
+   "method_id": 4612,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "apps-dispatch": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "apps-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "mount_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "node": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "event": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "payload": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "origin": {
+      "type": {
+       "kind": "ref",
+       "name": "AppOrigin"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": "cli",
+      "constraints": [
+       "Who asked; absent means cli. user needs the verified cmux app connection that is not bound to an agent."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Sends a UI event to a mount. A gesture member of payload is dropped; origin user gets a fresh gesture token.",
+    "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise)."
+   ],
+   "method_id": 4613,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "apps-run": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "apps-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "app": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "op": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "args": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "idempotency_key": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       "A keyed run runs once; a retry with the same key gets the stored answer."
+      ]
+     },
+     "gesture": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       "A palette or keybinding invocation's token (origin user only)."
+      ]
+     },
+     "origin": {
+      "type": {
+       "kind": "ref",
+       "name": "AppOrigin"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": "cli",
+      "constraints": [
+       "Who asked; absent means cli. user needs the verified cmux app connection that is not bound to an agent."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "AppsRunResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Runs one catalog op of an app on its host or server.",
+    "cancel-request with this request's id cancels it (cmux.op.cancelled).",
+    "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise)."
+   ],
+   "method_id": 4614,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
+   ]
+  },
+  "apps-terminal-links": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "apps-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "origin": {
+      "type": {
+       "kind": "ref",
+       "name": "AppOrigin"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": "cli",
+      "constraints": [
+       "Who asked; absent means cli. user needs the verified cmux app connection that is not bound to an agent."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "AppsTerminalLinksResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Every open terminal connector link and its local socket; apps never get a socket path.",
+    "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise)."
+   ],
+   "method_id": 4615,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "apps-logs": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "apps-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "app": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "follow": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false
+     },
+     "origin": {
+      "type": {
+       "kind": "ref",
+       "name": "AppOrigin"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": "cli",
+      "constraints": [
+       "Who asked; absent means cli. user needs the verified cmux app connection that is not bound to an agent."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "AppsLogsResult"
+   },
+   "stream": null,
+   "constraints": [
+    "The app's log ring; follow streams apps-log events to this connection.",
+    "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise)."
+   ],
+   "method_id": 4616,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "apps-link-changed": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "apps-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "origin": {
+      "type": {
+       "kind": "ref",
+       "name": "AppOrigin"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": "cli",
+      "constraints": [
+       "Who asked; absent means cli. user needs the verified cmux app connection that is not bound to an agent."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "AppsLinkChangedResult"
+   },
+   "stream": null,
+   "constraints": [
+    "The cmux link registration changed; the daemon tells every app server that reads the link.",
+    "Only the verified cmux app connection that is not bound to an agent.",
+    "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise)."
+   ],
+   "method_id": 4617,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "apps-provider-register": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "apps-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "families": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "Non-empty; each a provider family the daemon routes to the app.",
+       "The agent_cli family needs agent-cli-app-provider-v1."
+      ]
+     },
+     "inventory_watch": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "capability": "agent-cli-app-invalidation-v1",
+      "constraints": [
+       "Opts into the inventory demand snapshot; needs the agent_cli family."
+      ]
+     },
+     "origin": {
+      "type": {
+       "kind": "ref",
+       "name": "AppOrigin"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": "cli",
+      "constraints": [
+       "Who asked; absent means cli. user needs the verified cmux app connection that is not bound to an agent."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "AppsProviderRegisterResult"
+   },
+   "stream": null,
+   "constraints": [
+    "The Mac app serves ops the daemon does not own (plans/cmux-next/app-op-routing.md).",
+    "Only the verified cmux app connection that is not bound to an agent (apps.provider.forbidden).",
+    "A family another live connection provides is apps.provider.taken.",
+    "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise)."
+   ],
+   "method_id": 4618,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "apps-agent-inventory-changed": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-cli-app-invalidation-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "demand_sequence": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "A fixed invalidation from the current verified agent_cli provider; no member other than demand_sequence is accepted.",
+    "apps.provider.stale_demand when demand_sequence is not the current demand.",
+    "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise)."
+   ],
+   "method_id": 4619,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "apps-provider-result": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "apps-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "request_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "ok": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "body": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "origin": {
+      "type": {
+       "kind": "ref",
+       "name": "AppOrigin"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": "cli",
+      "constraints": [
+       "Who asked; absent means cli. user needs the verified cmux app connection that is not bound to an agent."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Answers a provider call; only the connection the call went to may answer (apps.provider.unknown).",
+    "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise)."
+   ],
+   "method_id": 4620,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "cancel-request": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cancel-request-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "target": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true,
+      "constraints": [
+       "The id of an apps-run or script request this connection sent."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Cancels the caller's own running apps-run request or script cell; unknown, answered or another connection's requests change nothing.",
+    "Advertised with apps-v1.",
+    "Local (Unix) connections only (apps.local otherwise)."
+   ],
+   "method_id": 4621,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "cli",
     "sdk"
    ]
   }

@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextSettings
 import Foundation
 
@@ -27,7 +28,7 @@ import Foundation
 
     init() {
         if let data = UserDefaults.standard.data(forKey: Self.defaultsKey) {
-            stored = try? JSONDecoder().decode(Stored.self, from: data)
+            stored = try? JSONDecoder().blockingDecode(Stored.self, from: data)
         }
     }
 

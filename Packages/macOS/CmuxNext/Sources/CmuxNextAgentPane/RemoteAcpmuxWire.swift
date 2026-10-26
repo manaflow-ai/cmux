@@ -78,7 +78,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
 
     public func send(_ text: String, completion: @escaping @Sendable (Bool) -> Void) {
         guard !state.withLock({ $0.closed }),
-              let frame = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+              let frame = (try? JSONSerialization.blockingJSONObject(with: Data(text.utf8))) as? [String: Any],
               let method = frame["method"] as? String else { return completion(false) }
         completion(true)
         let id = frame["id"].flatMap(Self.idText)
@@ -144,7 +144,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             let session = state.withLock { $0.session } ?? ""
             run(id) { [weak self] client in
                 let accepted = try await client.prompt(id: prompt, text: text)
-                let object = (try? JSONSerialization.jsonObject(with: accepted)) as? [String: Any] ?? [:]
+                let object = (try? JSONSerialization.blockingJSONObject(with: accepted)) as? [String: Any] ?? [:]
                 let turn = object["turn_id"] ?? NSNull()
                 self?.notify("_acpmux/prompt_accepted", ["sessionId": session, "promptId": prompt, "turnId": turn,
                                                          "queued": object["queued"] ?? false])
@@ -158,7 +158,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             // resolves this path, so a same-named file on this Mac cannot leak into the reply.
             run(id) { client in
                 let data = try await client.media(path: path)
-                guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                guard let object = (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any],
                       let encoded = object["data"] as? String,
                       let bytes = Data(base64Encoded: encoded),
                       case .success(let source) = await AgentPaneReplyImages.remote(bytes) else {
@@ -246,11 +246,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     private func page(_ method: String, _ page: AgentSessionPage, client: any AgentSessionRemoteClient) async throws -> Data {
         if method == "_acpmux/events" { return Self.withMore(try await client.events(page)) }
         let result = try await client.attach(page) { [weak self] event in self?.pushed(event) }
-        let object = (try? JSONSerialization.jsonObject(with: result)) as? [String: Any] ?? [:]
+        let object = (try? JSONSerialization.blockingJSONObject(with: result)) as? [String: Any] ?? [:]
         let summary = object["session"] as? [String: Any]
         if let resolved = summary?["sessionId"] as? String { state.withLock { $0.resolved = resolved } }
         guard method == "_acpmux/watch" else { return result }
-        let listed = (try? await client.children()).flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+        let listed = (try? await client.children()).flatMap { try? JSONSerialization.blockingJSONObject(with: $0) } as? [String: Any]
         let children = (listed?["sessions"] as? [[String: Any]] ?? []).filter { child in
             (child["sessionId"] as? String).map { !names($0) } ?? false
         }
@@ -271,14 +271,14 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
               let data = try? JSONSerialization.data(withJSONObject: summaries) else { return }
         // task-owner: one main-actor note of what the daemon answered; nothing waits on it
         Task { @MainActor in
-            let copy = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
+            let copy = (try? JSONSerialization.blockingJSONObject(with: data)) as? [[String: Any]] ?? []
             RemoteAgentSessionLinks.shared.note(copy)
         }
     }
 
     /// acpmux answers `hasMore`; the page's replay loop reads `more`, so both are set.
     private static func withMore(_ result: Data) -> Data {
-        guard var object = (try? JSONSerialization.jsonObject(with: result)) as? [String: Any],
+        guard var object = (try? JSONSerialization.blockingJSONObject(with: result)) as? [String: Any],
               object["more"] == nil else { return result }
         object["more"] = object["hasMore"] ?? false
         return json(object)
@@ -297,13 +297,13 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     private func pushed(_ event: AgentSessionRemoteEvent) {
         switch event {
         case .record(let data):
-            guard let record = try? JSONSerialization.jsonObject(with: data) else { return }
+            guard let record = try? JSONSerialization.blockingJSONObject(with: data) else { return }
             notify("_acpmux/event", record)
         case .permission(let data):
-            guard let request = try? JSONSerialization.jsonObject(with: data) else { return }
+            guard let request = try? JSONSerialization.blockingJSONObject(with: data) else { return }
             notify("_acpmux/permission_pending", request)
         case .changed(let data):
-            guard let change = try? JSONSerialization.jsonObject(with: data) else { return }
+            guard let change = try? JSONSerialization.blockingJSONObject(with: data) else { return }
             // A child's change (the daemon streams only this session's descendants): a new child
             // joins the chat's Subagents summary and the sidebar's tree.
             if let changed = change as? [String: Any], let session = changed["session"] as? [String: Any],

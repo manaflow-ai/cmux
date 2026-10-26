@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextHostedChief
 import CmuxNextRemote
 import Foundation
@@ -104,7 +105,7 @@ nonisolated struct ServerReachPlan: Sendable, Equatable {
     /// not (a stopped link still names its pairing file and install), or nil
     /// when `show` is not an object.
     static func linkPeers(show: Data, peers: Data?) -> LinkPeers? {
-        guard let object = (try? JSONSerialization.jsonObject(with: show)) as? [String: Any] else { return nil }
+        guard let object = (try? JSONSerialization.blockingJSONObject(with: show)) as? [String: Any] else { return nil }
         let install = (object["install"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         return LinkPeers(socket: parseLinkShow(show), installs: peers.map(parsePeerList) ?? [],
                          peersFile: parseLinkPeersFile(show), install: install)
@@ -121,14 +122,14 @@ nonisolated struct ServerReachPlan: Sendable, Equatable {
 
     /// `cmux link show` JSON: the live link's socket, or nil when it is not running.
     static func parseLinkShow(_ data: Data) -> String? {
-        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+        guard let object = (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any],
               object["running"] as? Bool == true, let socket = object["socket"] as? String, socket.hasPrefix("/") else { return nil }
         return socket
     }
 
     /// `cmux link peer list` JSON: the paired installs.
     static func parsePeerList(_ data: Data) -> Set<String> {
-        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        let object = (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any]
         let peers = object?["peers"] as? [[String: Any]] ?? []
         return Set(peers.compactMap { $0["install"] as? String })
     }
@@ -145,7 +146,7 @@ nonisolated struct ServerReachPlan: Sendable, Equatable {
 
     /// `cmux link show` JSON: the link's pairing file, when the CLI names it.
     static func parseLinkPeersFile(_ data: Data) -> String? {
-        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        let object = (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any]
         guard let file = object?["peers_file"] as? String, file.hasPrefix("/") else { return nil }
         return file
     }

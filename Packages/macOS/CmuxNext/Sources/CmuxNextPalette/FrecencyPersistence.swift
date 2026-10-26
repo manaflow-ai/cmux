@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Loads and saves usage history.
@@ -18,7 +19,7 @@ public final class UserDefaultsFrecencyPersistence: FrecencyPersisting {
 
     public func load() -> FrecencyStore? {
         guard let data = defaults.data(forKey: key) else { return nil }
-        return try? JSONDecoder().decode(FrecencyStore.self, from: data)
+        return try? JSONDecoder().blockingDecode(FrecencyStore.self, from: data)
     }
 
     public func save(_ store: FrecencyStore) {

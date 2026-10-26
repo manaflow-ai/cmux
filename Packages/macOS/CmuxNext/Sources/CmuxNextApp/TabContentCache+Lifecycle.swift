@@ -146,7 +146,7 @@ extension TabContentCache {
             switch effect {
             case .mount(let key, let token):
                 trace(key, "mount \(token)")
-                if hasContent(for: key) {
+                if hasContent(for: key) || pageDiscards?.adoptPage(key) == true { // a page tab's view: live
                     applyLifecycle(lifecycle.send(.mounted(key, token)))
                 } else {
                     pendingMounts[key] = token
@@ -159,10 +159,10 @@ extension TabContentCache {
                 conceal(key, token: token)
             case .release(let key, let token):
                 trace(key, "hibernate \(token)")
-                hibernation?.release(key, token: token)
+                if pageDiscards?.releasePage(key, token: token) != true { hibernation?.release(key, token: token) }
             case .restore(let key, let token):
                 trace(key, "restore \(token)")
-                hibernation?.restore(key, token: token)
+                if pageDiscards?.restorePage(key, token: token) != true { hibernation?.restore(key, token: token) }
             }
         }
     }
@@ -188,7 +188,7 @@ extension TabContentCache {
             entry.tab.setContentVisible(true)
             shownPages.insert(key)
         }
-        hibernation?.tabDidShow(key)
+        if pageDiscards?.pageDidShow(key) != true { hibernation?.tabDidShow(key) }
         notePageScreen(key)
     }
 
@@ -207,7 +207,7 @@ extension TabContentCache {
             }
             entry.tab.setContentVisible(false)
         }
-        hibernation?.tabDidHide(key)
+        if pageDiscards?.pageDidHide(key, token: token) != true { hibernation?.tabDidHide(key) }
     }
 
     func trace(_ key: String, _ event: String) {

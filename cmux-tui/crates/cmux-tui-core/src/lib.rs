@@ -64,6 +64,7 @@ use cmux_tui_remote_access::pairing;
 mod output_store;
 /// `RecoverPoison` and `JsonFields` (panic-free lane).
 mod panic_free;
+mod process_trace;
 mod program_status;
 mod prompt_mode_reset;
 pub mod provider_management;

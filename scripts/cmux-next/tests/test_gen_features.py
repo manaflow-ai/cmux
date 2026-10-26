@@ -741,10 +741,10 @@ extension PaneHostView {
         self.assertEqual(code, 0)
         stale = [line for line in err.splitlines() if "matches no declared tunable" in line]
         self.assertEqual(stale, ["warning: the MQ6 seed %s matches no declared tunable or env read; update the seed list"
-                                 % seed for seed in ("browserHost.helperPrototype", "hibernation.compressedSnapshots",
-                                                     "hostPressure.enabled", "agent.pageHost", "agent.chromium")])
-        _, _, err = self.repo(PERF, with_(KILL, replaces=["agent.pageHost"])).run("--unmigrated")
-        self.assertNotIn("seed agent.pageHost ", err, "a replaced seed is migrated, not stale")
+                                 % seed for seed in ("browserHost.helper", "hibernation.compressedSnapshots",
+                                                     "hostPressure.enabled", "agent.chromium")])
+        _, _, err = self.repo(PERF, with_(KILL, replaces=["agent.chromium"])).run("--unmigrated")
+        self.assertNotIn("seed agent.chromium ", err, "a replaced seed is migrated, not stale")
 
     def test_unmigrated_params_follow_perf_owned_files(self):
         code, out, _ = self.repo().run("--unmigrated-params")

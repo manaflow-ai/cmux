@@ -104,10 +104,11 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         let id = ObjectIdentifier(task)
         active.insert(id)
         WebBundleServedViews.shared.add(webView)
+        let range = request.value(forHTTPHeaderField: "Range")
         // task-owner: one file read or dynamic lookup per scheme task; a stopped task is never answered
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let reply = await self.reply(to: url, page: page)
+            let reply = await self.reply(to: url, range: range, page: page)
             guard self.active.remove(id) != nil else { return }
             self.trace.begin(.webuiScheme, arg0: TracePart.answer.rawValue, arg1: page)
             guard let reply else {
@@ -132,7 +133,9 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// `page` is the asking page's trace id: each synchronous step runs in a ``SignpostName/webuiScheme``
     /// slice of part ``TracePart/reply``, so with the start and answer turns the slices of a page sum the
     /// handler's main-thread time (a dynamic source's own work is the source's).
-    func reply(to url: URL, page: UInt64 = 0) async -> Reply? {
+    ///
+    /// `range` is the request's `Range` header, which a dynamic source answers in byte ranges (media).
+    func reply(to url: URL, range: String? = nil, page: UInt64 = 0) async -> Reply? {
         let start = step(page) { () -> (served: Served, live: WebDevOverride, server: PageDevServer?, remote: URL?)? in
             guard let found = self.served(url) else { return nil }
             let live = self.liveOverride()
@@ -169,12 +172,35 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
                 Self.reply(url: url, page: served.page, status: 200,
                            mimeType: Self.mimeType(forExtension: file.pathExtension), body: data)
             }
-        case .dynamic(let request):
-            let answer = await Self.dynamicResponse(to: request, source: served.dynamicSource)
-            return step(page) {
-                Self.reply(url: url, page: served.page, status: answer.status, mimeType: answer.mimeType, body: answer.body)
-            }
+        case .dynamic(let found):
+            let request = PageResourceRequest(prefix: found.prefix, path: found.path, url: found.url, range: range)
+            let resource = await served.dynamicSource?.resource(for: request)
+            return step(page) { Self.dynamicReply(url: url, page: served.page, request: request, resource: resource) }
         }
+    }
+
+    /// The WebKit reply for a dynamic request: the source's resource with its status, range headers
+    /// and type, served under the page's CSP, or under its own sandboxed policy
+    /// (``PageResource/sandboxedPolicy``); a 404 without a resource.
+    nonisolated static func dynamicReply(url: URL, page: PageDescriptor, request: PageResourceRequest,
+                                         resource: PageResource?) -> Reply {
+        guard let resource, resource.sandboxedPolicy?.contains(where: \.isNewline) != true else {
+            let missing = PageChromiumResponse.notFound
+            return reply(url: url, page: page, status: missing.status, mimeType: missing.mimeType, body: missing.body)
+        }
+        var extra: [String: String] = [:]
+        if resource.acceptsRanges { extra["Accept-Ranges"] = "bytes" }
+        if let contentRange = resource.contentRange { extra["Content-Range"] = contentRange }
+        let policy = resource.sandboxedPolicy.map { "sandbox allow-scripts; " + $0 } ?? page.csp.header
+        return reply(url: url, policy: policy, status: resource.status, mimeType: mimeType(of: resource, for: request),
+                     body: resource.data, extra: extra)
+    }
+
+    /// The resource's own type when it is well formed, else the type of the request's last path
+    /// component's extension.
+    nonisolated static func mimeType(of resource: PageResource, for request: PageResourceRequest) -> String {
+        resource.mimeType.flatMap(validMIMEType)
+            ?? mimeType(forExtension: request.path.last.map { ($0 as NSString).pathExtension } ?? "")
     }
 
     /// Runs one synchronous main-thread step of a reply to `page` inside a ``TracePart/reply`` slice.
@@ -184,14 +210,15 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         return body()
     }
 
-    /// The answer to a request under a dynamic prefix, in either engine: the source's resource with
+    /// The answer to a Chromium page's request under a dynamic prefix: the source's resource with
     /// its type (a malformed or missing type falls back to the name's extension), else a 404.
+    /// Chromium's answer has no headers of its own, so a partial answer (a range of a larger media
+    /// file) and a document with its own sandboxed policy are 404s there.
     static func dynamicResponse(to request: PageResourceRequest,
                                 source: (any PageDynamicResourceSource)?) async -> PageChromiumResponse {
-        guard let resource = await source?.resource(for: request) else { return .notFound }
-        let fallback = mimeType(forExtension: request.path.last.map { ($0 as NSString).pathExtension } ?? "")
-        let type = resource.mimeType.flatMap(validMIMEType) ?? fallback
-        return PageChromiumResponse(status: 200, mimeType: type, body: resource.data)
+        guard let resource = await source?.resource(for: request), resource.status == 200,
+              resource.contentRange == nil, resource.sandboxedPolicy == nil else { return .notFound }
+        return PageChromiumResponse(status: 200, mimeType: mimeType(of: resource, for: request), body: resource.data)
     }
 
     /// The dynamic request `url` makes of `page`, nil when it is not under one of the page's dynamic
@@ -210,10 +237,18 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
 
     /// A response with `csp` and the other headers every page response carries.
     nonisolated static func reply(url: URL, csp: PageCSP, status: Int, mimeType: String, body: Data) -> Reply {
-        let headers = [
+        reply(url: url, policy: csp.header, status: status, mimeType: mimeType, body: body)
+    }
+
+    /// A response with the Content Security Policy header `policy`, the other headers every page
+    /// response carries, and `extra` (a media range's `Content-Range` and `Accept-Ranges`).
+    nonisolated static func reply(url: URL, policy: String, status: Int, mimeType: String, body: Data,
+                                  extra: [String: String] = [:]) -> Reply {
+        var headers = [
             "Content-Type": mimeType, "Content-Length": String(body.count), "Cache-Control": "no-store",
-            "Content-Security-Policy": csp.header, "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": policy, "X-Content-Type-Options": "nosniff",
         ]
+        headers.merge(extra) { own, _ in own }
         let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)
             ?? HTTPURLResponse(url: url, mimeType: mimeType, expectedContentLength: body.count, textEncodingName: nil)
         return Reply(response: response, body: body)

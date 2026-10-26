@@ -63,7 +63,8 @@ extension Signposter {
     /// macros format `target=<view|terminal> age_ms=<age, 2 decimals>` into a stack buffer (CmuxNextSignpostsC),
     /// where `OSSignposter.beginInterval` returns a heap `OSSignpostIntervalState` per key. The ring record is an
     /// async slice (AB) keyed by the signpost id: `arg0` holds the target's code (1 view, 2 terminal) in bits 0-7
-    /// and the age in the top 24 bits.
+    /// and the age in the top 24 bits. Callers begin one only while ``isEnabled``, which is false while the
+    /// keystroke-timing gate is closed (``KeyFrameSignpost/begin(target:eventTimestamp:now:)``).
     ///
     /// - Parameters:
     ///   - name: ``SignpostName/keyToFrame``.
@@ -130,7 +131,8 @@ extension Signposter {
     /// record is a flow record with the flow id in `arg1`: a flow out (`s`) at the press's first hop, a flow in
     /// (`f`) at every later one, so an exporter draws the press's arrows and joins them to the daemon's and host's
     /// flow records. `arg0` holds the hop's ``KeyFlowHop/traceCode`` in bits 0-7 and the age in bits 8-63 (two's
-    /// complement: an arithmetic shift right by 8 reads -1 back).
+    /// complement: an arithmetic shift right by 8 reads -1 back). Nothing, in the log or the ring, while the
+    /// keystroke-timing gate is closed (``TraceRuntime/isKeyTimingSuppressed``, task 128).
     ///
     /// - Parameters:
     ///   - hop: The hop.
@@ -138,6 +140,7 @@ extension Signposter {
     ///   - ageMicroseconds: The key event's age at this hop, or -1.
     public func flowHop(_ hop: KeyFlowHop, flow: UInt64, ageMicroseconds: Int64 = -1) {
         assert(SignpostName.keyFlow.category == category, "key.flow is not in category \(category)")
+        guard !trace.isKeyTimingSuppressed else { return }
         let hopName = hop.staticName
         hopName.utf8Start.withMemoryRebound(to: CChar.self, capacity: hopName.utf8CodeUnitCount + 1) {
             cmux_signpost_key_flow_hop($0, flow, ageMicroseconds)

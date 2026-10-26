@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Zoom per site (Chrome's per-host zoom): one level per host and browser
@@ -112,7 +113,7 @@ private actor SiteZoomFile {
     private func read(_ file: URL) -> [String: Double] {
         // concurrency-allow: runs on this actor's executor, never the main actor.
         guard let data = try? Data(contentsOf: file) else { return [:] }
-        return (try? JSONDecoder().decode([String: Double].self, from: data)) ?? [:]
+        return (try? JSONDecoder().blockingDecode([String: Double].self, from: data)) ?? [:]
     }
 
     private func write(_ table: [String: Double], to file: URL) {

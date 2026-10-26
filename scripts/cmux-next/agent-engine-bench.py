@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """The agent chat in WebKit against Chromium (the `agent.chromium` Debug toggle spike).
 
-Launches a tagged DEBUG app once per mode, with the mock agent host, and measures the chat:
-  own       the pane's own WebKit host (what ships)
-  page      the shared page host in WebKit (`agent.pageHost`), to separate the host from the engine
-  chromium  the shared page host in Chromium (`agent.chromium`, `browser.defaultEngine: chromium`)
+Launches a tagged DEBUG app once per mode, with the mock agent host, and measures the chat on the
+shared page host (the pane's own WebKit host is gone):
+  webkit    the page host in WebKit (`agent.chromium` off)
+  chromium  the page host in Chromium (`agent.chromium`, `browser.defaultEngine: chromium`)
 
 Per mode: the engine that showed the chat (`debug.agent_pane engine`); time from the open action to
 the first text and to a visible composer, for the first chat and for each of `--chats` more; memory
@@ -14,7 +14,7 @@ typing latency in the composer (keydown to the next frame and to its paint, the 
 typingStats) for `--keys` keys sent with `debug.key`. With `--activate` the app runs active and the
 report adds which window holds the keys once the chat is focused (a Chromium page is its own child
 window). Runs on a fleet mini, never a laptop:
-  agent-engine-bench.py --tag TAG --app BUNDLE [--modes own,page,chromium] [--chats 10] [--json FILE]
+  agent-engine-bench.py --tag TAG --app BUNDLE [--modes webkit,chromium] [--chats 10] [--json FILE]
 """
 import argparse, glob, json, os, signal, socket, statistics, subprocess, sys, tempfile, time
 
@@ -25,7 +25,7 @@ from bench_launch import LaunchError, launch_app, bundle_id  # noqa: E402
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--app", required=True)
-parser.add_argument("--modes", default="own,page,chromium")
+parser.add_argument("--modes", default="webkit,chromium")
 parser.add_argument("--chats", type=int, default=10)
 parser.add_argument("--keys", type=int, default=40)
 parser.add_argument("--flings", type=int, default=3)
@@ -43,7 +43,7 @@ BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
-TUNABLES = {"own": {"agent.chromium": False}, "page": {"agent.pageHost": True, "agent.chromium": False}, "chromium": {"agent.chromium": True}}
+TUNABLES = {"webkit": {"agent.chromium": False}, "chromium": {"agent.chromium": True}}
 app = None
 
 

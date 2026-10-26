@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
 import Foundation
@@ -83,6 +84,6 @@ nonisolated enum UncaughtExceptionRecorder {
     static func read(_ url: URL) -> RecordedException? {
         // concurrency-allow: once at launch before the first window, a file of a few KB.
         guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode(RecordedException.self, from: data)
+        return try? JSONDecoder().blockingDecode(RecordedException.self, from: data)
     }
 }

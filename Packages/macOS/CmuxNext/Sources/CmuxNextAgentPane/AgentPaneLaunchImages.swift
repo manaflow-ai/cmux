@@ -104,12 +104,11 @@ public final class AgentPaneLaunchImages {
     /// last quit saved, once, if the launch read has ended; before then nil (the pane shows its loading
     /// state, as with no saved page).
     public func take(_ key: String, size: NSSize = .zero, appearance: NSAppearance.Name? = nil) -> NSImage? {
+        // The pane's first frame cannot wait, so the held frame decodes here, as a checked CPU call: a large one on
+        // the main thread is a cpu-intensive site, where NSBitmapImageRep(data:) decoded it unseen at its first draw.
         if let frame = held.removeValue(forKey: key), frame.appearance == appearance, size == .zero || size == frame.size,
-           let rep = NSBitmapImageRep(data: frame.data) {
-            let image = NSImage(size: frame.size)
-            rep.size = frame.size
-            image.addRepresentation(rep)
-            return image
+           let image = blockingImageDecode(frame.data) {
+            return NSImage(cgImage: image, size: frame.size)
         }
         guard let read else { return nil }
         guard let pages = read.value else {

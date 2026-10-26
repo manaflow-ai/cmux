@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Rows for the shim's `cmux_shim_password_entry` array, written at the C
@@ -85,7 +86,7 @@ public nonisolated struct ChromiumPasswordWriteResult: Sendable, Equatable {
 
     /// Parses the shim's reply `{"added","duplicate","conflict","rejected","conflicts"?}`.
     static func parse(_ json: String) -> ChromiumPasswordWriteResult? {
-        guard let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+        guard let object = try? JSONSerialization.blockingJSONObject(with: Data(json.utf8)) as? [String: Any],
               let added = object["added"] as? Int, let duplicate = object["duplicate"] as? Int,
               let conflict = object["conflict"] as? Int, let rejected = object["rejected"] as? Int else { return nil }
         return ChromiumPasswordWriteResult(added: added, duplicate: duplicate, conflict: conflict, rejected: rejected,
@@ -111,7 +112,7 @@ public nonisolated struct ChromiumPasswordReplaceResult: Sendable, Equatable {
 
     /// Parses the shim's reply `{"updated","missing","rejected"}`.
     static func parse(_ json: String) -> ChromiumPasswordReplaceResult? {
-        guard let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+        guard let object = try? JSONSerialization.blockingJSONObject(with: Data(json.utf8)) as? [String: Any],
               let updated = object["updated"] as? Int, let missing = object["missing"] as? Int,
               let rejected = object["rejected"] as? Int else { return nil }
         return ChromiumPasswordReplaceResult(updated: updated, missing: missing, rejected: rejected)

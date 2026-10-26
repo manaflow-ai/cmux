@@ -2,7 +2,8 @@ import Foundation
 
 /// Requests a fixed update job on exactly one machine and daemon session.
 /// The caller retains the original key through lost replies and reattachment.
-public nonisolated struct MachineAgentCLIUpdateJobRequest: DaemonRequest {
+/// The job opens a workspace whose terminal runs the update, so it spawns.
+public nonisolated struct MachineAgentCLIUpdateJobRequest: TerminalSpawningRequest {
     public typealias Response = AgentCLIJobReceipt
     public static let command = "agent-cli-update-job"
     public static let requiredCapability: String? = "agent-cli-update-job-v1"
