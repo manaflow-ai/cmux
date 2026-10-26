@@ -88,6 +88,23 @@ never look for a live renderer.
 The page bridge leaves DevTools: the host takes the sender's browser, frame and origin from the CEF frame that
 delivered the message, never from the payload.
 
+Fork implementation, proposed (task 077, manaflow-ai/cef `cp/p13-webui-077` at `3c2fe1c9`, on the cmux.33 line
+`c382c63b`). Nobody has built or run it. Snapshots and debug clicks stop using DevTools (`Page.captureScreenshot`,
+`Input.dispatchMouseEvent`), because one DevTools agent ends main-frame renderer reuse for the whole browser
+(`RenderFrameDevToolsAgentHost::WasEverAttachedToAnyFrame` in `render_frame_host_manager.cc`).
+`cmux_tab_copy_surface(browser_id, max_width, max_height, format, jpeg_quality, done, context)` copies the page as
+Chrome copies a tab thumbnail (`thumbnail_tab_helper.cc`, `RenderWidgetHostView::CopyFromSurface`). It scales the
+picture down to fit, never up, and encodes it on Chromium's thread pool as a fast PNG with alpha or as a JPEG.
+`done` runs exactly once on a thread pool worker, never on the main thread. A 2 s Viz deadline makes sure a page that
+never draws still gets an answer. `cmux_tab_send_mouse(browser_id, kind, x, y, button, click_count, modifiers)` takes
+CSS pixels, scales them as DevTools does (`InputHandler::ScaleFactor`: zoom times pinch) and routes the event through
+`RenderWidgetHostInputEventRouter` the way a person's click goes, so the page gets a trusted click with user
+activation. `cmux_tab_devtools_state(browser_id)` reports a session on the page (the app's own protocol client
+included) and the browser-wide ever-attached flag. No API number yet (the train, 086, assigns one); 078 looks the
+exports up with dlsym and keeps DevTools only when they are missing. Whether it stays depends on a fork build passing
+`ceftests --gtest_filter=CmuxTabSurfaceTest.*`: copies answered off the UI thread with no session and an unchanged
+flag, and a trusted click at the CSS point at 100 % and 120 % zoom.
+
 WebKit mechanism. One non-persistent data store per group, every view in the host's process pool,
 `_setRelatedWebView:` per group, 8 pages per process, every SPI gated with `responds(to:)`.
 
