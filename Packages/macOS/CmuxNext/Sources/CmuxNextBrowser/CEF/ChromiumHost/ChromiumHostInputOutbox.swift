@@ -105,15 +105,11 @@ nonisolated struct ChromiumHostInputOutbox: Sendable {
         return push(held)
     }
 
-    /// Writes waiting frames, oldest first, while `write` takes them.
+    /// Writes waiting frames, oldest first, while `write` takes them. Each
+    /// pass writes some bytes or returns, so it ends within the waiting bytes.
     mutating func flush(_ write: (UnsafeRawBufferPointer) -> WriteOutcome) -> FlushResult {
-        while true {
+        while hasUnwritten {
             if frontOffset == front.count {
-                guard head < frames.count else {
-                    frames.removeAll(keepingCapacity: true)
-                    head = 0
-                    return .drained
-                }
                 let next = frames[head]
                 head += 1
                 if !Self.isCoalescible(next) { discreteCount -= 1 }
@@ -123,18 +119,20 @@ nonisolated struct ChromiumHostInputOutbox: Sendable {
             let offset = frontOffset
             let outcome = front.withUnsafeBytes { write(UnsafeRawBufferPointer(rebasing: $0[offset...])) }
             switch outcome {
-            case .wrote(let count):
-                guard count > 0 else { return .failed }
+            case .wrote(let count) where count > 0:
                 frontOffset += count
             case .interrupted:
-                continue
+                break  // EINTR: the same bytes again
             case .wouldBlock:
                 compactIfSparse()
                 return .blocked
-            case .failed:
+            case .wrote, .failed:
                 return .failed
             }
         }
+        frames.removeAll(keepingCapacity: true)
+        head = 0
+        return .drained
     }
 
     private mutating func append(_ frame: ChromiumHostFrame) -> Bool {
