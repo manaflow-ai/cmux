@@ -1,4 +1,6 @@
+import CmuxNextActions
 public import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 
 // Commands that change what the store shows: typed intents (the store's
@@ -41,19 +43,30 @@ extension DaemonService {
             // Every event the daemon emitted before the reply. Nil when the
             // connection is gone: no event will come on it, and the next
             // connection's first snapshot holds the result.
-            if let sequence = await connection.eventSequence() {
-                store.noteSettled(transaction, at: sequence)
-            } else {
-                store.noteSettledAtNextSnapshot(transaction)
+            let sequence = await connection.eventSequence()
+            await settleReply { [store] in
+                if let sequence {
+                    store.noteSettled(transaction, at: sequence)
+                } else {
+                    store.noteSettledAtNextSnapshot(transaction)
+                }
             }
             await closeTicket(ticket, label: label, error: nil, replying: connection)
             return .success(value)
         } catch {
-            store.rejectIntent(transaction)
+            await settleReply { [store] in store.rejectIntent(transaction) }
             logger.error("\(label, privacy: .public) rejected: \(String(describing: error), privacy: .public)")
             await closeTicket(ticket, label: label, error: error)
             return .failure(error)
         } }
+    }
+
+    /// Runs `body`, a command reply's change to the store, under the cause of the action run that
+    /// sent the command (``ActionRunScope``). A person's run's reply (a person-scope command) is the
+    /// rest of their action: one userBlocking task (``MainWorkScheduler/reply(as:owner:file:line:_:)``),
+    /// whose changes flush as the person's. Another run's, or a command no run sent, settles here.
+    func settleReply(_ body: @escaping @MainActor () -> Void) async {
+        await mainWork.reply(as: ActionRunScope.current?.origin.observationCause ?? .program, owner: "DaemonService.reply", body)
     }
 
     /// `intend` with a fresh transaction, for commands that do not carry

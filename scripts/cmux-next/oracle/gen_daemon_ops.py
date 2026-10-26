@@ -71,6 +71,7 @@ REPO = HERE.parents[2]
 CATALOG = REPO / "cmux-tui" / "spec" / "resource-operations-v2.json"
 WORK = REPO / "plans" / "cmux-next" / "chrome-parity" / "WORK.tsv"
 DEFAULT_OUT = REPO / "tests" / "oracle" / "corpus" / "daemon-ops"
+CORPUS_DIR = DEFAULT_OUT.relative_to(REPO).as_posix()
 CASE_SCHEMA = REPO / "schemas" / "oracle" / "case-v1.schema.json"
 SUITE = "daemon-ops"
 GENERATOR = "scripts/cmux-next/oracle/gen_daemon_ops.py"
@@ -989,9 +990,10 @@ STEP_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 
 @dataclass(frozen=True)
 class TaskGraph:
-    """WORK.tsv's task ids and their depends_on: what a tuning gap may name as the task that closes it."""
+    """WORK.tsv's task ids, their depends_on and their files: what a tuning gap may name as the task that closes it."""
 
     depends_on: Mapping[str, Tuple[str, ...]]
+    files: Mapping[str, Tuple[str, ...]] = field(default_factory=dict)
 
     @classmethod
     def load(cls, path: Path = WORK) -> "TaskGraph":
@@ -999,7 +1001,15 @@ class TaskGraph:
             rows = [line.split("\t") for line in path.read_text(encoding="utf-8").splitlines()[1:] if line]
         except OSError as error:
             raise GenError(f"{path}: {error}") from None
-        return cls({row[0]: tuple(dep for dep in row[3].split(";") if dep) for row in rows if len(row) >= 4})
+        rows = [row for row in rows if len(row) >= 4]
+        return cls({row[0]: tuple(dep for dep in row[3].split(";") if dep) for row in rows},
+                   {row[0]: tuple(file for file in row[5].split(";") if file) for row in rows if len(row) >= 6})
+
+    def owns(self, task: str, directory: str) -> bool:
+        """Whether `task`'s files take in `directory` (repo-relative, ending in /): the directory itself, a file in
+        it, or a directory above it."""
+        return any(path == directory or path.startswith(directory) or (path.endswith("/") and directory.startswith(path))
+                   for path in self.files.get(task, ()))
 
     def done_before(self, task: str) -> frozenset:
         """`task` and every task it depends on, directly or not: all are done when `task` lands."""
@@ -1023,6 +1033,10 @@ class TaskGraph:
         done = sorted(set(cited) & self.done_before(FAMILY_TASK[family]))
         if done:
             return f"names {done}, done before {FAMILY_TASK[family]} lands, so they close nothing"
+        # Only a task that edits the family's _tuning.json can remove the gap; another closes nothing by itself.
+        corpus = f"{CORPUS_DIR}/{family}/"
+        if not any(self.owns(task, corpus) for task in cited):
+            return f"names {sorted(set(cited))}, none of whose WORK.tsv files take in {corpus}, so none removes it"
         return None
 
 
@@ -1618,6 +1632,9 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
             ({"operations": {"pane.close": {"success": {"gap": "follow-up to p15-oracle-023"}}}},
              "names \\['p15-oracle-023'\\], done before p15-oracle-066"),
             ({"operations": {"pane.close": {"success": {"gap": "p15-oracle-066 tunes it"}}}}, "done before p15-oracle-066"),
+            # 204's files are the streams suite: it never edits the layout tuning, so it removes no layout gap.
+            ({"operations": {"pane.close": {"success": {"gap": "p15-oracle-204 streams it"}}}},
+             "none of whose WORK.tsv files take in tests/oracle/corpus/daemon-ops/layout/"),
             ({"operations": {"pane.close": {"error": {"details": {}}}}}, "details is a non-empty object"),
             ({"operations": {"pane.close": {"error": {"error": "home.pinned_first"}}}}, "not an error"),
             ({"operations": {"pane.close": {"retry": {}}}}, "takes only"),
@@ -1689,11 +1706,20 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
     def test_a_gap_names_a_task_that_is_not_done_before_the_family_task(self) -> None:
         tasks = TaskGraph({"p15-oracle-070": ("p15-oracle-060",), "p15-oracle-060": ("p15-oracle-023",),
                            "p15-oracle-023": (), "p15-oracle-237": ("p15-oracle-023", "p15-oracle-070"),
-                           "p14-energy-077b": ()})
+                           "p14-energy-077b": (), "p15-oracle-204": (), "p15-oracle-205": ()},
+                          {"p15-oracle-237": ("scripts/cmux-next/oracle/driver_daemon.py",
+                                              "tests/oracle/corpus/daemon-ops/misc/"),
+                           "p14-energy-077b": ("tests/oracle/corpus/daemon-ops/misc/_tuning.json",),
+                           "p15-oracle-205": ("tests/oracle/",),
+                           "p15-oracle-204": ("tests/oracle/corpus/streams/",)})
         self.assertEqual(tasks.done_before("p15-oracle-070"), {"p15-oracle-070", "p15-oracle-060", "p15-oracle-023"})
         for gap, problem in (
                 ("p15-oracle-237 proves the key", None),
                 ("after p14-energy-077b", None),
+                ("p15-oracle-205 owns the whole corpus", None),
+                ("p15-oracle-204 streams, then p15-oracle-237", None),
+                ("p15-oracle-204 streams it", "names ['p15-oracle-204'], none of whose WORK.tsv files take in "
+                                              "tests/oracle/corpus/daemon-ops/misc/, so none removes it"),
                 ("p15-oracle-237, then p15-oracle-023", "names ['p15-oracle-023'], done before p15-oracle-070 lands, "
                                                         "so they close nothing"),
                 ("p15-oracle-070", "names ['p15-oracle-070'], done before p15-oracle-070 lands, so they close nothing"),
@@ -1705,6 +1731,7 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
         # The corpus's own gaps name tasks of the real WORK.tsv.
         work = TaskGraph.load()
         self.assertIn("p15-oracle-237", work.depends_on)
+        self.assertTrue(work.owns("p15-oracle-237", "tests/oracle/corpus/daemon-ops/misc/"))
         self.assertIn("p15-oracle-023", work.done_before("p15-oracle-070"))
 
     def test_before_steps_requires_and_untested_shape_the_case(self) -> None:
@@ -2006,6 +2033,62 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
         self.assertEqual(call("history.restore", "error")["expect"]["errorDetails"], {
             "operation": "history.restore",
             "reason": "no history backup history:0000000000000000000000000000000a (it was restored, purged or expired)"})
+
+    def test_the_tab_family_tuning(self) -> None:
+        """tests/oracle/corpus/daemon-ops/tab/_tuning.json (p15-oracle-067): the 21 tab, tab_group, saved_tab_group
+        and closed mutations. Reopen and unpin run as round trips (a close or pin first, in the success case only);
+        each error is the handler's own refusal except tab.create_browser's, which keeps the catalog check so it is
+        the same with and without a browser engine. Only that success (a daemon-rendered browser) is excluded."""
+        sys.path.insert(0, str(HERE))
+        normalize = __import__("normalize")
+        checks = __import__("case_checks")
+        schema = json.loads(CASE_SCHEMA.read_text(encoding="utf-8"))
+        rules = checks.Rules(schema)
+        tuning = load_tuning(DEFAULT_OUT, self.catalog)
+        files = generate(self.catalog, tuning)
+        coverage = files[COVERAGE]
+        tab = sorted(op for op in self.catalog.mutations() if family_of(op) == "tab")
+        self.assertEqual(len(tab), 21)
+        self.assertEqual(sorted(op for op in tuning if family_of(op) == "tab"), tab)
+
+        def case(operation: str, kind: str) -> Dict[str, Any]:
+            return files[coverage["operations"][operation]["cases"][kind].split("/", 1)[1] + ".json"]
+
+        round_trips = {"closed.reopen": "tab.close", "closed.delete": "tab.close",
+                       "saved_tab_group.reopen": "tab_group.close", "tab.unpin": "tab.pin", "tab.focus": "tab.focus"}
+        for operation in tab:
+            entry = coverage["operations"][operation]
+            self.assertEqual(entry["placeholders"], [], operation)
+            self.assertEqual(operation in coverage["excluded"], operation == "tab.create_browser", operation)
+            for kind in ("success", "error"):
+                doc = case(operation, kind)
+                self.assertEqual(normalize.validate(doc, schema), [], f"{operation} {kind}")
+                self.assertEqual(checks.check_case(doc, rules), [], f"{operation} {kind}")
+                self.assertEqual(doc["steps"][-1]["args"]["method"], operation)
+                # Every refusal but the catalog check's names what it refused.
+                expect = doc["steps"][-1]["expect"]
+                self.assertEqual("errorDetails" in expect, kind == "error" and operation != "tab.create_browser",
+                                 f"{operation} {kind}")
+                before = [step["args"]["method"] for step in doc["steps"]
+                          if step["id"] != "call" and not step["id"].startswith("fx-")]
+                setup = round_trips.get(operation) if kind == "success" else None
+                expected = [setup] if setup else (["tab.pin"] if (operation, kind) == ("tab_group.add_tabs", "error") else [])
+                self.assertEqual(before, expected, f"{operation} {kind}")
+        self.assertEqual(case("tab.create_browser", "success")["requires"], ["resource_api", "chromium"])
+        self.assertEqual(case("tab.create_browser", "error")["requires"], ["resource_api"])
+        self.assertEqual(coverage["operations"]["tab.create_browser"]["error"]["code"], ERROR_CODE)
+        # The task the gap names owns the tab corpus (load_tuning refuses a gap whose tasks do not), and its plan
+        # section takes in this case.
+        self.assertIn("p15-oracle-239", coverage["excluded"]["tab.create_browser"])
+        self.assertTrue(TaskGraph.load().owns("p15-oracle-239", f"{CORPUS_DIR}/tab/"))
+        plan = (WORK.parent / "p15-oracle.md").read_text(encoding="utf-8")
+        self.assertIn("tab.create_browser", plan[plan.index("**239 "):].split("\n\n", 1)[0])
+        # The closed history is empty until a close: reopen's error is the missing newest group, its success the
+        # tab the before step closed.
+        self.assertEqual(case("closed.reopen", "error")["steps"][-1]["expect"]["errorDetails"],
+                         {"scope": "closed", "id": "newest"})
+        self.assertEqual(case("closed.reopen", "success")["steps"][-2]["target"]["tab"],
+                         "$step:fx-split#/value/tab_id")
 
     def test_the_chief_family_tuning(self) -> None:
         """tests/oracle/corpus/daemon-ops/chief/_tuning.json (p15-oracle-069): each of the 24 chief, conversation,

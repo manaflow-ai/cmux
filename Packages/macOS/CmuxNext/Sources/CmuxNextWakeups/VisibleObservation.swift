@@ -28,7 +28,7 @@ import Observation
 ///    (`base/task/sequence_manager/task_queue_selector.h`), held while the node is hidden or frozen.
 ///    A person-caused flush is also queued for the input-response pass, which applies it before
 ///    the commit (``ObservationCauses/flushPersonCaused()``); one the pass did not reach runs in
-///    its `visible` task.
+///    its `userBlocking` task.
 /// 4. When the node stops being visible, a cancel signal fires the armed tracking, so the
 ///    registrar drops it, and a dirty flush is dropped: a hidden view reads nothing. When the node
 ///    shows again it reads once and applies the value.
@@ -57,8 +57,7 @@ public final class VisibleObservation<Value> {
     private var cancelled = false
     private var visibility: VisibilitySubscription?
     /// The node's queues the flushes run on, by class, built on first use.
-    private var visibleQueue: MainTaskQueue?
-    private var automationQueue: MainTaskQueue?
+    private var queues: [BudgetedWorkClass: MainTaskQueue] = [:]
 
     /// Tracking callbacks received, stale ones included (tests prove a hidden observation has none).
     package var trackingCallbacks: Int { tracker.callbacks }
@@ -103,8 +102,7 @@ public final class VisibleObservation<Value> {
         last = nil
         visibility?.cancel()
         visibility = nil
-        visibleQueue = nil
-        automationQueue = nil
+        queues.removeAll()
     }
 
     /// Whether ``cancel()`` ran.
@@ -130,7 +128,9 @@ public final class VisibleObservation<Value> {
     /// A queued flush task: flushes when the pending flush's class is still `workClass` (a raised
     /// cause has its own task on the higher class's queue).
     private func flushQueued(_ workClass: BudgetedWorkClass) { // perf-hot: 0.05ms frame-tick (one task per dirty observer)
-        guard !cancelled, let cause = tracker.dirtyCause, cause.budgetedClass == workClass, node.isVisible else { return }
+        guard !cancelled, let cause = tracker.dirtyCause, cause.budgetedClass == workClass, node.isVisible else {
+            return work.budget.noteRanNothing()
+        }
         flushNow()
     }
 
@@ -151,15 +151,9 @@ public final class VisibleObservation<Value> {
     }
 
     private func queue(_ workClass: BudgetedWorkClass) -> MainTaskQueue {
-        if workClass == .automation {
-            if let automationQueue { return automationQueue }
-            let made = node.queue(.automation, owner: owner, on: work)
-            automationQueue = made
-            return made
-        }
-        if let visibleQueue { return visibleQueue }
-        let made = node.queue(.visible, owner: owner, on: work)
-        visibleQueue = made
+        if let queue = queues[workClass] { return queue }
+        let made = node.queue(workClass, owner: owner, on: work)
+        queues[workClass] = made
         return made
     }
 }
@@ -175,7 +169,7 @@ extension VisibleObservation: ObservationTrackerClient {
 
     func flushPersonCaused() -> Bool {
         guard !cancelled, node.isVisible, !node.isFrozen else { return false }
-        // Its visible task finds nothing pending and returns.
+        // Its userBlocking task finds nothing pending and returns.
         work.budget.run(.frame, owner: taskOwner) { flushNow() }
         return true
     }

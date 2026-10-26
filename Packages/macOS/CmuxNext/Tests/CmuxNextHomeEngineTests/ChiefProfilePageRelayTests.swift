@@ -1,5 +1,6 @@
 import CmuxNextDaemon
 @testable import CmuxNextHomeEngine
+import CmuxNextIPC
 import Foundation
 import Testing
 
@@ -95,10 +96,9 @@ import Testing
         _ = try await pageRelay.send(operation: "chief.profile.create", params: params, idempotencyKey: "k2", gestureEvent: 5)
         #expect(owner.confirmations.count == 1)
         let issued = try #require(owner.confirmations.first)
-        #expect(issued["operation"] == .string("chief.profile.create"))
-        #expect(issued["params_sha256"] == .string(try ResourceRelayClient.paramsDigest(params, operation: "chief.profile.create")))
-        #expect(issued["relay_connection_id"] == .string("c1"))
-        #expect(issued["relay_stream"] == .number(1))
+        #expect(issued.operation == "chief.profile.create")
+        #expect(issued.paramsSha256 == (try ResourceRelayClient.paramsDigest(params, operation: "chief.profile.create")))
+        #expect(issued.relayConnectionID == "c1")
         let origins = await relay.opened[0].sent.map(\.origin)
         #expect(origins == [.object(["claim": .string("user"), "confirmation": .string("token-1")]),
                             .object(["claim": .string("page")])])
@@ -122,7 +122,7 @@ private final class FakeChiefOwner: ChiefProfileRelayOwner {
     var attached: ChiefProfilePageRelay.OwnerKey?
     let relay: FakePageRelay
     private(set) var sockets: [String] = []
-    private(set) var confirmations: [[String: JSONValue]] = []
+    private(set) var confirmations: [V2OriginConfirmationIssueRequest] = []
 
     init(attached: ChiefProfilePageRelay.OwnerKey?, relay: FakePageRelay) {
         self.attached = attached
@@ -131,9 +131,9 @@ private final class FakeChiefOwner: ChiefProfileRelayOwner {
 
     func attachedOwner() async -> ChiefProfilePageRelay.OwnerKey? { attached }
 
-    func issueConfirmation(_ params: [String: JSONValue]) async throws -> JSONValue {
-        confirmations.append(params)
-        return .object(["token": .string("token-\(confirmations.count)")])
+    func issueConfirmation(_ request: V2OriginConfirmationIssueRequest) async throws -> V2OriginConfirmation {
+        confirmations.append(request)
+        return V2OriginConfirmation(expiresAt: "1700000060000", token: "token-\(confirmations.count)")
     }
 
     func pageRelay(socket: String) -> any PageRelayStreamOpening {
@@ -157,7 +157,7 @@ private actor FakePageRelay: PageRelayStreamOpening {
     func openStream(page: String) async throws -> any PageRelayStream {
         pages.append(page)
         guard !epochs.isEmpty else { throw DaemonError.notConnected }
-        let stream = FakePageStream(page: page, epoch: epochs.removeFirst(), stream: 1, failsFirstSend: firstSendFails)
+        let stream = FakePageStream(page: page, epoch: epochs.removeFirst(), failsFirstSend: firstSendFails)
         firstSendFails = nil
         opened.append(stream)
         return stream
@@ -173,23 +173,17 @@ private actor FakePageStream: PageRelayStream {
 
     nonisolated let page: String
     nonisolated let epoch: PageRelayEpoch
-    private nonisolated let stream: UInt16
     private var failsFirstSend: DaemonError?
     private var open = true
     private(set) var sent: [Sent] = []
 
-    init(page: String, epoch: PageRelayEpoch, stream: UInt16, failsFirstSend: DaemonError?) {
+    init(page: String, epoch: PageRelayEpoch, failsFirstSend: DaemonError?) {
         self.page = page
         self.epoch = epoch
-        self.stream = stream
         self.failsFirstSend = failsFirstSend
     }
 
     var isOpen: Bool { open }
-
-    nonisolated var confirmationBinding: [String: JSONValue] {
-        ["relay_connection_id": .string(epoch.connectionID), "relay_stream": .number(Double(stream))]
-    }
 
     func send(operation: String, params: [String: JSONValue], idempotencyKey: String?,
               origin: JSONValue) async throws -> JSONValue {

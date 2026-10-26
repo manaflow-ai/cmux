@@ -361,6 +361,39 @@ import Testing
         #expect(seen.events.count == 1 && seen.events.first === cmdK)
     }
 
+    // MARK: Page cursor (task 045)
+
+    /// Host mode: a CURSOR shows on the pane's page view while its tab is the shown one; a hidden
+    /// tab's cursor waits, and each tab's last cursor comes back when it shows again (a renderer
+    /// sends its cursor only when it changes).
+    @Test func hostModeShowsTheShownTabsPageCursor() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first) = try Self.livePane(runtime)
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        host.present(first, in: container)
+        let page = try #require(host.hostedPageView)
+        #expect(page.pageCursorName == "default", "the arrow until the page sets one")
+
+        runtime.handle(.cursor(browser: Self.firstBrowser, cursor: .builtIn(3)))
+        #expect(page.pageCursorName == "text")
+
+        let second = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(second)
+        runtime.register(second, browser: Self.firstBrowser + 1)
+        host.present(second, in: container)
+        #expect(page.pageCursorName == "default", "the first tab's cursor is not the second's")
+        runtime.handle(.cursor(browser: Self.firstBrowser + 1, cursor: .builtIn(18)))
+        #expect(page.pageCursorName == "col-resize")
+        runtime.handle(.cursor(browser: Self.firstBrowser, cursor: .builtIn(2)))
+        #expect(page.pageCursorName == "col-resize", "a hidden tab's cursor does not show")
+
+        host.present(first, in: container)
+        #expect(page.pageCursorName == "pointer")
+        host.present(second, in: container)
+        #expect(page.pageCursorName == "col-resize")
+    }
+
     // MARK: Fixtures
 
     /// The first browser's id: a window's AFTER_CREATED names it.

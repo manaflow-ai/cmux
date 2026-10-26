@@ -27,6 +27,7 @@ extension CEFPaneHost {
             hosting.pageShown(browser: browser, tabSwitch: tab.takeTabSwitchShow())
             hostView.postGeometryChange()
         }
+        showPageCursor(of: browser)
         // A window-wide side panel stays open across tabs: no event.
         tab.sidePanel.scheduleRefresh()
     }

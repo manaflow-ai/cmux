@@ -60,7 +60,9 @@
       },
       "args": {
         "method": "tab.create_terminal",
-        "params": {},
+        "params": {
+          "name": "oracle"
+        },
         "idempotencyKey": "tab-create-terminal-ok.call"
       },
       "expect": {
@@ -71,7 +73,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "a named terminal tab opens in the fixture pane"
     }
   ],
   "invariants": [

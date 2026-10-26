@@ -44,7 +44,7 @@ struct PageFreezeWakeupsBenchmark {
         view.frame = tab.bounds
         tab.addSubview(view)
         await view.waitUntilLoaded()
-        let pid = try #require(Self.webContentProcess(of: view.webKitView), "the page has a WebContent process")
+        let pid = try #require(Self.webContentProcess(of: view.webView), "the page has a WebContent process")
 
         let shown = try await Self.wakeupsPerSecond(of: pid, over: Self.shownWindow)
         tab.isHidden = true
