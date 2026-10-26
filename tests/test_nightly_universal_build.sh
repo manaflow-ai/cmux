@@ -1318,6 +1318,37 @@ for case in \
     exit 1
   fi
 done
+# --commit: the macOS job passes the app's own commit; no run or notes are read.
+commit_check() {  # <build sha> <required> -> "exit:first word"
+  local out code
+  out="$(PATH="$req_gh_dir:$PATH" FAKE_RUN=error FAKE_COMPARE=error NIGHTLY_LEGACY_GIT_URL="file://$anc_repo" \
+    bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-requirement.sh" --commit manaflow-ai/cmux "$1" "$2")"
+  code=$?
+  printf '%s:%s' "$code" "${out%% *}"
+}
+[ "$(commit_check "$anc_build" "$anc_adopt")" = "0:ok" ] || { echo "FAIL: --commit must check the given commit"; exit 1; }
+[ "$(commit_check "$anc_side" "$anc_adopt")" = "3:missing" ] || { echo "FAIL: --commit must refuse a commit that lacks the required one"; exit 1; }
+short_rc=0
+PATH="$req_gh_dir:$PATH" bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-requirement.sh" --commit manaflow-ai/cmux abc >/dev/null 2>&1 || short_rc=$?
+[ "$short_rc" -eq 2 ] || { echo "FAIL: --commit needs a full SHA"; exit 1; }
+# A stalled fetch is bounded and falls back to the compare API.
+stall_dir="$legacy_dir/stallgit"
+mkdir -p "$stall_dir"
+printf '#!/usr/bin/env bash\ncase "$*" in *fetch*) sleep 30 ;; esac\nexec /usr/bin/git "$@"\n' > "$stall_dir/git"
+chmod +x "$stall_dir/git"
+stall_start=$SECONDS
+stall_out="$(PATH="$stall_dir:$req_gh_dir:$PATH" FAKE_RUN=error FAKE_COMPARE=ahead NIGHTLY_LEGACY_GIT_URL="file://$anc_repo" \
+  NIGHTLY_LEGACY_GIT_SECONDS=2 bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-requirement.sh" --commit manaflow-ai/cmux "$anc_side" "$anc_adopt")"
+if [ "${stall_out%% *}" != ok ] || [ $((SECONDS - stall_start)) -ge 20 ]; then
+  echo "FAIL: a stalled git fetch must be cut off and fall back to the compare API (got '$stall_out')"
+  exit 1
+fi
+# The macOS job checks the app's commit through the script, not the compare API alone.
+if ! grep -Fq 'nightly-next-legacy-requirement.sh --commit "$GITHUB_REPOSITORY" "$sha" $REQUIRED' "$WORKFLOW_FILE" \
+  || grep -Fq 'compare/$required...$sha' "$WORKFLOW_FILE"; then
+  echo "FAIL: the cmux NIGHTLY-identity macOS job must check required commits through nightly-next-legacy-requirement.sh --commit"
+  exit 1
+fi
 # The macOS job's refusal of an app that lacks a required commit is never
 # counted, and a continued submission of that build is retired.
 legacy_resolve "true false false" "a continued submission refused by the requirement must be retired and not counted" \
@@ -1369,7 +1400,7 @@ for expected in \
   'CMUX_VERIFY_LICENSES_TOOL=$RUNNER_TEMP/build-src/scripts/verify-app-bundle-licenses.sh' \
   "REQUIRED: \${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}" \
   "requirement in use: required: " \
-  'compare/$required...$sha' \
+  'nightly-next-legacy-requirement.sh --commit "$GITHUB_REPOSITORY" "$sha" $REQUIRED' \
   "scripts/ci/nightly-next-legacy-resolve.py" \
   "./scripts/ci/nightly-next-legacy-orphan-meta.sh" \
   'xcrun stapler validate "legacy-app/cmux NIGHTLY.app"'; do

@@ -6,6 +6,8 @@
 # one-time adopt fix, or a NIGHTLY update opens with an empty session.
 #
 # Usage: nightly-next-legacy-requirement.sh <owner/repo> <build> [<required sha>...]
+#        nightly-next-legacy-requirement.sh --commit <owner/repo> <build sha> [<required sha>...]
+#   (--commit: the build's commit is given, as the macOS job reads it from the app.)
 #   The build's commit: the "head" of its signed release notes
 #   (${NOTES_BASE}/<build>.json, when NOTES_BASE is set and the notes exist),
 #   else the head of the nightly-next run that made it (build = run id +
@@ -15,14 +17,20 @@
 #   3 "missing <required> <build sha>"   a required commit is not in the build
 #   1 "error: ..."                       the check could not run (fail closed)
 set -uo pipefail
+given=""
+if [ "${1:-}" = --commit ]; then
+  given="${3:-}"
+  set -- "${2:-}" 000 "${@:4}"
+  [[ "$given" =~ ^[0-9a-f]{40}$ ]] || { echo "usage: $0 --commit <owner/repo> <build sha> [<required sha>...]" >&2; exit 2; }
+fi
 repo="${1:-}" build="${2:-}"
 shift 2 2>/dev/null || true
 if [[ ! "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ || ! "$build" =~ ^[0-9]{3,}$ ]]; then
   echo "usage: $0 <owner/repo> <build> [<required sha>...]" >&2
   exit 2
 fi
-sha=""
-if [ -n "${NOTES_BASE:-}" ] && notes="$(curl -fsSL --retry 2 "$NOTES_BASE/$build.json" 2>/dev/null)"; then
+sha="$given"
+if [ -z "$sha" ] && [ -n "${NOTES_BASE:-}" ] && notes="$(curl -fsSL --retry 2 "$NOTES_BASE/$build.json" 2>/dev/null)"; then
   sha="$(python3 -I -c 'import json, sys; d = json.loads(sys.argv[1]); print(d["head"] if str(d.get("build")) == sys.argv[2] else "")' "$notes" "$build" 2>/dev/null || true)"
   [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || sha=""
 fi
@@ -45,13 +53,20 @@ fi
 # 40340830337); ancestry needs only the commit graph, fetched without trees or blobs, and
 # costs no API call. NIGHTLY_LEGACY_GIT_URL (default the repository on github.com) names
 # the remote; set empty, only the compare API answers.
+# Run "$@" for at most $1 seconds (timeout(1) on Linux; perl's alarm on macOS, which has no timeout).
+bounded() {
+  local seconds="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then timeout "$seconds" "$@"; else perl -e 'alarm shift; exec @ARGV' "$seconds" "$@"; fi
+}
 git_ancestry() {
   local url="${NIGHTLY_LEGACY_GIT_URL-https://github.com/$repo.git}" dir rc
   [ "$1" != "$2" ] || { echo identical; return 0; }
   [ -n "$url" ] || return 1
   dir="$(mktemp -d)" || return 1
+  # Bounded: a stalled connection falls back to the compare API instead of using up the job.
   if git init -q --bare "$dir" 2>/dev/null &&
-    git -C "$dir" -c protocol.version=2 fetch -q --no-tags --filter=tree:0 "$url" "$1" "$2" >/dev/null 2>&1; then
+    bounded "${NIGHTLY_LEGACY_GIT_SECONDS:-180}" \
+      git -C "$dir" -c protocol.version=2 fetch -q --no-tags --filter=tree:0 "$url" "$1" "$2" >/dev/null 2>&1; then
     git -C "$dir" merge-base --is-ancestor "$1" "$2" 2>/dev/null
     rc=$?
   else
