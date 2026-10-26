@@ -841,6 +841,13 @@ final class CmuxTuiSurfaceProviderRegistry {
         loss.isMachineScoped && loss != .notFound
     }
 
+    /// Access is gone: the restored panes leave instead of reconnecting
+    /// through a provider built from persisted metadata.
+    private func endRestoredMachine(_ machineID: String) {
+        adoptedOwnerTeams[machineID] = nil
+        unregisterMachine(machineID)
+    }
+
     private func registerPendingRestoredMachines(pageTeamID: String?, generation: UInt64) async {
         guard let catalog else { return }
         for machineID in catalog.pendingRestoredMachineIDs where providers[machineID] == nil {
@@ -856,18 +863,25 @@ final class CmuxTuiSurfaceProviderRegistry {
                 guard !isRetired, generation == refreshGeneration else { return }
                 // The saved team may be a guess: a legacy pane adopts the
                 // selected team. The selected team's read can still find it.
-                guard let pageTeamID, !pageTeamID.isEmpty, pageTeamID != ownerTeamID,
-                      let summary = try? await loadMachineStatus(machineID, pageTeamID) else { continue }
-                guard !isRetired, generation == refreshGeneration else { return }
-                adoptedOwnerTeams[machineID] = pageTeamID
-                ownerTeamID = pageTeamID
-                fetchedSummary = summary
+                guard let pageTeamID, !pageTeamID.isEmpty, pageTeamID != ownerTeamID else { continue }
+                do {
+                    let summary = try await loadMachineStatus(machineID, pageTeamID)
+                    guard !isRetired, generation == refreshGeneration else { return }
+                    adoptedOwnerTeams[machineID] = pageTeamID
+                    ownerTeamID = pageTeamID
+                    fetchedSummary = summary
+                } catch {
+                    guard !isRetired, generation == refreshGeneration else { return }
+                    // The same rule as the saved team's read: only a definite
+                    // loss ends the panes; another 404 keeps them restoring.
+                    if CloudMachineAccessLoss(error: error).map(Self.endsRestoredMachine) == true {
+                        endRestoredMachine(machineID)
+                    }
+                    continue
+                }
             } catch let error where CloudMachineAccessLoss(error: error).map(Self.endsRestoredMachine) == true {
                 guard !isRetired, generation == refreshGeneration else { return }
-                // Access is gone: the restored panes leave instead of reconnecting
-                // through a provider built from persisted metadata.
-                adoptedOwnerTeams[machineID] = nil
-                unregisterMachine(machineID)
+                endRestoredMachine(machineID)
                 continue
             } catch {
                 fetchedSummary = nil
