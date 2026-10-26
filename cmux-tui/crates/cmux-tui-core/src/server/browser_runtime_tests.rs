@@ -158,7 +158,7 @@ fn wait_for_file(path: &Path) -> bool {
 /// on the reader thread fails here at its call site.
 #[test]
 fn status_reads_the_install_off_the_reader_thread() {
-    use super::super::request_thread_test_support::{next_reply, on_request_thread};
+    use super::super::request_thread_tests::{next_reply, on_request_thread_with};
     use super::super::{BoundedOutbound, ClientTransport, MessageWriter, QueuedSink};
 
     let root = scratch("status-offreq");
@@ -170,10 +170,9 @@ fn status_reads_the_install_off_the_reader_thread() {
     mux.control_clients
         .set_info(client, None, None, Some(vec![BROWSER_RUNTIME_CAPABILITY.to_owned()]))
         .unwrap();
-    let request_mux = mux.clone();
     let line = json!({"id": 1, "cmd": "browser-runtime-status"}).to_string();
     let handled =
-        on_request_thread(move || super::try_handle(&request_mux, client, &line, &writer));
+        on_request_thread_with(&mux, move |mux| super::try_handle(mux, client, &line, &writer));
     assert_eq!(handled, Some(true));
     let reply = next_reply(&outbound);
     assert_eq!(reply["ok"], json!(true), "{reply}");

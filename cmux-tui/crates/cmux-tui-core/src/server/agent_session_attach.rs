@@ -544,7 +544,7 @@ pub(super) fn routed_trust(
     client: u64,
     operation: &str,
     params: serde_json::Map<String, Value>,
-) -> Result<Value, crate::resource::ResourceError> {
+) -> Result<agent_session_trust::RoutedJob, crate::resource::ResourceError> {
     agent_session_trust::routed(mux, client, operation, params)
 }
 

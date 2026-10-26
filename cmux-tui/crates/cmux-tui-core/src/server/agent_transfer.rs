@@ -616,6 +616,14 @@ pub(super) fn try_handle(
     Some(true)
 }
 
+/// What the request thread decided: a verb ready to run, or a receive
+/// whose folder the worker resolves on disk ([`guarded`]) before anything
+/// reaches acpmux.
+enum Unresolved {
+    Ready(Prepared),
+    Receive { manifest: Map<String, Value>, host: AgentTransferHost, cwd: String, moved: Moved },
+}
+
 /// A verb with everything the daemon decides filled in.
 enum Prepared {
     Receive {
@@ -666,13 +674,15 @@ enum Prepared {
     },
 }
 
-fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
+fn prepare(mux: &Mux, verb: Verb) -> Result<Unresolved, Failure> {
     let transfers = &mux.agent_transfers;
-    Ok(match verb {
+    Ok(Unresolved::Ready(match verb {
         Verb::Receive(ReceiveParams { manifest, cwd }) => {
             let host = transfers.host().ok_or(Refusal::Unavailable)?;
             host_gate(mux)?;
-            let (guard, cwd) = guard_for(&host, &cwd)?;
+            if !plain_cwd(&cwd) {
+                return Err(Refusal::BadRequest.into());
+            }
             // Before acpmux makes a receive, so a refused one leaves nothing
             // there (calls racing past this overshoot by at most MAX_CALLS).
             if AgentTransfers::full(&mut lock(&transfers.receives), MAX_RECEIVES, |r| r.touched) {
@@ -689,7 +699,7 @@ fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
                 return Err(Refusal::BadRequest.into());
             };
             let moved = Moved { transfer_id, session_id };
-            Prepared::Receive { manifest, guard, cwd, moved }
+            return Ok(Unresolved::Receive { manifest, host, cwd, moved });
         }
         Verb::Write(WriteParams { receive_id, path, offset, data }) => {
             if !is_bundle_path(&path) || page_data_len(&data).is_none_or(|n| n > MAX_PAGE_BYTES) {
@@ -762,7 +772,7 @@ fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
             }
             Prepared::Abort { session, transfer_id }
         }
-    })
+    }))
 }
 
 /// The tab's bound acpmux session, if `surface` is an agent tab of this
@@ -777,10 +787,17 @@ fn tab_session(mux: &Mux, surface: SurfaceId) -> Option<String> {
 
 // MARK: The guard
 
-/// The receive guard and the canonical folder for `cwd` on `host`.
+/// A receive's `cwd` is an absolute path within the length bound: checked on
+/// the request thread, from the request alone.
+fn plain_cwd(cwd: &str) -> bool {
+    !cwd.is_empty() && cwd.len() <= MAX_PATH_BYTES && Path::new(cwd).is_absolute()
+}
+
+/// The receive guard and the canonical folder for `cwd` on `host`. It
+/// resolves paths on disk: the worker calls it, never the request thread.
 fn guard_for(host: &AgentTransferHost, cwd: &str) -> Result<(Value, String), Failure> {
     let path = Path::new(cwd);
-    if cwd.is_empty() || cwd.len() > MAX_PATH_BYTES || !path.is_absolute() {
+    if !plain_cwd(cwd) {
         return Err(Refusal::BadRequest.into());
     }
     let home = files::canonicalize(&host.home).map_err(|_| Refusal::Unavailable)?;
@@ -827,7 +844,20 @@ fn is_chat_name(name: &str) -> bool {
 
 // MARK: Calls
 
-fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
+/// A receive with its guard built: the folder resolved on disk, on the
+/// worker (the request thread never touches the disk).
+fn guarded(unresolved: Unresolved) -> Result<Prepared, Failure> {
+    match unresolved {
+        Unresolved::Ready(prepared) => Ok(prepared),
+        Unresolved::Receive { manifest, host, cwd, moved } => {
+            let (guard, cwd) = guard_for(&host, &cwd)?;
+            Ok(Prepared::Receive { manifest, guard, cwd, moved })
+        }
+    }
+}
+
+fn run(mux: &Mux, socket: &Path, unresolved: Unresolved) -> Result<Value, Failure> {
+    let prepared = guarded(unresolved)?;
     if let Prepared::Answer(answer) = prepared {
         return Ok(answer);
     }

@@ -41,6 +41,7 @@ use std::time::Duration;
 use cmux_process::{Child, Command, Stdio};
 use cmux_threads::blocking::{BlockingKind, scoped_blocking_call};
 use cmux_threads::checked::{fs as files, sync as waits};
+use cmux_threads::work::{Lane, Priority, Shutdown};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -235,25 +236,7 @@ pub(super) fn try_handle(
         ));
     }
     match command {
-        RuntimeCommand::Status => {
-            let installed = runtimes.installed().map(|(version, _)| version);
-            let state = runtimes.lock();
-            let mut own: Vec<(u64, u16)> = state
-                .runtimes
-                .iter()
-                .filter(|(_, runtime)| runtime.owner == client)
-                .map(|(id, runtime)| (*id, runtime.port))
-                .collect();
-            drop(state);
-            own.sort_unstable();
-            let rows: Vec<Value> =
-                own.into_iter().map(|(id, port)| json!({"runtime": id, "port": port})).collect();
-            Some(ok(
-                writer,
-                id,
-                json!({"installed": installed, "platform": platform(), "runtimes": rows}),
-            ))
-        }
+        RuntimeCommand::Status => Some(status(mux, client, id, writer)),
         RuntimeCommand::Stop { runtime } => {
             let removed = {
                 let mut state = runtimes.lock();
@@ -279,6 +262,34 @@ pub(super) fn try_handle(
     }
 }
 
+/// `browser-runtime-status`: the install is on disk, so a work item reads
+/// it and answers; the reader thread goes on to the next line.
+fn status(mux: &Arc<Mux>, client: u64, id: Option<Value>, writer: &MessageWriter) -> bool {
+    let (worker_mux, worker_writer, worker_id) = (mux.clone(), writer.clone(), id.clone());
+    let posted =
+        mux.work.post(Priority::UserBlocking, Lane::Files, Shutdown::SkipOnShutdown, move || {
+            let runtimes = &worker_mux.control_clients.browser_runtimes;
+            let installed = runtimes.installed().map(|(version, _)| version);
+            let state = runtimes.lock();
+            let mut own: Vec<(u64, u16)> = state
+                .runtimes
+                .iter()
+                .filter(|(_, runtime)| runtime.owner == client)
+                .map(|(id, runtime)| (*id, runtime.port))
+                .collect();
+            drop(state);
+            own.sort_unstable();
+            let rows: Vec<Value> =
+                own.into_iter().map(|(id, port)| json!({"runtime": id, "port": port})).collect();
+            ok(
+                &worker_writer,
+                worker_id,
+                json!({"installed": installed, "platform": platform(), "runtimes": rows}),
+            );
+        });
+    posted.is_ok() || fail(writer, id, "browser-runtime.unavailable", "the daemon is shutting down")
+}
+
 fn start(
     mux: &Arc<Mux>,
     client: u64,
@@ -299,14 +310,6 @@ fn start(
         }
     }
     let runtimes = &mux.control_clients.browser_runtimes;
-    let Some((version, executable)) = runtimes.installed() else {
-        return fail(
-            writer,
-            id,
-            "browser-runtime.not-installed",
-            "the browser is not installed on this machine",
-        );
-    };
     {
         let mut state = runtimes.lock();
         if state.count(client) >= MAX_RUNTIMES_PER_CLIENT || state.total() >= MAX_RUNTIMES_TOTAL {
@@ -323,6 +326,17 @@ fn start(
         .stack_size(THREAD_STACK_BYTES)
         .spawn(move || {
             let runtimes = &worker_mux.control_clients.browser_runtimes;
+            // The install is on disk: read here, not on the reader thread.
+            let Some((version, executable)) = runtimes.installed() else {
+                runtimes.lock().release(client);
+                fail(
+                    &worker_writer,
+                    worker_id,
+                    "browser-runtime.not-installed",
+                    "the browser is not installed on this machine",
+                );
+                return;
+            };
             let launched = launch(runtimes, client, &executable, url.as_deref());
             runtimes.lock().release(client);
             match launched {

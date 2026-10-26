@@ -92,9 +92,29 @@ impl EngineMirror {
         self.queue(work, path, &record.id, record.engine.clone());
     }
 
-    fn queue(&self, _work: &Work, path: PathBuf, chief: &str, engine: Engine) {
-        if let Err(error) = write(&path, &engine) {
-            eprintln!("cmux-tui: Chief {chief} engine to {}: {error:#}", path.display());
+    fn queue(&self, work: &Work, path: PathBuf, chief: &str, engine: Engine) {
+        {
+            let mut files = self.files.lock().recover_poison();
+            let queued = Queued { chief: chief.to_owned(), engine: Some(engine) };
+            // A file with an item already: that item writes this engine next.
+            if files.insert(path.clone(), queued).is_some() {
+                return;
+            }
+        }
+        let files = Arc::clone(&self.files);
+        let item_path = path.clone();
+        // A person picked the engine and the brain reads it at its next turn:
+        // user visible, and one short write that shutdown waits for.
+        let posted =
+            work.post(Priority::UserVisible, Lane::Files, Shutdown::BlockShutdown, move || {
+                write_queued(&files, &item_path);
+            });
+        if posted.is_err() {
+            self.files.lock().recover_poison().remove(&path);
+            eprintln!(
+                "cmux-tui: Chief {chief} engine to {}: the daemon is stopping",
+                path.display()
+            );
         }
     }
 }
@@ -226,7 +246,7 @@ mod tests {
     /// on the request thread fails here at its call site.
     #[test]
     fn a_queued_engine_is_written_off_the_request_thread_and_the_last_wins() {
-        use super::super::request_thread_test_support::on_request_thread;
+        use super::super::request_thread_tests::on_request_thread;
         use cmux_threads::work::WorkConfig;
 
         let dir = std::env::temp_dir().join(format!(

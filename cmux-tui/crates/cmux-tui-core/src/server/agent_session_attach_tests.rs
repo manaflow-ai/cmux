@@ -463,12 +463,11 @@ fn a_start_checks_its_folder_off_the_request_thread() {
     let (outbound, writer) = queued_writer();
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
     let frame = json!({"id":1,"cmd":"agent-session-start","surface":surface,"cwd":"/"});
-    let request_mux = mux.clone();
-    let handled = request_thread_test_support::on_request_thread(move || {
-        agent_session_attach::try_handle(&request_mux, client, &frame.to_string(), &writer)
+    let handled = request_thread_tests::on_request_thread_with(&mux, move |mux| {
+        agent_session_attach::try_handle(mux, client, &frame.to_string(), &writer)
     });
     assert_eq!(handled, Some(true));
-    assert_code(&request_thread_test_support::next_reply(&outbound), "agent_session.above_home");
+    assert_code(&request_thread_tests::next_reply(&outbound), "agent_session.above_home");
     fake.no_connection();
 }
 
@@ -485,12 +484,11 @@ fn a_routed_trust_read_asks_acpmux_off_the_request_thread() {
     let envelope = json!({"protocol":"cmux.protocol/2","type":"request","id":"trust_1",
                           "operation":"agent_session.trust.get",
                           "params":{"surface":surface,"cwd":"/tmp"}});
-    let request_mux = mux.clone();
-    let handled = request_thread_test_support::on_request_thread(move || {
-        page_router::try_handle(&request_mux, client, &envelope.to_string(), &writer)
+    let handled = request_thread_tests::on_request_thread_with(&mux, move |mux| {
+        page_router::try_handle(mux, client, &envelope.to_string(), &writer)
     });
     assert_eq!(handled, Some(true));
-    let reply = request_thread_test_support::next_reply(&outbound);
+    let reply = request_thread_tests::next_reply(&outbound);
     assert_eq!(reply["ok"], json!(true), "{reply}");
     assert_eq!(reply["result"]["level"], json!("trusted"), "{reply}");
 }

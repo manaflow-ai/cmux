@@ -166,14 +166,16 @@ pub(super) fn home_rule(cwd: &str, home_confirmed: bool) -> Result<(), Refusal> 
 /// list (only page `agent` reads or answers) and, for a set, the person's
 /// gesture (a host confirmation for exactly this request) and origin user.
 /// The rest is the verb's: a trusted local connection, the machine kind
-/// gate, an agent tab of this store, the home folder rule.
+/// gate, an agent tab of this store (checked here, from memory), then the
+/// home folder rule and the acpmux call in the returned job, which the page
+/// router runs on a work item: it waits on the disk and on another process.
 pub(super) fn routed(
-    mux: &Mux,
+    mux: &Arc<Mux>,
     client: u64,
     operation: &str,
     mut params: serde_json::Map<String, Value>,
-) -> Result<Value, crate::resource::ResourceError> {
-    let fail = |refusal: Refusal| {
+) -> Result<RoutedJob, crate::resource::ResourceError> {
+    let fail = move |refusal: Refusal| {
         crate::resource::ResourceError::operation_failed(
             operation,
             refusal.message(),
@@ -201,9 +203,24 @@ pub(super) fn routed(
         return Err(fail(Refusal::UnknownTab));
     }
     let socket = mux.control_clients.agent_sessions.socket().ok_or(fail(Refusal::Unavailable))?;
-    let Some(_slot) = CallSlot::take() else { return Err(fail(Refusal::Limit)) };
-    run(mux, &socket, &params).map_err(fail)
+    let Some(slot) = CallSlot::take() else { return Err(fail(Refusal::Limit)) };
+    let (mux, operation) = (mux.clone(), operation.to_owned());
+    Ok(Box::new(move || {
+        let result = run(&mux, &socket, &params);
+        drop(slot);
+        result.map_err(|refusal| {
+            crate::resource::ResourceError::operation_failed(
+                operation,
+                refusal.message(),
+                json!({"code": refusal.code()}),
+            )
+        })
+    }))
 }
+
+/// The blocking half of a routed trust request (the page router posts it).
+pub(crate) type RoutedJob =
+    Box<dyn FnOnce() -> Result<Value, crate::resource::ResourceError> + Send>;
 
 fn run(mux: &Mux, socket: &std::path::Path, params: &TrustParams) -> Result<Value, Refusal> {
     if params.level.as_deref() == Some("trusted") {
