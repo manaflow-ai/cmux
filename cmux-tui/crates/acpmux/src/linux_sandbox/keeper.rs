@@ -12,13 +12,15 @@
 //! staged helper lacks persistence supervision; G1b supplies the marked hook.
 //! Collection loops stop at finite input exhaustion. Service loops stop on child
 //! exit, cancellation, or runtime teardown. No daemon-owned threads are added.
-
+use super::{bwrap, proxy, rules};
+use bwrap::Paths;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
+use std::future::Future;
 use std::io;
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
@@ -29,22 +31,15 @@ use tokio::process::{Child, Command};
 use tokio::signal::unix::{Signal, SignalKind, signal};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
-
-use super::{bwrap, proxy, rules};
-use bwrap::Paths;
-
 type Result<T> = std::result::Result<T, String>;
-
 #[derive(Debug)]
 struct Options {
     paths: Paths,
-    bwrap: PathBuf,
     proxy_port: u16,
     api: Option<SocketAddr>,
     program: String,
     args: Vec<String>,
 }
-
 fn absolute(value: &str) -> Result<PathBuf> {
     let path = PathBuf::from(value);
     if !path.is_absolute() || path.components().any(|c| c == std::path::Component::ParentDir) {
@@ -52,7 +47,6 @@ fn absolute(value: &str) -> Result<PathBuf> {
     }
     Ok(path)
 }
-
 /// Argument iteration ends at --, exhausted input, or the first invalid option.
 fn parse(args: Vec<OsString>) -> Result<Options> {
     let args = args
@@ -74,8 +68,7 @@ fn parse(args: Vec<OsString>) -> Result<Options> {
             | "--claude-tmp-project"
             | "--claude-project"
             | "--proxy-port"
-            | "--api-port"
-            | "--bwrap" => input.next().ok_or_else(|| format!("missing value for {flag}"))?,
+            | "--api-port" => input.next().ok_or_else(|| format!("missing value for {flag}"))?,
             _ => return Err(format!("unknown option: {flag}")),
         };
         if values.insert(flag.as_str(), value).is_some() {
@@ -93,6 +86,11 @@ fn parse(args: Vec<OsString>) -> Result<Options> {
     let api_port = values.get("--api-port").map(|v| port(v)).transpose()?;
     let v4 = values.contains_key("--api-loopback-v4");
     let v6 = values.contains_key("--api-loopback-v6");
+    if v6 {
+        return Err(
+            "IPv6 API loopback is unavailable until the init handshake carries its family".into()
+        );
+    }
     if (v4 && v6) || api_port.is_some() != (v4 || v6) || api_port == Some(proxy_port) {
         return Err("API needs one loopback family and a port distinct from the proxy".into());
     }
@@ -106,24 +104,26 @@ fn parse(args: Vec<OsString>) -> Result<Options> {
             claude_tmp_project: absolute(required("--claude-tmp-project")?)?,
             claude_project: absolute(required("--claude-project")?)?,
         },
-        bwrap: absolute(values.get("--bwrap").copied().unwrap_or("/usr/bin/bwrap"))?,
         proxy_port,
-        api: api_port.map(|p| {
-            SocketAddr::new(
-                if v6 { Ipv6Addr::LOCALHOST.into() } else { Ipv4Addr::LOCALHOST.into() },
-                p,
-            )
-        }),
+        api: api_port.map(|p| SocketAddr::new(Ipv4Addr::LOCALHOST.into(), p)),
         program: program.clone(),
         args: args[end + 2..].to_vec(),
     })
 }
-
 fn validate_handoff(
     payload: &[u8],
     fds: Vec<OwnedFd>,
     proxy_port: u16,
     api_port: Option<u16>,
+) -> Result<Vec<TcpListener>> {
+    validate_handoff_inner(payload, fds, proxy_port, api_port, true)
+}
+fn validate_handoff_inner(
+    payload: &[u8],
+    fds: Vec<OwnedFd>,
+    proxy_port: u16,
+    api_port: Option<u16>,
+    prove_namespace: bool,
 ) -> Result<Vec<TcpListener>> {
     #[derive(serde::Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -158,6 +158,9 @@ fn validate_handoff(
                     return Err("handoff fd is not a listening TCP socket".into());
                 }
             }
+            if prove_namespace && listener_in_keeper_namespace(fd.as_raw_fd())? {
+                return Err("handoff listener is in the keeper network namespace".into());
+            }
             let listener = TcpListener::from(fd);
             if listener.local_addr().map_err(|e| e.to_string())?
                 != SocketAddr::from((Ipv4Addr::LOCALHOST, port))
@@ -169,7 +172,6 @@ fn validate_handoff(
         })
         .collect()
 }
-
 #[cfg(test)]
 fn validate_handoff_for_test(
     payload: &[u8],
@@ -177,9 +179,31 @@ fn validate_handoff_for_test(
     proxy_port: u16,
     api_port: Option<u16>,
 ) -> Result<Vec<TcpListener>> {
-    validate_handoff(payload, fds, proxy_port, api_port)
+    validate_handoff_inner(payload, fds, proxy_port, api_port, false)
 }
-
+const SIOCGSKNS: libc::c_ulong = 0x894c;
+fn stat_fd(fd: RawFd) -> Result<(u64, u64)> {
+    // SAFETY: `stat` is an initialized output buffer and fd is owned by caller.
+    let mut stat = unsafe { std::mem::zeroed::<libc::stat>() };
+    if unsafe { libc::fstat(fd, &mut stat) } != 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    Ok((stat.st_dev as u64, stat.st_ino as u64))
+}
+fn listener_in_keeper_namespace(fd: RawFd) -> Result<bool> {
+    let mut netns: RawFd = -1;
+    // SAFETY: ioctl writes one descriptor to this valid output pointer.
+    if unsafe { libc::ioctl(fd, SIOCGSKNS as _, &mut netns) } < 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    if netns < 0 {
+        return Err("SIOCGSKNS returned an invalid descriptor".into());
+    }
+    // SAFETY: successful SIOCGSKNS returns a new owned descriptor.
+    let netns = unsafe { OwnedFd::from_raw_fd(netns) };
+    let current = std::fs::File::open("/proc/self/ns/net").map_err(|e| e.to_string())?;
+    Ok(stat_fd(netns.as_raw_fd())? == stat_fd(current.as_raw_fd())?)
+}
 /// Ancillary traversal stops at the kernel-provided buffer end. Every received
 /// descriptor is owned before any truncation/error return, so rejection closes it.
 fn recv_chunk(fd: RawFd, bytes: &mut [u8]) -> io::Result<(usize, Vec<OwnedFd>)> {
@@ -203,6 +227,9 @@ fn recv_chunk(fd: RawFd, bytes: &mut [u8]) -> io::Result<(usize, Vec<OwnedFd>)> 
         while !header.is_null() {
             if (*header).cmsg_level == libc::SOL_SOCKET && (*header).cmsg_type == libc::SCM_RIGHTS {
                 let length: usize = (*header).cmsg_len as _;
+                if length < libc::CMSG_LEN(0) as usize {
+                    return Err(io::Error::other("invalid handoff control length"));
+                }
                 let count = (length - libc::CMSG_LEN(0) as usize) / std::mem::size_of::<RawFd>();
                 for index in 0..count {
                     fds.push(OwnedFd::from_raw_fd(std::ptr::read_unaligned(
@@ -220,7 +247,6 @@ fn recv_chunk(fd: RawFd, bytes: &mut [u8]) -> io::Result<(usize, Vec<OwnedFd>)> 
         Ok((n as usize, fds))
     }
 }
-
 /// Stops at newline, EOF/error, 1024 bytes or excess descriptors. The caller's
 /// twenty-second deadline and child/signal handling bound readiness waits.
 async fn handoff(socket: &AsyncFd<UnixStream>) -> Result<(Vec<u8>, Vec<OwnedFd>)> {
@@ -245,17 +271,49 @@ async fn handoff(socket: &AsyncFd<UnixStream>) -> Result<(Vec<u8>, Vec<OwnedFd>)
     }
     Err("oversized handoff JSON".into())
 }
-
 fn exit_code(status: ExitStatus) -> i32 {
     status.code().unwrap_or_else(|| 128 + status.signal().unwrap_or(libc::SIGKILL))
 }
-
-/// Resolve the host executable now; never pass the sandbox's /proc/self/exe.
-/// The finite mask scan rejects paths hidden by read denials or private mounts.
-fn executable(denies: &[PathBuf]) -> Result<PathBuf> {
+fn secure_ancestors(path: &std::path::Path) -> Result<()> {
+    for ancestor in path.ancestors() {
+        let metadata = std::fs::symlink_metadata(ancestor).map_err(|e| e.to_string())?;
+        if metadata.uid() != 0 || metadata.mode() & 0o022 != 0 {
+            return Err(format!("untrusted bwrap ancestor: {}", ancestor.display()));
+        }
+    }
+    Ok(())
+}
+fn open_bwrap() -> Result<OwnedFd> {
+    let path = PathBuf::from("/usr/bin/bwrap");
+    secure_ancestors(&path)?;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_PATH | libc::O_CLOEXEC | libc::O_NOFOLLOW)
+        .open(&path)
+        .map_err(|e| format!("open /usr/bin/bwrap: {e}"))?;
+    let fd: OwnedFd = file.into();
+    let (dev, ino) = stat_fd(fd.as_raw_fd())?;
+    let metadata = file_metadata(fd.as_raw_fd())?;
+    if metadata.uid() != 0
+        || metadata.mode() & 0o022 != 0
+        || metadata.mode() & libc::S_IFMT as u32 != libc::S_IFREG as u32
+        || dev == 0
+        || ino == 0
+    {
+        return Err("/usr/bin/bwrap is not a root-owned non-writable regular file".into());
+    }
+    Ok(fd)
+}
+fn file_metadata(fd: RawFd) -> Result<std::fs::Metadata> {
+    let proc = format!("/proc/self/fd/{fd}");
+    std::fs::metadata(proc).map_err(|e| e.to_string())
+}
+/// Open the host executable once. The fd is mounted read-only inside bwrap,
+/// so replacing its pathname cannot change the init inode after this check.
+fn executable(denies: &[PathBuf], writable: &[PathBuf]) -> Result<(OwnedFd, PathBuf)> {
     let exe = std::env::current_exe().and_then(std::fs::canonicalize).map_err(|e| e.to_string())?;
     if exe.to_str().is_none()
-        || denies.iter().any(|p| exe.starts_with(p))
+        || denies.iter().chain(writable).any(|p| exe.starts_with(p))
         || exe.starts_with("/dev")
         || exe.starts_with("/proc")
     {
@@ -263,15 +321,15 @@ fn executable(denies: &[PathBuf]) -> Result<PathBuf> {
     }
     let file = std::fs::OpenOptions::new()
         .read(true)
-        .custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
         .open(&exe)
         .map_err(|e| e.to_string())?;
-    if !file.metadata().map_err(|e| e.to_string())?.is_file() {
+    let fd: OwnedFd = file.into();
+    if !file_metadata(fd.as_raw_fd())?.is_file() {
         return Err("keeper executable is not a readable regular file".into());
     }
-    Ok(exe)
+    Ok((fd, exe))
 }
-
 /// Stops on child completion (caller drops this future), closed signal stream,
 /// or forwarding error. Only the unreaped direct child's PID is signalled.
 async fn forward_signals(pid: u32, signals: [Signal; 3]) -> Result<i32> {
@@ -294,7 +352,6 @@ async fn forward_signals(pid: u32, signals: [Signal; 3]) -> Result<i32> {
         }
     }
 }
-
 /// Poll through synchronous listener setup before ack. The pending service is
 /// then owned by the JoinSet and stops on cancellation or runtime teardown.
 async fn start_service(
@@ -303,13 +360,15 @@ async fn start_service(
 ) -> Result<()> {
     let mut future = Box::pin(future);
     let startup = std::future::poll_fn(|cx| std::task::Poll::Ready(future.as_mut().poll(cx))).await;
-    if let std::task::Poll::Ready(result) = startup {
-        return Err(format!("sandbox service failed during startup: {result:?}"));
+    match startup {
+        std::task::Poll::Pending => {}
+        std::task::Poll::Ready(result) => {
+            return Err(format!("sandbox service failed during startup: {result:?}"));
+        }
     }
     services.spawn(future);
     Ok(())
 }
-
 /// Handoff ends within 20 s or on child exit. Services stop on child exit,
 /// accept failure, cancellation or future drop; JoinSet drop aborts all tunnels.
 async fn session(child: &mut Child, socket: UnixStream, options: &Options) -> Result<i32> {
@@ -360,7 +419,6 @@ async fn session(child: &mut Child, socket: UnixStream, options: &Options) -> Re
     // can be reused. JoinSet/runtime drop cancels and destroys the services.
     result
 }
-
 /// Setup collections are finite. Signal relay ends with session; on failure,
 /// SIGKILL/reaping has a five-second deadline and kill_on_drop is a final backstop.
 async fn run(options: Options) -> Result<i32> {
@@ -376,7 +434,6 @@ async fn run(options: Options) -> Result<i32> {
         ("CLAUDE_PROJECT", &paths.claude_project),
     ]
     .into_iter()
-    .map(|(k, v)| (k.to_owned(), v.clone()))
     .collect();
     let policy = rules::WritePolicy::from_profile(crate::hub::remote_sandbox::PROFILE, &params)
         .map_err(|e| e.to_string())?;
@@ -394,7 +451,14 @@ async fn run(options: Options) -> Result<i32> {
         ]
         .map(|p| paths.home.join(p)),
     );
-    let exe = executable(&denies)?;
+    let writable = [
+        paths.cwd.clone(),
+        paths.tmp.clone(),
+        paths.claude_tmp_project.clone(),
+        paths.claude_project.clone(),
+    ];
+    let (exe_fd, exe) = executable(&denies, &writable)?;
+    let bwrap_fd = open_bwrap()?;
     // std's UnixStream::pair uses SOCK_STREAM | SOCK_CLOEXEC on Linux. Create
     // it before plan so fd 3 is occupied and can never be a bind source.
     let (parent, child_end) = UnixStream::pair().map_err(|e| e.to_string())?;
@@ -420,12 +484,24 @@ async fn run(options: Options) -> Result<i32> {
     }
     prefix.push("--".into());
     let (mut argv, bind_fds) = bwrap::plan(paths, &denies, &prefix)?;
+    let separator =
+        argv.iter().position(|arg| arg == "--").ok_or("bwrap plan has no command separator")?;
+    argv.splice(
+        separator..separator,
+        ["--ro-bind-fd".into(), exe_fd.as_raw_fd().to_string(), exe.to_string_lossy().into_owned()],
+    );
     argv.push(options.program.clone());
     argv.extend(options.args.iter().cloned());
     let child_fd = child_end.as_raw_fd();
     let keeper_pid = std::process::id() as libc::pid_t;
-    let inherited: Vec<_> = bind_fds.iter().map(AsRawFd::as_raw_fd).collect();
-    let mut command = Command::new(&options.bwrap);
+    let bwrap_raw = bwrap_fd.as_raw_fd();
+    let inherited: Vec<_> = bind_fds
+        .iter()
+        .map(AsRawFd::as_raw_fd)
+        .chain(std::iter::once(exe_fd.as_raw_fd()))
+        .collect();
+    let bwrap_path = format!("/proc/self/fd/{}", bwrap_fd.as_raw_fd());
+    let mut command = Command::new(bwrap_path);
     // bwrap passes inherited non-CLOEXEC fds to its command; bind fds are
     // consumed by the mount plan, and init closes the handoff before exec.
     command
@@ -448,6 +524,9 @@ async fn run(options: Options) -> Result<i32> {
             if libc::dup2(child_fd, 3) < 0 || libc::fcntl(3, libc::F_SETFD, 0) < 0 {
                 return Err(io::Error::last_os_error());
             }
+            if libc::fcntl(bwrap_raw, libc::F_SETFD, 0) < 0 {
+                return Err(io::Error::last_os_error());
+            }
             for fd in &inherited {
                 if libc::fcntl(*fd, libc::F_SETFD, 0) < 0 {
                     return Err(io::Error::last_os_error());
@@ -459,6 +538,8 @@ async fn run(options: Options) -> Result<i32> {
     let mut child = command.spawn().map_err(|e| format!("start bwrap: {e}"))?;
     drop(child_end);
     drop(bind_fds);
+    drop(exe_fd);
+    drop(bwrap_fd);
     let pid = child.id().ok_or("bwrap has no PID")?;
     let result = tokio::select! {
         result = session(&mut child, parent, &options) => result,
@@ -469,7 +550,6 @@ async fn run(options: Options) -> Result<i32> {
     }
     result
 }
-
 pub(crate) fn main(args: Vec<OsString>) -> ! {
     let result = parse(args).and_then(|options| {
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -488,7 +568,6 @@ pub(crate) fn main(args: Vec<OsString>) -> ! {
     });
     std::process::exit(code) // crash-allow: keeper returns the sandbox status to its launcher
 }
-
 /// Table loops stop at finite input exhaustion. Socket connects have a two-second
 /// deadline; listeners are only inspected, never accepted, and all fds are RAII-owned.
 #[cfg(test)]
@@ -498,7 +577,6 @@ mod tests {
     use std::os::unix::ffi::OsStringExt;
     use std::os::unix::process::ExitStatusExt;
     use std::time::Duration;
-
     fn required() -> Vec<&'static str> {
         "--cwd /work --tmpdir /scratch --home /home/person \
          --claude-tmp-project /claude-tmp/project \
@@ -506,7 +584,6 @@ mod tests {
             .split_whitespace()
             .collect()
     }
-
     fn argv(extra: &[&str]) -> Vec<OsString> {
         required()
             .into_iter()
@@ -515,11 +592,9 @@ mod tests {
             .map(OsString::from)
             .collect()
     }
-
     #[test]
     fn options_canonical_round_trip() {
         let options = parse(argv(&[])).unwrap();
-        assert_eq!(options.bwrap, PathBuf::from("/usr/bin/bwrap"));
         assert_eq!(options.proxy_port, 3128);
         assert_eq!(options.api, None);
         let paths = [
@@ -544,7 +619,6 @@ mod tests {
         assert!(parse(argv(&["--api-port", "31415", "--api-loopback-v6"])).is_err());
         assert!(parse(argv(&["--bwrap", "/opt/bwrap"])).is_err());
     }
-
     #[test]
     fn options_refuse_missing_duplicate_and_unknown_flags() {
         for pair in required().chunks_exact(2) {
@@ -578,7 +652,6 @@ mod tests {
         missing_program.truncate(required().len() + 1);
         assert!(parse(missing_program).is_err());
     }
-
     #[test]
     fn options_refuse_invalid_values_before_spawn() {
         for index in [1, 3, 5, 7, 9, 13] {
@@ -603,17 +676,14 @@ mod tests {
         values.push("arg\0tail".into());
         assert!(parse(values).is_err());
     }
-
     fn listener(address: &str) -> (OwnedFd, u16) {
         let listener = TcpListener::bind((address, 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
         (listener.into(), port)
     }
-
     fn payload(proxy: u16, api: Option<u16>) -> Vec<u8> {
         format!("{}\n", serde_json::json!({"proxy": proxy, "api": api})).into_bytes()
     }
-
     #[test]
     fn handoff_accepts_exact_proxy_and_optional_api_listeners() {
         for with_api in [false, true] {
@@ -631,7 +701,6 @@ mod tests {
             }
         }
     }
-
     #[test]
     fn handoff_refuses_wrong_counts_ports_and_order() {
         assert!(validate_handoff(&payload(3128, None), vec![], 3128, None).is_err());
@@ -660,7 +729,6 @@ mod tests {
         let wrong = if port == 65535 { 65534 } else { port + 1 };
         assert!(validate_handoff_for_test(&payload(wrong, None), vec![fd], wrong, None).is_err());
     }
-
     #[test]
     fn handoff_refuses_invalid_json_and_mismatched_json_ports() {
         for text in [
@@ -685,7 +753,6 @@ mod tests {
         let (fd, port) = listener("127.0.0.1");
         assert!(validate_handoff(&payload(port, Some(port)), vec![fd], port, None).is_err());
     }
-
     #[test]
     fn handoff_refuses_nonlisteners_and_other_bind_addresses() {
         let file: OwnedFd = std::fs::File::open("/dev/null").unwrap().into();
@@ -703,13 +770,11 @@ mod tests {
             assert!(validate_handoff(&payload(port, None), vec![fd], port, None).is_err());
         }
     }
-
     #[test]
     fn handoff_refuses_a_listener_from_the_keeper_network_namespace() {
         let (fd, port) = listener("127.0.0.1");
         assert!(validate_handoff(&payload(port, None), vec![fd], port, None).is_err());
     }
-
     #[test]
     fn child_exit_status_mapping() {
         for code in [0, 1, 7, 125, 127, 255] {
