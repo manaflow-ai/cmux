@@ -119,7 +119,8 @@ struct CloudStartSessionTests {
         #expect(pending["pending"] == .bool(true))
         #expect(pending["machine_id"] == .string("vm-a"))
         #expect(pending["text"] == .string(CloudStartSessionStrings.stillStarting(request.asked(machine: "vm-a"))))
-        #expect(pending["text"]?.stringValue?.contains("`cmux cloud start-session --target machine:vm-a --agent claude`") == true)
+        guard case .string(let text)? = pending["text"] else { Issue.record("pending has no text"); return }
+        #expect(text.contains("`cmux cloud start-session --target machine:vm-a --agent claude`"))
         // Through the race: the caller's wait ends before the run.
         let runs = CloudStartSessionRuns()
         runs.sleep = { _ in }

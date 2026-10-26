@@ -13,7 +13,19 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "حدّد جهاز Cloud الذي يبدأ عليه %1$@: `cmux cloud start-session --target machine:<id> --agent %1$@`، أو `--name <name>` لاستخدام ذلك الجهاز أو إنشائه. يعرض `cmux cloud list-machines` أجهزتك."}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "%1$@을(를) 시작할 Cloud 머신을 지정하세요: `cmux cloud start-session --target machine:<id> --agent %1$@`, 또는 `--name <name>`으로 그 머신을 사용하거나 만듭니다. `cmux cloud list-machines`로 머신 목록을 볼 수 있습니다."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "请指定在哪台 Cloud 机器上启动 %1$@：`cmux cloud start-session --target machine:<id> --agent %1$@`，或用 `--name <name>` 使用或创建该机器。`cmux cloud list-machines` 会列出你的机器。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "請指定在哪台 Cloud 機器上啟動 %1$@：`cmux cloud start-session --target machine:<id> --agent %1$@`，或用 `--name <name>` 使用或建立該機器。`cmux cloud list-machines` 會列出你的機器。"}}
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "請指定在哪台 Cloud 機器上啟動 %1$@：`cmux cloud start-session --target machine:<id> --agent %1$@`，或用 `--name <name>` 使用或建立該機器。`cmux cloud list-machines` 會列出你的機器。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Navedite na kojoj Cloud mašini treba pokrenuti %1$@: `cmux cloud start-session --target machine:<id> --agent %1$@` ili `--name <name>` da uzmete tu mašinu ili je kreirate. `cmux cloud list-machines` prikazuje vaše mašine."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Angiv, hvilken Cloud-maskine %1$@ skal startes på: `cmux cloud start-session --target machine:<id> --agent %1$@`, eller `--name <name>` for at bruge den maskine eller oprette den. `cmux cloud list-machines` viser dine maskiner."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Indica su quale macchina Cloud avviare %1$@: `cmux cloud start-session --target machine:<id> --agent %1$@`, oppure `--name <name>` per usare quella macchina o crearla. `cmux cloud list-machines` elenca le tue macchine."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បញ្ជាក់ម៉ាស៊ីន Cloud ដែលត្រូវចាប់ផ្ដើម %1$@៖ `cmux cloud start-session --target machine:<id> --agent %1$@` ឬ `--name <name>` ដើម្បីយកម៉ាស៊ីននោះ ឬបង្កើតវា។ `cmux cloud list-machines` បង្ហាញម៉ាស៊ីនរបស់អ្នក។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Angi hvilken Cloud-maskin %1$@ skal startes på: `cmux cloud start-session --target machine:<id> --agent %1$@`, eller `--name <name>` for å bruke den maskinen eller opprette den. `cmux cloud list-machines` viser maskinene dine."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Wskaż, na której maszynie Cloud uruchomić %1$@: `cmux cloud start-session --target machine:<id> --agent %1$@` lub `--name <name>`, aby użyć tej maszyny albo ją utworzyć. `cmux cloud list-machines` wyświetla Twoje maszyny."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Diga em qual máquina do Cloud iniciar %1$@: `cmux cloud start-session --target machine:<id> --agent %1$@`, ou `--name <name>` para usar essa máquina ou criá-la. `cmux cloud list-machines` lista suas máquinas."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Укажите, на какой машине Cloud запустить %1$@: `cmux cloud start-session --target machine:<id> --agent %1$@` или `--name <name>`, чтобы взять эту машину или создать её. `cmux cloud list-machines` показывает ваши машины."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ระบุเครื่อง Cloud ที่จะเริ่ม %1$@: `cmux cloud start-session --target machine:<id> --agent %1$@` หรือ `--name <name>` เพื่อใช้เครื่องนั้นหรือสร้างขึ้นใหม่ `cmux cloud list-machines` แสดงรายการเครื่องของคุณ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "%1$@ ajanının hangi Cloud makinesinde başlatılacağını belirtin: `cmux cloud start-session --target machine:<id> --agent %1$@` veya o makineyi kullanmak ya da oluşturmak için `--name <name>`. `cmux cloud list-machines` makinelerinizi listeler."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Вкажіть, на якій машині Cloud запустити %1$@: `cmux cloud start-session --target machine:<id> --agent %1$@` або `--name <name>`, щоб узяти цю машину чи створити її. `cmux cloud list-machines` показує ваші машини."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Hãy cho biết máy Cloud nào để khởi động %1$@: `cmux cloud start-session --target machine:<id> --agent %1$@`, hoặc `--name <name>` để dùng máy đó hoặc tạo máy mới. `cmux cloud list-machines` liệt kê các máy của bạn."}}
       }
     },
     "cloud.startSession.noSuchMachine": {
@@ -28,7 +40,19 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "لا يوجد جهاز Cloud باسم `%1$@` في قائمة هذا الـ Mac. يعرضها `cmux cloud list-machines`، وينشئ `cmux cloud start-session --name <name> --agent %2$@` جهازًا جديدًا."}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "이 Mac에 Cloud 머신 `%1$@`이(가) 없습니다. `cmux cloud list-machines`로 목록을 보고 `cmux cloud start-session --name <name> --agent %2$@`로 만들 수 있습니다."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "这台 Mac 上没有 Cloud 机器 `%1$@`。`cmux cloud list-machines` 会列出机器，`cmux cloud start-session --name <name> --agent %2$@` 会创建一台。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "這台 Mac 上沒有 Cloud 機器 `%1$@`。`cmux cloud list-machines` 會列出機器，`cmux cloud start-session --name <name> --agent %2$@` 會建立一台。"}}
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "這台 Mac 上沒有 Cloud 機器 `%1$@`。`cmux cloud list-machines` 會列出機器，`cmux cloud start-session --name <name> --agent %2$@` 會建立一台。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Nijedna Cloud mašina `%1$@` nije navedena na ovom Mac računaru. `cmux cloud list-machines` ih prikazuje, a `cmux cloud start-session --name <name> --agent %2$@` kreira novu."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Ingen Cloud-maskine `%1$@` er på listen på denne Mac. `cmux cloud list-machines` viser dem, og `cmux cloud start-session --name <name> --agent %2$@` opretter en."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Nessuna macchina Cloud `%1$@` è elencata su questo Mac. `cmux cloud list-machines` le elenca e `cmux cloud start-session --name <name> --agent %2$@` ne crea una."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "គ្មានម៉ាស៊ីន Cloud `%1$@` ក្នុងបញ្ជីនៅលើ Mac នេះទេ។ `cmux cloud list-machines` បង្ហាញបញ្ជីម៉ាស៊ីន ហើយ `cmux cloud start-session --name <name> --agent %2$@` បង្កើតម៉ាស៊ីនថ្មី។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Ingen Cloud-maskin `%1$@` er oppført på denne Mac-en. `cmux cloud list-machines` viser dem, og `cmux cloud start-session --name <name> --agent %2$@` oppretter en."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Na tym komputerze Mac nie ma na liście maszyny Cloud `%1$@`. `cmux cloud list-machines` wyświetla listę maszyn, a `cmux cloud start-session --name <name> --agent %2$@` tworzy nową."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Nenhuma máquina do Cloud `%1$@` está listada neste Mac. `cmux cloud list-machines` lista as máquinas, e `cmux cloud start-session --name <name> --agent %2$@` cria uma."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "На этом Mac в списке нет машины Cloud `%1$@`. `cmux cloud list-machines` показывает их, а `cmux cloud start-session --name <name> --agent %2$@` создаёт новую."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ไม่มีเครื่อง Cloud `%1$@` ในรายการบน Mac เครื่องนี้ `cmux cloud list-machines` แสดงรายการเครื่อง และ `cmux cloud start-session --name <name> --agent %2$@` จะสร้างเครื่องใหม่"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bu Mac'te listelenen `%1$@` adında bir Cloud makinesi yok. `cmux cloud list-machines` makineleri listeler, `cmux cloud start-session --name <name> --agent %2$@` ise yeni bir makine oluşturur."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "На цьому Mac у списку немає машини Cloud `%1$@`. `cmux cloud list-machines` показує їх, а `cmux cloud start-session --name <name> --agent %2$@` створює нову."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Không có máy Cloud `%1$@` nào trong danh sách trên máy Mac này. `cmux cloud list-machines` liệt kê các máy, còn `cmux cloud start-session --name <name> --agent %2$@` sẽ tạo một máy."}}
       }
     },
     "cloud.startSession.agentInvalid": {
@@ -43,7 +67,19 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "مرّر الوكيل المراد بدؤه باستخدام ‎--agent، مثل `cmux cloud start-session --name dev --agent claude`."}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "--agent로 시작할 에이전트를 지정하세요(예: `cmux cloud start-session --name dev --agent claude`)."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "请用 --agent 指定要启动的代理，例如 `cmux cloud start-session --name dev --agent claude`。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "請用 --agent 指定要啟動的代理，例如 `cmux cloud start-session --name dev --agent claude`。"}}
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "請用 --agent 指定要啟動的代理，例如 `cmux cloud start-session --name dev --agent claude`。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Navedite agenta za pokretanje pomoću --agent, na primjer `cmux cloud start-session --name dev --agent claude`."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Angiv den agent, der skal startes, med --agent, for eksempel `cmux cloud start-session --name dev --agent claude`."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Indica l'agente da avviare con --agent, per esempio `cmux cloud start-session --name dev --agent claude`."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បញ្ជាក់ភ្នាក់ងារដែលត្រូវចាប់ផ្ដើមដោយប្រើ --agent ឧទាហរណ៍ `cmux cloud start-session --name dev --agent claude`។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Angi agenten som skal startes med --agent, for eksempel `cmux cloud start-session --name dev --agent claude`."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Podaj agenta do uruchomienia za pomocą --agent, na przykład `cmux cloud start-session --name dev --agent claude`."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Informe o agente a iniciar com --agent, por exemplo `cmux cloud start-session --name dev --agent claude`."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Укажите агента для запуска через --agent, например `cmux cloud start-session --name dev --agent claude`."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ระบุเอเจนต์ที่จะเริ่มด้วย --agent เช่น `cmux cloud start-session --name dev --agent claude`"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Başlatılacak ajanı --agent ile belirtin, örneğin `cmux cloud start-session --name dev --agent claude`."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Вкажіть агента для запуску через --agent, наприклад `cmux cloud start-session --name dev --agent claude`."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Truyền tác tử cần khởi động bằng --agent, ví dụ `cmux cloud start-session --name dev --agent claude`."}}
       }
     },
     "cloud.startSession.cwdInvalid": {
@@ -58,7 +94,19 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "مرّر ‎--cwd كمجلد بمسار مطلق على الجهاز، مثل `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`."}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "--cwd에는 머신의 절대 경로 폴더를 지정하세요(예: `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`)."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "请将 --cwd 设为机器上的绝对路径文件夹，例如 `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "請將 --cwd 設為機器上的絕對路徑資料夾，例如 `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`。"}}
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "請將 --cwd 設為機器上的絕對路徑資料夾，例如 `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Navedite --cwd kao apsolutnu putanju foldera na mašini, na primjer `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Angiv --cwd som en absolut mappe på maskinen, for eksempel `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Indica --cwd come cartella assoluta sulla macchina, per esempio `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បញ្ជាក់ --cwd ជាផ្លូវថតពេញលេញនៅលើម៉ាស៊ីន ឧទាហរណ៍ `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Angi --cwd som en absolutt mappe på maskinen, for eksempel `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Podaj --cwd jako bezwzględną ścieżkę folderu na maszynie, na przykład `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Informe --cwd como uma pasta absoluta na máquina, por exemplo `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Укажите в --cwd абсолютный путь к папке на машине, например `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ระบุ --cwd เป็นพาธแบบเต็มของโฟลเดอร์บนเครื่อง เช่น `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "--cwd değerini makinedeki mutlak bir klasör yolu olarak verin, örneğin `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Вкажіть у --cwd абсолютний шлях до папки на машині, наприклад `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Truyền --cwd là đường dẫn tuyệt đối tới thư mục trên máy, ví dụ `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`."}}
       }
     },
     "cloud.startSession.createFailed": {
@@ -73,7 +121,19 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "تعذّر إنشاء جهاز Cloud ‏`%1$@` (%4$@)، لذا لم يبدأ أي وكيل. شغّل `cmux cloud start-session --name %2$@ --agent %3$@` مرة أخرى، أو اختر جهازًا من `cmux cloud list-machines`."}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "Cloud 머신 `%1$@`을(를) 만들지 못해(%4$@) 에이전트가 시작되지 않았습니다. `cmux cloud start-session --name %2$@ --agent %3$@`을(를) 다시 실행하거나 `cmux cloud list-machines`에서 머신을 고르세요."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "无法创建 Cloud 机器 `%1$@`（%4$@），因此没有启动代理。请再次运行 `cmux cloud start-session --name %2$@ --agent %3$@`，或从 `cmux cloud list-machines` 中选一台机器。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法建立 Cloud 機器 `%1$@`（%4$@），因此沒有啟動代理。請再次執行 `cmux cloud start-session --name %2$@ --agent %3$@`，或從 `cmux cloud list-machines` 中選一台機器。"}}
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法建立 Cloud 機器 `%1$@`（%4$@），因此沒有啟動代理。請再次執行 `cmux cloud start-session --name %2$@ --agent %3$@`，或從 `cmux cloud list-machines` 中選一台機器。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Nije moguće kreirati Cloud mašinu `%1$@` (%4$@), pa nijedan agent nije pokrenut. Ponovo pokrenite `cmux cloud start-session --name %2$@ --agent %3$@` ili odaberite mašinu iz `cmux cloud list-machines`."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Kunne ikke oprette Cloud-maskinen `%1$@` (%4$@), så ingen agent startede. Kør `cmux cloud start-session --name %2$@ --agent %3$@` igen, eller vælg en maskine fra `cmux cloud list-machines`."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Impossibile creare la macchina Cloud `%1$@` (%4$@), quindi nessun agente è stato avviato. Esegui di nuovo `cmux cloud start-session --name %2$@ --agent %3$@` oppure scegli una macchina da `cmux cloud list-machines`."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "មិនអាចបង្កើតម៉ាស៊ីន Cloud `%1$@` បានទេ (%4$@) ដូច្នេះគ្មានភ្នាក់ងារណាបានចាប់ផ្ដើមទេ។ ដំណើរការ `cmux cloud start-session --name %2$@ --agent %3$@` ម្ដងទៀត ឬជ្រើសម៉ាស៊ីនពី `cmux cloud list-machines`។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Kunne ikke opprette Cloud-maskinen `%1$@` (%4$@), så ingen agent startet. Kjør `cmux cloud start-session --name %2$@ --agent %3$@` på nytt, eller velg en maskin fra `cmux cloud list-machines`."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nie można utworzyć maszyny Cloud `%1$@` (%4$@), więc żaden agent nie został uruchomiony. Uruchom ponownie `cmux cloud start-session --name %2$@ --agent %3$@` lub wybierz maszynę z `cmux cloud list-machines`."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Não foi possível criar a máquina do Cloud `%1$@` (%4$@), então nenhum agente foi iniciado. Execute `cmux cloud start-session --name %2$@ --agent %3$@` novamente ou escolha uma máquina em `cmux cloud list-machines`."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Не удалось создать машину Cloud `%1$@` (%4$@), поэтому агент не запущен. Снова выполните `cmux cloud start-session --name %2$@ --agent %3$@` или выберите машину из `cmux cloud list-machines`."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "สร้างเครื่อง Cloud `%1$@` ไม่ได้ (%4$@) จึงไม่มีเอเจนต์เริ่มทำงาน เรียกใช้ `cmux cloud start-session --name %2$@ --agent %3$@` อีกครั้ง หรือเลือกเครื่องจาก `cmux cloud list-machines`"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "`%1$@` Cloud makinesi oluşturulamadı (%4$@), bu yüzden hiçbir ajan başlatılmadı. `cmux cloud start-session --name %2$@ --agent %3$@` komutunu yeniden çalıştırın veya `cmux cloud list-machines` listesinden bir makine seçin."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Не вдалося створити машину Cloud `%1$@` (%4$@), тому агент не запущено. Знову виконайте `cmux cloud start-session --name %2$@ --agent %3$@` або виберіть машину з `cmux cloud list-machines`."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Không thể tạo máy Cloud `%1$@` (%4$@) nên không có tác tử nào được khởi động. Chạy lại `cmux cloud start-session --name %2$@ --agent %3$@`, hoặc chọn một máy từ `cmux cloud list-machines`."}}
       }
     },
     "cloud.startSession.stillStarting": {
@@ -88,7 +148,19 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "لا يزال %2$@ قيد البدء على %1$@. شغّل `%3$@` مرة أخرى للحصول على machine_id وsession_id."}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "%1$@에서 %2$@이(가) 아직 시작 중입니다. `%3$@`을(를) 다시 실행하면 machine_id와 session_id를 받을 수 있습니다."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "%2$@ 仍在 %1$@ 上启动。请再次运行 `%3$@` 以获取其 machine_id 和 session_id。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "%2$@ 仍在 %1$@ 上啟動。請再次執行 `%3$@` 以取得其 machine_id 和 session_id。"}}
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "%2$@ 仍在 %1$@ 上啟動。請再次執行 `%3$@` 以取得其 machine_id 和 session_id。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "%2$@ se još pokreće na %1$@. Ponovo pokrenite `%3$@` da dobijete njegove machine_id i session_id."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "%2$@ starter stadig på %1$@. Kør `%3$@` igen for at få dens machine_id og session_id."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "%2$@ si sta ancora avviando su %1$@. Esegui di nuovo `%3$@` per ottenere machine_id e session_id."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "%2$@ នៅតែកំពុងចាប់ផ្ដើមនៅលើ %1$@។ ដំណើរការ `%3$@` ម្ដងទៀត ដើម្បីទទួលបាន machine_id និង session_id របស់វា។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "%2$@ starter fortsatt på %1$@. Kjør `%3$@` på nytt for å få machine_id og session_id."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "%2$@ wciąż się uruchamia na %1$@. Uruchom ponownie `%3$@`, aby uzyskać machine_id i session_id."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "%2$@ ainda está iniciando em %1$@. Execute `%3$@` novamente para obter o machine_id e o session_id."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "%2$@ ещё запускается на %1$@. Снова выполните `%3$@`, чтобы получить machine_id и session_id."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "%2$@ ยังกำลังเริ่มทำงานบน %1$@ เรียกใช้ `%3$@` อีกครั้งเพื่อรับ machine_id และ session_id"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "%2$@ hâlâ %1$@ üzerinde başlatılıyor. machine_id ve session_id değerlerini almak için `%3$@` komutunu yeniden çalıştırın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "%2$@ ще запускається на %1$@. Знову виконайте `%3$@`, щоб отримати machine_id і session_id."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "%2$@ vẫn đang khởi động trên %1$@. Chạy lại `%3$@` để lấy machine_id và session_id."}}
       }
     },
     "cloud.startSession.notConnected": {
@@ -103,7 +175,19 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "لم يتصل الجهاز `%1$@`، لذا لم يبدأ أي وكيل عليه. افحصه باستخدام `cmux cloud machine-status --target machine:%2$@`، ثم شغّل `cmux cloud start-session --target machine:%2$@ --agent %3$@` مرة أخرى."}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "머신 `%1$@`이(가) 연결되지 않아 에이전트가 시작되지 않았습니다. `cmux cloud machine-status --target machine:%2$@`로 확인한 다음 `cmux cloud start-session --target machine:%2$@ --agent %3$@`을(를) 다시 실행하세요."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器 `%1$@` 未连接，因此没有启动代理。请用 `cmux cloud machine-status --target machine:%2$@` 检查，然后再次运行 `cmux cloud start-session --target machine:%2$@ --agent %3$@`。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器 `%1$@` 未連線，因此沒有啟動代理。請用 `cmux cloud machine-status --target machine:%2$@` 檢查，然後再次執行 `cmux cloud start-session --target machine:%2$@ --agent %3$@`。"}}
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器 `%1$@` 未連線，因此沒有啟動代理。請用 `cmux cloud machine-status --target machine:%2$@` 檢查，然後再次執行 `cmux cloud start-session --target machine:%2$@ --agent %3$@`。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Mašina `%1$@` se nije povezala, pa na njoj nije pokrenut nijedan agent. Provjerite je pomoću `cmux cloud machine-status --target machine:%2$@`, a zatim ponovo pokrenite `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Maskinen `%1$@` oprettede ikke forbindelse, så ingen agent startede der. Tjek den med `cmux cloud machine-status --target machine:%2$@`, og kør derefter `cmux cloud start-session --target machine:%2$@ --agent %3$@` igen."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "La macchina `%1$@` non si è connessa, quindi nessun agente è stato avviato lì. Controllala con `cmux cloud machine-status --target machine:%2$@`, poi esegui di nuovo `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ម៉ាស៊ីន `%1$@` មិនបានភ្ជាប់ទេ ដូច្នេះគ្មានភ្នាក់ងារណាបានចាប់ផ្ដើមនៅទីនោះទេ។ ពិនិត្យវាដោយប្រើ `cmux cloud machine-status --target machine:%2$@` រួចដំណើរការ `cmux cloud start-session --target machine:%2$@ --agent %3$@` ម្ដងទៀត។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Maskinen `%1$@` koblet seg ikke til, så ingen agent startet der. Sjekk den med `cmux cloud machine-status --target machine:%2$@`, og kjør deretter `cmux cloud start-session --target machine:%2$@ --agent %3$@` på nytt."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Maszyna `%1$@` nie połączyła się, więc żaden agent nie został na niej uruchomiony. Sprawdź ją poleceniem `cmux cloud machine-status --target machine:%2$@`, a następnie uruchom ponownie `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "A máquina `%1$@` não se conectou, então nenhum agente foi iniciado nela. Verifique-a com `cmux cloud machine-status --target machine:%2$@` e execute `cmux cloud start-session --target machine:%2$@ --agent %3$@` novamente."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Машина `%1$@` не подключилась, поэтому агент на ней не запущен. Проверьте её командой `cmux cloud machine-status --target machine:%2$@`, затем снова выполните `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เครื่อง `%1$@` ไม่ได้เชื่อมต่อ จึงไม่มีเอเจนต์เริ่มทำงานบนเครื่องนั้น ตรวจสอบด้วย `cmux cloud machine-status --target machine:%2$@` แล้วเรียกใช้ `cmux cloud start-session --target machine:%2$@ --agent %3$@` อีกครั้ง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "`%1$@` makinesi bağlanmadı, bu yüzden orada hiçbir ajan başlatılmadı. Makineyi `cmux cloud machine-status --target machine:%2$@` ile kontrol edin, ardından `cmux cloud start-session --target machine:%2$@ --agent %3$@` komutunu yeniden çalıştırın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Машина `%1$@` не під'єдналася, тому агент на ній не запущено. Перевірте її командою `cmux cloud machine-status --target machine:%2$@`, потім знову виконайте `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Máy `%1$@` không kết nối được nên không có tác tử nào được khởi động trên đó. Kiểm tra máy bằng `cmux cloud machine-status --target machine:%2$@`, rồi chạy lại `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}}
       }
     },
     "cloud.startSession.agentFailed": {
@@ -118,7 +202,19 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "بدأ الجهاز `%1$@` لكن وكيله لم يبدأ (%4$@). شغّل `cmux cloud start-session --target machine:%2$@ --agent %3$@` مرة أخرى."}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "머신 `%1$@`은(는) 시작됐지만 에이전트는 시작되지 않았습니다(%4$@). `cmux cloud start-session --target machine:%2$@ --agent %3$@`을(를) 다시 실행하세요."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器 `%1$@` 已启动，但其代理未启动（%4$@）。请再次运行 `cmux cloud start-session --target machine:%2$@ --agent %3$@`。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器 `%1$@` 已啟動，但其代理未啟動（%4$@）。請再次執行 `cmux cloud start-session --target machine:%2$@ --agent %3$@`。"}}
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器 `%1$@` 已啟動，但其代理未啟動（%4$@）。請再次執行 `cmux cloud start-session --target machine:%2$@ --agent %3$@`。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Mašina `%1$@` se pokrenula, ali njen agent nije (%4$@). Ponovo pokrenite `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Maskinen `%1$@` startede, men dens agent gjorde ikke (%4$@). Kør `cmux cloud start-session --target machine:%2$@ --agent %3$@` igen."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "La macchina `%1$@` si è avviata, ma il suo agente no (%4$@). Esegui di nuovo `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ម៉ាស៊ីន `%1$@` បានចាប់ផ្ដើម ប៉ុន្តែភ្នាក់ងាររបស់វាមិនបានចាប់ផ្ដើមទេ (%4$@)។ ដំណើរការ `cmux cloud start-session --target machine:%2$@ --agent %3$@` ម្ដងទៀត។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Maskinen `%1$@` startet, men agenten på den gjorde ikke det (%4$@). Kjør `cmux cloud start-session --target machine:%2$@ --agent %3$@` på nytt."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Maszyna `%1$@` uruchomiła się, ale jej agent nie (%4$@). Uruchom ponownie `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "A máquina `%1$@` iniciou, mas o agente dela não (%4$@). Execute `cmux cloud start-session --target machine:%2$@ --agent %3$@` novamente."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Машина `%1$@` запустилась, а её агент нет (%4$@). Снова выполните `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เครื่อง `%1$@` เริ่มทำงานแล้ว แต่เอเจนต์ของเครื่องไม่เริ่ม (%4$@) เรียกใช้ `cmux cloud start-session --target machine:%2$@ --agent %3$@` อีกครั้ง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "`%1$@` makinesi başladı ama ajanı başlamadı (%4$@). `cmux cloud start-session --target machine:%2$@ --agent %3$@` komutunu yeniden çalıştırın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Машина `%1$@` запустилася, а її агент ні (%4$@). Знову виконайте `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Máy `%1$@` đã khởi động nhưng tác tử của máy thì không (%4$@). Chạy lại `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}}
       }
     },
     "cloud.startSession.needsFolder": {
@@ -133,7 +229,19 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "بدأ الجهاز `%1$@` لكن وكيله لم يبدأ: يحتاج إلى مجلد على ذلك الجهاز ليبدأ فيه. شغّل `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd /home/cmux/work` مرة أخرى مع مجلد هناك."}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "머신 `%1$@`은(는) 시작됐지만 에이전트는 시작되지 않았습니다. 그 머신에서 시작할 폴더가 필요합니다. 그 머신의 폴더로 `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd /home/cmux/work`을(를) 다시 실행하세요."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器 `%1$@` 已启动，但其代理未启动：它需要在该机器上的一个文件夹中启动。请用该机器上的文件夹再次运行 `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd /home/cmux/work`。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器 `%1$@` 已啟動，但其代理未啟動：它需要在該機器上的一個資料夾中啟動。請用該機器上的資料夾再次執行 `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd /home/cmux/work`。"}}
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器 `%1$@` 已啟動，但其代理未啟動：它需要在該機器上的一個資料夾中啟動。請用該機器上的資料夾再次執行 `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd /home/cmux/work`。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Mašina `%1$@` se pokrenula, ali njen agent nije: treba mu folder na toj mašini u kojem će se pokrenuti. Ponovo pokrenite `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd /home/cmux/work` s folderom koji postoji tamo."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Maskinen `%1$@` startede, men dens agent gjorde ikke: den skal have en mappe på maskinen at starte i. Kør `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd /home/cmux/work` igen med en mappe, der findes der."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "La macchina `%1$@` si è avviata, ma il suo agente no: gli serve una cartella su quella macchina in cui avviarsi. Esegui di nuovo `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd /home/cmux/work` con una cartella presente lì."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ម៉ាស៊ីន `%1$@` បានចាប់ផ្ដើម ប៉ុន្តែភ្នាក់ងាររបស់វាមិនបានចាប់ផ្ដើមទេ៖ វាត្រូវការថតមួយនៅលើម៉ាស៊ីននោះដើម្បីចាប់ផ្ដើម។ ដំណើរការ `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd /home/cmux/work` ម្ដងទៀតជាមួយថតដែលមាននៅទីនោះ។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Maskinen `%1$@` startet, men agenten på den gjorde ikke det: den trenger en mappe på maskinen å starte i. Kjør `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd /home/cmux/work` på nytt med en mappe som finnes der."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Maszyna `%1$@` uruchomiła się, ale jej agent nie: potrzebuje folderu na tej maszynie, w którym się uruchomi. Uruchom ponownie `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd /home/cmux/work` z folderem, który tam istnieje."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "A máquina `%1$@` iniciou, mas o agente dela não: ele precisa de uma pasta nessa máquina para iniciar. Execute `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd /home/cmux/work` novamente com uma pasta que exista lá."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Машина `%1$@` запустилась, а её агент нет: ему нужна папка на этой машине, в которой он запустится. Снова выполните `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd /home/cmux/work`, указав папку на ней."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เครื่อง `%1$@` เริ่มทำงานแล้ว แต่เอเจนต์ของเครื่องไม่เริ่ม: เอเจนต์ต้องมีโฟลเดอร์บนเครื่องนั้นเพื่อเริ่มทำงาน เรียกใช้ `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd /home/cmux/work` อีกครั้งโดยระบุโฟลเดอร์ที่อยู่บนเครื่องนั้น"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "`%1$@` makinesi başladı ama ajanı başlamadı: başlamak için o makinede bir klasöre ihtiyacı var. `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd /home/cmux/work` komutunu oradaki bir klasörle yeniden çalıştırın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Машина `%1$@` запустилася, а її агент ні: йому потрібна папка на цій машині, у якій він запуститься. Знову виконайте `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd /home/cmux/work`, указавши папку на ній."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Máy `%1$@` đã khởi động nhưng tác tử của máy thì không: tác tử cần một thư mục trên máy đó để khởi động. Chạy lại `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd /home/cmux/work` với một thư mục có trên máy đó."}}
       }
     },
     "cloud.startSession.ask": {
@@ -148,7 +256,19 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "يطلب الوكيل بدء جلسة %1$@ على جهاز Cloud ‏%2$@."}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "에이전트가 Cloud 머신 %2$@에서 %1$@ 세션을 시작하려고 합니다."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "代理请求在 Cloud 机器 %2$@ 上启动 %1$@ 会话。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "代理請求在 Cloud 機器 %2$@ 上啟動 %1$@ 工作階段。"}}
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "代理請求在 Cloud 機器 %2$@ 上啟動 %1$@ 工作階段。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Agent traži da se pokrene %1$@ sesija na Cloud mašini %2$@."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Agenten beder om at starte en %1$@-session på Cloud-maskinen %2$@."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "L’agente chiede di avviare una sessione %1$@ sulla macchina Cloud %2$@."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ភ្នាក់ងារសុំចាប់ផ្ដើមវគ្គ %1$@ នៅលើម៉ាស៊ីន Cloud %2$@។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Agenten ber om å starte en %1$@-økt på Cloud-maskinen %2$@."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Agent prosi o uruchomienie sesji %1$@ na maszynie Cloud %2$@."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O agente pede para iniciar uma sessão de %1$@ na máquina do Cloud %2$@."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Агент просит запустить сеанс %1$@ на машине Cloud %2$@."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เอเจนต์ขอเริ่มเซสชัน %1$@ บนเครื่อง Cloud %2$@"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Ajan, %2$@ Cloud makinesinde bir %1$@ oturumu başlatmak istiyor."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Агент просить запустити сеанс %1$@ на машині Cloud %2$@."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tác tử muốn bắt đầu một phiên %1$@ trên máy Cloud %2$@."}}
       }
     },
     "cloud.startSession.askNew": {
@@ -163,7 +283,19 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "يطلب الوكيل إنشاء جهاز Cloud ‏%2$@ وبدء جلسة %1$@ عليه."}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "에이전트가 Cloud 머신 %2$@을(를) 만들고 그곳에서 %1$@ 세션을 시작하려고 합니다."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "代理请求创建 Cloud 机器 %2$@ 并在其上启动 %1$@ 会话。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "代理請求建立 Cloud 機器 %2$@ 並在其上啟動 %1$@ 工作階段。"}}
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "代理請求建立 Cloud 機器 %2$@ 並在其上啟動 %1$@ 工作階段。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Agent traži da se kreira Cloud mašina %2$@ i na njoj pokrene %1$@ sesija."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Agenten beder om at oprette Cloud-maskinen %2$@ og starte en %1$@-session der."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "L’agente chiede di creare la macchina Cloud %2$@ e di avviarvi una sessione %1$@."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ភ្នាក់ងារសុំបង្កើតម៉ាស៊ីន Cloud %2$@ ហើយចាប់ផ្ដើមវគ្គ %1$@ នៅទីនោះ។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Agenten ber om å opprette Cloud-maskinen %2$@ og starte en %1$@-økt der."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Agent prosi o utworzenie maszyny Cloud %2$@ i uruchomienie na niej sesji %1$@."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O agente pede para criar a máquina do Cloud %2$@ e iniciar uma sessão de %1$@ nela."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Агент просит создать машину Cloud %2$@ и запустить на ней сеанс %1$@."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เอเจนต์ขอสร้างเครื่อง Cloud %2$@ และเริ่มเซสชัน %1$@ บนเครื่องนั้น"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Ajan, %2$@ Cloud makinesini oluşturmak ve orada bir %1$@ oturumu başlatmak istiyor."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Агент просить створити машину Cloud %2$@ і запустити на ній сеанс %1$@."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tác tử muốn tạo máy Cloud %2$@ và bắt đầu một phiên %1$@ trên đó."}}
       }
     },
     "cloud.startSession.starting": {
@@ -178,7 +310,19 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "جارٍ بدء %1$@ على %2$@…"}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "%2$@에서 %1$@ 시작 중…"}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "正在 %2$@ 上启动 %1$@…"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "正在 %2$@ 上啟動 %1$@…"}}
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "正在 %2$@ 上啟動 %1$@…"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Pokretanje %1$@ na %2$@…"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Starter %1$@ på %2$@…"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Avvio di %1$@ su %2$@…"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កំពុងចាប់ផ្ដើម %1$@ នៅលើ %2$@…"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Starter %1$@ på %2$@…"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Uruchamianie %1$@ na %2$@…"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Iniciando %1$@ em %2$@…"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Запуск %1$@ на %2$@…"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "กำลังเริ่ม %1$@ บน %2$@…"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "%1$@, %2$@ üzerinde başlatılıyor…"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Запуск %1$@ на %2$@…"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Đang khởi động %1$@ trên %2$@…"}}
       }
     },
     "cloud.startSession.start": {
@@ -193,7 +337,19 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "بدء"}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "시작"}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "启动"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "啟動"}}
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "啟動"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Pokreni"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Start"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Avvia"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ចាប់ផ្ដើម"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Start"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Uruchom"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Iniciar"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Запустить"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เริ่ม"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Başlat"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Запустити"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Bắt đầu"}}
       }
     },
     "cloud.startSession.notInChat": {
@@ -208,7 +364,19 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "تعذّر العثور على الدردشة التي يعمل فيها هذا الوكيل، لذا لا يمكن سؤال أحد عن بدء %2$@ على جهاز Cloud ‏%1$@. شغّل `%3$@` من صدفة وكيل في دردشة cmux، أو اطلب من الشخص تشغيله."}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "이 에이전트가 실행 중인 채팅을 찾지 못해 Cloud 머신 %1$@에서 %2$@을(를) 시작할지 물어볼 수 없습니다. cmux 채팅 속 에이전트의 셸에서 `%3$@`을(를) 실행하거나 사용자에게 실행을 요청하세요."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "找不到此代理所在的聊天，因此无法询问是否在 Cloud 机器 %1$@ 上启动 %2$@。请从 cmux 聊天中代理的 shell 运行 `%3$@`，或请对方运行。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "找不到此代理所在的聊天，因此無法詢問是否在 Cloud 機器 %1$@ 上啟動 %2$@。請從 cmux 聊天中代理的 shell 執行 `%3$@`，或請對方執行。"}}
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "找不到此代理所在的聊天，因此無法詢問是否在 Cloud 機器 %1$@ 上啟動 %2$@。請從 cmux 聊天中代理的 shell 執行 `%3$@`，或請對方執行。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Nije moguće pronaći razgovor u kojem ovaj agent radi, pa se nikoga ne može pitati da pokrene %2$@ na Cloud mašini %1$@. Pokrenite `%3$@` iz ljuske agenta u cmux razgovoru ili zamolite osobu da ga pokrene."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Kunne ikke finde den chat, som denne agent kører i, så ingen kan blive spurgt om at starte %2$@ på Cloud-maskinen %1$@. Kør `%3$@` fra en agents shell i en cmux-chat, eller bed personen om at køre den."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Impossibile trovare la chat in cui viene eseguito questo agente, quindi non si può chiedere a nessuno di avviare %2$@ sulla macchina Cloud %1$@. Esegui `%3$@` dalla shell di un agente in una chat di cmux, oppure chiedi alla persona di eseguirlo."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "រកមិនឃើញការជជែកដែលភ្នាក់ងារនេះដំណើរការនៅក្នុងទេ ដូច្នេះមិនអាចសុំឱ្យនរណាម្នាក់ចាប់ផ្ដើម %2$@ នៅលើម៉ាស៊ីន Cloud %1$@ បានទេ។ ដំណើរការ `%3$@` ពីសែលរបស់ភ្នាក់ងារក្នុងការជជែក cmux ឬសុំឱ្យមនុស្សនោះដំណើរការវា។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Fant ikke chatten denne agenten kjører i, så ingen kan bli spurt om å starte %2$@ på Cloud-maskinen %1$@. Kjør `%3$@` fra en agents skall i en cmux-chat, eller be personen kjøre den."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nie można znaleźć czatu, w którym działa ten agent, więc nikogo nie można poprosić o uruchomienie %2$@ na maszynie Cloud %1$@. Uruchom `%3$@` z powłoki agenta w czacie cmux lub poproś użytkownika, aby to uruchomił."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Não foi possível encontrar o chat em que este agente roda, então não há a quem pedir para iniciar %2$@ na máquina do Cloud %1$@. Execute `%3$@` no shell de um agente em um chat do cmux ou peça à pessoa para executá-lo."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Не удалось найти чат, в котором работает этот агент, поэтому некого попросить запустить %2$@ на машине Cloud %1$@. Выполните `%3$@` из оболочки агента в чате cmux или попросите пользователя выполнить эту команду."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ไม่พบแชทที่เอเจนต์นี้ทำงานอยู่ จึงไม่มีใครให้ขอเริ่ม %2$@ บนเครื่อง Cloud %1$@ ได้ เรียกใช้ `%3$@` จากเชลล์ของเอเจนต์ในแชท cmux หรือขอให้ผู้ใช้เรียกใช้คำสั่งนี้"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bu ajanın çalıştığı sohbet bulunamadı, bu yüzden kimseden %2$@ ajanını %1$@ Cloud makinesinde başlatması istenemiyor. `%3$@` komutunu bir cmux sohbetindeki ajan kabuğundan çalıştırın veya kişiden çalıştırmasını isteyin."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Не вдалося знайти чат, у якому працює цей агент, тому немає кого попросити запустити %2$@ на машині Cloud %1$@. Виконайте `%3$@` з оболонки агента в чаті cmux або попросіть користувача виконати цю команду."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Không tìm thấy cuộc trò chuyện mà tác tử này đang chạy, nên không thể hỏi ai để khởi động %2$@ trên máy Cloud %1$@. Chạy `%3$@` từ shell của một tác tử trong cuộc trò chuyện cmux, hoặc nhờ người dùng chạy lệnh đó."}}
       }
     },
     "cloud.startSession.noPage": {
@@ -223,7 +391,19 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "تعذّر عرض السؤال في الدردشة، لذا لم يبدأ %2$@ على %1$@. شغّل `%3$@` مرة أخرى بعد فتح الدردشة."}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "채팅에 질문을 표시하지 못해 %1$@에서 %2$@이(가) 시작되지 않았습니다. 채팅이 열리면 `%3$@`을(를) 다시 실행하세요."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "无法在聊天中显示问题，因此 %2$@ 没有在 %1$@ 上启动。聊天打开后请再次运行 `%3$@`。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法在聊天中顯示問題，因此 %2$@ 沒有在 %1$@ 上啟動。聊天開啟後請再次執行 `%3$@`。"}}
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法在聊天中顯示問題，因此 %2$@ 沒有在 %1$@ 上啟動。聊天開啟後請再次執行 `%3$@`。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Nije moguće prikazati pitanje u razgovoru, pa se %2$@ nije pokrenuo na %1$@. Ponovo pokrenite `%3$@` kada razgovor bude otvoren."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Kunne ikke vise spørgsmålet i chatten, så %2$@ startede ikke på %1$@. Kør `%3$@` igen, når chatten er åben."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Impossibile mostrare la domanda nella chat, quindi %2$@ non è stato avviato su %1$@. Esegui di nuovo `%3$@` quando la chat è aperta."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "មិនអាចបង្ហាញសំណួរក្នុងការជជែកបានទេ ដូច្នេះ %2$@ មិនបានចាប់ផ្ដើមនៅលើ %1$@ ទេ។ ដំណើរការ `%3$@` ម្ដងទៀតនៅពេលការជជែកបើក។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Kunne ikke vise spørsmålet i chatten, så %2$@ startet ikke på %1$@. Kjør `%3$@` på nytt når chatten er åpen."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nie można pokazać pytania w czacie, więc %2$@ nie uruchomił się na %1$@. Uruchom ponownie `%3$@`, gdy czat będzie otwarty."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Não foi possível mostrar a pergunta no chat, então %2$@ não iniciou em %1$@. Execute `%3$@` novamente quando o chat estiver aberto."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Не удалось показать вопрос в чате, поэтому %2$@ не запущен на %1$@. Снова выполните `%3$@`, когда чат будет открыт."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แสดงคำถามในแชทไม่ได้ %2$@ จึงไม่ได้เริ่มบน %1$@ เรียกใช้ `%3$@` อีกครั้งเมื่อแชทเปิดอยู่"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Soru sohbette gösterilemedi, bu yüzden %2$@ %1$@ üzerinde başlamadı. Sohbet açıkken `%3$@` komutunu yeniden çalıştırın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Не вдалося показати запитання в чаті, тому %2$@ не запущено на %1$@. Знову виконайте `%3$@`, коли чат буде відкрито."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Không thể hiển thị câu hỏi trong cuộc trò chuyện nên %2$@ chưa khởi động trên %1$@. Chạy lại `%3$@` khi cuộc trò chuyện đang mở."}}
       }
     },
     "cloud.startSession.askOpen": {
@@ -238,7 +418,19 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "تطلب هذه الدردشة بالفعل من الشخص بدء جلسة Cloud. انتظر إجابته، ثم شغّل `%3$@` مرة أخرى إذا كان %2$@ لا يزال لا يعمل على %1$@."}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "이 채팅은 이미 사용자에게 Cloud 세션 시작을 묻고 있습니다. 답을 기다린 뒤 %1$@에서 %2$@이(가) 아직 실행 중이 아니면 `%3$@`을(를) 다시 실행하세요."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "此聊天已在询问对方是否启动 Cloud 会话。请等待回答；如果 %2$@ 仍未在 %1$@ 上运行，再次运行 `%3$@`。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "此聊天已在詢問對方是否啟動 Cloud 工作階段。請等待回答；如果 %2$@ 仍未在 %1$@ 上執行，再次執行 `%3$@`。"}}
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "此聊天已在詢問對方是否啟動 Cloud 工作階段。請等待回答；如果 %2$@ 仍未在 %1$@ 上執行，再次執行 `%3$@`。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Ovaj razgovor već traži od osobe da pokrene Cloud sesiju. Sačekajte odgovor, a zatim ponovo pokrenite `%3$@` ako %2$@ još ne radi na %1$@."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Denne chat spørger allerede personen om at starte en Cloud-session. Vent på svaret, og kør derefter `%3$@` igen, hvis %2$@ stadig ikke kører på %1$@."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Questa chat chiede già alla persona di avviare una sessione Cloud. Attendi la risposta, poi esegui di nuovo `%3$@` se %2$@ non è ancora in esecuzione su %1$@."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ការជជែកនេះកំពុងសុំឱ្យមនុស្សនោះចាប់ផ្ដើមវគ្គ Cloud រួចហើយ។ រង់ចាំចម្លើយរបស់គេ រួចដំណើរការ `%3$@` ម្ដងទៀត ប្រសិនបើ %2$@ នៅតែមិនដំណើរការនៅលើ %1$@។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Denne chatten spør allerede personen om å starte en Cloud-økt. Vent på svaret, og kjør deretter `%3$@` på nytt hvis %2$@ fortsatt ikke kjører på %1$@."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Ten czat już prosi użytkownika o uruchomienie sesji Cloud. Poczekaj na odpowiedź, a następnie uruchom ponownie `%3$@`, jeśli %2$@ nadal nie działa na %1$@."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Este chat já está pedindo à pessoa para iniciar uma sessão do Cloud. Aguarde a resposta e execute `%3$@` novamente se %2$@ ainda não estiver rodando em %1$@."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Этот чат уже просит пользователя запустить сеанс Cloud. Дождитесь ответа, затем снова выполните `%3$@`, если %2$@ всё ещё не работает на %1$@."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แชทนี้กำลังขอให้ผู้ใช้เริ่มเซสชัน Cloud อยู่แล้ว รอคำตอบ แล้วเรียกใช้ `%3$@` อีกครั้งหาก %2$@ ยังไม่ทำงานบน %1$@"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bu sohbet kişiden zaten bir Cloud oturumu başlatmasını istiyor. Yanıtını bekleyin, %2$@ hâlâ %1$@ üzerinde çalışmıyorsa `%3$@` komutunu yeniden çalıştırın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Цей чат уже просить користувача запустити сеанс Cloud. Дочекайтеся відповіді, потім знову виконайте `%3$@`, якщо %2$@ досі не працює на %1$@."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Cuộc trò chuyện này đã đang hỏi người dùng để bắt đầu một phiên Cloud. Hãy chờ câu trả lời, rồi chạy lại `%3$@` nếu %2$@ vẫn chưa chạy trên %1$@."}}
       }
     },
     "cloud.startSession.declined": {
@@ -253,7 +445,19 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "اختار الشخص «ليس الآن»، لذا لم يبدأ %2$@ على %1$@. اسأله في الدردشة قبل تشغيل `%3$@` مرة أخرى."}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "사용자가 나중에를 선택해 %1$@에서 %2$@이(가) 시작되지 않았습니다. `%3$@`을(를) 다시 실행하기 전에 채팅에서 물어보세요."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "对方选择了“以后再说”，因此 %2$@ 没有在 %1$@ 上启动。再次运行 `%3$@` 前请先在聊天中询问。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "對方選擇了「以後再說」，因此 %2$@ 沒有在 %1$@ 上啟動。再次執行 `%3$@` 前請先在聊天中詢問。"}}
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "對方選擇了「以後再說」，因此 %2$@ 沒有在 %1$@ 上啟動。再次執行 `%3$@` 前請先在聊天中詢問。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Osoba je odabrala „Ne sada“, pa se %2$@ nije pokrenuo na %1$@. Pitajte je u razgovoru prije nego što ponovo pokrenete `%3$@`."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Personen valgte »Ikke nu«, så %2$@ startede ikke på %1$@. Spørg vedkommende i chatten, før du kører `%3$@` igen."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "La persona ha scelto «Non ora», quindi %2$@ non è stato avviato su %1$@. Chiedile nella chat prima di eseguire di nuovo `%3$@`."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "មនុស្សនោះបានជ្រើស «មិនមែនឥឡូវនេះ» ដូច្នេះ %2$@ មិនបានចាប់ផ្ដើមនៅលើ %1$@ ទេ។ សួរគេក្នុងការជជែក មុនពេលអ្នកដំណើរការ `%3$@` ម្ដងទៀត។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Personen valgte «Ikke nå», så %2$@ startet ikke på %1$@. Spør vedkommende i chatten før du kjører `%3$@` på nytt."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Użytkownik wybrał „Nie teraz”, więc %2$@ nie uruchomił się na %1$@. Zapytaj go w czacie, zanim ponownie uruchomisz `%3$@`."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "A pessoa escolheu “Agora não”, então %2$@ não iniciou em %1$@. Pergunte a ela no chat antes de executar `%3$@` novamente."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Пользователь выбрал «Не сейчас», поэтому %2$@ не запущен на %1$@. Спросите его в чате, прежде чем снова выполнять `%3$@`."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ผู้ใช้เลือก “ไม่ใช่ตอนนี้” %2$@ จึงไม่ได้เริ่มบน %1$@ ถามผู้ใช้ในแชทก่อนเรียกใช้ `%3$@` อีกครั้ง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kişi “Şimdi değil” seçeneğini seçti, bu yüzden %2$@ %1$@ üzerinde başlamadı. `%3$@` komutunu yeniden çalıştırmadan önce sohbette ona sorun."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Користувач вибрав «Не зараз», тому %2$@ не запущено на %1$@. Запитайте його в чаті, перш ніж знову виконувати `%3$@`."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Người dùng đã chọn “Để sau” nên %2$@ chưa khởi động trên %1$@. Hãy hỏi họ trong cuộc trò chuyện trước khi chạy lại `%3$@`."}}
       }
     },
     "cloud.startSession.expired": {
@@ -268,7 +472,19 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "لم يُجب أحد عن السؤال في الدردشة خلال دقيقتين، لذا لم يبدأ %2$@ على %1$@. شغّل `%3$@` مرة أخرى عندما يكون الشخص موجودًا."}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "2분 안에 채팅의 질문에 답한 사람이 없어 %1$@에서 %2$@이(가) 시작되지 않았습니다. 사용자가 있을 때 `%3$@`을(를) 다시 실행하세요."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "2 分钟内没有人回答聊天中的问题，因此 %2$@ 没有在 %1$@ 上启动。对方在时请再次运行 `%3$@`。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "2 分鐘內沒有人回答聊天中的問題，因此 %2$@ 沒有在 %1$@ 上啟動。對方在時請再次執行 `%3$@`。"}}
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "2 分鐘內沒有人回答聊天中的問題，因此 %2$@ 沒有在 %1$@ 上啟動。對方在時請再次執行 `%3$@`。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Niko nije odgovorio na pitanje u razgovoru u roku od 2 minute, pa se %2$@ nije pokrenuo na %1$@. Ponovo pokrenite `%3$@` kada osoba bude tu."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Ingen svarede på spørgsmålet i chatten inden for 2 minutter, så %2$@ startede ikke på %1$@. Kør `%3$@` igen, når personen er der."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Nessuno ha risposto alla domanda nella chat entro 2 minuti, quindi %2$@ non è stato avviato su %1$@. Esegui di nuovo `%3$@` quando la persona è presente."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "គ្មាននរណាឆ្លើយសំណួរក្នុងការជជែកក្នុងរយៈពេល 2 នាទីទេ ដូច្នេះ %2$@ មិនបានចាប់ផ្ដើមនៅលើ %1$@ ទេ។ ដំណើរការ `%3$@` ម្ដងទៀតនៅពេលមនុស្សនោះនៅទីនោះ។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Ingen svarte på spørsmålet i chatten innen 2 minutter, så %2$@ startet ikke på %1$@. Kjør `%3$@` på nytt når personen er til stede."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nikt nie odpowiedział na pytanie w czacie w ciągu 2 minut, więc %2$@ nie uruchomił się na %1$@. Uruchom ponownie `%3$@`, gdy użytkownik będzie dostępny."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Ninguém respondeu à pergunta no chat em 2 minutos, então %2$@ não iniciou em %1$@. Execute `%3$@` novamente quando a pessoa estiver presente."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Никто не ответил на вопрос в чате за 2 минуты, поэтому %2$@ не запущен на %1$@. Снова выполните `%3$@`, когда пользователь будет на месте."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ไม่มีใครตอบคำถามในแชทภายใน 2 นาที %2$@ จึงไม่ได้เริ่มบน %1$@ เรียกใช้ `%3$@` อีกครั้งเมื่อผู้ใช้อยู่"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Sohbetteki soruyu 2 dakika içinde kimse yanıtlamadı, bu yüzden %2$@ %1$@ üzerinde başlamadı. Kişi oradayken `%3$@` komutunu yeniden çalıştırın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Ніхто не відповів на запитання в чаті протягом 2 хвилин, тому %2$@ не запущено на %1$@. Знову виконайте `%3$@`, коли користувач буде на місці."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Không ai trả lời câu hỏi trong cuộc trò chuyện trong vòng 2 phút nên %2$@ chưa khởi động trên %1$@. Chạy lại `%3$@` khi người dùng có mặt."}}
       }
     },
     "cloud.startSession.listUnread": {
@@ -283,7 +499,19 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "تعذّرت قراءة أجهزة Cloud الخاصة بك، لذا لم يبدأ %2$@: قد يكون هناك جهاز باسم %1$@ بالفعل. افحص `cmux cloud list-machines`، ثم شغّل `%3$@` مرة أخرى."}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "Cloud 머신 목록을 읽지 못해 %2$@이(가) 시작되지 않았습니다. %1$@이라는 머신이 이미 있을 수 있습니다. `cmux cloud list-machines`로 확인한 다음 `%3$@`을(를) 다시 실행하세요."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "无法读取你的 Cloud 机器，因此 %2$@ 没有启动：可能已有名为 %1$@ 的机器。请检查 `cmux cloud list-machines`，然后再次运行 `%3$@`。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法讀取你的 Cloud 機器，因此 %2$@ 沒有啟動：可能已有名為 %1$@ 的機器。請檢查 `cmux cloud list-machines`，然後再次執行 `%3$@`。"}}
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法讀取你的 Cloud 機器，因此 %2$@ 沒有啟動：可能已有名為 %1$@ 的機器。請檢查 `cmux cloud list-machines`，然後再次執行 `%3$@`。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Nije moguće pročitati vaše Cloud mašine, pa se %2$@ nije pokrenuo: mašina s nazivom %1$@ možda već postoji. Provjerite `cmux cloud list-machines`, a zatim ponovo pokrenite `%3$@`."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Kunne ikke læse dine Cloud-maskiner, så %2$@ startede ikke: en maskine med navnet %1$@ findes måske allerede. Tjek `cmux cloud list-machines`, og kør derefter `%3$@` igen."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Impossibile leggere le tue macchine Cloud, quindi %2$@ non è stato avviato: una macchina chiamata %1$@ potrebbe già esistere. Controlla `cmux cloud list-machines`, poi esegui di nuovo `%3$@`."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "មិនអាចអានម៉ាស៊ីន Cloud របស់អ្នកបានទេ ដូច្នេះ %2$@ មិនបានចាប់ផ្ដើមទេ៖ ម៉ាស៊ីនឈ្មោះ %1$@ ប្រហែលជាមានរួចហើយ។ ពិនិត្យ `cmux cloud list-machines` រួចដំណើរការ `%3$@` ម្ដងទៀត។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Kunne ikke lese Cloud-maskinene dine, så %2$@ startet ikke: en maskin med navnet %1$@ finnes kanskje allerede. Sjekk `cmux cloud list-machines`, og kjør deretter `%3$@` på nytt."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nie można odczytać Twoich maszyn Cloud, więc %2$@ nie uruchomił się: maszyna o nazwie %1$@ może już istnieć. Sprawdź `cmux cloud list-machines`, a następnie uruchom ponownie `%3$@`."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Não foi possível ler suas máquinas do Cloud, então %2$@ não iniciou: uma máquina chamada %1$@ pode já existir. Verifique `cmux cloud list-machines` e execute `%3$@` novamente."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Не удалось прочитать ваши машины Cloud, поэтому %2$@ не запущен: машина с именем %1$@ может уже существовать. Проверьте `cmux cloud list-machines`, затем снова выполните `%3$@`."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "อ่านรายการเครื่อง Cloud ของคุณไม่ได้ %2$@ จึงไม่ได้เริ่ม: อาจมีเครื่องชื่อ %1$@ อยู่แล้ว ตรวจสอบ `cmux cloud list-machines` แล้วเรียกใช้ `%3$@` อีกครั้ง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Cloud makineleriniz okunamadı, bu yüzden %2$@ başlamadı: %1$@ adında bir makine zaten var olabilir. `cmux cloud list-machines` ile kontrol edin, ardından `%3$@` komutunu yeniden çalıştırın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Не вдалося прочитати ваші машини Cloud, тому %2$@ не запущено: машина з назвою %1$@ може вже існувати. Перевірте `cmux cloud list-machines`, потім знову виконайте `%3$@`."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Không thể đọc danh sách máy Cloud của bạn nên %2$@ chưa khởi động: có thể đã có một máy tên %1$@. Kiểm tra `cmux cloud list-machines`, rồi chạy lại `%3$@`."}}
       }
     }
   },
