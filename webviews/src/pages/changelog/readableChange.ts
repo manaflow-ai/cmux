@@ -92,7 +92,8 @@ const AREA_PREFIX =
   /^(cmux-next(?: \w+){0,2}|cmuxnext|cmux next|acpmux|apps?|browser|gallery|release notes?|cx-[\w.]+|feed [\d.]+|cmux-tui)\s*:\s*/i;
 /** "(#123)", "(hq#45)", "(cx-abc)", "(cx-2y2 items 6, 10)", "(red)", "(review)", and a bead
     reference cut off at the end. */
-const REFS = /\s*\((?:[^()]*\bcx-[\w.]+[^()]*|[\w-]*#\d+|red|review)\)|\s*\((?:[^()]*\b)?cx-[\w.]*$/gi;
+const REFS =
+  /\s*\((?:[^()]*\bcx-[\w.]+[^()]*|[\p{L}\p{N}_-]*#\d+|red|review)\)|\s*\((?:[^()]*\b)?cx-[\w.]*$|\s*\([au]\d+(?:\s*[,/]\s*[au]?\d+)*\)/giu;
 /** The product's own label at the start of a human title: "cmux NEXT: …". */
 const PRODUCT_LABEL = /^(?:cmux[- ]?next|cmuxnext)\s*:\s*/i;
 
