@@ -140,18 +140,21 @@ fn bounded(language: &str, code: &str) -> Value {
     // too, so encoding a secret cannot bypass the whole-answer mask.
     let language = acpmux::secret_scan::mask(language);
     let code = acpmux::secret_scan::mask(code);
-    let mut block =
-        json!({"language": prefix(&language, 256), "code": prefix(&code, MAX_BLOCK_BYTES)});
     let mut truncated = language.len() > 256 || code.len() > MAX_BLOCK_BYTES;
-    while block.to_string().len() > MAX_FIELD_BYTES {
-        let text = block.get("code").and_then(Value::as_str).unwrap_or_default();
-        block["code"] = json!(prefix(text, text.len() / 2));
+    let language = prefix(&language, 256);
+    let mut code = prefix(&code, MAX_BLOCK_BYTES).to_owned();
+    loop {
+        let block = if truncated {
+            json!({"language": language, "code": code, "truncated": true})
+        } else {
+            json!({"language": language, "code": code})
+        };
+        if block.to_string().len() <= MAX_FIELD_BYTES {
+            return block;
+        }
+        code = prefix(&code, code.len() / 2).to_owned();
         truncated = true;
     }
-    if truncated {
-        block["truncated"] = json!(true);
-    }
-    block
 }
 
 #[cfg(test)]
