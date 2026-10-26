@@ -68,6 +68,7 @@
         "Cache Swift packages": {"plumbing": true, "note": "local action: restores or saves a cache with actions/cache, WarpBuilds/cache or R2 and reports a receipt; no product check. Re-review this entry if the action gains a check"},
         "Sanitize Swift package cache": {"plumbing": true},
         "Fetch the Chromium engine": {"pr": "cmux-next.yml:release-compile:Fetch the Chromium engine"},
+        "Finish fetching the Chromium engine": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly helper builds beside the Release build", "note": "joins the background engine fetch before the Release build; tests/test_nightly_helpers_beside_release_build.py pins the order and runs the join on fixtures"},
         "Generate third-party notices (cmux-next)": {"pr": "cmux-next-guards.yml:rust-notices-tree:Generate the Rust notices from this tree (as the nightly does)"},
         "Build nightly app (Release)": {"nightly_only": "xcodebuild Release of the cmux scheme with the CMUX_NEXT_REQUIRE_* helpers and both architectures on a Mac; PR CI covers parts of it in cmux-next.yml release-compile (CmuxNextApp Release) and cmux-scheme-compile (cmux scheme, Debug)"},
         "Drop the empty Iroh.framework stub (nightly-next)": {"nightly_only": "nm and otool on Iroh.framework inside the Release app; needs the Release cmux.app that only the nightly builds (xcodebuild Release on a Mac)"},

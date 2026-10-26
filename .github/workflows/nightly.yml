@@ -1869,6 +1869,48 @@ jobs:
         if: inputs.nightly_next_unsigned_run == ''
         run: scripts/ci/clear-dirs.sh remote-daemon-assets
 
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
+        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
+        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
+        if: inputs.nightly_next_unsigned_run == ''
+        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+
+      # The Embed CEF phase embeds the pinned Chromium engine
+      # (scripts/cmux-next/cef-manifest.json) from the ensure-cef cache. This
+      # step fills the cache from the private R2 bucket with the read-only key
+      # (the GitHub release with CMUX_CEF_READ_TOKEN is the fallback); only
+      # this step's background fetch gets the key, so the build step runs
+      # without it. With no readable source the app builds without the engine
+      # and reports the browser unavailable; "Report the embedded Chromium
+      # engine" flags that. The fetch (9-134 s, runs 40378565252, 40380339203)
+      # runs in the background beside the steps below, and "Finish fetching
+      # the Chromium engine" joins it right before the Release build: a digest
+      # mismatch still fails the job there, before anything reads the cache.
+      - name: Fetch the Chromium engine
+        if: inputs.nightly_next_unsigned_run == ''
+        env:
+          CMUX_CEF_R2_ACCOUNT_ID: ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
+          CMUX_CEF_R2_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
+          CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
+          CMUX_CEF_R2_ENV_FILE: /dev/null
+          GH_TOKEN: ${{ secrets.CMUX_CEF_READ_TOKEN }}
+        # The x86_64 engine (a manifest "x86_64" object) lets a universal
+        # build embed both slices (embed-cef.sh); without it this prints
+        # nothing and the universal app keeps the arm64 engine.
+        # The remote browser host the Embed remote browser host phase puts in
+        # Contents/Helpers (phone browser tabs, arm64). From R2 with the same key;
+        # unavailable, the app builds without it (the phase warns). A digest
+        # mismatch fails the join. The tailnet store is not reachable from runners.
+        run: |
+          python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" chromium-engine -- \
+            bash -c 'set -e
+              scripts/cmux-next/ensure-cef.sh --optional
+              scripts/cmux-next/ensure-cef.sh --optional --arch x86_64
+              if [[ -x scripts/cmux-next/ensure-remote-browser-host.sh ]]; then
+                CMUX_RB_HOST_NO_STORE=1 scripts/cmux-next/ensure-remote-browser-host.sh --optional >/dev/null
+              fi'
+
       - name: Start Release DerivedData empty
         if: inputs.nightly_next_unsigned_run == ''
         run: |
@@ -2135,42 +2177,6 @@ jobs:
           go-version-file: daemon/remote/go.mod
           cache: false
 
-      - name: Wait through GitHub API rate limits in this job's gh calls
-        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
-        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
-        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
-        if: inputs.nightly_next_unsigned_run == ''
-        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
-
-      # The Embed CEF phase embeds the pinned Chromium engine
-      # (scripts/cmux-next/cef-manifest.json) from the ensure-cef cache. This
-      # step fills the cache from the private R2 bucket with the read-only key
-      # (the GitHub release with CMUX_CEF_READ_TOKEN is the fallback); only
-      # this step gets the key, so the build step runs without it. With no
-      # readable source the app builds without the engine and reports the
-      # browser unavailable; "Report the embedded Chromium engine" flags that.
-      - name: Fetch the Chromium engine
-        if: inputs.nightly_next_unsigned_run == ''
-        env:
-          CMUX_CEF_R2_ACCOUNT_ID: ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
-          CMUX_CEF_R2_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
-          CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
-          CMUX_CEF_R2_ENV_FILE: /dev/null
-          GH_TOKEN: ${{ secrets.CMUX_CEF_READ_TOKEN }}
-        # The x86_64 engine (a manifest "x86_64" object) lets a universal
-        # build embed both slices (embed-cef.sh); without it this prints
-        # nothing and the universal app keeps the arm64 engine.
-        run: |
-          scripts/cmux-next/ensure-cef.sh --optional
-          scripts/cmux-next/ensure-cef.sh --optional --arch x86_64
-          # The remote browser host the Embed remote browser host phase puts in
-          # Contents/Helpers (phone browser tabs, arm64). From R2 with the same key;
-          # unavailable, the app builds without it (the phase warns). A digest
-          # mismatch fails here. The tailnet store is not reachable from runners.
-          if [[ -x scripts/cmux-next/ensure-remote-browser-host.sh ]]; then
-            CMUX_RB_HOST_NO_STORE=1 scripts/cmux-next/ensure-remote-browser-host.sh --optional >/dev/null
-          fi
-
       # The cmux-next web bundles (agent pane, pages, Activity, palette ranker,
       # webviews app) are built from this commit's sources, never taken from a
       # committed copy (cx-vn5). build-nightly-linux-inputs builds them on Linux
@@ -2216,6 +2222,10 @@ jobs:
           fi
           [ "$status" = 3 ] || echo "::warning title=Linux web bundles::installing the Linux-built web bundles failed (status $status); building them here"
           scripts/cmux-next/build-web-bundles.sh --force
+
+      - name: Finish fetching the Chromium engine
+        if: inputs.nightly_next_unsigned_run == ''
+        run: python3 scripts/ci/background_build.py join --state "$RUNNER_TEMP/nightly-helper-builds" chromium-engine
 
       - name: Build nightly app (Release)
         if: inputs.nightly_next_unsigned_run == ''
@@ -2722,7 +2732,7 @@ jobs:
 
       # A failed or cancelled job leaves no background helper build running.
       - name: Stop the helper builds still running
-        if: always() && inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next'
+        if: always() && inputs.nightly_next_unsigned_run == ''
         run: python3 scripts/ci/background_build.py stop --state "$RUNNER_TEMP/nightly-helper-builds"
 
   # Runs beside build-nightly-app. Deepening the shallow clone to find the
