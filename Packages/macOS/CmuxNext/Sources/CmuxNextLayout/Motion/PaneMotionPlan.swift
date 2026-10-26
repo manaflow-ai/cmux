@@ -16,12 +16,15 @@ import CoreGraphics
 /// Rects are in each item's placement space: a strip pane or divider in the strip's content space
 /// (the strip container's bounds, before the strip camera), a docked one (or any in a plain split
 /// tree) in the screen view's coordinates; a row column's content before its row offset and a
-/// scroll area's before its area offset. The camera moves those containers (`camera`). An item that
-/// changed container (a zoom takes its pane out of the strip) has `from` converted through the
-/// previous camera, so it starts where it rested.
+/// scroll area's before its area offset. The camera moves those containers (`camera`), from its
+/// `from` values when the change starts. An item that changed container (a zoom takes its pane out
+/// of the strip, an undock puts it in) has `from` converted into its new container at those start
+/// values, so `from` plus the camera's `from` is where it showed.
 ///
 /// Only what changed is listed: a pane whose rest rect and container are the same in both
-/// geometries is absent, even when the camera carries it.
+/// geometries is absent, even when the camera carries it. A structural change the CPU path snaps
+/// (`ScreenContentView.reconcile`: a column inserted or appended where no pane gave up its room)
+/// lists what moved with `from == to`: set at its rest, no spring.
 nonisolated struct PaneMotionPlan: Hashable, Sendable {
     /// What the change was, which picks the springs (`PaneMotionVariant`).
     nonisolated enum Kind: Hashable, Sendable {
@@ -33,7 +36,8 @@ nonisolated struct PaneMotionPlan: Hashable, Sendable {
         case zoomIn
         /// The zoomed pane goes back to its slot over the others.
         case zoomOut
-        /// Anything else: a ratio or width change, a column added or moved.
+        /// Anything else: a ratio or width change (sprung), a column added or moved (set at rest
+        /// unless it lands while panes still move).
         case move
     }
 
@@ -163,8 +167,10 @@ nonisolated struct PaneMotionPlan: Hashable, Sendable {
     }
 
     nonisolated struct CameraChange: Hashable, Sendable {
-        /// The strip container's origin in the view (`stripMinX`, `stripMinY`: a dock came or went).
-        var stripOrigin: Travel<CGPoint>?
+        /// The strip container's x in the view (`ScreenGeometry.stripMinX`: a left dock came or
+        /// went). A top dock's `stripMinY` is in the strip panes' own rects, so the container never
+        /// moves vertically.
+        var stripMinX: Travel<CGFloat>?
         /// The strip's scroll offset. Still (`from == to`) where the change enters or leaves the
         /// strip (a zoom): the camera is set there with no spring.
         var stripOffset: Travel<CGFloat>?
@@ -173,7 +179,7 @@ nonisolated struct PaneMotionPlan: Hashable, Sendable {
         /// A close's camera rides the panes' spring (Lawrence 2026-10-20); anything else scrolls.
         var token: MotionSpring = .scroll
 
-        var isEmpty: Bool { stripOrigin == nil && stripOffset == nil && rows.isEmpty && areas.isEmpty }
+        var isEmpty: Bool { stripMinX == nil && stripOffset == nil && rows.isEmpty && areas.isEmpty }
     }
 
     var kind: Kind
@@ -196,21 +202,35 @@ extension PaneMotionPlan {
     /// rest offsets. `bands` gives each pane's header and footer (only the panes that resize are
     /// read). `includesRowEdges`: the daemon serves rows-v1, so row edges have handles.
     ///
+    /// `structural`: the layout's structure changed (`ScreenLayout.hasSameStructure`); `inFlight`:
+    /// panes still moved when it landed. Like the CPU path, a structural change that is not a split,
+    /// close or zoom springs only in flight; otherwise its items are set at rest. `handoff`: the pane
+    /// that hands what it shows to the pane this split adds (`LayoutModel.pendingContentHandoff`).
+    ///
     /// One pass over each geometry's panes and dividers comparing rects; the plan holds only what
     /// changed. On the main actor because the split seed comes from `PaneArrival`, as the CPU path's does.
     static func build(from previous: ScreenGeometry, camera fromCamera: Camera = Camera(),
                       to next: ScreenGeometry, camera toCamera: Camera = Camera(),
-                      zoom: ZoomChange? = nil, variant: PaneMotionVariant = .standard,
+                      structural: Bool = true, inFlight: Bool = false,
+                      zoom: ZoomChange? = nil, handoff giver: PaneID? = nil, variant: PaneMotionVariant = .standard,
                       shape: ChromeShape = ChromeShape(), bands: [PaneID: ChromeBands] = [:],
-                      includesRowEdges: Bool = true) -> PaneMotionPlan { // perf-hot: 0.2ms motion-frame
+                      includesRowEdges: Bool = true) -> PaneMotionPlan {
         let before = Side(geometry: previous, camera: fromCamera), after = Side(geometry: next, camera: toCamera)
+        let start = Side.start(from: previous, camera: fromCamera, to: next, camera: toCamera)
         // Only a change that adds one pane and removes none can be a split: `PaneArrival.split`
         // walks every pane, so it runs only then.
         var added: [PaneID] = []
         for pane in next.panes.keys where previous.panes[pane] == nil { added.append(pane) }
         let removesAny = previous.panes.count + added.count != next.panes.count
-        let arrival = added.count == 1 && !removesAny && zoom == nil
-            ? PaneArrival.split(previous.panes, from: previous, to: next, offset: fromCamera.stripOffset).first?.value : nil
+        var arrivals = added.count == 1 && !removesAny && zoom == nil
+            ? PaneArrival.split(previous.panes, from: previous, to: next, offset: fromCamera.stripOffset) : [:]
+        // A content handoff: the added pane shows in place and the giver slides in from the screen edge.
+        var slide: (giver: PaneID, rect: CGRect)?
+        if let giver, let played = PaneArrival.handoff(arrivals, giver: giver, from: previous, to: next, offset: fromCamera.stripOffset) {
+            arrivals = played.arrivals
+            slide = (giver, played.slide)
+        }
+        let arrival = arrivals.first?.value
         let kind: Kind = switch zoom {
         case .some(.zoomIn): .zoomIn
         case .some(.zoomOut): .zoomOut
@@ -218,6 +238,8 @@ extension PaneMotionPlan {
         case .none where added.isEmpty && removesAny && !next.panes.isEmpty: .close
         case .none: .move
         }
+        // `ScreenContentView.reconcile`'s `animateFrames`: what it does not carry snaps.
+        let springs = !structural || kind != .move || inFlight
         let frameToken: MotionSpring = switch kind {
         case .split: variant.splitSpring
         case .close: variant.closeSpring
@@ -227,6 +249,11 @@ extension PaneMotionPlan {
         case let .some(.zoomIn(pane)), let .some(.zoomOut(pane)): pane
         case .none: nil
         }
+        // A split's new dividers start on the edge of a pane beside them; a handoff's are in place.
+        let seedsDividers = kind == .split && slide == nil
+        var beside: [Beside] = []
+        // `PaneArrival` gives strip rects where they show in `next` at the old scroll offset.
+        let arrivalShift = next.viewShift(offset: fromCamera.stripOffset)
         var plan = PaneMotionPlan(kind: kind)
 
         // Panes.
@@ -239,14 +266,20 @@ extension PaneMotionPlan {
                     plan.uncovered.insert(pane)
                     continue
                 }
-                let from = arrival?.seed ?? to
+                let from = arrivals[pane].map {
+                    $0.seed.offsetBy(dx: next.scrolls(pane: pane) ? arrivalShift - start.stripShift : 0, dy: 0)
+                } ?? to
                 plan.panes[pane] = PaneChange(presence: .appears, from: from, to: to, inStrip: into.inStrip, zoomRank: rank,
                                               token: token, chrome: Self.chrome(from.size, to.size, pane, shape, bands))
                 continue
             }
-            let out = before.placement(of: pane)
-            let from = out == into ? rested : after.place(before.view(rested, at: out), at: into)
+            var from = start.carry(rested, from: before.placement(of: pane), on: before, to: into)
+            if let slide, slide.giver == pane {
+                from = slide.rect.offsetBy(dx: next.scrolls(pane: pane) ? -start.stripShift : 0, dy: 0)
+            }
+            if seedsDividers { beside.append(Beside(from: from, to: to, inStrip: into.inStrip)) }
             guard from != to || rank == .front else { continue }
+            if !springs { from = to }
             plan.panes[pane] = PaneChange(presence: .stays, from: from, to: to, inStrip: into.inStrip, zoomRank: rank,
                                           token: token, chrome: Self.chrome(from.size, to.size, pane, shape, bands))
         }
@@ -257,35 +290,71 @@ extension PaneMotionPlan {
                     continue
                 }
                 let out = before.placement(of: pane)
-                plan.panes[pane] = PaneChange(presence: .disappears, from: rested, to: rested, inStrip: out.inStrip,
+                let from = start.carry(rested, from: out, on: before, to: out)
+                plan.panes[pane] = PaneChange(presence: .disappears, from: from, to: from, inStrip: out.inStrip,
                                               zoomRank: .normal, token: frameToken, chrome: nil)
             }
         }
 
-        // Dividers: a split's new divider starts on the edge the new pane grows from.
-        let edge = arrival?.edgeOffset ?? .zero
+        // Dividers.
         let handlesBefore = before.dividers(includesRowEdges: includesRowEdges)
         var handlesAfter = after.dividers(includesRowEdges: includesRowEdges)
         for (key, handle) in handlesBefore {
             guard let target = handlesAfter.removeValue(forKey: key) else {
-                plan.dividers[key] = DividerChange(presence: .disappears, from: handle.rect, to: handle.rect,
+                let from = start.carry(handle.rect, from: handle.placement, on: before, to: handle.placement)
+                plan.dividers[key] = DividerChange(presence: .disappears, from: from, to: from,
                                                    inStrip: handle.placement.inStrip, token: frameToken)
                 continue
             }
-            let from = handle.placement == target.placement
-                ? handle.rect : after.place(before.view(handle.rect, at: handle.placement), at: target.placement)
+            var from = start.carry(handle.rect, from: handle.placement, on: before, to: target.placement)
             guard from != target.rect else { continue }
+            if !springs { from = target.rect }
             plan.dividers[key] = DividerChange(presence: .stays, from: from, to: target.rect,
                                                inStrip: target.placement.inStrip, token: frameToken)
         }
         for (key, target) in handlesAfter {
-            let from = kind == .split ? target.rect.offsetBy(dx: edge.dx, dy: edge.dy) : target.rect
+            var from = target.rect
+            if seedsDividers, let shift = Self.dividerStart(of: target, beside: beside) ?? arrival?.edgeOffset {
+                from = from.offsetBy(dx: shift.dx, dy: shift.dy)
+            }
             plan.dividers[key] = DividerChange(presence: .appears, from: from, to: target.rect,
                                                inStrip: target.placement.inStrip, token: frameToken)
         }
 
-        plan.camera = Self.camera(before, after, token: kind == .close ? frameToken : .scroll)
+        plan.camera = Self.camera(previous, start, after, token: kind == .close ? frameToken : .scroll)
         return plan
+    }
+
+    /// A pane in both layouts, where it starts and rests: what a split's new divider rides.
+    private struct Beside {
+        var from: CGRect
+        var to: CGRect
+        var inStrip: Bool
+    }
+
+    /// Where a split's new divider starts, as a shift from its rest: on the nearest edge of a pane
+    /// beside it, where that edge starts (`SplitMotion.startShift`, on rest rects). An even split
+    /// (`layout.splitSizing`) may put the divider past the new pane, on the next pane's edge. Nil
+    /// when no pane borders it.
+    private static func dividerStart(of divider: Handle, beside panes: [Beside]) -> CGVector? {
+        let reach: CGFloat = 16, line = divider.rect
+        var best: (distance: CGFloat, shift: CGVector)?
+        func consider(_ distance: CGFloat, _ shift: CGVector) {
+            if distance <= reach, distance < (best?.distance ?? .infinity) { best = (distance, shift) }
+        }
+        for pane in panes where pane.inStrip == divider.placement.inStrip {
+            let from = pane.from, to = pane.to
+            if divider.axis == .horizontal {
+                guard min(to.maxY, line.maxY) - max(to.minY, line.minY) > 1 else { continue }
+                consider(abs(to.maxX - line.midX), CGVector(dx: from.maxX - to.maxX, dy: 0))
+                consider(abs(to.minX - line.midX), CGVector(dx: from.minX - to.minX, dy: 0))
+            } else {
+                guard min(to.maxX, line.maxX) - max(to.minX, line.minX) > 1 else { continue }
+                consider(abs(to.maxY - line.midY), CGVector(dx: 0, dy: from.maxY - to.maxY))
+                consider(abs(to.minY - line.midY), CGVector(dx: 0, dy: from.minY - to.minY))
+            }
+        }
+        return best?.shift
     }
 
     /// The chrome sublayers' rest frames at both sizes when the size changes.
@@ -297,21 +366,19 @@ extension PaneMotionPlan {
                       to: ChromeFrames(cellSize: to, shape: shape, bands: paneBands))
     }
 
-    private static func camera(_ before: Side, _ after: Side, token: MotionSpring) -> CameraChange {
+    private static func camera(_ previous: ScreenGeometry, _ start: Side, _ after: Side, token: MotionSpring) -> CameraChange {
         var change = CameraChange(token: token)
-        let old = before.geometry, new = after.geometry
-        if old.isColumns, new.isColumns {
-            let from = CGPoint(x: old.stripMinX, y: old.stripMinY), to = CGPoint(x: new.stripMinX, y: new.stripMinY)
-            if from != to { change.stripOrigin = Travel(from: from, to: to) }
-            if before.camera.stripOffset != after.camera.stripOffset {
-                change.stripOffset = Travel(from: before.camera.stripOffset, to: after.camera.stripOffset)
-            }
-        } else if old.isColumns != new.isColumns {
+        if previous.isColumns != after.geometry.isColumns {
             // Into or out of the strip (a zoom): the strip camera is set at its rest, not sprung.
             change.stripOffset = Travel(from: after.camera.stripOffset, to: after.camera.stripOffset)
+        } else if after.geometry.isColumns {
+            if start.stripMinX != after.stripMinX { change.stripMinX = Travel(from: start.stripMinX, to: after.stripMinX) }
+            if start.camera.stripOffset != after.camera.stripOffset {
+                change.stripOffset = Travel(from: start.camera.stripOffset, to: after.camera.stripOffset)
+            }
         }
-        change.rows = travels(before.camera.rowOffsets, after.camera.rowOffsets)
-        change.areas = travels(before.camera.areaOffsets, after.camera.areaOffsets)
+        change.rows = travels(start.camera.rowOffsets, after.camera.rowOffsets)
+        change.areas = travels(start.camera.areaOffsets, after.camera.areaOffsets)
         return change
     }
 
@@ -320,70 +387,5 @@ extension PaneMotionPlan {
         for (key, value) in to where (from[key] ?? 0) != value { result[key] = Travel(from: from[key] ?? 0, to: value) }
         for (key, value) in from where to[key] == nil && value != 0 { result[key] = Travel(from: value, to: 0) }
         return result
-    }
-}
-
-nonisolated extension PaneMotionPlan {
-    /// The container an item rests in: the strip or the view, and the row column and scroll area
-    /// whose offsets move it.
-    nonisolated struct Placement: Hashable, Sendable {
-        var inStrip: Bool
-        var rowColumn: ColumnID?
-        var area: SplitID?
-    }
-
-    /// One geometry at its rest camera.
-    nonisolated struct Side {
-        let geometry: ScreenGeometry
-        let camera: Camera
-
-        func placement(of pane: PaneID) -> Placement {
-            Placement(inStrip: geometry.isColumns && !geometry.fixedPanes.contains(pane),
-                      rowColumn: geometry.rowColumnOfPane[pane], area: geometry.scrollAreaOfPane[pane])
-        }
-
-        /// `rect` (in `placement`'s space) in the view's coordinates at this camera.
-        func view(_ rect: CGRect, at placement: Placement) -> CGRect {
-            let delta = shift(placement)
-            return rect.offsetBy(dx: delta.dx, dy: delta.dy)
-        }
-
-        /// A view rect in `placement`'s space at this camera.
-        func place(_ rect: CGRect, at placement: Placement) -> CGRect {
-            let delta = shift(placement)
-            return rect.offsetBy(dx: -delta.dx, dy: -delta.dy)
-        }
-
-        private func shift(_ placement: Placement) -> CGVector {
-            let strip = placement.inStrip ? geometry.viewShift(offset: camera.stripOffset) : 0
-            let area = placement.area.map { camera.areaOffsets[$0] ?? 0 } ?? 0
-            let row = placement.rowColumn.map { camera.rowOffsets[$0] ?? 0 } ?? 0
-            return CGVector(dx: strip - area, dy: -row)
-        }
-
-        /// Every divider handle's frame and container, as `ScreenContentView.reconcile` places them.
-        func dividers(includesRowEdges: Bool) -> [DividerKey: (rect: CGRect, placement: Placement)] {
-            var result: [DividerKey: (rect: CGRect, placement: Placement)] = [:]
-            result.reserveCapacity(geometry.dividers.count + geometry.columnEdges.count + (includesRowEdges ? geometry.rowEdges.count : 0))
-            for divider in geometry.dividers {
-                let placement = Placement(inStrip: geometry.isColumns && !geometry.fixedSplits.contains(divider.id),
-                                          rowColumn: geometry.rowColumnOfSplit[divider.id], area: geometry.scrollAreaOfSplit[divider.id])
-                result[.split(divider.id)] = (divider.hitFrame, placement)
-            }
-            for edge in geometry.columnEdges {
-                result[.columnEdge(edge.column)] = (edge.hitFrame, Placement(inStrip: inStrip(column: edge.column)))
-            }
-            if includesRowEdges {
-                for edge in geometry.rowEdges {
-                    result[.rowEdge(edge.column, edge.upper)] = (edge.hitFrame, Placement(inStrip: inStrip(column: edge.column),
-                                                                                          rowColumn: edge.column))
-                }
-            }
-            return result
-        }
-
-        private func inStrip(column: ColumnID) -> Bool {
-            geometry.isColumns && !geometry.dock.contains { $0.column == column }
-        }
     }
 }

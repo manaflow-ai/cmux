@@ -1,6 +1,7 @@
 import CmuxNextDesign
 @testable import CmuxNextLayout
 import CoreGraphics
+import Foundation
 import Testing
 
 /// `PaneMotionPlan` (plans/cmux-next/chrome-parity/p03-rendering.md R2, task 021): one structural
@@ -200,27 +201,50 @@ struct PaneMotionPlanTests {
         #expect(Set(plan.dividers.keys) == [.columnEdge("new")])
         #expect(plan.camera.stripOffset == PaneMotionPlan.Travel<CGFloat>(from: before.maxOffset, to: after.maxOffset))
         #expect(plan.camera.token == .scroll)
-        #expect(plan.camera.stripOrigin == nil)
+        #expect(plan.camera.stripMinX == nil)
     }
 
-    @Test func columnInsertedMidStripSlidesTheColumnsAfterItWithoutResizing() throws {
+    /// A column inserted mid-strip gives up no pane's room: the CPU path snaps it, so the plan sets
+    /// the columns after it at their rest. Landing while panes still move, they slide.
+    @Test func columnInsertedMidStripSetsTheColumnsAfterItAtRest() throws {
         let columns = [Self.leafColumn("c0"), Self.leafColumn("c1"), Self.leafColumn("c2")]
         let before = Self.geometry(.columns(columns))
         let after = Self.geometry(.columns([columns[0], Self.leafColumn("mid"), columns[1], columns[2]]))
-        let plan = PaneMotionPlan.build(from: before, to: after)
-        #expect(Set(plan.panes.keys) == ["p-mid", "p-c1", "p-c2"])
+        let snapped = PaneMotionPlan.build(from: before, to: after)
+        #expect(snapped.kind == .move)
+        #expect(Set(snapped.panes.keys) == ["p-mid", "p-c1", "p-c2"])
+        #expect(snapped.panes.values.allSatisfy { $0.from == $0.to })
+        #expect(snapped.dividers.values.allSatisfy { $0.from == $0.to })
+
+        let carried = PaneMotionPlan.build(from: before, to: after, inFlight: true)
+        #expect(Set(carried.panes.keys) == ["p-mid", "p-c1", "p-c2"])
         for pane: PaneID in ["p-c1", "p-c2"] {
-            let slides = try #require(plan.panes[pane])
+            let slides = try #require(carried.panes[pane])
             #expect(slides.presence == .stays)
+            #expect(slides.from == before.panes[pane])
             #expect(slides.from.size == slides.to.size)
             #expect(slides.from.minX < slides.to.minX)
             // Same size: the chrome sublayers ride the host, no spring of their own.
             #expect(slides.chrome == nil)
         }
-        #expect(plan.dividers[.columnEdge("c0")] == nil)
-        #expect(plan.dividers[.columnEdge("mid")]?.presence == .appears)
-        #expect(plan.dividers[.columnEdge("c1")]?.presence == .stays)
-        #expect(plan.dividers[.columnEdge("c2")]?.presence == .stays)
+        #expect(carried.dividers[.columnEdge("c0")] == nil)
+        #expect(carried.dividers[.columnEdge("mid")]?.presence == .appears)
+        #expect(carried.dividers[.columnEdge("c1")]?.presence == .stays)
+        #expect(carried.dividers[.columnEdge("c2")]?.presence == .stays)
+    }
+
+    /// A ratio change keeps its structure: it springs, as a released divider or an equalize does.
+    @Test func aRatioChangeSprings() throws {
+        let before = Self.splits(Self.side(.leaf("p1"), .leaf("p2")))
+        let after = Self.splits(.split("s", axis: .horizontal, ratio: 0.3, a: .leaf("p1"), b: .leaf("p2")))
+        let plan = PaneMotionPlan.build(from: before, to: after, structural: false)
+        #expect(plan.kind == .move)
+        #expect(plan.panes["p1"]?.from == before.panes["p1"])
+        #expect(plan.panes["p1"]?.to == after.panes["p1"])
+        #expect(plan.panes["p2"]?.from == before.panes["p2"])
+        let handle = try #require(before.dividers.first { $0.id == "s" })
+        #expect(plan.dividers[.split("s")]?.from == handle.hitFrame)
+        #expect(plan.dividers[.split("s")]?.presence == .stays)
     }
 
     @Test func closingTheLastColumnPullsTheCameraBackOnTheCloseSpring() throws {
@@ -247,32 +271,133 @@ struct PaneMotionPlanTests {
         #expect(PaneMotionPlan.build(from: strip, to: strip).isEmpty)
     }
 
+    // MARK: Docks
+
+    /// Where a listed rect shows when the change starts: its container at the camera's `from`.
+    static func shownAtStart(_ rect: CGRect, inStrip: Bool, _ plan: PaneMotionPlan, next: ScreenGeometry,
+                             camera: PaneMotionPlan.Camera) -> CGRect {
+        guard inStrip else { return rect }
+        let minX = plan.camera.stripMinX?.from ?? next.stripMinX
+        let offset = plan.camera.stripOffset?.from ?? camera.stripOffset
+        return rect.offsetBy(dx: minX - offset, dy: 0)
+    }
+
+    /// Where a pane showed at rest in `geometry` under the strip offset `offset`.
+    static func shown(_ pane: PaneID, in geometry: ScreenGeometry, offset: CGFloat) -> CGRect? {
+        guard let rect = geometry.panes[pane] else { return nil }
+        return geometry.isColumns && geometry.scrolls(pane: pane) ? rect.offsetBy(dx: geometry.viewShift(offset: offset), dy: 0) : rect
+    }
+
+    static func same(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(a.minX - b.minX) < 0.001 && abs(a.minY - b.minY) < 0.001 && abs(a.width - b.width) < 0.001 && abs(a.height - b.height) < 0.001
+    }
+
+    /// A top dock opening: the strip panes' own rects carry `stripMinY`, so the container moves only
+    /// in x and each strip pane starts where it showed.
+    @Test func aTopDockMovesTheStripPanesOnceVertically() throws {
+        let columns = [Self.leafColumn("c0"), Self.leafColumn("c1")]
+        let before = Self.geometry(.columns(columns))
+        let top = LayoutColumn(id: "top", root: .leaf("p-top"), dock: DockColumn(edge: .top))
+        let after = Self.geometry(.columns([top] + columns))
+        #expect(after.stripMinY > before.stripMinY)
+        let plan = PaneMotionPlan.build(from: before, to: after)
+        #expect(plan.kind == .split)
+        for pane: PaneID in ["p-c0", "p-c1"] {
+            let change = try #require(plan.panes[pane])
+            #expect(change.inStrip)
+            let showed = try #require(Self.shown(pane, in: before, offset: 0)), shows = try #require(Self.shown(pane, in: after, offset: 0))
+            // The pane's travel plus the camera's is what shows moving.
+            let start = Self.shownAtStart(change.from, inStrip: true, plan, next: after, camera: .init())
+            let rest = change.to.offsetBy(dx: plan.camera.stripMinX?.to ?? after.stripMinX, dy: 0)
+            #expect(Self.same(start, showed))
+            #expect(Self.same(rest, shows))
+        }
+    }
+
+    /// An undock puts a fixed pane in the strip while the strip's origin moves back: its `from` is in
+    /// the strip at the origin the camera starts from, so it starts where it showed.
+    @Test func anUndockedPaneStartsWhereItShowed() throws {
+        let leftDock = LayoutColumn(id: "c0", root: .leaf("p-c0"), dock: DockColumn(edge: .left))
+        let rest = [Self.leafColumn("c1"), Self.leafColumn("c2")]
+        let before = Self.geometry(.columns([leftDock] + rest)), after = Self.geometry(.columns([Self.leafColumn("c0")] + rest))
+        #expect(before.stripMinX != after.stripMinX)
+        // The CPU path carries an undock only in flight; settled, it is set at rest.
+        let plan = PaneMotionPlan.build(from: before, to: after, inFlight: true)
+        #expect(plan.camera.stripMinX == PaneMotionPlan.Travel<CGFloat>(from: before.stripMinX, to: after.stripMinX))
+        let undocked = try #require(plan.panes["p-c0"])
+        #expect(undocked.inStrip)
+        let docked = try #require(before.panes["p-c0"])
+        #expect(Self.same(Self.shownAtStart(undocked.from, inStrip: true, plan, next: after, camera: .init()), docked))
+        for (pane, change) in plan.panes where change.presence == .stays {
+            let showed = try #require(Self.shown(pane, in: before, offset: 0))
+            #expect(Self.same(Self.shownAtStart(change.from, inStrip: change.inStrip, plan, next: after, camera: .init()), showed))
+        }
+    }
+
+    // MARK: Split motion details
+
+    /// With even split sizing the new divider lands past the new pane, on the far pane's edge: it
+    /// starts where that edge starts, not on the split pane's.
+    @Test func anEvenSplitsNewDividerRidesTheFarPanesEdge() throws {
+        let before = Self.splits(Self.side(.leaf("p1"), .leaf("p2")))
+        let after = Self.splits(.split("s", axis: .horizontal, ratio: 1.0 / 3, a: .leaf("p1"),
+                                       b: .split("t", axis: .horizontal, ratio: 0.5, a: .leaf("new"), b: .leaf("p2"))))
+        let plan = PaneMotionPlan.build(from: before, to: after)
+        #expect(plan.kind == .split)
+        let old = try #require(before.panes["p2"]), kept = try #require(after.panes["p2"])
+        let handle = try #require(after.dividers.first { $0.id == "t" })
+        let divider = try #require(plan.dividers[.split("t")])
+        #expect(divider.presence == .appears)
+        #expect(divider.from == handle.hitFrame.offsetBy(dx: old.minX - kept.minX, dy: 0))
+        #expect(plan.panes["p2"]?.from == old)
+    }
+
+    /// A content handoff: the added pane shows in place, the giver slides in from past the screen
+    /// edge, and the new divider is in place.
+    @Test func aHandoffLandsTheAddedPaneAndSlidesTheGiverIn() throws {
+        let before = Self.splits(.leaf("p1")), after = Self.splits(Self.side(.leaf("p1"), .leaf("p2")))
+        let plan = PaneMotionPlan.build(from: before, to: after, handoff: "p1")
+        #expect(plan.kind == .split)
+        let target = try #require(after.panes["p2"]), kept = try #require(after.panes["p1"])
+        let added = try #require(plan.panes["p2"])
+        #expect(added.presence == .appears)
+        #expect(added.from == target)
+        let giver = try #require(plan.panes["p1"])
+        #expect(giver.presence == .stays)
+        #expect(giver.from == kept.offsetBy(dx: after.clipMinX - kept.maxX, dy: 0))
+        #expect(giver.to == kept)
+        #expect(giver.token == PaneMotionVariant.standard.splitSpring)
+        #expect(plan.dividers.values.allSatisfy { $0.presence == .appears && $0.from == $0.to })
+    }
+
     // MARK: Retarget
 
-    /// A change that lands mid-spring is a new plan from the last rest to the next one: nothing in it
-    /// depends on the plan before or on what shows (the additive springs already running carry the
-    /// velocity), so the same two rests always give the same plan.
+    /// A change that lands mid-spring is a new plan from the last rest to the next one; the additive
+    /// springs already running carry what shows.
     @Test func aRetargetPlansFromTheLastRest() throws {
         let one = Self.splits(.leaf("p1"))
         let two = Self.splits(Self.side(.leaf("p1"), .leaf("p2")))
         let three = Self.splits(Self.side(.leaf("p1"), Self.side(.leaf("p2"), .leaf("p3"), id: "t")))
-        _ = PaneMotionPlan.build(from: one, to: two)
+        let first = PaneMotionPlan.build(from: one, to: two)
 
+        // The daemon's echo of the split: the same geometry, so nothing to retarget.
+        #expect(PaneMotionPlan.build(from: two, to: two).isEmpty)
+
+        // A second split before the first lands: only what it moves, from the first's rest.
         let next = PaneMotionPlan.build(from: two, to: three)
-        #expect(next == PaneMotionPlan.build(from: two, to: three))
         #expect(next.kind == .split)
-        // p1 rests where the first change left it.
-        #expect(next.panes["p1"] == nil)
-        #expect(next.panes["p2"]?.from == two.panes["p2"])
+        #expect(Set(next.panes.keys) == ["p2", "p3"])
+        #expect(next.panes["p2"]?.from == first.panes["p2"]?.to)
         #expect(next.panes["p2"]?.to == three.panes["p2"])
         #expect(next.panes["p3"]?.presence == .appears)
 
-        // The split taken back before it lands: a close from its rest.
+        // The split taken back before it lands: a close from its rest, on the close spring.
         let back = PaneMotionPlan.build(from: two, to: one)
         #expect(back.kind == .close)
-        #expect(back.panes["p1"]?.from == two.panes["p1"])
+        #expect(back.panes["p1"]?.from == first.panes["p1"]?.to)
         #expect(back.panes["p1"]?.to == one.panes["p1"])
         #expect(back.panes["p2"]?.presence == .disappears)
+        #expect(back.camera.token == PaneMotionVariant.standard.closeSpring)
     }
 
     // MARK: Chrome sublayers
@@ -315,35 +440,56 @@ struct PaneMotionPlanTests {
         #expect(frames.ringCornerRadius == 10)
     }
 
-    // MARK: Budget
-
-    #if DEBUG
-    /// Debug has no optimizer: ten times the Release budget, which still catches a walk per pane.
-    static let buildBudget = Duration.milliseconds(2)
-    #else
-    static let buildBudget = Duration.microseconds(200)
-    #endif
+    // MARK: Thirty panes
 
     /// A split inside a 30-pane strip, the heaviest common plan (`PaneArrival.split` walks every
-    /// pane): p95 of 300 builds under 0.2 ms in Release.
-    @Test func thirtyPaneBuildFitsTheBudget() {
-        var columns = Self.thirty
+    /// pane), lists only the split column. Its build time is `PaneMotionPlanBench`'s.
+    @Test func aSplitInAThirtyPaneStripListsOnlyItsColumn() {
+        let (before, after) = Self.thirtyPaneSplit()
+        let camera = PaneMotionPlan.Camera(stripOffset: 600)
+        let plan = PaneMotionPlan.build(from: before, camera: camera, to: after, camera: camera)
+        #expect(plan.kind == .split)
+        #expect(Set(plan.panes.keys) == ["c4p0", "c4p1", "c4p2", "p-split"])
+        #expect(plan.camera.isEmpty)
+    }
+
+    static func thirtyPaneSplit() -> (before: ScreenGeometry, after: ScreenGeometry) {
+        var columns = thirty
         columns[4].root = .split("x", axis: .horizontal, ratio: 0.5, a: columns[4].root, b: .leaf("p-split"))
-        let before = Self.geometry(.columns(Self.thirty)), after = Self.geometry(.columns(columns))
+        return (geometry(.columns(thirty)), geometry(.columns(columns)))
+    }
+}
+
+/// The 30-pane plan build time (acceptance: p95 < 0.2 ms in Release). A measurement, not a gate:
+/// run it optimized and quote the line.
+///
+/// ```
+/// CMUX_PANE_MOTION_PLAN_BENCH=1 swift test -c release -Xswiftc -enable-testing --filter PaneMotionPlanBench
+/// ```
+@MainActor
+@Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_PANE_MOTION_PLAN_BENCH"] == "1"))
+struct PaneMotionPlanBench {
+    @Test func thirtyPaneBuild() {
+        let (before, after) = PaneMotionPlanTests.thirtyPaneSplit()
         let camera = PaneMotionPlan.Camera(stripOffset: 600)
         let clock = ContinuousClock()
         var samples: [Duration] = []
-        samples.reserveCapacity(300)
+        samples.reserveCapacity(1_000)
         var listed = 0
-        for _ in 0..<300 {
+        for _ in 0..<1_000 {
             let start = clock.now
             let plan = PaneMotionPlan.build(from: before, camera: camera, to: after, camera: camera)
             samples.append(clock.now - start)
             listed += plan.panes.count
         }
-        #expect(listed > 0)
         samples.sort()
-        let p95 = samples[samples.count * 95 / 100]
-        #expect(p95 < Self.buildBudget, "30-pane plan p95 \(p95), budget \(Self.buildBudget)")
+        let p50 = samples[samples.count / 2], p95 = samples[samples.count * 95 / 100]
+        let p99 = samples[samples.count * 99 / 100], worst = samples[samples.count - 1]
+        print("pane-motion-plan bench: macOS \(ProcessInfo.processInfo.operatingSystemVersionString), 30 panes, 1000 builds: "
+              + "p50 \(p50), p95 \(p95), p99 \(p99), max \(worst) (listed \(listed))")
+        #expect(listed > 0)
+        #if !DEBUG
+        #expect(p95 < .microseconds(200), "30-pane plan p95 \(p95), budget 0.2 ms")
+        #endif
     }
 }
