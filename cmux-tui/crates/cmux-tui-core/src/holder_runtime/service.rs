@@ -32,7 +32,8 @@ struct LinkSlot {
     pending_close: HashMap<u32, u32>,
     /// The trace recording the daemon runs, kept until its stop: a holder
     /// that starts while it runs (a holder restart) gets its TRACE_START
-    /// when its link is published, as the CLOSEs do.
+    /// when its link is published, as the CLOSEs do. Changed only under
+    /// [`HolderService::trace_control`].
     trace: Option<TraceStart>,
 }
 
@@ -46,6 +47,11 @@ pub(crate) struct HolderService {
     /// caller that holds a surface lock may wait for it: a surface's kill
     /// and acknowledgements use [`Self::open_link`] only.
     connecting: Mutex<()>,
+    /// Held from reading the recording ([`LinkSlot::trace`]) or publishing
+    /// a link until its TRACE_START or TRACE_STOP went out, so the holder
+    /// gets them in the order the recording changed. Taken after
+    /// `connecting` (a publish) and before `link`.
+    trace_control: Mutex<()>,
     next_chan: AtomicU32,
     /// Terminals this daemon runs on the holder, for a re-adoption after a
     /// holder crash.
@@ -91,6 +97,7 @@ impl HolderService {
             token: load_or_create_token(host_root)?,
             link: Mutex::default(),
             connecting: Mutex::new(()),
+            trace_control: Mutex::new(()),
             next_chan: AtomicU32::new(1),
             live: Mutex::default(),
             claiming: RwLock::new(()),
@@ -207,28 +214,18 @@ impl HolderService {
     /// Make `link` the current link and send the CLOSEs and the trace
     /// recording that waited for it.
     fn publish(&self, link: &Arc<HolderLink>) {
-        let (pending, trace): (Vec<(u32, u32)>, Option<TraceStart>) = {
+        let _trace = self.trace_control.lock().recover_poison();
+        let pending: Vec<(u32, u32)> = {
             let mut slot = self.link.lock().recover_poison();
             slot.link = Some(link.clone());
-            let pending =
-                slot.pending_close.iter().map(|(chan, grace_ms)| (*chan, *grace_ms)).collect();
-            (pending, slot.trace)
+            slot.pending_close.iter().map(|(chan, grace_ms)| (*chan, *grace_ms)).collect()
         };
         for (chan, grace_ms) in pending {
             if let Err(error) = link.close(chan, grace_ms) {
                 eprintln!("cmux-tui: end holder terminal {chan}: {error}");
             }
         }
-        let Some(trace) = trace else { return };
-        if let Err(error) = link.trace_start(trace.categories, trace.records) {
-            eprintln!("cmux-tui: start the terminal holder's trace: {error}");
-        }
-        // A trace.stop that saw this link before the start above went out
-        // sent its stop first: stop again, so the holder does not keep
-        // recording (an extra stop is refused, harmlessly).
-        if self.link.lock().recover_poison().trace.is_none() {
-            let _ = link.trace_stop();
-        }
+        self.send_recording(link);
     }
 
     /// Start `request` on the holder. Returns the terminal (its custody
@@ -752,6 +749,7 @@ mod tests {
             token: [0x44; 32],
             link: Mutex::default(),
             connecting: Mutex::new(()),
+            trace_control: Mutex::new(()),
             next_chan: AtomicU32::new(1),
             live: Mutex::default(),
             claiming: RwLock::new(()),

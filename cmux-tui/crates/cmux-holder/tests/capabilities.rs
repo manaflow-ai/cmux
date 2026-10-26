@@ -2,8 +2,9 @@
 //! WRITE_FLOW, granted in WELCOME, wire version still 5.
 //!
 //! The conformance corpus below is the byte-exact form of every exchange
-//! the two bits add. A holder answers the recorded HELLO with the recorded
-//! WELCOME; a daemon that asks for nothing (an older build) is granted
+//! the two bits add. A holder whose tracer records answers the recorded
+//! HELLO with the recorded WELCOME, one without a tracer grants only
+//! WRITE_FLOW; a daemon that asks for nothing (an older build) is granted
 //! nothing, and a frame of a capability a link was not granted is an
 //! unknown kind to it, as to a holder that predates the bit.
 
@@ -18,7 +19,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use cmux_holder::client::{HolderClient, launch, launch_with};
-use cmux_holder::holder::{Holder, TraceControl, error_code};
+use cmux_holder::holder::{Holder, ProcessTrace, TraceControl, error_code};
 use cmux_holder::link::{HolderLink, TerminalSink, TraceForward};
 use cmux_holder::wire::{self, In, Kind, Out, TraceStart, capability};
 use cmux_holder::{ExitStatus, SpawnRequest};
@@ -48,10 +49,16 @@ fn corpus_hello() -> Vec<u8> {
 }
 /// WELCOME, version 5, no terminal, granted TRACE_CONTROL | WRITE_FLOW.
 const CORPUS_WELCOME: &str = "434d4858 0200 0000 00000000 0a000000 0500 00000000 03000000";
+/// WELCOME of a holder without a tracer (the shipped binary until it
+/// starts one): granted WRITE_FLOW only.
+const CORPUS_WELCOME_UNTRACED: &str = "434d4858 0200 0000 00000000 0a000000 0500 00000000 02000000";
 /// WELCOME to a daemon that asked for nothing: granted 0.
 const CORPUS_WELCOME_NONE: &str = "434d4858 0200 0000 00000000 0a000000 0500 00000000 00000000";
-/// TRACE_START: categories 0x4400 (FRAME | INPUT), at most 8192 records.
-const CORPUS_TRACE_START: &str = "434d4858 1600 0000 00000000 0c000000 0044000000000000 00200000";
+/// TRACE_START: categories 0x4400 (FRAME | INPUT), a budget of 16 MiB of
+/// ring bytes (room for the holder's recording ring).
+const CORPUS_TRACE_START: &str =
+    "434d4858 1600 0000 00000000 10000000 0044000000000000 0000000100000000";
+const CORPUS_BUDGET: u64 = 16 << 20;
 /// TRACE_STOP.
 const CORPUS_TRACE_STOP: &str = "434d4858 1700 0000 00000000 00000000";
 /// WRITE with FLAG_FLOW on channel 7: `ls\r`, then flow 42.
@@ -70,8 +77,13 @@ fn the_corpus_is_what_this_build_encodes() {
         wire::encode(Kind::Welcome, 0, &Out::default().u16(5).u32(0).u32(3).0),
         hex(CORPUS_WELCOME)
     );
-    let start = TraceStart { categories: 0x4400, records: 8192 };
+    let start = TraceStart { categories: 0x4400, budget_bytes: CORPUS_BUDGET };
     assert_eq!(wire::encode(Kind::TraceStart, 0, &start.encode()), hex(CORPUS_TRACE_START));
+    assert!(
+        ProcessTrace::recording_bytes() <= CORPUS_BUDGET,
+        "a real holder takes the corpus budget: its ring is {} bytes",
+        ProcessTrace::recording_bytes()
+    );
     assert_eq!(TraceStart::decode(&start.encode()).unwrap(), start);
     assert_eq!(wire::encode(Kind::TraceStop, 0, &[]), hex(CORPUS_TRACE_STOP));
     let write = wire::write_flow_payload(b"ls\r", 42);
@@ -110,10 +122,18 @@ fn raw_frame(frame: &wire::Frame) -> Vec<u8> {
     wire::encode_flagged(kind, frame.flags, frame.chan, &frame.payload)
 }
 
-/// The holder answers the corpus HELLO with the corpus WELCOME, and the
-/// HELLO of a daemon older than the bits (no `wanted` field) with a grant
-/// of nothing. On that link a TRACE_START is an unknown kind: it never
-/// reaches the tracer.
+/// The ERROR a frame got: (request kind, code).
+fn refused(stream: &UnixStream, reader: &mut wire::Reader) -> (u16, u16) {
+    let error = read_frame(stream, reader);
+    assert_eq!(error.kind, Kind::Error as u16);
+    let mut input = In(&error.payload);
+    (input.u16().unwrap(), input.u16().unwrap())
+}
+
+/// The shipped holder binary, whose tracer does not run, answers the
+/// corpus HELLO granting only WRITE_FLOW, and a TRACE_START from that link
+/// is an unknown kind. The HELLO of a daemon older than the bits (no
+/// `wanted` field) is granted nothing: a TRACE_START there is unknown too.
 #[test]
 fn the_holder_grants_what_was_asked_and_an_older_daemon_gets_nothing() {
     let dir = support::unique_dir("cmhc");
@@ -123,7 +143,13 @@ fn the_holder_grants_what_was_asked_and_an_older_daemon_gets_nothing() {
     let asking = UnixStream::connect(&socket).unwrap();
     let mut reader = wire::Reader::default();
     wire::send_all(asking.as_raw_fd(), &corpus_hello(), &[]).unwrap();
-    assert_eq!(raw_frame(&read_frame(&asking, &mut reader)), hex(CORPUS_WELCOME));
+    assert_eq!(raw_frame(&read_frame(&asking, &mut reader)), hex(CORPUS_WELCOME_UNTRACED));
+    wire::send_all(asking.as_raw_fd(), &hex(CORPUS_TRACE_START), &[]).unwrap();
+    assert_eq!(
+        refused(&asking, &mut reader),
+        (Kind::TraceStart as u16, error_code::UNKNOWN_KIND),
+        "a holder that cannot trace never takes TRACE_START"
+    );
     drop(asking);
 
     let older = UnixStream::connect(&socket).unwrap();
@@ -132,20 +158,17 @@ fn the_holder_grants_what_was_asked_and_an_older_daemon_gets_nothing() {
     wire::send_all(older.as_raw_fd(), &hello, &[]).unwrap();
     assert_eq!(raw_frame(&read_frame(&older, &mut reader)), hex(CORPUS_WELCOME_NONE));
     wire::send_all(older.as_raw_fd(), &hex(CORPUS_TRACE_START), &[]).unwrap();
-    let error = read_frame(&older, &mut reader);
-    assert_eq!(error.kind, Kind::Error as u16);
-    let mut input = In(&error.payload);
     assert_eq!(
-        (input.u16().unwrap(), input.u16().unwrap()),
+        refused(&older, &mut reader),
         (Kind::TraceStart as u16, error_code::UNKNOWN_KIND),
         "an ungranted TRACE_START is an unknown kind"
     );
     drop(older);
 
-    // The client of this build asks for every bit; one that offers an
-    // older daemon's HELLO is granted none.
+    // The client of this build asks for every bit and gets what this
+    // holder serves; one that offers an older daemon's HELLO gets none.
     let (client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
-    assert_eq!(client.granted(), capability::SUPPORTED);
+    assert_eq!(client.granted(), capability::WRITE_FLOW);
     drop(client);
     let (client, _) = HolderClient::connect_as(&socket, &TOKEN, 5).unwrap();
     assert_eq!(client.granted(), 0);
@@ -165,9 +188,12 @@ enum TraceCall {
 struct FakeTrace(Sender<TraceCall>);
 
 impl TraceControl for FakeTrace {
+    fn available(&self) -> bool {
+        true
+    }
     fn start(&mut self, request: TraceStart) -> Result<(), String> {
         let _ = self.0.send(TraceCall::Start(request));
-        if request.records == 1 { Err("no room".to_string()) } else { Ok(()) }
+        if request.budget_bytes == 1 { Err("no room".to_string()) } else { Ok(()) }
     }
     fn stop(&mut self) -> Result<(), String> {
         let _ = self.0.send(TraceCall::Stop);
@@ -183,9 +209,11 @@ fn wait_for(what: &str, mut done: impl FnMut() -> bool) {
     }
 }
 
-/// A granted TRACE_START and TRACE_STOP reach the holder's tracer with
-/// their category mask and record count; a refusal comes back to the link.
-/// (In process: the tracer is the test's.)
+/// A holder whose tracer records grants both bits (the corpus WELCOME). A
+/// granted TRACE_START and TRACE_STOP reach its tracer with their category
+/// mask and budget; a refusal comes back to the link; and the recording a
+/// link started stops when that link ends, as a Perfetto session ends with
+/// its consumer. (In process: the tracer is the test's.)
 #[test]
 fn a_granted_link_starts_and_stops_the_holders_trace() {
     let dir = support::unique_dir("cmht");
@@ -199,12 +227,19 @@ fn a_granted_link_starts_and_stops_the_holders_trace() {
         holder.run().unwrap();
     });
 
+    let asking = UnixStream::connect(&socket).unwrap();
+    let mut reader = wire::Reader::default();
+    wire::send_all(asking.as_raw_fd(), &corpus_hello(), &[]).unwrap();
+    assert_eq!(raw_frame(&read_frame(&asking, &mut reader)), hex(CORPUS_WELCOME));
+    drop(asking);
+
     let (link, _) = HolderLink::connect(&socket, &TOKEN, Box::new(|_| {})).unwrap();
     assert_eq!(link.capabilities(), capability::SUPPORTED);
     assert!(link.traced() && link.takes_write_flow());
-    assert_eq!(link.trace_start(0x4400, 8192).unwrap(), TraceForward::Sent);
+    assert_eq!(link.trace_start(0x4400, CORPUS_BUDGET).unwrap(), TraceForward::Sent);
     let call = calls.recv_timeout(Duration::from_secs(10)).unwrap();
-    assert_eq!(call, TraceCall::Start(TraceStart { categories: 0x4400, records: 8192 }));
+    let start = TraceStart { categories: 0x4400, budget_bytes: CORPUS_BUDGET };
+    assert_eq!(call, TraceCall::Start(start));
     assert_eq!(link.trace_stop().unwrap(), TraceForward::Sent);
     assert_eq!(calls.recv_timeout(Duration::from_secs(10)).unwrap(), TraceCall::Stop);
     assert_eq!(link.trace_refusal(), None);
@@ -215,11 +250,18 @@ fn a_granted_link_starts_and_stops_the_holders_trace() {
     wait_for("the refusal", || link.trace_refusal().is_some());
     assert_eq!(link.trace_refusal().as_deref(), Some("no room"));
 
-    // The link's reader thread keeps its socket open: another daemon takes
-    // the holder (the link ends, SUPERSEDED) and then leaves, so the
-    // holder has no link and no terminal and exits at its idle exit.
+    // A recording runs when another daemon takes the holder: the link that
+    // started it ends (SUPERSEDED), so the holder stops it, and the new
+    // daemon, which never asked for one, inherits none.
+    assert_eq!(link.trace_start(0x4400, 0).unwrap(), TraceForward::Sent);
+    let start = TraceStart { categories: 0x4400, budget_bytes: 0 };
+    assert_eq!(calls.recv_timeout(Duration::from_secs(10)).unwrap(), TraceCall::Start(start));
     let (taker, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
     wait_for("the superseded link", || !link.is_open());
+    assert_eq!(calls.recv_timeout(Duration::from_secs(10)).unwrap(), TraceCall::Stop);
+    // The link's reader thread keeps its socket open: the taker leaves
+    // too, so the holder has no link and no terminal and exits at its
+    // idle exit.
     taker.end();
     drop(link);
     serving.join().unwrap();
@@ -256,10 +298,11 @@ fn cat(chan: u32) -> SpawnRequest {
     }
 }
 
-/// WRITE_FLOW: the trailer never reaches the shell, and the holder's next
-/// PTY read carries the flow (`holder.pty.read` with flow 42 in its flow
-/// marks). A flow mark with no input (the daemon wrote on its custody
-/// master) does the same.
+/// WRITE_FLOW: the trailer never reaches the shell, and the first PTY
+/// read after the input reached the master carries the flow
+/// (`holder.pty.read` with flow 42 in the holder's flow marks), exactly
+/// once. A flow mark with no input, sent before the daemon writes on its
+/// custody master, marks the echo of that write the same way.
 #[test]
 fn a_write_flow_marks_the_next_read_and_never_reaches_the_shell() {
     let dir = support::unique_dir("cmhf");
@@ -275,28 +318,32 @@ fn a_write_flow_marks_the_next_read_and_never_reaches_the_shell() {
     let spawned = link.spawn(1, &cat(1), sink.clone()).unwrap();
     let text = || String::from_utf8_lossy(&sink.bytes.lock().unwrap()).into_owned();
     wait_for("the first line", || text().contains("up"));
+    let marks_file = marks.join(format!("flows-{}.jsonl", holder.id()));
+    let reads_with = |flow: u64| {
+        let marks = std::fs::read_to_string(&marks_file).unwrap_or_default();
+        marks
+            .lines()
+            .filter(|line| {
+                line.contains("\"hop\":\"holder.pty.read\"")
+                    && line.contains(&format!("\"flow\":{flow},"))
+            })
+            .count()
+    };
 
     link.write_flow(1, b"through-holder\n", 42).unwrap();
     wait_for("the echo", || text().contains("through-holder\r\nthrough-holder"));
-    let marks_file = marks.join(format!("flows-{}.jsonl", holder.id()));
-    let has_mark = |flow: u64| {
-        std::fs::read_to_string(&marks_file).unwrap_or_default().lines().any(|line| {
-            line.contains("\"hop\":\"holder.pty.read\"")
-                && line.contains(&format!("\"flow\":{flow},"))
-        })
-    };
-    wait_for("the read marked with flow 42", || has_mark(42));
+    wait_for("the read marked with flow 42", || reads_with(42) > 0);
 
-    // The mark and the custody write race to the holder's poll: the read
-    // after the mark carries it, so write until one does.
     link.write_flow(1, b"", 43).unwrap();
+    // A SPAWN answered: the holder handled every frame before it, the mark
+    // too, before the custody write below.
+    let barrier = Arc::new(Collect::default());
+    let _second = link.spawn(2, &cat(2), barrier.clone()).unwrap();
     let mut master = std::fs::File::from(spawned.master.try_clone().unwrap());
-    wait_for("the read marked with flow 43", || {
-        master.write_all(b"on-master\n").unwrap();
-        std::thread::sleep(Duration::from_millis(20));
-        has_mark(43)
-    });
-    assert!(text().contains("on-master\r\non-master"), "the custody write echoes");
+    master.write_all(b"on-master\n").unwrap();
+    wait_for("the custody echo", || text().contains("on-master\r\non-master"));
+    wait_for("the read marked with flow 43", || reads_with(43) > 0);
+    assert_eq!((reads_with(42), reads_with(43)), (1, 1), "each flow marks one read");
     assert!(
         !text().contains('*') && !text().contains('+') && !text().contains('\0'),
         "a flow trailer reached the shell: {:?}",
@@ -304,7 +351,10 @@ fn a_write_flow_marks_the_next_read_and_never_reaches_the_shell() {
     );
 
     link.close(1, 200).unwrap();
-    wait_for("the exit", || sink.exit.lock().unwrap().is_some());
+    link.close(2, 200).unwrap();
+    wait_for("the exits", || {
+        sink.exit.lock().unwrap().is_some() && barrier.exit.lock().unwrap().is_some()
+    });
     let _ = holder.kill();
     let _ = holder.wait();
     let _ = std::fs::remove_dir_all(&dir);

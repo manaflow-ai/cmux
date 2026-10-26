@@ -49,7 +49,7 @@ import Testing
     /// A workspace whose layout is one page filling it.
     static func workspace(_ page: NSView) -> WorkspaceContentView {
         let layout = NSView()
-        let view = WorkspaceContentView(layoutView: layout, bar: TabStripView(model: TabStripModel()))
+        let view = WorkspaceContentView(layoutView: layout, bar: TabStripView.testing(model: TabStripModel()))
         page.autoresizingMask = [.width, .height]
         layout.addSubview(page)
         return view

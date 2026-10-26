@@ -107,6 +107,9 @@ final class AppServices {
     private(set) lazy var addDevice = AddDeviceCard(services: .app(self))
     private(set) lazy var devices = DeviceDirectory.app(self)
     let machineHealth = MachineHealthStore()
+    /// The app's one fan-out of app-wide notices (`AppEvents`, p06-scheduler-021): every window's
+    /// key tracker and later adopters subscribe here, one observer per name for the whole app.
+    let appEvents = AppEvents(center: .default)
     let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
     let iphone = IPhoneHostService()
@@ -402,11 +405,11 @@ final class AppServices {
     /// Energy Saver's one owner of power inputs (Low Power Mode, power source, battery, thermal state);
     /// its Low Power Mode goes out by init and its inputs are pushed (`startEnergy`), never a shared instance.
     let energyMonitor: EnergyMonitor
-    /// Pushes the monitor's inputs to the consumers below the App and ``energyDriver`` (`startEnergy`).
+    /// Pushes the monitor's inputs to the consumers below the App and ``energy``'s policy driver (`startEnergy`).
     var energyLink: MainActorHandlerRegistration<EnergyInputs>?
-    /// Writes `mainWork.energy`, the policy every scheduler reads, from the inputs and `energy.saver`.
-    private(set) lazy var energyDriver = EnergyPolicyDriver(source: mainWork.energy, isEnabled: features.isEnabled(.energySaver))
-    /// Follows `energy.saver` into ``energyDriver`` (`followEnergySaver`).
+    /// The writer of `mainWork.energy`, the policy every scheduler reads, and the idle wakeup histogram.
+    private(set) lazy var energy = EnergyServices(source: mainWork.energy, isEnabled: features.isEnabled(.energySaver))
+    /// Follows `energy.saver` into ``energy``'s policy driver (`followEnergySaver`).
     private var energySaverObservation: Task<Void, Never>?
     /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
     var updateFeedObservation: Task<Void, Never>?
@@ -678,26 +681,26 @@ final class AppServices {
         }
         AppMemoryConsumers(services: self).registerMemoryConsumers()  // AppServices+Memory.swift
     }
-    /// Starts the energy monitor and pushes its inputs, now and on each change, to the consumers that cannot
-    /// import CmuxNextEnergy: WebKit's render rate, KeepAwake's battery rule, the video wallpaper. Only
+    /// Starts the energy monitor and the idle histogram, and pushes the inputs, now and on each change, to the consumers
+    /// that cannot import CmuxNextEnergy: WebKit's render rate, KeepAwake's battery rule, the video wallpaper. Only
     /// `AppDelegate` calls it, so an `AppServices` a test builds reads no IOKit (tests pass their own consumers).
     func startEnergy(keepAwake: KeepAwakeService = .shared, videos: BackdropVideoPlayers = .shared) {
-        energyMonitor.start()
+        energy.start(inputs: energyMonitor)
         energyLink = energyMonitor.follow { [weak self] inputs in
             self?.cache.webKit.lowPowerMode = inputs.lowPowerMode
             keepAwake.setOnBattery(inputs.onBattery)
             videos.setEnergy(lowPowerMode: inputs.lowPowerMode, thermal: inputs.thermal)
-            self?.energyDriver.update(inputs: inputs)
+            self?.energy.driver.update(inputs: inputs)
         }
     }
-    /// Follows `energy.saver` into ``energyDriver`` once the settings have loaded, so the first policy it
+    /// Follows `energy.saver` into the policy driver once the settings have loaded, so the first policy it
     /// publishes already follows the setting. `AppDelegate` calls it at launch; a second call does nothing.
     func followEnergySaver(_ settings: SettingsController) {
         guard energySaverObservation == nil else { return }
         // task-owner: app lifetime; event-driven (Observation)
         energySaverObservation = Task { [weak self] in
             await settings.waitForLoad(atLeast: 1)
-            for await mode in ObservationStream({ settings.snapshot.energySaver }) { self?.energyDriver.update(setting: mode) }
+            for await mode in ObservationStream({ settings.snapshot.energySaver }) { self?.energy.driver.update(setting: mode) }
         }
     }
     // MARK: Lookup

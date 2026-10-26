@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use super::{Command, MessageWriter, Mux, Response, send_response};
+use super::{AsyncReply, Command, MessageWriter, Mux, Response, send_response};
 use crate::resource::TerminalPublicId;
 
 const DEADLINE: Duration = Duration::from_secs(5);
@@ -176,6 +176,7 @@ pub(super) fn start(
     id: Option<Value>,
     terminal: String,
     url: String,
+    reply: AsyncReply,
     writer: &MessageWriter,
 ) -> bool {
     let terminal_id = TerminalPublicId::parse(terminal.clone()).ok();
@@ -184,7 +185,7 @@ pub(super) fn start(
         && terminal_id.as_ref().and_then(|id| mux.resource_surface_for_terminal(id)).is_some();
     let pending = valid.then(|| mux.control_clients.url_opens.prepare(&terminal, &url)).flatten();
     let Some((request_id, receiver)) = pending else {
-        return respond(writer, id, false);
+        return reply.reply(|| respond(writer, id, false));
     };
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
@@ -193,7 +194,7 @@ pub(super) fn start(
     let spawned = std::thread::Builder::new().name("mux-url-open".into()).spawn(move || {
         let opened = receiver.recv_timeout(DEADLINE).unwrap_or(false);
         worker_mux.control_clients.url_opens.cancel(&request_id);
-        respond(&worker_writer, worker_id, opened);
+        reply.reply(|| respond(&worker_writer, worker_id, opened));
     });
     if spawned.is_err() {
         mux.control_clients.url_opens.cancel(&cleanup_id);

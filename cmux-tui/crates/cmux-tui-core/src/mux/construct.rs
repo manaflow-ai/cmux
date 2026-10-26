@@ -204,6 +204,7 @@ impl Mux {
             session_public_id,
             machine_public_id,
             connection_stats: Arc::default(),
+            request_stats: Arc::default(),
             resource_projection_stats,
             request_path_stats: crate::request_path::stats_from_env(),
             started_at: Instant::now(),

@@ -28,6 +28,12 @@ public final class EnergyPolicyDriver {
         resolver = EnergyPolicyResolver(isEnabled: isEnabled)
     }
 
+    /// The `energySaver` feature is on (``EnergyPolicyResolver/isEnabled``); off, the saver never turns on.
+    public var isEnabled: Bool { resolver.isEnabled }
+
+    /// "Turn Off Energy Saver for Now" holds (``EnergyPolicyResolver/isOffForSession``).
+    public var isOffForSession: Bool { resolver.isOffForSession }
+
     /// The power inputs changed (``EnergyMonitor/follow(_:)``).
     public func update(inputs: EnergyInputs) {
         self.inputs = inputs

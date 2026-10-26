@@ -580,8 +580,8 @@ control-socket admission. Counters accumulate since daemon start. The command
 reads atomics and never touches SQLite or the journal, so it is safe to poll.
 
 Params: `{include?: array<string>|null}`. `include` names optional result
-sections: `resource_projection`, `write_path` and `slow_requests`; unknown
-names are ignored.
+sections: `resource_projection`, `write_path`, `slow_requests` and `requests`;
+unknown names are ignored.
 An optional section is absent unless requested, because SDK decoders refuse
 unknown result fields.
 
@@ -625,7 +625,13 @@ object{
     spawn_failures:uint64, watchdog_wakeups:uint64,
     recent:array<object{method:string,client:uint64,started_ms:uint64,busy_ms:uint64,
       duration_ms:uint64|null}>
-  }
+  },
+  request_latency_us?:object{
+    topology:histogram, terminal_io:histogram, create:histogram,
+    query:histogram, browser:histogram, agent:histogram, cloud:histogram,
+    other:histogram
+  },
+  dispatch_queue_us?:histogram
 }
 histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
 ```
@@ -689,6 +695,32 @@ still while the daemon is idle, and it wakes only on a 250 ms grid, so the
 count grows by at most four a second (plus one) under any request pattern.
 With `CMUX_TUI_DEBUG_SPANS` set, each recorded request also appends a
 `slow-request` line with the method as its mark.
+`requests` adds `request_latency_us` and `dispatch_queue_us`, over every
+control connection's request lines (Chrome's per-task queue and run timing):
+`cmd` commands, `cmux.protocol/2` resource requests, the feature routes
+(`agent-*`, `apps-*`, `script-*`, `fs.*`, loopback and browser-runtime
+lines) and lines answered with a refusal or a bad-request error.
+`request_latency_us.<class>` is the time from a request line's arrival at its
+connection's reader (when its read returns) to its reply entering the
+connection's outbound queue, by the request's method class (the daemon's
+`MethodClass`; a resource operation's class follows its namespace, and its
+creates and splits are `create`). A request a worker answers later
+(`url-open`, `chief-inspect`, the cloud commands) counts when the worker's
+reply is queued. The time a reply then waits for the writer thread's socket
+write is not counted. `dispatch_queue_us` is the time from a request's parse
+to its handler's start: the wait in the connection's request queue (0 for a
+line answered inline).
+
+In a trace, each request is the slice `daemon.request`: arg0 is the method
+id (a command's row in the command table, `0x4000` plus a resource
+operation's index, or `0x8000` plus the class of a feature-route line) and
+arg1 the FNV-1a hash of the request id's compact JSON. The slice has the
+instants `daemon.request.parsed`, `daemon.request.dispatched`,
+`daemon.request.handled` (the reply is built) and
+`daemon.request.reply.queued`; a resource or feature-route line, which sends
+its own reply, has no `handled`. A worker's reply is the async slice
+`daemon.request.async` (arg0 the method id), with the instants
+`daemon.request.async.handled` and `daemon.request.async.reply.queued`.
 
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at

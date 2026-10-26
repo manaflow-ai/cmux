@@ -92,6 +92,7 @@ final class CEFMediaBridge {
     func report(_ payload: String) {
         guard let tab, let report = BrowserMediaState.frameReport(json: payload) else { return }
         tab.machine.apply(.mediaChanged(report.media, frame: report.frame))
+        tab.noteAudible()
         tab.keepAudioMute(after: report.media)
     }
 
@@ -99,6 +100,15 @@ final class CEFMediaBridge {
     func refused(_ payload: String) {
         guard let refused = BrowserProtectedMedia(reported: payload) else { return }
         tab?.emit(.protectedMediaUnavailable(refused))
+    }
+}
+
+extension CEFTab: BrowserAudibleReporting {
+    /// Copies `state.media?.isAudible` into `isAudible` when it flipped. Each event that changes
+    /// `media` calls it: a media report, a commit, a renderer exit.
+    func noteAudible() {
+        let audible = state.media?.isAudible == true
+        if audible != isAudible { isAudible = audible }
     }
 }
 

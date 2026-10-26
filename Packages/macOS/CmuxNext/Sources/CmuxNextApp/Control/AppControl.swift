@@ -274,6 +274,8 @@ final class AppControl {
             .mainActor("debug.commit_boundary") { _ in .value(DebugCommitBoundary().report()) },
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
             .async("debug.wakeups") { [budgeted = mainWork.frames] call in await DebugWakeups.report(call.params, budgeted: budgeted) },
+            // Energy Saver policy and inputs, main wake queue, top wakers, process energy (p14-energy.md).
+            EnergyReport(services: services).method,
             // Chromium start: trigger (tab or warm reason), timings, footprint.
             .mainActor("debug.cef") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -327,9 +329,9 @@ final class AppControl {
                 return .value(DebugWebInspector.handle(call.params, services: services))
             },
             // Open popup panels (sized window.open popups).
-            .mainActor("debug.popups") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugPopups.report(call.params, services: services))
+            .async("debug.popups") { [weak services] call in
+                guard let services = await MainActor.run(body: { services }) else { return .null }
+                return await DebugPopups.report(call.params, services: services)
             },
             // Scripted input into the real agent cursor stacks (visual checks).
             .mainActor("debug.agent_cursor.demo") { [weak services] call in
@@ -351,9 +353,9 @@ final class AppControl {
             .mainActor("debug.app_activation") { call in
                 .value(DebugAppActivation.send(call.params))
             },
-            .mainActor("debug.palette.capture") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugPaletteCapture.capture(call.params, services: services))
+            .async("debug.palette.capture") { [weak services] call in
+                guard let services = await MainActor.run(body: { services }) else { return .null }
+                return await DebugPaletteCapture.capture(call.params, services: services)
             },
             // `debug.palette.entries {scope?, path}`: writes the scope's ranker input (the
             // palette-ranking eval fixture, plans/cmux-next/palette-ranking.md) to `path`.

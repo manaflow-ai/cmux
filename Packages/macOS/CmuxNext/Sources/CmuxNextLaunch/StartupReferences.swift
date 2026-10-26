@@ -22,8 +22,9 @@ public final class StartupReferences {
 
     /// Bumped when any tab's content is presented or released (``noteContentChange()``): what
     /// the front pane shows is not observable itself, so the visible-page read re-runs on it.
+    /// Internal, not private: the `@Observable` macro's conformance extension must reach it.
     @MainActor @Observable
-    private final class ContentChanges {
+    final class ContentChanges {
         var count = 0
     }
 

@@ -16,7 +16,7 @@ package import CmuxNextSettings
 ///
 /// ```swift
 /// nonisolated extension DiscardRule {
-///     package static let pinned = DiscardRule(.pinned, result: .protected, for: DiscardRule.pressure,
+///     package static let pinned = DiscardRule(.pinned, result: .protected, for: DiscardRule.automatic,
 ///                                             kinds: DiscardRule.browserPages) { candidate, context in
 ///         candidate.isPinned && !context.browser.includesPinnedTabs
 ///     }
@@ -45,6 +45,7 @@ package nonisolated struct DiscardRule: Sendable {
     /// The kinds of content the rule is checked for.
     package let kinds: Set<ContentKind>
     private let test: @Sendable (ContentDiscardPlanner.Candidate, Context) -> Bool
+    private let expiry: (@Sendable (ContentDiscardPlanner.Candidate) -> Double?)?
 
     /// Makes a rule.
     ///
@@ -54,14 +55,18 @@ package nonisolated struct DiscardRule: Sendable {
     ///   - discardReasons: The discards it is checked for.
     ///   - kinds: The kinds it is checked for; every kind unless it reads one kind's policy or facts.
     ///   - test: Whether the candidate matches.
+    ///   - expiresIn: For a fact that ends with time alone (``recentlyAudible``), the seconds until it
+    ///     stops matching; nil (the default) for a rule only an event ends.
     package init(_ reason: CannotDiscardReason, result: CanDiscardResult, for discardReasons: Set<DiscardReason>,
                  kinds: Set<ContentKind> = DiscardRule.everyKind,
-                 test: @escaping @Sendable (ContentDiscardPlanner.Candidate, Context) -> Bool) {
+                 test: @escaping @Sendable (ContentDiscardPlanner.Candidate, Context) -> Bool,
+                 expiresIn: (@Sendable (ContentDiscardPlanner.Candidate) -> Double?)? = nil) {
         self.reason = reason
         self.result = result
         self.discardReasons = discardReasons
         self.kinds = kinds
         self.test = test
+        self.expiry = expiresIn
     }
 
     /// Whether the rule keeps `candidate` from a discard for `context.reason`: it applies to the
@@ -74,6 +79,14 @@ package nonisolated struct DiscardRule: Sendable {
         kinds.contains(candidate.kind) && discardReasons.contains(context.reason) && test(candidate, context)
     }
 
+    /// Seconds until the rule stops matching `candidate` with time alone, or nil when only an event
+    /// ends its fact (the content stops playing, the person closes DevTools).
+    ///
+    /// - Parameter candidate: Content the rule matches.
+    package func expires(_ candidate: ContentDiscardPlanner.Candidate) -> Double? {
+        expiry?(candidate)
+    }
+
     /// Every kind of content.
     package static let everyKind = Set(ContentKind.allCases)
     /// Browser pages only: the rules that read `browser.hibernation` or the tab strip.
@@ -81,6 +94,10 @@ package nonisolated struct DiscardRule: Sendable {
 
     /// The discards a protected rule keeps content from: the timeout and memory pressure.
     package static let pressure: Set<DiscardReason> = [.proactive, .urgent]
+    /// The discards a choice of the person keeps content from (`browser.hibernation` off, a pinned
+    /// tab, Never Hibernate This Site, open DevTools): every discard cmux makes on its own, a frozen
+    /// page's memory growth too (stricter than Chrome, which lets that discard past them).
+    package static let automatic: Set<DiscardReason> = [.proactive, .urgent, .frozenWithGrowingMemory]
     /// cmux's lead rule (stricter than Chrome): what the person would lose (audio, capture, input,
     /// a download, an agent's work, a running command) is kept from every discard but the
     /// person's own, including a frozen page's memory growth.
@@ -118,5 +135,7 @@ package nonisolated struct DiscardRule: Sendable {
         .notifications,
         .unanswered,
         .backgroundActivity,
+        .recentlyAudible,
+        .activeTab,
     ]
 }
