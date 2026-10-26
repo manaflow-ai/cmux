@@ -185,7 +185,7 @@ struct TraceNamesTests {
             guard tag < writers else {
                 while done.value.load(ordering: .acquiring) < writers {
                     guard let image = ring.decodedImage() else { continue }
-                    let generations = Dictionary(image.threads.map { ($0.index, $0.generation) }, uniquingKeysWith: max)
+                    let generations = Dictionary(image.threads.map { ($0.index, $0.generation) }, uniquingKeysWith: { Swift.max($0, $1) })
                     let missing = image.records.filter { record in
                         guard image.name(of: record) != nil, let generation = generations[record.threadIndex] else { return true }
                         return generation < record.threadGeneration
