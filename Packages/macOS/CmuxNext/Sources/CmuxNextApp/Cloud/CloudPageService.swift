@@ -21,7 +21,7 @@ final class CloudPageService: InternalPageProvider {
     /// Each tab's page while it lives (the provider for its keep reasons).
     private var pages: [String: MadePage] = [:]
     /// The place each hidden Cloud tab's page showed when its discard read it.
-    private var shownPlaces: [String: (version: Int, fragment: String)] = [:]
+    private var shownPlaces: [String: (version: Int, fragment: String?)] = [:]
     /// The place each discarded Cloud tab showed, for the page its next show makes.
     private var discardedRoutes: [String: String] = [:]
     /// Makes a tab's page on a route (default: ``PageFactory/cloudWebPage(_:route:)``; tests pass

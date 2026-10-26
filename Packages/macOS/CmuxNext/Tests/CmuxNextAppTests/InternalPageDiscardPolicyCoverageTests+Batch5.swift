@@ -327,6 +327,7 @@ import Testing
         view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         view.layoutSubtreeIfNeeded()
         await shown.chromiumStart?.value
+        shown.documentFinished() // its document loaded: the fragment read asks the document
         shown.notePainted()
         rig.show()
         rig.hide()

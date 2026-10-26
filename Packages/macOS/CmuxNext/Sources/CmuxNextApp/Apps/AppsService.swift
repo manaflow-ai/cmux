@@ -34,7 +34,7 @@ final class AppsService {
     /// The App Store page (React, apps-web-DESIGN.md) per tab key.
     private var webStorePages: [String: PageWebView] = [:]
     /// The place each hidden App Store tab's page showed when its discard read it.
-    private var shownPlaces: [String: (version: Int, fragment: String)] = [:]
+    private var shownPlaces: [String: (version: Int, fragment: String?)] = [:]
     /// The place each discarded App Store tab showed, for the page its next show makes.
     private var discardedRoutes: [String: String] = [:]
     /// The route of the show running now, for the page it makes (``makeView(for:in:)``).
