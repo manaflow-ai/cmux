@@ -6,43 +6,54 @@ import Foundation
 import Testing
 
 /// The control socket is automation (threading-model.md, "QoS and task priority"): its accept and
-/// per-connection queues run at utility, below the person's input. That lane must not reach an
-/// injected key: `debug.key` and the benches' injection run on the main thread, as input, and take
-/// the key's time there, when it is injected, not when the socket accepted or parsed the request.
+/// per-connection queues run at utility, below the person's input. An injected key still runs as
+/// input once it reaches the main-thread queue: ahead of other connections' queued requests.
+/// The key's event carries the client's send time (bench-typing.py's `timestamp`), so the bench's
+/// key latency includes the wait on that utility lane and the main-thread queue; the reply's
+/// `injected_at` and `client_to_injection_ms` (``InjectedKeyTime``) separate that wait.
 @Suite(.serialized, .timeLimit(.minutes(1))) struct ControlSocketQoSTests {
-    /// What the injected `debug.key` body saw on its turn.
-    struct Injection: Sendable {
-        var onMain: Bool
-        var qos: UInt32
-        var uptime: TimeInterval
-    }
-
-    /// The injections the server's `debug.key` saw, and when the main-thread stall ended.
+    /// What the tests read back from the main thread.
     final class Recorder: Sendable {
-        let injections = Mutex<[Injection]>([])
+        let stallBegan = Mutex<Bool>(false)
         let stallEnd = Mutex<TimeInterval>(0)
+        let pendingAtKey = Mutex<Int?>(nil)
     }
 
-    func makeServer(recording recorder: Recorder = Recorder()) throws -> ControlSocketServer {
-        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .init(requestDeadline: .seconds(30), allowsDebugMethods: true))
+    /// A server whose `debug.key` stamps the key with the app's seam (``InjectedKeyTime``, what
+    /// `DebugKey.send` builds its event from) and replies with the times; `test.write` is a 2 ms
+    /// automation request.
+    func makeServer(recording recorder: Recorder, frameSource: any ControlFrameSource = MainQueueFrameSource()) throws -> ControlSocketServer {
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(),
+                                   configuration: .init(requestDeadline: .seconds(30), allowsDebugMethods: true), frameSource: frameSource)
         router.updateCatalog(sampleCatalog())
+        let queue = router.workQueue
         router.register([
-            // The shape of the app's `debug.key`: a main-actor body that injects input and stamps it.
-            .mainActor("debug.key") { _ in
-                let uptime = ProcessInfo.processInfo.systemUptime
-                let injection = Injection(onMain: Thread.isMainThread, qos: qos_class_self().rawValue, uptime: uptime)
-                recorder.injections.withLock { $0.append(injection) }
-                return .value(.number(uptime))
+            .mainActor("debug.key") { call in
+                recorder.pendingAtKey.withLock { $0 = queue.stats.pending }
+                let time = InjectedKeyTime(params: call.params)
+                var report = time.report
+                report["event_timestamp"] = .number(time.eventTimestamp)
+                return .value(.object(report))
             }.injectingInput(),
-            .mainActor("test.write") { _ in .value(.bool(Thread.isMainThread)) },
+            .mainActor("test.write") { _ in
+                spin(for: .milliseconds(2))
+                return .value(.bool(true))
+            },
         ])
         let server = ControlSocketServer(configuration: .init(path: temporarySocketPath(), accessMode: .automation), router: router)
         try server.start()
         return server
     }
 
+    /// Writes one request line and does not wait for its reply.
+    func post(_ client: LineClient, _ method: String, _ params: JSONValue = [:]) {
+        let request: JSONValue = ["id": "t1", "method": .string(method), "params": params]
+        let data = Array((request.compactText + "\n").utf8)
+        _ = data.withUnsafeBytes { write(client.descriptor, $0.baseAddress, $0.count) }
+    }
+
     @Test func acceptAndConnectionQueuesRunAtUtility() throws {
-        let server = try makeServer()
+        let server = try makeServer(recording: Recorder())
         defer { server.stop() }
         #expect(server.acceptQueueQoS == .utility)
 
@@ -55,42 +66,76 @@ import Testing
         #expect(connection.queueQoS == .utility)
     }
 
-    /// The main hop keeps each method's class: requests stay automation, an injected key stays input.
-    @Test func mainHopKeepsTheMethodsWorkClass() throws {
-        let server = try makeServer()
+    /// Through the socket: 40 connections' automation requests wait in the main-thread queue
+    /// (frame-paced, a 1 ms automation budget per frame), then a key arrives on its own connection.
+    /// The utility lane hands it over as input: it runs on a main run loop turn with no frame,
+    /// ahead of the queued requests.
+    @MainActor @Test func anInjectedKeyRunsAheadOfOtherConnectionsQueuedRequests() throws {
+        let recorder = Recorder()
+        let frames = BudgetedFrameSource(budget: MainFrameBudget(), soonOnRunLoop: true)
+        let server = try makeServer(recording: recorder, frameSource: frames)
         defer { server.stop() }
-        #expect(server.router.method(named: "test.write")?.workClass == .automation)
-        #expect(server.router.method(named: "debug.key")?.workClass == .input)
-        let client = try LineClient(path: server.configuration.path)
-        #expect(try client.call("test.write")["result"] == true, "a mutation runs on the main thread")
+        let queue = server.router.workQueue
+        let end = ContinuousClock.now + .seconds(20)
+
+        // The main thread does not turn until all 40 are queued.
+        let automation = try (0..<40).map { _ in try LineClient(path: server.configuration.path) }
+        for client in automation { post(client, "test.write") }
+        while queue.stats.pending < 40, ContinuousClock.now < end { usleep(1_000) }
+        #expect(queue.stats.pending == 40)
+
+        let keyClient = try LineClient(path: server.configuration.path)
+        post(keyClient, "debug.key", ["key": "a"])
+        // No frame fires: only main run loop turns.
+        while recorder.pendingAtKey.withLock({ $0 }) == nil, ContinuousClock.now < end {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+        let pendingAtKey = try #require(recorder.pendingAtKey.withLock { $0 }, "the key ran without a frame")
+        #expect(pendingAtKey >= 38, "the key ran ahead of the queued automation requests")
+        let reply = try JSONValue.parse(Data(keyClient.readLine().utf8))
+        #expect(reply["result"]?["injected_at"]?.doubleValue != nil, "the reply carries the key's injection time")
+
+        while queue.stats.pending > 0, ContinuousClock.now < end {
+            frames.fire()
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
+        }
+        #expect(queue.stats.pending == 0)
+        for client in automation {
+            let answer = try JSONValue.parse(Data(client.readLine().utf8))
+            #expect(answer["result"] == true)
+        }
     }
 
-    /// The socket accepts the key while the main thread is busy; the key is stamped when the main
-    /// thread injects it, after the stall, on the main thread and not at the socket's utility QoS.
-    @Test func injectedKeyIsStampedOnMainAtInjection() throws {
+    /// A key sent while the main thread is busy: its event carries the client's send time, so the
+    /// wait before injection counts in the bench's key latency, and the reply names that wait
+    /// apart (`injected_at` after the stall, `client_to_injection_ms` at least the stall). With no
+    /// client time the event carries the injection time.
+    @Test func theKeyCarriesTheClientsSendTimeAndTheReplyItsInjectionTime() throws {
         let recorder = Recorder()
         let server = try makeServer(recording: recorder)
         defer { server.stop() }
 
-        let began = Atomic<Bool>(false)
         _ = Task { @MainActor in
-            began.store(true, ordering: .releasing)
+            recorder.stallBegan.withLock { $0 = true }
             spin(for: .milliseconds(300))
             recorder.stallEnd.withLock { $0 = ProcessInfo.processInfo.systemUptime }
         }
-        while !began.load(ordering: .acquiring) { usleep(1_000) }
+        while !recorder.stallBegan.withLock({ $0 }) { usleep(1_000) }
 
         let client = try LineClient(path: server.configuration.path)
-        let accepted = ProcessInfo.processInfo.systemUptime
-        let reply = try client.call("debug.key", ["key": "a"])
-
-        let injection = try #require(recorder.injections.withLock { $0.first })
+        let sent = ProcessInfo.processInfo.systemUptime
+        let stamped = try #require(try client.call("debug.key", ["key": "a", "timestamp": .number(sent)])["result"])
         let stalledUntil = recorder.stallEnd.withLock { $0 }
-        #expect(injection.onMain, "the key is injected on the main thread")
-        #expect(injection.qos != QOS_CLASS_UTILITY.rawValue, "the main hop does not run at the socket's utility QoS")
-        #expect(stalledUntil > 0 && injection.uptime >= stalledUntil, "stamped at injection, after the main thread came free")
-        #expect(injection.uptime - accepted >= 0.2, "not at socket accept, during the stall")
-        let replied = try #require(reply["result"]?.doubleValue)
-        #expect(abs(replied - injection.uptime) < 1e-6, "the reply carries the time stamped at injection")
+        #expect(stalledUntil > 0)
+        #expect(stamped["event_timestamp"]?.doubleValue == sent, "the event carries the client's send time")
+        let injected = try #require(stamped["injected_at"]?.doubleValue)
+        #expect(injected >= stalledUntil, "injected when the main thread came free")
+        let wait = try #require(stamped["client_to_injection_ms"]?.doubleValue)
+        #expect(wait >= 200, "the reply names the wait before injection: \(wait) ms")
+        #expect(abs(wait - (injected - sent) * 1000) < 1e-3)
+
+        let unstamped = try #require(try client.call("debug.key", ["key": "b"])["result"])
+        #expect(unstamped["event_timestamp"] == unstamped["injected_at"], "with no client time the event carries the injection time")
+        #expect(unstamped["client_to_injection_ms"] == .null)
     }
 }
