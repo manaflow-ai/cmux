@@ -3,8 +3,14 @@
 
   python3 -m unittest scripts/perf-lab/tests/test_host_env.py
 """
+import contextlib
 import importlib.util
+import io
+import json
+import os
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -34,6 +40,17 @@ CPU Power notify
 \tCPU_Available_CPUs \t= 12
 \tCPU_Speed_Limit \t= 78
 """
+THERM_INTEL_OK = THERM_THROTTLED.replace("= 78", "= 100") + "Note: No performance warning level has been recorded\n"
+# Apple silicon throttling: a warning level is recorded and there is still no CPU power block.
+THERM_AS_THERMAL = """Thermal_Level\t= 1
+Note: No performance warning level has been recorded
+Note: No CPU power status has been recorded
+"""
+THERM_AS_PERFORMANCE = """Note: No thermal warning level has been recorded
+Performance Warning Level = 2
+Note: No CPU power status has been recorded
+"""
+THERM_AS_LEVEL_ZERO = THERM_AS_THERMAL.replace("= 1", "= 0")
 PMSET_OK = """System-wide power settings:
 Currently in use:
  standby              0
@@ -45,6 +62,8 @@ Currently in use:
  displaysleep         0
  lowpowermode         0
 """
+# A Mac with High Power Mode (M4 Pro Mac mini) prints `powermode` (0 automatic, 1 low, 2 high), no lowpowermode.
+PMSET_POWERMODE = PMSET_OK.replace(" lowpowermode         0", " powermode            0")
 LOADAVG_OK = "{ 0.42 0.80 1.10 }\n"
 LOADAVG_HIGH = "{ 2.30 1.80 1.10 }\n"
 VM_STAT_OK = """Mach Virtual Memory Statistics: (page size of 16384 bytes)
@@ -95,10 +114,11 @@ class FakeClock:
 
 
 class FakeCommands:
-    """Canned stdout per probe; `nettop` advances the fake clock by the window it watches."""
+    """Canned stdout per probe; `nettop` advances the fake clock by the window it watches. A probe named in `exit_1`
+    ("therm", "pmset", "nettop", ...) prints its stdout and exits 1."""
 
-    def __init__(self, clock, **overrides):
-        self.clock, self.calls = clock, []
+    def __init__(self, clock, exit_1=(), **overrides):
+        self.clock, self.calls, self.exit_1 = clock, [], frozenset(exit_1)
         self.out = {"therm": THERM_OK, "pmset": PMSET_OK, "loadavg": [LOADAVG_OK], "vm_stat": VM_STAT_OK,
                     "mdutil": MDUTIL_OFF, "scutil": SCUTIL_BENCH, "ps": PS_OK, "nettop": NETTOP_LOCAL,
                     "nettop_seconds": host_env.NETTOP_WINDOW_S, **overrides}
@@ -106,8 +126,10 @@ class FakeCommands:
     def run(self, argv, timeout=host_env.COMMAND_TIMEOUT_S, stdin=None):
         self.calls.append((argv, timeout))
         tool = Path(argv[0]).name
+        probe = tool
         if tool == "pmset":
-            text = self.out["therm"] if argv[1:] == ["-g", "therm"] else self.out["pmset"]
+            probe = "therm" if argv[1:] == ["-g", "therm"] else "pmset"
+            text = self.out[probe]
         elif tool == "sysctl":
             if argv[-1] == "vm.loadavg":
                 loads = self.out["loadavg"]
@@ -121,14 +143,14 @@ class FakeCommands:
             text = self.out["nettop"]
         else:
             text = self.out[{"vm_stat": "vm_stat", "mdutil": "mdutil", "scutil": "scutil", "ps": "ps"}[tool]]
-        return None if text is None else host_env.CommandResult(text, 0)
+        return None if text is None else host_env.CommandResult(text, 1 if probe in self.exit_1 else 0)
 
 
-def run(vdisplay=VDISPLAY_120, pids=(APP_PID, DAEMON_PID), **overrides):
+def run(vdisplay=VDISPLAY_120, pids=(APP_PID, DAEMON_PID), pre_launch=False, **overrides):
     clock = FakeClock()
     commands = FakeCommands(clock, **overrides)
     report = host_env.validate(commands=commands, clock=clock, bench_user=BENCH, vdisplay_text=vdisplay,
-                               egress_pids=pids)
+                               egress_pids=pids, pre_launch=pre_launch)
     return report, commands, clock
 
 
@@ -139,6 +161,7 @@ class ValidHost(unittest.TestCase):
         self.assertEqual(report["reasons"], [])
         self.assertEqual(report["hz"], 120)
         self.assertNotIn("refusal", report)
+        self.assertEqual((report["mode"], report["checks_skipped"]), ("full", []))
         self.assertRegex(report["fingerprint"], r"^[0-9a-f]{64}$")
         self.assertEqual(report["class"], "apple-m4-pro/24gb/120hz")
 
@@ -156,6 +179,7 @@ class ValidHost(unittest.TestCase):
 class EachFailingCheckHasItsOwnReason(unittest.TestCase):
     CASES = {
         "thermal-limit": dict(therm=THERM_THROTTLED),
+        "network-egress-no-pids": dict(pids=(), ps="    1 /sbin/launchd\n"),
         "system-sleep": dict(pmset=PMSET_OK.replace(" sleep                0", " sleep                10")),
         "low-power-mode": dict(pmset=PMSET_OK.replace("lowpowermode         0", "lowpowermode         1")),
         "load-high": dict(loadavg=[LOADAVG_HIGH]),
@@ -181,10 +205,39 @@ class EachFailingCheckHasItsOwnReason(unittest.TestCase):
         self.assertIn("ec2-user", report["details"]["no-gui-session"])
 
     def test_all_failures_are_reported_together(self):
-        overrides = {k: v for case in self.CASES.values() for k, v in case.items() if k != "pmset"}
+        skipped = ("system-sleep", "low-power-mode", "network-egress-no-pids")
+        overrides = {k: v for case in self.CASES.values() for k, v in case.items() if k not in ("pmset", "pids")}
         report, _, _ = run(**overrides)
-        self.assertEqual(sorted(report["reasons"]),
-                         sorted(code for code in self.CASES if code not in ("system-sleep", "low-power-mode")))
+        self.assertEqual(sorted(report["reasons"]), sorted(code for code in self.CASES if code not in skipped))
+
+    def test_apple_silicon_warning_levels_are_throttling(self):
+        for text in (THERM_AS_THERMAL, THERM_AS_PERFORMANCE):
+            with self.subTest(text):
+                report, _, _ = run(therm=text)
+                self.assertEqual(report["reasons"], ["thermal-limit"])
+                self.assertEqual(report["facts"]["cpu_speed_limit"], 100)
+
+    def test_unthrottled_therm_outputs_pass(self):
+        for text in (THERM_OK, THERM_INTEL_OK, THERM_AS_LEVEL_ZERO):
+            with self.subTest(text):
+                report, _, _ = run(therm=text)
+                self.assertTrue(report["ok"], report["reasons"])
+
+    def test_therm_without_every_note_or_value_is_unreadable(self):
+        for text in ("Note: No CPU power status has been recorded\n", "Thermal warning: unknown\n",
+                     THERM_OK.replace("Note: No performance warning level has been recorded\n",
+                                      "Error: No performance warning level with error code 0xe00002c2\n")):
+            with self.subTest(text):
+                report, _, _ = run(therm=text)
+                self.assertEqual(report["reasons"], ["thermal-unreadable"])
+
+    def test_powermode_row_is_read_when_there_is_no_lowpowermode(self):
+        for value, reasons in (("0", []), ("2", []), ("1", ["low-power-mode"]), ("7", ["low-power-mode-unreadable"])):
+            with self.subTest(value):
+                pmset = PMSET_POWERMODE.replace("powermode            0", f"powermode            {value}")
+                report, _, _ = run(pmset=pmset)
+                self.assertEqual(report["reasons"], reasons)
+                self.assertEqual(report["facts"]["powermode"], value)
 
     def test_vdisplay_not_ready(self):
         for text in ("", "error: CGVirtualDisplay failed\n", "ready 7 0 main=7\n"):
@@ -200,6 +253,16 @@ class EachFailingCheckHasItsOwnReason(unittest.TestCase):
     def test_egress_of_an_unwatched_process_is_ignored(self):
         report, _, _ = run(nettop=NETTOP_OTHER_PROCESS)
         self.assertTrue(report["ok"], report["reasons"])
+
+    def test_a_probe_that_exits_non_zero_fails_closed(self):
+        cases = {"thermal-unreadable": dict(therm=THERM_OK + "\tCPU_Speed_Limit \t= 100\n", exit_1={"therm"}),
+                 "system-sleep-unreadable": dict(exit_1={"pmset"}), "memory-unreadable": dict(exit_1={"vm_stat"}),
+                 "network-egress-unreadable": dict(exit_1={"nettop"})}
+        for code, overrides in cases.items():
+            with self.subTest(code):
+                report, _, _ = run(**overrides)
+                self.assertEqual(report["reasons"][0], code)
+                self.assertFalse(report["ok"])
 
     def test_unreadable_probes_fail_closed(self):
         cases = {"thermal-unreadable": dict(therm=None), "memory-unreadable": dict(vm_stat=None),
@@ -218,6 +281,7 @@ class EachFailingCheckHasItsOwnReason(unittest.TestCase):
     def test_missing_pmset_rows_fail_closed(self):
         report, _, _ = run(pmset="System-wide power settings:\n")
         self.assertEqual(report["reasons"], ["system-sleep-unreadable", "low-power-mode-unreadable"])
+        self.assertIn("powermode", report["details"]["low-power-mode-unreadable"])
 
 
 class BoundedWaits(unittest.TestCase):
@@ -241,41 +305,85 @@ class BoundedWaits(unittest.TestCase):
         self.assertEqual(argv[argv.index("-L") + 1], "60")
         self.assertEqual(argv.count("-p"), 2)
         self.assertLessEqual(timeout, host_env.NETTOP_WINDOW_S + host_env.NETTOP_GRACE_S)
-        self.assertTrue(report["facts"]["egress_checked"])
+        self.assertNotIn("network-egress", report["checks_skipped"])
 
     def test_a_short_nettop_window_is_not_a_pass(self):
         report, _, _ = run(nettop_seconds=5)
         self.assertEqual(report["reasons"], ["network-egress-unreadable"])
 
-    def test_no_pids_skips_nettop(self):
+    def test_pre_launch_skips_nettop_and_says_so(self):
         # Before the job launches its app (no pids yet), any running cmux app is another one.
-        report, commands, clock = run(pids=(), ps="    1 /sbin/launchd\n")
+        report, commands, clock = run(pids=(), pre_launch=True, ps="    1 /sbin/launchd\n")
         self.assertTrue(report["ok"], report["reasons"])
-        self.assertFalse(report["facts"]["egress_checked"])
+        self.assertEqual((report["mode"], report["checks_skipped"]), ("pre-launch", ["network-egress"]))
         self.assertFalse(any(argv[0].endswith("nettop") for argv, _ in commands.calls))
         self.assertEqual(clock.now, 1000.0)
 
+    def test_no_pids_without_pre_launch_is_not_valid(self):
+        report, commands, _ = run(pids=(), ps="    1 /sbin/launchd\n")
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["reasons"], ["network-egress-no-pids"])
+        self.assertEqual((report["mode"], report["checks_skipped"]), ("full", []))
+        self.assertFalse(any(argv[0].endswith("nettop") for argv, _ in commands.calls))
+
+    def test_the_cli_refuses_pre_launch_with_pids(self):
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            host_env.main(["--pre-launch", "--pid", str(APP_PID)])
+
+
+bench_launch = host_env.load_bench_launch()
+perf_result = bench_launch.load_by_path("perf_result", ROOT / "scripts" / "perf-lab" / "perf_result.py")
+
 
 class Fingerprint(unittest.TestCase):
-    def test_stable_and_sensitive_to_each_input(self):
-        base = host_env.fingerprint("Apple M4 Pro", "25B78", 120, 24 * 2**30)
-        self.assertEqual(base, host_env.fingerprint("Apple M4 Pro", "25B78", 120, 24 * 2**30))
-        self.assertEqual(base, run()[0]["fingerprint"])
-        for changed in (("Apple M4", "25B78", 120, 24 * 2**30), ("Apple M4 Pro", "25C56", 120, 24 * 2**30),
-                        ("Apple M4 Pro", "25B78", 60, 24 * 2**30), ("Apple M4 Pro", "25B78", 120, 16 * 2**30)):
-            self.assertNotEqual(base, host_env.fingerprint(*changed))
+    def test_stable_and_keyed_by_hz(self):
+        base = run()[0]
+        self.assertEqual(base["fingerprint"], run()[0]["fingerprint"])
+        self.assertNotEqual(base["fingerprint"], run(vdisplay=VDISPLAY_60)[0]["fingerprint"])
 
     def test_class_excludes_the_macos_build(self):
-        first = host_env.host_class("Apple M4 Pro", 24 * 2**30, 120)
-        self.assertEqual(first, "apple-m4-pro/24gb/120hz")
-        self.assertNotIn("25B78", first)
+        report = run()[0]
+        self.assertEqual(report["class"], "apple-m4-pro/24gb/120hz")
+        self.assertNotIn("25B78", report["class"])
 
-    def test_matches_bench_launch_host_record(self):
-        bench_launch = load("bench_launch_under_test", ROOT / "scripts" / "cmux-next" / "bench_launch.py")
+    def test_the_host_block_is_bench_launch_host_record(self):
         record = bench_launch.host_record("Apple M4 Pro", 24 * 2**30, "26.1", "25B78", 120)
         report = run()[0]
-        self.assertEqual(record["fingerprint"], report["fingerprint"])
-        self.assertEqual(record["class"], report["class"])
+        self.assertEqual(report["host"], record)
+        self.assertEqual((report["fingerprint"], report["class"]), (record["fingerprint"], record["class"]))
+        self.assertEqual(report["facts"]["memory_bytes"], 24 * 2**30)
+
+
+class OneHzSource(unittest.TestCase):
+    """A vdisplay made at 120 Hz that ticks at 16.7 ms: host_env and result-v1 both key the host at 60 Hz."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="host-env-test-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        nominal = bench_launch.main_display_hz
+        bench_launch.main_display_hz = lambda: 120  # the CoreGraphics mode refresh: nominal, never read here
+        self.addCleanup(setattr, bench_launch, "main_display_hz", nominal)
+
+    def test_measured_60hz_is_recorded_in_result_v1(self):
+        report = run(vdisplay=VDISPLAY_60)[0]
+        path = os.path.join(self.tmp, "host.json")
+        host_env.write_host_out(path, report)
+        app = bench_launch.BenchApp(os.path.join(self.tmp, "cmux DEV host-env.app"), out=os.path.join(self.tmp, "out"),
+                                    teardown=False, host=host_env.host_reader(path))
+        self.addCleanup(shutil.rmtree, app.scratch, True)
+        recorded = perf_result.Host.from_dict(app.read_host()).to_dict()
+        self.assertEqual(recorded["display_hz"], 60)
+        self.assertEqual(recorded["class"], report["class"])
+        self.assertEqual(recorded["class"], "apple-m4-pro/24gb/60hz")
+        self.assertEqual(recorded["fingerprint"], report["fingerprint"])
+
+    def test_a_refused_host_leaves_no_host_block(self):
+        path = os.path.join(self.tmp, "host.json")
+        host_env.write_host_out(path, run()[0])
+        with open(path, encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["display_hz"], 120)
+        host_env.write_host_out(path, run(therm=THERM_THROTTLED)[0])
+        self.assertFalse(os.path.exists(path))
 
 
 class Parsers(unittest.TestCase):
@@ -284,6 +392,20 @@ class Parsers(unittest.TestCase):
         self.assertEqual(host_env.remote_host("fe80::1%en0.5223"), "fe80::1")
         self.assertEqual(host_env.remote_host("::1.41001"), "::1")
         self.assertIsNone(host_env.remote_host("*:*"))
+
+    def test_an_ipv6_flow_with_no_interface_keeps_its_owner(self):
+        text = NETTOP_HEADER + f"""12:00:00.1,cmux-tui.{DAEMON_PID},,,0,0,
+12:00:00.2,tcp6 2001:db8::5.50300<->2606:4700::1.443,,SynSent,0,0,
+12:00:00.3,tcp4 192.168.1.20:50300<->17.57.146.20:443,en0,Established,0,10,
+"""
+        flows = host_env.parse_egress(text, {DAEMON_PID})
+        self.assertEqual([pid for pid, _ in flows], [DAEMON_PID, DAEMON_PID])
+        self.assertIn("2606:4700::1.443", flows[0][1])
+        self.assertIn("17.57.146.20:443", flows[1][1])
+
+    def test_an_unparsed_flow_of_a_watched_pid_is_egress(self):
+        text = NETTOP_HEADER + f"12:00:00.1,cmux-tui.{DAEMON_PID},,,0,0,\n12:00:00.2,tcp4 something odd,en0,,0,0,\n"
+        self.assertEqual(len(host_env.parse_egress(text, {DAEMON_PID})), 1)
 
     def test_ipv6_egress_is_found(self):
         text = NETTOP_LOCAL + "12:00:02.0,tcp6 2001:db8::5.50300<->2606:4700::1.443,en0,Established,0,0,\n"

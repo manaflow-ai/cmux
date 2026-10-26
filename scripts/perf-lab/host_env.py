@@ -6,8 +6,12 @@ Chrome's lab gates a device the same way before it runs a story: catapult devil/
 takes an unhealthy device out of the pool and devil/android/perf/thermal_throttle.py refuses a throttled one.
 
 Checks (each failing one adds its own reason code; a probe that cannot be read fails closed with `<check>-unreadable`):
-- `thermal-limit`: `pmset -g therm` CPU_Speed_Limit is not 100.
-- `system-sleep`, `low-power-mode`: `pmset -g` sleep and lowpowermode are not 0.
+- `thermal-limit`: `pmset -g therm` records a non-zero thermal or performance warning level (how Apple silicon reports
+  throttling) or a CPU_Speed_Limit other than 100 (the Intel XCPM block). Each of the three is either its
+  "No ... has been recorded" note or a value; any other text is `thermal-unreadable`.
+- `system-sleep`: `pmset -g` sleep is not 0.
+- `low-power-mode`: `pmset -g` lowpowermode is not 0, or (Macs with High Power Mode print `powermode` instead:
+  0 automatic, 1 low, 2 high) powermode is 1.
 - `load-high`: `sysctl -n vm.loadavg` 1-minute load stays >= 1.0 for LOAD_WAIT_S.
 - `memory-low`: `vm_stat` free + inactive pages <= MIN_FREE_INACTIVE_BYTES.
 - `spotlight-on`: `mdutil -s` says the data volume is indexed.
@@ -15,24 +19,30 @@ Checks (each failing one adds its own reason code; a probe that cannot be read f
   scripts/cmux-next/bench_launch.py console_user and hq build-fleet console_session.go.
 - `other-cmux-app`: a cmux app bundle's executable runs that is not one of the job's own pids.
 - `network-egress`: in one NETTOP_WINDOW_S nettop session, an app or daemon pid has a connection to a non-loopback
-  address. Checked only when the job passes those pids.
+  address. A full validation needs those pids (`--pid`); without them it refuses `network-egress-no-pids`.
+  `--pre-launch` (before the job starts its app) skips nettop instead and says so: `mode: "pre-launch"`,
+  `checks_skipped: ["network-egress"]`. Its ok covers only the other checks: the job validates again with its pids
+  before it measures.
 - `vdisplay-not-ready`, `refresh-below-60`: the vdisplay `ready ID P50_MS ...` (or `probe`'s `main ID P50_MS`) line
   is missing or ticks slower than 60 Hz. A display that cannot hold 8.33 ms is hz=60, not a refusal: its frame-target
   stories are skipped (p12-perf-process-160).
 - `host-unknown`: chip, memory or macOS build could not be read.
 
-fingerprint = sha256(chip, macOS build, Hz, memory), class = store.host_class (chip + memory + Hz, no macOS build),
-the same formula as bench_launch.host_record, so an OS update is a step inside one series.
+The host block (fingerprint = sha256(chip, macOS build, Hz, memory), class = chip + memory + Hz with no macOS build,
+so an OS update is a step inside one series) is bench_launch.host_record's, from the measured Hz. `--host-out` writes
+that block, and the job's BenchApp records it (`BenchApp(host=host_env.host_reader(PATH))`), so result-v1 keys the
+run by the Hz the display really ticks at, not the nominal mode refresh bench_launch.read_host would read.
 
-    python3 -I scripts/perf-lab/host_env.py --vdisplay-out OUT/vdisplay.out [--pid APP --pid DAEMON]
-                                              [--bench-user NAME]
+    python3 -I scripts/perf-lab/host_env.py --vdisplay-out OUT/vdisplay.out --pid APP --pid DAEMON
+                                              [--host-out OUT/host.json] [--bench-user NAME]
+    python3 -I scripts/perf-lab/host_env.py --vdisplay-out OUT/vdisplay.out --pre-launch
 
-Prints one `HOST-ENV {json}` line; exit 0 when the host is valid, 3 when it refuses (env-invalid).
+Prints one `HOST-ENV {json}` line; exit 0 when every check that ran passed (all of them unless `checks_skipped`
+names one), 3 when it refuses (env-invalid).
 Stdlib only, loaded by file path; tests inject the command runner and the clock.
 """
 import argparse
 import dataclasses
-import hashlib
 import importlib.util
 import ipaddress
 import json
@@ -44,6 +54,7 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+BENCH_LAUNCH = os.path.join(os.path.dirname(os.path.dirname(HERE)), "scripts", "cmux-next", "bench_launch.py")
 
 MIN_FREE_INACTIVE_BYTES = 8 * 2**30
 MAX_LOAD_1MIN = 1.0
@@ -85,11 +96,11 @@ class Clock:
         time.sleep(seconds)
 
 
-def load_store():
-    name = "perf_lab_store"
+def load_bench_launch():
+    name = "bench_launch"
     if name in sys.modules:
         return sys.modules[name]
-    spec = importlib.util.spec_from_file_location(name, os.path.join(HERE, "store.py"))
+    spec = importlib.util.spec_from_file_location(name, BENCH_LAUNCH)
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
     try:
@@ -102,13 +113,25 @@ def load_store():
 
 # Parsers: canned text in, value out (None when the text does not say).
 
-def parse_speed_limit(text):
-    """CPU_Speed_Limit from `pmset -g therm`. Apple silicon prints no CPU power block until it throttles, only
-    "No CPU power status has been recorded": that is 100."""
-    match = re.search(r"CPU_Speed_Limit\s*=\s*(\d+)", text)
-    if match:
-        return int(match.group(1))
-    return 100 if "No CPU power status has been recorded" in text else None
+THERM_CHANNELS = (  # (fact, its "nothing recorded" note, its value line, the value that is not throttled)
+    ("thermal_warning_level", "No thermal warning level has been recorded",
+     re.compile(r"^\s*thermal[ _]?(?:warning[ _]?)?level\b[^0-9\n]*(\d+)", re.I | re.M), 0),
+    ("performance_warning_level", "No performance warning level has been recorded",
+     re.compile(r"^\s*performance[ _]?(?:warning[ _]?)?level\b[^0-9\n]*(\d+)", re.I | re.M), 0),
+    ("cpu_speed_limit", "No CPU power status has been recorded",
+     re.compile(r"^\s*CPU_Speed_Limit\s*=\s*(\d+)", re.M), 100),
+)
+
+
+def parse_therm(text):
+    """{fact: value} of `pmset -g therm`'s thermal and performance warning levels and CPU_Speed_Limit. A channel with
+    its "No ... has been recorded" note is its unthrottled value; a channel with neither the note nor a value is None
+    (unreadable). A recorded value wins over a note."""
+    facts = {}
+    for fact, note, value, unthrottled in THERM_CHANNELS:
+        match = value.search(text)
+        facts[fact] = int(match.group(1)) if match else (unthrottled if note in text else None)
+    return facts
 
 
 def parse_pmset_settings(text):
@@ -170,6 +193,7 @@ def parse_cmux_apps(text):
 
 
 NETTOP_PROCESS = re.compile(r"^(.*)\.(\d+)$")
+NETTOP_FLOW_PREFIX = re.compile(r"^(tcp|udp)[46]?\s")
 NETTOP_FLOW = re.compile(r"^(tcp|udp)[46]? (\S+)<->(\S+)$")
 
 
@@ -193,20 +217,22 @@ def is_loopback(host):
 
 def parse_egress(text, pids):
     """[(pid, flow)] of nettop -L rows that connect one of `pids` to a non-loopback address. A flow row belongs to
-    the process row above it."""
+    the process row above it. A row is a flow by its protocol prefix, never by its interface column (a SynSent or
+    unbound flow has none); a flow row of a watched pid whose endpoints do not parse counts as egress."""
     owner, out = None, []
     for row in text.splitlines():
         fields = row.split(",")
         if len(fields) < 3:
             continue
-        process = NETTOP_PROCESS.match(fields[1])
-        if process and not fields[2]:
-            owner = int(process.group(2))
+        if not NETTOP_FLOW_PREFIX.match(fields[1]):
+            process = NETTOP_PROCESS.match(fields[1])
+            if process:
+                owner = int(process.group(2))
+            continue
+        if owner not in pids:
             continue
         flow = NETTOP_FLOW.match(fields[1])
-        if not flow or owner not in pids:
-            continue
-        host = remote_host(flow.group(3))
+        host = remote_host(flow.group(3)) if flow else ""
         if host is not None and not is_loopback(host):
             out.append((owner, fields[1]))
     return out
@@ -234,20 +260,33 @@ def hz_for(p50_ms):
     return None
 
 
-def fingerprint(chip, macos_build, hz, memory_bytes):
-    return hashlib.sha256("\0".join(str(v) for v in (chip, macos_build, hz, memory_bytes)).encode()).hexdigest()
+def host_reader(path):
+    """BenchApp's `host` seam for the block `--host-out` wrote: result-v1 then records the measured Hz."""
+    def read():
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    return read
 
 
-def host_class(chip, memory_bytes, hz):
-    return load_store().host_class(chip=chip, memory_gb=round(memory_bytes / 2**30), display_hz=hz)
+def write_host_out(path, report):
+    """Writes the host block of a valid report to `path`; removes `path` otherwise, so a refused host leaves no block
+    an earlier run wrote for its BenchApp to record."""
+    if report["ok"] and report["host"]:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(report["host"], f, sort_keys=True)
+    else:
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
 
 
 class Validation:
-    def __init__(self, commands, clock, bench_user, vdisplay_text, egress_pids=(), own_pids=()):
-        self.commands, self.clock = commands, clock
+    def __init__(self, commands, clock, bench_user, vdisplay_text, egress_pids=(), own_pids=(), pre_launch=False):
+        self.commands, self.clock, self.pre_launch = commands, clock, pre_launch
         self.bench_user, self.vdisplay_text = bench_user, vdisplay_text
         self.egress_pids, self.own_pids = frozenset(egress_pids), frozenset(own_pids) | frozenset(egress_pids)
-        self.reasons, self.details, self.facts = [], {}, {}
+        self.reasons, self.details, self.facts, self.skipped = [], {}, {}, []
 
     def refuse(self, code, detail):
         self.reasons.append(code)
@@ -259,23 +298,35 @@ class Validation:
 
     def check_thermal(self):
         text = self.text(["/usr/bin/pmset", "-g", "therm"])
-        limit = parse_speed_limit(text) if text is not None else None
-        self.facts["cpu_speed_limit"] = limit
-        if limit is None:
-            self.refuse("thermal-unreadable", "pmset -g therm gave no CPU_Speed_Limit")
-        elif limit != 100:
-            self.refuse("thermal-limit", f"CPU_Speed_Limit is {limit}, not 100")
+        therm = parse_therm(text) if text is not None else {fact: None for fact, *_ in THERM_CHANNELS}
+        self.facts.update(therm)
+        unread = [fact for fact, value in therm.items() if value is None]
+        throttled = [f"{fact} is {therm[fact]}, not {unthrottled}" for fact, _, _, unthrottled in THERM_CHANNELS
+                     if therm[fact] is not None and therm[fact] != unthrottled]
+        if throttled:
+            self.refuse("thermal-limit", "; ".join(throttled))
+        elif unread:
+            self.refuse("thermal-unreadable", f"pmset -g therm gave neither a value nor a note for {', '.join(unread)}")
 
     def check_power(self):
         text = self.text(["/usr/bin/pmset", "-g"])
         settings = parse_pmset_settings(text) if text is not None else {}
-        for key, code in (("sleep", "system-sleep"), ("lowpowermode", "low-power-mode")):
-            value = settings.get(key)
-            self.facts[key] = value
-            if value is None:
-                self.refuse(f"{code}-unreadable", f"pmset -g has no {key} row")
-            elif value != "0":
-                self.refuse(code, f"pmset {key} is {value}, not 0")
+        sleep = self.facts["sleep"] = settings.get("sleep")
+        if sleep is None:
+            self.refuse("system-sleep-unreadable", "pmset -g has no sleep row")
+        elif sleep != "0":
+            self.refuse("system-sleep", f"pmset sleep is {sleep}, not 0")
+        low = self.facts["lowpowermode"] = settings.get("lowpowermode")
+        mode = self.facts["powermode"] = settings.get("powermode")
+        if low is not None:
+            if low != "0":
+                self.refuse("low-power-mode", f"pmset lowpowermode is {low}, not 0")
+        elif mode is None:
+            self.refuse("low-power-mode-unreadable", "pmset -g has neither a lowpowermode nor a powermode row")
+        elif mode == "1":
+            self.refuse("low-power-mode", "pmset powermode is 1 (low power)")
+        elif mode not in ("0", "2"):
+            self.refuse("low-power-mode-unreadable", f"pmset powermode is {mode}, not 0, 1 or 2")
 
     def check_load(self):
         deadline = self.clock.monotonic() + LOAD_WAIT_S
@@ -330,10 +381,13 @@ class Validation:
             self.refuse("other-cmux-app", "; ".join(f"{pid} {path}" for pid, path in others))
 
     def check_egress(self):
-        if not self.egress_pids:
-            self.facts["egress_checked"] = False
+        if self.pre_launch:
+            self.skipped.append("network-egress")
             return
-        self.facts["egress_checked"] = True
+        if not self.egress_pids:
+            self.refuse("network-egress-no-pids", "a full validation watches the app and daemon pids (--pid); "
+                                                  "before the app starts, run --pre-launch")
+            return
         argv = ["/usr/bin/nettop", "-n", "-L", str(NETTOP_WINDOW_S), "-s", "1"]
         for pid in sorted(self.egress_pids):
             argv += ["-p", str(pid)]
@@ -369,10 +423,10 @@ class Validation:
         if missing:
             self.refuse("host-unknown", f"{', '.join(missing)} could not be read")
             return None
+        self.facts["memory_bytes"] = memory
         if hz is None:
             return None
-        return {"fingerprint": fingerprint(chip, build, hz, memory), "class": host_class(chip, memory, hz),
-                "chip": chip, "macos": macos, "macos_build": build, "display_hz": hz, "memory_bytes": memory}
+        return load_bench_launch().host_record(chip, memory, macos, build, hz)
 
     def run(self):
         for check in (self.check_thermal, self.check_power, self.check_memory, self.check_spotlight,
@@ -380,7 +434,8 @@ class Validation:
             check()
         hz = self.measured_hz()
         host = self.host(hz)
-        report = {"ok": not self.reasons, "reasons": self.reasons, "details": self.details, "hz": hz,
+        report = {"ok": not self.reasons, "mode": "pre-launch" if self.pre_launch else "full",
+                  "checks_skipped": self.skipped, "reasons": self.reasons, "details": self.details, "hz": hz,
                   "refresh_ms": self.facts.get("refresh_ms"),
                   "fingerprint": host["fingerprint"] if host else None, "class": host["class"] if host else None,
                   "host": host, "facts": self.facts}
@@ -389,11 +444,14 @@ class Validation:
         return report
 
 
-def validate(commands=None, clock=None, bench_user=None, vdisplay_text="", egress_pids=(), own_pids=()):
-    """{ok, reasons[], details, hz, refresh_ms, fingerprint, class, host, facts}, plus refusal=env-invalid when not
-    ok. `egress_pids` are the app and daemon pids nettop watches; `own_pids` (with them) are not "another" cmux app."""
+def validate(commands=None, clock=None, bench_user=None, vdisplay_text="", egress_pids=(), own_pids=(),
+             pre_launch=False):
+    """{ok, mode, checks_skipped[], reasons[], details, hz, refresh_ms, fingerprint, class, host, facts}, plus
+    refusal=env-invalid when not ok. `egress_pids` are the app and daemon pids nettop watches; `own_pids` (with them)
+    are not "another" cmux app. `pre_launch` skips nettop (mode "pre-launch", checks_skipped ["network-egress"])."""
     user = bench_user or pwd.getpwuid(os.getuid()).pw_name
-    return Validation(commands or Commands(), clock or Clock(), user, vdisplay_text, egress_pids, own_pids).run()
+    return Validation(commands or Commands(), clock or Clock(), user, vdisplay_text, egress_pids, own_pids,
+                      pre_launch).run()
 
 
 def main(argv=None):
@@ -403,8 +461,13 @@ def main(argv=None):
                         help="an app or daemon pid: nettop watches it for outbound connections (repeatable)")
     parser.add_argument("--own-pid", type=int, action="append", default=[],
                         help="a pid of this job's own cmux app, not counted as another cmux app (repeatable)")
+    parser.add_argument("--pre-launch", action="store_true",
+                        help="before the job starts its app: skip nettop and report it in checks_skipped")
+    parser.add_argument("--host-out", help="write the host block (measured Hz) for BenchApp(host=host_reader(PATH))")
     parser.add_argument("--bench-user", help="the account that must be the console user (default: this account)")
     opts = parser.parse_args(argv)
+    if opts.pre_launch and opts.pid:
+        parser.error("--pre-launch watches no pids; pass --pid only for the full validation")
     text = ""
     if opts.vdisplay_out:
         try:
@@ -412,7 +475,10 @@ def main(argv=None):
                 text = f.read()
         except OSError:
             text = ""
-    report = validate(bench_user=opts.bench_user, vdisplay_text=text, egress_pids=opts.pid, own_pids=opts.own_pid)
+    report = validate(bench_user=opts.bench_user, vdisplay_text=text, egress_pids=opts.pid, own_pids=opts.own_pid,
+                      pre_launch=opts.pre_launch)
+    if opts.host_out:
+        write_host_out(opts.host_out, report)
     print("HOST-ENV " + json.dumps(report, sort_keys=True))
     return 0 if report["ok"] else EXIT_ENV_INVALID
 
