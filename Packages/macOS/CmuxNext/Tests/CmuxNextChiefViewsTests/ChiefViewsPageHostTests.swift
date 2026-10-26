@@ -10,11 +10,12 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct ChiefViewsPageHostTests {
-    /// A memory pressure source that never reports pressure: these tests do not drive the page lifecycle.
-    private nonisolated final class QuietMemoryPressureSource: MemoryPressureSource {
-        func start(delivering deliver: @escaping @MainActor @Sendable (MemoryPressureLevel) -> Void) {}
-        func cancel() {}
-        var currentLevel: MemoryPressureLevel { .normal }
+    /// A memory registry that stays at normal pressure: these tests do not drive the preload slot.
+    private final class QuietMemoryRegistry: MemoryConsumerRegistry {
+        func addMemoryConsumer(_ entry: MemoryConsumerEntry) {
+            entry.liveConsumer?.updateMemoryLimit(.default)
+            (entry.liveConsumer as? any MemoryLevelConsumer)?.memoryLevelDidChange(.normal)
+        }
     }
 
     /// A root for the gallery's page when the generated page bundle is missing on the test runner.
@@ -34,8 +35,7 @@ struct ChiefViewsPageHostTests {
 
     @Test func thePageOpensThroughTheGivenHost() throws {
         try #require(Self.registeredRoot)
-        let host = WebUIHost(chromium: nil, openPanel: nil,
-                             memoryPressure: MemoryPressureEvents(source: QuietMemoryPressureSource()))
+        let host = WebUIHost(chromium: nil, openPanel: nil, memory: QuietMemoryRegistry())
         let view = try #require(ChiefViewsPage(host: Self.noApp, webUI: host).makeView())
         #expect(host.openPages.map(ObjectIdentifier.init) == [ObjectIdentifier(view)])
         #expect(host.registry.pages(id: PageDescriptor.chiefViews.id).contains { $0 === view })

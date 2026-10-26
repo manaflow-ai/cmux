@@ -22,7 +22,7 @@ struct WebUIHostTests {
 
     private func makeHost(_ hosting: FakeChromiumHosting?, openPanel: MadeAheadOpenPanel? = nil) -> WebUIHost {
         WebUIHost(chromium: hosting, openPanel: openPanel,
-                  memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()),
+                  memory: QuietMemoryRegistry(),
                   clock: PageTestClock.never)
     }
 
