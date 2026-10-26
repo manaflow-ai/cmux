@@ -45,9 +45,14 @@ import Testing
         #expect(moved.awaitsWindowMove, "hidden: it moves into B's window when it shows there")
         #expect(PagesPaneShim.createWindowCalls == 1, "no window for a hidden tab")
 
-        // The tab shows in pane B: B builds its window around a placeholder, the tab moves in, the placeholder closes.
+        // The tab shows in pane B: B builds its window around a placeholder after the frame commits, never in the
+        // show's turn (PL-cef-tab); the tab moves in, the placeholder closes.
         hostB.present(moved, in: moved.container)
-        #expect(PagesPaneShim.createWindowCalls == 2)
+        #expect(PagesPaneShim.createWindowCalls == 1, "the show's turn built a window")
+        #expect(hostB.deferredCreations.contains { $0.tab === moved })
+        #expect(runtime.pendingWindows.isEmpty)
+        hostB.createDeferred()
+        #expect(PagesPaneShim.createWindowCalls == 2, "the after-commit step builds B's window")
         let request = try #require(runtime.pendingWindows.keys.first)
         PagesPaneShim.windowOf[Self.placeholderB] = Self.windowB
         runtime.handle(.afterCreated(browser: Self.placeholderB, request: request, window: Self.windowB))

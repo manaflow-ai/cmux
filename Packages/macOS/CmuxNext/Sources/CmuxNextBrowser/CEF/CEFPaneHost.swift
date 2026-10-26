@@ -177,7 +177,10 @@ final class CEFPaneHost {
         ensureCreated(tab)
         if tab.awaitsWindowMove {
             // Still in its opener's window: activating it there would show
-            // it in the opener's pane. It moves into this host's window.
+            // it in the opener's pane. It moves into this host's window. A
+            // page tab moved to a pane with no window gets one after the
+            // frame commits, as a new tab does (PL-cef-tab).
+            if !isPopupHost, !createsBrowsersAtOnce, case .none = window { return createAfterCommit(tab) }
             ensureOwnWindow(for: tab)
         } else {
             showBrowser(of: tab)
@@ -212,11 +215,14 @@ final class CEFPaneHost {
         AfterFrameCommit().run { [weak self] in self?.createDeferred() }
     }
 
-    /// Makes the browsers of the tabs shown before theirs existed (the observer of `createAfterCommit`; tests call it).
+    /// Makes the browsers of the tabs shown before theirs existed, and the window of a moved tab still in another
+    /// window (`ensureOwnWindow`): the observer of `createAfterCommit`; tests call it.
     func createDeferred() {
         let waiting = deferredCreations.compactMap(\.tab)
         deferredCreations.removeAll()
-        for tab in waiting where !tab.isClosed && tabs.contains(where: { $0 === tab }) { create(tab) }
+        for tab in waiting where !tab.isClosed && tabs.contains(where: { $0 === tab }) {
+            if tab.awaitsWindowMove { ensureOwnWindow(for: tab) } else { create(tab) }
+        }
     }
 
     /// Starts `tab`'s browser now. Joined a live window while still shown (`tab_add` activated it

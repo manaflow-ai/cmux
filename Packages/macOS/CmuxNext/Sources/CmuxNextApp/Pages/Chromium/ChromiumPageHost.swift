@@ -55,7 +55,7 @@ final class ChromiumPageHost: PageChromiumHosting {
         let traced = ChatOpenTrace.shared.takeMakingTracedPage()
         #endif
         let cef = chromium.engine
-        let configuration = cef.pagesTabConfiguration(chatOpen: chatOpen, pane: window.map(Self.pane(of:)))
+        let configuration = Self.tabConfiguration(of: cef, chatOpen: chatOpen, window: window)
         #if DEBUG || CMUX_BENCH_HOOKS
         if traced, ChatOpenTrace.shared.chromiumPane == nil { ChatOpenTrace.shared.chromiumPane = configuration.pane?.rawValue }
         #endif
@@ -69,6 +69,11 @@ final class ChromiumPageHost: PageChromiumHosting {
             throw Failure.browserNotCreated
         }
         return chromiumPage
+    }
+
+    /// The configuration of a page tab in `window`'s page window, or in a window of its own when `window` is nil.
+    static func tabConfiguration(of cef: CEFEngine, chatOpen: ChatOpenStages?, window: PageChromiumWindow?) -> BrowserTabConfiguration {
+        cef.pagesTabConfiguration(chatOpen: chatOpen, pane: window.map(pane(of:)))
     }
 
     /// The CEF pane key of `window`: one Chromium window per pane of a main window.

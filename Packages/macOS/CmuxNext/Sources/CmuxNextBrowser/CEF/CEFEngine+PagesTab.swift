@@ -94,22 +94,13 @@ extension CEFRuntime {
         tab.popupOpenerHost = staysInWindow ? nil : from
         to.add(tab)
         from.removed(tab)
-        switch (shown, to.isLive) {
-        case (true, true):
-            // Joining a live window is a post on the next turn (`ensureOwnWindow`); a tab already in it shows.
+        if shown {
+            // A live window takes it on the next turn; a pane with none builds one after the frame commits (`present`).
             to.present(tab, in: container)
-        case (true, false):
-            // Building a window holds the main thread: never in the turn of the move (PL-cef-tab).
-            AfterFrameCommit().run { [weak to, weak tab] in
-                guard let to, let tab, tab.host === to, tab.awaitsWindowMove, !tab.isClosed, !tab.isContentHidden,
-                      to.visibleTab !== tab, tab.container.window != nil else { return }
-                to.present(tab, in: tab.container)
-            }
-        case (false, true):
-            if !staysInWindow { to.ensureOwnWindow(for: tab) }
-        case (false, false):
-            break  // The window comes when the tab shows (`CEFTabContentView` presents it).
+        } else if to.isLive, !staysInWindow {
+            to.ensureOwnWindow(for: tab)
         }
+        // A hidden tab whose pane has no window gets one when it shows (`CEFTabContentView` presents it).
         return true
     }
 
