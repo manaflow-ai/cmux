@@ -427,6 +427,25 @@ fn concurrent_creates_at_the_cap_do_not_all_pass() {
 }
 
 #[test]
+fn at_the_cap_a_live_sessions_name_is_taken_not_refused() {
+    // Base checks names under the insert lock: a create of a live session's name
+    // says the name is taken, and `new --reuse` takes that session. The cap must
+    // not answer first.
+    let daemon = Daemon::start("taken", Some(1), false);
+    let out = daemon.create("worker", &[]);
+    assert!(out.status.success(), "{}", text(&out));
+    daemon.wait_live("worker");
+    let first: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let out = daemon.create("worker", &[]);
+    assert_ne!(out.status.code(), Some(5), "not an admission refusal: {}", text(&out));
+    assert!(text(&out).contains("is taken"), "the name is taken: {}", text(&out));
+    let out = daemon.create("worker", &["--reuse"]);
+    assert!(out.status.success(), "--reuse takes the live session: {}", text(&out));
+    let reused: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(reused["sessionId"], first["sessionId"], "{}", text(&out));
+}
+
+#[test]
 fn reuse_launches_of_one_name_at_the_cap_all_get_the_one_session() {
     // Room for one: the create that wins the name takes it, and every other
     // `new --reuse` of that name reuses the winner instead of being refused.
