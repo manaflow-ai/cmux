@@ -24,7 +24,10 @@
 //     and the new machine's copy is;
 //   - a recreated session drawn from its copy keeps nothing queued of the old one, and one
 //     recreated while its copy is read draws the new session's copy;
-//   - a chat on this Mac never asks for a copy.
+//   - a chat on this Mac never asks for a copy;
+//   - an attach reply of the session before a recreation is dropped for the session listed now, an
+//     attach a reconnect took over leaves the copy to it, and a redraw's attach refused as down
+//     draws the Mac's copy.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
@@ -110,6 +113,10 @@ class Daemon {
     | undefined;
   /// The prompts the session's row lists as queued.
   queue: { promptId: string; prompt: string }[] | undefined;
+  /// Runs once when the next attach is asked, before it is answered.
+  onAttach: (() => void) | undefined;
+  /// The next attach answered as the session before a recreation (its `createdAt` and records).
+  staleReply: { createdAt: number; events: ReturnType<typeof record>[] } | undefined;
   readonly asked: Message[] = [];
 
   constructor() {
@@ -216,6 +223,9 @@ class Daemon {
       });
     }
     if (message.method === "_acpmux/attach") {
+      const hook = this.onAttach;
+      this.onAttach = undefined;
+      hook?.();
       for (const params of this.beforeAttach.splice(0))
         this.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params }) });
       if (this.announceDuringAttach) {
@@ -240,6 +250,13 @@ class Daemon {
           message: "peer_unreachable: huge-blue (reconnecting, last seen 40s ago: connect timed out)",
           data: { reason: "peer_unreachable" },
         },
+      });
+    }
+    if (message.method === "_acpmux/attach" && this.staleReply) {
+      const { createdAt, events } = this.staleReply;
+      this.staleReply = undefined;
+      return this.reply(message.id, {
+        result: { session: { ...this.summary(), createdAt }, events, hasMore: false, lastSeq: events.at(-1)?.seq ?? 0 },
       });
     }
     if (message.method === "_acpmux/attach") {
@@ -770,4 +787,106 @@ test("a chat on this Mac never asks for a peer copy", async () => {
   expect(text(tab.last())).toContain("local 2.");
   expect(daemon.asked.some((m) => m.method === "_acpmux/peer_snapshot")).toBe(false);
   expect(tab.last()!.peerCopy).toBeUndefined();
+});
+
+test("an attach reply of the session before a recreation is dropped and the session listed now read", async () => {
+  const daemon = new Daemon();
+  daemon.down = false;
+  daemon.log = turn(1, 3, "new");
+  // The row names session 200 before the attach is answered, and the answer is of session 100.
+  daemon.recreatedDuringAttach = 200;
+  daemon.staleReply = { createdAt: 100, events: turn(1, 5, "old") };
+  const tab = open(daemon);
+  live.push(await tab.client);
+  await flush();
+  const shown = text(tab.last());
+  expect(shown).toContain("new 3.");
+  expect(shown).not.toContain("old ");
+  expect(daemon.asked.filter((m) => m.method === "_acpmux/attach").length).toBe(2);
+});
+
+test("a select's attach that a reconnect took over leaves the copy on screen when it fails", async () => {
+  const daemon = new Daemon();
+  daemon.other = true;
+  daemon.copy = { events: turn(1, 4, "kept"), generation: 100, lastSeq: 4 };
+  const tab = open(daemon, undefined, OTHER);
+  const client = await tab.client;
+  live.push(client);
+  await flush();
+  // A reconnect starts its own attach of the copy while the select's is out (`open` moves the
+  // token on), and the select's then fails for another reason than the machine being down.
+  daemon.onAttach = () => {
+    (client as unknown as { copyAttaches: number }).copyAttaches += 1;
+  };
+  daemon.failAttach = 1;
+  await client.select(SESSION).catch(() => undefined);
+  await flush();
+  expect(text(tab.last())).toContain("kept 4.");
+  expect(tab.last()!.peerCopy).toBeDefined();
+});
+
+test("a redraw's attach refused as down draws the new machine's copy, offline", async () => {
+  const daemon = new Daemon();
+  daemon.copy = { events: turn(1, 4, "old"), generation: 100, lastSeq: 4 };
+  const tab = open(daemon);
+  live.push(await tab.client);
+  await flush();
+  expect(tab.last()!.peerCopy?.offline).toBe(true);
+  // The session moves to cloud-vm, back: the Mac has no copy of it when the redraw reads, then
+  // the attach that follows is refused as down, by which time the Mac has one.
+  daemon.peer = "cloud-vm";
+  daemon.copy = undefined;
+  daemon.down = false;
+  daemon.refuseAttach = 1;
+  daemon.onAttach = () => {
+    daemon.copy = { events: turn(1, 3, "vm"), generation: 100, lastSeq: 3 };
+  };
+  daemon.announce();
+  await flush();
+  const shown = text(tab.last());
+  expect(shown).toContain("vm 3.");
+  expect(shown).not.toContain("old ");
+  expect(tab.last()!.peerCopy?.offline).toBe(true);
+});
+
+test("an attach reply that comes after the session moved to another machine is read again from that one", async () => {
+  const daemon = new Daemon();
+  daemon.down = false;
+  daemon.log = turn(1, 3, "vm");
+  // The row names cloud-vm before the attach is answered; the answer is huge-blue's journal.
+  daemon.onAttach = () => {
+    daemon.peer = "cloud-vm";
+    daemon.announce();
+  };
+  daemon.staleReply = { createdAt: 100, events: turn(1, 5, "old") };
+  const tab = open(daemon);
+  live.push(await tab.client);
+  await flush();
+  const shown = text(tab.last());
+  expect(shown).toContain("vm 3.");
+  expect(shown).not.toContain("old ");
+  expect(daemon.asked.filter((m) => m.method === "_acpmux/attach").length).toBe(2);
+});
+
+test("a session recreated and back at once takes the old copy off screen before it is read", async () => {
+  const daemon = new Daemon();
+  daemon.copy = { events: turn(1, 4, "old"), generation: 100, lastSeq: 4 };
+  const tab = open(daemon);
+  live.push(await tab.client);
+  await flush();
+  expect(tab.last()!.peerCopy?.offline).toBe(true);
+  // While the attach after the row is out, the old session's rows are no longer drawn.
+  let shownDuringAttach = "";
+  daemon.onAttach = () => {
+    shownDuringAttach = text(tab.last());
+  };
+  daemon.createdAt = 200;
+  daemon.copy = undefined;
+  daemon.log = turn(1, 3, "new");
+  daemon.comeBack();
+  await flush();
+  expect(shownDuringAttach).not.toContain("old ");
+  const shown = text(tab.last());
+  expect(shown).toContain("new 3.");
+  expect(shown).not.toContain("old ");
 });
