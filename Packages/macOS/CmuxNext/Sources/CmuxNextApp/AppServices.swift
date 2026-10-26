@@ -117,12 +117,21 @@ final class AppServices {
     /// The app's one fan-out of app-wide notices (`AppEvents`, p06-scheduler-021): every window's
     /// key tracker and later adopters subscribe here, one observer per name for the whole app.
     let appEvents = AppEvents(center: .default)
+    /// The app's one fan-out of `NSWorkspace.shared.notificationCenter` notices; ``appearance``
+    /// observes the display options through it (`observeGlass`) and ``appVisibility`` the display sleeps.
+    // raw-observer-allow: the AppEvents fan-out itself, one observer per workspace notice for the whole app
+    let workspaceEvents = AppEvents(center: NSWorkspace.shared.notificationCenter)
     /// The app's node in the visibility tree (hidden app, sleeping displays), every window's
     /// node's parent (`WindowVisibilitySource`, p06-scheduler-022).
     private(set) lazy var appVisibility = AppVisibilitySource(
-        appEvents: appEvents, workspaceEvents: AppEvents(center: NSWorkspace.shared.notificationCenter),
+        appEvents: appEvents, workspaceEvents: workspaceEvents,
         isAppHidden: NSApp.isHidden
     )
+    /// Reduce Motion, the motion switches, hover cards, the inactive dim and the system's display
+    /// options (``AppearanceSignals``, p06-scheduler-043), handed to the readers this root builds:
+    /// the glass watch, every window and the content its panes show. The design settings own it,
+    /// so `Motion` reads the same one.
+    let appearance: AppearanceSignals
     let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
     let iphone = IPhoneHostService()
@@ -531,6 +540,7 @@ final class AppServices {
     ///   (`TraceRuntime.shared`) by default, a test's fake, or nil to watch nothing.
     /// - Parameter energyMonitor: The app's power inputs: the system's by default (nothing reads IOKit
     ///   until `startEnergy`, which only `AppDelegate` calls), or a test's over fixed inputs.
+    /// - Parameter appearance: The appearance signals (the app's design settings'; a test's own).
     /// - Parameter launchStartup: The launch's scheduler (`AppDelegate` passes `LaunchOrder.startup`); nil (tests)
     ///   makes the right sidebar's icons on main when its first panel is built.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = LaunchReveal(), agentPaneEnvironment: [String: String]? = nil,
@@ -539,7 +549,8 @@ final class AppServices {
          wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch,
          energyMonitor: EnergyMonitor = EnergyMonitor(), inputTap: InputEventTap = InputEventTap(),
          launchImageHold: LaunchImageHold = LaunchImageHold(), launchStartup: StartupScheduler? = nil,
-         crashKeys: CrashKeySlots? = nil) {
+         crashKeys: CrashKeySlots? = nil, appearance: AppearanceSignals = DesignSettings.shared.signals) {
+        self.appearance = appearance
         let work = work ?? BackgroundWork(hangs: hangWatch)
         self.work = work
         self.energyMonitor = energyMonitor

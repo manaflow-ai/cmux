@@ -7,7 +7,7 @@ import os
 import CmuxNextErrorJournal
 public import WebKit
 import CmuxNextTrace
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// A view that is a cmux page. The key dispatcher reads it to know the focused surface is a page
 /// (`surfaceKind == page`); a page view adds no key handling of its own.
@@ -94,7 +94,14 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     private var uiScaleObservation: Task<Void, Never>?
     /// The static status look (`WebTheme.statusIndicators`): the setting and Reduce Motion.
     private var statusLookObservation: Task<Void, Never>?
-    private var reduceMotionObservers: [MainActorObservation] = []
+    /// Reduce Motion, the motion switches and the display options (``followAppearance(_:node:)``).
+    private var appearanceWatch: AppearanceSignals.Subscription?
+    /// Where those come from: the app's ``AppearanceSignals`` (its composition root's, once a pane shows the page).
+    private(set) var appearanceSignals = DesignSettings.shared.signals
+    /// The page's tab in the visibility tree, held while it follows it (``followAppearance(_:node:)``).
+    private var visibilityNode: VisibilityNode?
+    /// How many appearance changes reached this page (tests: a hidden page gets none).
+    package private(set) var appearanceCalls = 0
     public var additionalZoom: Double = 1 {
         didSet { if additionalZoom != oldValue { applyUIScale() } }
     }
@@ -398,19 +405,28 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
                 self.applyTheme()
             }
         }
-        // Reduce Motion is not observable through Observation.
-        reduceMotionObservers = [
-            MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
-                self?.applyTheme()
-            },
-            MainActorObservation(Motion.reduceMotionDidChange) { [weak self] in
-                self?.applyTheme()
-            },
-            // The master motion switch, a category switch or the speed: `data-cmux-motion` follows.
-            MainActorObservation(Motion.speedDidChange) { [weak self] in
-                self?.applyTheme()
-            },
-        ]
+        observeAppearance()
+    }
+
+    /// Follows `signals` by `node`'s visibility (p06-scheduler.md B): a hidden page re-themes once
+    /// when it shows, not on each change. The pane that shows the page calls it
+    /// (`TabContent.followAppearance`).
+    public func followAppearance(_ signals: AppearanceSignals, node: VisibilityNode?) {
+        guard signals !== appearanceSignals || node !== visibilityNode else { return }
+        appearanceSignals = signals
+        visibilityNode = node
+        observeAppearance()
+        applyTheme()
+    }
+
+    /// Reduce Motion, the master motion switch, a category switch or the speed (`data-cmux-motion`),
+    /// and Reduce Transparency (the opaque page background, ``currentTheme(backgrounds:)``).
+    private func observeAppearance() {
+        appearanceWatch = appearanceSignals.subscribe([.motion, .displayOptions], viewNode: visibilityNode, owner: "PageWebView") { [weak self] in
+            guard let self else { return }
+            appearanceCalls += 1
+            applyTheme()
+        }
     }
 
     private func observeUIScale() {
@@ -607,7 +623,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The page theme from this view's scope and ``themeSurface``: the surface's override (from
     /// `backgrounds`, the app's) replaces the page background; nil keeps the scope's own.
     func currentTheme(backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> WebTheme {
-        WebTheme(themeTokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
+        WebTheme(themeTokens, reduceTransparency: appearanceSignals.display.reduceTransparency,
                  surface: themeSurface ?? .internalPage, backgrounds: backgrounds)
     }
 

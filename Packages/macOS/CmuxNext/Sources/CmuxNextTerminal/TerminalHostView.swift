@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import CmuxNextTerminalFind
 public import CmuxNextWakeups
 import Observation
@@ -90,7 +90,14 @@ public final class TerminalHostView: NSView {
     private var configWatch: VisibleObservation<UInt64>?
     /// Layouts a config change asked for, the first apply included (tests).
     package private(set) var configLayouts = 0
-    private var transparencyObserver: (any NSObjectProtocol)?
+    /// Display option changes (``followAppearance(_:node:)``).
+    private var transparencyWatch: AppearanceSignals.Subscription?
+    /// Where they come from: the app's ``AppearanceSignals`` (its composition root's, once a pane shows the terminal).
+    private var appearanceSignals = DesignSettings.shared.signals
+    /// The terminal's tab in the visibility tree, held while it follows it.
+    private var visibilityNode: VisibilityNode?
+    /// How many appearance changes reached this terminal (tests: a hidden terminal gets none).
+    package private(set) var appearanceCalls = 0
     /// Held here: scopes keep their responders weakly.
     private let aroundListener = TerminalHostThemeListener()
 
@@ -129,11 +136,25 @@ public final class TerminalHostView: NSView {
         scroller.onStyleChange = { [weak self] in self?.needsLayout = true }
         scroller.onScrollToRow = { [weak self] row in _ = self?.current?.performBindingAction("scroll_to_row:\(row)") }
         scroller.onWheel = { [weak self] event in self?.current?.scrollWheel(with: event) }
-        // Reduce Transparency turns the window opaque or see-through without a theme change.
-        transparencyObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
-            MainActor.assumeIsolated { self?.paintBackground() }
+        observeAppearance()
+    }
+
+    /// Follows `signals` by `node`'s visibility (p06-scheduler.md B): a hidden terminal repaints once
+    /// when it shows, not on each change. The pane that shows the terminal calls it
+    /// (`TabContent.followAppearance`).
+    public func followAppearance(_ signals: AppearanceSignals, node: VisibilityNode?) {
+        guard signals !== appearanceSignals || node !== visibilityNode else { return }
+        appearanceSignals = signals
+        visibilityNode = node
+        observeAppearance()
+    }
+
+    /// Reduce Transparency turns the window opaque or see-through without a theme change.
+    private func observeAppearance() {
+        transparencyWatch = appearanceSignals.subscribe([.displayOptions], viewNode: visibilityNode, owner: "TerminalHostView") { [weak self] in
+            guard let self else { return }
+            appearanceCalls += 1
+            paintBackground()
         }
     }
 
@@ -234,14 +255,6 @@ public final class TerminalHostView: NSView {
         shellStall = stall
         banner.show(shownStatus, hostLoss: hostLoss, cause: hostLossCause, stall: stall)
         needsLayout = true
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            if let transparencyObserver { NSWorkspace.shared.notificationCenter.removeObserver(transparencyObserver) }
-        }
     }
 
     @available(*, unavailable)
