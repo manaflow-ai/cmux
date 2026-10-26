@@ -120,6 +120,8 @@ on:
       - scripts/cmux-next/check-package-dependency-lists.py
       - scripts/cmux-next/regenerate-action-contracts.sh
       - scripts/cmux-next/regenerate-settings-exports.sh
+      - scripts/cmux-next/settings-exports.txt
+      - scripts/cmux-next/check-settings-exports.sh
       - .github/actions/setup-cmux-tui-rust/**
       - cmux-tui/**
       - CLI/**
@@ -354,6 +356,8 @@ on:
       - scripts/cmux-next/check-package-dependency-lists.py
       - scripts/cmux-next/regenerate-action-contracts.sh
       - scripts/cmux-next/regenerate-settings-exports.sh
+      - scripts/cmux-next/settings-exports.txt
+      - scripts/cmux-next/check-settings-exports.sh
       - .github/actions/setup-cmux-tui-rust/**
       - cmux-tui/**
       - CLI/**
@@ -639,10 +643,11 @@ jobs:
   # The daemon and scheme tiers also need this commit's same-tree cmux-tui.
   # It is probed once here, never awaited (pin-cmux-tui.sh probe): published,
   # the tree jobs run in this run; still being built, this run leaves a
-  # cmux-next-tree-wait-<key> marker and skips them, and the cmux-tui
-  # artifacts run that publishes the key dispatches this workflow's same-tree
-  # mode for it (scripts/ci/cmux_next_tree_notify.py). A superseded push skips
-  # them; a tree that nothing will publish fails same-tree-cmux-tui at once.
+  # cmux-next-tree-wait-<key> marker and skips them, and a trusted publication
+  # may dispatch this workflow's same-tree mode for it
+  # (scripts/ci/cmux_next_tree_notify.py). A superseded push skips them. PRs
+  # never create a synthetic pin ref: a cold PR tree is skipped with a named
+  # reason, while trusted branch pushes still report an unavailable tree.
   path_route:
     if: ${{ inputs.same_tree_sha == '' }}
     name: cmux-next path routing
@@ -848,22 +853,20 @@ jobs:
           # still publishing, build the exact app head against the newest
           # published compatible tree instead of waiting on nightly's tree.
           CMUX_TUI_TREE_BASE_FALLBACK: ${{ (inputs.dev_daily == true || steps.route.outputs.own_tui == 'false') && '1' || '' }}
-          # A same-repository PR with its own merge tree waits (read-only, the
-          # script's 90s default) for the artifacts run main's
-          # cmux-next-pr-merge-tree.yml starts on cmux-tui-pin-<sha12>. That
-          # workflow skips forks, so a fork PR looks once.
-          CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '0' || '' }}
+          # No PR merge-tree publisher exists. A PR looks once for an already
+          # published tree or trusted publisher; a cold own tree is skipped.
+          CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS: ${{ github.event_name == 'pull_request' && '0' || '' }}
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh probe
 
-      # What the publish needs to start this run's tree jobs later. Written for
-      # failed too: a later publication of the key (a takeover run, a
-      # cmux-tui-pin-* push) still starts them.
+      # What a trusted publication needs to start this run's tree jobs later.
+      # A cold PR tree has no publisher, so it leaves no marker. An active
+      # trusted run still gets one and may later start the tree jobs.
       - name: Write the tree wait marker
         id: marker
         # A DEV daily run waits for its own tree (job dev-daily-tree-wait): a
         # same-tree run would start only while the tip is still its SHA.
-        if: inputs.dev_daily != true && (steps.tree.outputs.tree_state == 'deferred' || steps.tree.outputs.tree_state == 'failed')
+        if: inputs.dev_daily != true && (steps.tree.outputs.tree_state == 'deferred' || (github.event_name != 'pull_request' && steps.tree.outputs.tree_state == 'failed'))
         env:
           KEY: ${{ steps.tree.outputs.tree_key }}
           DAEMON: ${{ steps.route.outputs.daemon }}
@@ -932,7 +935,7 @@ jobs:
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CMUX_TUI_TREE_BASE_FALLBACK: ${{ steps.route.outputs.own_tui == 'false' && '1' || '' }}
           CMUX_TUI_TREE_RECHECK_SECONDS: "0"
-          # The first probe already waited for main's merge-tree publisher.
+          # The first probe already inspected the trusted publisher.
           CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS: "0"
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh probe
@@ -943,13 +946,20 @@ jobs:
           STATE: ${{ steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state }}
           KEY: ${{ steps.tree.outputs.tree_key }}
           REASON: ${{ steps.tree-final.outputs.tree_reason || steps.tree.outputs.tree_reason }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
+          if [[ "$EVENT_NAME" == pull_request && "$STATE" == failed ]]; then
+            STATE=skipped
+            REASON="No cmux-tui-pin ref is created for pull requests; re-run after a trusted feat-cmux-next publication. $REASON"
+          fi
           {
             echo "### same-tree cmux-tui $KEY: $STATE"
             echo
             echo "$REASON"
           } >> "$GITHUB_STEP_SUMMARY"
-          if [[ "$STATE" == deferred ]]; then
+          if [[ "$STATE" == skipped ]]; then
+            echo "::notice title=same-tree cmux-tui skipped::$REASON"
+          elif [[ "$STATE" == deferred ]]; then
             echo "::notice title=same-tree cmux-tui deferred::$REASON"
           fi
 
@@ -2092,8 +2102,10 @@ jobs:
 
   same-tree-cmux-tui:
     needs: [path_route, push-head-preflight]
-    # A superseded push reports nothing: its newer head is tested.
-    if: ${{ !cancelled() && ((needs.path_route.outputs.tree_state == 'failed' && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'failed')) }}
+    # A superseded push reports nothing: its newer head is tested. Pull
+    # requests with a cold own tree are named in path_route's summary and
+    # skipped here; no synthetic cmux-tui-pin ref is created for them.
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && inputs.same_tree_origin != 'pull_request' && ((needs.path_route.outputs.tree_state == 'failed' && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'failed')) }}
     name: same-tree cmux-tui
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
     permissions:
@@ -3302,7 +3314,7 @@ jobs:
         id: settings
         if: ${{ env.CMUX_NEXT_FOLD_GENERATED == 'true' }}
         continue-on-error: true
-        run: python3 scripts/ci/defaults_guard.py check-stamp --base "$(git rev-parse HEAD^1)"
+        run: scripts/cmux-next/check-settings-exports.sh
 
       - name: Compile string catalogs into the resource bundles
         working-directory: Packages/macOS/CmuxNext
@@ -3359,12 +3371,8 @@ jobs:
           if [[ "${{ steps.actions.outcome }}" == failure ]]; then
             scripts/cmux-next/regenerate-action-contracts.sh
           fi
-          # The Swift settings export only when the source stamp is stale. It writes the
-          # files into the checkout, as the fleet export step does, and fails
-          # when the stamp still does not match afterwards.
-          if [[ "${{ steps.settings.outcome }}" == failure ]] && ! python3 scripts/ci/defaults_guard.py check-stamp; then
-            scripts/cmux-next/regenerate-settings-exports.sh "$RUNNER_TEMP/settings-exports"
-          fi
+          # A stale settings export was already written into the checkout by the
+          # check above.
           # The defaults snapshot reads the action and settings exports, so it
           # follows whichever of them was regenerated.
           python3 scripts/ci/defaults_guard.py snapshot
@@ -3374,7 +3382,7 @@ jobs:
           out="$RUNNER_TEMP/generated/files"
           mkdir -p "$out"
           generated=('plans/cmux-next/*.json' 'plans/cmux-next/*.md'
-            schemas/settings/settings-schema.json 'schemas/settings-export/*' 'docs/mdm/*' schemas/defaults/cmux-next.json)
+            schemas/settings/settings-schema.json 'docs/mdm/*' schemas/defaults/cmux-next.json)
           git add -N -- "${generated[@]}"
           git diff --name-only -- "${generated[@]}" > "$RUNNER_TEMP/generated/paths.txt"
           git diff --stat
@@ -3403,7 +3411,7 @@ jobs:
             echo "### Generated cmux-next files are stale"
             echo
             [[ "${{ steps.actions.outcome }}" != failure ]] || echo "- action catalog, surfaces or inventory: scripts/cmux-next/regenerate-action-contracts.sh"
-            [[ "${{ steps.settings.outcome }}" != failure ]] || echo "- settings exports and source stamp: scripts/cmux-next/regenerate-settings-exports.sh"
+            [[ "${{ steps.settings.outcome }}" != failure ]] || echo "- settings exports: scripts/cmux-next/regenerate-settings-exports.sh"
             echo
             echo "The cmux-next-generated-patch artifact holds the regenerated files at their repository paths."
           } | tee -a "$GITHUB_STEP_SUMMARY"
@@ -3420,8 +3428,8 @@ jobs:
           retention-days: 3
 
   # Generated files are fresh: the action catalog, surfaces and inventory
-  # (ActionSurfaceParityTests and its siblings) and the settings exports with
-  # their source stamp; the CI target graph and the defaults snapshot are
+  # (ActionSurfaceParityTests and its siblings) and the settings exports,
+  # against a fresh export; the CI target graph and the defaults snapshot are
   # bot-only (#21946) and not checked. Its
   # own job, so a pull request that skips the package tests still cannot land
   # a stale export (feat-cmux-next went red at a925bd9 that way). When a file
@@ -3675,19 +3683,16 @@ jobs:
       # #21946): it is stale on every event between a merge that adds a target
       # and the base autofix's commit, so no event checks it here.
 
-      # The settings exports (schemas/settings/settings-schema.json, docs/mdm):
-      # check-stamp recomputes the source stamp (schemas/settings-export) from
-      # the CmuxNextSettings sources, so a settings edit without a re-export
-      # fails here and is regenerated below. --base HEAD^1 (the merge commit's
-      # base tip, or a push's parent): a source already stale on the base is a
-      # warning, since the base autofix regenerates it after the merge. The
-      # defaults snapshot is bot-only (#21946): it is stale on every event
-      # between a merge and the base autofix's commit, so no event checks it here.
+      # The settings exports (schemas/settings/settings-schema.json, docs/mdm)
+      # are compared with a fresh export, never with a committed stamp of their
+      # sources (Leo 2026-10-21: "just generate and don't commit"). The script
+      # says when it exports and whose staleness a stale export is; the
+      # daemon-test job's folded copy runs the same one.
       - name: Check the settings exports
         id: settings
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
-        run: python3 scripts/ci/defaults_guard.py check-stamp --base "$(git rev-parse HEAD^1)"
+        run: scripts/cmux-next/check-settings-exports.sh
 
       # Only the generated paths are collected into the artifact.
       - name: Regenerate stale files
@@ -3698,12 +3703,8 @@ jobs:
           if [[ "${{ steps.actions.outcome }}" == failure ]]; then
             scripts/cmux-next/regenerate-action-contracts.sh
           fi
-          # The Swift settings export only when the source stamp is stale. It writes the
-          # files into the checkout, as the fleet export step does, and fails
-          # when the stamp still does not match afterwards.
-          if [[ "${{ steps.settings.outcome }}" == failure ]] && ! python3 scripts/ci/defaults_guard.py check-stamp; then
-            scripts/cmux-next/regenerate-settings-exports.sh "$RUNNER_TEMP/settings-exports"
-          fi
+          # A stale settings export was already written into the checkout by the
+          # check above.
           # The defaults snapshot reads the action and settings exports, so it
           # follows whichever of them was regenerated.
           python3 scripts/ci/defaults_guard.py snapshot
@@ -3713,7 +3714,7 @@ jobs:
           out="$RUNNER_TEMP/generated/files"
           mkdir -p "$out"
           generated=('plans/cmux-next/*.json' 'plans/cmux-next/*.md'
-            schemas/settings/settings-schema.json 'schemas/settings-export/*' 'docs/mdm/*' schemas/defaults/cmux-next.json)
+            schemas/settings/settings-schema.json 'docs/mdm/*' schemas/defaults/cmux-next.json)
           git add -N -- "${generated[@]}"
           git diff --name-only -- "${generated[@]}" > "$RUNNER_TEMP/generated/paths.txt"
           git diff --stat
@@ -3742,7 +3743,7 @@ jobs:
             echo "### Generated cmux-next files are stale"
             echo
             [[ "${{ steps.actions.outcome }}" != failure ]] || echo "- action catalog, surfaces or inventory: scripts/cmux-next/regenerate-action-contracts.sh"
-            [[ "${{ steps.settings.outcome }}" != failure ]] || echo "- settings exports and source stamp: scripts/cmux-next/regenerate-settings-exports.sh"
+            [[ "${{ steps.settings.outcome }}" != failure ]] || echo "- settings exports: scripts/cmux-next/regenerate-settings-exports.sh"
             echo
             echo "The cmux-next-generated-patch artifact holds the regenerated files at their repository paths."
           } | tee -a "$GITHUB_STEP_SUMMARY"

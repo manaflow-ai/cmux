@@ -35,7 +35,13 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.newAgentChat", defaultValue: "New Agent Chat", bundle: .module),
                 keywords: ["agent", "chat", "ai", "acpmux"], defaultShortcut: Shortcut("i", modifiers: [.command]),
                 category: .agents, symbol: "bubble.left.and.bubble.right",
-                surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.pane], cliName: "agent new-chat", mainMenu: .file
+                surfaces: [.palette, .keyboard, .menu, .contextMenu],
+                // `cwd`: the folder a chat opened by a script starts in (#23016).
+                arguments: [ActionArgument(name: "cwd", title: String(localized: "argument.agent.cwd", defaultValue: "Folder", bundle: .module),
+                                           kind: .string, isRequired: false)],
+                // A workspace target opens in its last focused pane; a pane or workspace that no
+                // window shows gets the tab without being shown (AgentChatPlacement, #23016).
+                targets: [.pane, .workspace], cliName: "agent new-chat", mainMenu: .file
             ),
             ActionDescriptor(
                 id: "agentPane.toggleSessionInfo",

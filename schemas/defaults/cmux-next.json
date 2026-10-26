@@ -237,6 +237,7 @@
     "setting.agentPane.display.font.size": 14,
     "setting.agentPane.display.fullWidth": false,
     "setting.agentPane.display.inspector.placement": "overlay",
+    "setting.agentPane.display.minimap": "compact",
     "setting.agentPane.display.vscodeMinimap": false,
     "setting.agentPane.display.width": 800,
     "setting.agentPane.editedFiles.maxRows": 5,
