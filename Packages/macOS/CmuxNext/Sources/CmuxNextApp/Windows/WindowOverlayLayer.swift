@@ -28,7 +28,9 @@ import CmuxNextSignposts
 ///   the pages that forward the mouse to the parent. A page attached as a
 ///   view of its pane (p03-rendering-045) has no window of its own: the
 ///   divider views take the mouse in this window, as over a terminal, and
-///   no catcher or panel is made.
+///   no catcher or panel is made. A visible content panel (a remote page's
+///   popup) cuts a hole in every catcher it overlaps: the popup is below
+///   the catchers and keeps its clicks there.
 ///
 /// App panels that are child windows (palette, hover cards, group editor)
 /// stay above the overlay panel. Child window z-order is the order of
@@ -64,6 +66,8 @@ final class WindowOverlayLayer {
     /// A visible page window takes the mouse over the layout (``takesMouse(_:)``): its divider hit areas
     /// need catcher panels above it.
     private(set) var pageWindowsTakeMouse = false
+    /// The visible content panels' frames (window coordinates) the catchers were last cut around.
+    private(set) var catcherHoles: [CGRect] = []
     /// Takes a `cef.geometry` slice per parent geometry change and catcher sync (tests pass their own).
     private let signposter: Signposter
     /// A `cef.geometry` slice is open: work inside it takes no slice of its own (``inGeometrySlice(_:_:)``).
@@ -304,9 +308,14 @@ final class WindowOverlayLayer {
 
     /// A visible content child window takes the mouse over the layout: a Chromium page window (a page
     /// drawn in its own window, or a layer-hosted page's input window). A content panel
-    /// (`ContentChildPanel`: a remote page's popup reaching past the page's edge) does not: it is the
-    /// popup's own target, and a catcher above it would take its clicks.
+    /// (`ContentChildPanel`: a remote page's popup reaching past the page's edge) does not: it takes
+    /// its own clicks, and the catchers are cut around it (``catcherHoles``).
     nonisolated static func takesMouse(_ child: NSWindow) -> Bool { !(child is ContentChildPanel) }
+
+    /// Where catchers must leave the mouse to a visible content panel: its frame in window coordinates.
+    private func contentPanelRects(in content: [NSWindow]) -> [CGRect] {
+        content.compactMap { $0 is ContentChildPanel ? window.convertFromScreen($0.frame) : nil }
+    }
 
     /// Moves the planes to where they draw above content, and restores the
     /// child window order when a page window was added above the overlay.
@@ -324,7 +333,9 @@ final class WindowOverlayLayer {
         let content = window.isVisible ? Self.contentChildWindows(of: window) : []
         let wanted: Placement = content.isEmpty ? .inWindow : .overlayWindow
         let takeMouse = content.contains(where: Self.takesMouse)
-        let catchersChange = wanted != placement || takeMouse != pageWindowsTakeMouse
+        // A popup that appears, moves or hides over a divider re-cuts the catchers.
+        let holesChange = takeMouse && contentPanelRects(in: content) != catcherHoles
+        let catchersChange = wanted != placement || takeMouse != pageWindowsTakeMouse || holesChange
         pageWindowsTakeMouse = takeMouse
         if wanted != placement {
             placement = wanted
@@ -400,9 +411,9 @@ final class WindowOverlayLayer {
     }
 
     /// Click-catching panels over divider hit areas while a page window takes the mouse, in one
-    /// `cef.geometry` slice. With none, no catcher exists and the sync costs no slice.
+    /// `cef.geometry` slice. With none, and no catcher panel left to hide, the sync costs no slice.
     private func syncCatchers() { // perf-hot: 1ms cef-geometry (one window move per divider catcher panel)
-        guard pageWindowsTakeMouse || catchers != nil else { return }
+        guard pageWindowsTakeMouse || (catchers?.shownCount ?? 0) > 0 else { return }
         inGeometrySlice(.catcherSync) { applyCatchers() }
     }
 
@@ -410,9 +421,10 @@ final class WindowOverlayLayer {
         // A modal or dimming overlay blocks the whole window: no divider takes the mouse under it.
         let blocked = WindowOverlayHost.existingHost(for: window)?.blocksWholeWindow == true
         let active = pageWindowsTakeMouse && !blocked
+        catcherHoles = pageWindowsTakeMouse && window.isVisible ? contentPanelRects(in: Self.contentChildWindows(of: window)) : []
         guard let catchers = active ? self.catchers ?? makeCatchers() : self.catchers else { return }
         let shownBefore = catchers.shownCount
-        catchers.update(catcherAreas, active: active)
+        catchers.update(catcherAreas, active: active, excluding: catcherHoles)
         // No panel showed or shows: what lies under the pointer did not change.
         guard shownBefore > 0 || catchers.shownCount > 0 else { return }
         // The panels pass hover through to the layout, and moving them under
