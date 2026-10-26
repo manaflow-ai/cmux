@@ -33,13 +33,13 @@ extension InternalPageTabStore {
         for pane in panes {
             guard let tab = pane.tabs.first(where: { $0.page == page.rawValue }) else { continue }
             if focus, let controller = content.controller(for: pane) { reveal(tab.id, in: controller) }
-            return view(forStoreTab: tab, in: daemon.store, local: daemon.isLocal, window: window)
+            return tabView(forStoreTab: tab, in: daemon.store, local: daemon.isLocal, window: window)
         }
         if let found = tab(of: page, inPanes: panes.map(\.id)) {
             if focus, let controller = panes.first(where: { $0.id == found.pane }).flatMap(content.controller(for:)) {
                 reveal(found.key, in: controller)
             }
-            return view(for: found.key)
+            return tabView(for: found.key)
         }
         return openNew(page, in: window, focus: focus)
     }
@@ -63,7 +63,7 @@ extension InternalPageTabStore {
             pane.apply(pane.snapshot())
             if focus { reveal(key, in: pane) }
         }
-        return view(for: key)
+        return tabView(for: key)
     }
 
     /// `page` as `window`'s top page (one view per window, shown again on a
@@ -142,11 +142,11 @@ extension InternalPageTabStore {
 
     /// Lets `tab`'s view go and keeps the tab (strip place, title, icon), its route and `state`,
     /// given back to the view made at its next show. The provider tears the view down
-    /// (``InternalPageProvider/viewDiscarded(_:)``). False with no view.
+    /// (``InternalPageProvider/viewDiscarded(_:)``). False with no view, or one whose content never showed.
     @discardableResult
     func discardView(ofTab tab: String, state: ContentViewState) -> Bool {
         let key = providerKey(ofTab: tab)
-        guard discards != nil, let view = takeView(key) else { return false }
+        guard discards != nil, existingView(key) != nil, let view = takeView(key) else { return false }
         view.removeFromSuperview()
         let owner = LocalPageTab.page(of: key).flatMap { self.provider($0) }
         discardRecords.discarded[key] = ContentDiscardRecords.Record(state: state, route: owner?.route(for: key))
