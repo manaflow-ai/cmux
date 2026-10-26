@@ -5,7 +5,7 @@ import Testing
 /// clause is a parse error for its entry, never a recursion that runs the app out of stack
 /// (p10-stability-026; Chromium bounds JSON the same way, base/json/json_common.h `kAbsoluteMaxDepth`).
 struct WhenClauseDepthTests {
-    static let limit = 200
+    nonisolated static let limit = 200
 
     static func parens(_ depth: Int) -> String {
         String(repeating: "(", count: depth) + "editorFocus" + String(repeating: ")", count: depth)

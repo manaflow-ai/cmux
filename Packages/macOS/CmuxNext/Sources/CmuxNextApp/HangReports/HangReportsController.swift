@@ -71,8 +71,9 @@ final class HangReportsController {
         let builder = HangReportBuilder(classifier: ImageClassifier(appBundlePath: Bundle.main.bundlePath, forbiddenTerms: personalTermsOfThisMac),
                                         resolver: resolver)
         // Blocking sites are kept only when the schema the server accepts carries them.
+        let resolveBlocking: HangReportCollector.ResolveBlocking = { builder.frames(blocking: $0) }
         let collector = HangReportCollector(resolve: { builder.frames(addresses: $0) },
-                                            resolveBlocking: builder.wireSchema.carriesBlocking ? { builder.frames(blocking: $0) } : nil)
+                                            resolveBlocking: builder.wireSchema.carriesBlocking ? resolveBlocking : nil)
         let info = Bundle.main.infoDictionary ?? [:]
         let os = ProcessInfo.processInfo.operatingSystemVersion
         let service = HangReportService(
