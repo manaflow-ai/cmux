@@ -20,8 +20,7 @@ import CmuxNextDesignTokens
         }
     }
 
-    /// Under the default settings a window that is not key gets what the key one gets: zero wash,
-    /// and the glass lets no key-state change through, so it keeps the key material state.
+    /// Under the default settings a window that is not key gets what the key one gets: zero wash.
     @Test func theInactiveStateMatchesTheKeyStateByDefault() {
         let dim = CGFloat(DesignSettings().inactiveWindowDim)
         #expect(dim == 0, "appearance.inactiveWindowDim is off by default")
@@ -30,11 +29,19 @@ import CmuxNextDesignTokens
             let notKey = WindowMaterialView.inactiveTintAlpha(material: material, isKeyWindow: false, dim: dim)
             #expect(key == 0 && notKey == key, "\(material): no wash in front or behind")
         }
-        if #available(macOS 26.0, *) {
-            #expect(ActiveLookGlassEffectView.passesKeyStateChange(windowIsKey: true))
-            #expect(!ActiveLookGlassEffectView.passesKeyStateChange(windowIsKey: false),
-                    "a window resigning key must not switch the glass to its inactive frost")
-        }
+    }
+
+    /// Inside a backdrop glass update, the glass's material read answers active whatever the key
+    /// state; its other read (the traffic lights follow it) and every read outside get AppKit's.
+    @Test func onlyTheGlassMaterialReadIsForcedActive() {
+        var site: UInt?
+        #expect(!ActiveLookScope.forcesActive(depth: 0, site: 10, materialSite: &site), "outside a glass update")
+        #expect(site == nil)
+        #expect(ActiveLookScope.forcesActive(depth: 1, site: 10, materialSite: &site), "the first read in the scope: the material")
+        #expect(site == 10)
+        #expect(!ActiveLookScope.forcesActive(depth: 1, site: 20, materialSite: &site), "the second read keeps AppKit's answer")
+        #expect(ActiveLookScope.forcesActive(depth: 2, site: 10, materialSite: &site))
+        #expect(!ActiveLookScope.forcesActive(depth: 0, site: 10, materialSite: &site))
     }
 
     /// The window backdrop's glass keeps its active look; other glass panels follow the key state

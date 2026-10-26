@@ -1,4 +1,5 @@
 public import AppKit
+import Darwin
 import ObjectiveC
 
 /// One glass panel, whatever the OS: Liquid Glass (`NSGlassEffectView`) on
@@ -170,30 +171,123 @@ public final class GlassPanelView: NSView {
     }
 }
 
-/// Liquid Glass that keeps its key-window look when its window resigns key (Leo, 2026-10-26: "i
+/// Liquid Glass that keeps its key-window look when its window is not key (Leo, 2026-10-26: "i
 /// didnt want any glass. you're frosting the app's background which is pointless?").
 ///
-/// `NSGlassEffectView` has no public `state` like `NSVisualEffectView.state = .active`. When its
-/// window resigns key, AppKit calls the view's private `_windowChangedKeyState`, and the glass drops
-/// its `tintColor` and draws the system's inactive grey frost. This view lets that call through only
-/// while its window is key, so it takes the active look when the window first becomes key and keeps
-/// it after (measured on macOS 27 with a tinted glass window: key 0.69/0.50/0.38, not key with plain
-/// `NSGlassEffectView` 0.18 grey, not key with this view 0.69/0.50/0.38, the key look). If AppKit
-/// stops calling the hook, this changes nothing and the glass follows the key state again.
+/// `NSGlassEffectView` has no public `state` like `NSVisualEffectView.state = .active`. It draws
+/// from a private SwiftUI graph whose environment it builds from its window, and the inactive grey
+/// frost follows the window's `_hasActiveAppearanceIgnoringKeyFocus` read there. While this view
+/// updates its subtree (``ActiveLookScope``), that one read answers true, so the glass keeps the
+/// key look; every other read, including the glass's second read that the titlebar's traffic
+/// lights follow, gets AppKit's answer. Measured on macOS 27.0.1, a glass window tinted
+/// 0.85/0.45/0.2 at 0.55: key 0.689/0.504/0.378; another app active, plain glass 0.541 grey and
+/// this view 0.689/0.504/0.378, with grey traffic lights as before. If AppKit stops reading it
+/// there, nothing is forced and the glass follows the key state again.
 @available(macOS 26.0, *)
 final class ActiveLookGlassEffectView: NSGlassEffectView {
-    private static let keyStateChange = NSSelectorFromString("_windowChangedKeyState")
+    override init(frame frameRect: NSRect) {
+        ActiveLookScope.install()
+        super.init(frame: frameRect)
+    }
 
-    /// Whether a key-state change reaches the glass: only into a key window.
-    static func passesKeyStateChange(windowIsKey: Bool) -> Bool { windowIsKey }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func layout() { ActiveLookScope.during { super.layout() } }
+    override func updateConstraints() { ActiveLookScope.during { super.updateConstraints() } }
+    override func viewWillDraw() { ActiveLookScope.during { super.viewWillDraw() } }
+    override func viewDidMoveToWindow() { ActiveLookScope.during { super.viewDidMoveToWindow() } }
+    override func viewDidChangeEffectiveAppearance() { ActiveLookScope.during { super.viewDidChangeEffectiveAppearance() } }
+
+    // AppKit lays out and updates constraints for the subtree (the glass's own hosting view, where
+    // the read happens) through these, not through the public methods above.
+    @objc(_layoutSubtreeWithOldSize:)
+    func layoutSubtree(withOldSize oldSize: NSSize) {
+        typealias Method = @convention(c) (NSView, Selector, NSSize) -> Void
+        let selector = NSSelectorFromString("_layoutSubtreeWithOldSize:")
+        guard let implementation = Self.superImplementation(selector) else { return }
+        ActiveLookScope.during { unsafeBitCast(implementation, to: Method.self)(self, selector, oldSize) }
+    }
+
+    @objc(_updateConstraintsForSubtreeIfNeededCollectingViewsWithInvalidBaselines:)
+    func updateConstraintsForSubtree(collecting views: UnsafeMutableRawPointer?) {
+        typealias Method = @convention(c) (NSView, Selector, UnsafeMutableRawPointer?) -> Void
+        let selector = NSSelectorFromString("_updateConstraintsForSubtreeIfNeededCollectingViewsWithInvalidBaselines:")
+        guard let implementation = Self.superImplementation(selector) else { return }
+        ActiveLookScope.during { unsafeBitCast(implementation, to: Method.self)(self, selector, views) }
+    }
 
     @objc(_windowChangedKeyState)
     func windowChangedKeyState() {
-        guard Self.passesKeyStateChange(windowIsKey: window?.isKeyWindow == true) else { return }
-        // The glass's own handler (NSView's when the glass has none of its own).
-        guard let implementation = class_getMethodImplementation(NSGlassEffectView.self, Self.keyStateChange),
-              NSGlassEffectView.instancesRespond(to: Self.keyStateChange) else { return }
-        typealias Handler = @convention(c) (NSGlassEffectView, Selector) -> Void
-        unsafeBitCast(implementation, to: Handler.self)(self, Self.keyStateChange)
+        typealias Method = @convention(c) (NSView, Selector) -> Void
+        let selector = NSSelectorFromString("_windowChangedKeyState")
+        guard let implementation = Self.superImplementation(selector) else { return }
+        ActiveLookScope.during { unsafeBitCast(implementation, to: Method.self)(self, selector) }
+    }
+
+    /// The glass's own implementation (NSView's when it has none), or nil when AppKit has none.
+    private static func superImplementation(_ selector: Selector) -> IMP? {
+        NSGlassEffectView.instancesRespond(to: selector) ? class_getMethodImplementation(NSGlassEffectView.self, selector) : nil
+    }
+}
+
+/// Which reads of `NSWindow._hasActiveAppearanceIgnoringKeyFocus` answer true: only the glass's
+/// material read, and only while an ``ActiveLookGlassEffectView`` updates its subtree.
+///
+/// The glass's environment reads the window's active appearance twice in one pass: first for its
+/// material (the frost), then for a state the titlebar's traffic lights follow. Forcing both kept
+/// the traffic lights colored in an inactive window, so only the first call site seen inside the
+/// scope (the material read; the code runs it before the other) is forced, and every read outside
+/// the scope costs one integer check. Main thread only: AppKit lays out and draws there.
+enum ActiveLookScope {
+    /// How deep the updates of ``ActiveLookGlassEffectView``s nest now.
+    nonisolated(unsafe) private static var depth = 0
+    /// The return address of the glass's material read, learned from the first read in the scope.
+    nonisolated(unsafe) private static var materialSite: UInt?
+    nonisolated(unsafe) private static var installed = false
+
+    static func during(_ body: () -> Void) {
+        depth += 1
+        defer { depth -= 1 }
+        body()
+    }
+
+    /// Whether the read from `site` answers true (`depth` updates under way, `materialSite` the
+    /// site learned so far, set by the first read inside the scope).
+    static func forcesActive(depth: Int, site: UInt, materialSite: inout UInt?) -> Bool {
+        guard depth > 0 else { return false }
+        guard let known = materialSite else {
+            materialSite = site
+            return true
+        }
+        return site == known
+    }
+
+    /// Routes `NSWindow._hasActiveAppearanceIgnoringKeyFocus` through ``forcesActive``, once.
+    @MainActor static func install() {
+        guard !installed else { return }
+        installed = true
+        let selector = NSSelectorFromString("_hasActiveAppearanceIgnoringKeyFocus")
+        guard let method = class_getInstanceMethod(NSWindow.self, selector) else { return }
+        typealias Getter = @convention(c) (NSWindow, Selector) -> Bool
+        let original = unsafeBitCast(method_getImplementation(method), to: Getter.self)
+        let replacement: @convention(block) (NSWindow) -> Bool = { window in
+            guard depth > 0, Thread.isMainThread, let site = reader() else { return original(window, selector) }
+            return forcesActive(depth: depth, site: site, materialSite: &materialSite) || original(window, selector)
+        }
+        method_setImplementation(method, imp_implementationWithBlock(replacement))
+    }
+
+    /// The return address in the code that called the getter: the first frame outside this binary
+    /// (the getter's block and its trampoline are in it).
+    private static func reader() -> UInt? {
+        var own = Dl_info()
+        guard dladdr(#dsohandle, &own) != 0 else { return nil }
+        for frame in Thread.callStackReturnAddresses.prefix(8) {
+            var info = Dl_info()
+            guard dladdr(UnsafeRawPointer(bitPattern: frame.uintValue), &info) != 0 else { continue }
+            if info.dli_fbase != own.dli_fbase { return frame.uintValue }
+        }
+        return nil
     }
 }
