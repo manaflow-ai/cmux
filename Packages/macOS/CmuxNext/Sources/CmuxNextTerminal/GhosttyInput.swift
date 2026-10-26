@@ -146,23 +146,37 @@ nonisolated enum GhosttyInput {
         !flags.isDisjoint(with: [.control, .option, .command, .function])
     }
 
-    static func currentInputSourceID() -> String? {
+    /// The selected keyboard input source (one `TISCopyCurrentKeyboardInputSource`): its ID and whether it
+    /// is a plain keyboard layout. `TerminalInputSources` calls it, never once per typed key.
+    static func currentInputSource() -> TerminalInputSource? {
         guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
-              let property = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) else { return nil }
-        return Unmanaged<CFString>.fromOpaque(property).takeUnretainedValue() as String
+              let id = stringProperty(source, kTISPropertyInputSourceID) else { return nil }
+        let isLayout = stringProperty(source, kTISPropertyInputSourceType).map { CFEqual($0, kTISTypeKeyboardLayout) } ?? false
+        return TerminalInputSource(id: id as String, isKeyboardLayout: isLayout)
     }
 
-    /// The lowercase character a physical key types with no modifiers, for
-    /// matching Latin command keys under a Korean or Russian layout. Uses the
-    /// current layout when it yields ASCII, else the ASCII-capable source
-    /// (Korean 두벌식 has layout data but still translates to Hangul).
-    static func asciiCharacter(forKeyCode keyCode: UInt16) -> String? {
-        if let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
-           let result = character(in: source, keyCode: keyCode), result.allSatisfy(\.isASCII) {
-            return result
+    /// The lowercase character each physical key (virtual key codes 0-127) types with no modifiers, for
+    /// matching Latin command keys under a Korean or Russian layout. Uses the current source when it
+    /// yields ASCII, else the ASCII-capable source (Korean 두벌식 has layout data but still translates
+    /// to Hangul). `TerminalInputSources` builds it once per layout.
+    static func asciiKeyMap() -> [UInt16: String] {
+        let current = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue()
+        var asciiCapable: TISInputSource?
+        var map: [UInt16: String] = [:]
+        for keyCode in UInt16(0)..<128 {
+            if let current, let typed = character(in: current, keyCode: keyCode), typed.allSatisfy(\.isASCII) {
+                map[keyCode] = typed
+                continue
+            }
+            if asciiCapable == nil { asciiCapable = TISCopyCurrentASCIICapableKeyboardInputSource()?.takeRetainedValue() }
+            if let asciiCapable, let typed = character(in: asciiCapable, keyCode: keyCode) { map[keyCode] = typed }
         }
-        guard let source = TISCopyCurrentASCIICapableKeyboardInputSource()?.takeRetainedValue() else { return nil }
-        return character(in: source, keyCode: keyCode)
+        return map
+    }
+
+    private static func stringProperty(_ source: TISInputSource, _ key: CFString) -> CFString? {
+        guard let property = TISGetInputSourceProperty(source, key) else { return nil }
+        return Unmanaged<CFString>.fromOpaque(property).takeUnretainedValue()
     }
 
     private static func character(in source: TISInputSource, keyCode: UInt16) -> String? {
