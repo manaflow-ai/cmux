@@ -5,9 +5,11 @@
 
 CHECKS is the one table: each row holds the check's commands (as section 6 writes them, plus --json where the
 runner reads JSON), its thresholds in the spec's own units, and the judge that compares the two. The judges own
-no numbers. Queries come from queues.py (task 200): `queues.find(MQ).run(root)`, each item's key one hit. MQ4 is
-section 7's pipeline (`lab.py stories --lint --format=paths`, then the files without a result-v1 writer), since
-queues.py does not hold it. Check 3 reads each target's stories from the story catalog (catalog.py, task 007).
+no numbers. Queries come from queues.py (task 200): `queues.find(MQ).run(root)`, each item's key one hit, and
+its ALLOWLIST. MQ4 is section 7's pipeline (`lab.py stories --lint --format=paths`, then the files without a
+result-v1 writer), since queues.py does not hold it. Check 3 reads each target's stories from the story catalog
+(catalog.py, task 007). Check 4 reads the lab store (store.py's schema, $CMUX_PERF_LAB_DB) read-only: `lab.py runs`
+has no --config or --tier and prints no metric values.
 
 It prints one line per check (a JSON object with --json) and exits 0 only when every judged check passes; field
 and stability (check 18) are reported, never judged, because opt-in Nightly data in 72 h is small (3.10).
@@ -19,20 +21,27 @@ Chrome's analog is the perf waterfall's per-builder status: each step's command 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
+import os
 import re
 import shlex
+import sqlite3
 import subprocess
 import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import ModuleType
+from typing import Protocol
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 LAB_COMMANDS = {"done-checks": "run every perf-lab done check (p12-perf-process.md section 6)"}
+DB_ENV = "CMUX_PERF_LAB_DB"
+ALLOWLIST_QUERY = "ALLOWLIST"  # queues.ALLOWLIST: the files MQ1 keeps, by repo path
 
 PASS, FAIL, REPORTED = "pass", "fail", "reported"
 
@@ -43,7 +52,8 @@ class DoneCheckError(Exception):
 
 @dataclass(frozen=True)
 class Command:
-    """One command of a check. `run=False` names a command whose output the check reads from evidence files."""
+    """One command of a check. `run=False` names a command the runner does not run: the judge reads the same answer
+    from evidence files or the lab store."""
     argv: str
     spec: bool = True  # section 6 writes this command (tests hold the row to the spec text)
     run: bool = True
@@ -71,6 +81,19 @@ class TargetMap:
 Targets = Callable[[Path], list[TargetMap]]
 
 
+class RunStore(Protocol):
+    """The lab store as check 4 reads it (LabStore; tests pass a fake)."""
+
+    def runs(self, *, since_hours: float, config: str, tiers: Sequence[str]) -> list[dict[str, object]]:
+        """Runs of any kind started in the window on a build of `config` at one of `tiers`, oldest first:
+        {"run_uuid", "kind", "tier", "story", "sha", "config", "started_at"}."""
+        ...
+
+    def newest_point(self, metric: str, *, since_hours: float) -> dict[str, object] | None:
+        """The newest waterfall result of `metric` in the window: {"run_uuid", "story", "sha", "started_at", "p50"}."""
+        ...
+
+
 @dataclass
 class Evidence:
     root: Path
@@ -78,6 +101,7 @@ class Evidence:
     queries: dict[str, list[str]]
     kill_switch_evidence: Path | None = None
     targets: Targets | None = None
+    store: RunStore | None = None
 
 
 Verdict = tuple[bool, dict[str, object], str]
@@ -133,7 +157,7 @@ def _exited_zero(result: CommandResult) -> None:
         raise DoneCheckError(f"`{result.argv}` exited {result.returncode}: {_tail(result)}")
 
 
-def _pct(part: int, whole: int) -> float:
+def _percent_of(part: int, whole: int) -> float:
     return round(100.0 * part / whole, 2)
 
 
@@ -153,7 +177,7 @@ def judge_coverage_t0(ev: Evidence, t: Mapping[str, object]) -> Verdict:
     planned, covered = int(_number(report, "planned")), int(_number(report, "covered"))
     if planned == 0:
         return _verdict(["0 planned T0 batches since lab-live"], {"planned": 0})
-    covered_pct = _pct(covered, planned)
+    covered_pct = _percent_of(covered, planned)
     if covered_pct < t["min_covered_pct"]:
         failures.append(f"{covered}/{planned} batches covered ({covered_pct} %), need >= {t['min_covered_pct']} %")
     return _verdict(failures, {"planned": planned, "covered": covered, "covered_pct": covered_pct})
@@ -178,7 +202,8 @@ TARGETS_MAPPED = re.compile(r"^targets mapped: (\d+)/(\d+)$", re.M)
 
 
 def judge_targets(ev: Evidence, t: Mapping[str, object]) -> Verdict:
-    """Reads `targets --check` ("targets mapped: N/M"), the runs JSON ([{"story"}]) and the catalog's targets."""
+    """Reads `targets --check` ("targets mapped: N/M"), the waterfall runs JSON (trace_quest.runs_since rows, each
+    {"story", "kind", "started_at", ...}) and the catalog's targets."""
     check, runs = ev.outputs
     match = TARGETS_MAPPED.search(check.stdout)
     if match is None:
@@ -206,27 +231,31 @@ def judge_targets(ev: Evidence, t: Mapping[str, object]) -> Verdict:
 
 
 def judge_release_grade(ev: Evidence, t: Mapping[str, object]) -> Verdict:
-    """Reads both outputs as [{"started", "results": [{"metric", "p50"}]}]; the newest parity point counts."""
-    debug_rows = _list(_json(ev.outputs[0]))
-    parity_rows = _list(_json(ev.outputs[1]))
+    """The spec's `runs --config debug --tier T0,T1` rows and the parity series' newest point, both from the store."""
+    if ev.store is None:
+        raise DoneCheckError(f"no lab store: set ${DB_ENV}")
+    window, config, tiers = t["window_hours"], str(t["config"]), tuple(map(str, t["tiers"]))
+    debug_rows = ev.store.runs(since_hours=window, config=config, tiers=tiers)
+    point = ev.store.newest_point(str(t["parity_metric"]), since_hours=window)
     failures = []
     if len(debug_rows) > t["max_debug_runs"]:
-        failures.append(f"{len(debug_rows)} debug-config T0/T1 runs in 24 h")
-    values = [(str(_get(row, "started")), _number(result, "p50"))
-              for row in parity_rows for result in _list(row, "results")
-              if _get(result, "metric") == t["parity_metric"]]
-    delta = max(values)[1] if values else None
+        first = debug_rows[0]
+        failures.append(f"{len(debug_rows)} {config}-config {'/'.join(tiers)} runs in {window} h, first "
+                        f"{_get(first, 'story')} at {_get(first, 'started_at')}")
+    delta = None if point is None else _get(point, "p50")
     if delta is None:
-        failures.append(f"no {t['parity_metric']} result in 24 h")
-    elif abs(delta) > t["max_parity_delta_pct"]:
-        failures.append(f"{t['parity_metric']} = {delta} %, need within {t['max_parity_delta_pct']} %")
+        failures.append(f"no {t['parity_metric']} waterfall result in {window} h")
+    elif abs(_number(point, "p50")) > t["max_parity_delta_pct"]:
+        failures.append(f"{t['parity_metric']} = {delta} % at {_get(point, 'started_at')}, "
+                        f"need within {t['max_parity_delta_pct']} %")
     return _verdict(failures, {"debug_runs": len(debug_rows), t["parity_metric"]: delta})
 
 
 def judge_one_format(ev: Evidence, t: Mapping[str, object]) -> Verdict:
-    """MQ1 from queues.py; MQ4 is each story command path (`stories --lint --format=paths`) with no result-v1 writer."""
-    allowed = set(t["mq1_allowlist"])
-    private_stats = [hit for hit in ev.queries["MQ1"] if Path(hit).name not in allowed]
+    """MQ1 from queues.py, whose ALLOWLIST must be the row's; MQ4 is each story command path
+    (`stories --lint --format=paths`) with no result-v1 writer."""
+    kept, allowed = sorted(ev.queries[ALLOWLIST_QUERY]), sorted(t["mq1_allowlist"])
+    private_stats = ev.queries["MQ1"]
     listing = ev.outputs[0]
     paths = [line.strip() for line in listing.stdout.splitlines() if line.strip()]
     if not paths:
@@ -241,11 +270,14 @@ def judge_one_format(ev: Evidence, t: Mapping[str, object]) -> Verdict:
         if not writes_result.search(text):
             unwritten.append(path)
     failures = []
+    if kept != allowed:
+        failures.append(f"queues.py's MQ1 allowlist is {', '.join(kept) or 'empty'}, the spec allows "
+                        f"{', '.join(allowed)}")
     if len(private_stats) > t["max_mq1_outside_allowlist"]:
         failures.append(f"MQ1 outside the allowlist: {', '.join(private_stats)}")
     if len(unwritten) > t["max_mq4"]:
         failures.append(f"MQ4 stories without result-v1: {', '.join(unwritten)}")
-    return _verdict(failures, {"mq1_outside_allowlist": private_stats, "mq4": unwritten})
+    return _verdict(failures, {"mq1_allowlist": kept, "mq1_outside_allowlist": private_stats, "mq4": unwritten})
 
 
 def _query_empty(name: str, limit_key: str, label: str) -> Judge:
@@ -322,7 +354,10 @@ def judge_canary(ev: Evidence, t: Mapping[str, object]) -> Verdict:
     return _verdict(failures, {"passed": f"{passed}/{len(runs)}"})
 
 
-def _load_module(name: str, path: Path) -> ModuleType:
+def _load_module(prefix: str, path: Path) -> ModuleType:
+    """Imports the file at `path` once per resolved path: another root or path is another module."""
+    path = path.resolve()
+    name = f"{prefix}_{hashlib.sha256(str(path).encode()).hexdigest()[:12]}"
     if name in sys.modules:
         return sys.modules[name]
     if not path.is_file():
@@ -332,26 +367,23 @@ def _load_module(name: str, path: Path) -> ModuleType:
     sys.modules[name] = module  # before exec: a dataclass resolves its module through sys.modules
     try:
         spec.loader.exec_module(module)
-    except (ImportError, SyntaxError) as error:
+    except BaseException as error:
         del sys.modules[name]
-        raise DoneCheckError(f"{path.name} does not import: {error}") from None
-    except BaseException:
-        del sys.modules[name]
+        if isinstance(error, Exception):
+            raise DoneCheckError(f"{path.name} does not import: {type(error).__name__}: {error}") from None
         raise
     return module
 
 
 def judge_stats(ev: Evidence, t: Mapping[str, object]) -> Verdict:
+    """Runs perf_stats.py on the row's sample pairs (spec item 11's inputs) and compares with catapult's values."""
     failures = []
     if ev.outputs[0].returncode != 0:
         failures.append(f"`{ev.outputs[0].argv}` exited {ev.outputs[0].returncode}")
     stats = _load_module("perf_lab_done_checks_perf_stats", ev.root / "scripts/perf-lab/perf_stats.py")
-    discrete = ([0] * 20, [0] * 15 + [1] * 5)
-    spread = (list(range(10, 30)), list(range(10)) + list(range(30, 40)))
-    got = {
-        "mwu_discrete": stats.MannWhitneyU(*discrete), "ks_discrete": stats.KolmogorovSmirnov(*discrete),
-        "mwu_spread": stats.MannWhitneyU(*spread), "ks_spread": stats.KolmogorovSmirnov(*spread),
-    }
+    got = {}
+    for name, (x, y) in t["samples"].items():
+        got[f"mwu_{name}"], got[f"ks_{name}"] = stats.MannWhitneyU(x, y), stats.KolmogorovSmirnov(x, y)
     for key, value in got.items():
         if abs(value - t[key]) > t["tolerance"]:
             failures.append(f"{key} = {value:.4f}, catapult gives {t[key]}")
@@ -476,16 +508,17 @@ CHECKS: tuple[Check, ...] = (
           {"min_covered_pct": 90, "batch_minutes": 10, "window_minutes": 60}, judge_coverage_t0),
     Check(2, "coverage-t1", (Command(f"{LAB} coverage --tier T1 --json", spec=False),),
           {"max_age_hours": 3, "max_missing_families": 0}, judge_coverage_t1),
-    Check(3, "targets-mapped", (Command(f"{LAB} targets --check"), Command(f"{LAB} runs --since 24h --json", spec=False)),
+    Check(3, "targets-mapped", (Command(f"{LAB} targets --check"),
+                                Command(f"{LAB} runs --since 24h --kind waterfall --json", spec=False)),
           {"targets": 12, "browser_engines": ("chromium", "webkit"), "min_results": 1}, judge_targets),
-    Check(4, "release-grade", (Command(f"{LAB} runs --since 24h --config debug --tier T0,T1 --json"),
-                               Command(f"{LAB} runs --since 24h --story bench-parity --json", spec=False)),
-          {"max_debug_runs": 0, "parity_metric": "bench_parity.action_commit_delta_pct", "max_parity_delta_pct": 3},
+    Check(4, "release-grade", (Command(f"{LAB} runs --since 24h --config debug --tier T0,T1", run=False),),
+          {"window_hours": 24, "config": "debug", "tiers": ("T0", "T1"), "max_debug_runs": 0,
+           "parity_metric": "bench_parity.action_commit_delta_pct", "max_parity_delta_pct": 3},
           judge_release_grade),
     Check(5, "one-result-format", (Command(f"{LAB} stories --lint --format=paths"),),
-          {"mq1_allowlist": ("perf-budgets.py", "perf-cron.py"), "max_mq1_outside_allowlist": 0,
-           "mq4_result_writer": r"perf_result|BenchApp|\.record\(", "max_mq4": 0},
-          judge_one_format, queries=("MQ1",)),
+          {"mq1_allowlist": ("scripts/cmux-next/perf-budgets.py", "scripts/cmux-next/perf-cron.py"),
+           "max_mq1_outside_allowlist": 0, "mq4_result_writer": r"perf_result|BenchApp|\.record\(", "max_mq4": 0},
+          judge_one_format, queries=("MQ1", ALLOWLIST_QUERY)),
     Check(6, "self-launch-removed", (), {"max_files": 0},
           _query_empty("MQ2", "max_files", "MQ2 benches that launch their own app"), queries=("MQ2",)),
     Check(7, "signposts-live", (), {"max_cases": 0},
@@ -498,7 +531,9 @@ CHECKS: tuple[Check, ...] = (
     Check(10, "pipeline-proof", (Command(f"{LAB} canary --last 3 --json"),),
           {"runs": 3, "max_alert_batches": 7, "max_bisect_hours": 3, "verification": "DIFFERENT"}, judge_canary),
     Check(11, "pinpoint-statistics", (Command("python3 -m unittest scripts/perf-lab/tests/test_perf_stats.py"),),
-          {"mwu_discrete": 0.0195, "ks_discrete": 0.4973, "mwu_spread": 0.9892, "ks_spread": 0.0082,
+          {"samples": {"discrete": ([0] * 20, [0] * 15 + [1] * 5),
+                       "spread": (list(range(10, 30)), list(range(10)) + list(range(30, 40)))},
+           "mwu_discrete": 0.0195, "ks_discrete": 0.4973, "mwu_spread": 0.9892, "ks_spread": 0.0082,
            "tolerance": 0.0005, "high_threshold_args": ("performance", 1.0, 10), "high_threshold": 0.5708},
           judge_stats),
     Check(12, "sheriff-slo", (Command(f"{SHERIFF} --slo --since-live --json"),),
@@ -540,7 +575,8 @@ def run_subprocess(argv: Sequence[str], cwd: Path, timeout_s: int) -> CommandRes
 
 @dataclass
 class QueuesModule:
-    """queues.py (task 200), imported once; `query(MQ, root)` returns the item keys of `queues.find(MQ).run(root)`."""
+    """queues.py (task 200), imported once; `query(MQ, root)` returns the item keys of `queues.find(MQ).run(root)`,
+    `query(ALLOWLIST_QUERY, root)` the repo paths of queues.ALLOWLIST."""
     path: Path = HERE / "queues.py"
     _module: ModuleType | None = field(default=None, repr=False)
 
@@ -548,6 +584,8 @@ class QueuesModule:
         if self._module is None:
             self._module = _load_module("perf_lab_queues", self.path)
         queues = self._module
+        if name == ALLOWLIST_QUERY:
+            return sorted(queues.ALLOWLIST)
         try:
             items = queues.find(name).run(str(root))
         except (queues.QueueError, OSError, ValueError) as error:
@@ -567,6 +605,70 @@ def catalog_targets(root: Path) -> list[TargetMap]:
                       mapped, tuple(sorted({story for row in target.rows for check in row.checks
                                             for story in claims.get((row.id, check.metric), ())})))
             for target, mapped in catalog.mapped_targets(loaded)]
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+@dataclass(frozen=True)
+class LabStore:
+    """labd's SQLite store (store.py's schema), opened read-only per query, as aa.py reads it."""
+    path: Path | None
+    clock: Callable[[], datetime] = _utc_now
+
+    @classmethod
+    def from_env(cls) -> "LabStore":
+        value = os.environ.get(DB_ENV)
+        return cls(Path(value) if value else None)
+
+    def _since(self, hours: float) -> str:
+        """store._stamp's fixed-width UTC form, so the bound compares with started_at as text."""
+        return (self.clock() - timedelta(hours=hours)).astimezone(timezone.utc).isoformat(timespec="microseconds")
+
+    def _rows(self, sql: str, params: Sequence[object]) -> list[sqlite3.Row]:
+        if self.path is None:
+            raise DoneCheckError(f"no lab store: set ${DB_ENV}")
+        if not self.path.is_file():
+            raise DoneCheckError(f"{self.path}: no lab store")
+        try:
+            db = sqlite3.connect(f"{self.path.resolve().as_uri()}?mode=ro", uri=True)
+        except sqlite3.Error as error:
+            raise DoneCheckError(f"{self.path}: {error}") from None
+        db.row_factory = sqlite3.Row
+        try:
+            return db.execute(sql, params).fetchall()
+        except sqlite3.Error as error:
+            raise DoneCheckError(f"{self.path}: {error}") from None
+        finally:
+            db.close()
+
+    def runs(self, *, since_hours: float, config: str, tiers: Sequence[str]) -> list[dict[str, object]]:
+        marks = ", ".join("?" for _ in tiers)
+        rows = self._rows(
+            f"""SELECT u.run_uuid, u.kind, u.tier, u.story, b.sha, b.config, u.started_at
+                FROM runs u JOIN builds b ON b.id = u.build_id
+                WHERE u.started_at >= ? AND b.config = ? AND u.tier IN ({marks})
+                ORDER BY u.started_at, u.id""", (self._since(since_hours), config, *tiers))
+        return [dict(row) for row in rows]
+
+    def newest_point(self, metric: str, *, since_hours: float) -> dict[str, object] | None:
+        rows = self._rows(
+            """SELECT u.run_uuid, u.story, b.sha, u.started_at, r.samples_json, r.summary_json
+               FROM results r JOIN series s ON s.id = r.series_id JOIN runs u ON u.id = r.run_id
+               JOIN builds b ON b.id = u.build_id
+               WHERE s.metric = ? AND u.kind = 'waterfall' AND u.started_at >= ?
+               ORDER BY u.started_at DESC, u.id DESC LIMIT 1""", (metric, self._since(since_hours)))
+        if not rows:
+            return None
+        row = rows[0]
+        summary = json.loads(row["summary_json"]) if row["summary_json"] is not None else {}
+        samples = json.loads(row["samples_json"])
+        p50 = summary.get("p50")
+        if p50 is None:  # a point stored without a summary: perf_stats, the lab's one stats home, computes it
+            p50 = _load_module("perf_lab_done_checks_perf_stats", HERE / "perf_stats.py").pct(samples, 0.50)
+        return {"run_uuid": row["run_uuid"], "story": row["story"], "sha": row["sha"],
+                "started_at": row["started_at"], "p50": p50}
 
 
 @dataclass(frozen=True)
@@ -591,15 +693,21 @@ def _one_line(text: str) -> str:
 
 
 def evaluate(check: Check, root: Path, *, runner: Runner = run_subprocess, queries: Queries | None = None,
-             kill_switch_evidence: Path | None = None, targets: Targets = catalog_targets) -> Outcome:
+             kill_switch_evidence: Path | None = None, targets: Targets = catalog_targets,
+             store: RunStore | None = None) -> Outcome:
+    """Judges one check. Any error (a missing input, or a bug in a module or judge it calls) is that check's reason:
+    the runner still judges the checks after it."""
     queries = QueuesModule() if queries is None else queries
+    store = LabStore.from_env() if store is None else store
     try:
         outputs = [runner(shlex.split(c.argv), root, c.timeout_s) for c in check.commands if c.run]
         found = {name: queries(name, root) for name in check.queries}
-        evidence = Evidence(root, outputs, found, kill_switch_evidence, targets)
+        evidence = Evidence(root, outputs, found, kill_switch_evidence, targets, store)
         ok, measured, reason = check.judge(evidence, check.threshold)
     except DoneCheckError as error:
         ok, measured, reason = False, {}, str(error)
+    except Exception as error:  # one broken dependency must not hide the later checks' lines
+        ok, measured, reason = False, {}, f"{type(error).__name__}: {error}"
     reason = _one_line(reason)
     if check.reported_only:
         return Outcome(check, REPORTED, measured, reason)
@@ -608,13 +716,14 @@ def evaluate(check: Check, root: Path, *, runner: Runner = run_subprocess, queri
 
 def run_checks(checks: Sequence[Check], root: Path, *, emit: Callable[[Outcome], None], runner: Runner = run_subprocess,
                queries: Queries | None = None, kill_switch_evidence: Path | None = None,
-               targets: Targets = catalog_targets) -> int:
+               targets: Targets = catalog_targets, store: RunStore | None = None) -> int:
     """Runs `checks` in table order, emits each outcome as it lands; 0 only when no judged check failed."""
     queries = QueuesModule() if queries is None else queries
+    store = LabStore.from_env() if store is None else store
     failed = False
     for check in checks:
         outcome = evaluate(check, root, runner=runner, queries=queries, kill_switch_evidence=kill_switch_evidence,
-                           targets=targets)
+                           targets=targets, store=store)
         failed |= outcome.status == FAIL
         emit(outcome)
     return 1 if failed else 0

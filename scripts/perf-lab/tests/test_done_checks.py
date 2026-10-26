@@ -14,6 +14,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -75,8 +76,8 @@ WORDS = {2: ("twice", "2")}
 def appears(value: object, text: str) -> bool:
     if isinstance(value, bool):
         return True
-    if isinstance(value, str):
-        return value in text
+    if isinstance(value, str):  # a repo path the spec names by its file name counts by that name
+        return value in text or ("/" in value and value.rsplit("/", 1)[1] in text)
     forms = {str(value), f"{value:g}"} | set(WORDS.get(value, ()))
     return any(re.search(rf"(?<![\d.]){re.escape(form)}(?![\d])", text) for form in forms)
 
@@ -97,6 +98,8 @@ class TableMatchesSpec(unittest.TestCase):
         items = spec_items()
         for check in dc.CHECKS:
             for key, value in check.threshold.items():
+                if key == "samples":  # expressions in the spec; test_stats_samples_are_the_spec_expressions
+                    continue
                 for part in threshold_values(value):
                     with self.subTest(check=check.number, key=key, value=part):
                         self.assertTrue(appears(part, items[check.number]), f"{part!r} not in item {check.number}")
@@ -108,14 +111,28 @@ class TableMatchesSpec(unittest.TestCase):
         literals = re.findall(r"[<>]=?\s*(\d+(?:\.\d+)?)\b", judges)
         self.assertEqual([n for n in literals if float(n) != 0], [])
 
+    def test_stats_samples_are_the_spec_expressions(self):
+        pairs = re.findall(r"`([^`]+)` vs `([^`]+)`", spec_items()[11])
+        names = {"[0]*20": "discrete", "range(10,30)": "spread"}
+        row = next(c for c in dc.CHECKS if c.number == 11).threshold["samples"]
+        self.assertEqual(sorted(names[x] for x, _ in pairs), sorted(row))
+        for x, y in pairs:
+            spec = tuple(list(eval(e, {"__builtins__": {}}, {"range": range, "list": list})) for e in (x, y))
+            self.assertEqual(tuple(map(list, row[names[x]])), spec)
+
+    def test_mq1_allowlist_paths_exist(self):
+        row = next(c for c in dc.CHECKS if c.number == 5).threshold["mq1_allowlist"]
+        self.assertTrue(all((REPO / path).is_file() for path in row), row)
+
     def test_only_field_and_stability_are_reported_only(self):
         self.assertEqual({c.name for c in dc.CHECKS if c.reported_only}, {"field", "stability"})
 
     def test_queries_come_from_queues(self):
-        names = {q for c in dc.CHECKS for q in c.queries}
+        names = {q for c in dc.CHECKS for q in c.queries} - {dc.ALLOWLIST_QUERY}
         self.assertEqual(names, {"MQ1", "MQ2", "MQ5", "MQ6"})
         queues = dc._load_module("perf_lab_queues", LAB / "queues.py")
         self.assertTrue(all(queues.find(name).mq == name for name in names))
+        self.assertEqual(dc.QueuesModule()(dc.ALLOWLIST_QUERY, REPO), sorted(queues.ALLOWLIST))
 
 
 TARGETS_TEXT = "ok launch\nok idle-wakeups\ntargets mapped: 12/12\n"
@@ -137,12 +154,9 @@ GOOD_OUTPUTS = {
     "coverage --tier T0": {"planned": 144, "covered": 132, "batch_minutes": 10, "window_minutes": 60},
     "coverage --tier T1": {"newest_complete_age_hours": 1.5, "missing_families": []},
     "targets --check": TARGETS_TEXT,
-    "runs --since 24h --json": [{"story": s, "kind": "waterfall"} for s in ("idle-tabs", "launch-cold", "launch-warm")],
+    "runs --since 24h --kind waterfall --json": [{"story": s, "kind": "waterfall"}
+                                                 for s in ("idle-tabs", "launch-cold", "launch-warm")],
     "stories --lint --format=paths": "scripts/perf-lab/perf_result.py\n",
-    "--config debug": [],
-    "--story bench-parity": [
-        {"started": "2026-10-25T01:00:00Z", "results": [{"metric": "bench_parity.action_commit_delta_pct", "p50": 9}]},
-        {"started": "2026-10-25T03:00:00Z", "results": [{"metric": "bench_parity.action_commit_delta_pct", "p50": 2.1}]}],
     "stories --orphans": [],
     "aa --since-live": aa_report(),
     "canary --last 3": [{"injected_sha": s, "culprit_sha": s, "alert_batches": 7, "alert_to_culprit_hours": 2.5,
@@ -170,8 +184,30 @@ class FakeRunner:
         return dc.CommandResult(text, code, "", "")
 
 
+ALLOWLIST = ["scripts/cmux-next/perf-budgets.py", "scripts/cmux-next/perf-cron.py"]
+
+
 def good_queries(name, root):
-    return ["scripts/cmux-next/perf-budgets.py", "scripts/cmux-next/perf-cron.py"] if name == "MQ1" else []
+    return list(ALLOWLIST) if name == dc.ALLOWLIST_QUERY else []
+
+
+class FakeStore:
+    """RunStore with fixed answers; records the window, config and tiers it was asked for."""
+
+    def __init__(self, debug_runs=(), point=None):
+        self.debug_runs, self.point, self.asked = list(debug_runs), point, []
+
+    def runs(self, *, since_hours, config, tiers):
+        self.asked.append((since_hours, config, tuple(tiers)))
+        return self.debug_runs
+
+    def newest_point(self, metric, *, since_hours):
+        self.asked.append((since_hours, metric))
+        return self.point
+
+
+PARITY = {"run_uuid": "r2", "story": "bench-parity", "sha": "abc", "started_at": "2026-10-25T03:00:00.000000+00:00",
+          "p50": 2.1}
 
 
 def kill_switch_dir() -> Path:
@@ -184,12 +220,12 @@ def kill_switch_dir() -> Path:
 
 
 def outcomes(outputs=GOOD_OUTPUTS, codes=None, queries=good_queries, evidence=None, only=None, targets=GOOD_TARGETS,
-             root=REPO):
+             root=REPO, store=None):
     found = []
     checks = dc.select(only)
     code = dc.run_checks(checks, root, emit=found.append, runner=FakeRunner(outputs, codes), queries=queries,
                          kill_switch_evidence=evidence if evidence is not None else kill_switch_dir(),
-                         targets=lambda root: targets)
+                         targets=lambda root: targets, store=store if store is not None else FakeStore(point=PARITY))
     return code, {(o.check.number, o.check.name): o for o in found}
 
 
@@ -204,7 +240,7 @@ class Runner(unittest.TestCase):
         out = io.StringIO()
         with redirect_stdout(out):
             dc.run_checks(dc.CHECKS, REPO, runner=FakeRunner(GOOD_OUTPUTS), queries=good_queries,
-                          kill_switch_evidence=kill_switch_dir(),
+                          kill_switch_evidence=kill_switch_dir(), store=FakeStore(point=PARITY),
                           emit=lambda o: print(json.dumps(o.as_json(), sort_keys=True)))
         lines = out.getvalue().splitlines()
         self.assertEqual(len(lines), len(dc.CHECKS))
@@ -216,7 +252,6 @@ class Runner(unittest.TestCase):
             (1, "coverage-t0"): ("coverage --tier T0", {**GOOD_OUTPUTS["coverage --tier T0"], "covered": 129}),
             (2, "coverage-t1"): ("coverage --tier T1", {"newest_complete_age_hours": 3.2, "missing_families": []}),
             (3, "targets-mapped"): ("targets --check", "targets mapped: 11/12\n"),
-            (4, "release-grade"): ("--config debug", [{"started": "x", "results": []}]),
             (8, "no-orphan-benches"): ("stories --orphans", ["scripts/cmux-next/old-bench.py"]),
             (9, "noise"): ("aa --since-live", aa_report(false_alerts_per_100_series_days=1.25)),
             (10, "pipeline-proof"): ("canary --last 3", GOOD_OUTPUTS["canary --last 3"][:2]),
@@ -230,6 +265,21 @@ class Runner(unittest.TestCase):
                 self.assertEqual(found[key].status, dc.FAIL)
                 self.assertEqual(code, 1)
 
+    def test_release_grade_breaches_fail(self):
+        debug = {"run_uuid": "r1", "kind": "waterfall", "tier": "T0", "story": "launch-cold", "sha": "abc",
+                 "config": "debug", "started_at": "2026-10-25T02:00:00.000000+00:00"}
+        cases = {"1 debug-config T0/T1 runs in 24 h": FakeStore([debug], PARITY),
+                 "= -3.5 %": FakeStore(point={**PARITY, "p50": -3.5}),
+                 "no bench_parity.action_commit_delta_pct waterfall result": FakeStore()}
+        for reason, store in cases.items():
+            with self.subTest(reason=reason):
+                code, found = outcomes(only="4", store=store)
+                self.assertEqual((code, found[(4, "release-grade")].status), (1, dc.FAIL))
+                self.assertIn(reason, found[(4, "release-grade")].reason)
+        store = FakeStore(point=PARITY)
+        outcomes(only="4", store=store)
+        self.assertEqual(store.asked, [(24, "debug", ("T0", "T1")), (24, "bench_parity.action_commit_delta_pct")])
+
     def test_browser_target_without_a_webkit_row_fails(self):
         targets = [dc.TargetMap("idle-wakeups", True, ("chromium",), True, ("idle-tabs",)), GOOD_TARGETS[1]]
         _, found = outcomes(only="3", targets=targets)
@@ -237,7 +287,7 @@ class Runner(unittest.TestCase):
 
     def test_mapped_story_without_a_stored_run_fails(self):
         runs = [{"story": "idle-tabs"}, {"story": "launch-cold"}]
-        _, found = outcomes({**GOOD_OUTPUTS, "runs --since 24h --json": runs}, only="3")
+        _, found = outcomes({**GOOD_OUTPUTS, "runs --since 24h --kind waterfall --json": runs}, only="3")
         self.assertEqual(found[(3, "targets-mapped")].status, dc.FAIL)
         self.assertEqual(found[(3, "targets-mapped")].measured["stories_without_results"], ["launch-warm"])
 
@@ -248,7 +298,8 @@ class Runner(unittest.TestCase):
 
     def test_targets_count_still_reports_without_the_store(self):
         code, found = outcomes({**GOOD_OUTPUTS, "targets --check": "targets mapped: 1/12\n",
-                                "runs --since 24h --json": ""}, codes={"targets --check": 1}, only="3")
+                                "runs --since 24h --kind waterfall --json": ""}, codes={"targets --check": 1},
+                               only="3")
         reason = found[(3, "targets-mapped")].reason
         self.assertEqual(code, 1)
         self.assertIn("1/12 targets mapped", reason)
@@ -292,8 +343,7 @@ class Runner(unittest.TestCase):
 
     def test_query_hits_fail(self):
         def queries(name, root):
-            return {"MQ1": ["scripts/cmux-next/perf-cron.py", "scripts/cmux-next/idle-budget.py"],
-                    "MQ5": ["cefPump"]}.get(name, [])
+            return {"MQ1": ["scripts/cmux-next/idle-budget.py"], "MQ5": ["cefPump"]}.get(name, good_queries(name, root))
         code, found = outcomes(queries=queries, only="5,6,7")
         self.assertEqual(code, 1)
         self.assertIn("idle-budget.py", found[(5, "one-result-format")].reason)
@@ -305,11 +355,34 @@ class Runner(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("without JSON", found[(1, "coverage-t0")].reason)
 
+    def test_a_larger_queues_allowlist_fails(self):
+        def queries(name, root):
+            return [*ALLOWLIST, "scripts/cmux-next/idle-budget.py"] if name == dc.ALLOWLIST_QUERY else []
+        code, found = outcomes(queries=queries, only="5")
+        self.assertEqual(code, 1)
+        self.assertIn("idle-budget.py", found[(5, "one-result-format")].reason)
+
     def test_missing_queues_module_fails_its_checks(self):
+        dc.QueuesModule()("MQ2", REPO)  # the real queues.py loaded first must not stand in for another path
         queries = dc.QueuesModule(path=LAB / "no-such-queues.py")
         code, found = outcomes(queries=queries, only="6")
         self.assertEqual(code, 1)
         self.assertIn("does not exist", found[(6, "self-launch-removed")].reason)
+
+    def test_an_unexpected_error_fails_its_check_and_the_rest_still_run(self):
+        def queries(name, root):
+            if name == "MQ2":
+                raise KeyError("browserResize.layerHosting")
+            return good_queries(name, root)
+        found = []
+        code = dc.run_checks(dc.CHECKS, REPO, emit=found.append, runner=FakeRunner(GOOD_OUTPUTS), queries=queries,
+                             kill_switch_evidence=kill_switch_dir(), store=FakeStore(point=PARITY),
+                             targets=lambda root: GOOD_TARGETS)
+        self.assertEqual(code, 1)
+        self.assertEqual(len(found), len(dc.CHECKS))
+        self.assertEqual(found[5].check.number, 6)
+        self.assertEqual((found[5].status, found[5].reason), (dc.FAIL, "KeyError: 'browserResize.layerHosting'"))
+        self.assertEqual([o.check.number for o in found if o.status == dc.FAIL], [6])
 
     def test_kill_switch_needs_remote_off_and_suite_pass(self):
         directory = kill_switch_dir()
@@ -360,8 +433,74 @@ class Runner(unittest.TestCase):
         self.assertTrue(all({"chromium", "webkit"} <= set(t.engines) for t in browser))
         self.assertTrue(all(t.stories for t in targets if t.mapped))
 
+    def test_lab_store_without_a_path_fails_check_4(self):
+        _, found = outcomes(only="4", store=dc.LabStore(None))
+        self.assertIn("no lab store", found[(4, "release-grade")].reason)
+
     def test_lab_registry_names_the_command(self):
         self.assertEqual(list(dc.LAB_COMMANDS), ["done-checks"])
+
+
+class RealStore(unittest.TestCase):
+    """Checks 3 and 4 on a store.py database: check 3 reads trace_quest.runs_since's rows (what `lab.py runs
+    --kind waterfall --json` prints), check 4 reads the store through LabStore."""
+
+    NOW = datetime(2026, 10, 25, 12, 0, tzinfo=timezone.utc)
+    PARITY_METRIC = "bench_parity.action_commit_delta_pct"
+
+    def setUp(self):
+        self.store_py = dc._load_module("perf_lab_done_checks_test_store", LAB / "store.py")
+        self.trace_quest = dc._load_module("perf_lab_done_checks_test_trace_quest", LAB / "trace_quest.py")
+        self.path = Path(tempfile.mkdtemp(prefix="done-checks-store-")) / "lab.sqlite"
+        self.lab = self.store_py.Store(self.path, clock=lambda: self.NOW)
+        self.addCleanup(self.lab.close)
+        self.lab.migrate()
+        self.add("w1", "idle-tabs", hours_ago=1)
+        self.add("t1", "launch-cold", hours_ago=2, kind="try")
+        self.add("d1", "launch-warm", hours_ago=3, config="debug", tier="T1")
+        self.add("p-old", "bench-parity", hours_ago=30, metric=self.PARITY_METRIC, samples=[9.0])
+        self.add("p-new", "bench-parity", hours_ago=2, metric=self.PARITY_METRIC, samples=[2.0, 2.1, 2.2],
+                 summary={"p50": 2.1})
+
+    def add(self, uuid, story, *, hours_ago, kind="waterfall", config="release", tier="T0", metric="m",
+            samples=(1.0,), summary=None):
+        position = len(uuid) * 100 + sum(map(ord, uuid))
+        self.lab.insert_run(
+            self.store_py.Run(run_uuid=uuid, kind=kind, measure_version="1", story=story, engine="webkit",
+                              macos_major=26, macos_build="25B78", features_hash="f", safe_mode="off",
+                              started_at=self.NOW - timedelta(hours=hours_ago), tier=tier),
+            build=self.store_py.Build(sha=f"{position:040x}", config=config, commit_pos=position),
+            host=self.store_py.Host(name="cmux15", chip="Apple M4 Pro", memory_gb=24, display_hz=120,
+                                    fingerprint="fp-1"),
+            metrics=[self.store_py.Metric(name=metric, unit="pct", better="lower", samples=list(samples),
+                                          summary=summary)])
+
+    def test_check_3_counts_waterfall_runs_only(self):
+        db = self.trace_quest.connect(self.path)
+        self.addCleanup(db.close)
+        rows = self.trace_quest.runs_since(db, self.NOW - timedelta(hours=24), kind="waterfall")
+        outputs = {**GOOD_OUTPUTS, "runs --since 24h --kind waterfall --json": rows}
+        _, found = outcomes(outputs, only="3")
+        outcome = found[(3, "targets-mapped")]
+        self.assertEqual((outcome.status, outcome.measured["stories_without_results"]), (dc.FAIL, ["launch-cold"]))
+
+    def test_check_4_reads_debug_runs_and_the_newest_parity_point(self):
+        lab = dc.LabStore(self.path, clock=lambda: self.NOW)
+        self.assertEqual([(r["story"], r["config"], r["tier"]) for r in lab.runs(since_hours=24, config="debug",
+                                                                                  tiers=("T0", "T1"))],
+                         [("launch-warm", "debug", "T1")])
+        self.assertEqual(lab.newest_point(self.PARITY_METRIC, since_hours=24)["p50"], 2.1)
+        _, found = outcomes(only="4", store=lab)
+        outcome = found[(4, "release-grade")]
+        self.assertEqual((outcome.status, outcome.measured[self.PARITY_METRIC]), (dc.FAIL, 2.1))
+        self.assertIn("1 debug-config T0/T1 runs in 24 h, first launch-warm", outcome.reason)
+
+    def test_check_4_passes_without_debug_runs_and_takes_a_median_without_a_summary(self):
+        self.add("p-newer", "bench-parity", hours_ago=1, metric=self.PARITY_METRIC, samples=[-1.0, -2.5, 4.0])
+        lab = dc.LabStore(self.path, clock=lambda: self.NOW + timedelta(hours=21, minutes=30))  # d1 is out
+        _, found = outcomes(only="4", store=lab)
+        outcome = found[(4, "release-grade")]
+        self.assertEqual((outcome.status, outcome.measured[self.PARITY_METRIC]), (dc.PASS, -1.0))
 
 
 if __name__ == "__main__":
