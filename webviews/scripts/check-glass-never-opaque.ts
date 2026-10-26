@@ -391,7 +391,9 @@ export function findOpaquePopupPageRoots(pages: (string | string[])[], srcDir: s
       }
     }
     if (!clearHtml && files.length > 0 && !found.includes(`${files[0]}: no such stylesheet under src/`))
-      found.push(`${files[0]}: the popup document never paints html transparent (the page base paints the host's surface)`);
+      found.push(
+        `${files[0]}: the popup document never paints html transparent (the page base paints the host's surface)`,
+      );
   }
   return found;
 }
