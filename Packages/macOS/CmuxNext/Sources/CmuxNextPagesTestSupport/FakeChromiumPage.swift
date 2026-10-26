@@ -36,6 +36,12 @@ public final class FakeChromiumPage: PageChromiumPage {
     public private(set) var zoom: Double?
     /// Whether the host closed the page.
     public private(set) var closed = false
+    /// What ``discard()`` answers: false stands for a fork without in-place discard.
+    public var discardAnswer = true
+    /// How many times the host discarded the page (answered true).
+    public private(set) var discards = 0
+    /// A discard took and no load ran since (the engine reloads the entry when the page shows).
+    public private(set) var isDiscarded = false
     /// The last ``setSeeThrough(_:)``; nil before any.
     public private(set) var seeThrough: Bool?
     /// ``seeThrough`` when the first document loaded.
@@ -91,22 +97,31 @@ public final class FakeChromiumPage: PageChromiumPage {
     /// Whether `window` is ``pageWindow``.
     public func isPageWindow(_ window: NSWindow) -> Bool { window === pageWindow }
 
-    /// Records `url` in ``loaded``.
+    /// Records `url` in ``loaded`` and ends a discard.
     public func load(_ url: URL) {
+        isDiscarded = false
         if loaded.isEmpty { seeThroughAtFirstLoad = .some(seeThrough) }
         loaded.append(url)
     }
 
     /// Records the value in ``seeThrough``.
     public func setSeeThrough(_ seeThrough: Bool) { self.seeThrough = seeThrough }
-    /// Does nothing.
-    public func reload() {}
+    /// Ends a discard (the reload brings the page back).
+    public func reload() { isDiscarded = false }
     /// Records the value in ``zoom``.
     public func setZoom(_ zoom: Double) { self.zoom = zoom }
     /// Does nothing.
     public func setFocused(_ focused: Bool) {}
     /// Does nothing.
     public func setVisible(_ visible: Bool) {}
+
+    /// Answers ``discardAnswer``; a discard that took counts in ``discards`` and sets ``isDiscarded``.
+    public func discard() -> Bool {
+        guard discardAnswer, !closed else { return false }
+        discards += 1
+        isDiscarded = true
+        return true
+    }
 
     /// Sets ``closed`` and runs ``onClose``.
     public func close() {

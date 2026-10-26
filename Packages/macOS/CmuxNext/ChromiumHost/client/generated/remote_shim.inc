@@ -162,8 +162,9 @@ enum Op : uint16_t {
   kOpTabSendClick = 150,  // optional
   kOpTabSetColorScheme = 151,  // optional
   kOpPageSchemeSetGroup = 152,  // optional
+  kOpTabDiscard = 153,  // optional
 };
-inline constexpr uint16_t kOpCount = 152;
+inline constexpr uint16_t kOpCount = 153;
 inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
@@ -171,7 +172,7 @@ inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 50;
 inline constexpr char kShimAbiID[] = "a8b0edcfcdd8578fce1a3b1c1d224b98d7dc1384772fbb9c09ac03a7f7a525c2";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "bdc791faeb42b3d0cbebb6fe599297194ca71e1d360cc666523fbb384cfe08c6";
+inline constexpr char kWireID[] = "18686fc34f2c82c7fa2accfb0a9e2a38f2accc246b324cb56820c653a5b4a992";
 // Exports the header does not declare yet (fork API symbols): the client sends one only to
 // a host whose HELLO lists its symbol.
 struct OptionalExport {
@@ -186,6 +187,7 @@ inline constexpr OptionalExport kOptionalExports[] = {
     {kOpTabSendClick, "cmux_shim_tab_send_click"},
     {kOpTabSetColorScheme, "cmux_shim_tab_set_color_scheme"},
     {kOpPageSchemeSetGroup, "cmux_shim_page_scheme_set_group"},
+    {kOpTabDiscard, "cmux_shim_tab_discard"},
 };
 }  // namespace cmux_remote
 
@@ -1542,6 +1544,14 @@ CMUX_SHIM_EXPORT int cmux_shim_page_scheme_set_group(const char* arg_id, const c
   op_w.Str(arg_group);
   const uint32_t op_token = NextToken();
   return PostPreinit(kOpPageSchemeSetGroup, op_token, op_w);
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_tab_discard(int arg_browser_id) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostForReply(kOpTabDiscard, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
 }  // extern "C"

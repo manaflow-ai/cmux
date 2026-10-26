@@ -93,6 +93,15 @@ public protocol PageChromiumPage: AnyObject {
     /// draws no background of its own, the view under the page shows, as under a WebKit page that
     /// draws no background.
     func setSeeThrough(_ seeThrough: Bool)
+    /// Discards the hidden page in place: its renderer and document go, the page keeps its browser,
+    /// window and history entry, and the engine reloads that entry when the page shows; a
+    /// ``load(_:)`` of the entry's URL before then adds no navigation (Chrome's `WebContents::Discard`,
+    /// content/public/browser/web_contents.h). Makes no call into the page.
+    ///
+    /// - Returns: False when the engine cannot (a fork before in-place discard, the Chromium Host,
+    ///   whose answer is not synchronous, or a page Chromium still counts visible): the host closes
+    ///   the page instead.
+    func discard() -> Bool
     /// Tears the page down. Idempotent.
     func close()
 }
