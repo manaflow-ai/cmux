@@ -189,8 +189,11 @@ async function readSnapshot(db: RunQueryDb, runId: string, userId: string): Prom
   // that failed after the provider call (the VM reaper abandoned it at its deadline, or the row
   // update after a create failed and its rollback destroy is unconfirmed): the machine may exist
   // unrecorded, so the receipt says cleanup is pending and VM time is unknown rather than claim either.
-  const allocationUnknown = rows.some((row) => row.status === "failed" && !row.providerVmId && !!row.failureCode && VM_CREATE_MAYBE_ALLOCATED_CODES.has(row.failureCode));
-  const sandboxVms = rows.filter((row) => !(row.status === "failed" && !row.providerVmId)).map((row) => {
+  // A row with no provider id that is still being created (or whose provider cleanup is pending)
+  // is unresolved the same way: its machine's lifetime is not the row's.
+  const allocationUnknown = rows.some((row) => !row.providerVmId && (row.status !== "failed" || (!!row.failureCode && VM_CREATE_MAYBE_ALLOCATED_CODES.has(row.failureCode))));
+  // VM time is measured only on rows the provider gave an id: their lifetime is the machine's.
+  const sandboxVms = rows.filter((row) => !!row.providerVmId).map((row) => {
     const confirmedAt = row.destroyConfirmed ? new Date(row.destroyConfirmed) : null;
     const confirmed = !!confirmedAt && !Number.isNaN(confirmedAt.getTime());
     // A destroyed status alone is not proof: a machine the provider made is gone once a strict

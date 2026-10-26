@@ -473,6 +473,9 @@ describe("sandboxed Run lifecycle in the repository", () => {
       await repo().cancelRun(created.run.id, userId);
       const snapshot = await repo().getRun(created.run.id, userId);
       expect(snapshot.sandboxVmLive).toBe(true);
+      // Its machine's lifetime is not the row's: VM time is unknown, not counted from the row.
+      expect(snapshot.sandboxVmUnknown).toBe(true);
+      expect(snapshot.sandboxVms).toEqual([]);
       // A create that failed with nothing to clean up is not pending.
       await sql!`update cloud_vms set status = 'failed' where user_id = ${userId}`;
       const failed = await repo().getRun(created.run.id, userId);
