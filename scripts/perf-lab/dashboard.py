@@ -10,8 +10,9 @@ in a table.
 
 Pages (labd, task 012, serves them; `Dashboard.handle(path)` is its whole interface):
 
-  /  and /status     12 target tiles: the newest point's statistic against the fixed target,
-                     from 120 Hz hosts only unless a target row says otherwise (task 160)
+  /  and /status     12 target tiles: the newest point's statistic against the fixed target; a row
+                     that names an hz is judged only from series at that Hz (task 160), a row
+                     without one from any host; a series with no point in TILE_STALE_AFTER is stale
   /series[?q=]       series list with sparklines and change-point ticks
   /series/<key>      one series: p50 and p99 lines, change points, annotations (features hash,
                      macOS build and safe-mode changes, stored notes, reference drift), the
@@ -25,8 +26,10 @@ The targets come from the lab catalog (catalog.py, task 007: `targets.json` and 
 reader `lab.py targets --check` uses. A series feeds a target row only when its stored target_ref
 claims that row ({"target": <row id>}, as the story's metric does); each of the row's checks whose
 metric pattern full-matches the series metric is one tile line. The row's engine, config and hz
-constrain the series (hz is read from the host class, so key-frame judges only 120 Hz hosts), and
-debug-config series never feed a tile (p12-perf-process.md 3.2).
+constrain the series (hz is read from the host class, so key-frame, whose rows say hz 120, judges only
+120 Hz hosts), and debug-config series never feed a tile (p12-perf-process.md 3.2). A series whose newest
+point is older than TILE_STALE_AFTER (a retired host class, an old macOS major) feeds a check only when no
+current series does, and then as a stale row, never as a pass or a miss.
 
 Colors follow the dataviz reference palette (categorical slots 1 and 2, status good and critical
 with an icon and a label, never color alone), selected separately for light and dark surfaces.
@@ -34,6 +37,7 @@ with an icon and a label, never color alone), selected separately for light and 
 from __future__ import annotations
 
 import argparse
+import bisect
 import html
 import re
 import importlib.util
@@ -71,12 +75,15 @@ OP_TEXT = {"<=": "≤", "<": "<", ">=": "≥", ">": ">"}
 CLOSED_GROUP_STATES = frozenset({"fixed", "flag-off", "accepted", "invalid", "lab-drift"})
 # The coverage done checks (p12-perf-process.md 6.1 and 6.2): T0 within 60 min, T1 within 3 h; T2 is nightly.
 STALE_AFTER = {"T0": timedelta(minutes=60), "T1": timedelta(hours=3), "T2": timedelta(hours=26)}
+# A tile ignores a series with no waterfall point in this long: nearly three missed T2 nightly windows.
+TILE_STALE_AFTER = timedelta(hours=72)
 PINPOINT_KINDS = ("bisect", "verify", "try")
 SERIES_LIST_LIMIT = 500
 SERIES_POINTS_DEFAULT = 100
 SERIES_POINTS_MAX = 500
 SPARKLINE_POINTS = 50
 JOBS_LIMIT = 200
+ALERT_GROUPS_LIMIT = 200
 ISSUE_URL = "https://github.com/manaflow-ai/cmux/issues/{number}"
 CSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
 
@@ -184,8 +191,22 @@ class SeriesView:
 class SeriesListRow:
     info: SeriesInfo
     points: Sequence[PointView]
-    change_positions: Sequence[int]
+    change_ranges: Sequence[tuple[int, int]]  # (start_pos, end_pos) of each regression change point
     annotation_count: int
+
+
+def window_span(positions: Sequence[int], start: int, end: int) -> tuple[int, int] | None:
+    """The indices of the shown points that a commit range [start, end] covers, or None when it is outside them.
+
+    `positions` are the shown points' commit positions, ascending. A stored range starts after the last point
+    before the step (alerts._candidate_range), so its first index is the first point at or after `start`; a range
+    between two points lands on the later one, the first run that includes it.
+    """
+    if not positions or end < positions[0] or start > positions[-1]:
+        return None
+    first = bisect.bisect_left(positions, start)
+    last = bisect.bisect_right(positions, end) - 1
+    return first, max(first, last)
 
 
 def judged_checks(row: TargetRow, info: SeriesInfo) -> list[TargetCheck]:
@@ -235,8 +256,11 @@ class Tile:
 
     @property
     def status(self) -> str:
+        """miss when a current series misses; no-data when a check has no current series (no-data or stale)."""
         states = {row.status for row in self.rows}
-        return "miss" if "miss" in states else "no-data" if "no-data" in states or not states else "pass"
+        if "miss" in states:
+            return "miss"
+        return "no-data" if not states or states & {"no-data", "stale"} else "pass"
 
 
 @dataclass(frozen=True)
@@ -324,7 +348,7 @@ class DashboardSource(Protocol):
     def all_series(self) -> list[SeriesInfo]: ...
     def latest_points(self, keys: Sequence[str]) -> dict[str, PointView]: ...
     def latest_samples(self, key: str) -> list[float]: ...
-    def open_target_misses(self) -> set[str]: ...
+    def target_miss_series(self) -> set[str]: ...
     def series_list(self, query: str, limit: int) -> tuple[list[SeriesListRow], int]: ...
     def series(self, key: str, limit: int) -> SeriesView | None: ...
     def alert_groups(self) -> list[AlertGroupView]: ...
@@ -347,12 +371,22 @@ def load_targets(root: Path) -> tuple[list[Target], tuple[str, ...]]:
 
 
 def build_tiles(targets: Sequence[Target], series: Sequence[SeriesInfo], latest: dict[str, PointView],
-                stat_of: Callable[[str, str], float | None], target_misses: set[str]) -> list[Tile]:
-    """One tile per target; one tile row per (row check, claiming series), or a no-data row for a check none feeds.
+                stat_of: Callable[[str, str], float | None], target_misses: set[str], *,
+                fresh_since: datetime | None = None) -> list[Tile]:
+    """One tile per target; one tile row per (row check, current claiming series), or a no-data row for a check
+    none feeds.
 
-    `stat_of(series_key, stat)` gives the newest point's statistic (catalog.STATS over its samples).
+    `stat_of(series_key, stat)` gives the newest point's statistic (catalog.STATS over its samples). A series is
+    current when its newest point started at or after `fresh_since` (None: every series with a point is). When no
+    series feeding a check is current, the check shows each claiming series as a stale or no-data row instead.
+    `target_misses` are the series with a stored target_miss alert; a row says it is open only while it misses.
     """
     ordered = sorted(series, key=lambda info: info.key)
+
+    def current(info: SeriesInfo) -> bool:
+        point = latest.get(info.key)
+        return point is not None and (fresh_since is None or parse_stamp(point.started_at) >= fresh_since)
+
     tiles = []
     for target in targets:
         rows: list[TileRow] = []
@@ -364,12 +398,18 @@ def build_tiles(targets: Sequence[Target], series: Sequence[SeriesInfo], latest:
             for check, infos in fed.items():
                 if not infos:
                     rows.append(TileRow(target_row, check, None, None, None, "no-data"))
-                for info in infos:
+                fresh = [info for info in infos if current(info)]
+                for info in fresh or infos:
                     point = latest.get(info.key)
                     value = stat_of(info.key, check.stat) if point is not None else None
-                    status = "no-data" if value is None else (
-                        "pass" if catalog.OPS[check.op](value, check.value) else "miss")
-                    rows.append(TileRow(target_row, check, info, point, value, status, info.key in target_misses))
+                    if value is None:
+                        status = "no-data"
+                    elif not fresh:
+                        status = "stale"
+                    else:
+                        status = "pass" if catalog.OPS[check.op](value, check.value) else "miss"
+                    rows.append(TileRow(target_row, check, info, point, value, status,
+                                        status == "miss" and info.key in target_misses))
         tiles.append(Tile(target, tuple(rows)))
     return tiles
 
@@ -524,9 +564,7 @@ def series_chart(view: SeriesView, *, limits: Sequence[tuple[str, float]] = (), 
     def y(value: float) -> float:
         return top + plot_h - (value - y_low) / ((y_high - y_low) or 1.0) * plot_h
 
-    def index_at(pos: int, *, last: bool) -> int:
-        indices = [i for i, point in enumerate(points) if (point.commit_pos <= pos if last else point.commit_pos >= pos)]
-        return (max(indices) if last else min(indices)) if indices else (len(points) - 1 if not last else 0)
+    positions = [point.commit_pos for point in points]
 
     unit = view.info.unit
     out = [f'<svg class="chart" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" '
@@ -535,9 +573,10 @@ def series_chart(view: SeriesView, *, limits: Sequence[tuple[str, float]] = (), 
         out.append(f'<line class="grid" x1="{left}" x2="{width - right}" y1="{y(tick):.1f}" y2="{y(tick):.1f}"/>'
                    f'<text class="tick" x="{left - 6}" y="{y(tick) + 4:.1f}" text-anchor="end">{esc(fmt_value(tick))}</text>')
     for cp in view.change_points:
-        first, last = index_at(cp.start_pos, last=False), index_at(cp.end_pos, last=True)
-        if last < first:
-            first, last = last, first
+        span = window_span(positions, cp.start_pos, cp.end_pos)
+        if span is None:
+            continue  # older or newer than the shown points; the change-point table still lists it
+        first, last = span
         x0, x1 = x(first) - step / 2, x(last) + step / 2
         x0, x1 = max(left, x0), min(width - right, max(x1, x0 + 2))
         kind = "improvement" if cp.is_improvement else "regression"
@@ -555,7 +594,10 @@ def series_chart(view: SeriesView, *, limits: Sequence[tuple[str, float]] = (), 
         if last is not None:
             out.append(f'<circle class="dot {slot}" cx="{last[0]:.1f}" cy="{last[1]:.1f}" r="4"/>')
     for annotation in view.annotations:
-        ax = x(index_at(annotation.start_pos, last=False))
+        span = window_span(positions, annotation.start_pos, annotation.end_pos)
+        if span is None:
+            continue
+        ax = x(span[0])
         out.append(f'<path class="mark" d="M{ax - 4:.1f},{top - 10} L{ax + 4:.1f},{top - 10} L{ax:.1f},{top - 3} Z">'
                    f'<title>{esc(annotation.kind)} at {annotation.start_pos}: {esc(annotation.text)}</title></path>')
     for i, point in enumerate(points):
@@ -662,6 +704,8 @@ def render_tile(tile: Tile) -> str:
             where = f"{row.series.engine} · {row.series.host_class} · macOS {row.series.macos_major}"
             if row.point is not None:
                 where += f" · {short_sha(row.point.sha)}"
+                if row.status == "stale":
+                    where += f" · newest point {row.point.started_at[:10]}, no current series"
         badge = ' <span class="meta">target_miss open</span>' if row.target_miss_open else ""
         items.append(f'<li><a href="{esc(href)}">{esc(title)}</a>{status_badge(row.status)}'
                      f'<span class="value">{esc(fmt_value(row.value, check.unit))}</span>'
@@ -694,8 +738,9 @@ def render_series_list(rows: Sequence[SeriesListRow], total: int, query: str) ->
             '<th>Config</th><th class="num">Latest p50</th><th>Last 50 points (p50)</th><th class="num">Notes</th></tr></thead><tbody>']
     for row in rows:
         info, points = row.info, row.points
-        positions = {point.commit_pos: index for index, point in enumerate(points)}
-        marks = [positions[pos] for pos in row.change_positions if pos in positions]
+        positions = [point.commit_pos for point in points]
+        spans = (window_span(positions, start, end) for start, end in row.change_ranges)
+        marks = sorted({span[0] for span in spans if span is not None})
         latest = points[-1].p50 if points else None
         body.append(f'<tr><td><a href="{series_href(info.key)}">{esc(info.story)}</a></td><td>{esc(info.metric)}</td>'
                     f'<td>{esc(info.engine)}</td><td>{esc(info.host_class)}</td><td>{info.macos_major}</td>'
@@ -893,7 +938,8 @@ class Dashboard:
                 samples[key] = self.source.latest_samples(key)
             return sample_stat(samples[key], stat)
 
-        return build_tiles(targets, series, latest, stat_of, self.source.open_target_misses())
+        return build_tiles(targets, series, latest, stat_of, self.source.target_miss_series(),
+                           fresh_since=self.clock() - TILE_STALE_AFTER)
 
     def limits_for(self, info: SeriesInfo) -> list[tuple[str, float]]:
         return [(f"{row.id}: {check.stat} {OP_TEXT[check.op]} {fmt_value(check.value, check.unit)}", check.value)
@@ -1018,13 +1064,11 @@ class StoreSource:
                ORDER BY """ + _WATERFALL_ORDER + " LIMIT 1", [key])
         return list(json.loads(rows[0]["samples_json"])) if rows else []
 
-    def open_target_misses(self) -> set[str]:
-        closed = ",".join("?" * len(CLOSED_GROUP_STATES))
-        rows = self._query(
-            f"""SELECT DISTINCT s.series_key FROM alerts a JOIN series s ON s.id = a.series_id
-                LEFT JOIN alert_groups g ON g.id = a.group_id
-                WHERE a.rule = 'target_miss' AND (g.id IS NULL OR g.state NOT IN ({closed}))""",
-            sorted(CLOSED_GROUP_STATES))
+    def target_miss_series(self) -> set[str]:
+        """Series with a stored target_miss alert. alerts.py never groups or closes one, so a tile row calls it
+        open only while the row itself misses."""
+        rows = self._query("""SELECT DISTINCT s.series_key FROM alerts a JOIN series s ON s.id = a.series_id
+                              WHERE a.rule = 'target_miss'""")
         return {row["series_key"] for row in rows}
 
     def series_list(self, query: str, limit: int) -> tuple[list[SeriesListRow], int]:
@@ -1036,14 +1080,15 @@ class StoreSource:
             f"SELECT * FROM series {where} ORDER BY story, metric, host_class, series_key LIMIT ?", [like] * 3 + [limit])]
         keys = [info.key for info in infos]
         points = self._points(keys, SPARKLINE_POINTS)
-        marks: dict[str, list[int]] = {}
+        marks: dict[str, list[tuple[int, int]]] = {}
         notes: dict[str, int] = {}
         if keys:
             holders = ",".join("?" * len(keys))
-            for row in self._query(f"""SELECT s.series_key, a.start_pos FROM alerts a JOIN series s ON s.id = a.series_id
+            for row in self._query(f"""SELECT s.series_key, a.start_pos, a.end_pos FROM alerts a
+                                       JOIN series s ON s.id = a.series_id
                                        WHERE a.rule = 'edivisive' AND a.is_improvement = 0
                                        AND s.series_key IN ({holders})""", keys):
-                marks.setdefault(row["series_key"], []).append(row["start_pos"])
+                marks.setdefault(row["series_key"], []).append((row["start_pos"], row["end_pos"]))
             shared = self._query("SELECT COUNT(*) FROM annotations WHERE series_id IS NULL")[0][0]
             for row in self._query(f"""SELECT s.series_key, COUNT(a.id) AS n FROM series s
                                        LEFT JOIN annotations a ON a.series_id = s.id
@@ -1070,7 +1115,10 @@ class StoreSource:
                           self._points([key], SPARKLINE_POINTS, kind="reference").get(key, []))
 
     def alert_groups(self) -> list[AlertGroupView]:
-        groups = self._query("SELECT * FROM alert_groups ORDER BY updated_at DESC, id DESC LIMIT 200")
+        """The newest ALERT_GROUPS_LIMIT groups, open ones first: newer closed groups never push out an open one."""
+        closed = ",".join("?" * len(CLOSED_GROUP_STATES))
+        groups = self._query(f"""SELECT * FROM alert_groups ORDER BY state IN ({closed}), updated_at DESC, id DESC
+                                 LIMIT ?""", [*sorted(CLOSED_GROUP_STATES), ALERT_GROUPS_LIMIT])
         if not groups:
             return []
         ids = [row["id"] for row in groups]
@@ -1083,10 +1131,9 @@ class StoreSource:
             alerts.setdefault(row["group_id"], []).append(AlertView(
                 row["alert_id"], _series_info(row), row["rule"], row["start_pos"], row["end_pos"], row["median_before"],
                 row["median_after"], bool(row["is_improvement"])))
-        open_first = sorted(groups, key=lambda row: row["state"] in CLOSED_GROUP_STATES)
         return [AlertGroupView(row["id"], row["state"], row["start_pos"], row["end_pos"], row["culprit_sha"],
                                bool(row["culprit_verified"]), row["issue_number"], row["reason"], row["updated_at"],
-                               alerts.get(row["id"], [])) for row in open_first]
+                               alerts.get(row["id"], [])) for row in groups]
 
     def jobs(self, limit: int) -> list[JobView]:
         kinds = ",".join("?" * len(PINPOINT_KINDS))

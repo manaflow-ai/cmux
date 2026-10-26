@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """dashboard.py: every page renders from a temp lab store, loads nothing from the network, and the
-target tiles judge only 120 Hz, non-debug series and link to the series they judge.
+target tiles judge only current, non-debug series that claim a row (at the row's Hz when it names one)
+and link to the series they judge.
 
   python3 -m unittest scripts/perf-lab/tests/test_dashboard.py
   UPDATE_SNAPSHOTS=1 python3 -m unittest scripts/perf-lab/tests/test_dashboard.py   # rewrite snapshots
@@ -67,16 +68,17 @@ def claim(row_id: str) -> str:
     return json.dumps({"target": row_id}, sort_keys=True, separators=(",", ":"))
 
 
-def key_of(story: str, metric: str, host: store.Host, *, engine: str = "none", config: str = "bench") -> str:
-    return store.series_key(story=story, metric=metric, engine=engine, host_class=host.host_class, macos_major=26,
-                            build_config=config)
+def key_of(story: str, metric: str, host: store.Host, *, engine: str = "none", config: str = "bench",
+           macos_major: int = 26) -> str:
+    return store.series_key(story=story, metric=metric, engine=engine, host_class=host.host_class,
+                            macos_major=macos_major, build_config=config)
 
 
 class LabFixture:
-    """A small lab: two 120 Hz key-frame series (light passes, STRESS misses p99), a failing 60 Hz copy that
-    must not count, a failing debug copy that must not count, a failing series that claims no row, a chromium
-    series claiming a webkit row, warm launch on a 60 Hz host, an alert group, a bisect job with traces, and a
-    tiered coverage history."""
+    """A small lab: two 120 Hz key-frame series (light passes after a recovered target_miss, STRESS misses p99),
+    a failing 60 Hz copy that must not count, a failing debug copy that must not count, a failing macOS 25 copy
+    that went stale, a failing series that claims no row, a chromium series claiming a webkit row, warm launch on
+    a 60 Hz host, an alert group, a bisect job with traces, and a tiered coverage history."""
 
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -90,10 +92,10 @@ class LabFixture:
     def add(self, story: str, metric: str, samples: list[float], *, pos: int, host: store.Host = HOST_120,
             config: str = "bench", kind: str = "waterfall", tier: str | None = "T0", features_hash: str = "f0",
             macos_build: str = "26.1 (25B78)", started_at: datetime | None = None, unit: str = "ms",
-            target: str | None = None, engine: str = "none") -> None:
+            target: str | None = None, engine: str = "none", macos_major: int = 26) -> None:
         self.uuid += 1
         run = store.Run(run_uuid=f"run-{self.uuid}", kind=kind, measure_version="m1", story=story, engine=engine,
-                        macos_major=26, macos_build=macos_build, features_hash=features_hash, safe_mode="off",
+                        macos_major=macos_major, macos_build=macos_build, features_hash=features_hash, safe_mode="off",
                         started_at=started_at or NOW - timedelta(minutes=10 * (12 - pos)), tier=tier)
         self.store.insert_run(run, build=store.Build(sha=f"{pos:040x}", config=config, commit_pos=pos), host=host,
                               metrics=[store.Metric(name=metric, unit=unit, better="lower", samples=samples,
@@ -122,6 +124,13 @@ class LabFixture:
                      target="launch.warm")
             self.add(IDLE, "wakeups_per_s", [9.0], pos=pos, unit="count", engine="chromium", target="idle.webkit")
         self.add(LIGHT, "key_to_frame_ms", [5.5, 6.5], pos=12, kind="reference", tier=None, target="key-frame.light")
+        # The same story on the previous macOS major: it stopped getting points ten days ago, and it missed.
+        self.add(LIGHT, "key_to_frame_ms", [50.0, 60.0], pos=1, macos_major=25, target="key-frame.light",
+                 started_at=NOW - timedelta(days=10))
+        # A target_miss the light series has since recovered from: stored, never grouped, never closed.
+        self.sql("""INSERT INTO alerts (series_id, group_id, rule, start_pos, end_pos, median_before, median_after,
+                    is_improvement, created_at) VALUES (?, NULL, 'target_miss', 3, 4, 7.0, 20.0, 0, ?)""",
+                 self.series_id(key_of(LIGHT, "key_to_frame_ms", HOST_120)), NOW.isoformat())
         stress_key = key_of(STRESS, "key_to_frame_ms", HOST_120)
         series_id = self.series_id(stress_key)
         group = self.sql("""INSERT INTO alert_groups (state, start_pos, end_pos, culprit_sha, culprit_verified,
@@ -321,6 +330,18 @@ class TileTests(DashboardTestCase):
         self.assertEqual(rows["p99", STRESS].point.commit_pos, 12)
         self.assertEqual(self.tile("key-frame").status, "miss")
 
+    def test_a_recovered_target_miss_is_not_open(self) -> None:
+        rows = {(row.check.stat, row.series.story): row for row in self.tile("key-frame").rows}
+        self.assertFalse(rows["p50", LIGHT].target_miss_open)
+        self.assertFalse(rows["p99", LIGHT].target_miss_open)
+        self.assertFalse(rows["p50", STRESS].target_miss_open)
+        self.assertEqual(self.get("/").count("target_miss open"), 1)
+
+    def test_a_stale_series_is_not_judged_while_a_current_one_is(self) -> None:
+        majors = {row.series.macos_major for row in self.tile("key-frame").rows}
+        self.assertEqual(majors, {26})
+        self.assertNotIn(dashboard.series_href(key_of(LIGHT, "key_to_frame_ms", HOST_120, macos_major=25)), self.get("/"))
+
     def test_p95_and_min_checks_read_the_newest_samples(self) -> None:
         p95, low = self.tile("launch").rows
         self.assertEqual(p95.series.host_class, HOST_60.host_class)
@@ -378,6 +399,18 @@ class SnapshotTests(unittest.TestCase):
         row = dashboard.TileRow(self.ROW, self.CHECK, None, None, None, "no-data")
         self.check("tile-no-data", dashboard.render_tile(dashboard.Tile(self.TARGET, (row,))))
 
+    def test_a_check_fed_only_by_a_stale_series_is_stale_not_a_miss(self) -> None:
+        old = self.point(21.0)
+        fresh_since = dashboard.parse_stamp(old.started_at) + timedelta(seconds=1)
+        (tile,) = dashboard.build_tiles([self.TARGET], [self.INFO], {self.INFO.key: old}, lambda key, stat: 21.0,
+                                        {self.INFO.key}, fresh_since=fresh_since)
+        (row,) = tile.rows
+        self.assertEqual((row.status, row.value, row.target_miss_open), ("stale", 21.0, False))
+        self.assertEqual(tile.status, "no-data")
+        body = dashboard.render_tile(tile)
+        self.assertIn("Stale</span>", body)
+        self.assertIn("newest point 2026-10-25, no current series", body)
+
     def test_build_tiles_decides_the_snapshot_states(self) -> None:
         for p99, expected in ((12.5, "pass"), (16.7, "pass"), (21.0, "miss")):
             with self.subTest(p99=p99):
@@ -421,6 +454,27 @@ class PageTests(DashboardTestCase):
         self.assertIn("Group #1 · culprit", body)
         self.assertIn(f"{9:040x}"[:10] + " (verified)", body)
         self.assertIn("https://github.com/manaflow-ai/cmux/issues/4242", body)
+
+    def test_newer_closed_groups_never_push_out_an_open_group(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "lab.sqlite"
+            fixture = LabFixture(db)
+            fixture.close()
+            old = (NOW - timedelta(days=30)).isoformat()
+            fixture.sql("""INSERT INTO alert_groups (state, start_pos, end_pos, created_at, updated_at)
+                           VALUES ('triaged', 1, 2, ?, ?)""", old, old)
+            for index in range(dashboard.ALERT_GROUPS_LIMIT + 5):
+                stamp = (NOW - timedelta(minutes=index)).isoformat()
+                fixture.sql("""INSERT INTO alert_groups (state, start_pos, end_pos, created_at, updated_at)
+                               VALUES ('fixed', 3, 4, ?, ?)""", stamp, stamp)
+            source = dashboard.StoreSource(db)
+            try:
+                groups = source.alert_groups()
+            finally:
+                source.close()
+        self.assertEqual(len(groups), dashboard.ALERT_GROUPS_LIMIT)
+        self.assertEqual((groups[0].id, groups[0].state), (1, "triaged"))
+        self.assertEqual({group.state for group in groups[1:]}, {"fixed"})
 
     def test_coverage_marks_stale_tiers(self) -> None:
         rows = {(row.tier, row.story, row.host_name): row for row in self.source.coverage(NOW - timedelta(hours=24))}
@@ -528,6 +582,57 @@ class ChartTests(unittest.TestCase):
         ticks = dashboard.nice_ticks(3.0, 3.0)
         self.assertLessEqual(ticks[0], 3.0)
         self.assertGreater(ticks[-1], 3.0)
+
+    INFO = SnapshotTests.INFO
+
+    @staticmethod
+    def points(*positions: int) -> list:
+        return [dashboard.PointView(commit_pos=pos, sha=f"{pos:040x}", started_at=NOW.isoformat(), p50=5.0 + pos % 3,
+                                    p99=9.0, n=5, features_hash="f0", macos_build="26.1 (25B78)", safe_mode="off",
+                                    host_name="cmux15") for pos in positions]
+
+    @staticmethod
+    def change(start: int, end: int):
+        return dashboard.ChangePointView("edivisive", start, end, 5.0, 7.0, False, None)
+
+    def test_window_span(self) -> None:
+        positions = [10, 20, 30]
+        self.assertEqual(dashboard.window_span(positions, 21, 30), (2, 2))
+        self.assertEqual(dashboard.window_span(positions, 11, 30), (1, 2))
+        self.assertEqual(dashboard.window_span(positions, 1, 10), (0, 0))
+        self.assertEqual(dashboard.window_span(positions, 15, 15), (1, 1))
+        self.assertIsNone(dashboard.window_span(positions, 1, 5))
+        self.assertIsNone(dashboard.window_span(positions, 31, 40))
+        self.assertIsNone(dashboard.window_span([], 1, 5))
+
+    def test_sparse_positions_still_show_change_point_ticks(self) -> None:
+        # alerts._candidate_range: the range starts after the previous point, so start_pos is never a point.
+        row = dashboard.SeriesListRow(self.INFO, self.points(*range(10, 130, 10)), [(51, 60), (1, 5), (121, 140)], 0)
+        body = dashboard.render_series_list([row], 1, "")
+        self.assertEqual(body.count('class="cp"'), 1)
+        self.assertIn('<line class="cp" x1="64.0"', body)
+
+    def test_the_chart_skips_ranges_outside_the_shown_points(self) -> None:
+        points = self.points(*range(100, 200, 10))
+        notes = [dashboard.AnnotationView("note", 5, 5, "old note"), dashboard.AnnotationView("note", 205, 205, "future")]
+        view = dashboard.SeriesView(self.INFO, points, [self.change(21, 30), self.change(201, 210)], notes)
+        svg = dashboard.series_chart(view)
+        self.assertNotIn('class="band', svg)
+        self.assertNotIn('class="mark"', svg)
+        page = dashboard.render_series(view)
+        self.assertIn("<td>21..30</td>", page)
+        self.assertIn("old note", page)
+
+    def test_the_chart_clips_a_range_that_starts_before_the_shown_points(self) -> None:
+        points = self.points(*range(100, 200, 10))
+        view = dashboard.SeriesView(self.INFO, points, [self.change(95, 110), self.change(141, 150)],
+                                    [dashboard.AnnotationView("note", 145, 145, "between")])
+        svg = dashboard.series_chart(view)
+        self.assertEqual(svg.count('class="band regression"'), 2)
+        step = (760 - 56 - 16) / 9
+        self.assertIn(f'<rect class="band regression" x="56.0" y="18" width="{1.5 * step:.1f}"', svg)
+        self.assertIn(f'<rect class="band regression" x="{56 + 4.5 * step:.1f}"', svg)
+        self.assertIn(f'<path class="mark" d="M{56 + 5 * step - 4:.1f},', svg)
 
     def test_sparkline_breaks_at_missing_points(self) -> None:
         svg = dashboard.sparkline([1.0, None, 2.0, 3.0])
