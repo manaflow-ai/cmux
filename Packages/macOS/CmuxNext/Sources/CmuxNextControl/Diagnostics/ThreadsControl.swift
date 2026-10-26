@@ -140,13 +140,10 @@ public struct ThreadsControl: Sendable {
                 "made": .array(made.filter { $0.declaredAs == row.name }.map(site)),
             ])
         }
-        var undeclared: [String: [CheckedQueueRecord]] = [:]
-        var order: [String] = []
-        for record in made where record.declaredAs == nil {
-            if undeclared[record.label] == nil { order.append(record.label) }
-            undeclared[record.label, default: []].append(record)
-        }
-        for label in order {
+        let undeclared = Dictionary(grouping: made.filter { $0.declaredAs == nil }, by: \.label)
+        var listed = Set<String>()
+        for record in made where record.declaredAs == nil && listed.insert(record.label).inserted {
+            let label = record.label
             let records = undeclared[label] ?? []
             entries.append(.object([
                 "name": .string(label),

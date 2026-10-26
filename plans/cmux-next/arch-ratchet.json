@@ -585,6 +585,12 @@
       "row": "observer_sites",
       "allow": 2,
       "why": "PL-cef-helper: ChromiumHostPageView (Debug-only, #if DEBUG, behind browserHost.helperPrototype) watches its own window's didMove/didChangeScreen so the out-of-process host's window follows the page on screen; window moves do not change the view's frame, so no view callback reports them. Two names (didMove, didChangeScreen) at one site, counted once each; one observation per name per host page, scoped to object: window and released with the view. No shared per-window geometry adapter exists in a package CmuxNextBrowser can use (WindowOverlayHost keeps its observers private and is PL-motion-cef's); the page view moves onto that adapter when one lands."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "CmuxNextCompat CheckedQueueLog.app (Debug and bench builds only, #if DEBUG || CMUX_BENCH_HOOKS): the record of every queue DispatchQueue.checked made (label, QoS, target, call site, registry problem), which debug.threads lists (p02-threads-018, RUN-3(b)). DispatchQueue.checked is a static factory called wherever a queue is made, in every module and before any composition root exists, so it has no injection path; the same shape as BlockingViolationTable.shared. Written once per queue creation under CmuxNextCompat Mutex, bounded at 512 records; ThreadsControl takes it injected (tests pass their own log). Not in Release builds."
     }
   ],
   "observer_wrappers": [
