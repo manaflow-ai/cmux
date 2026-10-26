@@ -43,13 +43,14 @@ struct FeatureSafeModeTests {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: "feature-safe-mode-\(UUID().uuidString)", directoryHint: .isDirectory)
         let work: BackgroundWork
-        private let lanes: Lanes
+        /// The lane items' runs, yielded on their lane threads after each item's work returned.
+        let runs: AsyncStream<Run>
 
         init() {
-            let lanes = Lanes()
-            self.lanes = lanes
+            let (runs, ran) = AsyncStream.makeStream(of: Run.self)
+            self.runs = runs
             work = BackgroundWork(label: "test.feature-safe-mode", onRan: { lane, _, _, _ in
-                lanes.record(lane: lane, onMain: pthread_main_np() != 0)
+                ran.yield(Run(lane: lane, onMain: pthread_main_np() != 0))
             })
         }
 
@@ -65,17 +66,24 @@ struct FeatureSafeModeTests {
             return safeMode
         }
 
-        var ran: [(lane: BlockingLane, onMain: Bool)] { lanes.all }
+        /// The first `count` runs. An awaited item resumes its caller before its lane reports the run,
+        /// so a test waits for the reports instead of reading a snapshot after its last await.
+        func first(_ count: Int) async -> [Run] {
+            var seen: [Run] = []
+            for await run in runs {
+                seen.append(run)
+                if seen.count == count { break }
+            }
+            return seen
+        }
 
         deinit { try? FileManager.default.removeItem(at: directory) }
     }
 
-    /// The lane items' runs, recorded on their lane threads.
-    private final class Lanes: Sendable {
-        // concurrency-allow: test sink, appended on lane threads and read after the awaits (lock carve-out: an array, no I/O under it).
-        private let runs = Mutex<[(lane: BlockingLane, onMain: Bool)]>([])
-        func record(lane: BlockingLane, onMain: Bool) { runs.withLock { $0.append((lane: lane, onMain: onMain)) } }
-        var all: [(lane: BlockingLane, onMain: Bool)] { runs.withLock { $0 } }
+    /// One lane item's run: its lane and whether its thread was the main thread.
+    private struct Run: Sendable {
+        let lane: BlockingLane
+        let onMain: Bool
     }
 
     private static func resolved(_ remote: [String: Bool]) -> FeatureList {
@@ -185,13 +193,13 @@ struct FeatureSafeModeTests {
 
     // MARK: Files
 
-    @MainActor @Test func theStreakFileIsReadAndWrittenOffTheMainThread() async throws {
+    @MainActor @Test(.timeLimit(.minutes(1))) func theStreakFileIsReadAndWrittenOffTheMainThread() async throws {
         let harness = Harness()
         let safeMode = await harness.launch(uncleanly: true)
         await safeMode.recordFetchStarted()
         await safeMode.recordFetchSucceeded(promotingActiveDocument: {})
         _ = try await safeMode.currentStreaks()
-        let ran = harness.ran
+        let ran = await harness.first(4)
         #expect(ran.count == 4)
         #expect(ran.allSatisfy { $0.lane == .files && !$0.onMain }, "a safe-mode file item ran on the main thread or off the files lane")
         #expect(FileManager.default.fileExists(atPath: safeMode.file.path))
