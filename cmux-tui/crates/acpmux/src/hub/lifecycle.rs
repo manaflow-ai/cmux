@@ -214,6 +214,7 @@ impl Hub {
             *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
                 fork_from.clone();
             sessions.insert(id.clone(), session.clone());
+            super::admission::claim(&id);
             session
         };
         if let Err(e) = self.store.save(&session.meta()) {

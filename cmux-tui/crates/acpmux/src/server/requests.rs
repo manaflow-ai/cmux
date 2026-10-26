@@ -821,7 +821,10 @@ async fn dispatch_request(
                 subsession: None,
                 disallowed_tools,
             };
-            let s = hub.new_session(req).await?;
+            let s = match &_admitted {
+                Some(admitted) => admitted.run(hub.new_session(req)).await?,
+                None => hub.new_session(req).await?,
+            };
             if conn.origin.web_class() {
                 super::remote_guard::settle_web_session_mode(hub, &s).await?;
                 // A dedicated agent VM (vmHost): a session its owner's peer
@@ -1054,8 +1057,8 @@ async fn dispatch_request(
             let workspace_id = crate::session_env::workspace_id(mux_meta(&params), &env)?;
             let through = super::fork_through::through(&params);
             let who = who(conn);
-            let _admitted = hub.admit_new(ask(conn, &params, &who)).await?;
-            let new = hub.fork(&s, name, cwd, env, workspace_id, through).await?;
+            let admitted = hub.admit_new(ask(conn, &params, &who)).await?;
+            let new = admitted.run(hub.fork(&s, name, cwd, env, workspace_id, through)).await?;
             attach(hub, conn, &new.id);
             let meta = new.meta();
             Ok(

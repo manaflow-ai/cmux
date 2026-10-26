@@ -28,6 +28,7 @@
 //! live until it ends, so concurrent creates at the cap cannot all pass.
 
 use super::*;
+use std::sync::OnceLock;
 
 /// `data.reason` of a refusal; the CLI exits 5 on it (`cli/errors.rs`).
 pub const REASON: &str = "admission_refused";
@@ -159,28 +160,59 @@ fn registry_path() -> Option<PathBuf> {
 }
 
 /// Creates admitted and not yet done (`Admitted`), counted with the live
-/// sessions: concurrent creates at the cap cannot all pass the count.
+/// sessions: concurrent creates at the cap cannot all pass the count. Each
+/// holds the id of the session it made once that is inserted (`claim`), so a
+/// create whose session already runs is counted once, as that session.
 #[derive(Default)]
-pub(crate) struct Admitting(StdMutex<usize>);
+pub(crate) struct Admitting(StdMutex<Vec<Arc<OnceLock<String>>>>);
 
 /// One admitted create, counted until it is dropped (its create ended, made or not).
-pub(crate) struct Admitted<'a>(Option<&'a Admitting>);
+pub(crate) struct Admitted<'a> {
+    admitting: &'a Admitting,
+    made: Arc<OnceLock<String>>,
+}
+
+tokio::task_local! {
+    /// The admitted create this task runs (`Admitted::run`).
+    static MAKING: Arc<OnceLock<String>>;
+}
+
+impl Admitted<'_> {
+    /// Runs the create `f`: the session it inserts is this admission's (`claim`).
+    /// Boxed: a create's future is large, and moved by value it overflows the stack.
+    pub(crate) async fn run<F: std::future::Future>(&self, f: F) -> F::Output {
+        MAKING.scope(self.made.clone(), Box::pin(f)).await
+    }
+}
+
+/// A new session `id` was inserted: the admitted create running in this task
+/// (if any) made it. Called under the sessions lock, so the count never sees
+/// the session and its admission apart.
+pub(super) fn claim(id: &str) {
+    let _ = MAKING.try_with(|made| made.set(id.to_owned()));
+}
+
+/// The live sessions `live` plus the admitted creates whose session is not one of
+/// them: a create is counted once, as its session once that runs.
+fn counted(live: &std::collections::HashSet<&str>, open: &[Arc<OnceLock<String>>]) -> usize {
+    live.len()
+        + open.iter().filter(|m| m.get().is_none_or(|id| !live.contains(id.as_str()))).count()
+}
 
 impl Drop for Admitted<'_> {
     fn drop(&mut self) {
-        if let Some(a) = self.0 {
-            let mut n = a.0.lock().unwrap_or_else(|e| e.into_inner());
-            *n = n.saturating_sub(1);
-        }
+        let mut open = self.admitting.0.lock().unwrap_or_else(|e| e.into_inner());
+        open.retain(|m| !Arc::ptr_eq(m, &self.made));
     }
 }
 
 impl Hub {
-    /// This host's sessions whose harness runs.
-    fn live_sessions(&self) -> usize {
+    /// This host's sessions whose harness runs, plus the admitted creates
+    /// whose session is not (yet) one of them.
+    fn live_sessions(&self, open: &[Arc<OnceLock<String>>]) -> usize {
         let sessions: Vec<Arc<Session>> =
             self.sessions.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect();
-        sessions
+        let live: std::collections::HashSet<&str> = sessions
             .iter()
             .filter(|s| {
                 matches!(
@@ -188,7 +220,9 @@ impl Hub {
                     SessionStatus::Ready | SessionStatus::Running | SessionStatus::Waiting
                 )
             })
-            .count()
+            .map(|s| s.id.as_str())
+            .collect();
+        counted(&live, open)
     }
 
     /// Whether a new session may start here (module docs). Hold the returned
@@ -215,7 +249,7 @@ impl Hub {
             read.await.map_err(|e| RpcError::internal(e.to_string()))?;
         // Counted and reserved under one lock: no file I/O while it is held.
         let admitting = self.admitting.0.lock().unwrap_or_else(|e| e.into_inner());
-        let live = self.live_sessions() + *admitting;
+        let live = self.live_sessions(&admitting);
         let (refusal, uncapped) = check(&Inputs {
             flag: flag.as_deref(),
             registry: registry.as_ref(),
@@ -223,9 +257,10 @@ impl Hub {
             machine: machine.as_deref(),
             live,
         });
-        let admitted = |mut n: std::sync::MutexGuard<'_, usize>| {
-            *n += 1;
-            Admitted(Some(&self.admitting))
+        let admitted = |mut open: std::sync::MutexGuard<'_, Vec<Arc<OnceLock<String>>>>| {
+            let made = Arc::new(OnceLock::new());
+            open.push(made.clone());
+            Admitted { admitting: &self.admitting, made }
         };
         // Outside the fleet (no registry) that is every create: only a fleet host's gap is logged.
         match uncapped {
@@ -280,6 +315,33 @@ pub(crate) struct Ask<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_create_whose_session_runs_counts_once() {
+        let (starting, made, gone) =
+            (Arc::new(OnceLock::new()), Arc::new(OnceLock::new()), Arc::new(OnceLock::new()));
+        made.set("child".to_owned()).unwrap();
+        gone.set("ended".to_owned()).unwrap();
+        let live: std::collections::HashSet<&str> = ["parent", "child"].into();
+        // parent, child (once, not again for its create), the create still starting,
+        // and the create whose session is not live (yet, or any more).
+        assert_eq!(counted(&live, &[starting, made, gone]), 4);
+        assert_eq!(counted(&live, &[]), 2);
+    }
+
+    #[tokio::test]
+    async fn the_session_a_create_inserts_is_claimed_by_its_own_admission() {
+        let admitting = Admitting::default();
+        let made = Arc::new(OnceLock::new());
+        admitting.0.lock().unwrap().push(made.clone());
+        let admitted = Admitted { admitting: &admitting, made: made.clone() };
+        claim("outside");
+        assert_eq!(made.get(), None, "a session inserted outside the create is not its");
+        admitted.run(async { claim("mine") }).await;
+        assert_eq!(made.get().map(String::as_str), Some("mine"));
+        drop(admitted);
+        assert!(admitting.0.lock().unwrap().is_empty(), "a dropped admission is no longer counted");
+    }
 
     /// The four lane hosts as leo-workspace's registry has them.
     fn registry() -> Value {

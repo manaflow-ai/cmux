@@ -23,7 +23,7 @@
 //!   limits. `{workspaceId, maxRunning?}`: the person only, a workspace's
 //!   `maxRunning` (`hub/subsession_runs.rs`).
 
-use super::{Conn, str_param};
+use super::{Conn, mux_meta, str_param};
 use crate::hub::subsessions::{LimitsActor, StartRequest};
 use crate::hub::{Hub, Session};
 use crate::rpc::{RpcError, method};
@@ -140,6 +140,10 @@ async fn handle(
             effort: text("effort"),
             cwd: text("cwd").map(PathBuf::from),
             worktree: params.get("worktree").and_then(Value::as_bool).unwrap_or(false),
+            force_admit: mux_meta(params)
+                .and_then(|m| m.get(crate::hub::admission::FORCE_FIELD))
+                .and_then(Value::as_bool)
+                == Some(true),
         };
         let mut started = hub.start_subsession(&parent, req).await?;
         if let Some(placed) = placed {

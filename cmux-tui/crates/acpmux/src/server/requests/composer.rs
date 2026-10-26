@@ -70,8 +70,8 @@ pub(super) async fn handle(
     }
     // The aside is a fork: a new session, so it needs room (`hub/admission.rs`).
     let who = super::who(conn);
-    let _admitted = hub.admit_new(super::ask(conn, params, &who)).await?;
-    hub.ask_aside(&s, text, &conn.label(), opts()).await
+    let admitted = hub.admit_new(super::ask(conn, params, &who)).await?;
+    admitted.run(hub.ask_aside(&s, text, &conn.label(), opts())).await
 }
 
 /// What `session/prompt` does once the hub took the prompt: tell the connection
