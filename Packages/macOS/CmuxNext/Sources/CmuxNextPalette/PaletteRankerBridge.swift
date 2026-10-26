@@ -40,6 +40,7 @@ public enum PaletteRankerBridgeError: Error, LocalizedError, Sendable {
 
     /// Creates a bridge with its own ranker handle.
     nonisolated public init() throws {
+        // SAFETY: cmux_palette_ranker_new returns a new handle this object owns alone and frees in deinit.
         guard let handle = unsafe cmux_palette_ranker_new() else { throw PaletteRankerBridgeError.runtimeUnavailable }
         unsafe self.handle = handle
     }

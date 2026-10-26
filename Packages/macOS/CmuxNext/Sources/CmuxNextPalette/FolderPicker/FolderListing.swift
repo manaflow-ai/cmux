@@ -67,6 +67,7 @@ public nonisolated struct FolderListing: Equatable, Sendable {
             verdicts[ext] = verdict
             return verdict
         }
+        // SAFETY: `handle` is the open stream above; each record is copied out (record(_:)) before the next readdir.
         while let entry = unsafe readdir(handle) {
             let (name, type) = unsafe record(entry)
             if name == "." || name == ".." { continue }

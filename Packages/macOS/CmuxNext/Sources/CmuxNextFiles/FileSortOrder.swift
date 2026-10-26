@@ -67,6 +67,7 @@ public struct FileSortOrder: Sendable, Hashable, Codable {
         unsafe names.withUnsafeBufferPointer { nameBytes in
             unsafe offsets.withUnsafeBufferPointer { offs in
                 func nameCompare(_ a: Int, _ b: Int) -> Int {
+                    // SAFETY: the bounds argument above the closures: both keys lie inside `names`.
                     let la = unsafe offs[a + 1] - offs[a], lb = unsafe offs[b + 1] - offs[b]
                     let common = min(la, lb)
                     if common > 0, let base = unsafe nameBytes.baseAddress {
