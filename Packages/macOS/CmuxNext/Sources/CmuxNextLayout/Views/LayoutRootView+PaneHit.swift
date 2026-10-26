@@ -19,8 +19,8 @@ extension LayoutRootView {
     /// `presented_hit_reads`, read as a delta): a press mid render-server spring reads one per moving host, at rest none.
     public var presentedHitReads: Int { context.hosts.values.reduce(0) { $0 + $1.presentedHitReads } }
 
-    /// Presses the roots' intercepts handled while render-server springs ran on the active screen, all windows
+    /// Presses this root's intercept handled while render-server springs ran on its active screen
     /// (`ScreenContentView.pressedPane(at:)`; `debug.layout_counters` `presses_mid_spring`, read as a delta): when a
     /// press came, whatever its hit test read.
-    public internal(set) static var pressesMidRenderSpring = 0
+    public var pressesMidRenderSpring: Int { context.pressesMidRenderSpring }
 }

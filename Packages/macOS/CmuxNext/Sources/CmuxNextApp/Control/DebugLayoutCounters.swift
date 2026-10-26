@@ -67,7 +67,7 @@ enum DebugLayoutCounters {
             "pane_chrome_updates": JSONValue(Int(truncatingIfNeeded: LayoutRootView.paneChromeUpdates)),
             "update_visibility": JSONValue(Int(truncatingIfNeeded: visibilityUpdates)),
             "presented_hit_reads": JSONValue(presentedHitReads),
-            "presses_mid_spring": JSONValue(LayoutRootView.pressesMidRenderSpring),
+            "presses_mid_spring": JSONValue(roots.reduce(0) { $0 + $1.pressesMidRenderSpring }),
             "terminal_window_updates": JSONValue(Int(truncatingIfNeeded: TerminalSurfaceView.windowStateUpdates)),
             "terminal_grid_reports": JSONValue(Int(truncatingIfNeeded: TerminalSurfaceView.gridReports)),
             "indicator_resyncs": JSONValue(Int(truncatingIfNeeded: StatusIndicatorAppearance.resyncs)),

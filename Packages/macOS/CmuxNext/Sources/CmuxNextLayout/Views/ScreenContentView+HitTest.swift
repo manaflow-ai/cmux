@@ -100,7 +100,7 @@ extension ScreenContentView {
     /// (``pane(at:)``), which reads no layer. The root's press intercept asks it once per press.
     func pressedPane(at local: CGPoint) -> PaneID? {
         guard !isHidden, !renderTracks.isEmpty else { return pane(at: local) }
-        LayoutRootView.pressesMidRenderSpring += 1
+        context.pressesMidRenderSpring += 1
         var view = drawnHit(at: local)
         while let current = view, current !== self {
             if let host = current as? PaneHostView { return host.pane }
