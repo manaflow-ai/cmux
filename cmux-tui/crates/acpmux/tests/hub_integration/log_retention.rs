@@ -228,7 +228,8 @@ async fn the_daemon_compacts_a_chat_closed_weeks_ago_by_itself() {
     drop(store);
 
     let hub = hub(&cfg, &root);
-    hub.retention_worker();
+    let held = Arc::strong_count(&hub);
+    let worker = hub.retention_worker();
     let marker = |id: &str| root.join("acpmux/sessions").join(id).join("events/compacted.json");
     let complete = |id: &str| {
         std::fs::read(marker(id))
@@ -252,14 +253,17 @@ async fn the_daemon_compacts_a_chat_closed_weeks_ago_by_itself() {
     assert!(!marker("last-week").exists(), "a chat closed 7 days ago is kept whole");
     let listed: Vec<String> = hub.sessions().iter().map(|s| s.id.clone()).collect();
     assert!(listed.contains(&"weeks-ago".to_owned()), "{listed:?}");
-    // The daemon's shutdown ends the worker: it lets go of the hub.
-    let before = Arc::strong_count(&hub);
-    hub.shutdown.notify_waiters();
+    // Between passes it holds no strong reference to the hub.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    while Arc::strong_count(&hub) >= before {
-        assert!(tokio::time::Instant::now() < deadline, "the worker outlived the shutdown");
+    while Arc::strong_count(&hub) > held {
+        assert!(tokio::time::Instant::now() < deadline, "the worker keeps the hub alive");
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
+    // The daemon's shutdown ends the worker.
     hub.shutdown_all().await;
+    tokio::time::timeout(Duration::from_secs(5), worker)
+        .await
+        .expect("the worker outlived the shutdown")
+        .unwrap();
     let _ = std::fs::remove_dir_all(&root);
 }
