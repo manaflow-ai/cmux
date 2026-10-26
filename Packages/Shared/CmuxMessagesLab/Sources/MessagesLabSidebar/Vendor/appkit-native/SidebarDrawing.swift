@@ -97,8 +97,9 @@ final class SidebarAvatarCache: Sendable { // cmux: checked Sendable (Swift 6), 
 
 /// The drawing: pure functions of a summary and a render context (any thread).
 enum SidebarDraw {
-    // cmux: computed (a CGColorSpace is not Sendable); the named space is the system's one instance.
-    static var p3: CGColorSpace { CGColorSpace(name: CGColorSpace.displayP3) ?? CGColorSpaceCreateDeviceRGB() } // no force unwrap
+    // cmux: made once and shared by every render thread (SidebarShared, Swift 6; no lookup per read).
+    private static let p3Space = SidebarShared(CGColorSpace(name: CGColorSpace.displayP3) ?? CGColorSpaceCreateDeviceRGB()) // no force unwrap
+    static var p3: CGColorSpace { p3Space.value }
     /// Where `AvatarSpec.image` paths resolve: the app bundle's "assets" folder (cmux: a
     /// constant, the renderers read it on every core; cmux's avatars are `file:` URLs).
     static let assetDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("assets")
@@ -110,13 +111,23 @@ enum SidebarDraw {
         DispatchQueue.main.async { DispatchQueue.global(qos: .utility).async { withExtendedLifetime(images) {} } }
     }
     // no force unwrap: Core Text's UI font lookup returns an optional.
-    // cmux: every font comes from the held store below (a CTFont is not Sendable: no static let).
-    static var nameFont: CTFont { uiFont(.emphasizedSystem, SidebarMetrics.nameSize) }
-    static var previewFont: CTFont { uiFont(.system, SidebarMetrics.previewSize) }
-    static var timeFont: CTFont { uiFont(.system, SidebarMetrics.timeSize) }
-    static var pinNameFont: CTFont { uiFont(.system, SidebarMetrics.pinNameSize) }
-    static var bubbleFont: CTFont { uiFont(.system, 11) }
-    static var sectionFont: CTFont { uiFont(.emphasizedSystem, 11) }
+    // cmux: the fixed fonts are made once and shared by every render thread (SidebarShared, Swift 6),
+    // read with no lock; only the monogram and emoji sizes use the held store below.
+    private struct FixedFonts: SidebarShareable {
+        let name = SidebarDraw.uiFont(.emphasizedSystem, SidebarMetrics.nameSize)
+        let preview = SidebarDraw.uiFont(.system, SidebarMetrics.previewSize)
+        let time = SidebarDraw.uiFont(.system, SidebarMetrics.timeSize)
+        let pinName = SidebarDraw.uiFont(.system, SidebarMetrics.pinNameSize)
+        let bubble = SidebarDraw.uiFont(.system, 11)
+        let section = SidebarDraw.uiFont(.emphasizedSystem, 11)
+    }
+    private static let fixedFonts = SidebarShared(FixedFonts())
+    static var nameFont: CTFont { fixedFonts.value.name }
+    static var previewFont: CTFont { fixedFonts.value.preview }
+    static var timeFont: CTFont { fixedFonts.value.time }
+    static var pinNameFont: CTFont { fixedFonts.value.pinName }
+    static var bubbleFont: CTFont { fixedFonts.value.bubble }
+    static var sectionFont: CTFont { fixedFonts.value.section }
 
     // the UI font, or Helvetica at that size when Core Text returns none; held for the process.
     static func uiFont(_ type: CTFontUIFontType, _ size: CGFloat) -> CTFont {
@@ -740,10 +751,11 @@ final class SidebarTypingLayer: CALayer {
 
 /// Text measurement per conversation (the name line and the preview's typesetter), shared by
 /// every width: a live resize only breaks lines again. Locked (render queue and main).
-/// cmux: Sendable (Swift 6). A typesetter and its lines are Core Text layout objects, which one
-/// thread at a time may use (Core Text Programming Guide, "Thread Safety"), so a measurement is
-/// lent to one caller for the length of `withMeasured`; a second caller that wants it meanwhile
-/// measures its own.
+/// cmux: Sendable (Swift 6) over unchecked state: its store holds measurements, which are not
+/// Sendable, in `OSAllocatedUnfairLock(uncheckedState:)`, and `lent` guards them instead of the
+/// checker. A typesetter and its lines are Core Text layout objects, which one thread at a time may
+/// use (Core Text Programming Guide, "Thread Safety"), so a measurement is lent to one caller for
+/// the length of `withMeasured`; a second caller that wants it meanwhile measures its own.
 final class SidebarTextCache: Sendable {
     struct Measured {
         let name: CTLine

@@ -69,7 +69,7 @@
  protocol SidebarSearchProvider: AnyObject {
      /// A new non-empty query (main thread). Answer through `request.complete(_:)`.
      func sidebar(_ sidebar: SidebarController, search request: SidebarSearchRequest)
-@@ -116,21 +129,20 @@
+@@ -116,21 +129,22 @@
      func sidebar(_ sidebar: SidebarController, delete id: ConversationID) {}
      /// v1.2: a pinned tile was dragged to `index` in the pinned order (default: the tiles go back).
      func sidebar(_ sidebar: SidebarController, movePinned id: ConversationID, to index: Int) {}
@@ -81,7 +81,9 @@
  /// `SidebarLocalizable.xcstrings` (stable `sidebar.*` keys, an English comment per key). A host
  /// copies that file into its resources and points `bundle` at them (a Swift package:
  /// `Bundle.module`). Default: the bundle that contains the sidebar code, not `Bundle.main`.
-+/// cmux: fixed, this package's own bundle and table (read by the row renderers on every core).
++/// cmux: the paragraph above is upstream's; here `bundle` is fixed to this package's module bundle
++/// (MessagesLabLocalization.bundle) and `table` is a constant, so no host can set them (the row
++/// renderers read both on every core).
  enum SidebarLocalization {
 -    /// The one MessagesLab bundle (MessagesLabLocalization.bundle): setting it here sets it for
 -    /// every MessagesLab string (transcript, markdown, menus), not only the sidebar.
@@ -97,7 +99,7 @@
      /// The string for `key` in the user's preferred language; `english` if the key is missing.
      static func string(_ key: String, _ english: String) -> String {
          bundle.localizedString(forKey: key, value: english, table: table)
-@@ -140,10 +152,7 @@
+@@ -140,10 +154,7 @@
  /// The sidebar's user-facing strings (SidebarLocalizable.xcstrings, through SidebarLocalization).
  enum SidebarStrings {
      /// v1: the table name; v1.1 forwards it to `SidebarLocalization.table`.
@@ -109,7 +111,7 @@
      private static func s(_ key: String, _ english: String) -> String { SidebarLocalization.string(key, english) }
  
      static var search: String { s("sidebar.search", "Search") }
-@@ -268,6 +277,10 @@
+@@ -268,6 +279,10 @@
      static let pinBottomPad: CGFloat = 8
      static let pinSelectionRadius: CGFloat = 12
      static let pinSectionBottom: CGFloat = 6
@@ -120,7 +122,7 @@
  
      var width: CGFloat
  
-@@ -286,20 +299,22 @@
+@@ -286,20 +301,22 @@
      }
      var tileWidth: CGFloat { ((width - 2 * Self.pinInsetX) / CGFloat(columns)).rounded(.down) }
      /// Grows with the tile in the 3-column grid, from 52 pt at its narrowest to 76 pt; with fewer
@@ -147,7 +149,7 @@
      }
      func tileRect(_ i: Int) -> CGRect {
          let cols = columns
-@@ -323,6 +338,8 @@
+@@ -323,6 +340,8 @@
      var selectionActive: CGColor
      var selectionInactive: CGColor
      var selectedText: CGColor
@@ -156,7 +158,7 @@
      var monogramTop: CGColor
      var monogramBottom: CGColor
      var groupDisc: CGColor
-@@ -357,6 +374,7 @@
+@@ -357,6 +376,7 @@
                  selectionActive: (selectionColor ?? NSColor.selectedContentBackgroundColor).cgColor,
                  selectionInactive: NSColor.unemphasizedSelectedContentBackgroundColor.cgColor,
                  selectedText: NSColor.alternateSelectedControlTextColor.cgColor,

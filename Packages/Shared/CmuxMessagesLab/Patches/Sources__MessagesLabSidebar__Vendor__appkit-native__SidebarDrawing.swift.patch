@@ -8,7 +8,7 @@
  final class SidebarBitmapCache {
      private var map: [SidebarBitmapKey: (image: CGImage, bytes: Int, used: UInt64)] = [:]
      private var clock: UInt64 = 0
-@@ -74,78 +75,81 @@
+@@ -74,78 +75,92 @@
  
  /// Circle avatars by spec, diameter, scale and appearance; shared by the rows, tiles and the
  /// header. Locked (the render queue reads it).
@@ -49,8 +49,9 @@
 -    /// Where `AvatarSpec.image` paths resolve (the host sets it; default: the app bundle's
 -    /// "assets" folder).
 -    static var assetDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("assets")
-+    // cmux: computed (a CGColorSpace is not Sendable); the named space is the system's one instance.
-+    static var p3: CGColorSpace { CGColorSpace(name: CGColorSpace.displayP3) ?? CGColorSpaceCreateDeviceRGB() } // no force unwrap
++    // cmux: made once and shared by every render thread (SidebarShared, Swift 6; no lookup per read).
++    private static let p3Space = SidebarShared(CGColorSpace(name: CGColorSpace.displayP3) ?? CGColorSpaceCreateDeviceRGB()) // no force unwrap
++    static var p3: CGColorSpace { p3Space.value }
 +    /// Where `AvatarSpec.image` paths resolve: the app bundle's "assets" folder (cmux: a
 +    /// constant, the renderers read it on every core; cmux's avatars are `file:` URLs).
 +    static let assetDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("assets")
@@ -68,13 +69,23 @@
 -    static let pinNameFont = uiFont(.system, SidebarMetrics.pinNameSize)
 -    static let bubbleFont = uiFont(.system, 11)
 -    static let sectionFont = uiFont(.emphasizedSystem, 11)
-+    // cmux: every font comes from the held store below (a CTFont is not Sendable: no static let).
-+    static var nameFont: CTFont { uiFont(.emphasizedSystem, SidebarMetrics.nameSize) }
-+    static var previewFont: CTFont { uiFont(.system, SidebarMetrics.previewSize) }
-+    static var timeFont: CTFont { uiFont(.system, SidebarMetrics.timeSize) }
-+    static var pinNameFont: CTFont { uiFont(.system, SidebarMetrics.pinNameSize) }
-+    static var bubbleFont: CTFont { uiFont(.system, 11) }
-+    static var sectionFont: CTFont { uiFont(.emphasizedSystem, 11) }
++    // cmux: the fixed fonts are made once and shared by every render thread (SidebarShared, Swift 6),
++    // read with no lock; only the monogram and emoji sizes use the held store below.
++    private struct FixedFonts: SidebarShareable {
++        let name = SidebarDraw.uiFont(.emphasizedSystem, SidebarMetrics.nameSize)
++        let preview = SidebarDraw.uiFont(.system, SidebarMetrics.previewSize)
++        let time = SidebarDraw.uiFont(.system, SidebarMetrics.timeSize)
++        let pinName = SidebarDraw.uiFont(.system, SidebarMetrics.pinNameSize)
++        let bubble = SidebarDraw.uiFont(.system, 11)
++        let section = SidebarDraw.uiFont(.emphasizedSystem, 11)
++    }
++    private static let fixedFonts = SidebarShared(FixedFonts())
++    static var nameFont: CTFont { fixedFonts.value.name }
++    static var previewFont: CTFont { fixedFonts.value.preview }
++    static var timeFont: CTFont { fixedFonts.value.time }
++    static var pinNameFont: CTFont { fixedFonts.value.pinName }
++    static var bubbleFont: CTFont { fixedFonts.value.bubble }
++    static var sectionFont: CTFont { fixedFonts.value.section }
  
 -    // the UI font, or Helvetica at that size when Core Text returns none.
 +    // the UI font, or Helvetica at that size when Core Text returns none; held for the process.
@@ -133,7 +144,7 @@
      }
  
      /// A flipped (top-left origin) bitmap in the context's color space at its scale.
-@@ -236,11 +240,7 @@
+@@ -236,11 +251,7 @@
          case let .emoji(e):
              g.setFillColor(p.groupDisc)
              g.fillEllipse(in: r)
@@ -146,7 +157,7 @@
          case let .group(members):
              g.setFillColor(p.groupDisc)
              g.fillEllipse(in: r)
-@@ -263,6 +263,33 @@
+@@ -263,6 +274,33 @@
          }
      }
  
@@ -180,7 +191,7 @@
      // MARK: Row
  
      /// The row's parts, each its own layer: the avatar (shared avatar bitmap) and the unread
-@@ -298,8 +325,11 @@
+@@ -298,8 +336,11 @@
      /// Name and preview at the list's text width; `timeWidth`: the time part's width.
      static func rowText(_ c: ConversationSummary, emphasized: Bool, ctx: SidebarRenderContext, timeWidth: CGFloat,
                          text: SidebarTextCache) -> CGImage? { // nil when the bitmap cannot be allocated
@@ -194,7 +205,7 @@
      }
  
      /// Everything a row's text bitmap depends on other than its key: where the name is truncated
-@@ -319,18 +349,21 @@
+@@ -319,18 +360,21 @@
      /// screen, drawn at another width, has these pixels already); nil when the bitmap cannot be allocated.
      static func rowText(_ c: ConversationSummary, emphasized: Bool, ctx: SidebarRenderContext, timeWidth: CGFloat,
                          text: SidebarTextCache, unless shown: RowTextLayout?) -> (image: CGImage?, layout: RowTextLayout)? {
@@ -224,7 +235,7 @@
          let nameW = w - timeWidth - M.timeGap
          let name = truncated(m.name, nameW, nameFont, m.nameColor)
          var layout = RowTextLayout(name: name === m.name ? nil : nameW, breaks: [], lastLine: false, truncatedAt: nil, scale: ctx.scale)
-@@ -405,7 +438,8 @@
+@@ -405,7 +449,8 @@
      /// The avatar's rect in a tile (tile coordinates).
      static func tileAvatar(_ m: SidebarMetrics) -> CGRect {
          let d = m.pinAvatar
@@ -234,7 +245,7 @@
      }
  
      /// A pinned tile is layers: the avatar (one bitmap at the largest pin size, scaled), the
-@@ -422,8 +456,10 @@
+@@ -422,8 +467,10 @@
          return (n, b)
      }
      /// The width a tile name bitmap is drawn for: 0 when the name fits (natural width), else the room.
@@ -247,7 +258,7 @@
      }
      /// The width a bubble is drawn for: 0 when the preview fits on one line, else the bubble's room.
      static func tileBubbleKeyWidth(natural: CGFloat, tileWidth: CGFloat) -> CGFloat {
-@@ -432,7 +468,7 @@
+@@ -432,7 +479,7 @@
      /// The name, 16 pt tall, baseline 11 pt; `keyWidth` 0: natural width.
      static func tileNameImage(_ c: ConversationSummary, emphasized: Bool, keyWidth: CGFloat, ctx: SidebarRenderContext) -> CGImage? { // nil when the bitmap cannot be allocated
          let p = ctx.palette
@@ -256,7 +267,7 @@
          let full = line(tileName(c), pinNameFont, color)
          let l = keyWidth > 0 ? truncated(full, keyWidth, pinNameFont, color) : full
          let w = max(1, width(l).rounded(.up))
-@@ -485,21 +521,39 @@
+@@ -485,21 +532,39 @@
          return CGRect(x: (c.x - d / 2).rounded(), y: (c.y - d / 2).rounded(), width: d, height: d)
      }
  
@@ -304,7 +315,7 @@
  enum SidebarMotion {
      /// Off: every change shows at once (benches; a host may turn it off).
      static var enabled = true
-@@ -609,12 +663,13 @@
+@@ -609,12 +674,13 @@
      static let dotDiameter: CGFloat = 6
      static let dotPitch: CGFloat = 8
      /// The transcript's two tail circles (9 pt at the bubble's lower left, 5 pt below-left of it), scaled.
@@ -320,7 +331,7 @@
      /// Measured pulse (transcript): period 1.0 s, dots 0.247 s apart, a Gaussian of width 0.22 s.
      static let period: CFTimeInterval = 1.0
      static let phaseStep = 0.247
-@@ -648,9 +703,9 @@
+@@ -648,9 +714,9 @@
          for d in lit { d.backgroundColor = p.typingDot; d.contentsScale = scale }
      }
      /// The dots pulse (tests: every lit dot has its animation, or the still phase is set).
@@ -332,7 +343,7 @@
      private static func level(_ i: Int, phase t: Double) -> Double {
          var x = t - 0.45 - Double(i) * phaseStep
          x -= x.rounded()
-@@ -658,9 +713,12 @@
+@@ -658,9 +724,12 @@
      }
      /// Starts the pulse once. Phase-locked to whole periods of the media clock, so every bubble
      /// in the list pulses in step and a row that scrolls back in does not restart its cycle.
@@ -348,20 +359,21 @@
              return
          }
          let begin = (CACurrentMediaTime() / Self.period).rounded(.down) * Self.period
-@@ -682,7 +740,11 @@
+@@ -682,7 +751,12 @@
  
  /// Text measurement per conversation (the name line and the preview's typesetter), shared by
  /// every width: a live resize only breaks lines again. Locked (render queue and main).
 -final class SidebarTextCache {
-+/// cmux: Sendable (Swift 6). A typesetter and its lines are Core Text layout objects, which one
-+/// thread at a time may use (Core Text Programming Guide, "Thread Safety"), so a measurement is
-+/// lent to one caller for the length of `withMeasured`; a second caller that wants it meanwhile
-+/// measures its own.
++/// cmux: Sendable (Swift 6) over unchecked state: its store holds measurements, which are not
++/// Sendable, in `OSAllocatedUnfairLock(uncheckedState:)`, and `lent` guards them instead of the
++/// checker. A typesetter and its lines are Core Text layout objects, which one thread at a time may
++/// use (Core Text Programming Guide, "Thread Safety"), so a measurement is lent to one caller for
++/// the length of `withMeasured`; a second caller that wants it meanwhile measures its own.
 +final class SidebarTextCache: Sendable {
      struct Measured {
          let name: CTLine
          let nameColor: CGColor
-@@ -691,33 +753,56 @@
+@@ -691,33 +765,56 @@
          let secondary: CGColor
      }
      private struct Key: Hashable { var id: ConversationID; var version: Int; var emphasized: Bool; var generation: Int }

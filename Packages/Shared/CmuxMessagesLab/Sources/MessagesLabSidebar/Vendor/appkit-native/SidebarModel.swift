@@ -137,7 +137,9 @@ extension SidebarDelegate {
 /// `SidebarLocalizable.xcstrings` (stable `sidebar.*` keys, an English comment per key). A host
 /// copies that file into its resources and points `bundle` at them (a Swift package:
 /// `Bundle.module`). Default: the bundle that contains the sidebar code, not `Bundle.main`.
-/// cmux: fixed, this package's own bundle and table (read by the row renderers on every core).
+/// cmux: the paragraph above is upstream's; here `bundle` is fixed to this package's module bundle
+/// (MessagesLabLocalization.bundle) and `table` is a constant, so no host can set them (the row
+/// renderers read both on every core).
 enum SidebarLocalization {
     /// The one MessagesLab bundle (MessagesLabLocalization.bundle).
     static var bundle: Bundle { MessagesLabLocalization.bundle }

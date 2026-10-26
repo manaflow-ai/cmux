@@ -185,21 +185,36 @@
          }
          for ((l, k, _, shown), result) in zip(work, out) { // no index math
              guard let r = result else { continue }
-@@ -899,10 +932,11 @@
+@@ -899,17 +932,24 @@
      /// Renders a row's time and text from values only (any thread). With the layout of the text
      /// bitmap on screen: no text bitmap (nil) when the layout is the same.
      /// nil when a bitmap cannot be allocated; the row then waits undrawn (no trap).
 -    private func rowJob() -> (ConversationSummary, SidebarBitmapKey, CGImage?, SidebarDraw.RowTextLayout?)
-+    private func rowJob() -> @Sendable (ConversationSummary, SidebarBitmapKey, CGImage?, SidebarDraw.RowTextLayout?)
-         -> (time: CGImage, text: CGImage?, layout: SidebarDraw.RowTextLayout)? {
+-        -> (time: CGImage, text: CGImage?, layout: SidebarDraw.RowTextLayout)? {
 -        let ctx = renderContext, time = timeFormatter, text = textCache
-+        let shared = SidebarShared((ctx: renderContext, time: timeFormatter)), text = textCache // cmux: Swift 6
++    private func rowJob() -> @Sendable (ConversationSummary, SidebarBitmapKey, CGImage?, SidebarDraw.RowTextLayout?)
++        -> RowRender? {
++        let sharedCtx = SidebarShared(renderContext), sharedTime = SidebarShared(timeFormatter), text = textCache // cmux: Swift 6
          return { c, k, cachedTime, shown in
-+            let ctx = shared.value.ctx, time = shared.value.time
++            let ctx = sharedCtx.value, time = sharedTime.value
              guard let t = cachedTime ?? SidebarDraw.rowTime(c, emphasized: k.emphasized, ctx: ctx, time: time),
                    let x = SidebarDraw.rowText(c, emphasized: k.emphasized, ctx: ctx, timeWidth: SidebarDraw.rowTimeWidth(t, scale: ctx.scale),
                                                text: text, unless: shown)
-@@ -957,6 +991,11 @@
+             else { return nil }
+-            return (t, x.image, x.layout)
++            return RowRender(time: t, text: x.image, layout: x.layout)
+         }
+     }
++    /// cmux (Swift 6): a row job's bitmaps and text layout (it crosses from the render threads).
++    private struct RowRender: SidebarShareable {
++        let time: CGImage
++        let text: CGImage?
++        let layout: SidebarDraw.RowTextLayout
++    }
+     private func timeKey(_ k: SidebarBitmapKey) -> SidebarBitmapKey {
+         var t = k; t.kind = .time; t.width = 0; return t
+     }
+@@ -957,6 +997,11 @@
          l.content.frame = CGRect(x: SidebarMetrics.textX, y: 0, width: metrics.textWidth, height: SidebarMetrics.rowHeight)
          l.selection.frame = CGRect(x: SidebarMetrics.selectionInsetX, y: 0, width: frame.width - 2 * SidebarMetrics.selectionInsetX, height: frame.height)
          l.selection.cornerRadius = SidebarMetrics.selectionRadius
@@ -211,7 +226,7 @@
          l.selection.isHidden = !selected
          l.selection.backgroundColor = windowActive ? palette.selectionActive : palette.selectionInactive
          // The separator under the text, hidden next to the selection (as NSTableView does).
-@@ -977,7 +1016,7 @@
+@@ -977,7 +1022,7 @@
          l.dot.isHidden = !c.unread
          l.dot.frame = CGRect(x: metrics.dotCenterX - d / 2, y: frame.height / 2 - d / 2, width: d, height: d)
          l.dot.cornerRadius = d / 2
@@ -220,7 +235,7 @@
          l.separator.isHidden = l.separator.isHidden || compact
          l.time.isHidden = compact
          l.content.isHidden = compact
-@@ -1021,13 +1060,13 @@
+@@ -1021,13 +1066,13 @@
      private func request(_ k: SidebarBitmapKey, item i: Int) {
          guard !pending.contains(k), !cache.contains(k), let c = snapshot.items[checked: i] else { return } // checked
          pending.insert(k)
@@ -238,7 +253,7 @@
                  guard k.generation == self.generation, k.width == self.metrics.width else { return }
                  self.stats.asyncRenders += 1
                  self.cache.insert(self.timeKey(k), r.time)
-@@ -1066,20 +1105,18 @@
+@@ -1066,20 +1111,18 @@
          }
          // Tile name and bubble bitmaps not in the cache: drawn in parallel first. A width
          // change redraws only the parts that it truncates or wraps.
@@ -265,7 +280,7 @@
              }
              for (w, image) in zip(work, images) { if let img = image { cache.insert(w.0, img); stats.tiles += 1 } } // no index math
          }
-@@ -1101,9 +1138,9 @@
+@@ -1101,9 +1144,9 @@
          let n = natural(c), tw = metrics.tileWidth
          return SidebarController.tileKeys(c, natural: n, tileWidth: tw, emphasized: emphasized(i), generation: generation)
      }
@@ -277,7 +292,7 @@
                                      emphasized: emphasized, generation: generation)
          let bubble = c.unread && !c.typing
              ? SidebarBitmapKey(kind: .tileBubble, id: c.id, version: c.version, width: SidebarDraw.tileBubbleKeyWidth(natural: n.bubble, tileWidth: tw),
-@@ -1111,7 +1148,7 @@
+@@ -1111,7 +1154,7 @@
          return (name, bubble)
      }
      /// Renders one tile part for its key (any thread).
@@ -286,7 +301,7 @@
          k.kind == .tileBubble ? SidebarDraw.tileBubbleImage(c, keyWidth: k.width, ctx: ctx)
              : SidebarDraw.tileNameImage(c, emphasized: k.emphasized, keyWidth: k.width, ctx: ctx)
      }
-@@ -1134,6 +1171,10 @@
+@@ -1134,6 +1177,10 @@
          l.selection.isHidden = c.id != highlightID
          l.selection.backgroundColor = windowActive ? palette.selectionActive : palette.selectionInactive
          let ar = SidebarDraw.tileAvatar(metrics)
@@ -297,7 +312,7 @@
          // The avatar: one bitmap at the largest pin size, scaled to the current one.
          l.avatar.frame = ar
          l.avatar.minificationFilter = .trilinear
-@@ -1143,8 +1184,18 @@
+@@ -1143,8 +1190,18 @@
          }
          configureSenders(l, c, avatar: ar)
          l.dot.isHidden = !c.unread
@@ -317,7 +332,7 @@
          if c.typing {
              l.setTyping(palette, scale: s)
              l.typing?.showsTail = true
-@@ -1163,7 +1214,10 @@
+@@ -1163,7 +1220,10 @@
              let nw = CGFloat(name?.width ?? 0) / s // an unallocated name shows nothing
              l.content.isHidden = false
              l.content.contents = name
@@ -329,7 +344,7 @@
              if let bk = keys.bubble, let b = tileImage(bk, c) { // an unallocated bubble is not shown
                  // The newest unread message over the avatar's top (the typing bubble, a layer,
                  // takes its place while someone types).
-@@ -1176,11 +1230,7 @@
+@@ -1176,11 +1236,7 @@
                  l.time.isHidden = true
              }
          }
@@ -342,7 +357,7 @@
          // Configured for this width (the stale check compares it).
          l.shownKey = SidebarBitmapKey(kind: .tile, id: c.id, version: c.version, width: metrics.tileWidth, emphasized: false, generation: generation)
          l.contentsScaleAll(s)
-@@ -1255,6 +1305,20 @@
+@@ -1255,6 +1311,20 @@
          }
      }
  
@@ -363,7 +378,7 @@
      /// Up/down: pinned tiles in order, then the rows.
      func moveSelection(_ delta: Int) {
          let order = pinnedItems.count + rowItems.count
-@@ -1284,7 +1348,7 @@
+@@ -1284,7 +1354,7 @@
          runSearch(trimmed)
          if !trimmed.isEmpty, let provider = searchProvider {
              let request = SidebarSearchRequest(query: trimmed) { [weak self] section in
@@ -372,7 +387,7 @@
              }
              extraRequest = request
              provider.sidebar(self, search: request)
-@@ -1346,15 +1410,16 @@
+@@ -1346,39 +1416,46 @@
                  list = RowList.full(snap, index, filter: filterNow)
              }
              guard stale.get() == gen else { return }
@@ -396,12 +411,15 @@
              }
          }
      }
-@@ -1364,21 +1429,27 @@
+ 
+     /// Bitmaps rendered off the main thread for a list about to be applied.
+-    private struct Prerendered {
++    private struct Prerendered: SidebarShareable { // cmux: bitmaps and keys only (Swift 6)
          var rows: [(key: SidebarBitmapKey, time: CGImage, text: CGImage)] = []
          var tiles: [(key: SidebarBitmapKey, image: CGImage)] = []
      }
 +    /// cmux: one prerendered part (a tile part, or a row's time and text).
-+    private enum PrerenderedPart {
++    private enum PrerenderedPart: SidebarShareable {
 +        case tile(CGImage)
 +        case row(time: CGImage, text: CGImage?, layout: SidebarDraw.RowTextLayout)
 +    }
@@ -428,7 +446,7 @@
              }
              // The rows tile() will show once the list is applied: at the top, and at the scroll
              // position as the clip view will clamp it to the new document (a shorter result list
-@@ -1402,31 +1473,27 @@
+@@ -1402,31 +1479,27 @@
              // drawn yet would draw it on the main thread.
              let screenItems = rows.compactMap { r in list.rows[checked: r].flatMap { i in snap.items[checked: i] } } // checked
              DispatchQueue.concurrentPerform(iterations: screenItems.count) { j in
@@ -471,7 +489,7 @@
              return out
          }
      }
-@@ -1445,11 +1512,10 @@
+@@ -1445,11 +1518,10 @@
          }
      }
      /// The newest query's generation, read by the search queue (a newer query stops an older one).
@@ -487,7 +505,7 @@
      }
      private let stale = Generation()
      /// Search results applied (bench and self-test).
-@@ -1462,6 +1528,8 @@
+@@ -1462,6 +1534,8 @@
          case #selector(NSResponder.insertNewline(_:)):
              if highlightID.map({ position(of: $0) == nil }) ?? true { moveSelection(1) } // no force unwrap
              view.window?.makeFirstResponder(document)
@@ -496,7 +514,7 @@
              return true
          case #selector(NSResponder.cancelOperation(_:)):
              searchField.stringValue = ""
-@@ -1529,10 +1597,11 @@
+@@ -1529,10 +1603,11 @@
          guard p != palette || bellSecondary == nil else { return }
          palette = p
          bellSecondary = Self.bell(NSColor.secondaryLabelColor, view.effectiveAppearance, scale: renderContext.scale)
@@ -510,7 +528,7 @@
          invalidateAll()
      }
      private func colorsChanged() {  // no selector
-@@ -1541,10 +1610,24 @@
+@@ -1541,10 +1616,24 @@
          invalidateAll()
      }
      private func resolvePalette() -> SidebarPalette {
@@ -536,7 +554,7 @@
          guard active != windowActive else { return }
          windowActive = active
          CATransaction.begin(); CATransaction.setDisableActions(true)
-@@ -1634,11 +1717,20 @@
+@@ -1634,11 +1723,20 @@
      weak var controller: SidebarController?
      let id: ConversationID
      init(controller: SidebarController, id: ConversationID) { self.controller = controller; self.id = id; super.init() }
@@ -559,7 +577,7 @@
  }
  
  /// One row or tile: selection background, bitmap content, separator, typing bubble.
-@@ -1650,6 +1742,8 @@
+@@ -1650,6 +1748,8 @@
      let content = CALayer()
      let time = CALayer()
      let separator = CALayer()
@@ -568,7 +586,7 @@
      private(set) var typing: SidebarTypingLayer?
      /// A pinned group tile's recent senders (small avatars at the avatar's edge).
      var senders: [CALayer] = []
-@@ -1667,7 +1761,8 @@
+@@ -1667,7 +1767,8 @@
          let none: [String: CAAction] = ["position": NSNull(), "bounds": NSNull(), "hidden": NSNull(), "contents": NSNull(),
                                          "backgroundColor": NSNull(), "frame": NSNull(), "cornerRadius": NSNull()]
          actions = none
@@ -578,7 +596,7 @@
          content.contentsGravity = .topLeft
          time.contentsGravity = .topLeft
          avatar.contentsGravity = .resize
-@@ -1677,7 +1772,7 @@
+@@ -1677,7 +1778,7 @@
      required init?(coder: NSCoder) { fatalError() }
      /// Hands the typing bubble to the caller (it fades it out elsewhere); the row has none after.
      func detachTyping() -> SidebarTypingLayer? { let t = typing; typing = nil; return t }
@@ -587,7 +605,7 @@
          guard let p else { typing?.removeFromSuperlayer(); typing = nil; return }
          if typing == nil { let t = SidebarTypingLayer(); addSublayer(t); typing = t }
          typing?.apply(p, scale: scale)
-@@ -1685,7 +1780,7 @@
+@@ -1685,7 +1786,7 @@
      }
      func contentsScaleAll(_ s: CGFloat) {
          guard content.contentsScale != s else { return }
@@ -596,7 +614,7 @@
      }
  }
  
-@@ -1734,7 +1829,13 @@
+@@ -1734,7 +1835,13 @@
          if let c = controller, c.swipeClick(at: point(event)) { return }
          guard let c = controller, let h = c.hit(point(event)), let s = c.summary(h) else { return } // a stale hit selects nothing
          c.highlight(s.id, reveal: false)
@@ -611,7 +629,7 @@
      }
      override func mouseDragged(with event: NSEvent) { controller?.tileDragMoved(to: point(event)) }
      override func mouseUp(with event: NSEvent) { controller?.tileDragEnded(at: point(event)) }
-@@ -1746,6 +1847,9 @@
+@@ -1746,6 +1853,9 @@
          default: interpretKeyEvents([event])
          }
      }
@@ -621,7 +639,7 @@
      override func moveDown(_ sender: Any?) { controller?.moveSelection(1) }
      override func moveUp(_ sender: Any?) { controller?.moveSelection(-1) }
      /// Typing a letter in the list starts a search (as a source list's type-select would).
-@@ -1765,7 +1869,7 @@
+@@ -1765,7 +1875,7 @@
  /// key state, appearance and scale.
  final class SidebarRootView: NSView {
      weak var controller: SidebarController?
@@ -630,7 +648,7 @@
      override var isFlipped: Bool { true }
      override func layout() {
          super.layout()
-@@ -1773,19 +1877,17 @@
+@@ -1773,19 +1883,17 @@
      }
      override func viewDidMoveToWindow() {
          super.viewDidMoveToWindow()

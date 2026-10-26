@@ -933,16 +933,22 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     /// bitmap on screen: no text bitmap (nil) when the layout is the same.
     /// nil when a bitmap cannot be allocated; the row then waits undrawn (no trap).
     private func rowJob() -> @Sendable (ConversationSummary, SidebarBitmapKey, CGImage?, SidebarDraw.RowTextLayout?)
-        -> (time: CGImage, text: CGImage?, layout: SidebarDraw.RowTextLayout)? {
-        let shared = SidebarShared((ctx: renderContext, time: timeFormatter)), text = textCache // cmux: Swift 6
+        -> RowRender? {
+        let sharedCtx = SidebarShared(renderContext), sharedTime = SidebarShared(timeFormatter), text = textCache // cmux: Swift 6
         return { c, k, cachedTime, shown in
-            let ctx = shared.value.ctx, time = shared.value.time
+            let ctx = sharedCtx.value, time = sharedTime.value
             guard let t = cachedTime ?? SidebarDraw.rowTime(c, emphasized: k.emphasized, ctx: ctx, time: time),
                   let x = SidebarDraw.rowText(c, emphasized: k.emphasized, ctx: ctx, timeWidth: SidebarDraw.rowTimeWidth(t, scale: ctx.scale),
                                               text: text, unless: shown)
             else { return nil }
-            return (t, x.image, x.layout)
+            return RowRender(time: t, text: x.image, layout: x.layout)
         }
+    }
+    /// cmux (Swift 6): a row job's bitmaps and text layout (it crosses from the render threads).
+    private struct RowRender: SidebarShareable {
+        let time: CGImage
+        let text: CGImage?
+        let layout: SidebarDraw.RowTextLayout
     }
     private func timeKey(_ k: SidebarBitmapKey) -> SidebarBitmapKey {
         var t = k; t.kind = .time; t.width = 0; return t
@@ -1425,12 +1431,12 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     }
 
     /// Bitmaps rendered off the main thread for a list about to be applied.
-    private struct Prerendered {
+    private struct Prerendered: SidebarShareable { // cmux: bitmaps and keys only (Swift 6)
         var rows: [(key: SidebarBitmapKey, time: CGImage, text: CGImage)] = []
         var tiles: [(key: SidebarBitmapKey, image: CGImage)] = []
     }
     /// cmux: one prerendered part (a tile part, or a row's time and text).
-    private enum PrerenderedPart {
+    private enum PrerenderedPart: SidebarShareable {
         case tile(CGImage)
         case row(time: CGImage, text: CGImage?, layout: SidebarDraw.RowTextLayout)
     }
