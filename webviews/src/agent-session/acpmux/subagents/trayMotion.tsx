@@ -165,12 +165,21 @@ export function Tick({ text, className }: { text: string; className?: string }):
   const turn = shown.turn;
   const settled = (part: "previous" | "entering") => () =>
     setState((current) =>
-      current.turn !== turn ? current : part === "previous" ? { ...current, previous: undefined } : { ...current, entering: false },
+      current.turn !== turn
+        ? current
+        : part === "previous"
+          ? { ...current, previous: undefined }
+          : { ...current, entering: false },
     );
   return (
     <span ref={cell} className={className ? `acpmux-tick ${className}` : "acpmux-tick"}>
       {shown.previous !== undefined && (
-        <span key={`out-${turn}`} className="acpmux-tick__out" aria-hidden="true" ref={onAnimationDone(settled("previous"))}>
+        <span
+          key={`out-${turn}`}
+          className="acpmux-tick__out"
+          aria-hidden="true"
+          ref={onAnimationDone(settled("previous"))}
+        >
           {shown.previous}
         </span>
       )}
