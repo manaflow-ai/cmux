@@ -1,6 +1,7 @@
-//! Chat multiplayer presence (hq#4389 §5): who types in a chat, kept in the hub's memory only
-//! (`hub/presence.rs`). `_acpmux/typing {sessionId, on}` names its person in
-//! `_meta.acpmux.author` (none is the owner); every attached connection hears
+//! Chat multiplayer presence (hq#4389 §5): who has a chat open and who types in it, kept in the
+//! hub's memory only (`hub/presence.rs`). `_acpmux/typing {sessionId, on}` and `_acpmux/view
+//! {sessionId, visible}` name their person in `_meta.acpmux.author` (none is the owner); a
+//! visible attach is the owner viewing; every attached connection hears
 //! `_acpmux/presence {sessionId, participants}` on each change, and `_acpmux/attach` answers it
 //! as `presence`. Nothing of it reaches the log.
 
@@ -60,7 +61,9 @@ async fn the_attach_reply_carries_presence_and_typing_reaches_attached_clients()
     let mut tab = connect(&hub).await;
     let reply =
         tab.request(method::MUX_ATTACH, json!({"sessionId": session, "limit": 0})).await.unwrap();
-    assert_eq!(reply["presence"], json!({"sessionId": session, "participants": []}), "{reply}");
+    // A visible attach with no author is the owner viewing, from one device.
+    let owner = entry(&reply["presence"], "owner").unwrap_or_else(|| panic!("{reply}"));
+    assert_eq!((owner["viewing"].clone(), owner["devices"].clone()), (json!(true), json!(1)));
 
     host.typing(&session, true, Some(person("ana"))).await.unwrap();
     let on = tab.presence(&session, |p| entry(p, ANA).is_some()).await;
@@ -203,4 +206,51 @@ async fn the_people_in_one_chat_are_bounded() {
     // Someone already in still changes, and the owner always gets in.
     late.typing(&session, true, Some(person("p0"))).await.unwrap();
     host.typing(&session, true, None).await.unwrap();
+}
+
+fn view(session: &str, visible: bool, author: Option<Value>) -> Value {
+    let mut params = typing(session, visible, author);
+    params.as_object_mut().unwrap().remove("on");
+    params["visible"] = json!(visible);
+    params
+}
+
+#[tokio::test]
+async fn viewing_comes_from_view_per_author_and_leaves_unread_to_the_owner() {
+    let (hub, mut host) = setup(PermissionPolicy::ApproveAll).await;
+    let session = new_session(&mut host, "view").await;
+    let mut link = attached(&hub, &session).await;
+    for who in ["ana", "bob"] {
+        link.request(method::MUX_VIEW, view(&session, true, Some(person(who)))).await.unwrap();
+    }
+    let both = host
+        .presence(&session, |p| entry(p, ANA).is_some() && entry(p, "tailnet:bob").is_some())
+        .await;
+    assert_eq!(entry(&both, ANA).unwrap()["viewing"], true, "{both}");
+    assert!(entry(&both, "owner").is_none(), "a hidden attach is nobody viewing: {both}");
+    // An authored view is presence only: the link still does not show the chat.
+    let shown = hub.session_summary(&hub.resolve(&session).unwrap())["shown"].clone();
+    let mut alone = connect(&hub).await;
+    alone
+        .request(method::MUX_ATTACH, json!({"sessionId": session, "limit": 0, "visible": false}))
+        .await
+        .unwrap();
+    assert_eq!(hub.session_summary(&hub.resolve(&session).unwrap())["shown"], shown);
+    // Bob hiding leaves Ana viewing on the same connection; Ana on a second machine counts twice.
+    link.request(method::MUX_VIEW, view(&session, false, Some(person("bob")))).await.unwrap();
+    let ana_only = host.presence(&session, |p| entry(p, "tailnet:bob").is_none()).await;
+    assert_eq!(entry(&ana_only, ANA).unwrap()["viewing"], true);
+    alone.request(method::MUX_VIEW, view(&session, true, Some(person("ana")))).await.unwrap();
+    host.presence(&session, |p| entry(p, ANA).is_some_and(|a| a["devices"] == 2)).await;
+    drop(link);
+    drop(alone);
+    host.presence(&session, |p| entry(p, ANA).is_none()).await;
+    // A view still needs the attachment.
+    let mut stranger = connect(&hub).await;
+    assert!(
+        stranger
+            .request(method::MUX_VIEW, view(&session, true, Some(person("ana"))))
+            .await
+            .is_err()
+    );
 }

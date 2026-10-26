@@ -1123,15 +1123,18 @@ attached to.
 <a id="chat-presence"></a>Chat presence (chat multiplayer, `hub/presence.rs`): attached
 connections hear `_acpmux/presence {sessionId, participants: [{id, name, devices, viewing,
 typing}]}` on every change, and `_acpmux/attach` answers the same object as `presence`. An entry
-is kept per connection and author: `_acpmux/typing` names its person in
+is kept per connection and author: `_acpmux/view` and `_acpmux/typing` name their person in
 `_meta.acpmux.author {id, name, login?, node?}`, which only the unix socket and a peer daemon
 forwarding for its own unix socket or app may send (`author.origin_refused` otherwise); a caller
-with no author is `owner`. An entry goes when it stops typing (and does not view), when its
-connection detaches or closes. At most 32 people besides the owner per chat (`presence.full`).
+with no author is `owner`, and a visible attach is the owner viewing. A view with an author
+changes only presence, never `unread`, so a link that carries other people attaches with
+`visible: false` and names each of them in `_acpmux/view`. An entry goes when it neither views
+nor types, when its connection detaches or closes. At most 32 people besides the owner per chat
+(`presence.full`).
 Presence is never written to the log, `_acpmux/events` or an export. Only a daemon's own chats
-have it: a peer daemon's link carries all of that daemon's clients, so its `_acpmux/typing`
-answers `presence.peer_unsupported`, and a chat that lives on a peer attaches with no
-participants.
+have it: a peer daemon's link carries all of that daemon's clients, so it makes no entry, its
+`_acpmux/typing` and authored `_acpmux/view` answer `presence.peer_unsupported`, and a chat that
+lives on a peer attaches with no participants.
 
 Paging for chat clients: `beforeSeq` returns the newest `limit` records before it, oldest first,
 and `hasMore` says older ones exist. `kinds` filters records before `limit` counts them:
