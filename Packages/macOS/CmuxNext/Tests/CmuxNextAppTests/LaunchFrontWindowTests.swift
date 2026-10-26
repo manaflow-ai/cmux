@@ -1,13 +1,12 @@
 @testable import CmuxNextApp
-import CmuxNextDaemon
-import CmuxNextLaunch
+@testable import CmuxNextDaemon
 import Foundation
 import Testing
 
-/// The window the launch shows first has one rule (p08-startup-058): `WindowRegistry.restored(_:)`, which
-/// `WindowRegistry(records:)` and `LaunchSnapshotWindow` both use, so the front window's picture read in `main` is
-/// always the window the launch builds. Each fixture compares the rule with the registry's recency, the way
-/// `LaunchSnapshotWindow.showSaved` picks it.
+/// The window the launch shows first has one rule (p08-startup-058): `WindowStateDocument.restoredWindows(_:)` and
+/// `frontWindow(of:mirrors:)`, which `WindowRegistry(records:)`, `LaunchSnapshotWindow.showSaved` and the picture
+/// read in `main` (`LaunchSnapshot.frontWindow`) all use, so the front window's picture is always the window the
+/// launch builds. Each fixture compares the rule with the registry's recency, the way `showSaved` picks it.
 @MainActor
 @Suite struct LaunchFrontWindowTests {
     nonisolated static func record(_ id: String, _ workspaces: [String], order: Int, closed: Bool = false, profile: ProfileID? = nil) -> WindowRecord {
@@ -48,36 +47,36 @@ import Testing
     func theFrontRuleIsTheRegistrysRecency(_ index: Int) {
         let fixture = Self.fixtures[index]
         let mirrors = { fixture.mirrored.contains($0) }
-        #expect(WindowRegistry.restored(fixture.records).map(\.id) == WindowRegistry(records: fixture.records).recency,
+        #expect(WindowStateDocument.restoredWindows(fixture.records).map(\.id) == WindowRegistry(records: fixture.records).recency,
                 "\(fixture.name): the restored order is not the registry's recency")
-        let front = LaunchSnapshotWindow.front(of: fixture.records, mirrors: mirrors)?.id
+        let front = WindowStateDocument.frontWindow(of: fixture.records, mirrors: mirrors)?.id
         #expect(front == fixture.front, "\(fixture.name)")
         #expect(front == Self.registryFront(fixture.records, mirrors: mirrors), "\(fixture.name): the picture's window is not the launch's")
-        let picked = LaunchSnapshotWindow.savedFront(windows: WindowStateDocument(windows: fixture.records), tree: Self.tree(Array(fixture.mirrored)))
-        #expect(picked?.window == fixture.front, "\(fixture.name): the snapshot read picked another window")
+        let picked = WindowStateDocument(windows: fixture.records).frontWindow(in: Self.tree(Array(fixture.mirrored)))
+        #expect(picked?.id == fixture.front, "\(fixture.name): the snapshot read picked another window")
     }
 
     /// The restored window keeps its records' workspaces as the registry does.
     @Test func restoredWindowsKeepTheRegistrysWorkspaces() {
         for fixture in Self.fixtures {
             let saved = WindowRegistry(records: fixture.records)
-            for window in WindowRegistry.restored(fixture.records) {
+            for window in WindowStateDocument.restoredWindows(fixture.records) {
                 #expect(saved.window(window.id)?.workspaceIDs == window.workspaceIDs, "\(fixture.name): \(window.id)")
             }
         }
     }
 
-    /// The picture's folder is the window's profile; a record with none shows the default profile.
-    @Test func theFrontsProfileNamesThePicturesFolder() {
+    /// The front window keeps its record's profile (its picture's folder); a record with none shows the default.
+    @Test func theFrontKeepsItsProfile() {
         let work = ProfileID(rawValue: "prof_0123456789abcdef0123456789abcdef")
-        let records = [Self.record("w", ["a"], order: 0, profile: work), Self.record("v", ["b"], order: 1)]
-        #expect(LaunchSnapshotWindow.savedFront(windows: WindowStateDocument(windows: records), tree: Self.tree(["a", "b"]))
-                == WindowPictureStore.FrontWindow(window: "w", profile: work.rawValue))
-        #expect(LaunchSnapshotWindow.savedFront(windows: WindowStateDocument(windows: records), tree: Self.tree(["b"]))
-                == WindowPictureStore.FrontWindow(window: "v", profile: ProfileID.defaultProfile.rawValue))
+        let document = WindowStateDocument(windows: [Self.record("w", ["a"], order: 0, profile: work), Self.record("v", ["b"], order: 1)])
+        #expect(document.frontWindow(in: Self.tree(["a", "b"]))?.profile == work)
+        let back = document.frontWindow(in: Self.tree(["b"]))
+        #expect(back?.id == "v")
+        #expect(back?.profile == nil)
     }
 
-    /// No snapshot, or one without window records: no front window, so no picture is read.
+    /// No snapshot: no front window, so no picture is read.
     @Test func noSnapshotNoFront() throws {
         let state = FileManager.default.temporaryDirectory.appending(path: "launch-front-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
@@ -85,8 +84,15 @@ import Testing
         let suite = "launch-front-\(UUID().uuidString)"
         defer { UserDefaults.standard.removePersistentDomain(forName: suite) }
         let location = LaunchSnapshotLocation(defaults: { UserDefaults(suiteName: suite) ?? .standard })
-        #expect(LaunchSnapshotWindow.savedFront(session: "cmux-app-test", stateDirectory: state, location: location) == nil)
-        #expect(LaunchSnapshotWindow.savedFront(session: "cmux-app-test", stateDirectory: nil, location: location) == nil)
-        #expect(LaunchSnapshotWindow.savedFront(windows: nil, tree: Self.tree(["a"])) == nil)
+        #expect(LaunchSnapshot.saved(session: "cmux-app-test", stateDirectory: state, location: location) == nil)
+        #expect(LaunchSnapshot.saved(session: "cmux-app-test", stateDirectory: nil, location: location) == nil)
+    }
+
+    /// A snapshot's front is its records' front among the workspaces its tree holds; without records, none.
+    @Test func aSnapshotsFrontIsItsRecordsFront() {
+        let records = WindowStateDocument(windows: [Self.record("w", ["a"], order: 0), Self.record("v", ["b"], order: 1)])
+        #expect(LaunchSnapshot(tree: Self.tree(["b"]), windows: records, session: "s").frontWindow?.id == "v",
+                "the snapshot's front is not the window its tree mirrors")
+        #expect(LaunchSnapshot(tree: Self.tree(["a"]), windows: nil, session: "s").frontWindow == nil)
     }
 }

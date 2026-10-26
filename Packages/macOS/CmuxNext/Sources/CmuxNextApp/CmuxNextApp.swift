@@ -132,8 +132,12 @@ public struct CmuxNextApp {
         // which window is front comes from the launch snapshot, read there only when a picture was saved.
         if features.isEnabled(.savedWindowPicture) {
             let snapshot = prestart.map { (session: $0.launcher.configuration.session, state: $0.launcher.configuration.stateDirectory) }
-            environment.windowPictures?.prefetchFront({ snapshot.flatMap { LaunchSnapshotWindow.savedFront(session: $0.session, stateDirectory: $0.state) } },
-                                                      mark: { DebugTimings.markLaunch($0) })
+            environment.windowPictures?.prefetchFront({
+                // The window `LaunchSnapshotWindow.showSaved` builds, by the same rule (WindowStateDocument.frontWindow).
+                snapshot.flatMap { LaunchSnapshot.saved(session: $0.session, stateDirectory: $0.state)?.frontWindow }.map {
+                    WindowPictureStore.FrontWindow(window: $0.id, profile: ($0.profile ?? .defaultProfile).rawValue)
+                }
+            }, mark: { DebugTimings.markLaunch($0) })
         }
         // DEV and NIGHTLY crash at an exception's throw site (cx-r3q), before NSApp exists.
         CrashOnExceptions.register()
