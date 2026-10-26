@@ -85,6 +85,7 @@ import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion }
 import { useHeaderState } from "./header/headerState";
 import { queuePauseReason } from "./queuePause";
 import { stopTurnFromAction } from "./stopTurnAction";
+import { provideOracleState } from "../../protocol/oracle-state";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -373,6 +374,8 @@ export function Composer({
   const [text, setText] = useState(() => draft ?? readPersistedDraft(sessionId) ?? "");
   const textRef = useRef(text);
   textRef.current = text;
+  // The oracle's page summary reads the prompt as its hash only (protocol/oracle-state.ts).
+  useEffect(() => provideOracleState("agent.composer", { draft: () => textRef.current }), []);
   /// Shell mode: the prompt is a plain monospace field whose Enter runs a command. The markdown
   /// prompt stays mounted under it, keeping its own draft.
   const [shell, setShellState] = useState(false);

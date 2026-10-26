@@ -8,6 +8,7 @@
 
 import { holdPaintForClaim } from "./paintGate";
 import { installNativeMenu, NATIVE_MENU_OP } from "../../ui/nativeMenu";
+import { installOracleState } from "../../protocol/oracle-state";
 
 export interface PageError extends Error {
   code: string;
@@ -347,6 +348,8 @@ export function createPageClient(fallback?: () => PageClient): PageClient | null
     const client = new BridgePageClient(handler);
     // The page's right-click menus are the app's native menus (ui/nativeMenu.ts).
     installNativeMenu((request) => client.call(NATIVE_MENU_OP, request));
+    // The oracle's page summary (DEBUG and bench-hook hosts only; protocol/oracle-state.ts).
+    installOracleState(client);
     return client;
   }
   return fallback ? fallback() : null;

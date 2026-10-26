@@ -79,6 +79,10 @@ extension PageWebView {
                                                forMainFrameOnly: true, in: .page))
         var attributes = documentAttributes
         if attributes["scrollers"] == nil { attributes["scrollers"] = SystemScrollers.pageValue }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // The page serves the oracle's `cmux.page.oracle.state` only with this (webviews/src/protocol/oracle-state.ts).
+        attributes["oracle"] = "on"
+        #endif
         if let script = attributesScript(attributes) {
             controller.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentStart,
                                                    forMainFrameOnly: true, in: .page))

@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
+public import CmuxNextPages
 public import WebKit
 
 /// `debug.agent_pane click` and `hover` (DEBUG builds), on whichever host shows the chat: the
@@ -62,6 +63,10 @@ extension AgentPaneView {
         guard let page else { return webView.pageZoom * webView.magnification }
         return page.showsChromium ? page.debugPageZoom : page.webKitView.pageZoom * page.webKitView.magnification
     }
+
+    /// The shared page host's view of the chat in either engine; nil on the old host. The oracle's
+    /// `webviews` facet names the tab of a page with it (OracleWebviewsFacet.swift).
+    public var debugPage: PageWebView? { page }
 
     /// The WebKit view that shows the chat (the page host's or the pane's own), which AppKit
     /// clicks go to; nil when the chat shows in Chromium.
