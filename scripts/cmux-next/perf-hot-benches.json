@@ -242,6 +242,11 @@
       "what": "one BackgroundWork lane item's stats on its slot thread, in every build (LaneScheduler.runOnSlot, LaneStats.record): three CLOCK_UPTIME_RAW reads (submit, start, end; onRan and the block-shutdown check reuse them) and four relaxed atomic adds around the item's body",
       "bench": "CMUX_LANE_ITEM_BENCH=1 swift test -c release --filter LaneStatsBench (ns per clock read, per record, per item: three reads plus the record), on macOS 26 and 27; distributions under STRESS: debug.work (RUN-13)",
       "owner": "Performance Lead"
+    },
+    "callback-registry-lookup": {
+      "what": "one C callback resolving its context token to its Swift object (CallbackRegistry.target(for:), p10-stability-081): an acquiring atomic add on the slot's state word, a generation and live check, a weak load, a releasing atomic subtract; no lock, no syscall (FSEvents queues, event taps, and in wave 2 Ghostty and CEF callbacks)",
+      "bench": "CMUX_CALLBACK_REGISTRY_BENCH=1 swift test -c release --package-path Packages/Shared/CmuxSafeConcurrency --filter CallbackRegistryTests/lookupBench (CALLBACK-REGISTRY-BENCH JSON: ns_per_lookup), on macOS 26 and 27",
+      "owner": "Performance Lead"
     }
   }
 }
