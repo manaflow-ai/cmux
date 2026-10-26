@@ -44,6 +44,10 @@ public struct HangRecord: Sendable, Hashable {
         /// A scheduled main-thread task that ran past its class's per-frame budget
         /// (``MainThreadWatchdog/overBudget``); its details name the task and class.
         case overBudget = "over_budget"
+        /// A hang-watch scope on another thread still running past its deadline
+        /// (``MainThreadWatchdog/threadHangs``); its details name the scope and the thread, and
+        /// its duration is how far past the deadline it was when sampled.
+        case hang
     }
 
     public var sequence: UInt64
@@ -79,6 +83,31 @@ public struct HangRecord: Sendable, Hashable {
 
         object.merge(details) { current, _ in current }
         return .object(object)
+    }
+}
+
+/// Main-thread work gaps of 100 ms and up and of 250 ms and up since launch or the last reset
+/// (``MainThreadWatchdog/stallCounts``): the Nightly responsiveness readout of `debug.hangs`.
+///
+/// 100 ms is Chrome's jank threshold for a UI-thread task
+/// (`content/browser/scheduler/responsiveness/calculator.cc`, `kJankThreshold`); 250 ms is the
+/// hang Apple's MetricKit and Xcode Organizer count, and the lag spike the app reports. A 300 ms
+/// stall counts in both. Counted from the run-loop heartbeat, so the stall threshold (and
+/// `CMUX_NEXT_HANG_THRESHOLD_MS`) does not change them.
+public struct StallCounts: Sendable, Equatable {
+    /// The lower edge of ``count100``.
+    public static let edge100: Duration = .milliseconds(100)
+    /// The lower edge of ``count250``.
+    public static let edge250: Duration = .milliseconds(250)
+
+    /// Work gaps of at least ``edge100``.
+    public var count100: Int
+    /// Work gaps of at least ``edge250`` (each also in ``count100``).
+    public var count250: Int
+
+    public init(count100: Int = 0, count250: Int = 0) {
+        self.count100 = count100
+        self.count250 = count250
     }
 }
 
@@ -121,7 +150,7 @@ public final class HangLog: Sendable {
                 state.summary.totalDuration += duration
             case .busy:
                 state.summary.busyCount += 1
-            case .overBudget:
+            case .overBudget, .hang: // each in a log of its own kind
                 state.summary.count += 1
                 state.summary.maxDuration = max(state.summary.maxDuration, duration)
                 state.summary.totalDuration += duration

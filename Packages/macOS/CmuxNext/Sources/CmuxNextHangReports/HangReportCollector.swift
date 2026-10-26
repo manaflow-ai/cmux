@@ -1,8 +1,9 @@
 public import CmuxNextCompat
 import Foundation
 
-/// Receives the watchdog's stalls and hangs while hang reports are on, into a ``StallAggregate``
-/// that ``HangReportService`` drains into each report.
+/// Receives the watchdog's stalls and hangs, and each launch's milestones
+/// (``noteLaunch(_:)``), while hang reports are on, into a ``StallAggregate`` that
+/// ``HangReportService`` drains into each report.
 ///
 /// ``noteStall(durationNanos:cpuNanos:addresses:)`` runs on the main thread at the end of each
 /// stall over the watchdog's threshold: off, it is one atomic load; on, a lock over a few integer
@@ -66,6 +67,15 @@ public final class HangReportCollector: Sendable {
         let ms = Self.milliseconds(durationNanos)
         guard aggregate.withLock({ $0.wantsHangSample(durationMs: ms) }) else { return }
         keepLater(HangSample(source: .watchdog, kind: .hang, durationMs: ms, frames: []), addresses: addresses)
+    }
+
+    /// One launch at its `startup_complete` (main thread, once per launch). Off, it is one atomic
+    /// load; on, the lock over a few small array merges. An interrupted launch adds only its reason.
+    /// The app calls it from task p08-startup-115; a report carries the launches only in
+    /// ``HangReport/WireSchema/v3``.
+    public func noteLaunch(_ launch: LaunchAggregate.Record) {
+        guard isEnabled else { return }
+        aggregate.withLock { $0.record(launch: launch) }
     }
 
     /// Takes what was recorded and starts over.

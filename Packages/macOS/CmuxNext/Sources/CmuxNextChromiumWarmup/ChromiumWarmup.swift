@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextBrowser
+public import CmuxNextInputCore
 import CmuxNextWakeups
 public import Foundation
 
@@ -64,7 +65,9 @@ public final class ChromiumWarmup {
     private let giveUpTimer: DemandTimer
     private var waiting = false
     private var menuObserver: (any NSObjectProtocol)?
-    private var inputMonitor: Any?
+    /// The app's input tap: a warm start waiting for an idle moment observes it.
+    private let input: any InputObserving
+    private var inputSubscription: InputSubscription?
     private var lastInput: TimeInterval = 0
     public private(set) var reason: Reason?
     /// What the next idle moment runs: `CefInitialize`, then the spare window.
@@ -79,14 +82,20 @@ public final class ChromiumWarmup {
     private var spareWaitsForPages = false
     private var stopped = false
 
+    /// - Parameters:
+    ///   - engine: The Chromium engine to start.
+    ///   - input: The app's input tap; a wait for an idle moment observes its keys, clicks, drags,
+    ///     scrolls and moves.
     public init(
         engine: CEFEngine,
+        input: any InputObserving,
         policy: Policy = Policy(),
         clock: any Clock<Duration> = ContinuousClock(),
         now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
         isTrackingMenu: @escaping @MainActor () -> Bool = { RunLoop.main.currentMode == .eventTracking }
     ) {
         self.engine = engine
+        self.input = input
         self.policy = policy
         launchTimer = DemandTimer(owner: "ChromiumWarmup.preload", clock: clock)
         idleTimer = DemandTimer(owner: "ChromiumWarmup.idle", clock: clock)
@@ -177,12 +186,13 @@ public final class ChromiumWarmup {
     }
 
     /// Runs `action` at the next idle moment (no input for `idleInput`, no
-    /// menu tracking), or never when the app is not idle within `maxWait`.
-    private func waitForIdle(_ action: @escaping @MainActor () -> Void) {
+    /// menu tracking), or never when the app is not idle within `maxWait`. Internal, not private:
+    /// tests start a wait without a running engine.
+    func waitForIdle(_ action: @escaping @MainActor () -> Void) {
         idleAction = action
         lastInput = now()
         waiting = true
-        installInputMonitor()
+        observeInput()
         armIdle(after: policy.idleInput)
         giveUpTimer.schedule(after: policy.maxWait) { @MainActor [weak self] in self?.finishWaiting() }
     }
@@ -229,17 +239,17 @@ public final class ChromiumWarmup {
         return quiet >= policy.idleInput.inSeconds
     }
 
-    /// Records input while a warm start waits (no monitor otherwise).
+    /// Records input while a warm start waits (no subscription otherwise).
     public func noteInput() { lastInput = now() }
 
-    private func installInputMonitor() {
-        guard inputMonitor == nil else { return }
-        let mask: NSEvent.EventTypeMask = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown,
-                                           .leftMouseDragged, .scrollWheel, .mouseMoved]
-        inputMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
-            self?.noteInput()
-            return event
-        }
+    /// The input that restarts the quiet period: key-downs, mouse-downs, left drags, scrolls and
+    /// moves (ups, other drags and modifier changes do not).
+    static let quietEndingInput: InputEventTypes = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown,
+                                                    .leftMouseDragged, .scrollWheel, .mouseMoved]
+
+    private func observeInput() {
+        guard inputSubscription == nil else { return }
+        inputSubscription = input.observe(types: Self.quietEndingInput) { [weak self] _ in self?.noteInput() }
     }
 
     private func finishWaiting() {
@@ -248,8 +258,7 @@ public final class ChromiumWarmup {
         idleTimer.cancel()
         giveUpTimer.cancel()
         removeMenuObserver()
-        if let inputMonitor { NSEvent.removeMonitor(inputMonitor) }
-        inputMonitor = nil
+        inputSubscription = nil
     }
 
     private func removeMenuObserver() {

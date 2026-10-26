@@ -980,7 +980,7 @@ mod tests {
                 break;
             }
             assert!(Instant::now() < deadline, "input did not reach the sidebar PTY");
-            std::thread::sleep(Duration::from_millis(10));
+            crate::request_path::sleep(Duration::from_millis(10));
         }
 
         let resized = dispatch(

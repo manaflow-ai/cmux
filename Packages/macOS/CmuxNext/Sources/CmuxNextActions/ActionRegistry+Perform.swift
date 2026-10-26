@@ -36,6 +36,8 @@ extension ActionRegistry {
             let index = action(for: id)?.timingIndex ?? runTiming.intern(canonicalID(for: id))
             return signposted(id, index: index, invocation) {
                 settle()
+                // The key window's own handler ran (a palette or dialog row): its turn shows the change.
+                effectExpectsFrame()
                 return route.perform { refuse($0) }
             }
         }
@@ -50,6 +52,7 @@ extension ActionRegistry {
             // The palette opening is a gate, not a run of the action.
             gated(id, invocation) { stamped in
                 settle()
+                effectExpectsFrame()  // the palette opens to ask
                 argumentCollector(id, stamped)
             }
             return true

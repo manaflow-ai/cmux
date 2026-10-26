@@ -174,6 +174,7 @@ impl Mux {
     ///
     /// The caller must finish with [`Mux::discard_prelaunched_terminal`],
     /// which ends the host when the create did not adopt it.
+    #[track_caller]
     pub(crate) fn prelaunch_tab_terminal(
         self: &Arc<Self>,
         pane: Option<PaneId>,
@@ -372,7 +373,7 @@ mod tests {
         let jobs: Vec<Box<dyn FnOnce() -> usize + Send>> = (0..50usize)
             .map(|index| {
                 Box::new(move || {
-                    std::thread::sleep(Duration::from_millis((50 - index as u64) % 7));
+                    crate::request_path::sleep(Duration::from_millis((50 - index as u64) % 7));
                     index * 2
                 }) as Box<dyn FnOnce() -> usize + Send>
             })
@@ -416,7 +417,7 @@ mod tests {
                 Box::new(move || {
                     let now = running.fetch_add(1, Ordering::SeqCst) + 1;
                     peak.fetch_max(now, Ordering::SeqCst);
-                    std::thread::sleep(Duration::from_millis(5));
+                    crate::request_path::sleep(Duration::from_millis(5));
                     running.fetch_sub(1, Ordering::SeqCst);
                 }) as Box<dyn FnOnce() + Send>
             })

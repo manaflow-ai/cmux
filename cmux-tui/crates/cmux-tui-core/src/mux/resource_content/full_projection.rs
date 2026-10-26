@@ -13,6 +13,7 @@ impl Mux {
     /// Project the complete live tree into one durable patch while the caller
     /// holds the registry -> state writer fence. The matching effect receipt
     /// must be committed before either guard is released.
+    #[track_caller]
     pub(crate) fn resource_effect_projection_locked(
         &self,
         registry: &WorkspaceRegistry,
@@ -26,6 +27,7 @@ impl Mux {
 
     /// The full projection and its spans, not yet recorded (a cross-check
     /// runs it beside a scoped projection).
+    #[track_caller]
     pub(super) fn full_projection_spans(
         &self,
         registry: &WorkspaceRegistry,
@@ -579,6 +581,7 @@ impl Mux {
     }
 
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn resource_effect_projection(&self) -> anyhow::Result<ResourceEffectProjection> {
         let registry = self.workspace_registry.lock().unwrap();
         let mut state = self.lock_state_pinned(&registry).unwrap();

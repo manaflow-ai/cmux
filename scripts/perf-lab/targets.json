@@ -1,0 +1,231 @@
+{
+  "_doc": "The 12 fixed program targets of the perf lab (plans/cmux-next/chrome-parity/p12-perf-process.md, section 6, done check 3), and nothing else (rule R4). `text` is the spec line verbatim. A row is one judged series family: its checks name a metric pattern (full-match regex over result-v1 `metric`), a statistic over one result's samples, and the fixed limit. engine, session and config constrain which stories may claim the row; hz: the row is judged only from series measured at that display rate (task 160). Per-row noise floors are never numbers here: a check names one with floor_ref {path, key} in an existing threshold file. A story claims a row with a metric whose target_ref is {\"target\": <row id>}. Each browser target has chromium rows and webkit rows that judge the same checks, and every one of its rows names its engine (F12). Checked by `lab.py targets --check` (scripts/perf-lab/catalog.py).",
+  "schema": "cmux-perf-targets/v1",
+  "targets": [
+    {
+      "id": "key-frame",
+      "text": "key->frame p50 <= 8.3 ms and p99 <= 16.7 ms, light and STRESS, at hz=120",
+      "browser": false,
+      "rows": [
+        {
+          "id": "key-frame.light",
+          "session": "light",
+          "hz": 120,
+          "checks": [
+            {"metric": "terminal\\.key_to_frame", "stat": "p50", "op": "<=", "value": 8.3, "unit": "ms"},
+            {"metric": "terminal\\.key_to_frame", "stat": "p99", "op": "<=", "value": 16.7, "unit": "ms"}
+          ]
+        },
+        {
+          "id": "key-frame.stress",
+          "session": "stress",
+          "hz": 120,
+          "checks": [
+            {"metric": "terminal\\.key_to_frame", "stat": "p50", "op": "<=", "value": 8.3, "unit": "ms"},
+            {"metric": "terminal\\.key_to_frame", "stat": "p99", "op": "<=", "value": 16.7, "unit": "ms"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "main-blocking-sites",
+      "text": "0 main-thread blocking sites (bench-checks)",
+      "browser": false,
+      "rows": [
+        {
+          "id": "main-blocking-sites",
+          "config": "bench-checks",
+          "checks": [
+            {"metric": "main_blocking\\.sites", "stat": "max", "op": "<=", "value": 0, "unit": "count"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "main-turn",
+      "text": "main-turn p99 <= 4 ms",
+      "browser": false,
+      "rows": [
+        {
+          "id": "main-turn",
+          "checks": [
+            {"metric": "main_turn\\.p99", "stat": "p50", "op": "<=", "value": 4, "unit": "ms"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "motion-dropped",
+      "text": "0 dropped frames in motion",
+      "browser": false,
+      "rows": [
+        {
+          "id": "motion-dropped",
+          "hz": 120,
+          "checks": [
+            {"metric": "panes\\.[^.]+\\.[^.]+\\.missed", "stat": "max", "op": "<=", "value": 0, "unit": "count"},
+            {"metric": "anim\\.[^.]+\\.dropped", "stat": "max", "op": "<=", "value": 0, "unit": "count"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "idle-wakeups",
+      "text": "idle wakeups app+daemon <= 1/s and main <= 0.5/s with 10 Chromium tabs",
+      "browser": true,
+      "rows": [
+        {
+          "id": "idle-wakeups.chromium",
+          "engine": "chromium",
+          "checks": [
+            {"metric": "idle\\.tabs-10\\.app_daemon_wakeups_per_s", "stat": "p50", "op": "<=", "value": 1, "unit": "per_s"},
+            {"metric": "idle\\.tabs-10\\.main_wakes_per_s", "stat": "p50", "op": "<=", "value": 0.5, "unit": "per_s"}
+          ]
+        },
+        {
+          "id": "idle-wakeups.webkit",
+          "engine": "webkit",
+          "checks": [
+            {"metric": "idle\\.tabs-10\\.app_daemon_wakeups_per_s", "stat": "p50", "op": "<=", "value": 1, "unit": "per_s"},
+            {"metric": "idle\\.tabs-10\\.main_wakes_per_s", "stat": "p50", "op": "<=", "value": 0.5, "unit": "per_s"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "launch",
+      "text": "launch cold <= 300 ms and warm <= 150 ms",
+      "browser": false,
+      "rows": [
+        {
+          "id": "launch.cold",
+          "checks": [
+            {"metric": "launch\\.cold\\.first_window_frame_committed", "stat": "p50", "op": "<=", "value": 300, "unit": "ms"}
+          ]
+        },
+        {
+          "id": "launch.warm",
+          "checks": [
+            {"metric": "launch\\.warm\\.first_window_frame_committed", "stat": "p50", "op": "<=", "value": 150, "unit": "ms"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "new-surface-frames",
+      "text": "Cmd-T/N/W 0 missed frames",
+      "browser": false,
+      "rows": [
+        {
+          "id": "new-surface-frames",
+          "hz": 120,
+          "checks": [
+            {"metric": "cmd_t\\.[^.]+\\.dropped", "stat": "max", "op": "<=", "value": 0, "unit": "count"},
+            {"metric": "cmd_n\\.[^.]+\\.dropped", "stat": "max", "op": "<=", "value": 0, "unit": "count"},
+            {"metric": "cmd_w\\.[^.]+\\.dropped", "stat": "max", "op": "<=", "value": 0, "unit": "count"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hangs",
+      "text": "0 hangs > 250 ms (lab corpus and daemon; Nightly field is reported)",
+      "browser": false,
+      "rows": [
+        {
+          "id": "hangs.app",
+          "checks": [
+            {"metric": "hangs\\.over_250ms\\.[a-z_]+", "stat": "max", "op": "<=", "value": 0, "unit": "count"}
+          ]
+        },
+        {
+          "id": "hangs.daemon",
+          "checks": [
+            {"metric": "daemon\\.hangs_over_250ms", "stat": "max", "op": "<=", "value": 0, "unit": "count"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "crash-survival",
+      "text": "Chromium crash survival 1.0",
+      "browser": true,
+      "rows": [
+        {
+          "id": "crash-survival.chromium",
+          "engine": "chromium",
+          "checks": [
+            {"metric": "crash_survival\\.chromium", "stat": "min", "op": ">=", "value": 1.0, "unit": "ratio"}
+          ]
+        },
+        {
+          "id": "crash-survival.webkit",
+          "engine": "webkit",
+          "checks": [
+            {"metric": "crash_survival\\.webkit", "stat": "min", "op": ">=", "value": 1.0, "unit": "ratio"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qos",
+      "text": "0 undeclared QoS threads/queues (Swift and Rust) and 0 runtime inversions",
+      "browser": false,
+      "rows": [
+        {
+          "id": "qos.swift",
+          "checks": [
+            {"metric": "qos\\.undeclared_swift", "stat": "max", "op": "<=", "value": 0, "unit": "count"}
+          ]
+        },
+        {
+          "id": "qos.rust",
+          "checks": [
+            {"metric": "qos\\.undeclared_rust", "stat": "max", "op": "<=", "value": 0, "unit": "count"}
+          ]
+        },
+        {
+          "id": "qos.inversions",
+          "config": "bench-checks",
+          "checks": [
+            {"metric": "qos\\.inversions", "stat": "max", "op": "<=", "value": 0, "unit": "count"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "incremental-build",
+      "text": "incremental leaf build < 30 s",
+      "browser": false,
+      "rows": [
+        {
+          "id": "incremental-build",
+          "checks": [
+            {"metric": "build\\.incremental\\.[a-z0-9_]+_s", "stat": "p50", "op": "<", "value": 30, "unit": "s"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "memory-slope",
+      "text": "hidden-workspace memory slope <= 0.5 MB per workspace",
+      "browser": true,
+      "rows": [
+        {
+          "id": "memory-slope.chromium",
+          "engine": "chromium",
+          "checks": [
+            {"metric": "memory\\.hidden_slope", "stat": "p50", "op": "<=", "value": 524288, "unit": "bytes"}
+          ]
+        },
+        {
+          "id": "memory-slope.webkit",
+          "engine": "webkit",
+          "checks": [
+            {"metric": "memory\\.hidden_slope", "stat": "p50", "op": "<=", "value": 524288, "unit": "bytes"}
+          ]
+        }
+      ]
+    }
+  ]
+}

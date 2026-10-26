@@ -334,6 +334,8 @@ extension SettingsSchema {
         "notifications.showPreviews": .userOnly,
         // Battery and sleep are the person's call: an agent must not keep the Mac up for itself.
         "sessions.keepAwake": .userOnly,
+        // When Energy Saver turns on is the person's call, and a write ends their "Turn Off for Now".
+        "energy.saver": .userOnly,
         // Whether agents start again by themselves after a restart is the person's call.
         "sessions.resumeAgents": .userOnly,
         // An agent must not let itself, or another agent, skip the person's approvals.

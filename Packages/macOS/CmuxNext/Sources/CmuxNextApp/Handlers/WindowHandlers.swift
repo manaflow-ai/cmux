@@ -39,13 +39,22 @@ enum WindowHandlers {
             NSApp.orderFrontStandardAboutPanel(options: credits.map { [.credits: $0] } ?? [:])
         })
         registry.bind("showMainWindow", run: { _ in showMainWindow(context) })
-        registry.bind("showHideAllWindows", run: { _ in
-            if NSApp.isActive, !NSApp.isHidden, context.services.windows.controllers.contains(where: { $0.window?.isVisible == true }) {
-                NSApp.hide(nil)
-            } else {
-                NSApp.unhide(nil)
-                showMainWindow(context)
+        registry.bindEffect("showHideAllWindows", effect: { invocation in
+            // A script states the end state (`hidden`): hide or unhide whether or not cmux is
+            // active, and the unhide neither activates the app nor raises a window. Without it the
+            // action toggles as the global hotkey does and summons a background cmux.
+            switch invocation["hidden"]?.boolValue {
+            case true?: NSApp.hide(nil)
+            case false?: NSApp.unhideWithoutActivation()
+            case nil:
+                if NSApp.isActive, !NSApp.isHidden, context.services.windows.controllers.contains(where: { $0.window?.isVisible == true }) {
+                    NSApp.hide(nil)
+                } else {
+                    NSApp.unhide(nil)
+                    showMainWindow(context)
+                }
             }
+            return .done
         })
         registry.bind("minimizeWindow", run: { _ in
             // Show Main Window (showMainWindow) restores it.

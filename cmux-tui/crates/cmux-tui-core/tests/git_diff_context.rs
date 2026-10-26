@@ -4,12 +4,12 @@
 //! unchanged lines around each change to hold the whole file, and rebuilds
 //! both sides of the file from it.
 
+use cmux_process::Command;
 use cmux_tui_core::{Mux, SurfaceOptions, server};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
-use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 

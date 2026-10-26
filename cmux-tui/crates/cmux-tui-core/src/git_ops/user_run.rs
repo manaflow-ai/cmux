@@ -24,12 +24,11 @@ use std::collections::{BTreeMap, VecDeque};
 use std::ffi::{OsStr, OsString};
 use std::io::{ErrorKind, Read};
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex, PoisonError, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use wait_timeout::ChildExt;
+use cmux_process::{Child, Command, Stdio};
 
 use super::run::GitFailure;
 
@@ -113,19 +112,10 @@ impl UserGit<'_> {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        // A new session has no controlling terminal, so ssh and git cannot
+        // prompt, and git leads the group the deadline stops.
         #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            // SAFETY: setsid(2) is async-signal-safe and touches no Rust state
-            // in the post-fork child. A new session has no controlling
-            // terminal, so ssh and git cannot prompt, and git leads the group
-            // the deadline stops.
-            unsafe {
-                command.pre_exec(|| {
-                    if libc::setsid() < 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
-                });
-            }
-        }
+        command.new_session();
         let mut child =
             command.spawn().map_err(|error| GitFailure::Unavailable(error.to_string()))?;
         let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {

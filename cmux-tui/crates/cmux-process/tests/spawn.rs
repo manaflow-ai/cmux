@@ -243,6 +243,231 @@ mod daemon_spawn {
         assert_eq!(got, "through-five\n");
     }
 
+    /// The stage of a probe copy of this test binary (`probe`).
+    const PROBE_ENV: &str = "CMUX_PROCESS_PROBE";
+    /// `name=fd,...`: the descriptors the reporting copy checks.
+    const PROBE_FDS_ENV: &str = "CMUX_PROCESS_PROBE_FDS";
+
+    /// Run this binary's `test` with `PROBE_ENV=stage`; the lines its
+    /// reporting copy printed (`probe: ...`), without the prefix.
+    fn probe(test: &str, stage: &str) -> Vec<String> {
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", test, "--nocapture", "--test-threads=1"])
+            .env(PROBE_ENV, stage)
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(output.status.success(), "{stdout}{}", String::from_utf8_lossy(&output.stderr));
+        stdout
+            .lines()
+            .filter_map(|line| line.split_once("probe: ").map(|(_, rest)| rest.to_owned()))
+            .collect()
+    }
+
+    /// The probe's working directory.
+    fn probe_dir() -> std::path::PathBuf {
+        std::fs::canonicalize(std::env::temp_dir()).unwrap()
+    }
+
+    /// In a probe copy: ignore SIGHUP (as `nohup` does) and open one
+    /// inheritable and one close-on-exec descriptor, numbered high so the
+    /// reporting copy opens nothing at those numbers. Returns them (kept open
+    /// until the spawn or exec) and their `PROBE_FDS_ENV` value.
+    fn probe_state() -> (OwnedFd, OwnedFd, String) {
+        // SAFETY: SIG_IGN for SIGHUP, in this probe copy only.
+        unsafe { libc::signal(libc::SIGHUP, libc::SIG_IGN) };
+        let null = std::fs::File::open("/dev/null").unwrap();
+        let dup = |command: libc::c_int, floor: libc::c_int| {
+            // SAFETY: F_DUPFD(_CLOEXEC) returns a new descriptor or -1.
+            let fd = unsafe { libc::fcntl(null.as_raw_fd(), command, floor) };
+            assert!(fd >= 0, "fcntl: {}", std::io::Error::last_os_error());
+            // SAFETY: a new descriptor the probe owns.
+            unsafe { OwnedFd::from_raw_fd(fd) }
+        };
+        let inheritable = dup(libc::F_DUPFD, 800);
+        let cloexec = dup(libc::F_DUPFD_CLOEXEC, 900);
+        let fds = format!(
+            "inheritable={},close-on-exec={}",
+            inheritable.as_raw_fd(),
+            cloexec.as_raw_fd()
+        );
+        (inheritable, cloexec, fds)
+    }
+
+    /// The reporting copy: print its working directory, which probe
+    /// descriptors are open, and SIGHUP's disposition, then exit.
+    fn report() -> ! {
+        let mut lines = vec![format!("cwd {}", std::env::current_dir().unwrap().display())];
+        for entry in std::env::var(PROBE_FDS_ENV).unwrap().split(',') {
+            let (name, fd) = entry.split_once('=').unwrap();
+            // SAFETY: F_GETFD only reads a descriptor's flags.
+            let open = unsafe { libc::fcntl(fd.parse().unwrap(), libc::F_GETFD) } >= 0;
+            lines.push(format!("{name} {}", if open { "open" } else { "closed" }));
+        }
+        // SAFETY: zeroed sigaction is valid output storage; a null new
+        // action only reads the disposition.
+        let ignored = unsafe {
+            let mut action: libc::sigaction = std::mem::zeroed();
+            libc::sigaction(libc::SIGHUP, std::ptr::null(), &mut action);
+            action.sa_sigaction == libc::SIG_IGN
+        };
+        lines.push(format!("SIGHUP {}", if ignored { "ignored" } else { "default" }));
+        let mut out = std::io::stdout().lock();
+        for line in lines {
+            writeln!(out, "\nprobe: {line}").unwrap();
+        }
+        out.flush().unwrap();
+        std::process::exit(0)
+    }
+
+    /// What std (and `execve`) gives a child: the working directory and
+    /// environment asked for, the inheritable descriptor, not the
+    /// close-on-exec one, and SIGHUP still ignored.
+    fn std_inheritance() -> Vec<String> {
+        vec![
+            format!("cwd {}", probe_dir().display()),
+            "inheritable open".into(),
+            "close-on-exec closed".into(),
+            "SIGHUP ignored".into(),
+        ]
+    }
+
+    /// The probe command: this binary's `test` as the reporting copy.
+    fn reporter(test: &str, fds: &str) -> Command {
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args(["--exact", test, "--nocapture", "--test-threads=1"])
+            .env(PROBE_ENV, "report")
+            .env(PROBE_FDS_ENV, fds)
+            .current_dir(probe_dir());
+        command
+    }
+
+    /// `exec` replaces this process (the reporting copy's exit status is the
+    /// probe's, its output the only probe lines) and keeps what `execve`
+    /// keeps: an inheritable descriptor and an ignored signal (macOS: a
+    /// `POSIX_SPAWN_SETEXEC` without `CLOEXEC_DEFAULT` that resets only
+    /// SIGPIPE), so the CLI's re-exec keeps a `/dev/fd/N` argument and `nohup`.
+    #[test]
+    fn exec_replaces_this_process_and_keeps_what_execve_keeps() {
+        const TEST: &str = "daemon_spawn::exec_replaces_this_process_and_keeps_what_execve_keeps";
+        match std::env::var(PROBE_ENV).as_deref() {
+            Ok("report") => report(),
+            Ok("exec") => {
+                let (_inheritable, _cloexec, fds) = probe_state();
+                let error = reporter(TEST, &fds).exec();
+                panic!("exec returned: {error}");
+            }
+            _ => {}
+        }
+        assert_eq!(probe(TEST, "exec"), std_inheritance());
+    }
+
+    /// `inherit_like_std` (the CLI's `status run` and other wrappers) gives
+    /// the child std's inheritance on every platform; without it a macOS
+    /// child gets no stray descriptor and every signal at its default.
+    #[test]
+    fn inherit_like_std_keeps_open_descriptors_and_ignored_signals() {
+        const TEST: &str =
+            "daemon_spawn::inherit_like_std_keeps_open_descriptors_and_ignored_signals";
+        let stage = std::env::var(PROBE_ENV);
+        match stage.as_deref() {
+            Ok("report") => report(),
+            Ok(mode @ ("like-std" | "daemon")) => {
+                let (_inheritable, _cloexec, fds) = probe_state();
+                let mut command = reporter(TEST, &fds);
+                if mode == "like-std" {
+                    command.inherit_like_std();
+                }
+                let status = command.status().unwrap();
+                std::process::exit(status.code().unwrap_or(1));
+            }
+            _ => {}
+        }
+        assert_eq!(probe(TEST, "like-std"), std_inheritance());
+        let daemon = probe(TEST, "daemon");
+        #[cfg(target_vendor = "apple")]
+        assert_eq!(
+            daemon,
+            [
+                format!("cwd {}", probe_dir().display()),
+                "inheritable closed".into(),
+                "close-on-exec closed".into(),
+                "SIGHUP default".into(),
+            ]
+        );
+        #[cfg(not(target_vendor = "apple"))]
+        assert_eq!(daemon, std_inheritance());
+    }
+
+    #[test]
+    fn exec_of_a_missing_program_returns_its_error() {
+        let error = Command::new("cmux-process-no-such-program").exec();
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    }
+
+    /// `exec` replaces the process as `execve` does, on every Unix (a
+    /// wrapper's launch of the real agent): the new image runs with this
+    /// process's stdout, gets the `inherit_fd` descriptors, keeps a
+    /// descriptor this process holds without close-on-exec (a `<(...)` or
+    /// `3<file` the person's shell gave the wrapper) and keeps an ignored
+    /// SIGHUP ignored (`nohup`). The exec runs in a re-run of this test
+    /// binary, which it replaces.
+    #[test]
+    fn exec_keeps_inherited_descriptors_and_ignored_signals() {
+        const FIXTURE: &str = "CMUX_PROCESS_EXEC_FIXTURE";
+        if std::env::var_os(FIXTURE).is_some() {
+            let (keep, inherited) = inheritable_pipe();
+            let inherited = inherited.as_raw_fd();
+            // SAFETY: sets the disposition of this single-purpose fixture process.
+            assert_ne!(unsafe { libc::signal(libc::SIGHUP, libc::SIG_IGN) }, libc::SIG_ERR);
+            let script = format!(
+                "echo replaced; [ -e /dev/fd/5 ] && echo kept-five; \
+                 [ -e /dev/fd/{inherited} ] && echo kept-inherited; \
+                 kill -HUP $$; echo survived-hup; exit 0"
+            );
+            let error = Command::new("/bin/sh")
+                .args(["-c", &script])
+                .inherit_fd(keep.as_fd(), 5)
+                .unwrap()
+                .exec();
+            panic!("exec failed: {error}");
+        }
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "daemon_spawn::exec_keeps_inherited_descriptors_and_ignored_signals",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(FIXTURE, "1")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(output.status.success(), "{output:?}");
+        assert!(stdout.contains("replaced"), "the program did not run: {stdout}");
+        assert!(stdout.contains("kept-five"), "the given descriptor was lost: {stdout}");
+        assert!(
+            stdout.contains("kept-inherited"),
+            "a descriptor without close-on-exec did not reach the image: {stdout}"
+        );
+        assert!(stdout.contains("survived-hup"), "an ignored SIGHUP was reset: {stdout}");
+    }
+
+    #[test]
+    fn get_envs_lists_what_the_builder_sets_and_removes() {
+        let mut command = Command::new("true");
+        command.env("SET", "1").env_remove("GONE");
+        let envs: Vec<_> = command.get_envs().collect();
+        assert_eq!(
+            envs,
+            [
+                (std::ffi::OsStr::new("GONE"), None),
+                (std::ffi::OsStr::new("SET"), Some(std::ffi::OsStr::new("1"))),
+            ]
+        );
+    }
+
     /// The fix for the macOS race (review 1 and 2 of pl-holder-11): a
     /// descriptor this process has open without close-on-exec, as a received
     /// PTY master or ring segment is between `recvmsg` and its `fcntl`, does not

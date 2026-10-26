@@ -30,6 +30,11 @@ lower: a creep of a little under 10 % per run does not ratchet the baseline up),
 perf-budgets.json budget). A candidate regresses only when consecutive tip measurements show a shift
 (confirm_regressions).
 
+The perf lab (scripts/perf-lab) takes measurement over with one commit, not a workflow edit: while
+scripts/perf-lab/OWNS_MEASUREMENT is in the plan's checkout, the plan submits 0 parts (no Mac part, no Linux part, no
+frame-pacing dispatch) and the report stores, saves and reports nothing, so the architecture report does not run
+either (LAB_SENTINEL).
+
 Subcommands: fetch-state, plan, fleet-check, run-part, part-cleanup, run-linux-part, report, dispatch-next (see each
 --help). Tests: scripts/cmux-next/tests/test_perf_cron.py (decisions) and test_perf_cron_io.py (GitHub, git, the
 fleet client and multi-tick runs, faked) (run them yourself; no CI job runs them).
@@ -439,6 +444,28 @@ def refresh_ms_of(report):
     display = report.get("display") if isinstance(report, dict) else None
     r = display.get("refresh_ms") if isinstance(display, dict) else None
     return float(r) if isinstance(r, (int, float)) and 2 <= r <= 50 else None
+
+
+# The Mac parts whose benches copy `count250` from each window's `debug.hangs` (pane-perf-terminal, perf-budgets'
+# new_surfaces, panes, tab_switch, palette and anim, perf-gate's phases). Only these say "not reported" when none
+# came back (a build without the counter); the others print a count only if one of their benches gives one.
+COUNT250_PARTS = ("stress", "motion", "switch", "perf-gate", "chat-anim")
+
+
+def count250_of(report, budgets_mod):
+    """The main-thread stalls of 250 ms and up in a part's bench windows (pure): perf-budgets' count250_sum of its
+    report (each window clears `debug.hangs` first), or None when no window reported one. Printed and kept with the
+    part, never a row: no target, no regression, no gate (the Nightly readout). It is not the app's whole run: time
+    outside the bench windows (launch, setup) is not in it."""
+    return budgets_mod.count250_sum(report)
+
+
+def count250_line(part, stalls):
+    """The report step's count250 line for a Mac part, or None when the part prints none."""
+    if stalls is None and part not in COUNT250_PARTS:
+        return None
+    return (f"perf-cron report: {part} count250 {'not reported' if stalls is None else stalls} "
+            "(main-thread stalls >= 250 ms in its bench windows; read only)")
 
 
 def rows_of_part(part, report, budgets_mod, budgets):
@@ -1109,6 +1136,13 @@ GH_CALLS = collections.Counter()
 # fetch-state leaves this file in the state directory when GitHub refused for the rate limit: the plan and the report
 # then do nothing (no state is read, saved or replaced) and the next tick tries again.
 RATE_LIMITED = "RATE_LIMITED"
+# The perf lab owns measurement while this file exists (p12-perf-process task 026). Chromium retires a waterfall bot
+# the same way, with one config change (tools/perf/core/bot_platforms.py), not an edit of the recipe that runs it.
+# The plan job checks out all of scripts/; the report job's sparse checkout has no scripts/perf-lab, so the plan
+# leaves LAB_OWNS in the working state directory and the report reads it there, as it reads RATE_LIMITED.
+LAB_SENTINEL = os.path.join(ROOT, "scripts", "perf-lab", "OWNS_MEASUREMENT")
+LAB_OWNS = "LAB_OWNS_MEASUREMENT"
+LAB_REASON = "perf lab owns measurement"
 
 
 class RateLimited(Exception):
@@ -2276,6 +2310,10 @@ def clear_parts(d):
 
 
 def cmd_plan(o):
+    if os.path.exists(LAB_SENTINEL):
+        yield_to_lab(o)
+        print_calls("plan")
+        return
     try:
         plan(o)
     except RateLimited as error:
@@ -2286,6 +2324,18 @@ def cmd_plan(o):
         print(f"perf-cron plan: {json.dumps(out)}")
         write_outputs(o.output, out)
     print_calls("plan")
+
+
+def yield_to_lab(o):
+    """The plan while the perf lab owns measurement: 0 parts, no frame pacing, no git or GitHub call. The fetched
+    state stays as it is (the report saves nothing), so the cron goes on from it when the sentinel is removed."""
+    os.makedirs(o.dir, exist_ok=True)
+    with open(os.path.join(o.dir, LAB_OWNS), "w") as f:
+        f.write(LAB_REASON + "\n")
+    out = {"action": "none", "sha": "", "part": "", "linux_part": "", "worker": "", "frame_pacing": "false",
+           "frame_pacing_reason": LAB_REASON, "reason": f"{LAB_REASON} (scripts/perf-lab/OWNS_MEASUREMENT)"}
+    print(f"perf-cron plan: {json.dumps(out)}")
+    write_outputs(o.output, out)
 
 
 def plan(o):
@@ -2810,6 +2860,12 @@ def note_bench_host(state, reason, t):
 
 
 def cmd_report(o):
+    if os.path.exists(os.path.join(o.dir, LAB_OWNS)):
+        # The plan yielded to the perf lab: nothing stored, compared, saved, reported or chained.
+        print(f"perf-cron report: {LAB_REASON}; nothing stored")
+        write_outputs(o.output, {"changed": "false", "line": LAB_REASON, "next_now": "false", "not_measuring": ""})
+        print_calls("report")
+        return
     if os.path.exists(os.path.join(o.dir, RATE_LIMITED)):
         # The plan read no state (GitHub's rate limit): nothing to store, compare or save.
         print("perf-cron report: no state this tick (GitHub rate limit); the next tick tries again")
@@ -2897,6 +2953,13 @@ def report(o):
                 mark_host(state, result["worker"], macos=cur["macos"], at=iso(t))
             with open(os.path.join(o.dir, "parts", f"{part}.json"), "w") as dst:
                 json.dump({"measurement": measurement_id(cur), "report": report_value}, dst)
+            if not is_linux_part(part) and PART_BY_NAME[part]["kind"] != "build":
+                stalls = count250_of(report_value, load_budgets_module())
+                if stalls is not None:
+                    entry["count250"] = stalls
+                line = count250_line(part, stalls)
+                if line:
+                    print(line, flush=True)
     if cur and not cur["parts_todo"] and (changed or o.finish):
         changed = True
         mod = load_budgets_module()

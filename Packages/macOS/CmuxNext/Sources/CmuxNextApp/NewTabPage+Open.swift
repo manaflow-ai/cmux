@@ -12,9 +12,6 @@ import CmuxNextSettings
 import CmuxNextTabs
 import Foundation
 
-/// Runs a new tab page's close on the frame after its replacement shows.
-@MainActor private let closeFrame = FrameBatcher(owner: "NewTabPage.close")
-
 extension NewTabPage {
     /// Panes whose New Tab page opening runs in this main-actor turn.
     private static var openingPanes: Set<ObjectIdentifier> = []
@@ -107,9 +104,10 @@ extension NewTabPage {
         if let refusal = MacScreenPages.pairingLinkRefusal(for: request.text) { return services.registry.refuse(refusal) }
         // The page closes one frame after the new tab shows, so the frame that builds the
         // terminal surface does not also pay for the page (R81: 17.8 ms frames at 120 Hz).
+        let closeFrames = services.newTabCloseFrames
         let close: @MainActor (SurfaceID) -> Void = { [weak pane] _ in
             guard !keep else { return }
-            closeFrame.scheduleFrame { BenchSpans.measure("newTab.closePage") { pane?.close([StripTabID(key)]) } }
+            closeFrames.scheduleFrame { BenchSpans.measure("newTab.closePage") { pane?.close([StripTabID(key)]) } }
         }
         if case .terminal = request.kind, request.run, command(request.text) == nil { return } // opens nothing
         // The pick takes the page's place, like a browser's new tab (Leo 2026-10-20); the Debug toggle
@@ -194,6 +192,7 @@ extension NewTabPage {
     /// Closes New Tab page `key` one frame after what it opened shows (``opensBeside(_:in:)`` keeps
     /// a lone page in place, so this never empties the person's pane).
     static func closingPage(_ key: String, in pane: PaneController) -> @MainActor () -> Void {
-        { [weak pane] in closeFrame.scheduleFrame { pane?.close([StripTabID(key)]) } }
+        let closeFrames = pane.services.newTabCloseFrames
+        return { [weak pane] in closeFrames.scheduleFrame { pane?.close([StripTabID(key)]) } }
     }
 }
