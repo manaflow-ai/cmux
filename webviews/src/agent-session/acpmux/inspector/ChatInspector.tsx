@@ -178,18 +178,41 @@ export function inspectorTopOffset(tabRowHeight: number, environmentRowVisible: 
   return environmentRowVisible ? `calc(${headerTop} + var(--ui-row-height))` : headerTop;
 }
 
-/// The composer's stack height (`.acpmux-dock` in `shell`) while `on`: one ResizeObserver, disconnected
-/// when `on` goes false or the shell changes.
+/// The composer's stack height (`.acpmux-dock` in `shell`) while `on`: from the top of its highest
+/// child to the shell's foot. A new chat's dock is `display: contents` (bottomStack.css), so its own
+/// box is empty and only its children have one. One ResizeObserver on the dock and its children (a
+/// MutationObserver re-observes when its children change), both disconnected when `on` goes false or
+/// the shell changes.
 function useDockHeight(shell: HTMLElement | null | undefined, on: boolean): number {
   const [height, setHeight] = useState(0);
   useLayoutEffect(() => {
     const dock = on ? shell?.querySelector<HTMLElement>(".acpmux-dock") : null;
-    if (!dock) return;
-    const read = () => setHeight(Math.round(dock.getBoundingClientRect().height));
+    if (!shell || !dock) return;
+    const read = () => {
+      let top = Infinity;
+      for (const part of [dock, ...dock.children]) {
+        const box = part.getBoundingClientRect();
+        if (box.height > 0) top = Math.min(top, box.top);
+      }
+      setHeight(top === Infinity ? 0 : Math.max(0, Math.round(shell.getBoundingClientRect().bottom - top)));
+    };
+    const resize = new ResizeObserver(read);
+    const observe = () => {
+      resize.disconnect();
+      resize.observe(dock);
+      for (const child of dock.children) resize.observe(child);
+    };
+    observe();
     read();
-    const observer = new ResizeObserver(read);
-    observer.observe(dock);
-    return () => observer.disconnect();
+    const children = new MutationObserver(() => {
+      observe();
+      read();
+    });
+    children.observe(dock, { childList: true });
+    return () => {
+      children.disconnect();
+      resize.disconnect();
+    };
   }, [shell, on]);
   return height;
 }
