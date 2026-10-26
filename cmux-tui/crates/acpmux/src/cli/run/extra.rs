@@ -422,7 +422,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Peer(cmd) => {
+        Command::Host(cmd) => {
             let client = connect(true).await?;
             let v = match cmd {
                 PeerCmd::Add { name, url, token } => {
@@ -557,8 +557,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         | Command::UniichatAgent { .. }
         | Command::Session(_)
         | Command::Daemon(_)
-        | Command::Harness(_)
-        | Command::Host(_) => {
+        | Command::Harness(_) => {
             unreachable!()
         }
         _ => Err(anyhow!("command routed to the wrong dispatch family")),
