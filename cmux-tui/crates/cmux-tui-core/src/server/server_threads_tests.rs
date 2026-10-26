@@ -142,6 +142,55 @@ fn server_blocking_of_an_empty_table_has_no_sites() {
     );
 }
 
+/// Acceptance: the two reads add no blocking site. They run as the daemon runs
+/// them, on a thread that disallows blocking, in panic mode, so a blocking
+/// call in them panics there (Debug). The site table, read before and after
+/// and through the live command, gains no site in the files they run through.
+#[test]
+fn server_threads_and_blocking_add_no_blocking_site() {
+    const READ_PATH: [&str; 5] = [
+        "server/server_stats.rs",
+        "server/cmd_server.rs",
+        "cmux-threads/src/registry.rs",
+        "cmux-threads/src/qos.rs",
+        "cmux-threads/src/process_role.rs",
+    ];
+    let in_read_path = |file: &str| READ_PATH.iter().any(|name| file.ends_with(name));
+    let (mux, client) = local_mux("no-site");
+    let before = blocking::snapshot();
+
+    let reply = std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                blocking::with_mode(BlockingMode::Panic, || {
+                    blocking::with_blocking_disallowed(|| {
+                        threads(&mux, client);
+                        handle_command(&mux, client, Command::ServerBlocking, &writer()).unwrap()
+                    })
+                })
+            })
+            .join()
+            .expect("server-threads and server-blocking make no blocking call")
+    });
+
+    let added: Vec<_> = blocking::snapshot()
+        .sites
+        .into_iter()
+        .filter(|site| in_read_path(site.file))
+        .filter(|site| before.site(site.file, site.line).is_none_or(|old| old.count < site.count))
+        .collect();
+    assert_eq!(added, [], "the reads recorded blocking sites");
+    let listed: Vec<&Value> = reply["sites"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| {
+            row["file"].as_str().is_some_and(|file| file.ends_with("server/server_stats.rs"))
+        })
+        .collect();
+    assert!(listed.is_empty(), "server-blocking lists a site in its own read: {reply}");
+}
+
 #[test]
 fn server_blocking_lists_a_sleep_on_a_disallowed_thread() {
     let (mux, client) = local_mux("site");
