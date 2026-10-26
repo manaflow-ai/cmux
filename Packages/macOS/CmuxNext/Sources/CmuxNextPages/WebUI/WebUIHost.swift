@@ -37,6 +37,11 @@ public final class WebUIHost {
     /// Every page this host opened and has not closed. Weak, so a view a provider drops without
     /// closing it still deinits (p13-webui-061 makes every tab close call ``close(_:)``).
     private let opened = NSHashTable<PageWebView>.weakObjects()
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Yields when a page's oracle reading may have changed (the `webviews` facet's wait, p15-oracle-215): a page
+    /// ``observeOracleState(of:)`` hooked posted ``PageRouter/oracleStateChangedOp`` or its document loaded.
+    public let oracleChanges = PageOracleChangeFeed()
+    #endif
 
     /// - Parameters:
     ///   - chromium: The app's Chromium page maker (`ChromiumPageHost`); nil for WebKit only.
@@ -69,6 +74,9 @@ public final class WebUIHost {
         // Read when the Chromium page reaches the host, after this turn; set before then.
         view.chromiumClock = clock
         opened.add(view)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        observeOracleState(of: view)
+        #endif
         return view
     }
 

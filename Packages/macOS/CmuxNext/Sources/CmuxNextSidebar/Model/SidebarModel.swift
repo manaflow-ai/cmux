@@ -308,10 +308,9 @@ public final class SidebarModel {
     /// The sidebar document's drag half (sidebar-v2 S5), set by the App
     /// while the document is active.
     @ObservationIgnored public var docDrag: SidebarDocDrag?
-    /// The favicon at a page icon address, when the App has it (it fetches a missing one); link rows draw it.
+    /// The favicon at a page icon address, when the App has it (it fetches a missing one); link rows draw it, again on
+    /// the document store's `faviconsChanged` event.
     public static var itemFavicon: ((String) -> SidebarFavicon?)?
-    /// Posted when favicons arrived: every list draws its link rows again.
-    public static let itemFaviconsChanged = Notification.Name("cmux.sidebar.itemFaviconsChanged")
 
     /// Every workspace in visual order.
     public var allWorkspaces: [SidebarWorkspace] { sections.flatMap(\.workspaces) }

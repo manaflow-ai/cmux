@@ -2907,7 +2907,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "6441e9cf79bd8973e73cdfaf7a8575c24a8dccf6d0a0f029f989b94e1370ca71",
+      "sha256": "bc21a4bd9ce852d2ef052be3bad8c4b7155ee9c3d320d98e3ba47ef502cecc4d",
       "size": 7841
     },
     {
@@ -3336,6 +3336,36 @@
       "size": 4994
     },
     {
+      "path": "ServerStatsIpc.java",
+      "sha256": "ead7c036a72f45abd533dced856f61219e2a0673edc8156242a33cfb1b3c13be",
+      "size": 6657
+    },
+    {
+      "path": "ServerStatsIpcKind.java",
+      "sha256": "a0615a99c650b26ad6d228673f1bf450a3f1141437e7e67eaf2982b6c0835ba6",
+      "size": 3266
+    },
+    {
+      "path": "ServerStatsIpcParse.java",
+      "sha256": "538e16843d4d2de43ee5dd1803ecb00deb2c1bdf420be0b97212400f91e3665b",
+      "size": 3740
+    },
+    {
+      "path": "ServerStatsIpcParses.java",
+      "sha256": "75d162b5e3f895a87f13e1c8ff2f553d0e67d4077bb0badf942674ce99766396",
+      "size": 2689
+    },
+    {
+      "path": "ServerStatsIpcStreams.java",
+      "sha256": "c7ebb874bc3d4e0b9016173f1c8294534c1980a8a9314e973b7e99a14b080713",
+      "size": 3246
+    },
+    {
+      "path": "ServerStatsIpcWrites.java",
+      "sha256": "c1d865f255b3c80eca702eca64c54f12faf2ce2139e59f44ec74ebb45c94f034",
+      "size": 4328
+    },
+    {
       "path": "ServerStatsJournalWriter.java",
       "sha256": "17740f11ae5bd9576ff75d44bf500442cb1e60e917475b5c334cef947bd8005f",
       "size": 12109
@@ -3397,8 +3427,8 @@
     },
     {
       "path": "ServerStatsResult.java",
-      "sha256": "91d74994d2838e377fd800748124f4a2fd9ea499534001951d603cd31cd0d99b",
-      "size": 10041
+      "sha256": "cb5f12a82323a27f3c383f1529f8303b1cd5294b30205a39a518db89dfad8e56",
+      "size": 10597
     },
     {
       "path": "ServerStatsSlowRequest.java",
@@ -4307,7 +4337,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "4bc66f3f6855fb5d0f4b3eba3a649fd5dad0dee81fae768370e8b4510bbaa37f",
+  "ir_sha256": "78ae2f1f797111b944b41b9cb30dabe9d2dbcd01a0d47808dd602101a5037c55",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

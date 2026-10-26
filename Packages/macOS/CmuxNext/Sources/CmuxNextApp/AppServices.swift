@@ -282,11 +282,16 @@ final class AppServices {
     /// (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`). Tests set their own before the first read.
     lazy var features = FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind),
                                     overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment))
-    /// The windows' frame-aligned input for sidebar and tab strip hover (feature `pointerFrameHover`): a frame's moves
-    /// hit-test the rows and tabs once, at the latest point. Nil while it is off: each move hovers at once.
-    var hoverFrameInput: FrameInputCoalescers? {
-        features.isEnabled(.pointerFrameHover) ? (NSApp as? CmuxApplication)?.frameInput : nil
-    }
+    /// The windows' frame-aligned pointer input (p04-input-030), one coalescer per window shared by every consumer, as
+    /// Chromium has one input queue per frame widget. Made on first use, only while a feature below uses it.
+    private lazy var pointerFrames = PointerFrameCoalescers(tap: inputTap, mainWork: mainWork)
+    /// Resize drags (feature `pointerFrameDrags`): pane dividers, column and row edges, both sidebars' resize edges
+    /// and the DevTools divider move on a frame interval's first drag event and once more at its frame. Nil while it
+    /// is off: each drag event moves them.
+    private(set) lazy var dragFrameInput: PointerFrameCoalescers? = features.isEnabled(.pointerFrameDrags) ? pointerFrames : nil
+    /// Hover (feature `pointerFrameHover`): the sidebar list, rail and space bar, and the tab strips hover on a frame
+    /// interval's first move and once more at its frame, at the latest point. Nil while it is off: each move hovers.
+    private(set) lazy var hoverFrameInput: PointerFrameCoalescers? = features.isEnabled(.pointerFrameHover) ? pointerFrames : nil
     /// The Task Manager page and Kill Process (`TaskManagerPageService`).
     private(set) lazy var taskManager = TaskManagerPageService(services: self)
     /// The Todo page: a workspace's checklist (`workspace-checklist-v1`).
@@ -343,7 +348,7 @@ final class AppServices {
     private(set) lazy var parkedWorkspaceBudget: ParkedWorkspaceBudget = makeParkedWorkspaceBudget()
     /// The local memory histograms `debug.memory` shows (never uploaded); discards count per instrumented `ContentKind`.
     private(set) lazy var memoryHistograms = MemoryHistograms(pressure: memoryPressure, discardKinds: MemoryHistograms.hibernationKinds)
-    /// Samples the footprints into `memoryHistograms` once an hour (startHibernation starts it).
+    /// Samples the footprints into `memoryHistograms` once an hour (startHibernationMeasurements starts it).
     private(set) lazy var memoryFootprints = MemoryFootprintEmitter(
         histograms: memoryHistograms, webContentPIDs: { [weak self] in if let self { AppMemoryModel.liveWebContentPIDs(self) } else { [] } },
         sample: { await AppMemoryModel.processes(webContentPIDs: $0) })

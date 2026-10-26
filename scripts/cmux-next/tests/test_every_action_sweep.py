@@ -45,6 +45,7 @@ Run: python3 -I scripts/cmux-next/tests/test_every_action_sweep.py
 """
 import contextlib, copy, glob, importlib.util, io, itertools, json, os, re, shutil, sys, tempfile, unittest
 from unittest import mock
+from pathlib import Path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.path.dirname(HERE)
@@ -984,6 +985,7 @@ class HarnessRelaunchTests(unittest.TestCase):
         sweep = sweep_mod.Sweep.__new__(sweep_mod.Sweep)
         sweep.session = "light"
         sweep.pending = None
+        sweep.entered = []  # no family context entered (oracle/action_fixtures)
         sweep.base = {"settings": {}}
         sweep.settings = lambda: {}
         sweep.restore_settings = lambda: []
@@ -1249,6 +1251,125 @@ class FixtureTests(unittest.TestCase):
             "daemon_error: browser.enabled can be changed only by you, in Settings (agents, scripts and pages cannot change it)"))
         self.assertFalse(sweep_mod.expected_refusal("palette.disableBrowser", "daemon_error: timed out"))
         self.assertFalse(sweep_mod.expected_refusal("history.open", "daemon_error: That history entry is gone"))
+
+
+class FamilyContextTests(unittest.TestCase):
+    """A family context (oracle/action_fixtures, p15-oracle-046) in the paths that run it: ready() enters it before
+    action.describe and the PREPARE steps, restore() leaves it before close_new, a stop after the enter still leaves
+    it and keeps its drift on the skipped row, unfit() leaves it, and a relaunch gets fresh context objects."""
+
+    def setUp(self):
+        self.events = []  # enter, leave, describe, close_new and each action.run, in order
+        self.made = 0  # ContextFixture objects the factory made
+
+    def family(self, refuse=None, leave_note=None, extra_tab=True):
+        events = self.events
+
+        class Context:
+            def __init__(self):
+                self.tab = False
+
+            def enter(self, driver):
+                events.append("enter")
+                if extra_tab and not self.tab:
+                    driver.run("newSurface")  # an extra close_new closes
+                    self.tab = True
+                return refuse
+
+            def leave(self, driver):
+                events.append("leave")
+                return leave_note
+
+        def factory():
+            self.made += 1
+            return Context()
+
+        family = sweep_mod.action_fixtures.Family("fam", Path("fam.py"), {"famLayout": factory}, {}, (), None)
+        return sweep_mod.action_fixtures.Families((family,), {"famLayout": "fam"})
+
+    def run_sweep(self, fake, families, body, prepare=None):
+        def rpc(method, params=None, timeout=60):
+            if method == "action.describe":
+                self.events.append("describe")
+            elif method == "action.run":
+                self.events.append((params or {}).get("action"))
+            return fake.rpc(method, params, timeout)
+
+        with contextlib.ExitStack() as stack:
+            for patch in (mock.patch.object(sweep_mod, "rpc", rpc), mock.patch.object(sweep_mod.SIGNPOSTS, "live", False),
+                          mock.patch.object(sweep_mod.opts, "repeat", 1), mock.patch.object(sweep_mod, "FAMILIES", families),
+                          mock.patch.dict(sweep_mod.PREPARE, prepare or {})):
+                stack.enter_context(patch)
+            sweep, base, measured = light_sweep(fake, kinds=("terminal",))
+            close_new = sweep.close_new
+
+            def logged_close_new(base_shape):
+                self.events.append("close_new")
+                return close_new(base_shape)
+
+            stack.enter_context(mock.patch.object(sweep, "close_new", logged_close_new))
+            before = sweep_mod.counts(sweep_mod.shape(sweep_mod.topology()))
+            result = body(sweep)
+            after = sweep_mod.counts(sweep_mod.shape(sweep_mod.topology()))
+        return sweep, result, before, after
+
+    def test_ready_enters_before_describe_and_prepare_and_restore_leaves_before_close_new(self):
+        fake = FakeApp()
+        _, row, before, after = self.run_sweep(
+            fake, self.family(), lambda sweep: sweep.run_action({"id": "fam.act", "requires": ["famLayout"]}),
+            prepare={"fam.act": [("test.prepare", {})]})
+        self.assertNotIn("skipped", row)
+        self.assertEqual(row["samples"], 1)
+        order = [e for e in self.events if e in ("enter", "newSurface", "describe", "test.prepare", "fam.act", "leave", "close_new")]
+        self.assertEqual(order[:7], ["enter", "newSurface", "describe", "test.prepare", "fam.act", "leave", "close_new"])
+        self.assertEqual(after, before, "close_new left what the enter made")
+        self.assertEqual(row["drift"], ["tab+"])  # the enter's tab, closed as a PREPARE extra is
+
+    def test_a_context_that_does_not_hold_is_a_gap_left_with_its_drift_on_the_row(self):
+        fake = FakeApp()
+        sweep, row, before, after = self.run_sweep(
+            fake, self.family(refuse="no canvas", leave_note="the layout stayed"),
+            lambda sweep: sweep.run_action({"id": "fam.act", "requires": ["famLayout"]}))
+        self.assertEqual(row["skip_kind"], "gap")
+        self.assertEqual(row["skipped"], "famLayout (fam fixture): no canvas")
+        self.assertEqual(row["drift"], ["leave famLayout: the layout stayed", "tab+"])
+        self.assertNotIn("describe", self.events)
+        self.assertNotIn("fam.act", self.events)
+        self.assertLess(self.events.index("leave"), self.events.index("close_new"))
+        self.assertEqual(after, before, "the stopped row's restore left what the enter made")
+        self.assertEqual(sweep.entered, [])
+
+    def test_unfit_leaves_the_entered_contexts(self):
+        fake = FakeApp()
+
+        def body(sweep):
+            sweep.enter_contexts(["famLayout"])  # then a harness failure before the restore
+            with mock.patch.object(sweep, "check_validity", lambda: {"chromium_ok": True, "cef_flags": []}):
+                return sweep.unfit()
+
+        sweep, why, _, _ = self.run_sweep(fake, self.family(leave_note="the layout stayed", extra_tab=False), body)
+        self.assertIsNone(why)
+        self.assertEqual(self.events.count("leave"), 1)
+        self.assertIn("leave famLayout: the layout stayed", sweep.recovered)
+        self.assertEqual(sweep.entered, [])
+
+    def test_a_relaunch_gets_fresh_contexts(self):
+        fake = FakeApp()
+
+        def body(sweep):
+            old = sweep.contexts["famLayout"]
+            sweep.enter_contexts(["famLayout"])
+            sweep.app = mock.Mock(process=None)
+            with mock.patch.object(sweep, "build", lambda: None), \
+                    mock.patch.object(sweep, "check_validity", lambda: {"chromium_ok": True, "cef_flags": []}):
+                sweep.relaunch_session("test")
+            return old
+
+        sweep, old, _, _ = self.run_sweep(fake, self.family(extra_tab=False), body)
+        self.assertIsNot(sweep.contexts["famLayout"], old)
+        self.assertEqual(self.made, 2)
+        self.assertEqual(sweep.entered, [])
+        self.assertNotIn("leave", self.events, "the old launch's contexts went with it: nothing to leave")
 
 
 class CoverageTests(unittest.TestCase):

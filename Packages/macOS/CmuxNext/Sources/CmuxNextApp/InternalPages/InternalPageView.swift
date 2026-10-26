@@ -149,11 +149,13 @@ final class InternalPageView: NSView {
 
     /// A picture of the page as it draws now, taken when the tab hides (a hidden page cannot be
     /// pictured); nil for native content (it draws again at once), a page that has not painted, or
-    /// an engine that does not answer within 2 s.
+    /// an engine that does not answer within 2 s. A page the page lifecycle pictured at this hide shares
+    /// that capture (one engine capture per hide); the engine is asked only when it brought no frame.
     func lastPicture() async -> CGImage? {
         guard let page = content as? PageWebView, page.hasPainted else { return nil }
         return try? await ControlDeadline.shared.run(method: "pages.discard.picture", deadline: .now + .seconds(2)) { @MainActor in
-            await page.snapshot()?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+            if let frame = await page.hideFrame() { return frame }
+            return await page.snapshot()?.cgImage(forProposedRect: nil, context: nil, hints: nil)
         }
     }
 

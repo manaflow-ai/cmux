@@ -106,6 +106,9 @@ final class SidebarListView: NSView {
     var pointerIsOverList: @MainActor (SidebarListView) -> Bool = { $0.pointerIsOverVisibleRows }
     /// A model change held while the pointer was over the list; it shows when the pointer leaves (`releaseHeldModelChange`).
     var holdsModelChange = false
+    /// Told which rows each reload lists (`reportListedRows`): a new workspace's `create.workspace` interval ends
+    /// at the commit of the reload that first lists its row. Nil for a list nobody sees (a space page).
+    var newRows: SidebarNewRowTimer?
     /// Row patches held while a drag, its settle or its card's landing runs (`SidebarRowHold`).
     var rowHold = SidebarRowHold()
     /// Workspaces a pin drop took to the band: out of the list until its card lands (cx-odqn).
@@ -179,30 +182,32 @@ final class SidebarListView: NSView {
         model.onGroupFolded = { [weak self] group in self?.foldGroup(group) }
         // A close's successor is the next row drawn here (FocusAfterClose.workspace).
         model.drawnWorkspaceOrder = { [weak self] in self?.visibleWorkspaceOrder ?? [] }
-        // A refused change: a settling drop lets go and the rows spring back.
-        // A no-op drop settles the same way (nothing will change the model).
-        for name in [SidebarDocStore.refusedNotification, SidebarDocStore.settledNotification] {
-            settleObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
-                let key = note.userInfo?["key"] as? String
-                MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                    // Only this list's drop: its key, or a refusal inside its own drop call (no key recorded yet).
-                    guard let self, let settling = self.settling, settling.key == nil || settling.key == key else { return }
-                    self.settling = nil
-                    // The rows spring back from the drop's look and the card flies back to its source slot.
-                    self.reload(animated: true, adopt: true)
-                    self.land(settling.drag, then: settling.then)
-                }
-            })
+    }
+    /// The app's sidebar document store (the App injects it, `SidebarView.docStore`): a drop sent to it settles on its
+    /// events, the link rows redraw on its favicons, and a drop reads the key of the change it sent.
+    var docStore: SidebarDocStore? {
+        didSet {
+            guard docStore !== oldValue else { return }
+            docObservation?.cancel()
+            docObservation = docStore?.observe { [weak self] event in self?.docStoreEvent(event) }
         }
-        // A favicon arrived: the link rows draw it (one configure per realized link row).
-        faviconObserver = NotificationCenter.default.addObserver(forName: SidebarModel.itemFaviconsChanged, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                guard let self else { return }
-                // The realized link rows only: a launch's favicons arrive one by one, and each visited every row.
-                for (key, view) in self.rowViews {
-                    guard case .item = key, let row = self.displayed.row(for: key) else { continue }
-                    self.configure(view, row: row, animated: false)
-                }
+    }
+    private func docStoreEvent(_ event: SidebarDocEvent) {
+        switch event {
+        case .refused(let key), .settled(let key):
+            // A refused change: a settling drop lets go and the rows spring back.
+            // A no-op drop settles the same way (nothing will change the model).
+            // Only this list's drop: its key, or a refusal inside its own drop call (no key recorded yet).
+            guard let settling, settling.key == nil || settling.key == key else { return }
+            self.settling = nil
+            // The rows spring back from the drop's look and the card flies back to its source slot.
+            reload(animated: true, adopt: true)
+            land(settling.drag, then: settling.then)
+        case .faviconsChanged:
+            // The realized link rows only: a launch's favicons arrive one by one, and each visited every row.
+            for (key, view) in rowViews {
+                guard case .item = key, let row = displayed.row(for: key) else { continue }
+                configure(view, row: row, animated: false)
             }
         }
     }
@@ -214,17 +219,16 @@ final class SidebarListView: NSView {
         MainActor.assumeIsolated {
             // Leave the frame client alone: an active one goes idle on its next tick
             // once self is gone (touching the lazy property here would create one).
-            if let faviconObserver { NotificationCenter.default.removeObserver(faviconObserver) }
-            for observer in settleObservers + focusObservers { NotificationCenter.default.removeObserver(observer) }
+            for observer in focusObservers { NotificationCenter.default.removeObserver(observer) }
             for subscription in pointerEnds { subscription.cancel() }
         }
     }
     // MARK: - Window
     private var observedWindow: NSWindow?
-    private var faviconObserver: (any NSObjectProtocol)?
     /// The list's window node's flips, mirrored into ``visibility``.
     private var windowVisibility: VisibilitySubscription?
-    private var settleObservers: [any NSObjectProtocol] = []
+    /// This list's observation of `docStore` (released with the list, which ends it).
+    private(set) var docObservation: SidebarDocObservation?
     private var focusObservers: [any NSObjectProtocol] = []
     /// The app's one input tap (the App injects it; nil hears no press or release outside the list).
     var inputTap: InputEventTap? {
@@ -245,6 +249,7 @@ final class SidebarListView: NSView {
         // A move to another window (or none) ends this list's card only.
         hoverCards.unregister(hoverCard)
         if window != nil { hoverCards.register(hoverCard) }
+        reportListedRows() // the rows its last reload listed off screen show from this window's next commit
         guard observedWindow !== window else { return }
         let center = NotificationCenter.default
         observedWindow = window
