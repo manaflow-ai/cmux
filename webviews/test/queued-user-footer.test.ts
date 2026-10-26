@@ -137,12 +137,23 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
     await page.goto(`http://127.0.0.1:${address.port}/#endpoint=${endpoint}&token=t&session=${SESSION}`);
     await page.locator(".cv-user__bubble", { hasText: TEXT }).waitFor();
     await page.locator(".cv-user__bubble", { hasText: TEXT }).hover();
+    await page.waitForFunction(() => {
+      const actions = [...document.querySelectorAll(".cv-user__actions")].at(-1);
+      return actions && getComputedStyle(actions).opacity === "1";
+    });
     return page;
   };
   const footer = (page: Page) => page.locator(".cv-user", { has: page.locator(".cv-user__bubble", { hasText: TEXT }) });
   const capture = async (page: Page, name: string) => {
     const evidence = process.env.CMUX_QUEUE_FOOTER_EVIDENCE;
-    if (evidence) await page.screenshot({ path: path.join(evidence, `${name}.png`) });
+    if (evidence) {
+      await page.locator(".cv-user__bubble", { hasText: TEXT }).hover();
+      await page.waitForFunction(() => {
+        const actions = [...document.querySelectorAll(".cv-user__actions")].at(-1);
+        return actions && getComputedStyle(actions).opacity === "1";
+      });
+      await page.screenshot({ path: path.join(evidence, `${name}.png`) });
+    }
   };
   test("an unread steer shows only queue controls; pointer Send now reaches its prompt and accepted delivery shows only hover actions", async () => {
     const page = await open();
@@ -153,7 +164,7 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
       expect(await row.locator(".cv-user__take-back").count()).toBe(1);
       expect(
         await row
-          .locator(".cv-user__read, .cv-message-dot, .cv-user__time, .cv-message-copy, .cv-message-retry")
+          .locator(".cv-user__read, .cv-user__dot, .cv-user__time, button[aria-label='Copy'], .cv-message-retry")
           .count(),
       ).toBe(0);
       hold = true;
@@ -171,7 +182,8 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
       resolveEdit!({ ok: true, sent: "now" });
       await row.locator(".cv-user__pending").waitFor({ state: "detached" });
       expect(await row.locator(".cv-user__time").count()).toBe(1);
-      expect(await row.locator(".cv-user__read, .cv-message-dot").count()).toBe(0);
+      expect(await row.getByRole("button", { name: "Copy", exact: true }).count()).toBe(1);
+      expect(await row.locator(".cv-user__read, .cv-user__dot").count()).toBe(0);
       await capture(page, "accepted");
       // The daemon still reports waiting until its next agent message: controls stay gone.
       event(
@@ -206,7 +218,7 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
         () => document.querySelector<HTMLButtonElement>(".cv-user__send-now")?.disabled === false,
       );
       expect(await row.locator(".cv-user__pending").count()).toBe(1);
-      expect(await row.locator(".cv-user__time, .cv-user__read, .cv-message-dot").count()).toBe(0);
+      expect(await row.locator(".cv-user__time, .cv-user__read, .cv-user__dot").count()).toBe(0);
       accept = true;
       await row.locator(".cv-user__send-now").click();
       await row.locator(".cv-user__pending").waitFor({ state: "detached" });
