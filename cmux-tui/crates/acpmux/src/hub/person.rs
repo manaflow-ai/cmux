@@ -564,6 +564,31 @@ impl PersonGate {
         ) && !self.spent(nonce)
     }
 
+    /// `approver_proves`, and the answer counting: its nonce spent while the approver is still
+    /// enrolled (`ApproverSet::verifies_then`), so a revocation that has returned stops it.
+    /// Called under the prompt's lock by the answer that counts.
+    pub fn approver_spends(
+        &self,
+        session: &str,
+        permission: &str,
+        option: &str,
+        nonce: &str,
+        answers: Option<&Value>,
+        signed: &Value,
+    ) -> bool {
+        self.approvers.verifies_then(
+            self.instance(),
+            session,
+            permission,
+            option,
+            nonce,
+            answers,
+            signed,
+            super::approvers::unix_now(),
+            || self.spend_decision(nonce),
+        )
+    }
+
     fn spent(&self, nonce: &str) -> bool {
         self.spent
             .lock()

@@ -900,12 +900,23 @@ impl Hub {
                         answered_by.is_some(),
                         &answerer,
                     );
+                    // A phone's signature counts only while its phone is still enrolled, checked
+                    // again as the nonce is spent (`approver_spends`: lock order there).
                     let spent = (proved
                         && answerer.decision.is_some_and(|(n, _)| self.person.spend_decision(n)))
                         || (signed
-                            && answerer
-                                .approver
-                                .is_some_and(|(n, _)| self.person.spend_decision(n)));
+                            && option_id.as_deref().zip(answerer.approver).is_some_and(
+                                |(o, (n, d))| {
+                                    self.person.approver_spends(
+                                        &session.id,
+                                        permission_id,
+                                        o,
+                                        n,
+                                        answers.as_ref(),
+                                        d,
+                                    )
+                                },
+                            ));
                     if !spent {
                         return Err(super::person::person_required("allowing a permission"));
                     }

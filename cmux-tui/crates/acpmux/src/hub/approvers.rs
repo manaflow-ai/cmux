@@ -124,7 +124,12 @@ impl ApproverSet {
     }
 
     /// `verifies`, then `commit` (the answer counting: its nonce spent) when it does; whether
-    /// both did.
+    /// both did. The set's lock is held from the key lookup through `commit`, so a revocation
+    /// (`set`) waits for an answer being committed, and once it returns no signature of a
+    /// removed approver counts (#24233, landing term 4). `commit` must not await or take this
+    /// set's lock. Lock order: the prompt's lock (`session.permissions`, held by the caller),
+    /// then this set's, then the person gate's spent-nonce store (`spend_decision`); nothing
+    /// takes them the other way round (`set`, `list` and `verifies` hold this one alone).
     #[allow(clippy::too_many_arguments)]
     pub fn verifies_then(
         &self,
@@ -147,14 +152,13 @@ impl ApproverSet {
             return false;
         }
         let Some(signature) = unhex(signature).filter(|s| s.len() == 64) else { return false };
-        let (mac, key) = {
-            let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let Some(a) = inner.1.iter().find(|a| a.id == id) else { return false };
-            (inner.0.clone(), a.public_key.clone())
+        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(key) = inner.1.iter().find(|a| a.id == id).map(|a| &a.public_key) else {
+            return false;
         };
         let message = message(&Parts {
             instance,
-            mac: &mac,
+            mac: &inner.0,
             approver: id,
             session,
             permission,
@@ -163,7 +167,7 @@ impl ApproverSet {
             expires_at: expires,
             answers: &answers_digest(answers),
         });
-        ring::signature::UnparsedPublicKey::new(&ring::signature::ECDSA_P256_SHA256_FIXED, &key)
+        ring::signature::UnparsedPublicKey::new(&ring::signature::ECDSA_P256_SHA256_FIXED, key)
             .verify(&message, &signature)
             .is_ok()
             && commit()
