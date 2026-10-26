@@ -1,4 +1,3 @@
-#if DEBUG || CMUX_BENCH_HOOKS
 public import CmuxNextCompat
 public import CmuxNextWakeups
 
@@ -14,8 +13,7 @@ public import CmuxNextWakeups
 /// macOS, and libghostty's threads (one renderer and one IO thread per surface, its app's warm-ups) are counted as
 /// GhosttyKit's, not as a runtime.
 ///
-/// It reads only Mach thread state (``MachThreads``): one `task_threads` and one `thread_info` per thread. Debug
-/// and bench builds only, like `debug.threads`.
+/// It reads only Mach thread state (``MachThreads``): one `task_threads` and one `thread_info` per thread.
 public struct LaunchThreadCensus: Sendable, Equatable {
     /// The launch value with every thread of the process.
     public static let threadsValue = "launch.first_frame_threads"
@@ -37,15 +35,17 @@ public struct LaunchThreadCensus: Sendable, Equatable {
     }
 
     /// Takes the census right after the first window's first frame, on the cpu lane (never on main), and sends
-    /// each of its ``values`` to `record` from there.
+    /// each of its ``values`` to `record` from there. Debug and bench builds only; elsewhere it posts nothing.
     ///
     /// - Parameters:
     ///   - startup: The launch's scheduler: the post is held until its first frame.
     ///   - record: Takes each value's name and value (the app passes `LaunchMarkSink.writeValue`, any thread).
     public static func post(on startup: StartupScheduler, record: @escaping @Sendable (_ name: String, _ value: UInt64) -> Void) {
+        #if DEBUG || CMUX_BENCH_HOOKS
         startup.post(.afterFirstFrame, "Launch.threadCensus", on: .lane(.cpu, .userVisible)) {
             for value in LaunchThreadCensus.now().values { record(value.name, value.value) }
         }
+        #endif
     }
 
     /// The process's threads now.
@@ -76,4 +76,3 @@ public struct LaunchThreadCensus: Sendable, Equatable {
          (Self.ghosttyThreadsValue, UInt64(clamping: libraries["GhosttyKit", default: 0]))]
     }
 }
-#endif
