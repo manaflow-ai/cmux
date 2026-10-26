@@ -18,14 +18,18 @@ python3 -m unittest scripts/perf-lab/tests/test_corpus_manifest.py
 | Story | Tier | Records it |
 | --- | --- | --- |
 | `agent-swarm` | T1 | 117 |
-| `dev-loop` | T1 | 118 |
+| `dev-loop` | T1 | 118, scripted by `scripts/perf-lab/corpus/dev_loop.py` |
 | `browse-heavy` | T1 | 119 |
 | `stress-recorded` | T1 | 120 |
 | `launch-restore` | T1 | 121 |
 | `long-day-soak` | T2 | 122 (loops agent-swarm, dev-loop and browse-heavy) |
 
 All six are `planned`: their sources and checkpoint digests are `null` until the recorder
-(task 116) records them. A `planned` story must say what records it in `planned`. A
+(task 116) records them. `dev-loop` is scripted instead, as Chromium's system_health stories are
+(`tools/perf/page_sets/system_health/`): `dev_loop.py --write` makes its layout, build-log PTY
+track and input track in `perf-corpus/dev-loop/`, `dev_loop.py --check` proves the committed files
+are what it makes, and a lab host adds only its Web Page Replay archive (from
+`perf-corpus/dev-loop/docs.urls`) and checkpoint digests. A `planned` story must say what records it in `planned`. A
 `recorded` story must have every source and both digests of every checkpoint.
 
 ## Fields
