@@ -40,6 +40,22 @@ check("name: cmux-next-dev-handoff-${{ inputs.dev_daily_sha }}" in source_workfl
       "the source handoff must retain an exact-SHA receipt artifact")
 check('"queue_ms"' in source_workflow and '"runner_labels"' in source_workflow,
       "the handoff receipt must include queue and runner evidence")
+handoff_job = re.search(r"^  request-cmux-next-dev-publish:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n)",
+                        source_workflow, re.MULTILINE | re.DOTALL)
+handoff_body = handoff_job.group(1) if handoff_job else ""
+# The shared GITHUB_TOKEN budget was spent when every DEV compile finished on
+# 2026-10-26, so the handoff failed and the dispatcher published 12-46 minutes
+# later. The App token has its own budget; GITHUB_TOKEN waits through a limit.
+check("private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}" in handoff_body
+      and "permission-actions: write" in handoff_body,
+      "the handoff must dispatch with the manaflow-glaeda-route App token, not only the shared GITHUB_TOKEN")
+check('GH_TOKEN="$APP_TOKEN" gh "${request[@]}"' in handoff_body,
+      "the handoff must try the App token first")
+check("bash scripts/ci/gh_budget_wait.sh" in handoff_body and 'GH_TOKEN="$FALLBACK_TOKEN"' in handoff_body,
+      "the GITHUB_TOKEN fallback must wait through a rate limit instead of failing")
+receipt_step = re.search(r"- name: Record source queue and handoff receipt\n(.*?)\n        run:", handoff_body, re.DOTALL)
+check(bool(receipt_step) and "continue-on-error: true" in receipt_step.group(1),
+      "a refused receipt read must not stop the dispatch")
 handoff = re.search(r"^  request-cmux-next-dev-publish:\n    needs: cmux-scheme-compile\n    if: (.*)$",
                     source_workflow, re.MULTILINE)
 handoff_if = handoff.group(1) if handoff else ""
