@@ -98,7 +98,8 @@ await requireBrowserLane("calm-motion.test.ts", async () => {
     });
     await p.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
     const stable = await p.$eval("[data-message]", (row) => {
-      const saved = (row as HTMLElement & { __entrance?: { animation: Animation; startTime: number | null } }).__entrance;
+      const saved = (row as HTMLElement & { __entrance?: { animation: Animation; startTime: number | null } })
+        .__entrance;
       const current = row.getAnimations()[0];
       return { sameObject: current === saved?.animation, sameStart: current?.startTime === saved?.startTime };
     });

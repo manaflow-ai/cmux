@@ -1,6 +1,10 @@
 .message-entrance-gallery {
+  --me-space-12: 12px;
+  --me-space-18: 18px;
+  --me-space-24: 24px;
+  --me-space-440: 440px;
   min-height: 100%;
-  padding: 18px 24px;
+  padding: var(--me-space-18) var(--me-space-24);
   box-sizing: border-box;
   color: var(--cv-text);
   background: var(--agent-page-bg, transparent);
@@ -16,18 +20,18 @@
 
 .message-entrance-gallery__header h1 {
   margin: 0;
-  font-size: var(--text-title, 16px);
+  font-size: var(--text-title);
   font-weight: 600;
 }
 
 .message-entrance-gallery__header p {
   margin: 4px 0 0;
   color: var(--cv-text-muted);
-  font-size: var(--text-detail, 12px);
+  font-size: var(--text-detail);
 }
 
 .message-entrance-gallery__transcript {
-  height: 440px;
+  height: var(--me-space-440);
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--cv-text) 14%, transparent);
   border-radius: 12px;

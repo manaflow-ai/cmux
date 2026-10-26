@@ -179,9 +179,7 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
     )
       .filter(
         (animation) =>
-          animation.name !== "cv-enter" &&
-          animation.name !== "cv-enter-fade" &&
-          animation.name !== "cv-message-enter",
+          animation.name !== "cv-enter" && animation.name !== "cv-enter-fade" && animation.name !== "cv-message-enter",
       )
       .map(({ id, text }) => ({ id, text }));
   /// The turn a row belongs to, from its prompt or its answer (a "Worked for" footer has none).

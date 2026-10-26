@@ -85,11 +85,7 @@ test("new user and assistant rows enter once, while streamed versions stay still
     await render([...existing, row("prompt-2", "user", "New prompt")]);
     const prompt = dom.window.document.querySelector<HTMLElement>('[data-row-id="prompt-2"]');
     expect(prompt?.classList.contains("acpmux-row--message-enter")).toBe(true);
-    await render([
-      ...existing,
-      row("prompt-2", "user", "New prompt"),
-      row("reply-2", "assistant", "First token", 1),
-    ]);
+    await render([...existing, row("prompt-2", "user", "New prompt"), row("reply-2", "assistant", "First token", 1)]);
     const promptNode = dom.window.document.querySelector<HTMLElement>('[data-row-id="prompt-2"]');
     const replyNode = dom.window.document.querySelector<HTMLElement>('[data-row-id="reply-2"]');
     expect(promptNode).toBeTruthy();

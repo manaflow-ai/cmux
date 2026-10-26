@@ -77,6 +77,9 @@ export default componentEntry<{ variant: Variant }>({
   variants: {
     scale: { props: { variant: "scale" }, note: "Scale .985→1 with opacity; selected product motion." },
     translate: { props: { variant: "translate" }, note: "Translate 4px→0 with opacity; layout remains reserved." },
-    "scale-y": { props: { variant: "scale-y" }, note: "ScaleY .98→1 from the bottom with opacity; no height animation." },
+    "scale-y": {
+      props: { variant: "scale-y" },
+      note: "ScaleY .98→1 from the bottom with opacity; no height animation.",
+    },
   },
 });

@@ -116,7 +116,9 @@ export function pageSwitch(window: DOMWindow): PageSwitch {
         const gained =
           record.attributeName === "class"
             ? element.matches(ENTRANCE_SELECTOR) &&
-              /(^|\s)(cv-enter|acpmux-row--enter|acpmux-row--message-enter|cv-fresh|is-fading)(\s|$)/.test(element.className) &&
+              /(^|\s)(cv-enter|acpmux-row--enter|acpmux-row--message-enter|cv-fresh|is-fading)(\s|$)/.test(
+                element.className,
+              ) &&
               !/(^|\s)(cv-enter|acpmux-row--enter|acpmux-row--message-enter|cv-fresh|is-fading)(\s|$)/.test(before)
             : element.hasAttribute("data-kind-switch") && record.oldValue === null;
         if (gained) entered.push(label(element));
