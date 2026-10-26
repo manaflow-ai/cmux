@@ -57,6 +57,7 @@ pub mod peer_chiefs;
 pub mod persist;
 pub mod prompt;
 pub mod remember;
+pub mod reply_links;
 pub mod report;
 pub mod rpc;
 pub mod run;

@@ -329,7 +329,8 @@ async fn a_persons_prompt_through_a_peer_is_recorded_as_theirs_on_the_owning_dae
 
 /// Chat presence is this daemon's own (`hub/presence.rs`): a peer's link carries all of that
 /// daemon's clients, so it stands for none of them. A's client attached to B's chat gets no
-/// participants, and typing through the link is refused `presence.peer_unsupported`.
+/// participants, B records no one for the link (its visible attach included), and typing or an
+/// authored view through the link is refused `presence.peer_unsupported`.
 #[tokio::test]
 async fn a_peers_link_makes_no_presence_and_typing_through_it_is_refused() {
     let b = hub(config(PermissionPolicy::Ask)).await;
@@ -347,10 +348,15 @@ async fn a_peers_link_makes_no_presence_and_typing_through_it_is_refused() {
     assert_eq!(attached["presence"]["participants"], json!([]), "{attached}");
     let author =
         json!({"_meta": {"acpmux": {"author": {"id": "tailnet:ana@example.com", "name": "Ana"}}}});
-    let mut params = json!({"sessionId": "b/shared", "on": true});
-    params["_meta"] = author["_meta"].clone();
-    let refused = ca.call("_acpmux/typing", params).await.unwrap_err();
-    assert!(refused.contains("a peer daemon's link carries none"), "{refused}");
+    for (m, mut params) in [
+        ("_acpmux/typing", json!({"sessionId": "b/shared", "on": true})),
+        ("_acpmux/view", json!({"sessionId": "b/shared", "visible": true})),
+    ] {
+        params["_meta"] = author["_meta"].clone();
+        let refused = ca.call(m, params).await.unwrap_err();
+        assert!(refused.contains("a peer daemon's link carries none"), "{m}: {refused}");
+    }
+    // B holds no one for the link, though A's client attached showing the chat.
     let held = cb
         .call("_acpmux/attach", json!({"sessionId": remote_id, "limit": 0, "visible": false}))
         .await
@@ -358,9 +364,10 @@ async fn a_peers_link_makes_no_presence_and_typing_through_it_is_refused() {
     assert_eq!(held["presence"]["participants"], json!([]), "{held}");
 }
 
-/// A peer added with the dashboard token only serves this daemon's link as Web, not Peer:
-/// typing in that peer's chat is still refused here, before it is forwarded, so no entry there
-/// stands for every client of this daemon (`hub/presence.rs`).
+/// A peer added with the dashboard token only serves this daemon's link as Web, not Peer: the
+/// link still stands for no one there (`hub/presence.rs`). Typing in that peer's chat is refused
+/// here, before it is forwarded, and a visible attach or view through the link records no owner
+/// on the peer, before or after the client that sent it leaves.
 #[tokio::test]
 async fn typing_in_a_chat_on_a_dashboard_token_peer_is_refused_before_forwarding() {
     let b = hub(config(PermissionPolicy::Ask)).await;
@@ -376,6 +383,15 @@ async fn typing_in_a_chat_on_a_dashboard_token_peer_is_refused_before_forwarding
     ca.call("_acpmux/attach", json!({"sessionId": "b/web-shared", "limit": 0})).await.unwrap();
     let refused = ca.call("_acpmux/typing", json!({"sessionId": "b/web-shared", "on": true})).await;
     assert!(refused.unwrap_err().contains("a peer daemon's link carries none"));
+    let held = cb
+        .call("_acpmux/attach", json!({"sessionId": remote_id, "limit": 0, "visible": false}))
+        .await
+        .unwrap();
+    assert_eq!(held["presence"]["participants"], json!([]), "{held}");
+    ca.call("_acpmux/view", json!({"sessionId": "b/web-shared", "visible": true})).await.unwrap();
+    drop(ca);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(a.peers()[0]["connected"], true, "the link outlives its client");
     let held = cb
         .call("_acpmux/attach", json!({"sessionId": remote_id, "limit": 0, "visible": false}))
         .await

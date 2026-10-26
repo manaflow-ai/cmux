@@ -3,9 +3,9 @@
 //! One unix link may carry several people (the host daemon admits each teammate by tailnet
 //! login and names them in `_meta.acpmux.author`), so an entry is keyed by (connection, author
 //! id) in each chat; a request with no author is the owner (`{id: "owner", name: <the host's
-//! user>}`). `_acpmux/typing` on makes an entry, and it goes when it neither views nor types,
-//! when its connection detaches the chat, or when the connection closes. (`viewing` stays false
-//! until viewing comes from `_acpmux/view`.)
+//! user>}`). An entry is made by a visible `_acpmux/attach` (the owner's), `_acpmux/view`
+//! visible and `_acpmux/typing` on, and it goes when it neither views nor types, when its
+//! connection detaches the chat, or when the connection closes.
 //!
 //! `_acpmux/presence {sessionId, participants: [{id, name, devices, viewing, typing}]}` goes to
 //! every connection attached to the chat (`server/fanout.rs`) on every change, one participant
@@ -14,9 +14,10 @@
 //! log record, so it is never in `_acpmux/events`, an export or a restart.
 //!
 //! Only this daemon's own chats have presence. A peer daemon's link is one connection that
-//! carries all of that daemon's clients, so it can stand for none of them: its `_acpmux/typing`
-//! is refused `presence.peer_unsupported`, it hears no `_acpmux/presence`, and a chat that lives
-//! on a peer answers its attach with no participants (`server/peer_forward.rs`).
+//! carries all of that daemon's clients, so it can stand for none of them: it makes no entry
+//! (its attach and view still count for `unread`), its `_acpmux/typing` and authored
+//! `_acpmux/view` are refused `presence.peer_unsupported`, it hears no `_acpmux/presence`, and a
+//! chat that lives on a peer answers its attach with no participants (`server/peer_forward.rs`).
 //!
 //! Bounds: [`MAX_PEOPLE`] people besides the owner in one chat (a new one past it is refused
 //! `presence.full`); `_acpmux/typing` at most [`TYPING_PER_SECOND`] calls a second per connection
@@ -165,6 +166,26 @@ impl Presence {
     pub fn snapshot(&self, chat: &str) -> Value {
         let state = self.inner.state.lock_or_recover();
         note(chat, state.chats.get(chat))
+    }
+
+    /// `_acpmux/view` (and a visible attach): `who` on `conn` shows the chat or stops.
+    pub fn view(&self, chat: &str, conn: &str, who: &Who, visible: bool) -> Result<(), RpcError> {
+        self.inner.change(chat, |state| {
+            let key = (conn.to_owned(), who.id.clone());
+            let entries = state.chats.entry(chat.to_owned()).or_default();
+            if visible {
+                admit(entries, &key)?;
+                let entry = entries.entry(key).or_insert_with(|| fresh(who));
+                entry.name.clone_from(&who.name);
+                entry.viewing = true;
+            } else if let Some(entry) = entries.get_mut(&key) {
+                entry.viewing = false;
+                if !entry.typing {
+                    entries.remove(&key);
+                }
+            }
+            Ok(())
+        })
     }
 
     /// `_acpmux/typing`: `who` on `conn` starts or stops typing.
