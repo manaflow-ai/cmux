@@ -109,10 +109,10 @@ knows; the session is not created.
 ## 3. Core loop
 
 ```bash
-acpmux run -m codex --cwd ~/proj --policy approve-edits "fix the failing test"   # create, send, print only the reply
+acpmux run -m codex --cwd ~/proj --policy approve-edits --tag task=fix "fix the failing test"   # create, send, print only the reply
 acpmux --json run -m claude "…"                    # {"sessionId","name","reply","stopReason"}
 acpmux exec -m claude "…"                          # run, then delete the session
-acpmux ensure NAME -m codex --cwd DIR              # get the session, or create it (idempotent)
+acpmux ensure NAME -m codex --cwd DIR --tag task=review # get it, or create it with a label
 acpmux send NAME "next step"                       # stream the reply; -q for the final text only. From an agent it steers into a running turn and prints that turn's reply
 acpmux send NAME --no-wait "…"                     # a message: steers into the running turn when the harness steers (read at its next tool boundary; never stops it), else queues; returns at once
 acpmux send NAME --no-wait --no-steer "…"          # queue behind the running turn instead

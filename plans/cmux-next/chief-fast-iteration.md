@@ -22,7 +22,7 @@ prompt or the host, then replay an eval in seconds, with the user's live Chief n
 | Case | Replay | State |
 | --- | --- | --- |
 | Compactor refusals ("I can't write this memory line ...") | `optchat-host/examples/replay_compactions.rs` | Fixed on the host. The live memory keeps 984 old refusal lines, see below |
-| Deferred tool "No such tool available: spawn" | Replay the turns that called `spawn` or `mcp__optchat__tell` with a fixed model. Check that the turn's tool list holds them | Open: 12 trace hits from Oct 19 to Oct 25 |
+| Deferred tool "No such tool available" | Replay the turns that called `spawn`, `mcp__optchat__tell` or `bash` with a fixed model. Check that the turn's tool list holds them | Open: 11 trace hits from Oct 19 to Oct 25, for `spawn`, `tell` and `bash` |
 | `cmux browser` argument errors (`--url` and other wrong forms) | Run the Chief's browser calls from its traces against `cmux browser --help`. Count the usage errors | Open |
 | "Untested" landings | Look at the `work:` reports that say "landed". Flag the reports that give no test or run link | Open: a report check is the fix |
 | Slow Cloud Chief | a664's timing marks (start, first token, turn) | 8621b40 is in prod but no real turn has run on it yet |

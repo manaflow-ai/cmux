@@ -68,7 +68,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             )
             .await
         }
-        Command::Ensure { name, model, preset, host, cwd, policy, effort } => {
+        Command::Ensure { name, model, preset, host, cwd, policy, effort, tags } => {
             orchestrate::ensure(
                 connect(true).await?,
                 &name,
@@ -78,6 +78,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 cwd,
                 policy,
                 effort,
+                tags,
                 json_out,
             )
             .await
@@ -294,8 +295,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             Ok(())
         }
-        Command::New(args) if args.parent.is_some() => super::parent::run(args, json_out).await,
+        Command::New(args) if args.parent.is_some() => super::parent::run(*args, json_out).await,
         Command::New(args) => {
+            let args = *args;
             // Checked before connecting, so the error needs no daemon.
             let launch = launch::Launch::prepare(&args)?;
             let client = connect(true).await?;
@@ -335,6 +337,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             if let Some(e) = &args.effort {
                 meta["effort"] = json!(e);
+            }
+            meta["argv"] = json!(crate::cli::entry::original_args());
+            if let Some(prompt) = &launch.file_prompt {
+                meta["promptFileText"] = json!(prompt);
+            }
+            if !args.tags.is_empty() {
+                meta["tags"] = orchestrate::parse_tags(&args.tags)?;
             }
             // A detached launch only queues its prompt, with --json too. Known
             // before the create (a prompt file or words make the first prompt).
@@ -414,7 +423,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // A failed sidebar step only warns: the prompt is still sent.
             let show = || {
                 if let Some(group) = &args.group {
-                    let title = launch.title.as_deref().unwrap_or(&name);
+                    // Only explicit names opt into the app's predecessor-row reuse.
+                    // Generated names can be identical on independent peers.
+                    let title =
+                        launch.name.as_ref().map(|_| launch.title.as_deref().unwrap_or(&name));
                     if let Err(e) = launch::show_in_group(&id, title, group) {
                         eprintln!("acpmux: {e:#}");
                     }
