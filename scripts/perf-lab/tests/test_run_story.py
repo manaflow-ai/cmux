@@ -3,6 +3,7 @@
 Run: python3 -m unittest scripts/perf-lab/tests/test_run_story.py
 """
 
+import glob
 import hashlib
 import importlib.util
 import io
@@ -10,10 +11,12 @@ import json
 import os
 import plistlib
 import random
+import re
 import signal
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import textwrap
 import time
@@ -43,11 +46,19 @@ rs = load("run_story", RUNNER)
 SHA = "0123456789abcdef0123456789abcdef01234567"
 OTHER_SHA = "fedcba9876543210fedcba9876543210fedcba98"
 
-# A bench that writes one result-v1 file through the real perf_result.py, and logs its argv, order and environment.
+HOST = {"fingerprint": "ab" * 32, "class": "apple-m6/16gb/120hz", "chip": "Apple M6", "macos": "26.1",
+        "macos_build": "25B78", "display_hz": 120}
+
+# A bench that records one result-v1 file through the real BenchApp.record (bench_launch.py), with no session, config
+# or host of its own: those must come from the runner's environment. It logs its argv, order and environment.
+# FAKE_BENCH_SHA writes a result of another build through perf_result instead; FAKE_BENCH_SUBDIR records into a
+# subfolder of --out; FAKE_LAB_REPORT is the full host check after "launch" (FAKE_BENCH_SKIP_LAB skips it).
 FAKE_BENCH = textwrap.dedent('''
     import argparse, importlib.util, json, os, sys
-    spec = importlib.util.spec_from_file_location("perf_result", os.environ["FAKE_PERF_RESULT"])
-    pr = importlib.util.module_from_spec(spec); sys.modules["perf_result"] = pr; spec.loader.exec_module(pr)
+    def load(name, path):
+        spec = importlib.util.spec_from_file_location(name, path)
+        module = importlib.util.module_from_spec(spec); sys.modules[name] = module; spec.loader.exec_module(module)
+        return module
     parser = argparse.ArgumentParser()
     parser.add_argument("--app", required=True)
     parser.add_argument("--tag", required=True)
@@ -59,15 +70,43 @@ FAKE_BENCH = textwrap.dedent('''
                             "rest": rest, "env": dict(os.environ)}) + "\\n")
     if os.environ.get("FAKE_BENCH_FAIL") == story:
         sys.exit(7)
-    host = pr.Host(fingerprint="ab" * 32, host_class="m6-16gb-120hz", chip="Apple M6", macos="26.1",
-                   macos_build="25B78", display_hz=120)
-    sha = os.environ.get("FAKE_BENCH_SHA") or os.environ["PERF_LAB_SHA"]
-    result = pr.Result(story=story, metric="key_to_frame_ms", unit="ms", better="lower", samples=[8.0, 8.5],
-                       build=pr.Build(sha=sha, config=os.environ["PERF_LAB_CONFIG"], measure_version=1),
-                       host=host, engine="none", session=os.environ["PERF_LAB_SESSION"],
-                       run=pr.Run.start(run_id=f"{story}-{repeat}"), safe_mode="off")
-    pr.write_ndjson(opts.out, [result])
+    out = os.path.join(opts.out, os.environ.get("FAKE_BENCH_SUBDIR", ""))
+    if os.environ.get("FAKE_BENCH_SHA"):
+        pr = load("perf_result", os.environ["FAKE_PERF_RESULT"])
+        host = pr.Host.from_dict(json.load(open(os.environ["PERF_LAB_HOST_FILE"])))
+        build = pr.Build(sha=os.environ["FAKE_BENCH_SHA"], config=os.environ["PERF_LAB_CONFIG"], measure_version=1)
+        os.makedirs(out, exist_ok=True)
+        with open(os.path.join(out, "host-env-full-1.json"), "w") as f:
+            f.write('{"ok": true, "reasons": []}')
+        pr.write_ndjson(out, [pr.Result(story=story, metric="key_to_frame_ms", unit="ms", better="lower",
+                                        samples=[8.0], build=build, host=host, engine="none", session="light",
+                                        run=pr.Run.start(), safe_mode="off")])
+        sys.exit(0)
+    bl = load("bench_launch", os.environ["FAKE_BENCH_LAUNCH"])
+    report = json.loads(os.environ.get("FAKE_LAB_REPORT", '{"ok": true, "reasons": []}'))
+    app = bl.BenchApp(opts.app, out=out, teardown=False, lab_check=lambda pids: report)
+    app.features = ({}, None, os.environ.get("FAKE_SAFE_MODE", "off"))  # what launch() reads from features.list
+    if not os.environ.get("FAKE_BENCH_SKIP_LAB"):
+        app.validate_lab_host([os.getpid()])  # what launch() does once the app answers
+    app.record(story, "key_to_frame_ms", "ms", [8.0, 8.5], "lower", "none")
 ''')
+
+# A story that ignores TERM (a bench slow to tear down) and logs its process group, for the runner's signal test.
+SLOW_BENCH = textwrap.dedent('''
+    import argparse, os, signal, time
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--app")
+    parser.add_argument("--tag")
+    parser.add_argument("--out")
+    parser.parse_known_args()
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    with open(os.environ["SLOW_BENCH_PGID"], "w") as f:
+        f.write(str(os.getpgid(0)))
+    time.sleep(120)
+''')
+
+# A bench that takes --app and --out but no --tag: the runner refuses its story before it fetches anything.
+NO_TAG_BENCH = "import argparse\np = argparse.ArgumentParser()\np.add_argument('--app')\np.add_argument('--out')\n"
 
 OWNERS_MD = "# owners\n\n| Area | Path | Owner |\n| --- | --- | --- |\n| Lab | scripts/perf-lab | PL-arch |\n"
 
@@ -78,7 +117,7 @@ def write_catalog_root(root, stories):
     files = {"plans/cmux-next/OWNERS.md": OWNERS_MD,
              "scripts/perf-lab/targets.json": json.dumps({"schema": "cmux-perf-targets/v1", "targets": []}),
              "scripts/cmux-next/perf-hot-benches.json": json.dumps({"paths": {}}),
-             "bench/fake_bench.py": FAKE_BENCH}
+             "bench/fake_bench.py": FAKE_BENCH, "bench/slow_bench.py": SLOW_BENCH, "bench/no_tag.py": NO_TAG_BENCH}
     for path, text in files.items():
         os.makedirs(os.path.dirname(os.path.join(root, path)), exist_ok=True)
         with open(os.path.join(root, path), "w") as f:
@@ -116,12 +155,16 @@ class FakeStore:
 
 
 class FakeDisplay:
+    """The virtual display seam. `alive_runs` is how many alive() answers are True before the helper "ends"
+    (None: it never ends)."""
     started = []
+    alive_runs = None
 
     def __init__(self, work):
         self.work = work
         self.out_path = os.path.join(work, "vdisplay.out")
         self.stopped = False
+        self.alive_answers = 0
 
     def start(self, hz, hold, size):
         FakeDisplay.started.append((hz, hold, size))
@@ -132,8 +175,23 @@ class FakeDisplay:
 
     pid = None
 
+    def alive(self):
+        self.alive_answers += 1
+        return FakeDisplay.alive_runs is None or self.alive_answers <= FakeDisplay.alive_runs
+
     def stop(self):
         self.stopped = True
+
+
+def fake_check_env(vdisplay_out, host_out, hz=120, calls=None):
+    """host_env --pre-launch's stand-in: an ok report, and the host block at `host_out` that BenchApp records."""
+    with open(vdisplay_out) as f:
+        first = f.read().split()[0]
+    if calls is not None:
+        calls.append((first, host_out))
+    with open(host_out, "w") as f:
+        json.dump({**HOST, "display_hz": hz}, f)
+    return {"ok": True, "reasons": [], "hz": hz, "fingerprint": HOST["fingerprint"], "class": HOST["class"]}
 
 
 def zip_extract(archive, dest):
@@ -141,14 +199,16 @@ def zip_extract(archive, dest):
         z.extractall(dest)
 
 
-def app_zip(path, sha=SHA, config="bench", apps=1, name="cmux DEV perf"):
-    """An artifact like perf-lab-build.sh's: one .app whose plist names the commit and whose binary is a bench build."""
+def app_zip(path, sha=SHA, config="bench", apps=1, name="cmux DEV perf", binaries=None):
+    """An artifact like perf-lab-build.sh's: one .app whose plist names the commit (sha=None: no CMUXCommit) and whose
+    main executable is a bench build. `binaries` ({name: has the bench-hooks marker}) replaces the executables."""
+    marker = b"CMUX_BENCH_HOOKS_BUILD"
     with zipfile.ZipFile(path, "w") as z:
         for index in range(apps):
             app = f"{name}{index or ''}.app"
-            z.writestr(f"{app}/Contents/Info.plist", plistlib.dumps({"CMUXCommit": sha}))
-            binary = b"\0" + (b"CMUX_BENCH_HOOKS_BUILD" if config != "release" else b"") + b"\0"
-            z.writestr(f"{app}/Contents/MacOS/cmux DEV", binary)
+            z.writestr(f"{app}/Contents/Info.plist", plistlib.dumps({"CMUXCommit": sha} if sha else {}))
+            for binary, marked in (binaries or {"cmux DEV": config != "release"}).items():
+                z.writestr(f"{app}/Contents/MacOS/{binary}", b"\0" + (marker if marked else b"") + b"\0")
             if config == "debug":
                 z.writestr(f"{app}/Contents/MacOS/cmux DEV.debug.dylib", b"\0")
     with open(path, "rb") as f:
@@ -224,6 +284,25 @@ class ShardTests(unittest.TestCase):
         picked = rs.select_stories(stories, "bench", None, "0/1", "T0", problems)
         self.assertTrue(picked)
         self.assertTrue(all(s.tier == "T0" and s.config == "bench" for s in picked))
+        # Each T0 command takes the runner's --app --tag --out (read from its argparse, not run).
+        for s in picked:
+            self.assertEqual(rs.contract_problems(s, ROOT), [], s.id)
+
+    def test_contract_names_a_missing_runner_flag(self):
+        root = tempfile.mkdtemp(prefix="perf-lab-contract-")
+        self.addCleanup(shutil.rmtree, root, True)
+        write_catalog_root(root, {})
+        [problem] = rs.contract_problems(story("n", command=("bench/no_tag.py",)), root)
+        self.assertIn("takes no --tag", problem)
+        self.assertEqual(rs.contract_problems(story("f"), root), [])
+        self.assertIn("cannot be read", rs.contract_problems(story("x", command=("bench/absent.py",)), root)[0])
+
+    def test_display_hold_covers_the_whole_plan(self):
+        stories, _ = rs.load_stories(ROOT)
+        t1 = sorted((s for s in stories.values() if s.tier == "T1" and s.config == "bench"), key=lambda s: s.id)
+        runs = list(rs.interleaved(t1, 1))
+        self.assertGreater(sum(s.seconds for s, _ in runs), 3600)  # one hour would end mid-shard
+        self.assertGreater(rs.display_hold(runs), sum(rs.run_timeout(s) for s, _ in runs))
 
     def test_story_argv_appends_app_tag_and_out(self):
         argv = rs.story_argv(story("a", command=("scripts/x.py", "--runs", "5")), "/a.app", "perf", "/out", "/repo")
@@ -238,28 +317,35 @@ class MainTests(unittest.TestCase):
         self.tmp = tempfile.mkdtemp(prefix="perf-lab-test-")
         self.addCleanup(shutil.rmtree, self.tmp, True)
         self.out = os.path.join(self.tmp, "out")
+        self.work = os.path.join(self.tmp, "work")
         self.root = os.path.join(self.tmp, "repo")
         self.log = os.path.join(self.tmp, "bench.log")
-        write_catalog_root(self.root, {"home-key": {"seconds": 20}, "term-key": {"seconds": 30},
-                                       "idle": {"seconds": 60}, "build": {"tier": "builder"}})
-        for name, value in (("FAKE_BENCH_LOG", self.log), ("FAKE_PERF_RESULT", os.path.join(PERF_LAB,
-                                                                                            "perf_result.py"))):
-            os.environ[name] = value
-            self.addCleanup(os.environ.pop, name, None)
+        write_catalog_root(self.root, {"home-key": {"seconds": 20, "session": "stress"}, "term-key": {"seconds": 30},
+                                       "idle": {"seconds": 60}, "build": {"tier": "builder"},
+                                       "no-tag": {"command": ["bench/no_tag.py"], "tier": "T1"}})
+        for name, value in (("FAKE_BENCH_LOG", self.log),
+                            ("FAKE_PERF_RESULT", os.path.join(PERF_LAB, "perf_result.py")),
+                            ("FAKE_BENCH_LAUNCH", os.path.join(ROOT, "scripts", "cmux-next", "bench_launch.py"))):
+            self.set_env(name, value)
         self.digest = app_zip(os.path.join(self.tmp, "app.zip"))
         with open(os.path.join(self.tmp, "app.zip"), "rb") as f:
             self.store = FakeStore({self.digest.split(":")[1]: f.read()})
         self.teardowns = []
         self.env_calls = []
+        self.hz = 120
+        FakeDisplay.started, FakeDisplay.alive_runs = [], None
+        self.addCleanup(setattr, FakeDisplay, "alive_runs", None)
+
+    def set_env(self, name, value):
+        os.environ[name] = value
+        self.addCleanup(os.environ.pop, name, None)
 
     def check_env(self, vdisplay_out, host_out):
-        with open(vdisplay_out) as f:
-            self.env_calls.append((f.read().split()[0], host_out))
-        return {"ok": True, "reasons": [], "hz": 120, "fingerprint": "ab" * 32, "class": "m6-16gb-120hz"}
+        return fake_check_env(vdisplay_out, host_out, self.hz, self.env_calls)
 
     def run_main(self, *args, store=None, check_env=None):
-        argv = ["--out", self.out, "--state", os.path.join(self.out, "state.json"), "--measure-version", "1",
-                "--sha", SHA, "--digest", self.digest, *args]
+        argv = ["--out", self.out, "--work", self.work, "--state", os.path.join(self.work, "state.json"),
+                "--measure-version", "1", "--sha", SHA, "--digest", self.digest, *args]
         return rs.main(argv, store=rs.ArtifactStore("http://controller", None, (store or self.store).urlopen),
                        check_env=check_env or self.check_env, display_factory=FakeDisplay, extract=zip_extract,
                        teardown=self.teardowns.append, root=self.root)
@@ -273,17 +359,20 @@ class MainTests(unittest.TestCase):
             return [json.loads(line) for line in f]
 
     def test_runs_stories_interleaved_and_collects_result_files(self):
+        self.set_env("CMUX_CI_SHA", OTHER_SHA)  # the step's ref: never the measured build's sha
         self.assertEqual(self.run_main("--stories", "term-key,home-key"), 0)
         runs = self.bench_runs()
         self.assertEqual([(r["story"], r["repeat"]) for r in runs],
                          [("home-key", 0), ("term-key", 0), ("home-key", 1), ("term-key", 1)])
         self.assertEqual(runs[0]["tag"], "perf")
         self.assertTrue(runs[0]["app"].endswith("/cmux DEV perf.app"))
-        self.assertEqual(runs[0]["out"], os.path.join(self.out, "results"))
+        self.assertTrue(runs[0]["app"].startswith(self.work + os.sep), "the app is never in the uploaded folder")
+        self.assertEqual(runs[0]["out"], os.path.join(self.out, "runs", "home-key-0"))
         env = runs[0]["env"]
-        self.assertEqual(env["CMUX_FEATURES_SAFE_MODE"], "off")
-        self.assertEqual(env["CMUX_CI_SHA"], SHA)
+        self.assertNotIn("CMUX_CI_SHA", env)
+        self.assertNotIn("CMUX_FEATURES_SAFE_MODE", env)  # the app strips CMUX_* names: it would measure nothing
         self.assertEqual(env["PERF_LAB_HOST_FILE"], os.path.join(self.out, "host.json"))
+        self.assertEqual(env["PERF_LAB_VDISPLAY_OUT"], os.path.join(self.work, "vdisplay", "vdisplay.out"))
         self.assertEqual(env["PERF_LAB_HZ"], "120")
         bench_env = load("bench_env", os.path.join(PERF_LAB, "bench_env.py"))
         for name, value in bench_env.fixed_env().items():
@@ -295,18 +384,82 @@ class MainTests(unittest.TestCase):
         self.assertEqual(self.env_calls, [("ready", os.path.join(self.out, "host.json"))])
         files = sorted(os.listdir(os.path.join(self.out, "results")))
         self.assertEqual(len(files), 4)
+        self.assertTrue(all(name.endswith(".ndjson") for name in files), files)
         results = rs.perf_result.read_dir(os.path.join(self.out, "results"))
         self.assertEqual({r.build.sha for r in results}, {SHA})
         self.assertEqual(self.teardowns, [])
-        with open(os.path.join(self.out, "state.json")) as f:
+        with open(os.path.join(self.work, "state.json")) as f:
             self.assertTrue(json.load(f)["app"].endswith(".app"))
+        self.assertFalse(os.path.exists(os.path.join(self.out, "artifact")))
+        self.assertFalse(os.path.exists(os.path.join(self.out, "vdisplay")))
 
-    def test_bench_env_unset_switches_are_removed(self):
+    def test_bench_app_record_takes_the_session_config_and_measured_host_from_the_runner(self):
+        """A real BenchApp.record under the runner's environment: host.json's Hz, --config and the story's session."""
+        self.hz = 60
+        self.assertEqual(self.run_main("--stories", "home-key,idle", "--repeats", "1"), 0)
+        by_story = {r.story: r for r in rs.perf_result.read_dir(os.path.join(self.out, "results"))}
+        self.assertEqual(by_story["home-key"].host.display_hz, 60)
+        self.assertEqual(by_story["home-key"].host.fingerprint, HOST["fingerprint"])
+        self.assertEqual(by_story["home-key"].build.config, "bench")
+        self.assertEqual(by_story["home-key"].session, "stress")
+        self.assertEqual(by_story["idle"].session, "light")
+
+    def test_bench_env_unset_switches_and_the_step_sha_are_removed(self):
         bench_env = load("bench_env", os.path.join(PERF_LAB, "bench_env.py"))
-        base = {name: "1" for name in bench_env.unset_env()}
-        env = rs.story_env(base, story("a"), "/a.app", "/out", SHA, "bench", 0, 120, "/out/host.json")
-        for name in bench_env.unset_env():
+        base = {**{name: "1" for name in bench_env.unset_env()}, "CMUX_CI_SHA": OTHER_SHA}
+        env = rs.story_env(base, story("a"), "/a.app", "/out", SHA, "bench", 0, 120, "/out/host.json", "/w/vd.out")
+        for name in (*bench_env.unset_env(), "CMUX_CI_SHA"):
             self.assertNotIn(name, env)
+
+    def test_results_in_subfolders_are_collected_and_each_run_has_its_own_folder(self):
+        self.set_env("FAKE_BENCH_SUBDIR", "panes")
+        self.assertEqual(self.run_main("--stories", "idle"), 0)
+        files = sorted(os.listdir(os.path.join(self.out, "results")))
+        self.assertEqual(len(files), 2)
+        self.assertTrue(files[0].startswith("idle-0--panes--") and files[1].startswith("idle-1--panes--"), files)
+        self.assertEqual(sorted(os.listdir(os.path.join(self.out, "runs"))), ["idle-0", "idle-1"])
+        leftover = [p for p in glob.glob(os.path.join(self.out, "runs", "**", "*.ndjson"), recursive=True)]
+        self.assertEqual(leftover, [], "every result-v1 file moves to results/ or rejected/")
+
+    def test_egress_after_launch_rejects_the_runs_results(self):
+        self.set_env("FAKE_LAB_REPORT", json.dumps({"ok": False, "reasons": ["network-egress"]}))
+        self.assertEqual(self.run_main("--stories", "idle", "--repeats", "1"), 1)
+        run = self.summary()["runs"][0]
+        self.assertEqual(run["reason"], "env-invalid after launch: network-egress")
+        self.assertEqual(os.listdir(os.path.join(self.out, "results")), [])
+        self.assertEqual(len(os.listdir(os.path.join(self.out, "rejected"))), 1)
+        self.assertEqual(len(self.teardowns), 1)
+
+    def test_a_run_with_no_full_host_check_stores_nothing(self):
+        self.set_env("FAKE_BENCH_SKIP_LAB", "1")
+        self.assertEqual(self.run_main("--stories", "idle", "--repeats", "1"), 1)
+        self.assertIn("network-egress unchecked", self.summary()["runs"][0]["reason"])
+        self.assertEqual(os.listdir(os.path.join(self.out, "results")), [])
+
+    def test_a_result_measured_under_triggered_safe_mode_is_rejected(self):
+        self.set_env("FAKE_SAFE_MODE", "last_known_good")
+        self.assertEqual(self.run_main("--stories", "idle", "--repeats", "1"), 1)
+        [rejected] = self.summary()["runs"][0]["rejected"]
+        self.assertIn("safe mode last_known_good", rejected["reason"])
+
+    def test_a_story_whose_command_does_not_take_the_runner_flags_is_refused_before_any_fetch(self):
+        self.assertEqual(self.run_main("--stories", "no-tag"), 2)
+        self.assertIn("takes no --tag", self.summary()["refusal"]["reason"])
+        self.assertEqual(self.store.requests, [])
+
+    def test_the_display_hold_is_the_plan_and_a_dead_display_stops_the_runs(self):
+        self.assertEqual(self.run_main("--stories", "idle,home-key", "--repeats", "1"), 0)
+        runs = list(rs.interleaved([story("home-key", seconds=20), story("idle", seconds=60)], 1))
+        self.assertEqual(FakeDisplay.started[-1][1], rs.display_hold(runs))
+        self.assertEqual(self.summary()["display"]["hold_seconds"], rs.display_hold(runs))
+        self.assertEqual(self.run_main("--stories", "idle", "--repeats", "1", "--vdisplay-hold", "99"), 0)
+        self.assertEqual(FakeDisplay.started[-1][1], 99)
+        os.remove(self.log)
+        FakeDisplay.alive_runs = 1
+        self.assertEqual(self.run_main("--stories", "idle,home-key", "--repeats", "1"), 1)
+        self.assertEqual([r["story"] for r in self.bench_runs()], ["home-key"])
+        self.assertEqual([(r["story"], r["reason"]) for r in self.summary()["runs"]],
+                         [("home-key", None), ("idle", "the virtual display ended before this run")])
 
     def test_shard_runs_its_stories_only(self):
         self.assertEqual(self.run_main("--shard", "0/2", "--repeats", "1"), 0)
@@ -329,7 +482,12 @@ class MainTests(unittest.TestCase):
 
     def test_bad_digest_wrong_build_config_or_name_exits_4(self):
         cases = {"not-a-digest": {}, "other-sha": {"sha": OTHER_SHA}, "debug": {"config": "debug"},
-                 "two-apps": {"apps": 2}, "not-a-dev-bundle": {"name": "cmux"}}
+                 "two-apps": {"apps": 2}, "not-a-dev-bundle": {"name": "cmux"},
+                 # No CMUXCommit: the bundle does not say what it is a build of (CMUX_CI_SHA never stands in).
+                 "no-commit-stamp": {"sha": None},
+                 # The main executable (`cmux DEV`, as BenchApp launches it) is not a bench build, even though an
+                 # executable that sorts first is.
+                 "main-not-bench": {"binaries": {"a-helper": True, "cmux DEV": False}}}
         for name, variant in cases.items():
             with self.subTest(name):
                 shutil.rmtree(self.out, ignore_errors=True)
@@ -341,9 +499,17 @@ class MainTests(unittest.TestCase):
                     self.digest = app_zip(path, **variant)
                     with open(path, "rb") as f:
                         store = FakeStore({self.digest.split(":")[1]: f.read()})
+                self.set_env("CMUX_CI_SHA", SHA)
                 self.assertEqual(self.run_main("--stories", "idle", store=store), 4)
                 self.assertEqual(self.summary()["refusal"]["kind"], "missing-artifact")
                 self.assertFalse(os.path.exists(self.log))
+
+    def test_the_main_executable_is_checked_not_the_first_in_sorted_order(self):
+        path = os.path.join(self.tmp, "cli.zip")
+        self.digest = app_zip(path, binaries={"cmux": False, "cmux DEV": True})  # `cmux` sorts before `cmux DEV`
+        with open(path, "rb") as f:
+            store = FakeStore({self.digest.split(":")[1]: f.read()})
+        self.assertEqual(self.run_main("--stories", "idle", "--repeats", "1", store=store), 0)
 
     def test_tampered_bytes_exit_4(self):
         hex_digest = self.digest.split(":")[1]
@@ -361,6 +527,8 @@ class MainTests(unittest.TestCase):
             f.write(textwrap.dedent(f'''
                 import json, sys
                 open({os.path.join(self.tmp, "host_env.argv")!r}, "w").write(json.dumps(sys.argv[1:]))
+                if {report!r}.get("ok"):
+                    open(sys.argv[sys.argv.index("--host-out") + 1], "w").write(json.dumps({{**{HOST!r}, "display_hz": {report!r}["hz"]}}))
                 print("checking")
                 print("HOST-ENV " + json.dumps({report!r}))
                 sys.exit({code})
@@ -377,7 +545,7 @@ class MainTests(unittest.TestCase):
         self.assertFalse(os.path.exists(self.log))
         self.assertFalse(os.path.exists(os.path.join(self.out, "results")))  # an invalid host stores nothing
         with open(os.path.join(self.tmp, "host_env.argv")) as f:
-            self.assertEqual(json.load(f), ["--vdisplay-out", os.path.join(self.out, "vdisplay", "vdisplay.out"),
+            self.assertEqual(json.load(f), ["--vdisplay-out", os.path.join(self.work, "vdisplay", "vdisplay.out"),
                                             "--pre-launch", "--host-out", os.path.join(self.out, "host.json")])
 
     def test_valid_host_env_report_is_the_summary_env(self):
@@ -422,7 +590,7 @@ class MainTests(unittest.TestCase):
         self.assertEqual(self.store.requests, [])
 
     def test_env_only_validates_without_an_artifact(self):
-        argv = ["--out", self.out, "--measure-version", "1", "--env-only"]
+        argv = ["--out", self.out, "--work", self.work, "--measure-version", "1", "--env-only"]
         code = rs.main(argv, store=rs.ArtifactStore("http://controller", None, FakeStore(down=True).urlopen),
                        check_env=self.check_env, display_factory=FakeDisplay, extract=zip_extract,
                        teardown=self.teardowns.append, root=self.root)
@@ -436,6 +604,34 @@ class MainTests(unittest.TestCase):
         self.assertEqual(store.fetch(self.digest, os.path.join(self.tmp, "a.zip")), "store")
         self.assertEqual(store.fetch(self.digest, os.path.join(self.tmp, "b.zip")), "cache")
         self.assertEqual(len(self.store.requests), 2)  # the URL and the blob, once
+
+
+class StartupBenchRecordTests(unittest.TestCase):
+    """The T0 launch-warm bench (bench-startup.py --out) writes result-v1 through BenchApp.record, with metrics its
+    catalog entry declares."""
+
+    def test_bench_startup_records_the_launch_warm_metrics(self):
+        tmp = tempfile.mkdtemp(prefix="perf-lab-startup-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        digest_zip = os.path.join(tmp, "app.zip")
+        app_zip(digest_zip)
+        zip_extract(digest_zip, tmp)
+        startup = load("perf_lab_bench_startup", os.path.join(ROOT, "scripts", "cmux-next", "bench-startup.py"))
+        recorder = startup.BenchApp(os.path.join(tmp, "cmux DEV perf.app"), out=os.path.join(tmp, "out"),
+                                    teardown=False, host=lambda: dict(HOST), build_config="bench")
+        recorder.features = ({}, None, "off")
+        runs = [{"first_window_frame_committed": 140.0, "did_finish_launching_end": 90.0},
+                {"first_window_frame_committed": 150.0, "did_finish_launching_end": 95.0, "sidebar_rows_shown": 160.0}]
+        startup.record_results(recorder, {"warm": runs}, "launch-warm")
+        results = rs.perf_result.read_dir(os.path.join(tmp, "out"))
+        metrics = {r.metric: r.samples for r in results}
+        self.assertEqual(metrics["launch.warm.first_window_frame_committed"], [140.0, 150.0])
+        self.assertEqual(metrics["launch.warm.sidebar_rows_shown.missing_runs"], [1])
+        self.assertEqual({(r.story, r.build.sha, r.build.config) for r in results}, {("launch-warm", SHA, "bench")})
+        stories, _ = rs.load_stories(ROOT)
+        patterns = [m.name for m in stories["launch-warm"].metrics]
+        for metric in metrics:
+            self.assertTrue(any(re.fullmatch(p, metric) for p in patterns), metric)
 
 
 class DisplayTests(unittest.TestCase):
@@ -466,7 +662,8 @@ class EntryTests(unittest.TestCase):
             self.assertRegex(f.read(), r"(?m)^PERF_LAB_MEASURE_VERSION=1$")
 
     def fake_checkout(self, runner_body):
-        """A git checkout holding perf-lab.sh, a stub runner and a stub tag_teardown.py that logs its argument."""
+        """A git checkout holding perf-lab.sh, a stub runner and a stub tag_teardown.py that logs its argument. The
+        stub writes a result into --out and a stand-in app into --work before its body runs."""
         root = tempfile.mkdtemp(prefix="perf-lab-entry-")
         self.addCleanup(shutil.rmtree, root, True)
         for folder in ("scripts/measure", "scripts/perf-lab", "scripts/cmux-next"):
@@ -475,9 +672,12 @@ class EntryTests(unittest.TestCase):
         with open(os.path.join(root, "scripts/perf-lab/run_story.py"), "w") as f:
             f.write(textwrap.dedent('''
                 import json, os, sys, time
-                state = sys.argv[sys.argv.index("--state") + 1]
-                with open(state, "w") as f:
+                arg = lambda name: sys.argv[sys.argv.index(name) + 1]
+                with open(arg("--state"), "w") as f:
                     json.dump({"app": "/lab/cmux DEV perf.app", "vdisplay_pid": None}, f)
+                os.makedirs(os.path.join(arg("--out"), "results"))
+                open(os.path.join(arg("--out"), "results", "r.ndjson"), "w").write("{}\\n")
+                open(os.path.join(arg("--work"), "app.zip"), "w").write("the app")
             ''') + textwrap.dedent(runner_body))
         with open(os.path.join(root, "scripts/cmux-next/tag_teardown.py"), "w") as f:
             f.write("import os, sys\nopen(os.environ['TEARDOWN_LOG'], 'a').write(sys.argv[1] + '\\n')\n")
@@ -498,25 +698,85 @@ class EntryTests(unittest.TestCase):
         with open(log) as f:
             return code, f.read().splitlines()
 
+    def assert_packed(self, root):
+        """The upload is one file with the results, never the app; the work folder is gone."""
+        with tarfile.open(os.path.join(root, "artifacts", "perf-lab.tgz")) as tar:
+            names = {os.path.normpath(n) for n in tar.getnames()}
+        self.assertIn("results/r.ndjson", names)
+        self.assertFalse([n for n in names if "app.zip" in n], names)
+        self.assertFalse(os.path.exists(os.path.join(root, "artifacts", "perf-lab-work")))
+
     def test_exit_trap_tears_down_after_a_refusal(self):
         root = self.fake_checkout("sys.exit(4)\n")
         code, calls = self.run_entry(root)
         self.assertEqual(code, 4)
         self.assertEqual(calls, ["/lab/cmux DEV perf.app"])
+        self.assert_packed(root)
 
-    def test_term_stops_the_runner_and_tears_down(self):
-        root = self.fake_checkout('''
-            open(os.environ["MARKER"], "w").close()
-            time.sleep(60)
-            open(os.environ["MARKER"] + ".survived", "w").close()
-        ''')
-        started = time.monotonic()
-        code, calls = self.run_entry(root, sig=signal.SIGTERM)
-        self.assertEqual(code, 128 + signal.SIGTERM)
-        self.assertLess(time.monotonic() - started, 30)
-        self.assertEqual(calls, ["/lab/cmux DEV perf.app"])
+    def test_each_stop_signal_stops_the_runner_and_tears_down(self):
+        for sig in rs.STOP_SIGNALS:
+            with self.subTest(signal.Signals(sig).name):
+                root = self.fake_checkout('''
+                    open(os.environ["MARKER"], "w").close()
+                    time.sleep(60)
+                    open(os.environ["MARKER"] + ".survived", "w").close()
+                ''')
+                started = time.monotonic()
+                code, calls = self.run_entry(root, sig=sig)
+                self.assertEqual(code, 128 + sig)
+                self.assertLess(time.monotonic() - started, 30)
+                self.assertEqual(calls, ["/lab/cmux DEV perf.app"])
+                time.sleep(0.2)
+                self.assertFalse(os.path.exists(os.path.join(root, "marker.survived")))
+                self.assert_packed(root)
+
+
+# Runs the real run_story.main with its signal handlers, the test seams of this module and a short TERM grace.
+SIGNAL_DRIVER = textwrap.dedent('''
+    import importlib.util, json, sys
+    spec = importlib.util.spec_from_file_location("perf_lab_test_run_story", sys.argv[1])
+    t = importlib.util.module_from_spec(spec); sys.modules[spec.name] = t; spec.loader.exec_module(t)
+    rs = t.rs
+    rs.TERM_GRACE_SECONDS = 2
+    zip_path, root, argv = sys.argv[2], sys.argv[3], sys.argv[4:]
+    blob = open(zip_path, "rb").read()
+    store = t.FakeStore({t.hashlib.sha256(blob).hexdigest(): blob})
+    rs.install_signal_handlers()
+    sys.exit(rs.main(argv, store=rs.ArtifactStore("http://controller", None, store.urlopen),
+                     check_env=t.fake_check_env, display_factory=t.FakeDisplay, extract=t.zip_extract,
+                     teardown=lambda app: None, root=root))
+''')
+
+
+class RunnerSignalTests(unittest.TestCase):
+    def test_a_second_term_never_cuts_the_story_group_teardown_short(self):
+        tmp = tempfile.mkdtemp(prefix="perf-lab-signal-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        root, out = os.path.join(tmp, "repo"), os.path.join(tmp, "out")
+        write_catalog_root(root, {"slow": {"command": ["bench/slow_bench.py"], "repeats": 1}})
+        digest = app_zip(os.path.join(tmp, "app.zip"))
+        driver = os.path.join(tmp, "driver.py")
+        with open(driver, "w") as f:
+            f.write(SIGNAL_DRIVER)
+        pgid_file = os.path.join(tmp, "pgid")
+        process = subprocess.Popen(
+            [sys.executable, driver, os.path.abspath(__file__), os.path.join(tmp, "app.zip"), root, "--out", out,
+             "--work", os.path.join(tmp, "work"), "--measure-version", "1", "--sha", SHA, "--digest", digest,
+             "--stories", "slow"], env={**os.environ, "SLOW_BENCH_PGID": pgid_file})
+        deadline = time.monotonic() + 30
+        while not os.path.exists(pgid_file) and time.monotonic() < deadline:
+            time.sleep(0.05)  # test-side wait for the story to start
         time.sleep(0.2)
-        self.assertFalse(os.path.exists(os.path.join(root, "marker.survived")))
+        with open(pgid_file) as f:
+            pgid = int(f.read())
+        process.send_signal(signal.SIGTERM)
+        time.sleep(0.5)  # inside the story group's TERM grace (the story ignores TERM)
+        process.send_signal(signal.SIGTERM)  # a second TERM, as the worker and perf-lab.sh both send one
+        self.assertEqual(process.wait(30), 128 + signal.SIGTERM)
+        with self.assertRaises(ProcessLookupError):
+            os.killpg(pgid, 0)  # the runner KILLed the whole group after the grace
+        with open(os.path.join(out, "summary.json")) as f:
+            self.assertEqual(json.load(f)["refusal"]["kind"], "signal")
 
 
 if __name__ == "__main__":

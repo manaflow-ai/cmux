@@ -24,7 +24,16 @@ on waitpid for the app, and on kqueue NOTE_EXIT for the tag's daemon.
   scripts/cmux-next/bench-startup.py --app "/path/cmux DEV launch-1.app" ...
 
 --app runs a fleet artifact staged anywhere (its tag comes from the
-`cmux DEV <tag>.app` name, as the app's own LaunchIdentity reads it).
+`cmux DEV <tag>.app` name, as the app's own LaunchIdentity reads it; a
+--tag that names the same tag runs it once).
+--out DIR writes the RECORDED_MARKS of each --app bundle and mode as
+result-v1 through BenchApp.record (scripts/cmux-next/bench_launch.py), the
+perf lab's story contract (scripts/perf-lab/stories.d/README.md): metric
+`launch.<mode>.<mark>` (ms since process start, one sample per run) and
+`launch.<mode>.<mark>.missing_runs` (count). The story is PERF_LAB_STORY
+(the runner sets it), else `launch-<mode>`. Under the perf-lab runner the
+first measured launch of each bundle is validated again with its pids
+(host_env.py: network-egress and the other checks) while it runs.
 --profile empty deletes the tag's daemon, agent and sidebar state before
 each run (a first launch on a new Mac; cold mode only). --profile realistic
 seeds one priming launch with REALISTIC_WORKSPACES workspaces of three
@@ -56,7 +65,8 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # The shared launch helper's socket paths and session check (bench_launch.py). Not its bench env: this bench times
 # the launch itself, with the agent pane's real handshake and the account's Chief, as a person's launch runs.
-from bench_launch import finder_limits, limits_line, require_gui_session, socket_candidates  # noqa: E402
+from bench_launch import (BenchApp, RecordError, finder_limits, limits_line, require_gui_session,  # noqa: E402
+                          socket_candidates)
 
 DERIVED = os.path.expanduser("~/Library/Developer/Xcode/DerivedData")
 FINAL_MARK = "first_terminal_frame"
@@ -142,6 +152,11 @@ LAUNCH_ORDER = [
 
 # Apps given with --app, by tag; other tags are DerivedData builds.
 APPS = {}
+# With --out: the BenchApp that records each --app tag's result-v1 (its features and host check come from a measured
+# launch, see one_run).
+RECORDERS = {}
+# The launch marks --out records, each with its runs that never sent it (the launch-warm story's metrics).
+RECORDED_MARKS = ("first_window_frame_committed", "did_finish_launching_end", "sidebar_rows_shown")
 
 
 def app_tag(path):
@@ -489,6 +504,8 @@ def one_run(tag, mode, timeout, profile=None):
         reached = launch.wait_for(final, timeout, any_of=any_of)
         if HANG_THRESHOLD_MS:
             launch.stalls = launch_stalls(tag)
+        if reached and tag in RECORDERS:
+            observe_for_record(RECORDERS[tag], tag)
     finally:
         launch.quit()
     if not reached:
@@ -497,6 +514,34 @@ def one_run(tag, mode, timeout, profile=None):
     if getattr(launch, "stalls", None) is not None:
         return {**launch.marks, "stalls": launch.stalls}
     return launch.marks
+
+
+def observe_for_record(recorder, tag):
+    """While a measured launch runs: its features.list snapshot (once per bundle) and the lab's full host check with
+    the tag's pids (BenchApp.validate_lab_host, once per bundle; only under the perf-lab runner)."""
+    if recorder.features is None:
+        live = [path for path in socket_candidates(tag) if os.path.exists(path)]
+        if live:
+            recorder.socket = live[0]
+            recorder.features = recorder.read_features()
+    recorder.validate_lab_host(tag_pids(tag))
+
+
+def record_results(recorder, results, story=None):
+    """result-v1 of one bundle's `results` ({mode: [marks of each run]}) through ``recorder.record``: every
+    RECORDED_MARKS mark that some run sent, as raw samples, and its missing runs. Returns the files written."""
+    written = []
+    for mode, runs in results.items():
+        name = story or f"launch-{mode}"
+        for mark in RECORDED_MARKS:
+            values = [run[mark] for run in runs if mark in run]
+            if not values:
+                continue
+            metric = f"launch.{mode}.{mark}"
+            written.append(recorder.record(name, metric, "ms", values, "lower", "none"))
+            written.append(recorder.record(name, f"{metric}.missing_runs", "count", [len(runs) - len(values)],
+                                           "lower", "none"))
+    return written
 
 
 def launch_stalls(tag):
@@ -618,6 +663,7 @@ def main():
     parser.add_argument("--mode", action="append", choices=["cold", "restart", "warm", "daemon"])
     parser.add_argument("--timeout", type=float, default=30.0, help="seconds per launch to reach the first frame")
     parser.add_argument("--json", help="write every run's marks here")
+    parser.add_argument("--out", help="write result-v1 of each --app bundle here (BenchApp.record)")
     parser.add_argument("--budget", action="append", default=[], metavar="MARK=MS",
                         help="exit 1 when a mark's median (any tag, mode) is over MS or never arrives")
     parser.add_argument("--order", action="append", default=[], metavar="FIRST<SECOND",
@@ -632,9 +678,13 @@ def main():
     SEED_CHAT_PANE = args.chat_pane
     for path in args.app:
         APPS[app_tag(path)] = os.path.abspath(path)
-        args.tag.append(app_tag(path))
+        if args.out:
+            RECORDERS[app_tag(path)] = BenchApp(path, out=args.out, teardown=False)
+    args.tag = list(dict.fromkeys(args.tag + [app_tag(path) for path in args.app]))  # one run per tag
     if not args.tag:
         parser.error("give at least one --tag or --app")
+    if args.out and set(args.tag) - set(RECORDERS):
+        parser.error("--out records --app bundles only: " + ", ".join(sorted(set(args.tag) - set(RECORDERS))))
     RUN_TAGS.extend(args.tag)
     modes = args.mode or ["cold", "warm"]
     if "daemon" in modes:
@@ -675,6 +725,12 @@ def main():
     if args.json:
         with open(args.json, "w") as out:
             json.dump(results, out, indent=1)
+    for tag, recorder in RECORDERS.items():
+        try:
+            for path in record_results(recorder, results[tag], os.environ.get("PERF_LAB_STORY")):
+                print(f"bench-startup: wrote {path}")
+        except RecordError as error:
+            sys.exit(f"bench-startup: {tag}: no result-v1: {error}")
     orders = args.order + (LAUNCH_ORDER if args.budget else [])
     over = check_budgets(results, args.budget) + check_orders(results, orders)
     for line in over:

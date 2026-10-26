@@ -22,7 +22,7 @@ python3 -m unittest scripts/perf-lab/tests/test_catalog.py
 | `id` | Same as the file name. It is also the result-v1 `story`. |
 | `tier` | `T0` (every batch, 480 s in total over all T0 stories), `T1` (every 2 h), `T2` (nightly), `linux` (no Mac), `builder` (a builder host). |
 | `description` | What the story measures, in one sentence. |
-| `command` | argv. The first item is a repository path that must exist. The runner (task 008) adds `--app`, `--tag`, `--out` and the session. |
+| `command` | argv. The first item is a repository path that must exist. The runner (task 008) adds `--app APP --tag TAG --out DIR`, so the command must take those three flags, and the bench writes its result-v1 into `DIR` (subfolders too) with `BenchApp.record`. The session, config and host block come as `PERF_LAB_SESSION`, `PERF_LAB_CONFIG` and `PERF_LAB_HOST_FILE`, which `BenchApp` reads as its defaults. |
 | `session` | `light`, `stress` or `corpus:<id>`. |
 | `engine` | `chromium`, `webkit` or `none`. A browser story has one file per engine, or one per arm. |
 | `config` | Exactly one of `bench`, `bench-checks` or `release` (R6). Debug is never a lab config. Only the blocking-sites story uses `bench-checks`. |
