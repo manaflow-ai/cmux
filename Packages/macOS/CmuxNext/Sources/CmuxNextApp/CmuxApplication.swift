@@ -48,6 +48,9 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     /// journal), its intercepts run before AppKit dispatches the event, and its after-dispatch observers
     /// see a click once focus has moved to the clicked pane.
     var inputTap: InputEventTap?
+    /// Set once by `AppServices`: opens an input latency slot for each tracked event and finishes it after its
+    /// dispatch (`InputLatencyDispatch`, Chrome's EventLatency).
+    var inputLatency: InputLatencyDispatch?
     /// Set once by `AppServices`: true when a key-down typed into one cmux window would reach
     /// another, the key window (`CrossWindowInputGuard`): the key is dropped.
     var crossWindowKeyGuard: ((NSEvent, NSWindow?) -> Bool)?
@@ -98,6 +101,8 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         let previousSynthetic = currentEventIsSynthetic
         currentEventIsSynthetic = !SyntheticInput.isUserInput(event)
         defer { currentEventIsSynthetic = previousSynthetic }
+        let latencySlot = inputLatency?.willDispatch(event, synthetic: currentEventIsSynthetic, keyWindow: keyWindow ?? event.window)
+        defer { if let latencySlot { inputLatency?.didDispatch(latencySlot, layoutTookScroll: inputDispatch?.layoutTookScroll ?? false) } }
         if let inputTap { BenchSpans.measure("app.inputTap.observe") { inputTap.deliverObserve(event) } }
         // Pending moves and scrolls run before a key or click is handled (Chromium's ShouldFlushQueue).
         frameInput.willDispatch(event.type)

@@ -45,6 +45,9 @@ public final class InputDispatchContext {
         stack[stack.count - 1].layoutTook = true
     }
 
+    /// Whether the layout took the scroll event being dispatched (``noteLayoutTookScroll()``); false between dispatches.
+    public var layoutTookScroll: Bool { stack.last?.layoutTook ?? false }
+
     /// The innermost event being dispatched, nil between dispatches.
     public var event: NSEvent? { stack.last?.event }
 

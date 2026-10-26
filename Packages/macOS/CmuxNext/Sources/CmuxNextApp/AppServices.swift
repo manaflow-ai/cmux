@@ -18,6 +18,7 @@ import CmuxNextFavicons
 import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextInput
+import CmuxNextLayout
 import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextPopups
@@ -35,6 +36,7 @@ import CmuxNextWakeups
 import CmuxNextWorkspaceNaming
 import CmuxNextWorkspaceRepair
 import os
+import WebKit
 import CmuxNextFocusUI
 import CmuxNextTabs
 /// Process-wide services the window controllers share. Model state is not
@@ -326,6 +328,16 @@ final class AppServices {
     /// Each scroll event it dispatches is timed to its frame (`key.scroll_frame`).
     let inputDispatch = InputDispatchContext(scrollFrames: ScrollFrameSignpost())
     let inputTap = InputEventTap()  // the one input tap; owners subscribe, never add event monitors (p04-input.md 3 (A))
+    /// One input latency slot per tracked event (p04-input.md 3 (I)), its target by cmux's surfaces, most specific
+    /// first: a terminal or agent pane inside the layout keeps its own rows; Chromium pages are `CefNSWindow`s.
+    let inputLatency = InputLatencyDispatch(
+        tracker: InputLatencyTracker(presentation: PresentationClock()),
+        classifier: InputTargetClassifier(rules: [
+            .view(TerminalSurfaceView.self, is: .terminal), .view(AgentPaneView.self, is: .agentPane),
+            .windowClassNamed("CefNSWindow", is: .chromiumPage), .view(WKWebView.self, is: .webkitPage),
+            .textInputClient(is: .textView), .view(SidebarContainerView.self, is: .sidebar),
+            .view(LayoutRootView.self, is: .layout),
+        ]))
     private var mouseDownSubscription: InputSubscription?  // a click after dispatch (start)
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
     private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef)  // first read in init (no IUO)
@@ -553,6 +565,7 @@ final class AppServices {
         let inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputTap = inputTap
+        (NSApp as? CmuxApplication)?.inputLatency = inputLatency
         registry.dispatchingInputEvent = { inputDispatch.event }
         registry.isDispatchingKeyDown = { inputDispatch.isKeyDown }
         (NSApp as? CmuxApplication)?.assistiveClientsChanged = { [weak self] active in self?.cache.cef.setAssistiveClientActive(active) }
