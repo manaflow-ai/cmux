@@ -107,6 +107,7 @@ struct TextPosition: Equatable { var key: String; var offset: Int }
 /// selected row draws its own part of the highlight in its cell
 /// (RowCell.selectionHighlight), so the highlight moves with its row's motions,
 /// recomputed when the transcript scrolls or changes.
+@MainActor  // cmux: it reads the pane's views and window, as its ChatController
 final class TranscriptSelection {
     /// cmux: MessagesLab 30495be: the transcript's accessibility elements, one per visible message id.
     var axElements: [ID: MessageAccessibilityElement] = [:]
@@ -114,7 +115,8 @@ final class TranscriptSelection {
     /// Screen blend of P3 (2.6, 37.7, 85): over the incoming bubble (59, 59, 61) it gives
     /// Messages' highlight (61, 88, 126) and over its text (225) the selected text
     /// (225, 229, 235) (lossless still selected-text.png).
-    static let highlightFill = Fixture.p3(2.6, 37.7, 85).cgColor
+    // cmux: nonisolated and computed: RowCell's (nonisolated) init sets it on its highlight layer.
+    nonisolated static var highlightFill: CGColor { Fixture.p3(2.6, 37.7, 85).cgColor }
     private(set) var anchor: TextPosition?
     private(set) var focus: TextPosition?
     private var downPoint: CGPoint?

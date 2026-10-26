@@ -19,6 +19,7 @@ import UniformTypeIdentifiers
 /// ~/Library/Logs/MessagesLab/blink-<time>/ and logs one line to stderr. At
 /// most one dump per 15 s. "Save Last 10 Seconds" (Cmd+Shift+S) writes the
 /// same without a finding.
+@MainActor  // cmux: it samples the pane's views and window on the main thread, as its ChatController
 final class FlightRecorder: NSObject {
     static let shared = FlightRecorder()
     // cmux: the app's policy (HomeFlightRecorder: DEV on, NIGHTLY opt-in, Release off), read live.
@@ -38,8 +39,8 @@ final class FlightRecorder: NSObject {
         /// The finding's numbers, rounded as its text prints them (the old rule compared texts).
         var unfilledSig = 0
     }
-    static let maxRows = 64, maxMorphs = 4
-    private static let capacity = 1300                       // ~10 s at 120 Hz
+    nonisolated static let maxRows = 64, maxMorphs = 4  // cmux: nonisolated: the dump queue formats with them
+    nonisolated private static let capacity = 1300           // ~10 s at 120 Hz (cmux: nonisolated, the stored defaults read it)
     private var samples = [RawSample](repeating: RawSample(), count: capacity)
     private var rows = [RawRow](repeating: RawRow(), count: capacity * maxRows)
     private var morphRows = [RawRow](repeating: RawRow(), count: capacity * maxMorphs)
@@ -64,16 +65,15 @@ final class FlightRecorder: NSObject {
 
     // cmux: the pane's window comes and goes and the policy can switch on later: attach (from
     // ChatController.windowChanged) always, replacing the previous window's observers.
-    private var observers: [NSObjectProtocol] = []
+    // cmux: MainQueueObservation (removed when released) runs the main-actor handler.
+    private var observers: [MainQueueObservation] = []
     func attach(_ c: ChatController) {
         self.c = c
-        let nc = NotificationCenter.default
-        observers.forEach { nc.removeObserver($0) }
         observers = []
         guard let window = c.window else { return }
         for n in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.didChangeScreenNotification,
                   NSWindow.didChangeBackingPropertiesNotification] {
-            observers.append(nc.addObserver(forName: n, object: window, queue: .main) { [weak self] note in
+            observers.append(MainQueueObservation(n, object: window) { [weak self] note in
                 self?.event(note.name.rawValue.replacingOccurrences(of: "NSWindow", with: ""))
                 self?.kick()
             })

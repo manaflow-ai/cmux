@@ -17,6 +17,7 @@ import QuartzCore
 ///
 /// Motion constants are placeholders until the 120 Hz reference
 /// (references/real-messages/interactions/swipe-*) is fitted.
+@MainActor  // cmux: it reads the pane's window, views and store, as its ChatController
 final class SwipeReply {
     // cmux: constants (no shared mutable state); nothing sets them.
     enum Tuning {
@@ -202,6 +203,7 @@ final class SwipeReply {
 /// 1. short swipe (40 pt): the row follows 1:1, released it springs back, no reply.
 /// 2. full swipe (160 pt): the row is capped, released it opens the reply (thread).
 /// 3. vertical stream on the row: not claimed (the scroll view gets it).
+@MainActor  // cmux: it drives the main-actor ChatController and SwipeReply
 enum SwipeCheck {
     static func fromArguments() -> String? {
         let a = ProcessInfo.processInfo.arguments

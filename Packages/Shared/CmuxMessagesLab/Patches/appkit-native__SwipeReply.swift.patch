@@ -1,8 +1,10 @@
 --- a/Sources/MessagesLabHome/Vendor/appkit-native/SwipeReply.swift
 +++ b/Sources/MessagesLabHome/Vendor/appkit-native/SwipeReply.swift
-@@ -18,18 +18,19 @@
+@@ -17,19 +17,21 @@
+ ///
  /// Motion constants are placeholders until the 120 Hz reference
  /// (references/real-messages/interactions/swipe-*) is fitted.
++@MainActor  // cmux: it reads the pane's window, views and store, as its ChatController
  final class SwipeReply {
 +    // cmux: constants (no shared mutable state); nothing sets them.
      enum Tuning {
@@ -26,7 +28,7 @@
      }
  
      private weak var c: ChatController?
-@@ -76,11 +77,12 @@
+@@ -76,11 +78,12 @@
          }
          if let held = pending {
              pending = nil
@@ -41,7 +43,7 @@
              return e
          }
          guard claimed else { return e }
-@@ -104,8 +106,9 @@
+@@ -104,8 +107,9 @@
          armed = false
          cell.layer.removeAnimation(forKey: "swipe.back")
          arrow.removeAllAnimations()
@@ -53,7 +55,7 @@
          cell.layer.addSublayer(arrow)
          move(by: dx)
          return true
-@@ -173,15 +176,16 @@
+@@ -173,15 +177,16 @@
          hit = nil
      }
  
@@ -74,7 +76,11 @@
          NSGraphicsContext.saveGraphicsState()
          NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
          let sz = sym.size, r = CGFloat(px)
-@@ -201,42 +205,47 @@
+@@ -198,45 +203,51 @@
+ /// 1. short swipe (40 pt): the row follows 1:1, released it springs back, no reply.
+ /// 2. full swipe (160 pt): the row is capped, released it opens the reply (thread).
+ /// 3. vertical stream on the row: not claimed (the scroll view gets it).
++@MainActor  // cmux: it drives the main-actor ChatController and SwipeReply
  enum SwipeCheck {
      static func fromArguments() -> String? {
          let a = ProcessInfo.processInfo.arguments

@@ -56,7 +56,7 @@
              let msg = store.state.message(m.id)
              let sender = msg.map { msg in
                  msg.senderId == store.state.me ? NativeStrings.you
-@@ -94,11 +103,18 @@
+@@ -94,11 +103,20 @@
  /// A text position in the transcript: a row (by key) and a UTF-16 offset.
  struct TextPosition: Equatable { var key: String; var offset: Int }
  
@@ -66,6 +66,7 @@
 +/// selected row draws its own part of the highlight in its cell
 +/// (RowCell.selectionHighlight), so the highlight moves with its row's motions,
 +/// recomputed when the transcript scrolls or changes.
++@MainActor  // cmux: it reads the pane's views and window, as its ChatController
  final class TranscriptSelection {
 +    /// cmux: MessagesLab 30495be: the transcript's accessibility elements, one per visible message id.
 +    var axElements: [ID: MessageAccessibilityElement] = [:]
@@ -74,11 +75,12 @@
 +    /// Screen blend of P3 (2.6, 37.7, 85): over the incoming bubble (59, 59, 61) it gives
 +    /// Messages' highlight (61, 88, 126) and over its text (225) the selected text
 +    /// (225, 229, 235) (lossless still selected-text.png).
-+    static let highlightFill = Fixture.p3(2.6, 37.7, 85).cgColor
++    // cmux: nonisolated and computed: RowCell's (nonisolated) init sets it on its highlight layer.
++    nonisolated static var highlightFill: CGColor { Fixture.p3(2.6, 37.7, 85).cgColor }
      private(set) var anchor: TextPosition?
      private(set) var focus: TextPosition?
      private var downPoint: CGPoint?
-@@ -106,15 +122,20 @@
+@@ -106,15 +124,20 @@
  
      init(controller: ChatController) {
          self.controller = controller
@@ -105,7 +107,7 @@
  
      // MARK: Selected message (a click on a bubble)
  
-@@ -178,8 +199,12 @@
+@@ -178,8 +201,12 @@
          guard let key = selectedKey, let demo = controller.demo else { return nil }
          for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
              guard let spec = cell.spec, spec.key == key, case let .part(p) = spec.kind else { continue }
@@ -120,7 +122,7 @@
          }
          return nil
      }
-@@ -218,11 +243,8 @@
+@@ -218,11 +245,8 @@
      /// when the point is not on text.
      @discardableResult
      func selectWord(at p: CGPoint) -> Bool {
@@ -134,7 +136,7 @@
          anchor = TextPosition(key: pos.key, offset: r.location)
          focus = TextPosition(key: pos.key, offset: NSMaxRange(r))
          downPoint = nil
-@@ -230,15 +252,40 @@
+@@ -230,15 +254,40 @@
          return true
      }
  
@@ -181,7 +183,7 @@
      }
  
      /// The text position nearest to a point (window content coordinates).
-@@ -251,68 +298,93 @@
+@@ -251,68 +300,93 @@
              let db = p.y < b.body.minY ? b.body.minY - p.y : max(0, p.y - b.body.maxY)
              return da < db
          }!
