@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 8127fbed118233dbce55b6627a7ccfa5d12c0704ce0d32d29a9c3b2975bda83d.
+// cmux-tui mux protocol 12, IR 75c373c9569b5852f9f3d40ac84528739a65afea0e56921d522b2e32ef14e39f.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1901,6 +1901,19 @@ pub struct ServerStatsRegistryLock {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsRequestLatency {
+    pub agent: ServerStatsHistogram,
+    pub browser: ServerStatsHistogram,
+    pub cloud: ServerStatsHistogram,
+    pub create: ServerStatsHistogram,
+    pub other: ServerStatsHistogram,
+    pub query: ServerStatsHistogram,
+    pub terminal_io: ServerStatsHistogram,
+    pub topology: ServerStatsHistogram,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsRequestPathIo {
     pub child_process: u64,
     pub fs_write: u64,
@@ -1951,8 +1964,12 @@ pub struct ServerStatsResourceProjection {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsResult {
     pub connections: ServerStatsConnections,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub dispatch_queue_us: Option<ServerStatsHistogram>,
     pub journal_writer: Nullable<ServerStatsJournalWriter>,
     pub registry_lock: ServerStatsRegistryLock,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub request_latency_us: Option<ServerStatsRequestLatency>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub request_path_io: Option<ServerStatsRequestPathIo>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -1972,7 +1989,19 @@ pub struct ServerStatsSlowRequest {
     pub client: u64,
     pub duration_ms: Nullable<u64>,
     pub method: String,
+    pub stack: Vec<ServerStatsSlowRequestFrame>,
+    pub stack_error: Nullable<String>,
+    pub stack_truncated: bool,
     pub started_ms: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsSlowRequestFrame {
+    pub image: Nullable<String>,
+    pub image_id: Nullable<String>,
+    pub offset: u64,
+    pub symbol: Nullable<String>,
 }
 
 #[rustfmt::skip]

@@ -15,7 +15,7 @@ struct TabHoverCardAnchorTests {
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }
-        let strip = TabStripView(model: model)
+        let strip = TabStripView.testing(model: model)
         strip.frame = NSRect(x: 0, y: 0, width: 600, height: TabStripView.preferredHeight)
         window.contentView = strip
         strip.layoutSubtreeIfNeeded()

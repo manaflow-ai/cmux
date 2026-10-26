@@ -37,7 +37,7 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
     /// (``isListed(_:in:)``); a hop anywhere else fails the fetch before it connects.
     public var hosts: Set<String>?
 
-    public init(maximumBytes: Int, timeout: Duration, accept: String, resolver: any RemoteAddressResolving = SystemRemoteResolver(),
+    public init(maximumBytes: Int, timeout: Duration, accept: String, resolver: any RemoteAddressResolving,
                 transport: any RemoteFetchTransport = PinnedTLSTransport(), clock: any Clock<Duration> = ContinuousClock()) {
         self.maximumBytes = maximumBytes
         self.timeout = timeout

@@ -1,0 +1,6 @@
+{"type":"assistant","message":{"id":"msg_2","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"ls","description":"list"}}]}}
+{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"ls"},"tool_use_id":"toolu_1","permission_suggestions":[{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"ls:*"}],"behavior":"allow","destination":"session"}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"a\nb","is_error":false}]}}
+{"type":"assistant","message":{"id":"msg_3","content":[{"type":"tool_use","id":"toolu_2","name":"Edit","input":{"file_path":"/tmp/a","old_string":"a","new_string":"b"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_2","content":"ok"}]},"tool_use_result":{"structuredPatch":[{"oldStart":1,"oldLines":1,"newStart":1,"newLines":1,"lines":["-a","+b"]}]}}
+{"type":"result","subtype":"error_during_execution","is_error":true,"result":null,"num_turns":1}

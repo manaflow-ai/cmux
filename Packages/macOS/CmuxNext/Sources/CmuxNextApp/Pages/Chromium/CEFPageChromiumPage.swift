@@ -5,8 +5,8 @@ import CmuxNextPages
 import Foundation
 import os
 
-/// One cmux page in a CEF tab (``PageChromiumPage``). The page host drives it through the DevTools
-/// protocol: the tab's raw relay (`CEFAgentRelay`) carries the protocol events (the bridge's
+/// One cmux page in a CEF tab (``PageChromiumPage``). The page host runs its scripts through the
+/// tab's own evaluation (``evaluate(_:)``) and the rest through the DevTools protocol: the tab's raw relay (`CEFAgentRelay`) carries the protocol events (the bridge's
 /// binding calls, `Page.frameNavigated`, `Page.loadEventFired`); a page tab is never an agent's tab,
 /// so nothing else listens on its relay. The tab's own state reports a crash.
 @MainActor
@@ -77,6 +77,30 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 
     func devTools(_ method: String, params: [String: any Sendable]) async throws -> String {
         try await tab.devTools(method: method, params: params)
+    }
+
+    /// The tab's own evaluation, in the page's world with no gesture: the fork's `tabEvaluate` on
+    /// renderer paths (fork API 29), so the page's scripts make no DevTools call there, else a
+    /// `Runtime.evaluate`. The tab answers undefined as null, so both come back as `NSNull`.
+    func evaluate(_ script: String) async throws -> Any? {
+        let value: BrowserJSValue
+        do {
+            value = try await tab.evaluate(script, world: .page, gesture: .cmux)
+        } catch BrowserTabError.javaScript(let text) {
+            throw PageScriptError.exception(text)
+        }
+        return Self.foundation(value)
+    }
+
+    /// `value` with the types `JSONSerialization` gives (`NSNumber` for a number, so `as? Int`
+    /// reads an integer as it does on the DevTools path).
+    private static func foundation(_ value: BrowserJSValue) -> Any {
+        switch value {
+        case .number(let number): return NSNumber(value: number)
+        case .array(let values): return values.map(foundation)
+        case .object(let values): return values.mapValues(foundation)
+        case .null, .bool, .string: return value.foundationValue
+        }
     }
 
     func load(_ url: URL) { tab.load(url) }

@@ -498,6 +498,8 @@ pub struct Mux {
     launch_identity: crate::launch_credential::LaunchIdentity,
     /// Control-socket admission counters, shared with the accept loop.
     connection_stats: Arc<crate::diagnostics::ConnectionStats>,
+    /// Control-request latency by class and the dispatch queue.
+    request_stats: Arc<crate::diagnostics::RequestStats>,
     /// Clone of the registry's projection spans, read without its lock.
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
     /// Blocking notes of request handlers (`server-stats` `request_path_io`).
