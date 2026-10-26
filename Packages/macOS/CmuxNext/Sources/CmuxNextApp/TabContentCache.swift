@@ -31,7 +31,16 @@ final class TabContentCache {
     let terminalPointerFrames: FrameInputCoalescers?
     let mainWork: MainWorkScheduler
     var terminals: [String: TerminalEntry] = [:]
-    var browsers: [String: BrowserEntry] = [:] { didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged() } } }
+    var browsers: [String: BrowserEntry] = [:] {
+        didSet {
+            guard browsers.count != oldValue.count else { return }
+            pageRequests.media.tabsChanged()
+            if browsers.count < oldValue.count { tabRenderers.keep(only: Set(browsers.keys)) }
+        }
+    }
+    /// Each Chromium tab's renderers, for the busy watchdog off the main thread (p14-energy-124): a tab
+    /// publishes itself at mount (`CEFTab.publishRenderers`) and leaves with its entry.
+    let tabRenderers = TabRendererDirectory()
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
     var presenters: [ObjectIdentifier: WeakPresenter] = [:]
     /// Windows off screen now (`WindowOcclusionChecker`): the pages they show get a hidden clock.
@@ -450,6 +459,7 @@ final class TabContentCache {
         if agentDrivenTabs.contains(key) { page.markAgentDriven() } else if page.isAgentDriven { agentDrivenTabs.insert(key) }
         pageRequests.proxiedTabs.adopt(store: (page as? CEFTab)?.machineStore, key: key)
         browsers[key] = entry
+        (page as? CEFTab)?.publishRenderers(as: key, into: tabRenderers) { [weak self] in self?.browsers[key]?.tab === $0 }
         hibernation?.pageDidMount(key, page)
         pageInstalls.bump()
         // Pages are kept by hibernation, never by the terminal warm set.

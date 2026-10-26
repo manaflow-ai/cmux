@@ -666,6 +666,7 @@ repositories.
 | 122 | Phone Access iroh endpoint only when usable | S | 102 | none |
 | 123 | debug.energy.simulate | S | 007, 022 | none |
 | 124 | Per-tab renderer attribution | M | 007 | fork |
+| 124a | Per-tab renderer attribution with the Chromium Host on | M | 124, p01-process-022 | none |
 | 125 | High-energy tab badge with Discard | M | 124 | none |
 | 126 | Visible ambient indicators step at <= 30 Hz | M | 060, 103 | Q3 |
 | 127 | Watchers driven by other apps pause or stretch | M | 102, 024 | none |
@@ -1582,7 +1583,22 @@ repositories.
 - Acceptance: shim test with a fake fork returns the pid; two tabs sharing one renderer both show its usage and the
   record names both.
 - Test phase: fork CI (136); `swift test --filter "ProcessUsage|BusyWatchdog"`; debug.energy on tabs-static.
+- Scope: in process. With the Chromium Host on, the renderers are the host's children: the remote shim answers no
+  pid and no tab lists a renderer until 124a. The busy watchdog reads a tab snapshot the App publishes (a tab's
+  mount and load-phase changes), never the main actor.
 - Size M. Depends: 007. Queue fork.
+
+#### p14-energy-124a Per-tab renderer attribution with the Chromium Host on
+- Files: `plans/cmux-next/chromium-host-ops.json`, `Packages/macOS/CmuxNext/ChromiumHost/client/remote_shim.mm`
+  (generated), `.../CmuxNextBrowser/CEF/CEFTab+Processes.swift`, `.../CmuxNextApp/Control/DebugWakeups.swift`.
+- Change: `cmux_shim_renderer_pid` becomes an async op the host answers with its shim's pid (the reply path of
+  p01-process-022, like `cmux_shim_renderer_client_ids`); `AppProcesses.sample` and `chromiumHelpers` list the
+  Chromium Host's children next to the app's, classified by `ChromiumHelperProcess`.
+- Acceptance: with the host on, two tabs on one renderer both show its usage in debug.energy `tabs` and a busy
+  renderer's record names both.
+- Test phase: `swift test --filter "ProcessUsage|BusyWatchdog|CEFTabRendererPID"`; debug.energy on tabs-static
+  with the host flag on.
+- Size M. Depends: 124, p01-process-022. Queue none.
 
 #### p14-energy-125 High-energy tab badge with Discard
 - Files: `Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabHoverCard+Energy.swift`,

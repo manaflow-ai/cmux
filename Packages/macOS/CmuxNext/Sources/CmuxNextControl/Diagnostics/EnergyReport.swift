@@ -24,6 +24,13 @@ public import Foundation
 /// - `idle`: the main process's interrupt wakeups per second over this launch's idle minutes, as a
 ///   histogram with fixed buckets and its p50/p95/p99 (``IdleEnergyStats``, task 008). Main process
 ///   only (`scope`); the helpers' counters are in `processes`, from the same ``ProcessUsage`` counter.
+/// - `tabs`: each Chromium tab with the CPU, energy and wakeups of the renderers that serve it
+///   (``ProcessUsage/perTab(_:renderers:)``, task 124), cumulative like `processes`. A tab renderer of
+///   `processes` is a tab's when it hosts its main frame (the fork's `cmux_cef_browser_renderer_pid`) or
+///   any of its frames (renderer client ids against the helper's `--renderer-client-id`). Same-site tabs
+///   can share one renderer: each of them shows its whole usage, and the renderer's `tabs` name all of
+///   them. In process only: with the Chromium Host on, the renderers are the host's children and no
+///   tab lists one (p14-energy-124a).
 ///
 /// Top-level keys are snake_case (the spec's); the fields inside them are the camelCase names of the
 /// values they report (`policy.isSaver` is ``EnergyPolicy/isSaver``), which is what
@@ -69,17 +76,20 @@ public struct EnergyReport: Sendable {
     /// sampled now, off the main actor.
     func report(from state: State?) async -> JSONValue {
         guard let state else { return .null }
-        let sampled = await Self.sample(ledger: ledger, processes: processes)
-        return Self.render(state: state, ledger: sampled.ledger, processes: sampled.processes)
+        let sampled = await Self.sample(ledger: ledger, processes: processes, tabs: state.tabs)
+        return Self.render(state: state, ledger: sampled.ledger, processes: sampled.processes, tabs: sampled.tabs)
     }
 
     @concurrent
-    private static func sample(ledger: WakeupLedger, processes: @Sendable () -> [ProcessSample]) async
-        -> (ledger: [WakeupLedger.Entry], processes: [ProcessSample]) {
-        (ledger.snapshot(), processes())
+    private static func sample(ledger: WakeupLedger, processes: @Sendable () -> [ProcessSample],
+                               tabs: [ProcessUsage.TabRenderers]) async
+        -> (ledger: [WakeupLedger.Entry], processes: [ProcessSample], tabs: [ProcessUsage.TabUsage]) {
+        let sampled = processes()
+        return (ledger.snapshot(), sampled, tabUsage(tabs, processes: sampled))
     }
 
-    static func render(state: State, ledger: [WakeupLedger.Entry], processes: [ProcessSample]) -> JSONValue {
+    static func render(state: State, ledger: [WakeupLedger.Entry], processes: [ProcessSample],
+                       tabs: [ProcessUsage.TabUsage] = []) -> JSONValue {
         let fire = ledger.first { $0.owner == MainWakeUpQueue.ledgerOwner && $0.reason == "fire" }
         return [
             "policy": state.policyJSON,
@@ -89,6 +99,7 @@ public struct EnergyReport: Sendable {
             "processes": .array(processes.map(\.json)),
             "cef": state.cef.json,
             "idle": state.idle.json,
+            "tabs": .array(tabs.map(Self.tabJSON)),
         ]
     }
 
@@ -109,14 +120,17 @@ extension EnergyReport {
         public var cef: CEF
         /// This launch's idle wakeup histogram.
         public var idle: IdleEnergyStats
+        /// Every Chromium tab's renderers, as the tabs report them (`tabs`).
+        public var tabs: [ProcessUsage.TabRenderers]
 
         public init(policy: EnergyPolicy, inputs: Inputs, wakeQueue: WakeQueue, cef: CEF,
-                    idle: IdleEnergyStats = IdleEnergyStats()) {
+                    idle: IdleEnergyStats = IdleEnergyStats(), tabs: [ProcessUsage.TabRenderers] = []) {
             self.policy = policy
             self.inputs = inputs
             self.wakeQueue = wakeQueue
             self.cef = cef
             self.idle = idle
+            self.tabs = tabs
         }
     }
 
@@ -225,10 +239,14 @@ extension EnergyReport {
     public struct ProcessSample: Sendable, Equatable {
         public var kind: String
         public var usage: ProcessUsage
+        /// A tab renderer's `--renderer-client-id` (the App's `ChromiumHelperProcess` classification);
+        /// nil for every other process, extension renderers included. `tabs` attributes only these.
+        public var rendererClientID: Int32?
 
-        public init(kind: String, usage: ProcessUsage) {
+        public init(kind: String, usage: ProcessUsage, rendererClientID: Int32? = nil) {
             self.kind = kind
             self.usage = usage
+            self.rendererClientID = rendererClientID
         }
 
         var json: JSONValue {
