@@ -1195,9 +1195,12 @@ impl Hub {
         self.cancel_pending_permissions(session);
         // The prompts queued behind its turn are answered withdrawn: run after the stop, the
         // next one started the closed session again (ergo-walk2). A restart restores no closed
-        // session's queue either (`queue.rs` `restore_queue`).
-        for queued in session.queue() {
-            self.remove_queued_because(session, &queued.prompt_id, Some("stopped"));
+        // session's queue either (`queue.rs` `restore_queue`). A chat an import replaces
+        // (`transfer_in.rs`) keeps its log as it was for the copy that takes its id.
+        if !session.replaced.load(Ordering::SeqCst) {
+            for queued in session.queue() {
+                self.remove_queued_because(session, &queued.prompt_id, Some("stopped"));
+            }
         }
         if let Some(child) = session.child.lock().await.take() {
             if let Some(sid) = session.meta().agent_session_id {
