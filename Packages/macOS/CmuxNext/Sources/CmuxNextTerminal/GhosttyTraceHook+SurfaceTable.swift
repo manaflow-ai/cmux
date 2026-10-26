@@ -17,25 +17,32 @@ extension GhosttyTraceHook {
 
         /// Slots; a power of two.
         let capacity: Int
-        /// Slot `i`'s id at word `2i`, its surface's address at `2i + 1`.
-        nonisolated(unsafe) private let words: UnsafeMutablePointer<UInt64> // crash-allow: one fixed allocation; every access after init is an atomic operation (AtomicPointerSlot)
+        /// The address of the slots' words: slot `i`'s id at word `2i`, its surface's address at `2i + 1`.
+        /// Allocated in `init`, freed in `deinit`; kept as an integer so the class is `Sendable` with no unchecked
+        /// claim (as `LaneStats`); every access goes through ``AtomicPointerSlot``.
+        private let wordsAddress: UInt
 
         /// A table of `capacity` slots (rounded up to a power of two).
         init(capacity: Int) {
             var size = 1
             while size < capacity { size <<= 1 }
             self.capacity = size
-            words = UnsafeMutablePointer<UInt64>.allocate(capacity: 2 * size)
+            let words = UnsafeMutablePointer<UInt64>.allocate(capacity: 2 * size)
             words.initialize(repeating: 0, count: 2 * size)
+            wordsAddress = UInt(bitPattern: words)
         }
 
         deinit {
-            words.deinitialize(count: 2 * capacity)
-            words.deallocate()
+            UnsafeMutablePointer<UInt64>(bitPattern: wordsAddress)?.deallocate()
         }
 
-        private func idWord(_ slot: Int) -> AtomicPointerSlot { AtomicPointerSlot(words + 2 * slot) }
-        private func surfaceWord(_ slot: Int) -> AtomicPointerSlot { AtomicPointerSlot(words + 2 * slot + 1) }
+        /// Word `index`; below `2 * capacity`.
+        private func word(_ index: Int) -> AtomicPointerSlot {
+            AtomicPointerSlot(UnsafeMutablePointer<UInt64>(bitPattern: wordsAddress).unsafelyUnwrapped + index)
+        }
+
+        private func idWord(_ slot: Int) -> AtomicPointerSlot { word(2 * slot) }
+        private func surfaceWord(_ slot: Int) -> AtomicPointerSlot { word(2 * slot + 1) }
         private func home(_ id: UInt64) -> Int { Int(truncatingIfNeeded: id & UInt64(capacity - 1)) }
 
         /// Adds `surface` under `id` (main only; `id` nonzero and not in the table).

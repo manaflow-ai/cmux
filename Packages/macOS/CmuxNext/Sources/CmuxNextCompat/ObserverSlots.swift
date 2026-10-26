@@ -22,22 +22,29 @@ public final class ObserverSlots<Argument>: Sendable {
 
     /// How many observers fit.
     public let capacity: Int
-    /// One word per observer: an ``Entry`` address, 0 while free. Allocated once, never resized.
-    nonisolated(unsafe) private let words: UnsafeMutablePointer<UInt64> // crash-allow: one fixed allocation; every access after init is an atomic operation (AtomicPointerSlot)
+    /// The address of one word per observer (an ``Entry`` address, 0 while free): allocated in `init`, freed in
+    /// `deinit`, never resized. Kept as an integer so the class is `Sendable` with no unchecked claim (as
+    /// `LaneStats`); every access goes through ``AtomicPointerSlot``.
+    private let wordsAddress: UInt
 
     /// Slots for up to `capacity` observers.
     public init(capacity: Int) {
         self.capacity = capacity
-        words = UnsafeMutablePointer<UInt64>.allocate(capacity: capacity)
+        let words = UnsafeMutablePointer<UInt64>.allocate(capacity: capacity)
         words.initialize(repeating: 0, count: capacity)
+        wordsAddress = UInt(bitPattern: words)
     }
 
     deinit {
         for index in 0..<capacity {
             entry(at: index)?.release()
         }
-        words.deinitialize(count: capacity)
-        words.deallocate()
+        UnsafeMutablePointer<UInt64>(bitPattern: wordsAddress)?.deallocate()
+    }
+
+    /// Observer `index`'s word; `index` is below ``capacity``.
+    private func slot(_ index: Int) -> AtomicPointerSlot {
+        AtomicPointerSlot(UnsafeMutablePointer<UInt64>(bitPattern: wordsAddress).unsafelyUnwrapped + index)
     }
 
     /// Adds `observe`, which hears every later ``notify(_:)`` on the notifying thread.
@@ -48,7 +55,7 @@ public final class ObserverSlots<Argument>: Sendable {
         let entry = Unmanaged.passRetained(Entry(observe))
         let address = UInt64(UInt(bitPattern: entry.toOpaque()))
         for index in 0..<capacity
-        where AtomicPointerSlot(words + index).compareExchange(expected: 0, desired: address, ordering: .sequentiallyConsistent).exchanged {
+        where slot(index).compareExchange(expected: 0, desired: address, ordering: .sequentiallyConsistent).exchanged {
             return true
         }
         entry.release()
@@ -63,7 +70,7 @@ public final class ObserverSlots<Argument>: Sendable {
     }
 
     private func entry(at index: Int) -> Unmanaged<Entry>? {
-        let address = AtomicPointerSlot(words + index).load(ordering: .sequentiallyConsistent)
+        let address = slot(index).load(ordering: .sequentiallyConsistent)
         return UnsafeRawPointer(bitPattern: UInt(address)).map { Unmanaged<Entry>.fromOpaque($0) }
     }
 }

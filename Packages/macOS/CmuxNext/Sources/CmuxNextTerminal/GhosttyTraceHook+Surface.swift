@@ -19,23 +19,30 @@ extension GhosttyTraceHook {
         private let markedContents = Atomic<UInt64>(0)
         /// Every frame below this seq finished its GPU work (one command queue: frames complete in order).
         private let gpuDoneBelow = Atomic<UInt64>(0)
-        /// Wait `i`'s flow at word `2i` (0: free, ``claimed`` while held without its seq), its frame at `2i + 1`.
-        nonisolated(unsafe) private let gpuWaits: UnsafeMutablePointer<UInt64> // crash-allow: one fixed allocation; every access after init is an atomic operation (AtomicPointerSlot)
+        /// The address of the waits' words: wait `i`'s flow at word `2i` (0: free, ``claimed`` while held without
+        /// its seq), its frame at `2i + 1`. Allocated in `init`, freed in `deinit`; kept as an integer so the class
+        /// is `Sendable` with no unchecked claim (as `LaneStats`); every access goes through ``AtomicPointerSlot``.
+        private let gpuWaitsAddress: UInt
 
         init(key: TypingLatencyProbe.SurfaceKey, echoStage: TerminalEchoStage?) {
             self.key = key
             self.echoStage = echoStage
-            gpuWaits = UnsafeMutablePointer<UInt64>.allocate(capacity: 2 * Self.gpuWaitCapacity)
-            gpuWaits.initialize(repeating: 0, count: 2 * Self.gpuWaitCapacity)
+            let words = UnsafeMutablePointer<UInt64>.allocate(capacity: 2 * Self.gpuWaitCapacity)
+            words.initialize(repeating: 0, count: 2 * Self.gpuWaitCapacity)
+            gpuWaitsAddress = UInt(bitPattern: words)
         }
 
         deinit {
-            gpuWaits.deinitialize(count: 2 * Self.gpuWaitCapacity)
-            gpuWaits.deallocate()
+            UnsafeMutablePointer<UInt64>(bitPattern: gpuWaitsAddress)?.deallocate()
         }
 
-        private func flowWord(_ wait: Int) -> AtomicPointerSlot { AtomicPointerSlot(gpuWaits + 2 * wait) }
-        private func seqWord(_ wait: Int) -> AtomicPointerSlot { AtomicPointerSlot(gpuWaits + 2 * wait + 1) }
+        /// Word `index` of the waits; below `2 * gpuWaitCapacity`.
+        private func word(_ index: Int) -> AtomicPointerSlot {
+            AtomicPointerSlot(UnsafeMutablePointer<UInt64>(bitPattern: gpuWaitsAddress).unsafelyUnwrapped + index)
+        }
+
+        private func flowWord(_ wait: Int) -> AtomicPointerSlot { word(2 * wait) }
+        private func seqWord(_ wait: Int) -> AtomicPointerSlot { word(2 * wait + 1) }
 
         /// Whether `seq` is a frame newer than every frame marked so far, and marks it: a host-size change can
         /// report one frame twice, and only its first report counts.
