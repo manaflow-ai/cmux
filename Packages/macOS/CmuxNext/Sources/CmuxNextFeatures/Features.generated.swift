@@ -694,6 +694,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Sentry starts at launch with every integration as before (crash handlers, sessions, network breadcrumbs), but its app-hang reports stay paused until startup completes; the main-thread watchdog reports launch hangs.
+    public static let sentryHandlersFirst = Feature(
+        index: 39,
+        name: "sentryHandlersFirst",
+        owner: "Performance Lead",
+        description: "Sentry starts at launch with every integration as before (crash handlers, sessions, network breadcrumbs), but its app-hang reports stay paused until startup completes; the main-thread watchdog reports launch hangs.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["launch-cold", "launch-warm"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// The sidebar keeps only the workspace rows on screen observed, and maps a row that changed off screen once when it scrolls back near (at once when it comes on screen).
     public static let sidebarRowsNearViewport = Feature(
         index: 40,
@@ -915,6 +932,7 @@ nonisolated extension Feature {
         .recentlyAudibleProtection,
         .renderStarvationGuard,
         .rendererlessSpareWindow,
+        .sentryHandlersFirst,
         .sidebarRowsNearViewport,
         .stripPanResampling,
         .taskManagerMemorySaved,
@@ -969,6 +987,7 @@ nonisolated extension Feature {
         .recentlyAudibleProtection,
         .renderStarvationGuard,
         .rendererlessSpareWindow,
+        .sentryHandlersFirst,
         .sidebarRowsNearViewport,
         .stripPanResampling,
         .taskManagerMemorySaved,
