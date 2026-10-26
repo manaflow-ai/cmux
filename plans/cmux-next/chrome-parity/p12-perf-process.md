@@ -221,6 +221,7 @@ Code lives in `scripts/perf-lab/`. The design doc is `plans/cmux-next/perf-lab-D
 - Checkpoint digests must be identical across 2 replays.
 - Stories: agent-swarm, dev-loop, browse-heavy, stress-recorded, launch-restore, long-day-soak (T2).
 - No user data. The recorder refuses a non-bench bundle id and refuses when `CMUX_NEXT_INPUT_JOURNAL_CHARACTERS` is set. The manifest validator rejects text payloads.
+- Window hook (task 115 provides it; story main-turn, task 032, uses it): `play.py` exposes `replay(manifest, *, app, out, window=None)`. When `window` is given, the player calls `window(bench)` with the replay's BenchApp and runs its measured replay inside the returned context manager, entering it right before the measured replay and leaving it right after. The BenchApp's out folder is under `out`, so its `host-env-full-<pid>.json` reaches the story's run folder.
 
 ### 3.9 Features, remote overrides, safe mode (base::Feature plus Finch)
 

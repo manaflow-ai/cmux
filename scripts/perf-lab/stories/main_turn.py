@@ -17,21 +17,31 @@ input queueing is the queue part of Chrome's kQueueAndExecution
 Legs:
   storm         trace.py's stress-storm scenario (STRESS, a CLI storm at 10/s, keys every 0.12 s, action chords),
                 in this process with no profiler (no xctrace, no `sample`, no Chromium trace: a profiler stops
-                the main thread and would lengthen the turns it measures). The histograms are read at the start
-                and the end of trace.py's measured window. Metrics main_turn.* (target `main-turn`) and
-                input_queue.*.
+                the main thread and would lengthen the turns it measures). The watchdog's hang threshold stays at
+                its 1 s ceiling, so its stack sampler (thread_suspend of the main thread) never runs on a turn in
+                the measured range. The histograms are read at the start and the end of trace.py's measured
+                window. A window that is not the STRESS storm (a shape error, a storm that sent nothing, an
+                invalid Chromium, a window that was not key) stores nothing. Metrics main_turn.* (target
+                `main-turn`) and input_queue.*.
   corpus:<id>   each recorded-session corpus story (perf-corpus/<id>.json, task 110; T2 soaks excluded), replayed
-                by scripts/perf-lab/corpus/play.py (task 115) through its window hook:
-                `play.replay(manifest, app=APP, out=DIR, window=W)` calls `W(bench)` for a context manager and
-                runs its measured replay inside it. Metrics corpus.<id>.main_turn.* and corpus.<id>.input_queue.*.
-                A checkout without the corpus or its player has no corpus legs; that is said, not a failure.
+                by scripts/perf-lab/corpus/play.py (task 115) through the window hook that p12-perf-process.md 3.8
+                records for it: `play.replay(manifest, app=APP, out=DIR, window=W)` calls `W(bench)` for a
+                context manager and runs its measured replay inside it. Metrics corpus.<id>.main_turn.* and
+                corpus.<id>.input_queue.*. A checkout without the corpus or its player measures no corpus leg:
+                the summary says `corpus.measured: false` with the reason, and the story exits 1.
 
 Results: one result-v1 file per leg in --out (BenchApp.record fills build, host and features), each result with
-the leg's histogram attachment (kind `histogram`: the before, after and window counts and every interval), stored
-content-addressed as --out/attachments/sha256-<hex>.json. main-turn-summary.json says what each leg measured.
+the leg's histogram attachment (kind `histogram`: the before, after and window counts and every interval). The
+blob is uploaded to the lab's R2 bucket, content-addressed as trace_quest.py stores traces, at
+`perf-lab/attachments/sha256/<hex>.json` (`attachment_key`), so the digest resolves after ingest; a copy stays
+at --out/attachments/sha256-<hex>.json. R2 is configured as for trace_quest.py (CMUX_PERF_LAB_R2_*); without it
+the story measures nothing (exit 1). Each launched app's full host validation (`host-env-full-<pid>.json`,
+bench_launch.validate_lab_host) is copied under --out for the runner. main-turn-summary.json says what each leg
+measured.
 
-A build without `turn_histogram` (before task 031) is not measurable: the story refuses before the STRESS build
-with that reason (exit 4), and stores nothing. The catalog's `needs` names `debug.hangs` for the capability check.
+A build without `turn_histogram` (before task 031) is not measurable. The catalog's `needs` names the file task
+031 adds, so the lab never schedules such a build; the script refuses one before the STRESS build as a backstop
+(exit 4) and stores nothing.
 
 Usage (the story runner appends --app, --tag and --out):
   python3 -I scripts/perf-lab/stories/main_turn.py --app APP --tag TAG --out DIR [--legs storm,corpus]
@@ -45,6 +55,7 @@ import dataclasses
 import glob
 import hashlib
 import importlib.util
+import inspect
 import json
 import math
 import os
@@ -62,6 +73,7 @@ CMUX_NEXT = os.path.join(ROOT, "scripts", "cmux-next")
 TRACE = os.path.join(CMUX_NEXT, "trace.py")
 BENCH_LAUNCH = os.path.join(CMUX_NEXT, "bench_launch.py")
 PERF_RESULT = os.path.join(PERF_LAB, "perf_result.py")
+TRACE_QUEST = os.path.join(PERF_LAB, "trace_quest.py")
 
 STORY = "main-turn"
 ENGINE = "none"
@@ -71,6 +83,13 @@ QUANTILES = (("p50", Fraction(50, 100)), ("p95", Fraction(95, 100)), ("p99", Fra
 TARGETS = {"main_turn.p99": "main-turn"}  # targets.json ids; only the storm leg claims a target row
 ATTACHMENT_KIND = "histogram"
 ATTACHMENT_SCHEMA = "cmux-turn-histogram/v1"
+ATTACHMENT_PREFIX = "perf-lab/attachments/sha256/"  # R2 keys of story attachments (trace_quest.py owns traces/)
+# MainThreadWatchdog clamps CMUX_NEXT_HANG_THRESHOLD_MS to 4..1000 and samples the main thread's stack (suspending
+# it) on every stall past the threshold: at the ceiling only a 1 s stall, 250x the target, is ever sampled.
+HANG_MS = 1000
+# bench_launch.LAB_CHECK_PREFIX (task 008): BenchApp's full host validation after launch, which run_story.py needs
+# under the run folder for the run's results to be stored.
+HOST_CHECK_GLOB = "host-env-full-*.json"
 # trace.py stages before and including the measured window: an error in one means the window is not STRESS under
 # the storm, so its numbers are not stored. Errors after it (the stop, the export, the build) do not touch them.
 MEASURED_STAGES = ("preflight", "launch", "stress-build", "storm-setup", "recorders-start", "window")
@@ -260,9 +279,22 @@ def leg_intervals(leg: Leg, deltas: Dict[str, Histogram]) -> Dict[str, Tuple[flo
     return intervals
 
 
-def write_attachment(out: str, leg: Leg, window: TurnWindow, deltas: Dict[str, Histogram],
+def attachment_key(digest: str) -> str:
+    """The R2 key of a `sha256:<hex>` attachment digest (the digest of the stored bytes)."""
+    if not digest.startswith("sha256:") or len(digest) != 71:
+        raise ValueError(f"{digest!r} is not sha256:<64 hex>")
+    return f"{ATTACHMENT_PREFIX}{digest[7:]}.json"
+
+
+def attachment_store():
+    """The lab's R2 bucket (trace_quest.R2BlobStore from CMUX_PERF_LAB_R2_*); raises when it is not configured."""
+    return load_by_path("perf_lab_trace_quest", TRACE_QUEST).R2BlobStore.from_env()
+
+
+def write_attachment(out: str, blobs, leg: Leg, window: TurnWindow, deltas: Dict[str, Histogram],
                      intervals: Dict[str, Tuple[float, float]]) -> str:
-    """Writes the leg's histogram blob under out/attachments/ named by its sha256; returns `sha256:<hex>`."""
+    """Uploads the leg's histogram blob to `blobs` by its sha256 (attachment_key) and keeps a copy under
+    out/attachments/; returns `sha256:<hex>`."""
     edges = next(iter(deltas.values())).edges_ms
     doc = {"schema": ATTACHMENT_SCHEMA, "story": STORY, "leg": leg.name, "session": leg.session,
            "edges_ms": list(edges),
@@ -271,25 +303,26 @@ def write_attachment(out: str, leg: Leg, window: TurnWindow, deltas: Dict[str, H
            "window": {key: deltas[key].to_dict() for _, key in HISTOGRAMS},
            "intervals_ms": {metric: list(bounds) for metric, bounds in sorted(intervals.items())}}
     data = (json.dumps(doc, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode()
-    digest = hashlib.sha256(data).hexdigest()
+    digest = f"sha256:{hashlib.sha256(data).hexdigest()}"
+    blobs.put(attachment_key(digest), data, "application/json")
     folder = os.path.join(out, "attachments")
     os.makedirs(folder, exist_ok=True)
-    path = os.path.join(folder, f"sha256-{digest}.json")
+    path = os.path.join(folder, f"sha256-{digest[7:]}.json")
     if not os.path.exists(path):
         temporary = path + ".tmp"
         with open(temporary, "wb") as f:
             f.write(data)
         os.replace(temporary, path)
-    return f"sha256:{digest}"
+    return digest
 
 
-def record_leg(bench, writer, leg: Leg, window: TurnWindow, out: str, config: Optional[str]) -> None:
+def record_leg(bench, writer, blobs, leg: Leg, window: TurnWindow, out: str, config: Optional[str]) -> None:
     """Writes the leg's results into `out`: BenchApp.record stages each result (it fills build, host and
     features), then the leg's results are written again as one file with the histogram attachment, as
     trace_quest.with_traces adds trace attachments; the staged files are removed."""
     deltas = window.deltas()
     intervals = leg_intervals(leg, deltas)
-    digest = write_attachment(out, leg, window, deltas, intervals)
+    digest = write_attachment(out, blobs, leg, window, deltas, intervals)
     bench.perf_session = leg.session
     if config:
         bench.build_config = config
@@ -336,42 +369,65 @@ def storm_recording(trace):
 
 def trace_options(app: str, out: str, seconds: float):
     """trace.py `record --app APP --scenario stress-storm` options with no profiler: `recorder` is set to
-    `none` on the Recording (neither xctrace nor sample starts), and no Chromium DevTools trace."""
+    `none` on the Recording (neither xctrace nor sample starts), no Chromium DevTools trace, and the watchdog's
+    hang threshold at its ceiling (HANG_MS), so its stack sampler stays out of the measured turns."""
     return argparse.Namespace(app=app, bundle=None, socket=None, out=out, scenario="stress-storm", seconds=seconds,
                               seconds_cap=600, recorder="none", system_trace=False, no_cef=True, cdp_port=0,
-                              hang_ms=8, storm_hz=10, key_interval=0.12, chord_every=10, keep=False,
+                              hang_ms=HANG_MS, storm_hz=10, key_interval=0.12, chord_every=10, keep=False,
                               keep_recording=False, command=[])
 
 
+def storm_meta(topts, bundle: str) -> dict:
+    """The meta trace.record() starts a run with, for these options."""
+    return {"host": os.uname().nodename, "macos": _macos_version(), "bundle": bundle, "scenario": topts.scenario,
+            "seconds": topts.seconds, "argv": sys.argv[1:], "recorder": topts.recorder, "sources": {},
+            "warnings": []}
+
+
 def measured_stage_problems(meta: dict) -> List[str]:
-    """Why trace.py's window is not the STRESS storm: an error or a passed bound in a stage up to the window, or a
-    window that was not key."""
+    """Why trace.py's window is not the STRESS storm: an error or a passed bound in a stage up to the window, a
+    session that missed the STRESS shape, a storm that had no target or sent nothing, an invalid Chromium, or a
+    window that was not key. trace.py only warns about the last four; its trace still answers "why did this lag",
+    but these numbers would be labelled STRESS."""
     problems = [f"{e.get('stage')}: {e.get('error')}" for e in meta.get("errors") or []
                 if e.get("stage") in MEASURED_STAGES]
     problems += [f"{stage}: passed its bound" for stage in meta.get("timed_out") or [] if stage in MEASURED_STAGES]
+    stress = meta.get("stress")
+    if not isinstance(stress, dict):
+        problems.append("no STRESS session was built")
+    elif stress.get("shape_error"):
+        problems.append(f"not the STRESS shape: {stress['shape_error']}")
+    if not (meta.get("storm_targets") or {}).get("workspaces"):
+        problems.append("the CLI storm had no target workspace")
+    if not sum((meta.get("storm_ops") or {}).values()):
+        problems.append("the CLI storm sent no op in the window")
+    cef = meta.get("cef")
+    if isinstance(cef, dict) and not cef.get("valid"):
+        problems.append(f"Chromium is not valid for a measurement: {'; '.join(cef.get('problems') or [])}")
     if str(meta.get("scenario_label") or "").endswith("-inactive"):
         problems.append("the app's window was not key (a GUI job took it): not a person's turns")
     return problems
 
 
-def run_storm(opts, work: str, writer) -> Tuple[Leg, Optional[int]]:
-    """The storm leg; returns it and the exit code of a signal that ended trace.py's run (else None)."""
+def run_storm(opts, work: str, writer, blobs) -> Tuple[Leg, Optional[int]]:
+    """The storm leg; returns it and the exit code of a signal that ended trace.py's run (else None). A failure
+    is the leg's reason; only NotMeasurable leaves (the build has no histogram: the story refuses)."""
     leg = Leg(name="storm", session="stress", metric_prefix="")
-    trace = load_by_path("cmux_next_trace", TRACE)
     trace_dir = tempfile.mkdtemp(prefix="main-turn-storm-", dir=work)
-    topts = trace_options(opts.app, trace_dir, opts.seconds)
-    bundle = os.path.realpath(opts.app).rstrip("/")
-    meta = {"host": os.uname().nodename, "macos": _macos_version(), "bundle": bundle, "scenario": topts.scenario,
-            "seconds": topts.seconds, "argv": sys.argv[1:], "recorder": topts.recorder, "sources": {},
-            "warnings": []}
-    recording = storm_recording(trace)(topts, trace_dir, meta, trace.Stages(meta), bundle, topts.recorder)
-    recording.record()
-    _keep_trace(trace_dir, os.path.join(opts.out, "storm-trace"))
-    if recording.terminated is not None:
-        leg.reason = f"stopped by a signal (exit {recording.terminated})"
-        return leg, recording.terminated
-    window = recording.turns
     try:
+        trace = load_by_path("cmux_next_trace", TRACE)
+        topts = trace_options(opts.app, trace_dir, opts.seconds)
+        bundle = os.path.realpath(opts.app).rstrip("/")
+        meta = storm_meta(topts, bundle)
+        recording = storm_recording(trace)(topts, trace_dir, meta, trace.Stages(meta), bundle, topts.recorder)
+        try:
+            recording.record()
+        finally:
+            _keep_files(trace_dir, os.path.join(opts.out, "storm-trace"))
+        if recording.terminated is not None:
+            leg.reason = f"stopped by a signal (exit {recording.terminated})"
+            return leg, recording.terminated
+        window = recording.turns
         if window is not None and window.error is not None:
             raise window.error
         problems = measured_stage_problems(meta)
@@ -379,9 +435,13 @@ def run_storm(opts, work: str, writer) -> Tuple[Leg, Optional[int]]:
             raise LegError("; ".join(problems)[:600])
         if window is None:
             raise LegError("trace.py never reached its measured window")
-        record_leg(recording.app.bench, writer, leg, window, opts.out, opts.config)
+        record_leg(recording.app.bench, writer, blobs, leg, window, opts.out, opts.config)
+    except NotMeasurable:
+        raise
     except LegError as error:
         leg.reason = str(error)
+    except Exception as error:  # noqa: BLE001 - the leg's reason; the other legs and the summary still run
+        leg.reason = f"{type(error).__name__}: {error}"[:600]
     return leg, None
 
 
@@ -411,8 +471,19 @@ def corpus_manifests(root: str, wanted: str) -> List[Tuple[str, str]]:
     return picked
 
 
-def run_corpus(play, story_id: str, manifest: str, opts, work: str, writer) -> Leg:
-    """One corpus leg: play.replay with a window hook that opens a TurnWindow on the replay's BenchApp."""
+def takes_window(replay) -> bool:
+    """Whether `replay` takes the `window=` hook (p12-perf-process.md 3.8) as a keyword."""
+    try:
+        parameters = inspect.signature(replay).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any((p.name == "window" and p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY))
+               or p.kind is p.VAR_KEYWORD for p in parameters)
+
+
+def run_corpus(play, story_id: str, manifest: str, opts, work: str, writer, blobs) -> Leg:
+    """One corpus leg: play.replay with a window hook that opens a TurnWindow on the replay's BenchApp. A failure
+    is the leg's reason; only NotMeasurable leaves."""
     leg = Leg(name=f"corpus:{story_id}", session=f"corpus:{story_id}", metric_prefix=f"corpus.{story_id}.")
     opened: Dict[str, object] = {}
 
@@ -420,34 +491,47 @@ def run_corpus(play, story_id: str, manifest: str, opts, work: str, writer) -> L
         opened["bench"], opened["window"] = bench, TurnWindow(bench.rpc)
         return opened["window"]
 
+    replay_out = tempfile.mkdtemp(prefix=f"main-turn-{story_id}-", dir=work)
     try:
-        if not callable(getattr(play, "replay", None)):
-            raise LegError("scripts/perf-lab/corpus/play.py has no replay(manifest, app=, out=, window=) hook")
-        play.replay(manifest, app=opts.app, out=tempfile.mkdtemp(prefix=f"main-turn-{story_id}-", dir=work),
-                    window=window)
+        replay = getattr(play, "replay", None)
+        if not callable(replay) or not takes_window(replay):
+            raise LegError("scripts/perf-lab/corpus/play.py has no replay(manifest, app=, out=, window=) hook "
+                           "(p12-perf-process.md 3.8)")
+        try:
+            replay(manifest, app=opts.app, out=replay_out, window=window)
+        finally:
+            _keep_files(replay_out, os.path.join(opts.out, f"corpus-{story_id}"), names=())
         if "window" not in opened:
             raise LegError("the replay never opened its measured window")
-        record_leg(opened["bench"], writer, leg, opened["window"], opts.out, opts.config)
+        record_leg(opened["bench"], writer, blobs, leg, opened["window"], opts.out, opts.config)
+    except NotMeasurable:
+        raise
     except LegError as error:
         leg.reason = str(error)
+    except Exception as error:  # noqa: BLE001 - the leg's reason; the other legs and the summary still run
+        leg.reason = f"{type(error).__name__}: {error}"[:600]
     return leg
 
 
-def corpus_legs(opts, work: str, writer, root: str = ROOT) -> Tuple[List[Leg], List[str]]:
-    """The corpus legs, and notes for a checkout that has no corpus or no player (not failures)."""
+def corpus_legs(opts, work: str, writer, blobs, root: str = ROOT) -> Tuple[List[Leg], Optional[str]]:
+    """The corpus legs, or none and why the corpus half of the story was not measured (no corpus, no player)."""
     if not os.path.isdir(os.path.join(root, "perf-corpus")):
-        return [], ["no perf-corpus/ in this checkout (p12-perf-process-110): no corpus legs"]
+        return [], "no perf-corpus/ in this checkout (p12-perf-process-110)"
     try:
         manifests = corpus_manifests(root, opts.corpus)
     except LegError as error:
-        return [Leg(name="corpus", session="corpus:none", metric_prefix="", reason=str(error))], []
+        return [Leg(name="corpus", session="corpus:none", metric_prefix="", reason=str(error))], None
     if not manifests:
-        return [], ["perf-corpus/ has no manifest to replay"]
+        return [], "perf-corpus/ has no manifest to replay"
     play_path = os.path.join(root, "scripts", "perf-lab", "corpus", "play.py")
     if not os.path.isfile(play_path):
-        return [], ["no scripts/perf-lab/corpus/play.py (p12-perf-process-115): corpus manifests not replayed"]
-    play = load_by_path("perf_lab_corpus_play", play_path)
-    return [run_corpus(play, story_id, path, opts, work, writer) for story_id, path in manifests], []
+        return [], "no scripts/perf-lab/corpus/play.py (p12-perf-process-115)"
+    try:
+        play = load_by_path("perf_lab_corpus_play", play_path)
+    except Exception as error:  # noqa: BLE001 - a player that does not load fails the corpus half, not the story
+        return [Leg(name="corpus", session="corpus:none", metric_prefix="",
+                    reason=f"play.py does not load: {type(error).__name__}: {error}"[:600])], None
+    return [run_corpus(play, story_id, path, opts, work, writer, blobs) for story_id, path in manifests], None
 
 
 # ---------------------------------------------------------------- main
@@ -472,46 +556,57 @@ def parse_args(argv: Optional[Sequence[str]]):
     return opts
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Optional[Sequence[str]] = None, blobs=None) -> int:
     opts = parse_args(argv)
     opts.out = os.path.abspath(opts.out)
     os.makedirs(opts.out, exist_ok=True)
     load_by_path("bench_launch", BENCH_LAUNCH)  # the one copy trace.py, play.py and BenchApp.record share
     writer = load_by_path("perf_result", PERF_RESULT)
+    if blobs is None:
+        try:
+            blobs = attachment_store()
+        except Exception as error:  # noqa: BLE001 - not configured: said, and nothing is launched
+            reason = f"the histogram attachments cannot be published: {type(error).__name__}: {error}"[:600]
+            write_summary(opts.out, {"story": STORY, "refusal": None, "legs": [], "corpus": None, "error": reason,
+                                     "exit": EXIT_FAILED})
+            print(f"main-turn: FAILED: {reason}", file=sys.stderr)
+            return EXIT_FAILED
     work = tempfile.mkdtemp(prefix="main-turn-")
     legs: List[Leg] = []
-    notes: List[str] = []
+    corpus = None
     signalled = None
-    code = EXIT_OK
     try:
         if "storm" in opts.legs:
             try:
-                leg, signalled = run_storm(opts, work, writer)
+                leg, signalled = run_storm(opts, work, writer, blobs)
                 legs.append(leg)
             except NotMeasurable as error:
                 return refuse(opts.out, str(error))
         if "corpus" in opts.legs and signalled is None:
             try:
-                corpus, notes = corpus_legs(opts, work, writer)
+                ran, unmeasured = corpus_legs(opts, work, writer, blobs)
             except NotMeasurable as error:
                 return refuse(opts.out, str(error))
-            legs += corpus
+            legs += ran
+            corpus = {"measured": unmeasured is None, "reason": unmeasured}
     finally:
         shutil.rmtree(work, ignore_errors=True)
     if signalled is not None:
         code = signalled
-    elif any(not leg.ok for leg in legs) or not legs:
+    elif any(not leg.ok for leg in legs) or not legs or (corpus is not None and not corpus["measured"]):
         code = EXIT_FAILED
+    else:
+        code = EXIT_OK
     write_summary(opts.out, {"story": STORY, "refusal": None, "legs": [leg.summary() for leg in legs],
-                             "notes": notes, "exit": code})
+                             "corpus": corpus, "exit": code})
     for leg in legs:
         shown = ", ".join(f"{m} {lo:.3g}..{hi:.3g} ms" for m, (lo, hi) in leg.intervals.items() if m.endswith("p99"))
         print(f"main-turn: {leg.name}: " + (f"ok ({shown}; turns {leg.counts})" if leg.ok else f"FAILED: {leg.reason}"))
         for line in leg.notes:
             print(f"main-turn: {leg.name}: {line}")
-    for line in notes:
-        print(f"main-turn: {line}")
-    if not legs:
+    if corpus is not None and not corpus["measured"]:
+        print(f"main-turn: corpus: FAILED: not measured: {corpus['reason']}", file=sys.stderr)
+    if not legs and signalled is None:
         print("main-turn: FAILED: no leg ran", file=sys.stderr)
     return code
 
@@ -519,7 +614,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 def refuse(out: str, reason: str) -> int:
     """Not measurable: nothing stored, one reason line (stderr and the summary)."""
     write_summary(out, {"story": STORY, "refusal": {"kind": "not-measurable", "reason": reason}, "legs": [],
-                        "notes": [], "exit": EXIT_NOT_MEASURABLE})
+                        "corpus": None, "exit": EXIT_NOT_MEASURABLE})
     print(f"main-turn: not-measurable: {reason}", file=sys.stderr)
     return EXIT_NOT_MEASURABLE
 
@@ -530,14 +625,15 @@ def write_summary(out: str, summary: dict) -> None:
         f.write("\n")
 
 
-def _keep_trace(trace_dir: str, dest: str) -> None:
-    """Copies trace.py's timeline and summary into the run folder (no *.ndjson: the runner reads those as
-    results)."""
+def _keep_files(source: str, dest: str, names: Sequence[str] = TRACE_KEEP) -> None:
+    """Copies `names` from `source` and every launched app's full host validation (HOST_CHECK_GLOB, anywhere
+    under `source`) into `dest` in the run folder. No *.ndjson: the runner reads those as results."""
     os.makedirs(dest, exist_ok=True)
-    for name in TRACE_KEEP:
-        source = os.path.join(trace_dir, name)
-        if os.path.isfile(source):
-            shutil.copy2(source, os.path.join(dest, name))
+    paths = [os.path.join(source, name) for name in names]
+    paths += sorted(glob.glob(os.path.join(source, "**", HOST_CHECK_GLOB), recursive=True))
+    for path in paths:
+        if os.path.isfile(path):
+            shutil.copy2(path, os.path.join(dest, os.path.basename(path)))
 
 
 def _macos_version() -> str:
