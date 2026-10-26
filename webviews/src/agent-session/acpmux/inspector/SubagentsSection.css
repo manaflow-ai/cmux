@@ -1,0 +1,20 @@
+/* A few completed agents beside the count, as in the Codex Session Info reference.
+   The row opens the named list; the decorative preview never adds motion or separate targets. */
+.acpmux-chat-inspector-subagents__avatars {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  flex: none;
+}
+
+.acpmux-chat-inspector-subagents__avatars .cv-subagent-avatar {
+  width: var(--ds-control-icon);
+  height: var(--ds-control-icon);
+  background: none;
+  box-shadow: none;
+  color: var(--agent-tone-ink);
+}
+
+.acpmux-chat-inspector-subagents__avatars .agent-mark {
+  fill: currentColor;
+}

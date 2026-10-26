@@ -58,6 +58,12 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     let rightSidebar: RightSidebarModel
     /// Its view, made the first time it shows.
     var rightSidebarView: RightSidebarView?
+    /// A fullscreen page that has the whole screen (`WindowController+FullScreen`).
+    var pagePresentation: BrowserPagePresentation?
+    /// A full screen enter is under way (AppKit ignores a toggle until it ends).
+    var isEnteringFullScreen = false
+    /// The page that entered full screen left during the enter: the window leaves once it ends.
+    var pageFullScreenExitPending = false
     /// This window's top pages (TOP-SECTION-ITEMS-ARE-PAGES), one view per route.
     private(set) lazy var topPages = TopPageHost(services: services)
 
@@ -248,6 +254,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state)
         }
         content = controller
+        // Panes pan and spring per display frame: shortcut chips over them follow.
+        controller.layoutView.onFramePlaced = { [weak self] in self?.shortcutHints?.scrollDidChange() }
         // One synchronous swap: the old view leaves (its panes stay mounted, paused) and the new
         // one draws in the same frame, its sidebar row already listed (a listed one pays no walk of every row) and selected.
         DebugWorkspaceSwitch.kind(self, controller === kept ? "warm" : "cold")
@@ -283,6 +291,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         services.canvasContextDidChange()
         services.windows.contentDidAppear(self)
         DebugWorkspaceSwitch.shown(self, in: window)
+        revalidatePagePresentation()
     }
 
     var focusedPane: PaneController? { content?.focusedPane }
@@ -293,6 +302,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if let current = content { park(current) }
         content = nil
         arrangeOnScreen()
+        revalidatePagePresentation()
     }
 
     // MARK: NSWindowDelegate
@@ -348,13 +358,16 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private var closeMotion: WindowCloseMotion?
 
     /// Starts the person's close as a fade of the whole window; false when it closes now (Reduce
-    /// Motion, not on screen, or a second close while it fades).
+    /// Motion, not on screen, a second close while it fades, or the launch restore still runs).
     private func fadeOutThenClose(_ window: NSWindow) -> Bool {
         if let closeMotion {
             closeMotion.finish()
             return true
         }
-        guard WindowCloseMotion.fades(window) else { return false }
+        // Before the restore finished the close lands at once: a fade could outlive the restore,
+        // which would then not know the window was closed and open it again.
+        let windows = services.windows
+        guard windows.restored, !windows.restoring, WindowCloseMotion.fades(window) else { return false }
         let motion = WindowCloseMotion(window: window) { [weak window] in window?.close() }
         closeMotion = motion
         let next = NSApp.orderedWindows.first { $0 !== window && $0 is ShellWindow && $0.isVisible && !$0.isMiniaturized }
@@ -363,6 +376,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        pagePresentation = nil
         services.keyRouter.cancelChord()
         removeHistoryObserver()
         services.windows.windowWillClose(self)
