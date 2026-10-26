@@ -278,6 +278,7 @@ export function EnvironmentPicker({
           data-section={first ? t("composer.runAs") : undefined}
           data-first-section={first ? "" : undefined}
           data-current={runMode?.mode === mode ? "" : undefined}
+          aria-current={runMode?.mode === mode ? "true" : undefined}
         >
           <EnvironmentIcon kind={mode === "sandboxed" ? "cloud" : "local"} />
           <span className="acpmux-menu-text acpmux-location-name">
@@ -393,7 +394,7 @@ export function EnvironmentPicker({
         ref={trigger}
         type="button"
         className="acpmux-location-button ui-ghost ui-ghost-sm"
-        aria-label={label + ": " + value}
+        aria-label={label + ": " + value + (runMode?.mode === "sandboxed" ? ", " + t("composer.sandboxed") : "")}
         aria-haspopup="dialog"
         aria-expanded={open}
         {...press}
@@ -442,7 +443,7 @@ export function EnvironmentPicker({
           autoHighlight
           inline
         />
-        {query.trim() !== "" && shown.length === 0 && savedShown.length === 0 && (
+        {query.trim() !== "" && shown.length === 0 && savedShown.length === 0 && modes.length === 0 && (
           <div className="acpmux-location-empty">{t("composer.environmentNone")}</div>
         )}
       </Popover>

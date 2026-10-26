@@ -5760,10 +5760,10 @@ function AcpmuxPane() {
   /// composer, so nothing here can start a chat over it or send a second.
   const sandboxHoldsChat = !snapshot.sessionId && sandboxView !== undefined && !sandboxRetryable(sandboxView);
   const sandboxing = sandboxOffered && !sandbox.spent() && sandbox.mode === "sandboxed";
-  /// Sandboxed is picked but can't run now (Labs went off, a chat is starting or being opened): a
-  /// send then is refused, never sent as a Persistent chat instead.
-  const sandboxPickedNotOffered =
-    sandbox.mode === "sandboxed" && !snapshot.sessionId && !sandboxing && !sandbox.spent();
+  /// Sandboxed is picked but can't run now (Labs went off, a chat is starting or being opened, the
+  /// tab's one send is used): a send then is refused, never sent as a Persistent chat instead.
+  const sandboxPickedNotOffered = sandbox.mode === "sandboxed" && !snapshot.sessionId && !sandboxing;
+  const sandboxNotNow = sandbox.spent() ? "sandbox_spent" : preview ? "unavailable_now" : "labs_off";
   const sandboxModeRows = { mode: sandbox.mode, onMode: (mode: RunMode) => sandbox.setMode(mode) };
   /// A Sandboxed send: text only, by an agent a sandbox runs. A page-side refusal comes back as its
   /// code (the prompt stays where it was typed); false: nothing was sent.
@@ -8166,12 +8166,12 @@ function AcpmuxPane() {
   // chat view's error card with Retry shows, as before.
   const showNewTab =
     newTab !== undefined &&
-    // The tab's Sandboxed result, or a host that couldn't be read, shows in the chat view
-    // (SandboxRunView, or the notice with Check again). So does a draft a Sandboxed refusal moved
-    // from the New Tab page into the chat composer: going back would remount the page without it.
+    // The tab's Sandboxed result shows in the chat view (SandboxRunView). So does a draft a
+    // Sandboxed refusal moved from the New Tab page into the chat composer: going back would remount
+    // the page without it. A host that couldn't be read leaves the page as it is (its draft with it):
+    // Sandboxed isn't offered until a read answers, and the chat view offers Check again.
     sandboxView === undefined &&
     !sandboxDraftMoved &&
-    sandbox.host.kind !== "unknown" &&
     (sessionSelection?.state === "pending" || !snapshot.sessionId) &&
     snapshot.rows.length === 0 &&
     (handshaken || hostError === undefined);
@@ -8993,10 +8993,11 @@ function AcpmuxPane() {
             onSend={(text, chips, steer) => {
               // A Sandboxed new chat (preview): the message runs once on a throwaway VM, through the
               // host, and the chat shows its receipt; no acpmux chat starts.
-              // While the tab's run holds the chat nothing else sends (the composer keeps the prompt).
-              if (sandboxHoldsChat) return false;
+              // While the tab's run holds the chat nothing else sends as Sandboxed (the composer keeps
+              // the prompt); a composer kept for a refused draft sends as Persistent once picked.
+              if (sandboxHoldsChat && !sandboxDraftMoved) return false;
               if (sandboxPickedNotOffered) {
-                sandbox.refuse(text, preview ? "unavailable_now" : "labs_off");
+                sandbox.refuse(text, sandboxNotNow);
                 return false;
               }
               if (sandboxing) {
@@ -9490,9 +9491,7 @@ function AcpmuxPane() {
                     // the prompt and attachments put back in its composer.
                     onSandbox: (harness: string, text: string, attachments: ComposerAttachment[]) => {
                       const started = sandboxPickedNotOffered
-                        ? preview
-                          ? "unavailable_now"
-                          : "labs_off"
+                        ? sandboxNotNow
                         : startSandbox(text, attachments.length, harness);
                       if (typeof started !== "string") return started;
                       heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
@@ -9869,7 +9868,8 @@ function AcpmuxPane() {
                 )}
                 {hostErrorCard}
                 {snapshot.presence && <TypingLine typing={snapshot.presence.typing} />}
-                {!sandboxHoldsChat && !viewedSandbox && composer}
+                {/* A draft a refusal put back stays in reach even once the tab's run shows. */}
+                {(!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && composer}
               </div>
             </>
           )}

@@ -587,6 +587,15 @@ test("Run as lists Persistent and Sandboxed with the sandbox's retention, access
   expect(modes).toEqual(["sandboxed"]);
 });
 
+test("a search that finds only Sandboxed shows it, not the empty line", async () => {
+  await mount(true, { runMode: { mode: "sandboxed", onMode: () => undefined } });
+  expect(computerButton()?.getAttribute("aria-label")).toContain(t("composer.sandboxed"));
+  await openPicker();
+  await type(t("composer.sandboxed"));
+  expect(rows().some((row) => row.querySelector(".acpmux-env-mode"))).toBe(true);
+  expect(doc().querySelector(".acpmux-location-empty")).toBeNull();
+});
+
 test("without Labs, or once the chat started, there is no Run as", async () => {
   const runMode = { mode: "persistent", onMode: () => undefined };
   await mount(false, { runMode });

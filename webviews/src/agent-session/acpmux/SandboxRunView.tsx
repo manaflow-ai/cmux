@@ -87,7 +87,6 @@ export function SandboxReceiptCard({ receipt }: { receipt: SandboxReceipt }) {
   return (
     <section className="acpmux-sandbox-receipt" aria-label={t("sandbox.receipt")} data-succeeded={String(succeeded)}>
       {receipt.reply && <div className="acpmux-sandbox-reply selectable">{receipt.reply}</div>}
-      {receipt.error && !receipt.reply && <div className="acpmux-sandbox-reply selectable">{receipt.error}</div>}
       <dl className="acpmux-sandbox-facts">
         <dt>{t("sandbox.status")}</dt>
         <dd>{[t(succeeded ? "sandbox.succeeded" : "sandbox.failed"), exit].filter(Boolean).join(" · ")}</dd>

@@ -45,7 +45,7 @@ test("a succeeded receipt reads reply first, then status, time, cost, artifacts 
   expect([...at].sort((a, b) => a - b)).toEqual(at);
 });
 
-test("a timed-out receipt says so, an unmeasured cost says not measured, and a pending destroy shows", () => {
+test("a timed-out receipt says so in the chat's words (never the server's), an unmeasured cost says not measured, and a pending destroy shows", () => {
   const receipt = {
     status: "failed",
     timedOut: true,
@@ -54,15 +54,10 @@ test("a timed-out receipt says so, an unmeasured cost says not measured, and a p
     cleanup: "pending",
   };
   const shown = text(renderToStaticMarkup(<SandboxRunView run={{ task: "go", state: "done", receipt }} />));
-  for (const part of [
-    t("sandbox.failed"),
-    t("sandbox.timedOut"),
-    "timed out after 600 s",
-    t("sandbox.costUnknown"),
-    t("sandbox.vmPending"),
-  ]) {
+  for (const part of [t("sandbox.failed"), t("sandbox.timedOut"), t("sandbox.costUnknown"), t("sandbox.vmPending")]) {
     expect(shown).toContain(part);
   }
+  expect(shown).not.toContain("timed out after 600 s");
 });
 
 test("a refusal is worded by its code; a failure that may hide a Run says so", async () => {
