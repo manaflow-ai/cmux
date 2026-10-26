@@ -6,35 +6,37 @@ drivers, Python 3.9+, safe under `python3 -I`. It implements the driver protocol
 (`open_session`, `session.run_case`, `session.close`) for `--product cli`.
 
 Two modes, chosen by the session context oracle.py gives:
-- VM (`--binary`): the cargo-built cmux-tui at the run SHA (linux_run.sh's build, refused when its
-  build.json names another SHA), run as `cmux` (argv[0], as the app bundles it in Resources/bin/cmux).
-  Every case is driver_daemon.py's case (p15-oracle-023): its own state root, hermetic environment,
-  `cmux-tui --headless` daemon, subreaper worker and I6 proof. `cli` steps run the binary with that
-  case's environment, so `CMUX_TUI_SOCKET` names the case's daemon and nothing else is reachable;
-  resource.call, kill, restart, settle and snapshot steps are the daemon driver's.
+- VM (`--binary`): the cmux-tui that linux_run.sh built at the run SHA, run as `cmux` (argv[0], as the app
+  bundles it in Resources/bin/cmux). Its build receipt (driver_daemon.BUILD_RECEIPT beside the binary) must
+  name the run SHA: a binary without one, or built at another SHA, is refused. Every case is
+  driver_daemon.py's case (p15-oracle-023): its own state root, hermetic environment, `cmux-tui --headless`
+  daemon, subreaper worker and I6 proof. `cli` steps run the binary with that case's environment, so
+  `CMUX_TUI_SOCKET` names the case's daemon and nothing else is reachable. A cli step ends when the daemon
+  has dropped the call's own connection from `session.clients` (CliCaseRun), so its checkpoints never race
+  that close; resource.call, kill, restart, settle and snapshot steps are the daemon driver's.
 - Fleet (`--tag`): `CMUX_TAG=<tag> scripts/cmux-debug-cli.sh ARGV`, the one supported way to reach a
-  tagged build (repo CLAUDE.md). The app's facets come from driver_app.py (p15-oracle-047); until it
-  lands every facet of a fleet snapshot is not comparable and only the receipts say what the CLI did.
-The result's `receipts` list (one per cli step: exit, normalized stdout, error, sha256) is beside the
-checkpoints; oracle.py hashes only checkpoints today, so a base/head diff of receipts needs oracle.py to
-carry them (task 017's result format).
+  tagged build (repo CLAUDE.md). Only `cli` and `snapshot` steps without `waitFor` or `readOnly`: the app's
+  facets, settling and waits are driver_app.py's (p15-oracle-047), so every other facet of a fleet snapshot
+  is not comparable and a step that needs more is a Crash that names driver_app.py.
 Neither mode ever runs `/tmp/cmux-cli` (a stale untagged copy that reaches whatever app is running):
-`CliBinary` refuses that path, and fleet mode resolves the CLI only through cmux-debug-cli.sh.
+`CliBinary` refuses that path, and fleet mode resolves the CLI only through cmux-debug-cli.sh. Neither
+mode applies switch arms yet (p15-oracle-049), so both refuse a session with switches or a non-default arm.
 
-A `cli` step's receipt (invariant I1) is its exit code and its normalized stdout: stdout parsed as JSON
-(one value, or JSON lines as a list) or kept as text, then case root and home rewritten to `$ROOT` and
-`$HOME` (normalize.py's rewriter) and every id that matches the snapshot schema's x-oracle-id-patterns
-relabeled `kind#N` in first-seen order of a sorted-key traversal, with labels shared by all steps of the
-case. Exit 0 is outcome `ok`; any other exit is outcome `error` with the typed code of the CLI's JSON
-error (`--json` writes `{code, message, details, retryable}` to stderr: cli/wire.rs print_local_error),
-or `cli.failed` when stderr has none. `expect.receipt: cli.exit` asserts a receipt exists and
-`expect.result` compares the normalized receipt `{exit, stdout}` exactly. `$step:` references read the
-raw stdout, so a later step can pass an id an earlier `cmux ... --json` printed.
+A `cli` step's receipt (invariant I1) is the `cli` facet of its settled checkpoint (snapshot-v1
+facets.cli): `{exit, stdout, error?}`, with stdout parsed as one JSON value, JSON lines as a list, or the
+text, and the case's own session name as the fixture's (`oracle`). normalize.py canonicalizes it with the
+case's other checkpoints, so ids get the labels the daemon facet gives them, an id-keyed map is ordered by
+its contents, and times and volatile keys follow the schema's x-oracle-open-keys; oracle.py hashes and
+diffs it like any facet. Exit 0 is outcome `ok`; any other exit is outcome `error` with the typed code of
+the CLI's JSON error (`--json` writes `{code, message, details, retryable}` to stderr: cli/wire.rs
+print_local_error), or `cli.failed` when stderr has none. `expect.receipt: cli.exit` asserts a receipt
+exists; `expect.result` is compared exactly with the canonical facet after the case. `$step:` references
+read the raw stdout, so a later step can pass an id an earlier `cmux ... --json` printed.
 
 Chrome reference (chromium/src): base/test/launcher/test_launcher.cc runs each test in a child process and
 keeps its exit code and output as the result (TestResult::output_snippet, written by
 base/test/launcher/test_results_tracker.cc); here the child is the shipped `cmux` binary and the result is
-its exit code and normalized stdout.
+its exit code and stdout, compared as part of the checkpoint.
 
 Usage:
   driver_cli.py run-case --binary CMUX_TUI CASE.json [--ref SHA]   one VM case, its result JSON
@@ -51,14 +53,12 @@ import json
 import os
 import re
 import shutil
-import signal
 import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
-from functools import partial
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
@@ -70,30 +70,41 @@ if str(HERE) not in sys.path:
 import normalize  # noqa: E402 - sibling of this file (p15-oracle-013)
 
 try:
-    from driver_daemon import (  # noqa: E402 - the daemon driver's case runner (p15-oracle-023)
+    import driver_daemon  # noqa: E402 - the daemon driver's case runner (p15-oracle-023)
+    from driver_daemon import (  # noqa: E402
+        BUILD_RECEIPT,
         DEFAULT_STATE_BASE,
-        EXIT_S,
         FACETS,
+        MISSING,
+        REQUEST_S,
+        SELECTORS,
         SESSION_NAME,
         CaseError,
         CaseRun,
+        CmuxError,
         DaemonSession,
-        become_subreaper,
-        end_tree_on_term,
+        SdkTimeout,
+        build_receipt_sha,
         host_meta,
         load_snapshot_schema,
         not_comparable,
         remove_empty_dir,
+        resolve_pointer,
         resolve_refs,
         short_token,
-        tail,
-        worker_bound,
     )
-except ImportError as _error:  # pragma: no cover - a checkout from before task 023
-    raise ImportError("driver_cli.py runs its VM cases on driver_daemon.py's case runner (p15-oracle-023), "
-                      f"which this checkout lacks: {_error}") from _error
+    if not hasattr(DaemonSession, "worker_script"):
+        raise ImportError("DaemonSession.worker_script is missing")
+    # The repo's Python SDK, on sys.path once driver_daemon.py is imported.
+    from cmux.errors import CmuxConnectionError, CommandError  # noqa: E402
+    from cmux.transport import JsonLineConnection  # noqa: E402
+except ImportError as _error:  # pragma: no cover - a checkout from before task 023's case runner
+    raise ImportError("driver_cli.py runs its VM cases on driver_daemon.py's case runner (p15-oracle-023: "
+                      "DaemonSession.worker_script, case_worker(case_class), build_receipt_sha), which this "
+                      f"checkout lacks: {_error}") from _error
 
 PRODUCT = "cli"
+CLI_FACET = "cli"
 CLI_ARGV0 = "cmux"
 # The stale copy agents used to drop in /tmp: it reaches whichever app answers, never the case's daemon.
 FORBIDDEN_CLI = Path("/tmp/cmux-cli")
@@ -101,9 +112,27 @@ RECEIPT_KIND = "cli.exit"
 FALLBACK_ERROR = "cli.failed"
 ERROR_CODE = re.compile(r"^[a-z][a-z_]*(\.[a-z][a-z_]*)+$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
+UNKNOWN_SHA = "0" * 40
 # Seconds a `cmux` call may take before its step is a Timeout; a Slow expectation multiplies it.
 CLI_S = 30.0
-FLEET_OPS = frozenset({"cli", "settle", "snapshot"})
+GIT_S = 30.0
+FLEET_OPS = frozenset({"cli", "snapshot"})
+APP_DRIVER = "driver_app.py (p15-oracle-047)"
+DEFAULT_ARMS = (None, "default")
+# The daemon's event when a control client's connection is gone (cmux-tui server/disconnect.rs).
+CLIENT_DETACHED = "client-detached"
+SUBSCRIPTION_OVERFLOW = "overflow"
+
+
+class BuildMismatch(ValueError):
+    """The binary is not the build of the run SHA (no build receipt, another SHA, or a ref that names none)."""
+
+
+def refuse_switch_arms(session_ctx: Mapping[str, Any]) -> None:
+    """Neither mode applies a switch arm yet, so an arm run would compare two runs of the default build."""
+    if session_ctx.get("switches") or session_ctx.get("arm") not in DEFAULT_ARMS:
+        raise ValueError(f"switch arms (arm {session_ctx.get('arm')!r}, switches {session_ctx.get('switches')!r}) "
+                         "reach the daemon and the app in p15-oracle-049; the cli driver runs the default arm only")
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -209,7 +238,42 @@ class FleetCli(CliRunner):
 
 
 # ---------------------------------------------------------------------------------------------------------
-# Receipts: exit code and normalized stdout
+# The run SHA
+
+
+def resolve_ref(ref: str, repo: Path = REPO) -> str:
+    """The full SHA of `ref` in this checkout (a full SHA as is); BuildMismatch when it names no commit."""
+    if SHA.fullmatch(ref):
+        return ref
+    if ref.startswith("-"):
+        raise BuildMismatch(f"--ref {ref} is not a ref")
+    try:
+        done = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=GIT_S,
+                              check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise BuildMismatch(f"--ref {ref}: git rev-parse failed: {error}") from None
+    sha = done.stdout.strip()
+    if done.returncode != 0 or not SHA.fullmatch(sha):
+        raise BuildMismatch(f"--ref {ref} names no commit in {repo}")
+    return sha
+
+
+def run_sha(binary: Path, ref: Optional[str], resolve: Callable[[str], str] = resolve_ref) -> str:
+    """The SHA the binary's build receipt names, after checking that it is the run SHA `ref` (when given)."""
+    built = build_receipt_sha(str(binary))
+    if built is None:
+        raise BuildMismatch(f"--binary {binary} has no build receipt ({BUILD_RECEIPT} beside it with a full sha): "
+                            "the oracle runs the cmux-tui `linux_run.sh build REF` built at the run SHA")
+    if ref:
+        wanted = resolve(ref)
+        if wanted != built:
+            raise BuildMismatch(f"--binary {binary} was built at {built}, not at the run SHA {wanted} (--ref {ref})")
+    return built
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Receipts: exit code and stdout, as the cli facet
 
 
 def parse_stdout(raw: bytes) -> Any:
@@ -246,97 +310,34 @@ def error_code(stderr: bytes) -> str:
     return FALLBACK_ERROR
 
 
-class IdLabels:
-    """`kind#N` labels for the ids a case's CLI output shows, in first-seen order, shared by its steps."""
-
-    _EDGE_BEFORE = r"(?<![A-Za-z0-9_])"
-    _EDGE_AFTER = r"(?![A-Za-z0-9_])"
-
-    def __init__(self, schema: normalize.Schema):
-        parts = []
-        self.kinds: List[str] = []
-        for kind, regex in schema.id_patterns:
-            body = regex.pattern
-            body = body[1:] if body.startswith("^") else body
-            body = body[:-1] if body.endswith("$") else body
-            parts.append(f"(?P<k{len(self.kinds)}>{body})")
-            self.kinds.append(kind)
-        self.search = re.compile(self._EDGE_BEFORE + "(?:" + "|".join(parts) + ")" + self._EDGE_AFTER) if parts else None
-        self.labels: Dict[str, str] = {}
-        self.counts: Dict[str, int] = {}
-
-    def label(self, kind: str, raw: str) -> str:
-        if raw not in self.labels:
-            self.counts[kind] = self.counts.get(kind, 0) + 1
-            self.labels[raw] = f"{kind}#{self.counts[kind]}"
-        return self.labels[raw]
-
-    def text(self, value: str) -> str:
-        if self.search is None:
-            return value
-
-        def swap(match: "re.Match[str]") -> str:
-            index = int(match.lastgroup[1:])
-            return self.label(self.kinds[index], match.group(0))
-
-        return self.search.sub(swap, value)
+def stderr_tail(stderr: bytes) -> str:
+    """The last line of stderr, for a Failure message (messages are not hashed)."""
+    lines = stderr.decode("utf-8", "replace").strip().splitlines()
+    return lines[-1][:300] if lines else ""
 
 
-# Keys whose values are wall-clock readings (`created_at_ms`, `at_ms`, `exited_at`, `connected_seconds`): the
-# snapshot schema marks the same daemon fields x-oracle-time. A daemon without the oracle virtual clock
-# (p15-oracle-185) prints the host's clock there, so on a wall-clock run they read WALL_TIME.
-WALL_TIME_KEY = re.compile(r"(?:^|_)at(?:_ms)?$|_seconds$")
-WALL_TIME = "$WALL_TIME"
-DECIMAL = re.compile(r"^-?[0-9]+$")
-
-
-def _always() -> bool:
-    return True
-
-
-@dataclass
-class StdoutNormalizer:
-    """normalize.py's path rewrite ($ROOT, $HOME), the case's own session name as the fixture's, wall-clock
-    readings on a wall-clock run, then ids as `kind#N` (one labeling for all steps of a case)."""
-
-    ids: IdLabels
-    context: normalize.Context
-    names: Mapping[str, str] = field(default_factory=dict)
-    wall_clock: Callable[[], bool] = _always
-
-    def __post_init__(self) -> None:
-        self.rewriter = normalize._Rewriter(self.context)  # the one path rewriter (normalize.py rule 2)
-        self.name_search = (re.compile(r"(?<![A-Za-z0-9])(" + "|".join(map(re.escape, self.names))
-                                       + r")(?![A-Za-z0-9])") if self.names else None)
-
-    def text_names(self, value: str) -> str:
-        """The case's own session name as the fixture's (paths and ids untouched)."""
-        if self.name_search is None:
-            return value
-        return self.name_search.sub(lambda match: self.names[match.group(1)], value)
-
-    def text(self, value: str) -> str:
-        return self.ids.text(self.text_names(self.rewriter.apply("url", value)[0]))
-
-    def value(self, value: Any, key: Optional[str] = None) -> Any:
-        """A parsed stdout in a sorted-key traversal, so labels do not follow the CLI's print order."""
-        if key is not None and WALL_TIME_KEY.search(key) and self.wall_clock() and (
-                (isinstance(value, int) and not isinstance(value, bool))
-                or (isinstance(value, str) and DECIMAL.fullmatch(value))):
-            return WALL_TIME
-        if isinstance(value, str):
-            return self.text(value)
-        if isinstance(value, list):
-            return [self.value(item, key) for item in value]
-        if isinstance(value, dict):
-            return {self.text(name): self.value(value[name], name) for name in sorted(value)}
+def rename(value: Any, names: Mapping[str, str]) -> Any:
+    """`value` with each name in `names` (the case's own session name) replaced, in strings and keys."""
+    if not names:
         return value
+    search = re.compile(r"(?<![A-Za-z0-9])(" + "|".join(map(re.escape, names)) + r")(?![A-Za-z0-9])")
+
+    def walk(item: Any) -> Any:
+        if isinstance(item, str):
+            return search.sub(lambda match: names[match.group(1)], item)
+        if isinstance(item, list):
+            return [walk(member) for member in item]
+        if isinstance(item, dict):
+            return {walk(key): walk(member) for key, member in item.items()}
+        return item
+
+    return walk(value)
 
 
-def receipt_of(output: CliOutput, normalizer: StdoutNormalizer) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    """(the normalized receipt, the raw reply that `$step:` references read)."""
+def receipt_of(output: CliOutput, names: Mapping[str, str]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """(the cli facet, the raw reply that `$step:` references read)."""
     raw = parse_stdout(output.stdout)
-    receipt: Dict[str, Any] = {"exit": output.exit, "stdout": normalizer.value(raw)}
+    receipt: Dict[str, Any] = {"exit": output.exit, "stdout": rename(raw, names)}
     reply: Dict[str, Any] = {"exit": output.exit, "stdout": raw}
     if output.exit != 0:
         receipt["error"] = reply["error"] = error_code(output.stderr)
@@ -347,184 +348,272 @@ def outcome_of(receipt: Mapping[str, Any]) -> Tuple[str, Any]:
     return ("ok", receipt) if receipt["exit"] == 0 else ("error", receipt["error"])
 
 
-def check_cli_expect(step: Mapping[str, Any], outcome: Tuple[str, Any], receipt: Mapping[str, Any]) -> None:
-    """expect for a cli step: outcome, typed error, `cli.exit` receipt, exact normalized result."""
+def check_outcome(step: Mapping[str, Any], outcome: Tuple[str, Any], receipt: Mapping[str, Any],
+                  stderr: str) -> None:
+    """expect for a cli step at its turn: outcome, typed error, `cli.exit` receipt. `expect.result` needs the
+    canonical facet, so check_results compares it after the case."""
     expect = step.get("expect")
     if not expect:
         return
     step_id = step["id"]
     kind, detail = outcome
     if expect["outcome"] != kind or (kind == "error" and detail != expect.get("error")):
-        got = f"error {detail} (exit {receipt['exit']})" if kind == "error" else "ok"
+        got = f"error {detail} (exit {receipt['exit']}: {stderr})" if kind == "error" else "ok"
         want = expect["outcome"] + (f" {expect['error']}" if "error" in expect else "")
         raise CaseError("Failure", f"expected {want}, got {got}", step_id)
-    if kind == "ok":
-        kind_wanted = expect.get("receipt")
-        if kind_wanted is not None and kind_wanted != RECEIPT_KIND:
-            raise CaseError("Crash", f"receipt kind {kind_wanted}: a cli step's receipt is {RECEIPT_KIND}", step_id)
-    if "result" in expect and normalize.canonical_json(dict(receipt)) != normalize.canonical_json(expect["result"]):
-        raise CaseError("Failure", f"result differs: {normalize.canonical_json(dict(receipt))[:300]}", step_id)
+    kind_wanted = expect.get("receipt")
+    if kind == "ok" and kind_wanted is not None and kind_wanted != RECEIPT_KIND:
+        raise CaseError("Crash", f"receipt kind {kind_wanted}: a cli step's receipt is {RECEIPT_KIND}", step_id)
 
 
-def step_argv(step: Mapping[str, Any], replies: Mapping[str, Any]) -> Tuple[List[str], Optional[str]]:
-    """The step's argv and stdin with `$step:` references resolved (a non-string value as its JSON)."""
-    args = resolve_refs(step["args"], replies)
-    argv = [a if isinstance(a, str) else normalize.canonical_json(a) for a in args["argv"]]
-    stdin = args.get("stdin")
-    return argv, stdin if isinstance(stdin, str) else None
+def check_cli_step(step: Mapping[str, Any]) -> None:
+    """A cli step's receipt is its settled checkpoint's cli facet, so the step must keep that checkpoint."""
+    if "settled" not in (step.get("checkpoint") or ["settled"]):
+        raise CaseError("Crash", "a cli step's receipt is the cli facet of its settled checkpoint; its checkpoint "
+                                 "list needs settled", step["id"])
+
+
+def check_results(case: Mapping[str, Any], checkpoints: Sequence[Mapping[str, Any]]) -> Optional[CaseError]:
+    """`expect.result` of each cli step against the canonical cli facet of its settled checkpoint."""
+    facets = {cp["step"]: cp["snapshot"]["facets"].get(CLI_FACET) for cp in checkpoints
+              if cp["checkpoint"] == "settled"}
+    for step in case.get("steps") or ():
+        expect = step.get("expect") or {}
+        if step.get("op") != "cli" or "result" not in expect:
+            continue
+        got = facets.get(step["id"])
+        if got is None:
+            return CaseError("Crash", "expect.result: the step has no cli facet", step["id"])
+        if normalize.canonical_json(got) != normalize.canonical_json(expect["result"]):
+            return CaseError("Failure", f"result differs: {normalize.canonical_json(got)[:300]}", step["id"])
+    return None
+
+
+def apply_results(case: Mapping[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
+    if result["status"] == "Pass":
+        failure = check_results(case, result["checkpoints"])
+        if failure is not None:
+            result.update(status=failure.status, message=failure.message, step=failure.step)
+    return result
 
 
 @dataclass
 class CliSteps:
-    """The cli step runner both modes share: one runner, one id labeling, the case's receipts."""
+    """The cli step runner both modes share: one runner, the case's receipts by step id."""
 
     runner: CliRunner
-    normalizer: StdoutNormalizer
+    names: Mapping[str, str] = field(default_factory=dict)
     scale: float = 1.0
-    receipts: List[Dict[str, Any]] = field(default_factory=list)
+    receipts: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
-    def run(self, step: Mapping[str, Any], replies: Dict[str, Any]) -> Tuple[Tuple[str, Any], Dict[str, Any]]:
+    def run(self, step: Mapping[str, Any], replies: Dict[str, Any]) -> Tuple[str, Any]:
         step_id = step["id"]
         try:
-            argv, stdin = step_argv(step, replies)
+            args = resolve_refs(step["args"], replies)
         except CaseError as error:
             raise CaseError(error.status, error.message, error.step or step_id) from None
+        argv = [a if isinstance(a, str) else normalize.canonical_json(a) for a in args["argv"]]
+        stdin = args.get("stdin")
         try:
-            output = self.runner.run(argv, stdin, CLI_S * self.scale)
+            output = self.runner.run(argv, stdin if isinstance(stdin, str) else None, CLI_S * self.scale)
         except CliTimeout as error:
             raise CaseError("Timeout", str(error), step_id) from None
         except OSError as error:
             raise CaseError("Crash", f"cannot run {self.runner.describe()}: {error}", step_id) from None
-        receipt, reply = receipt_of(output, self.normalizer)
+        receipt, reply = receipt_of(output, self.names)
         replies[step_id] = reply
-        digest = hashlib.sha256(normalize.canonical_json(receipt).encode("utf-8")).hexdigest()
-        self.receipts.append({"step": step_id, **receipt, "sha256": digest})
+        self.receipts[step_id] = receipt
         outcome = outcome_of(receipt)
-        if outcome[0] == "error":
-            lines = output.stderr.decode("utf-8", "replace").strip().splitlines()
-            # Diagnostic only, outside the hashed receipt.
-            self.receipts[-1]["stderrTail"] = self.normalizer.text(lines[-1][:300]) if lines else ""
-        check_cli_expect(step, outcome, receipt)
-        return outcome, receipt
+        check_outcome(step, outcome, receipt, stderr_tail(output.stderr))
+        return outcome
+
+    def facet(self, step: str) -> Dict[str, Any]:
+        receipt = self.receipts.get(step)
+        if receipt is None:
+            return not_comparable("the cli facet is the receipt of a cli step", "p15-oracle-048")
+        return receipt
+
+
+def with_cli_facet(names: Sequence[str], checkpoint: str, step: str, steps: CliSteps) -> Tuple[str, ...]:
+    """The facets of a checkpoint: the cli facet joins the settled checkpoint of a cli step."""
+    names = tuple(names)
+    if checkpoint == "settled" and step in steps.receipts and CLI_FACET not in names:
+        names += (CLI_FACET,)
+    return names
 
 
 # ---------------------------------------------------------------------------------------------------------
 # VM mode: driver_daemon.py's case with a cli op
 
 
-def build_sha(binary: Path) -> Optional[str]:
-    """The SHA in linux_run.sh's build receipt beside the binary (build.json), if there is one."""
-    try:
-        sha = json.loads((binary.parent / "build.json").read_text(encoding="utf-8")).get("sha")
-    except (OSError, ValueError):
-        return None
-    return sha if isinstance(sha, str) and SHA.fullmatch(sha) else None
+class ClientEvents:
+    """The case daemon's `subscribe` stream read as raw JSON lines: only the event name matters here, so the
+    fields a newer daemon adds to an event never fail the read (the SDK's typed stream refuses them)."""
+
+    REQUEST_ID = 1
+
+    def __init__(self, socket_path: str, timeout: float):
+        self.conn = JsonLineConnection(socket_path, timeout)
+        try:
+            self.conn.send({"id": self.REQUEST_ID, "cmd": "subscribe"})
+            while True:
+                frame = self.conn.recv()
+                if "event" not in frame and frame.get("id") == self.REQUEST_ID:
+                    break
+            if frame.get("ok") is not True:
+                raise CommandError(f"subscribe refused: {frame.get('error')}", frame)
+        except BaseException:
+            self.conn.close()
+            raise
+
+    def next_detach(self, deadline: float) -> bool:
+        """True at the next client-detached event, False at the deadline; CmuxError when the stream ends."""
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            self.conn.set_timeout(remaining)
+            try:
+                event = self.conn.recv().get("event")
+            except SdkTimeout:
+                return False
+            if event == CLIENT_DETACHED:
+                return True
+            if event == SUBSCRIPTION_OVERFLOW:
+                raise CmuxConnectionError("the client-event subscription overflowed")
+
+    def close(self) -> None:
+        self.conn.close()
 
 
 class CliCaseRun(CaseRun):
-    """driver_daemon.py's case (hermetic daemon, steps, I6 teardown) plus `cli` steps."""
+    """driver_daemon.py's case (hermetic daemon, steps, I6 teardown) plus `cli` steps.
+
+    A `cmux` call is a control client of the case daemon, which drops it from `session.clients` when it
+    handles the connection's close, after the process has exited. So a cli step ends when every client the
+    call added has left: woken by the daemon's `client-detached` events on one subscription that lives for
+    the case (Chrome learns that a child's channel is gone the same way, from the channel's own error:
+    content/common/child_process_host_impl.cc ChildProcessHostImpl::OnChannelError), never by a sleep."""
 
     def __init__(self, binary: str, sha: str, schema: normalize.Schema, case: Mapping[str, Any],
                  ctx: Mapping[str, Any], session_ctx: Mapping[str, Any]):
         super().__init__(binary, sha, schema, case, ctx, session_ctx)
         runner = VmCli(CliBinary(Path(binary)), self.env, str(self.paths.home))
-        normalizer = StdoutNormalizer(IdLabels(schema), self.normalize_context(), {self.paths.session: SESSION_NAME},
-                                      lambda: not self.daemon.virtual_clock)
-        self.cli = CliSteps(runner, normalizer, self.scale)
+        self.cli = CliSteps(runner, {self.paths.session: SESSION_NAME}, self.scale)
         self.ops["cli"] = self.op_cli
+        self.client_events: Any = None
+        self.client_events_start = -1
+
+    def run_step(self, index: int, step: Mapping[str, Any]) -> None:
+        if step["op"] == "cli":
+            check_cli_step(step)
+        super().run_step(index, step)
 
     def op_cli(self, index: int, step: Mapping[str, Any]) -> Tuple[str, Any]:
         step_id = step["id"]
-        before = self.daemon_facet(step_id) if step.get("readOnly") and self.daemon.running else None
-        outcome, _ = self.cli.run(step, self.state.replies)
+        if not self.daemon.running:
+            return self.cli.run(step, self.state.replies)
+        self.watch_clients(step_id)
+        known = self.client_ids(step_id)
+        before = self.daemon_facet(step_id) if step.get("readOnly") else None
+        outcome = self.cli.run(step, self.state.replies)
+        self.await_departure(known, step_id)
         if before is not None:
             self.check_read_only(index, step_id, before)
         return outcome
 
+    # -- the call's own connection
+
+    def watch_clients(self, step: str) -> Set[str]:
+        """The case's client-event subscription, opened when there is none for the running daemon (first cli
+        step, a restart, an overflow); the client ids it added, which are known ones from then on."""
+        if self.client_events is not None and self.client_events_start == self.daemon.starts:
+            return set()
+        self.close_client_events()
+        before = self.client_ids(step)
+        try:
+            self.client_events = ClientEvents(str(self.paths.socket), REQUEST_S * self.scale)
+        except CmuxError as error:
+            raise self.sdk_failure(error, step, "subscribe") from None
+        self.client_events_start = self.daemon.starts
+        return self.client_ids(step) - before
+
+    def close_client_events(self) -> None:
+        if self.client_events is not None:
+            self.client_events.close()
+            self.client_events = None
+
+    def client_ids(self, step: str) -> Set[str]:
+        try:
+            session = self.daemon.request("session.snapshot", SELECTORS, None, REQUEST_S * self.scale)
+        except CmuxError as error:
+            raise self.sdk_failure(error, step, "session.snapshot") from None
+        clients = session.get("clients") if isinstance(session, dict) else None
+        return {c["id"] for c in clients or () if isinstance(c, dict) and isinstance(c.get("id"), str)}
+
+    def await_departure(self, known: Set[str], step: str) -> None:
+        bound = REQUEST_S * self.scale
+        deadline = time.monotonic() + bound
+        while self.daemon.running:
+            left = self.client_ids(step) - known
+            if not left:
+                return
+            try:
+                woke = self.client_events.next_detach(deadline)
+            except CmuxError:
+                # The subscription ended (overflow, or the daemon went away): a new one, then a fresh read.
+                self.client_events = None
+                if self.daemon.running:
+                    known = known | self.watch_clients(step)
+                continue
+            if not woke:
+                raise CaseError("Timeout", f"the cmux call's {len(left)} connection(s) stayed in session.clients "
+                                           f"for {bound:.0f} s after it exited", step)
+
+    def shutdown(self) -> List[str]:
+        self.close_client_events()
+        return super().shutdown()
+
     def check_expect(self, step: Mapping[str, Any], outcome: Tuple[str, Any]) -> None:
-        # op_cli checked its own expect against the receipt.
+        # op_cli checked a cli step's expect against its receipt; check_results compares expect.result.
         if step["op"] != "cli":
             super().check_expect(step, outcome)
+
+    def capture(self, index: int, step: str, checkpoint: str, names: Sequence[str]) -> None:
+        super().capture(index, step, checkpoint, with_cli_facet(names, checkpoint, step, self.cli))
+
+    def facets(self, names: Sequence[str], step: str) -> Dict[str, Any]:
+        out = super().facets([name for name in names if name != CLI_FACET], step)
+        if CLI_FACET in names:
+            out[CLI_FACET] = self.cli.facet(step)
+        return out
 
     def snapshot(self, index: int, checkpoint: str, facets: Dict[str, Any]) -> Dict[str, Any]:
         value = super().snapshot(index, checkpoint, facets)
         value["meta"]["product"] = PRODUCT
         return value
 
-    def daemon_facet(self, step: str) -> Any:
-        """The daemon driver's facet with the case's session name as the fixture's in the panic log path too
-        (driver_daemon.py renames it in `session.name` only), so two runs of a case hash equal."""
-        facet = super().daemon_facet(step)
-        panic = facet.get("oracle", {}).get("panicLog") if isinstance(facet, dict) else None
-        if isinstance(panic, dict) and isinstance(panic.get("path"), str):
-            panic["path"] = self.cli.normalizer.text_names(panic["path"])
-        return facet
-
     def run(self) -> Dict[str, Any]:
-        result = super().run()
-        result["receipts"] = self.cli.receipts
-        return result
+        return apply_results(self.case, super().run())
 
 
 class CliSession(DaemonSession):
-    """The VM session: driver_daemon.py's session whose case workers run CliCaseRun."""
+    """The VM session: driver_daemon.py's session whose case workers run CliCaseRun (this file's case-worker)."""
 
-    def __init__(self, session_ctx: Mapping[str, Any]):
+    worker_script = Path(__file__).resolve()
+
+    def __init__(self, session_ctx: Mapping[str, Any], resolve: Callable[[str], str] = resolve_ref):
+        refuse_switch_arms(session_ctx)
         binary = CliBinary(Path(str(session_ctx.get("binary") or "")))
         ref = session_ctx.get("ref")
-        built = build_sha(binary.path)
-        if isinstance(ref, str) and SHA.fullmatch(ref) and built and built != ref:
-            raise ValueError(f"--binary {binary.path} was built at {built}, not at the run SHA {ref}")
-        super().__init__(session_ctx)
-        if self.sha == "0" * 40 and built:
-            self.sha = built
-
-    def run_worker(self, case: Dict[str, Any], case_ctx: Dict[str, Any],
-                   scale: float) -> Tuple[Dict[str, Any], bool]:
-        payload = {"binary": self.binary, "sha": self.sha, "schema": self.schema_path, "case": case,
-                   "ctx": case_ctx, "session": self.session_ctx}
-        return run_case_worker(Path(__file__).resolve(), payload, worker_bound(case, scale), scale)
-
-
-def run_case_worker(script: Path, payload: Mapping[str, Any], bound: float,
-                    scale: float) -> Tuple[Dict[str, Any], bool]:
-    """`script case-worker` on `payload`: its result, and whether it finished (then it proved its tree empty)."""
-    worker = subprocess.Popen([sys.executable, "-I", str(script), "case-worker"],
-                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    try:
-        out, err = worker.communicate(json.dumps(payload).encode(), timeout=bound)
-    except subprocess.TimeoutExpired:
-        # SIGTERM first: the worker ends its process tree (end_tree_on_term), then the session kills it.
-        worker.terminate()
-        try:
-            out, err = worker.communicate(timeout=EXIT_S * scale)
-        except subprocess.TimeoutExpired:
-            worker.kill()
-            out, err = worker.communicate()
-        return {"status": "Timeout", "checkpoints": [], "session_dirty": True,
-                "message": f"the case worker ran over its bound of {bound:.0f} s: {tail(err)}"}, False
-    try:
-        result = json.loads(out) if worker.returncode == 0 else None
-    except ValueError:
-        result = None
-    if not isinstance(result, dict):
-        return {"status": "Crash", "checkpoints": [], "session_dirty": True,
-                "message": f"the case worker failed (exit {worker.returncode}): {tail(err)}"}, False
-    return result, True
+        sha = run_sha(binary.path, ref if isinstance(ref, str) else None, resolve)
+        super().__init__({**session_ctx, "ref": sha})
 
 
 def case_worker() -> int:
-    """`case-worker`: one CliCaseRun from the JSON payload on stdin; the result JSON on stdout."""
-    payload = json.load(sys.stdin)
-    schema, refusal = load_snapshot_schema(payload["schema"])
-    if schema is None:
-        raise SystemExit(f"driver_cli.py case-worker: {refusal}")
-    run = CliCaseRun(payload["binary"], payload["sha"], schema, payload["case"], payload["ctx"], payload["session"])
-    # Every process the case starts, the cmux calls included, stays in this worker's tree (I6).
-    become_subreaper()
-    signal.signal(signal.SIGTERM, partial(end_tree_on_term, str(run.paths.root)))
-    json.dump(run.run(), sys.stdout)
-    return 0
+    """`case-worker`: one CliCaseRun from the JSON payload on stdin (driver_daemon.case_worker's subreaper
+    worker, so every process the case starts, the cmux calls included, stays in its tree: I6)."""
+    return driver_daemon.case_worker(CliCaseRun)
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -532,10 +621,12 @@ def case_worker() -> int:
 
 
 class FleetSession:
-    """cli, settle and snapshot steps against `CMUX_TAG=<tag>`'s running app. Launching and resetting the app
-    and its facets are driver_app.py's (p15-oracle-047); this session never launches anything."""
+    """cli and snapshot steps against `CMUX_TAG=<tag>`'s running app. Launching, resetting, settling, waiting
+    and the app's facets are driver_app.py's (p15-oracle-047); this session never launches anything."""
 
-    def __init__(self, session_ctx: Mapping[str, Any], runner: Optional[CliRunner] = None):
+    def __init__(self, session_ctx: Mapping[str, Any], runner: Optional[CliRunner] = None,
+                 resolve: Callable[[str], str] = resolve_ref):
+        refuse_switch_arms(session_ctx)
         schema_path = str(session_ctx.get("snapshot_schema") or normalize.DEFAULT_SCHEMA)
         schema, refusal = load_snapshot_schema(schema_path)
         if schema is None:
@@ -543,50 +634,69 @@ class FleetSession:
         self.schema = schema
         self.runner = runner or FleetCli(str(session_ctx.get("tag") or ""))
         ref = session_ctx.get("ref")
-        self.sha = ref if isinstance(ref, str) and SHA.fullmatch(ref) else "0" * 40
+        self.sha = resolve(ref) if isinstance(ref, str) and ref else UNKNOWN_SHA
         self.home = os.environ.get("HOME", "")
         self.host = host_meta()
 
     def context(self) -> normalize.Context:
         return normalize.Context(home=(self.home,) if self.home.rstrip("/") else ())
 
+    @staticmethod
+    def check_step(step: Mapping[str, Any]) -> None:
+        if step["op"] not in FLEET_OPS:
+            raise CaseError("Crash", f"op {step['op']} runs in {APP_DRIVER}, not in the fleet CLI session", step["id"])
+        for key in ("waitFor", "readOnly"):
+            if step.get(key):
+                raise CaseError("Crash", f"{key} reads the app's facets; it runs in {APP_DRIVER}, not in the fleet "
+                                         f"CLI session", step["id"])
+        if step["op"] == "cli":
+            check_cli_step(step)
+
     def run_case(self, case: Dict[str, Any], case_ctx: Dict[str, Any]) -> Dict[str, Any]:
         case_id = case_ctx.get("case_id") or f"{case.get('suite')}/{case.get('id')}"
         scale = float(case_ctx.get("timeout_multiplier") or 1)
-        steps = CliSteps(self.runner, StdoutNormalizer(IdLabels(self.schema), self.context()), scale)
+        steps = CliSteps(self.runner, {}, scale)
         replies: Dict[str, Any] = {}
         snapshots: List[Tuple[str, str, Dict[str, Any]]] = []
         status, message, at = "Pass", "", None
         try:
             for index, step in enumerate(case.get("steps") or ()):
-                if step["op"] not in FLEET_OPS:
-                    raise CaseError("Crash", f"op {step['op']} runs in driver_app.py (p15-oracle-047), not in the "
-                                             f"fleet CLI session", step["id"])
+                self.check_step(step)
                 names = tuple((step.get("args") or {}).get("facets") or FACETS) if step["op"] == "snapshot" \
                     else ("daemon",)
                 checkpoints = step.get("checkpoint") or ["settled"]
                 if "before" in checkpoints:
-                    snapshots.append((step["id"], "before", self.snapshot(case_id, index, "before", names)))
+                    snapshots.append((step["id"], "before", self.snapshot(case_id, index, "before", names, steps,
+                                                                          step["id"])))
                 if step["op"] == "cli":
                     steps.run(step, replies)
                 if "settled" in checkpoints:
-                    snapshots.append((step["id"], "settled", self.snapshot(case_id, index, "settled", names)))
+                    snapshots.append((step["id"], "settled", self.snapshot(case_id, index, "settled", names, steps,
+                                                                           step["id"])))
         except CaseError as error:
             status, message, at = error.status, error.message, error.step
-        result: Dict[str, Any] = {"status": status, "message": message, "checkpoints": [],
-                                  "receipts": steps.receipts}
+        result: Dict[str, Any] = {"status": status, "message": message, "checkpoints": []}
         if at:
             result["step"] = at
         if snapshots:
-            canonical = normalize.canonicalize_case([s for _, _, s in snapshots], self.schema, self.context(),
-                                                    [f"{step}/{cp}" for step, cp, _ in snapshots])
+            try:
+                canonical = normalize.canonicalize_case([s for _, _, s in snapshots], self.schema, self.context(),
+                                                        [f"{step}/{cp}" for step, cp, _ in snapshots])
+            except normalize.OracleError as error:
+                result.update(status="Crash", message="; ".join(filter(None, [message, f"snapshot refused: {error}"])))
+                return result
             result["checkpoints"] = [{"step": step, "checkpoint": cp, "snapshot": r.value}
                                      for (step, cp, _), r in zip(snapshots, canonical)]
-        return result
+        return apply_results(case, result)
 
-    def snapshot(self, case_id: str, index: int, checkpoint: str, names: Sequence[str]) -> Dict[str, Any]:
-        facets = {name: not_comparable("the fleet CLI session reads no app facet; driver_app.py captures them",
-                                       "p15-oracle-047") for name in names}
+    def snapshot(self, case_id: str, index: int, checkpoint: str, names: Sequence[str], steps: CliSteps,
+                 step: str) -> Dict[str, Any]:
+        names = with_cli_facet(names, checkpoint, step, steps)
+        facets: Dict[str, Any] = {name: not_comparable(f"the fleet CLI session reads no app facet; {APP_DRIVER} "
+                                                       f"captures them", "p15-oracle-047")
+                                  for name in names if name != CLI_FACET}
+        if CLI_FACET in names:
+            facets[CLI_FACET] = steps.facet(step)
         return {
             "schema": "cmux.oracle.snapshot/v1",
             "meta": {"case": case_id, "step": index, "checkpoint": checkpoint, "product": PRODUCT, "sha": self.sha,
@@ -615,37 +725,36 @@ def open_session(session_ctx: Dict[str, Any]) -> Any:
 # ---------------------------------------------------------------------------------------------------------
 # The VM test: 50 daemon CLI cases
 
-# Each case runs on a fresh hermetic daemon. A step is (kind, argv): `read` is readOnly (its daemon facet must
-# not move), `mutate` targets the current session and expects a cli.exit receipt, `error:<code>` is readOnly
-# and expects that typed error. `$W`, `$P`, `$T` and `$R` stand for the workspace, pane, terminal and room id
-# the case's first step printed. Left out until their output is stable: `client list` (clients print in raw id
-# order, random until p15-oracle-185 seeds ids) and checklist items (`chk_` ids are not in the snapshot
-# schema's x-oracle-id-patterns).
+# Each case runs on a fresh hermetic daemon. A step is (kind, argv[, checks]): `read` is readOnly (its daemon
+# facet must not move), `mutate` targets the current session and expects a cli.exit receipt, `error:<code>`
+# is readOnly and expects that typed error. `$W`, `$S`, `$P`, `$T` and `$R` stand for the workspace, screen,
+# pane, terminal and room id the case's first step printed. `checks` are (pointer into the canonical cli facet, op, value)
+# with op `==` or `len`: what the mutation before the read must have done. Left out until their output is
+# stable: `client list` and `tab list` of a split workspace (both print in raw id order, random until
+# p15-oracle-185 seeds ids), `daemon status` (the daemon's pid) and checklist items (`chk_` ids are not in the snapshot schema's x-oracle-id-patterns).
 NO_SUCH = {kind: f"{prefix}_{'0' * 32}" for kind, prefix in (("ws", "ws"), ("pane", "pane"), ("tab", "tab"),
                                                                 ("term", "term"))}
-SmokeStep = Tuple[str, Tuple[str, ...]]
+Check = Tuple[str, str, Any]
+SmokeStep = Tuple[Any, ...]
 MAKE_EMPTY: SmokeStep = ("mutate", ("workspace", "create", "--empty", "--name", "a"))
 MAKE_TERMINAL: SmokeStep = ("mutate", ("workspace", "create", "--name", "a"))
+ROOM: SmokeStep = ("mutate", ("room", "create", "--name", "r"))
+NOTIFY: SmokeStep = ("mutate", ("notification", "create", "--title", "t", "--body", "b"))
 SMOKE: Tuple[Tuple[str, Tuple[SmokeStep, ...]], ...] = (
-    ("machine-list", (("read", ("machine", "list")),)),
+    ("machine-list", (("read", ("machine", "list"), (("/stdout", "len", 1),)),)),
     ("machine-show", (("read", ("machine", "current", "show")),)),
-    ("session-list", (("read", ("session", "list")),)),
-    ("session-show", (("read", ("session", "current", "show")),)),
-    ("session-ping", (("read", ("session", "current", "ping")),)),
-    ("workspace-list", (("read", ("workspace", "list")),)),
+    ("workspace-list", (("read", ("workspace", "list"), (("/stdout", "len", 0),)),)),
     ("screen-list", (("read", ("screen", "list")),)),
     ("pane-list", (("read", ("pane", "list")),)),
     ("tab-list", (("read", ("tab", "list")),)),
-    ("terminal-list", (("read", ("terminal", "list")),)),
-    ("notification-list", (("read", ("notification", "list")),)),
+    ("terminal-list", (("read", ("terminal", "list"), (("/stdout", "len", 0),)),)),
+    ("notification-list", (("read", ("notification", "list"), (("/stdout", "len", 0),)),)),
     ("agent-list", (("read", ("agent", "list")),)),
-    ("room-list", (("read", ("room", "list")),)),
-    ("closed-list", (("read", ("closed", "list")),)),
+    ("room-list", (("read", ("room", "list"), (("/stdout", "len", 1), ("/stdout/0/id", "==", "default"))),)),
+    ("closed-list", (("read", ("closed", "list"), (("/stdout", "len", 0),)),)),
     ("tab-group-list", (("read", ("tab", "group", "list")),)),
     ("screen-group-list", (("read", ("screen", "group", "list")),)),
-    ("journal-producers", (("read", ("session", "current", "journal", "producer", "list")),)),
-    ("journal-hooks", (("read", ("session", "current", "journal", "hook", "list")),)),
-    ("journal-checkpoints", (("read", ("session", "current", "journal", "checkpoint", "list")),)),
+    ("status-list-all", (("read", ("status", "list", "--all")),)),
     ("settings-needs-app", (("error:socket.no_app", ("settings", "list")),)),
     ("keybinding-needs-app", (("error:socket.no_app", ("keybinding", "list")),)),
     ("window-needs-app", (("error:socket.no_app", ("window", "list")),)),
@@ -654,51 +763,71 @@ SMOKE: Tuple[Tuple[str, Tuple[SmokeStep, ...]], ...] = (
     ("tab-not-found", (("error:selector.not_found", ("tab", NO_SUCH["tab"], "show")),)),
     ("terminal-not-found", (("error:selector.not_found", ("terminal", NO_SUCH["term"], "show")),)),
     ("bad-option", (("error:usage.invalid", ("workspace", "create", "--bogus")),)),
-    ("create-empty-list", (MAKE_EMPTY, ("read", ("workspace", "list")))),
-    ("create-terminal-list", (MAKE_TERMINAL, ("read", ("terminal", "list")))),
-    ("create-show", (MAKE_EMPTY, ("read", ("workspace", "$W", "show")))),
-    ("create-rename", (MAKE_EMPTY, ("mutate", ("workspace", "$W", "rename", "b")), ("read", ("workspace", "$W", "show")))),
-    ("create-close", (MAKE_EMPTY, ("mutate", ("workspace", "$W", "close")), ("read", ("workspace", "list")))),
+    ("unknown-scope", (("error:usage.invalid", ("session", "list")),)),
+    ("create-empty-list", (MAKE_EMPTY, ("read", ("workspace", "list"),
+                                        (("/stdout", "len", 1), ("/stdout/0/name", "==", "a"))))),
+    ("create-terminal-list", (MAKE_TERMINAL, ("read", ("terminal", "list"), (("/stdout", "len", 1),)))),
+    ("create-show", (MAKE_EMPTY, ("read", ("workspace", "$W", "show"), (("/stdout/name", "==", "a"),)))),
+    ("create-rename", (MAKE_EMPTY, ("mutate", ("workspace", "$W", "rename", "b")),
+                       ("read", ("workspace", "$W", "show"), (("/stdout/name", "==", "b"),)))),
+    ("create-close", (MAKE_EMPTY, ("mutate", ("workspace", "$W", "close")),
+                      ("read", ("workspace", "list"), (("/stdout", "len", 0),)))),
     ("create-move", (MAKE_EMPTY, ("mutate", ("workspace", "create", "--empty", "--name", "b")),
-                     ("mutate", ("workspace", "$W", "move", "--index", "1")), ("read", ("workspace", "list")))),
+                     ("mutate", ("workspace", "$W", "move", "--index", "1")),
+                     ("read", ("workspace", "$W", "show"), (("/stdout/index", "==", 1),)))),
     ("create-title", (MAKE_EMPTY, ("mutate", ("workspace", "$W", "update", "--title", "T")),
-                      ("read", ("workspace", "$W", "show")))),
+                      ("read", ("workspace", "$W", "show"), (("/stdout/extra/title", "==", "T"),)))),
     ("workspace-status", (MAKE_EMPTY, ("mutate", ("workspace", "$W", "status", "set", "build", "ok")),
-                          ("read", ("workspace", "$W", "status", "list")))),
+                          ("read", ("workspace", "$W", "status", "list"),
+                           (("/stdout/0/entries", "len", 1), ("/stdout/0/entries/0/key", "==", "build"),
+                            ("/stdout/0/entries/0/text", "==", "ok"))))),
     ("workspace-log", (MAKE_EMPTY, ("mutate", ("workspace", "$W", "log", "append", "hello")),
-                       ("read", ("workspace", "$W", "log", "list")))),
+                       ("read", ("workspace", "$W", "log", "list"),
+                        (("/stdout", "len", 1), ("/stdout/0/text", "==", "hello"))))),
     ("workspace-color", (MAKE_EMPTY, ("mutate", ("workspace", "$W", "update", "--color", "red")),
-                         ("read", ("workspace", "$W", "show")))),
+                         ("read", ("workspace", "$W", "show"), (("/stdout/extra/color", "==", "red"),)))),
     ("workspace-focus", (MAKE_EMPTY, ("mutate", ("workspace", "create", "--empty", "--name", "b", "--focus")),
-                         ("mutate", ("workspace", "$W", "focus")), ("read", ("workspace", "list")))),
+                         ("mutate", ("workspace", "$W", "focus")),
+                         ("read", ("workspace", "$W", "show"), (("/stdout/focused", "==", True),)))),
     ("workspace-progress", (MAKE_EMPTY, ("mutate", ("workspace", "$W", "progress", "set", "0.5")),
-                            ("mutate", ("workspace", "$W", "progress", "clear")))),
-    ("notification-create", (("mutate", ("notification", "create", "--title", "t", "--body", "b")),
-                             ("read", ("notification", "list")))),
-    ("notification-clear", (("mutate", ("notification", "create", "--title", "t", "--body", "b")),
-                            ("mutate", ("notification", "clear")), ("read", ("notification", "list")))),
-    ("room-create", (("mutate", ("room", "create", "--name", "r")), ("read", ("room", "list")))),
-    ("room-update", (("mutate", ("room", "create", "--name", "r")), ("mutate", ("room", "$R", "update", "--name", "s")),
-                     ("read", ("room", "list")))),
-    ("room-delete", (("mutate", ("room", "create", "--name", "r")), ("mutate", ("room", "$R", "delete")),
-                     ("read", ("room", "list")))),
-    ("terminal-panes", (MAKE_TERMINAL, ("read", ("pane", "list", "--workspace", "$W")))),
+                            ("read", ("workspace", "$W", "status", "list"), (("/stdout/0/progress/value", "==", 0.5),)),
+                            ("mutate", ("workspace", "$W", "progress", "clear")),
+                            ("read", ("workspace", "$W", "status", "list"), (("/stdout/0/progress", "==", None),)))),
+    ("notification-create", (NOTIFY, ("read", ("notification", "list"),
+                                      (("/stdout", "len", 1), ("/stdout/0/title", "==", "t"),
+                                       ("/stdout/0/body", "==", "b"))))),
+    ("notification-clear", (NOTIFY, ("mutate", ("notification", "clear")),
+                            ("read", ("notification", "list"), (("/stdout", "len", 0),)))),
+    ("room-create", (ROOM, ("read", ("room", "list"), (("/stdout", "len", 2), ("/stdout/1/name", "==", "r"))))),
+    ("room-update", (ROOM, ("mutate", ("room", "$R", "update", "--name", "s")),
+                     ("read", ("room", "list"), (("/stdout", "len", 2), ("/stdout/1/name", "==", "s"))))),
+    ("room-delete", (ROOM, ("mutate", ("room", "$R", "delete")),
+                     ("read", ("room", "list"), (("/stdout", "len", 1), ("/stdout/0/id", "==", "default"))))),
+    ("terminal-panes", (MAKE_TERMINAL, ("read", ("pane", "list", "--workspace", "$W"), (("/stdout", "len", 1),)))),
     ("terminal-split", (MAKE_TERMINAL, ("mutate", ("pane", "$P", "split", "--right")),
-                        ("read", ("pane", "list", "--workspace", "$W")))),
-    ("terminal-tabs", (MAKE_TERMINAL, ("read", ("tab", "list", "--workspace", "$W")))),
+                        ("read", ("pane", "list", "--workspace", "$W"), (("/stdout", "len", 2),)))),
+    ("screen-rename", (MAKE_TERMINAL, ("mutate", ("screen", "$S", "rename", "main")),
+                       ("read", ("screen", "$S", "show"), (("/stdout/name", "==", "main"),)))),
+    ("terminal-screens", (MAKE_TERMINAL, ("read", ("screen", "list"), (("/stdout", "len", 1),)))),
+    ("terminal-tabs", (MAKE_TERMINAL, ("read", ("tab", "list", "--workspace", "$W"), (("/stdout", "len", 1),)))),
     ("ephemeral", (("mutate", ("workspace", "create", "--empty", "--ephemeral", "--name", "e")),
-                   ("read", ("workspace", "list")))),
-    ("terminal-close-reopen", (MAKE_TERMINAL, ("mutate", ("workspace", "$W", "close")), ("read", ("closed", "list")))),
-    ("terminal-show", (MAKE_TERMINAL, ("read", ("terminal", "$T", "show")))),
+                   ("read", ("workspace", "list"), (("/stdout", "len", 1), ("/stdout/0/extra/ephemeral", "==", True))))),
+    ("terminal-close-reopen", (MAKE_TERMINAL, ("mutate", ("workspace", "$W", "close")),
+                               ("read", ("closed", "list"), (("/stdout", "len", 1),)))),
+    ("terminal-show", (MAKE_TERMINAL, ("read", ("terminal", "$T", "show"), (("/stdout/running", "==", True),)))),
+    ("notification-two", (NOTIFY, ("mutate", ("notification", "create", "--title", "u", "--body", "c")),
+                          ("read", ("notification", "list"), (("/stdout", "len", 2),)))),
+    ("two-workspaces", (MAKE_EMPTY, ("mutate", ("workspace", "create", "--empty", "--name", "b")),
+                        ("read", ("workspace", "list"), (("/stdout", "len", 2),)))),
 )
-REFS = {"$W": "/stdout/value/workspace_id", "$P": "/stdout/value/pane_id", "$T": "/stdout/value/terminal_id",
-        "$R": "/stdout/value/id"}
+REFS = {"$W": "/stdout/value/workspace_id", "$S": "/stdout/value/screen_id", "$P": "/stdout/value/pane_id",
+        "$T": "/stdout/value/terminal_id", "$R": "/stdout/value/id"}
 
 
 def smoke_case(name: str, spec: Sequence[SmokeStep]) -> Dict[str, Any]:
     """A case-v1 case of `cmux --json` steps on a fresh daemon; a settled snapshot after each step."""
     steps = []
-    for index, (kind, argv) in enumerate(spec):
+    for index, (kind, argv, *_) in enumerate(spec):
         args = [f"$step:s0#{REFS[a]}" if a in REFS else a for a in argv]
         step: Dict[str, Any] = {"id": f"s{index}", "op": "cli", "args": {"argv": ["--json", *args]}}
         if kind == "mutate":
@@ -721,6 +850,30 @@ def smoke_cases() -> List[Dict[str, Any]]:
     return [smoke_case(name, spec) for name, spec in SMOKE]
 
 
+def smoke_checks() -> Dict[str, Dict[str, Tuple[Check, ...]]]:
+    """case id -> step id -> the checks on its canonical cli facet."""
+    return {f"cli-smoke-{name}": {f"s{index}": tuple(entry[2]) for index, entry in enumerate(spec) if len(entry) > 2}
+            for name, spec in SMOKE}
+
+
+def check_problems(checkpoints: Sequence[Mapping[str, Any]], checks: Mapping[str, Sequence[Check]]) -> List[str]:
+    """What the checks find wrong in one attempt's canonical cli facets."""
+    facets = {cp["step"]: cp["snapshot"]["facets"].get(CLI_FACET) for cp in checkpoints
+              if cp["checkpoint"] == "settled"}
+    problems = []
+    for step, entries in checks.items():
+        for pointer, op, want in entries:
+            got = resolve_pointer(facets.get(step), pointer)
+            if op == "len":
+                ok = isinstance(got, list) and len(got) == want
+            else:
+                ok = got is not MISSING and normalize.canonical_json(got) == normalize.canonical_json(want)
+            if not ok:
+                shown = "nothing" if got is MISSING else normalize.canonical_json(got)[:200]
+                problems.append(f"{step} {pointer} {op} {json.dumps(want)}: got {shown}")
+    return problems
+
+
 def cmd_run_case(args: argparse.Namespace) -> int:
     case = json.loads(Path(args.case).read_text(encoding="utf-8"))
     run_id = args.run_id or f"cli-{os.getpid()}-{time.time_ns()}"
@@ -738,12 +891,13 @@ def cmd_run_case(args: argparse.Namespace) -> int:
 
 def cmd_smoke(args: argparse.Namespace) -> int:
     """The VM test of task 048: the 50 SMOKE cases, each twice on its own daemon, all at once. Every attempt
-    passes with the I6 proof, both attempts of a case give equal receipt and checkpoint hashes, and nothing of
-    the run is left (pgrep -f of its state base, its state roots)."""
+    passes with the I6 proof and its checks, both attempts of a case give equal checkpoint hashes (the cli
+    facets included), and nothing of the run is left (pgrep -f of its state base, its state roots)."""
     run_id = args.run_id or f"cli-smoke-{os.getpid()}-{time.time_ns()}"
     base = args.state_base / short_token(run_id)
     session = open_session({"binary": args.binary, "run_id": run_id, "ref": args.ref})
     cases = [c for c in smoke_cases() if not args.only or any(o in c["id"] for o in args.only)]
+    checks = smoke_checks()
     work = [(case, attempt) for attempt in range(args.repeat) for case in cases]
     started = time.monotonic()
 
@@ -759,9 +913,13 @@ def cmd_smoke(args: argparse.Namespace) -> int:
     hashes: Dict[str, List[List[str]]] = {}
     failures = []
     for (case, attempt), result in zip(work, results):
-        counts[result["status"]] = counts.get(result["status"], 0) + 1
-        if result["status"] != "Pass":
-            failures.append(f"{case['id']}#{attempt} at {result.get('step')}: {result['message'][:400]}")
+        problems = check_problems(result.get("checkpoints") or (), checks[case["id"]]) \
+            if result["status"] == "Pass" else []
+        status = "Failure" if problems else result["status"]
+        counts[status] = counts.get(status, 0) + 1
+        if status != "Pass":
+            detail = "; ".join(problems) or result["message"]
+            failures.append(f"{case['id']}#{attempt} at {result.get('step')}: {detail[:400]}")
         hashes.setdefault(case["id"], []).append(attempt_hashes(result))
     unstable = sorted(cid for cid, attempts in hashes.items() if any(h != attempts[0] for h in attempts))
     leftovers = sorted(str(p) for p in base.glob("*"))
@@ -769,25 +927,25 @@ def cmd_smoke(args: argparse.Namespace) -> int:
     report = {
         "binary": session.binary, "sha": session.sha, "cases": len(cases), "attempts": len(work), "jobs": args.jobs,
         "seconds": round(time.monotonic() - started, 1), "counts": counts,
-        "receipts": {cid: attempts[0] for cid, attempts in sorted(hashes.items())},
+        "checkpoints": {cid: attempts[0] for cid, attempts in sorted(hashes.items())},
         "unstable": unstable, "failures": failures[:20], "pgrep_left": pgrep, "state_roots_left": leftovers,
     }
     print(json.dumps(report, indent=1, sort_keys=True))
     if args.verbose:
         for (case, attempt), result in zip(work, results):
             if attempt == 0:
-                print(json.dumps({"case": case["id"], "receipts": result.get("receipts")}, sort_keys=True))
+                facets = {cp["step"]: cp["snapshot"]["facets"].get(CLI_FACET) for cp in result.get("checkpoints") or ()
+                          if cp["checkpoint"] == "settled"}
+                print(json.dumps({"case": case["id"], "cli": facets}, sort_keys=True))
     shutil.rmtree(base, ignore_errors=True)
     ok = counts.get("Pass", 0) == len(work) and not unstable and not pgrep and not leftovers
     return 0 if ok else 1
 
 
 def attempt_hashes(result: Mapping[str, Any]) -> List[str]:
-    """One attempt's receipt hashes, then its checkpoint hashes (oracle.py's sha256 of canonical JSON)."""
-    receipts = [r["sha256"] for r in result.get("receipts") or ()]
-    snapshots = [hashlib.sha256(normalize.canonical_json(cp["snapshot"]).encode("utf-8")).hexdigest()
-                 for cp in result.get("checkpoints") or ()]
-    return receipts + snapshots
+    """One attempt's checkpoint hashes (oracle.py's sha256 of canonical JSON); the cli facets are in them."""
+    return [hashlib.sha256(normalize.canonical_json(cp["snapshot"]).encode("utf-8")).hexdigest()
+            for cp in result.get("checkpoints") or ()]
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -804,9 +962,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     smoke.add_argument("--repeat", type=int, default=2, help="attempts per case; all must hash equal")
     smoke.add_argument("--jobs", type=int, default=100)
     smoke.add_argument("--only", action="append", help="run the cases whose id contains this text")
-    smoke.add_argument("--verbose", action="store_true", help="also print each case's receipts")
+    smoke.add_argument("--verbose", action="store_true", help="also print each case's canonical cli facets")
     for cmd in (run_case, smoke):
-        cmd.add_argument("--ref", help="the run SHA (checked against the binary's build.json)")
+        cmd.add_argument("--ref", help=f"the run SHA (a ref git rev-parse resolves); the binary's {BUILD_RECEIPT} "
+                                       "must name it")
         cmd.add_argument("--state-base", type=Path, default=DEFAULT_STATE_BASE)
         cmd.add_argument("--run-id")
     args = parser.parse_args(argv)

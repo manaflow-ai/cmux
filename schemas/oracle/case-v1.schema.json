@@ -201,12 +201,13 @@
         "crashes",
         "liveObjects",
         "invariants",
-        "switches"
+        "switches",
+        "cli"
       ]
     },
     "facetPointer": {
       "type": "string",
-      "pattern": "^/(topology|daemon|focus|layout|sidebar|tabs|overlays|settings|intents|windows|history|notifications|agents|terminals|webviews|ax|crashes|liveObjects|invariants|switches)(/([^~/]|~[01])*)*$",
+      "pattern": "^/(topology|daemon|focus|layout|sidebar|tabs|overlays|settings|intents|windows|history|notifications|agents|terminals|webviews|ax|crashes|liveObjects|invariants|switches|cli)(/([^~/]|~[01])*)*$",
       "description": "JSON pointer into a snapshot, starting with a facet name."
     },
     "stepRef": {
