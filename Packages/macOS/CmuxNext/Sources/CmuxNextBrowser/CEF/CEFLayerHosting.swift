@@ -3,8 +3,15 @@ import CmuxNextSignposts
 
 /// Layer hosting (fork API 26) of the page window over one ``CEFHostView``:
 /// asks the fork for the page window's Core Animation context and shows it in
-/// a ``ChromiumHostPageView`` at the bottom of the host view, following
-/// `BrowserResizeTunables.layerHosting`.
+/// a ``ChromiumHostPageView`` at the bottom of the host view.
+///
+/// Whether it hosts (``wantsHosting(enabled:everyWindow:fork:widget:)``): with
+/// `BrowserResizeTunables.layerHosting` on (the default), a pane's page window
+/// on a fork with Track A (``trackAForkAPI``: the resize fence and page
+/// visibility from the embedder); DevTools and popup windows keep drawing in
+/// their own window (``Widget``) until task p03-rendering-056 hosts them.
+/// `BrowserResizeTunables.layerHostingEveryWindow` (benches, off by default)
+/// hosts every page window from fork API 26.
 ///
 /// The context belongs to the page window, not to a tab: every tab of a pane
 /// shares it, so a tab switch inside a hosted pane makes no fork call. A new
@@ -47,11 +54,17 @@ final class CEFLayerHosting {
         /// holds it up to 500 ms on every resize, and from API 32, where the
         /// fork never holds it (``hasResizeSync(apiVersion:)``).
         let setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)?
+        /// The fork has Track A (``trackAForkAPI``), so its pane pages host by
+        /// default. False for a seam unless the test says so: a fork that
+        /// is not known to have Track A never hosts by default.
+        let hostsByDefault: Bool
 
         init(setLayerHosting: @escaping (_ browser: Int32, _ enabled: Bool) -> UInt32,
-             setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)? = nil) {
+             setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)? = nil,
+             hostsByDefault: Bool = false) {
             self.setLayerHosting = setLayerHosting
             self.setResizeSync = setResizeSync
+            self.hostsByDefault = hostsByDefault
         }
 
         /// The shim's call; nil without a shim or below fork API 26, where
@@ -61,7 +74,20 @@ final class CEFLayerHosting {
             setLayerHosting = { browser, enabled in shim.browserSetLayerHosting(browser, enabled ? 1 : 0) }
             setResizeSync = CEFLayerHosting.hasResizeSync(apiVersion: apiVersion)
                 ? { browser, timeout in shim.browserSetResizeSync(browser, timeout) == 1 } : nil
+            hostsByDefault = apiVersion >= CEFLayerHosting.trackAForkAPI
         }
+    }
+
+    /// The kind of page window over the view. By default only a pane's page
+    /// hosts: DevTools and popup windows are the per-widget fallback (their own
+    /// window) until task p03-rendering-056.
+    enum Widget {
+        /// A pane's tabs (`CEFPaneHost`).
+        case page
+        /// A docked DevTools (`CEFDevToolsController`).
+        case devTools
+        /// A popup host's window (`CEFPaneHost.isPopupHost`).
+        case popup
     }
 
     private enum Pending: Equatable {
@@ -80,6 +106,20 @@ final class CEFLayerHosting {
     /// The first fork API where a page window never holds the commit
     /// (`cmux_browser_set_resize_fence`): the resize deadline has no effect.
     static let resizeFenceForkAPI: Int32 = 32
+    /// The first fork API with all of Track A (p03-rendering R3): the resize
+    /// fence (``resizeFenceForkAPI``, whose app side task p03-rendering-043
+    /// owns) and page visibility from the embedder (task p03-rendering-058,
+    /// `cmux_browser_set_embedder_visibility`, the API after the fence's), so a
+    /// hosted page window that never orders in still draws. Below it pages
+    /// host only with `everyWindow`. Follows 058's `cef_cmux.h` when that lands.
+    static let trackAForkAPI: Int32 = 33
+
+    /// Whether the page window hosts. `enabled` off: never. On: a pane's page
+    /// on a fork with ``trackAForkAPI``, or with `everyWindow` (the benches'
+    /// switch) every page window of a fork from ``forkAPI``.
+    static func wantsHosting(enabled: Bool, everyWindow: Bool, fork: Fork, widget: Widget) -> Bool {
+        enabled && (everyWindow || (fork.hostsByDefault && widget == .page))
+    }
 
     /// Whether the fork's resize deadline holds the commit: fork API 27 to 31.
     static func hasResizeSync(apiVersion: Int32) -> Bool {
@@ -87,6 +127,8 @@ final class CEFLayerHosting {
     }
 
     weak var view: NSView?
+    /// What the view shows; its owner sets it before the first page window.
+    var widget = Widget.page
     /// The page's pixels in this window's layer tree; nil while the page
     /// draws in its own window.
     private(set) var page: ChromiumHostPageView?
@@ -103,6 +145,7 @@ final class CEFLayerHosting {
     var isForkBacked: Bool { fork != nil }
     private var pending = Pending.none
     private let isEnabled: () -> Bool
+    private let everyWindow: () -> Bool
     private let schedule: Scheduler
     private let makePage: (CGRect) -> ChromiumHostPageView
     private let resizeDeadlineMs: () -> Int32
@@ -118,19 +161,23 @@ final class CEFLayerHosting {
     typealias Scheduler = (_ block: @escaping @MainActor @Sendable () -> Void) -> Void
 
     /// - Parameters:
-    ///   - isEnabled: whether hosting is wanted; the tunable by default.
+    ///   - isEnabled: whether hosting is wanted at all; the tunable by default.
+    ///   - everyWindow: host every page window from fork API 26, not only a pane's page on a Track A
+    ///     fork (``wantsHosting(enabled:everyWindow:fork:widget:)``); the tunable by default.
     ///   - schedule: runs a block at the end of this run-loop turn; tests run it when they choose.
     ///   - makePage: the hosted view for a frame; tests pass one whose layer host fails.
     ///   - resizeDeadlineMs: the upper bound of a hosted page's resize wait; the tunable by default.
     ///   - refreshIntervals: the shortest frame interval of each display, which cap the wait
     ///     (``CEFResizeSyncDeadline``); tests pass fixed rates.
     init(isEnabled: @escaping () -> Bool = { BrowserResizeTunables.layerHosting.value },
+         everyWindow: @escaping () -> Bool = { BrowserResizeTunables.layerHostingEveryWindow.value },
          schedule: @escaping Scheduler = { CEFLayerHosting.atEndOfTurn($0) },
          makePage: @escaping (CGRect) -> ChromiumHostPageView = { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow) },
          resizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.syncDeadline.value * 1_000).rounded()) },
          liveResizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.liveResizeDeadline.value * 1_000).rounded()) },
          refreshIntervals: @escaping () -> [Double] = { NSScreen.screens.map(\.minimumRefreshInterval) }) {
         self.isEnabled = isEnabled
+        self.everyWindow = everyWindow
         self.resizeDeadlineMs = resizeDeadlineMs
         self.liveResizeDeadlineMs = liveResizeDeadlineMs
         self.refreshIntervals = refreshIntervals
@@ -153,7 +200,7 @@ final class CEFLayerHosting {
         pending = .none
         // The window may be in a live resize already.
         syncDeadline()
-        guard fork != nil, isEnabled() else { return }
+        guard let fork, wants(fork) else { return }
         request(retry: false)
     }
 
@@ -169,7 +216,7 @@ final class CEFLayerHosting {
         defer { tabSwitch?.pageShown() }
         guard let fork else { return }
         self.browser = browser
-        let wanted = isEnabled()
+        let wanted = wants(fork)
         if wanted == (page != nil) {
             syncDeadline()
             return
@@ -244,12 +291,16 @@ final class CEFLayerHosting {
         browser = nil
     }
 
+    private func wants(_ fork: Fork) -> Bool {
+        Self.wantsHosting(enabled: isEnabled(), everyWindow: everyWindow(), fork: fork, widget: widget)
+    }
+
     private func request(retry: Bool) {
         pending = .scheduled(retry: retry)
         schedule { [weak self] in
             guard let self, self.pending == .scheduled(retry: retry) else { return }
             self.pending = .none
-            guard let fork = self.fork, let browser = self.browser, self.isEnabled(), self.page == nil else { return }
+            guard let fork = self.fork, let browser = self.browser, self.wants(fork), self.page == nil else { return }
             self.apply(fork, browser: browser, retry: retry)
         }
     }

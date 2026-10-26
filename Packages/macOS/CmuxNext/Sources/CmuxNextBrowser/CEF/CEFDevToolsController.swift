@@ -216,7 +216,8 @@ final class CEFDevToolsController {
         if docked, !layout.dock.isDocked { undockViews() }
         tab.container.layoutContent()
         // A docked DevTools is its own page window on its own host view: hosted in the window's layers
-        // too while layer hosting is on (fork API 26), from this open on (a later tunable change applies
+        // only on a developer's layer hosting override (fork API 26; the Track A default keeps it in its
+        // own window, `CEFLayerHosting.Widget`), from this open on (a later tunable change applies
         // at the next open). In host mode it shows in the hosted page view, from the context the host gives.
         if docked, tab.host.isHostMode {
             showHostedContext(of: browser)
@@ -326,6 +327,8 @@ final class CEFDevToolsController {
 
     func makeViews(in tab: CEFTab) -> (host: CEFHostView, divider: CEFDevToolsDivider) {
         let host = CEFHostView()
+        // DevTools keeps its own window until its hosting is verified (p03-rendering-056).
+        host.layerHosting.widget = .devTools
         if tab.host.isHostMode { installHostedPage(for: tab, in: host) }
         let divider = CEFDevToolsDivider()
         divider.devTools = self

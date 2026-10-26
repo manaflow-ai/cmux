@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
 """Chromium layer hosting (fork API 26) works in a real window: pixels, orientation, mouse, keys, scroll, drag.
 
-Launches a tagged cmux-next app (scratch config, no activation) with `browserResize.layerHosting` set by --mode,
-opens a probe page in a Chromium tab and checks:
+Launches a tagged cmux-next app (scratch config, no activation) with layer hosting set by --mode, opens a probe page
+in a Chromium tab and checks:
+
+  --mode on       `browserResize.layerHosting` and `browserResize.layerHostingEveryWindow` on: every page window hosts
+                  from fork API 26 (the A/B benches' "on")
+  --mode off      `browserResize.layerHosting` off: no page hosts
+  --mode default  no tunable set: the default (p03-rendering-050), which hosts a pane's page only on a fork with Track A
+                  (fork API >= 33: the resize fence and embedder visibility); expects what mode on expects
 
 Input is real HID events (CGEventPost: the pointer moves on the fleet host), because the point is that the
 WindowServer still routes the mouse and keys to the transparent page window; debug.mouse would post into the cmux
 window and skip that. The python process needs the host's event-posting permission (a FAIL row says so).
 
   valid       the page is Chromium: debug.cef shows no `unavailable` and no `fallback`, and windows.fork_api >= 26
-              in mode on (below 26 the app never hosts, so an "on" number would be an "off" number)
+              in mode on (below 26 the app never hosts, so an "on" number would be an "off" number), >= 33 in mode
+              default (below Track A the default does not host)
   hosted      debug.cef tracker.hosted_pages >= 1 (on) or == 0 (off), read as soon as the first page of a new pane
               loaded (no tab switch first: the request made at window creation must host it by itself)
   hosted.fork the fork really moved the page's pixels, not only the app's view: debug.layers counts the CALayerHost
@@ -54,7 +61,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", default="/tmp")
-parser.add_argument("--mode", default="on", choices=["on", "off"])
+parser.add_argument("--mode", default="on", choices=["on", "off", "default"])
 parser.add_argument("--keep", action="store_true", help="leave the app running")
 parser.add_argument("--input", default="hid", choices=["hid", "debug"],
                     help="hid: real CGEvents (nx-remote --needs input); debug: debug.mouse/debug.key into the app's queue "
@@ -72,11 +79,17 @@ SCRATCH = tempfile.mkdtemp(prefix=f"cef-layer-{TAG}-")
 open(os.path.join(SCRATCH, "ghostty"), "w").close()
 CONFIG = os.path.join(SCRATCH, "cmux.json")
 open(CONFIG, "w").write("{}\n")
-TUNABLES = os.path.join(SCRATCH, "debug-tunables.json")
-json.dump({"version": 1, "values": {"browserResize.layerHosting": opts.mode == "on"}}, open(TUNABLES, "w"))
-WINDOW = (80, 80, 1400, 900)
 KEY = "browserResize.layerHosting"
+EVERY_WINDOW_KEY = "browserResize.layerHostingEveryWindow"
+# Each mode's tunable values; None leaves the key unset (the build's default).
+MODE_VALUES = {"on": {KEY: True, EVERY_WINDOW_KEY: True}, "off": {KEY: False, EVERY_WINDOW_KEY: None},
+               "default": {KEY: None, EVERY_WINDOW_KEY: None}}
+HOSTED = opts.mode != "off"
+TUNABLES = os.path.join(SCRATCH, "debug-tunables.json")
+json.dump({"version": 1, "values": {k: v for k, v in MODE_VALUES[opts.mode].items() if v is not None}}, open(TUNABLES, "w"))
+WINDOW = (80, 80, 1400, 900)
 LAYER_HOSTING_FORK_API = 26
+TRACK_A_FORK_API = 33  # CEFLayerHosting.trackAForkAPI: the first fork whose pages host with no tunable set
 ROWS, TAB, FACTS = [], {}, {}
 
 PAGE = """<!doctype html><meta charset=utf-8><title>layer probe</title>
@@ -285,14 +298,19 @@ def capture_bars(name):
     return red, blue, rows
 
 
-def write_build_tunable(path, value):
+def write_build_tunable(path, mode):
     """The build's own override file, after the app quit (its coalesced writer cannot race this)."""
     try:
         with open(path) as existing:
             data = json.load(existing)
     except (OSError, ValueError):
         data = {"version": 1, "values": {}}
-    data.setdefault("values", {})[KEY] = value
+    values = data.setdefault("values", {})
+    for key, value in MODE_VALUES[mode].items():
+        if value is None:
+            values.pop(key, None)
+        else:
+            values[key] = value
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as out:
         json.dump(data, out, indent=2, sort_keys=True)
@@ -306,9 +324,10 @@ def check_valid_and_hosted():
     hosted = tracker.get("hosted_pages", 0)
     FACTS.update({"fork_api": fork_api, "unavailable": unavailable, "fallback": fallback,
                   "hosted_pages": hosted, "hosting_refused": tracker.get("hosting_refused")})
-    row("valid", unavailable is None and fallback is None and (opts.mode == "off" or fork_api >= LAYER_HOSTING_FORK_API),
-        {"fork_api": fork_api, "unavailable": unavailable, "fallback": fallback})
-    row("hosted", hosted >= 1 if opts.mode == "on" else hosted == 0,
+    needs_api = {"on": LAYER_HOSTING_FORK_API, "default": TRACK_A_FORK_API}.get(opts.mode, 0)
+    row("valid", unavailable is None and fallback is None and fork_api >= needs_api,
+        {"fork_api": fork_api, "needs_fork_api": needs_api, "unavailable": unavailable, "fallback": fallback})
+    row("hosted", hosted >= 1 if HOSTED else hosted == 0,
         {"hosted_pages": hosted, "hosting_refused": tracker.get("hosting_refused"), "fork_api": fork_api})
 
 
@@ -319,7 +338,7 @@ def check_fork_hosted():
                 if "page_window_layer_hosts" in b]
         if not rows:
             return None
-        if opts.mode == "on":
+        if HOSTED:
             good = all((b.get("hosted_context_layer_hosts") or 0) >= 1 and b.get("page_window_layer_hosts") == 0 for b in rows)
         else:
             good = all(b.get("hosted_layer_hosts") == 0 and (b.get("page_window_layer_hosts") or 0) >= 1 for b in rows)
@@ -392,8 +411,10 @@ def main():
             return
         time.sleep(4)  # test harness: launch work settles
         if opts.tunables == "build":
-            # The benches launch with no override: they read this file. Set the value live for this launch too.
-            state = rpc("debug.tunables", {"action": "set", "key": KEY, "value": opts.mode == "on"}) or {}
+            # The benches launch with no override: they read this file. Set the values live for this launch too
+            # (null resets a key to the build's default).
+            for key, value in MODE_VALUES[opts.mode].items():
+                state = rpc("debug.tunables", {"action": "set", "key": key, "value": value}) or {}
             FACTS["tunables_file"] = state.get("file")
             if not state.get("file"):
                 row("tunables", False, f"debug.tunables gave no file: {json.dumps(state)[:200]}")
@@ -507,7 +528,7 @@ def main():
             subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
                            env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
         if opts.tunables == "build" and FACTS.get("tunables_file") and not opts.keep:
-            write_build_tunable(FACTS["tunables_file"], opts.mode == "on")
+            write_build_tunable(FACTS["tunables_file"], opts.mode)
         json.dump({"tag": TAG, "mode": opts.mode, "rows": ROWS, "facts": FACTS},
                   open(os.path.join(opts.out, f"verify-{opts.mode}.json"), "w"), indent=2)
 

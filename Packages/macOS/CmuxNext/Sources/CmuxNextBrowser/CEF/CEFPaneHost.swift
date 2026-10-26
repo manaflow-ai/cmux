@@ -57,6 +57,8 @@ final class CEFPaneHost {
         self.contextMenus = contextMenus
         hostView.liveResizeWillStart = { [weak self] in self?.visibleTab?.samplePageBackdrop() }
         hostView.fileDrag.target = { [weak self] in self?.visibleTab }
+        // A popup window keeps its own window until its hosting is verified (p03-rendering-056).
+        hostView.layerHosting.widget = isPopupHost ? .popup : .page
     }
 
     /// The viewport of a tab no pane has shown (Playwright's default page
