@@ -25,7 +25,11 @@ extension IPhoneHostService {
     static let denyButton = "deny"
 
     private var pairedFile: MobileHostPairedDevicesFile? {
-        dependencies.map { MobileHostPairedDevicesFile(directory: $0.stateDirectory) }
+        dependencies.map {
+            MobileHostPairedDevicesFile(
+                directory: $0.stateDirectory,
+                seal: MobileHostKeychainPairingSeal(bundleID: $0.stateDirectory.deletingLastPathComponent().lastPathComponent))
+        }
     }
 
     /// Loads the list of the signed-in user; a sign-out forgets that user's phones.

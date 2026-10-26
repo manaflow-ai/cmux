@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import Testing
 @testable import CmuxNextMobile
 
@@ -129,7 +130,7 @@ import Testing
     @Test func theFileBelongsToOneUser() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let file = MobileHostPairedDevicesFile(directory: directory)
+        let file = MobileHostPairedDevicesFile(directory: directory, seal: MobileHostMemoryPairingSeal())
         var devices = file.load(userID: "u")
         devices.approve(Self.request, at: Date(timeIntervalSince1970: 5))
         try file.save(devices)
@@ -137,6 +138,124 @@ import Testing
         #expect(file.load(userID: "other").devices.isEmpty)
         let mode = try FileManager.default.attributesOfItem(atPath: file.file.path)[.posixPermissions] as? Int
         #expect(mode == 0o600)
+    }
+
+    static let other = MobileHostPairRequest(phoneDeviceID: "p2", name: "Other iPhone",
+                                             identityKey: "04" + String(repeating: "dd", count: 64),
+                                             approvalKey: "04" + String(repeating: "ee", count: 64))
+
+    /// The paired list as the app reads it at its next launch (a new file object, the same seal),
+    /// and what reaches acpmux (approvers) and hostd (pinned keys) from it.
+    static func relaunched(_ directory: URL, seal: any MobileHostPairingSealStore) -> (approvers: [[String: String]], hostd: [[String: String]]) {
+        let list = MobileHostPairedDevicesFile(directory: directory, seal: seal).load(userID: "u")
+        let approvers = list.approversParams(macDevice: "mac-1")["approvers"] as? [[String: String]] ?? []
+        let line = (try? JSONSerialization.jsonObject(with: MobileHostLaunch.devicesLine(list))) as? [String: Any]
+        return (approvers, line?["devices"] as? [[String: String]] ?? [])
+    }
+
+    /// A list with one approved phone, saved under `seal`.
+    static func saved(_ directory: URL, seal: any MobileHostPairingSealStore) throws -> (MobileHostPairedDevicesFile, MobileHostPairedDevices) {
+        let file = MobileHostPairedDevicesFile(directory: directory, seal: seal)
+        var devices = file.load(userID: "u")
+        devices.approve(Self.request, at: Date(timeIntervalSince1970: 5))
+        try file.save(devices)
+        return (file, devices)
+    }
+
+    /// A same-user process rewrites paired-devices.json, swapping in a key of its own: at the next
+    /// launch no approver is enrolled and hostd pins nothing (#24233, landing term 5).
+    @Test func aTamperedListEnrollsNoApproverAfterARelaunch() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let seal = MobileHostMemoryPairingSeal()
+        let (file, _) = try Self.saved(directory, seal: seal)
+        #expect(Self.relaunched(directory, seal: seal).approvers.map { $0["publicKey"] } == [Self.approval])
+
+        let theirs = "04" + String(repeating: "cc", count: 64)
+        let text = try String(contentsOf: file.file, encoding: .utf8).replacingOccurrences(of: Self.approval, with: theirs)
+        try Data(text.utf8).write(to: file.file)
+        let relaunched = Self.relaunched(directory, seal: seal)
+        #expect(relaunched.approvers.isEmpty, "a tampered list enrolled \(relaunched.approvers)")
+        #expect(relaunched.hostd.isEmpty, "hostd pinned \(relaunched.hostd)")
+    }
+
+    /// A same-user process keeps a copy of the list, waits for the person to remove the phone, then
+    /// puts the copy back: the removed phone is not trusted again.
+    @Test func anOlderListPutBackTrustsNoPhone() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let seal = MobileHostMemoryPairingSeal()
+        let (file, saved) = try Self.saved(directory, seal: seal)
+        var devices = saved
+        let copy = try Data(contentsOf: file.file)
+        devices.remove(Self.request.phoneDeviceID)
+        try file.save(devices)
+        try copy.write(to: file.file)
+        let relaunched = Self.relaunched(directory, seal: seal)
+        #expect(relaunched.approvers.isEmpty, "the removed phone came back as an approver: \(relaunched.approvers)")
+        #expect(relaunched.hostd.isEmpty, "hostd pinned the removed phone: \(relaunched.hostd)")
+    }
+
+    /// A list with no digest (one an older build wrote) or a Keychain that refuses trusts no phone;
+    /// a save the Keychain refuses throws and leaves the list as it was.
+    @Test func aListWithoutItsDigestTrustsNoPhone() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let seal = MobileHostMemoryPairingSeal()
+        let (file, saved) = try Self.saved(directory, seal: seal)
+        var devices = saved
+        #expect(Self.relaunched(directory, seal: MobileHostMemoryPairingSeal()).approvers.isEmpty, "no digest")
+        #expect(Self.relaunched(directory, seal: MobileHostMemoryPairingSeal(refuses: true)).approvers.isEmpty, "Keychain refuses")
+        devices.approve(Self.other, at: Date(timeIntervalSince1970: 6))
+        #expect(throws: MobileHostPairingSealError.keychainRefused) {
+            try MobileHostPairedDevicesFile(directory: directory, seal: MobileHostMemoryPairingSeal(refuses: true)).save(devices)
+        }
+        #expect(Self.relaunched(directory, seal: seal).approvers.count == 1, "a refused save changed the list")
+        try file.save(devices)
+        #expect(Self.relaunched(directory, seal: seal).approvers.count == 2)
+    }
+
+    /// The person removes a phone and the new list's digest is never recorded (a crash between
+    /// the file and its digest, or a Keychain that refuses it): an older copy put back then still
+    /// trusts no phone, because the old digest went first.
+    @Test func aRevocationWhoseDigestIsNotRecordedLeavesNoOlderListTrusted() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let seal = MobileHostMemoryPairingSeal()
+        let (file, saved) = try Self.saved(directory, seal: seal)
+        var devices = saved
+        let copy = try Data(contentsOf: file.file)
+        seal.refuseRecords()
+        devices.remove(Self.request.phoneDeviceID)
+        try file.save(devices)
+        try copy.write(to: file.file)
+        let relaunched = Self.relaunched(directory, seal: seal)
+        #expect(relaunched.approvers.isEmpty, "the removed phone came back as an approver: \(relaunched.approvers)")
+        #expect(relaunched.hostd.isEmpty, "hostd pinned the removed phone: \(relaunched.hostd)")
+    }
+
+    /// The iPhone host reads and writes off the main actor, in order: a read queued after a save
+    /// sees it.
+    @Test func aBackgroundReadSeesTheSavesQueuedBeforeIt() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = MobileHostPairedDevicesFile(directory: directory, seal: MobileHostMemoryPairingSeal())
+        var devices = MobileHostPairedDevices(userID: "u")
+        devices.approve(Self.request, at: Date(timeIntervalSince1970: 5))
+        file.saveInBackground(devices)
+        devices.approve(Self.other, at: Date(timeIntervalSince1970: 6))
+        file.saveInBackground(devices)
+        #expect(await file.loadInBackground(userID: "u") == devices)
+    }
+
+    /// The digest lives in the data-protection Keychain, in the app's own access group, never synced.
+    @Test func theSealIsInTheAppsOwnDataProtectionKeychain() {
+        let seal = MobileHostKeychainPairingSeal(bundleID: "com.cmuxterm.app.next")
+        #expect(seal.service == "com.cmuxterm.app.next.iphone-host.pairing-seal")
+        let query = MobileHostKeychainPairingSeal.query(service: seal.service)
+        #expect(query[kSecUseDataProtectionKeychain as String] as? Bool == true)
+        #expect(query[kSecAttrSynchronizable as String] as? Bool == false)
+        #expect(query[kSecAttrAccessGroup as String] == nil, "the app's default (entitled) group, not a named one")
     }
 }
 

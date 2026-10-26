@@ -1,5 +1,6 @@
 public import Foundation
 import CryptoKit
+import os
 
 /// A phone that proved its keys to `cmux-mobile-host` and asks this Mac to trust it
 /// (cmux-next-ios `verify/phone-approvals.md`). The keys are 65-byte X9.63 P-256
@@ -164,13 +165,40 @@ public struct MobileHostPairedDevices: Sendable, Equatable, Codable {
     }
 }
 
-/// ``MobileHostPairedDevices`` in `<directory>/paired-devices.json`, mode 0600.
+/// ``MobileHostPairedDevices`` in `<directory>/paired-devices.json`, mode 0600, sealed by its
+/// digest in `seal` (``MobileHostPairingSealStore``).
 public struct MobileHostPairedDevicesFile: Sendable {
     public let file: URL
+    let seal: any MobileHostPairingSealStore
 
-    public init(directory: URL) {
+    public init(directory: URL, seal: any MobileHostPairingSealStore) {
         file = directory.appendingPathComponent("paired-devices.json", isDirectory: false)
+        self.seal = seal
     }
+
+    /// One serial queue for every list's reads and writes: they leave the caller's thread (the
+    /// seal is a Keychain item, and the iPhone host calls from the main actor) and keep its order.
+    private static let queue = DispatchQueue(label: "com.cmuxterm.mobile.paired-devices")
+
+    /// `load` on the queue, after every save queued before it.
+    public func loadInBackground(userID: String) async -> MobileHostPairedDevices {
+        await withCheckedContinuation { continuation in
+            Self.queue.async { continuation.resume(returning: self.load(userID: userID)) }
+        }
+    }
+
+    /// `save` on the queue, in the order called; a failure is logged.
+    public func saveInBackground(_ devices: MobileHostPairedDevices) {
+        Self.queue.async {
+            do {
+                try self.save(devices)
+            } catch {
+                Self.logger.error("paired phones not saved: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mobile.pairing")
 
     /// The stored list when it belongs to `userID`, else an empty one for that user.
     public func load(userID: String) -> MobileHostPairedDevices {
