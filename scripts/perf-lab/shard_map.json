@@ -5,8 +5,8 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 19300,
-            "T2": 31440
+            "T1": 20980,
+            "T2": 32040
           },
           "stories": {
             "T1": [
@@ -20,14 +20,19 @@
               "blocking-hangs",
               "chat-anim",
               "command-pan",
+              "crash-survival",
+              "crash-survival-webkit",
               "daemon-ops",
               "drag-lag",
               "fullscreen-transition",
               "home-idle",
               "home-perf",
+              "idle-tabs",
+              "idle-tabs-webkit",
               "launch-cold",
               "launch-cold-realistic",
               "launch-warm-realistic",
+              "main-turn",
               "memory-hidden",
               "memory-hidden-webkit",
               "motion",
@@ -81,6 +86,8 @@
               "action-sweep-stress-8",
               "app-perf",
               "automation-typing",
+              "browser-engine-chromium",
+              "browser-engine-webkit",
               "cef-resize-sync",
               "cef-resize-sync-stress",
               "cli-storm",
@@ -89,6 +96,7 @@
               "command-pan-stress",
               "daemon-spawn",
               "devtools-resize-live",
+              "drag-daemon",
               "launch-after-reboot",
               "layout-loop-stress",
               "new-surfaces-stress",
@@ -100,6 +108,7 @@
               "sidebar-drag-live",
               "sidebar-drag-stress",
               "terminal-resize-stress",
+              "tui-browser-frames",
               "typing-flood-stress"
             ]
           }
@@ -115,7 +124,7 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 31440
+            "T2": 32040
           },
           "stories": {
             "T2": [
@@ -138,6 +147,8 @@
               "action-sweep-stress-8",
               "app-perf",
               "automation-typing",
+              "browser-engine-chromium",
+              "browser-engine-webkit",
               "cef-resize-sync",
               "cef-resize-sync-stress",
               "cli-storm",
@@ -146,6 +157,7 @@
               "command-pan-stress",
               "daemon-spawn",
               "devtools-resize-live",
+              "drag-daemon",
               "launch-after-reboot",
               "layout-loop-stress",
               "new-surfaces-stress",
@@ -157,6 +169,7 @@
               "sidebar-drag-live",
               "sidebar-drag-stress",
               "terminal-resize-stress",
+              "tui-browser-frames",
               "typing-flood-stress"
             ]
           }
@@ -172,7 +185,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 9610
+            "T1": 10510
           },
           "stories": {
             "T0": [
@@ -187,6 +200,7 @@
               "daemon-ops",
               "home-perf",
               "launch-cold-realistic",
+              "main-turn",
               "motion",
               "new-browser-tab-webkit",
               "omnibar",
@@ -210,7 +224,7 @@
           "index": 1,
           "seconds": {
             "T0": 150,
-            "T1": 9690
+            "T1": 10470
           },
           "stories": {
             "T0": [
@@ -223,9 +237,13 @@
               "agent-stream",
               "agent-stream-webkit",
               "chat-anim",
+              "crash-survival",
+              "crash-survival-webkit",
               "drag-lag",
               "fullscreen-transition",
               "home-idle",
+              "idle-tabs",
+              "idle-tabs-webkit",
               "launch-cold",
               "launch-warm-realistic",
               "memory-hidden",
