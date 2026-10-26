@@ -40,10 +40,16 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     }
 
     private let backlog = Mutex(Backlog())
+    /// Watches each output chunk's parse on the lane, never the lane's queue wait; nil watches nothing.
+    private let hangs: (any HangWatching)?
+    /// How long one chunk's `ghostty_surface_process_output` may take before the hang watcher reports
+    /// it: a 256 KiB chunk parses in about a millisecond, so 100 ms means the lane is stuck.
+    static let feedHangDeadline: Duration = .milliseconds(100)
 
-    init(surface: ghostty_surface_t, label: String, highWater: Int = 2 << 20) {
+    init(surface: ghostty_surface_t, label: String, highWater: Int = 2 << 20, hangs: (any HangWatching)? = nil) {
         self.surface = surface
         self.highWater = highWater
+        self.hangs = hangs
         self.queue = DispatchQueue(label: label, qos: .userInteractive)
     }
 
@@ -56,14 +62,22 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
         queue.async { [self] in
             defer { parsed(data.count) }
             guard let surface, !closing.load(ordering: .relaxed) else { return }
-            data.withUnsafeBytes { buffer in
-                guard let base = buffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
-                ghostty_surface_process_output(surface, base, UInt(buffer.count))
-            }
+            feed(surface, data)
             TypingLatencyProbe.shared.mark(.outputParsed)
             #if DEBUG || CMUX_BENCH_HOOKS
             if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.parsed(lane: ObjectIdentifier(self), data) }
             #endif
+        }
+    }
+
+    /// Parses one chunk on the lane, inside a ``feedHangDeadline`` hang scope when there is a watcher.
+    // perf-hot: 50ns terminal-feed
+    private func feed(_ surface: ghostty_surface_t, _ data: Data) {
+        let token = hangs?.enter("terminal.feed", deadline: Self.feedHangDeadline)
+        defer { if let token { hangs?.leave(token) } }
+        data.withUnsafeBytes { buffer in
+            guard let base = buffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
+            ghostty_surface_process_output(surface, base, UInt(buffer.count))
         }
     }
 

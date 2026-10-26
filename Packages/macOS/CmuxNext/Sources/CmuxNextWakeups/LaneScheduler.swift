@@ -13,10 +13,20 @@ import Dispatch
 /// While a best-effort fence is up (``fence()``), a posted ``WorkPriority/idle`` or
 /// ``WorkPriority/bestEffort`` item stays queued in post order; an item someone awaits still runs at its
 /// own QoS. Chrome's `CanRunPolicy::kForegroundOnly` (base/task/thread_pool/thread_pool_impl.cc).
+///
+/// With a ``HangScope``, each item's run on its slot is one hang scope (Chrome's `WatchHangsInScope` in
+/// `TaskTracker::RunTask`, base/task/thread_pool/task_tracker.cc); the wait for a slot is not.
 final class LaneScheduler: Sendable {
     enum Policy: Sendable {
         case perPriority
         case shared(width: Int)
+    }
+
+    /// The hang scope every item of the lane runs in.
+    struct HangScope: Sendable {
+        let watcher: any HangWatching
+        let name: StaticString
+        let deadline: Duration
     }
 
     private struct Entry {
@@ -57,12 +67,14 @@ final class LaneScheduler: Sendable {
     }
 
     let policy: Policy
+    private let hangScope: HangScope?
     private let slots: [DispatchQueue]
     // concurrency-allow: a short non-blocking critical section over the pending lists, taken from lane threads, cancel handlers and submitters that must not await (lock carve-out).
     private let state: Mutex<State>
 
-    init(label: String, policy: Policy) {
+    init(label: String, policy: Policy, hangScope: HangScope? = nil) {
         self.policy = policy
+        self.hangScope = hangScope
         let names: [String] = switch policy {
         case .perPriority: WorkPriority.allCases.map { "\(label).\($0)" }
         case .shared(let width): (0..<max(1, width)).map { "\(label).\($0)" }
@@ -175,10 +187,18 @@ final class LaneScheduler: Sendable {
         for start in starts {
             slots[start.slot].async(qos: start.priority.qos, flags: .enforceQoS) { [self] in
                 // The slot is a MayBlock() thread (Chrome's task_tracker.cc): seams in the item are allowed.
-                BlockingContext.runAsLane { start.job.execute() }
+                BlockingContext.runAsLane { run(start.job) }
                 finish(start.job.id, slot: start.slot)
             }
         }
+    }
+
+    /// Runs `job` on this slot's thread, inside the lane's hang scope when it has one.
+    private func run(_ job: LaneJob) {
+        guard let hangScope else { return job.execute() }
+        let token = hangScope.watcher.enter(hangScope.name, deadline: hangScope.deadline)
+        defer { hangScope.watcher.leave(token) }
+        job.execute()
     }
 
     private func finish(_ id: UInt64, slot: Int) {

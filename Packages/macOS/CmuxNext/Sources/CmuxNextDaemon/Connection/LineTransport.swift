@@ -31,6 +31,9 @@ final class LineTransport: Sendable {
     /// The event name a `cmux.protocol/2` stream line is routed under
     /// (`DaemonEvent.decode`); the connection opens one stream, `session.events`.
     static let streamEvent = "cmux.protocol/2 stream"
+    /// How long the reader may take to handle one line (decode and route it) before the hang watcher
+    /// reports it: a line is a few microseconds, so 100 ms means the reader thread is stuck.
+    static let lineHangDeadline: Duration = .milliseconds(100)
 
     enum Waiter {
         case reply(cmd: String, ReplySlot)
@@ -95,9 +98,12 @@ final class LineTransport: Sendable {
     /// The bridge child of this connection (``DaemonBridge``), killed and
     /// reaped when the connection closes.
     private let child: BridgeChild?
+    /// Watches the reader's handling of each line, never its wait in `read(2)`; nil watches nothing.
+    private let hangs: (any HangWatching)?
 
-    init(path: String, bridge: DaemonBridge? = nil) throws(DaemonError) {
+    init(path: String, bridge: DaemonBridge? = nil, hangs: (any HangWatching)? = nil) throws(DaemonError) {
         self.path = path
+        self.hangs = hangs
         let fd: Int32
         if let bridge {
             let opened = try bridge.open()
@@ -324,7 +330,7 @@ final class LineTransport: Sendable {
                 closeDetail = "read: \(String(cString: strerror(errno)))"
                 break
             }
-            lines.append(chunk.prefix(count)) { route($0, decoder: decoder, onEvent: onEvent) }
+            lines.append(chunk.prefix(count)) { handle($0, decoder: decoder, onEvent: onEvent) }
             if lines.pending.count > Self.maxLineBytes {
                 closeDetail = "line exceeds \(Self.maxLineBytes) bytes"
                 break reading
@@ -348,6 +354,15 @@ final class LineTransport: Sendable {
     /// Events routed so far. Read after a command's reply, it bounds every
     /// event the daemon emitted before that reply (a write barrier).
     var routedEventCount: UInt64 { state.withLock { $0.eventCount } }
+
+    /// Routes one line inside a hang scope of ``lineHangDeadline`` (Chrome watches each IO-thread task
+    /// the same way, base/threading/hang_watcher.cc).
+    private func handle(_ line: Data, decoder: JSONDecoder, onEvent: EventHandler) {
+        guard let hangs else { return route(line, decoder: decoder, onEvent: onEvent) }
+        let token = hangs.enter("daemon.line", deadline: Self.lineHangDeadline)
+        defer { hangs.leave(token) }
+        route(line, decoder: decoder, onEvent: onEvent)
+    }
 
     private func route(_ line: Data, decoder: JSONDecoder, onEvent: EventHandler) {
         guard let envelope = try? decoder.decode(Envelope.self, from: line) else { return }

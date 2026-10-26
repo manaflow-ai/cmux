@@ -1,4 +1,4 @@
-import CmuxNextCompat
+public import CmuxNextCompat
 import Darwin
 import Dispatch
 
@@ -64,17 +64,41 @@ public final class BackgroundWork: Sendable {
     ///     did not start at once), after it is queued and before it can start; default nothing. Traces
     ///     count waits with it; tests use it as the point after which a cancel or an escalation meets a
     ///     queued item, not the checks at the call.
+    ///   - hangs: watches each item's run on its lane thread for a hang, with the lane's
+    ///     ``hangDeadline(_:)``; the wait for a slot is not watched. nil (the default) watches nothing.
     public init(cpuWidth: Int = BackgroundWork.defaultCPUWidth, label: String = "com.cmuxterm.next.work",
+                hangs: (any HangWatching)? = nil,
                 onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void = { _, _ in }) {
         self.cpuWidth = max(1, cpuWidth)
         self.label = label
         self.onQueued = onQueued
         lanes = BlockingLane.allCases.map { lane in
-            switch lane {
-            case .files: LaneScheduler(label: "\(label).\(lane)", policy: .perPriority)
-            case .system: LaneScheduler(label: "\(label).\(lane)", policy: .shared(width: Self.systemWidth))
-            case .cpu: LaneScheduler(label: "\(label).\(lane)", policy: .shared(width: max(1, cpuWidth)))
+            let policy: LaneScheduler.Policy = switch lane {
+            case .files: .perPriority
+            case .system: .shared(width: Self.systemWidth)
+            case .cpu: .shared(width: max(1, cpuWidth))
             }
+            let scope = hangs.map { LaneScheduler.HangScope(watcher: $0, name: Self.hangScopeName(lane), deadline: Self.hangDeadline(lane)) }
+            return LaneScheduler(label: "\(label).\(lane)", policy: policy, hangScope: scope)
+        }
+    }
+
+    /// How long one item of `lane` may run before the hang watcher reports it: a file operation 5 s,
+    /// a system call 30 s (`getaddrinfo`'s own timeout, see ``systemWidth``), CPU work 10 s.
+    public static func hangDeadline(_ lane: BlockingLane) -> Duration {
+        switch lane {
+        case .files: .seconds(5)
+        case .system: .seconds(30)
+        case .cpu: .seconds(10)
+        }
+    }
+
+    /// The name a hang report gives an item of `lane`.
+    static func hangScopeName(_ lane: BlockingLane) -> StaticString {
+        switch lane {
+        case .files: "lane.files"
+        case .system: "lane.system"
+        case .cpu: "lane.cpu"
         }
     }
 

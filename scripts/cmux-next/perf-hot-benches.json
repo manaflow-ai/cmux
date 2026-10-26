@@ -85,6 +85,11 @@
       "what": "one trace ring record under a run-time name (TraceRing.write(_ InternedName)): the catalog-id write plus one relaxed load and a tag compare after the name's first record in the ring",
       "bench": "swift test -c release --filter 'TraceNamesTests.*internedWriteCost' (31-record batch p50, interned vs catalog id)",
       "owner": "p09-observability"
+    },
+    "terminal-feed": {
+      "what": "one terminal output chunk parsed on its TerminalOutputLane (ghostty_surface_process_output) and the chunk's hang scope: one clock read and two relaxed stores",
+      "bench": "scripts/cmux-next/bench-typing.py (echo parse), then bench_idle.py (wakes)",
+      "owner": "PL-typing"
     }
   }
 }
