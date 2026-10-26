@@ -15,7 +15,17 @@ import Foundation
 /// Rule for writers: every change of a record's ids or children (an
 /// `update` from a snapshot, an insert, a removal, a move) is followed by
 /// `insert` of the changed record (or `remove`), in the same turn.
+///
+/// Each key it gives or drops is reported to ``waiters`` (StoreWaiters.swift), so a wait for one
+/// tab or workspace reads its condition only when that key changes.
 @MainActor struct StoreIndex {
+    /// The keyed waits this index's changes resume; kept across ``rebuild(_:)``.
+    let waiters: StoreWaiters
+
+    init(waiters: StoreWaiters = StoreWaiters()) {
+        self.waiters = waiters
+    }
+
     private(set) var tabsBySurface: [SurfaceID: TabModel] = [:]
     private(set) var tabsByID: [String: TabModel] = [:]
     private(set) var tabsByTerminal: [TerminalID: TabModel] = [:]
@@ -98,8 +108,9 @@ import Foundation
     /// Indexes `workspaces` only (snapshot apply; the one O(tree) write).
     mutating func rebuild(_ workspaces: [WorkspaceModel]) {
         let counted = indexedRecords
-        self = StoreIndex()
+        self = StoreIndex(waiters: waiters)
         indexedRecords = counted
+        waiters.noteRebuilt()
         for workspace in workspaces { insert(workspace) }
         tabOrderChanged = true
     }
@@ -198,6 +209,7 @@ import Foundation
             workspacesByID[id] = workspace
             if let key { workspacesByKey[key] = workspace }
             if let resource { workspacesByResource[resource] = workspace }
+            waiters.noteWorkspaceKeyed(id: id, resource: resource)
         case .screen(let handle, let resource):
             guard let screen = record as? ScreenModel else { return }
             screensByHandle[handle] = screen
@@ -217,6 +229,7 @@ import Foundation
             if let resource { tabsByResource[resource] = tab }
             if let terminalResource { tabsByTerminalResource[terminalResource] = tab }
             if Self.isOverlayTab(id: id, surface: surface) { provisionalTabCount += 1 }
+            waiters.noteTabKeyed(id: id, surface: surface, resource: resource)
         }
     }
 
@@ -256,6 +269,7 @@ import Foundation
             if let resource { Self.drop(resource, from: &tabsByResource, if: record) }
             if let terminalResource { Self.drop(terminalResource, from: &tabsByTerminalResource, if: record) }
             if Self.isOverlayTab(id: id, surface: surface) { provisionalTabCount -= 1 }
+            waiters.noteTabUnkeyed(id: id, surface: surface)
         }
     }
 

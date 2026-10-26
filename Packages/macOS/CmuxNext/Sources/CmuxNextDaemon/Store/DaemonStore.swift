@@ -35,7 +35,9 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var savedOpenGroups: Set<TabGroupID> = []
     /// Sidebar flattening, recomputed only when order, membership, or groups change.
     public internal(set) var sidebarSections: [SidebarSection] = []
-    public internal(set) var connectionState: DaemonConnectionState = .connecting
+    public internal(set) var connectionState: DaemonConnectionState = .connecting {
+        didSet { waiters.settle(.connection, in: self) }
+    }
     /// Counts connection changes (connected, disconnected, shut down), so a
     /// reader can tell facts seen on an earlier connection from this one
     /// even when it missed the states in between.
@@ -60,7 +62,7 @@ public final class DaemonStore: StateResourceQueries {
     var notificationTexts: [NotificationID: String] = [:]
     var ledgerNotificationTexts: [SurfaceID: String] = [:]
     /// True once the first snapshot is applied.
-    public internal(set) var isLoaded = false
+    public internal(set) var isLoaded = false { didSet { if isLoaded { waiters.note(.loaded) } } }
     /// True while the tree is the daemon's launch snapshot (drawn before
     /// connecting) and no live snapshot has replaced it yet.
     public internal(set) var isProvisional = false
@@ -117,6 +119,8 @@ public final class DaemonStore: StateResourceQueries {
     var screensByHandle: [ScreenID: ScreenModel] { index.screensByHandle }
     var workspacesByKey: [WorkspaceKey: WorkspaceModel] { index.workspacesByKey }
     var tabGroupsByID: [TabGroupID: TabGroupModel] { index.tabGroupsByID }
+    /// Keyed waits on the records (StoreWaiters.swift), resumed when an apply ends.
+    var waiters: StoreWaiters { index.waiters }
     @ObservationIgnored public internal(set) var agents = AgentRoster()
     @ObservationIgnored var directories = TerminalDirectories()
     /// Pending typed intents shown on top of the confirmed mirror
@@ -437,9 +441,11 @@ public final class DaemonStore: StateResourceQueries {
         tab.setObservedCwd(directories.directory(for: tab.surface))
     }
 
-    /// Publishes a tab list change once the visible state is complete.
+    /// Publishes a tab list change once the visible state is complete, and resumes the keyed
+    /// waiters whose keys the apply changed (StoreWaiters).
     func publishTabListChange() {
         if index.takeTabListChange() { tabListRevision &+= 1 }
+        waiters.settleTouched(in: self)
     }
 
     /// Runs `onWorkspaceListChanged` when the workspace set differs from
