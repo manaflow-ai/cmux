@@ -18,9 +18,9 @@ when tip and the reference move together, the bot moved, not the code. Here:
   drift, the group moves to `lab-drift` (sheriff.apply_state; a bisecting group's bisect is then cancelled by
   pinpoint_exec), routed to the lab owner in the move's reason, and each alert series gets a
   `reference_drift` annotation. A `lab-drift` group is never bisected and never gets an issue (alerts.py).
-- annotate_host_changes() stores a dashboard annotation where a host's macOS build (kind macos_build) or
-  fingerprint (kind note) changed between two reference runs of a series, at the tip position measured beside
-  the newer run.
+- annotate_host_changes() stores a dashboard annotation (kind note) where a host's fingerprint changed between
+  two reference runs of a series, at the first tip point that host measured with the new fingerprint. A macOS
+  build change needs no stored note: it is point metadata, and dashboard.derived_annotations marks it there.
 
 The window is time, not commit position: the reference artifact never changes, so the only axis on which it
 can step is when it ran.
@@ -383,44 +383,42 @@ def _mark(store, actor, group_id: int, members, drifts: Sequence[DriftWindow], l
 
 _HOST_CHANGES = """
 SELECT * FROM (
-  SELECT r.series_id, h.name AS host_name, u.started_at, u.macos_build, h.fingerprint,
-         LAG(u.macos_build) OVER w AS prev_build, LAG(h.fingerprint) OVER w AS prev_fingerprint
+  SELECT r.series_id, h.name AS host_name, h.fingerprint,
+         LAG(h.fingerprint) OVER w AS prev_fingerprint, LAG(u.started_at) OVER w AS prev_started_at
   FROM results r JOIN runs u ON u.id = r.run_id JOIN hosts h ON h.id = u.host_id
   WHERE u.kind = 'reference'
   WINDOW w AS (PARTITION BY r.series_id, h.name ORDER BY u.started_at, r.id))
-WHERE prev_build IS NOT NULL AND (prev_build != macos_build OR prev_fingerprint != fingerprint)
-ORDER BY series_id, started_at"""
+WHERE prev_fingerprint IS NOT NULL AND prev_fingerprint != fingerprint
+ORDER BY series_id, prev_started_at"""
+
+# The first tip point of the series on that host, after the older reference run, with the new fingerprint.
+_FIRST_TIP_WITH = """
+SELECT b.commit_pos FROM results r JOIN runs u ON u.id = r.run_id JOIN builds b ON b.id = u.build_id
+JOIN hosts h ON h.id = u.host_id
+WHERE r.series_id = ? AND u.kind = 'waterfall' AND h.name = ? AND h.fingerprint = ? AND u.started_at > ?
+ORDER BY u.started_at, r.id LIMIT 1"""
 
 
 def annotate_host_changes(store) -> int:
-    """A macos_build or note annotation for each macOS build or fingerprint change between two reference runs of
-    a series on one host; returns how many it added (a stored one is not added again)."""
+    """A note annotation for each host fingerprint change between two reference runs of a series on one host,
+    at the first tip point measured with the new fingerprint; returns how many it added (a stored one is not
+    added again)."""
     def write() -> int:
         db, now, added = store._db, store._now(), 0
         for row in db.execute(_HOST_CHANGES).fetchall():
-            tip = db.execute(
-                """SELECT b.commit_pos FROM results r JOIN runs u ON u.id = r.run_id JOIN builds b ON b.id = u.build_id
-                   JOIN hosts h ON h.id = u.host_id
-                   WHERE r.series_id = ? AND u.kind = 'waterfall' AND h.name = ? AND u.started_at <= ?
-                   ORDER BY u.started_at DESC, r.id DESC LIMIT 1""",
-                (row["series_id"], row["host_name"], row["started_at"])).fetchone()
+            tip = db.execute(_FIRST_TIP_WITH, (row["series_id"], row["host_name"], row["fingerprint"],
+                                               row["prev_started_at"])).fetchone()
             if tip is None:
                 continue
-            notes = []
-            if row["prev_build"] != row["macos_build"]:
-                notes.append(("macos_build", f"reference on {row['host_name']}: macOS {row['prev_build']} -> "
-                                             f"{row['macos_build']}"))
-            if row["prev_fingerprint"] != row["fingerprint"]:
-                notes.append(("note", f"reference on {row['host_name']}: host fingerprint "
-                                      f"{row['prev_fingerprint'][:12]} -> {row['fingerprint'][:12]}"))
-            for kind, text in notes:
-                values = (row["series_id"], kind, tip["commit_pos"], tip["commit_pos"], text, ACTOR)
-                if db.execute("""SELECT 1 FROM annotations WHERE series_id = ? AND kind = ? AND start_pos = ?
-                                 AND end_pos = ? AND text = ? AND created_by = ?""", values).fetchone():
-                    continue
-                db.execute("""INSERT INTO annotations (series_id, kind, start_pos, end_pos, text, created_by, created_at)
-                              VALUES (?, ?, ?, ?, ?, ?, ?)""", (*values, now))
-                added += 1
+            text = (f"reference on {row['host_name']}: host fingerprint "
+                    f"{row['prev_fingerprint'][:12]} -> {row['fingerprint'][:12]}")
+            values = (row["series_id"], "note", tip["commit_pos"], tip["commit_pos"], text, ACTOR)
+            if db.execute("""SELECT 1 FROM annotations WHERE series_id = ? AND kind = ? AND start_pos = ?
+                             AND end_pos = ? AND text = ? AND created_by = ?""", values).fetchone():
+                continue
+            db.execute("""INSERT INTO annotations (series_id, kind, start_pos, end_pos, text, created_by, created_at)
+                          VALUES (?, ?, ?, ?, ?, ?, ?)""", (*values, now))
+            added += 1
         return added
 
     return store._write(write)

@@ -31,6 +31,7 @@ def _load(name: str, path: Path):
 
 reference = _load("perf_lab_reference", LAB / "reference.py")
 exe = _load("perf_lab_pinpoint_exec", LAB / "pinpoint_exec.py")
+dashboard = _load("perf_lab_dashboard", LAB / "dashboard.py")
 alerts, store_mod, builds = reference.alerts, reference.store_mod, exe.builds
 
 NOW = datetime(2026, 10, 26, 0, 0, tzinfo=timezone.utc)
@@ -225,16 +226,24 @@ class LabDriftTests(Lab):
 
 
 class HostChangeTests(Lab):
-    def test_macos_build_and_fingerprint_changes_are_annotated_once(self) -> None:
+    def test_host_changes_are_marked_once_on_the_first_tip_point_after_them(self) -> None:
+        # macOS changes at i=12 (tip position 13), the fingerprint at i=24 (position 25); the reference runs
+        # beside them are at positions 18 and 30.
         moved = store_mod.Host(name="cmux15", chip="Apple M6", memory_gb=24, display_hz=120, fingerprint="fp-2")
         self.waterfall(36, flat(10.0), flat(), macos_build=lambda i: "25A1" if i < 12 else "25B78",
                        host=lambda i: HOST if i < 24 else moved)
-        self.assertEqual(reference.annotate_host_changes(self.store), 2)
-        self.assertEqual(self.annotations("macos_build"), ["reference on cmux15: macOS 25A1 -> 25B78"])
-        self.assertEqual(self.annotations("note"), ["reference on cmux15: host fingerprint fp-1 -> fp-2"])
-        positions = [row[0] for row in self.store._db.execute("SELECT start_pos FROM annotations ORDER BY id")]
-        self.assertEqual(positions, [18, 30])  # the T0 that ran beside the first reference run after each change
+        self.assertEqual(reference.annotate_host_changes(self.store), 1)
         self.assertEqual(reference.annotate_host_changes(self.store), 0)
+        key = self.store._db.execute("SELECT series_key FROM series WHERE story = ?", (STORY,)).fetchone()[0]
+        source = dashboard.StoreSource(self.root / "lab.sqlite")
+        try:
+            view = source.series(key, 100)
+        finally:
+            source.close()
+        marks = sorted((note.start_pos, note.kind, note.text)
+                       for note in [*view.annotations, *dashboard.derived_annotations(view.points)])
+        self.assertEqual(marks, [(13, "macos_build", "25A1 → 25B78"),
+                                 (25, "note", "reference on cmux15: host fingerprint fp-1 -> fp-2")])
 
 
 class PinTests(unittest.TestCase):
