@@ -64,7 +64,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// observe it; `main` installs it on the application before `run()`.
     let inputTap: InputEventTap
     private let mouseSideButtons = MouseSideButtons()
-    private var cloudContext: Task<Void, Never>?
     /// OSC 52 clipboard reads on the local daemon (`TerminalClipboardReadService`).
     var daemonPrompts: DaemonPrompts?
     /// The binding table's Ghostty keybinds, kept current (GHOSTTY-CONFIG).
@@ -198,7 +197,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)
         FeaturePolicyEnforcer(services: services).start()
-        cloudContext = services.startCloud()
+        services.postCloudStart(on: order.startup)  // no Cloud restore or connect before the first frame (p08-startup 020)
         services.postNonPaintServices(on: order.startup)
         // Before the first window opens (restoreWhenLoaded opens one at once).
         services.windows.onPresent = { [weak services] controller in
@@ -304,7 +303,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
         settings.applyManagedFeaturesNow()
-        ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloud.auth).start()
+        ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloudAuth).start()
         self.settings = settings
         services.settings = settings
         UserOnlySettingConfirmation.install(settings, services: services)
@@ -500,9 +499,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// then `ExternalOpenRouter`.
     private func routeOpenedURL(_ url: URL) {
         guard let services else { return }
-        let auth = services.cloud.auth
+        let auth = services.cloudAuth
         let destination = OpenedURLRouting.route(url, isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) })
         guard destination == .auth else { return }
+        services.startCloudNow()  // a callback before the launch's Cloud post: the sign-in needs Cloud now
         Task { _ = await auth.handleCallback(url) }
     }
 
@@ -517,9 +517,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         BrowserDesignModeController.tempFiles.removeAll()
         services?.home.applicationWillTerminate()
         services?.vscodeServeWeb.terminateForAppExit()
-        cloudContext?.cancel()
-        services?.cloud.stop()
-        for session in services?.machines.cloud ?? [] { session.disconnect() }
+        services?.stopCloud()
         services?.ssh.stop()
         services?.serverReach.stop()
         control.stop()

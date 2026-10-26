@@ -7,6 +7,7 @@ import CmuxNextBrowser
 import CmuxNextBrowserHistory
 import CmuxNextChiefPetWiring
 import CmuxNextChromiumWarmup
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
@@ -89,13 +90,17 @@ final class AppServices {
     var restartControlListener: (@MainActor () throws -> Void)?
     /// Agents' and scripts' Cloud machine creates waiting on the person in every window's sidebar card.
     let machineAsks = SidebarAsks()
-    private(set) lazy var cloud: CloudService = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild, mainWork: mainWork)  // first read in init (no IUO)
-    /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
-    private(set) lazy var feed: FeedService = FeedService(
-        auth: cloud.auth,
-        showcase: environment.showcase,
-        acpmuxEnvironment: QuitAgents.environment(self)
-    )  // first read in init (no IUO)
+    /// The account's sign-in, apart from ``cloud`` so its launch readers (the managed team, Home, a sign-in callback) build no
+    /// CloudService. Its session restores at the Cloud start (``startCloudNow()``), which also builds ``feed`` and follows the host replica.
+    private(set) lazy var cloudAuth: CloudAuth = CloudAuth(configuration: CloudConfiguration.current(isDebugBuild: ControlService.isDebugBuild))
+    private(set) lazy var cloud: CloudService = CloudService(machines: machines, auth: cloudAuth, mainWork: mainWork)
+    /// The feed mirror (`FeedDO`), started once the cmux account is signed in. Its first reader starts the session
+    /// restore (idempotent), so the mirror's account follow waits for it whoever builds the feed first.
+    private(set) lazy var feed: FeedService = {
+        cloudAuth.start()
+        return FeedService(auth: cloudAuth, showcase: environment.showcase, acpmuxEnvironment: QuitAgents.environment(self))
+    }()
+    var cloudContext: Task<Void, Never>?  // the Cloud start's registry context follow; nil until Cloud starts
     var showcase = ShowcaseState()
     /// The wide Inbox page, backed by `feed.model`.
     private(set) lazy var feedPage = FeedPageService(services: self)
@@ -140,7 +145,7 @@ final class AppServices {
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })
     private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }))  // first read in init (no IUO)
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
-    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings); cloud.hostReplica.follow(settings, local: machines.local, account: { [cloud] in cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled ? cloud.auth.user?.id : nil }) } } }
+    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings); if cloudContext != nil { followHostReplica(settings) } } } }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
     var paletteShortcutEditor: PaletteShortcutEditor?
     /// Where Chromium comes from: embedded, or downloaded on first use (bundle-size-DESIGN.md section 6).
@@ -197,7 +202,7 @@ final class AppServices {
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
         guard let acpmux = AcpmuxEnvironment.resolve(build: environment.build, bundledBinDirectory: bin,
                                                      environment: ProcessInfo.processInfo.environment) else { return nil }
-        return ModelRouterLease(tokens: cloud.auth, apiBaseURL: feed.apiBaseURL, acpmuxHome: acpmux.home,
+        return ModelRouterLease(tokens: cloudAuth, apiBaseURL: FeedService.apiBaseURL(auth: cloudAuth), acpmuxHome: acpmux.home,
                                 logger: Logger(subsystem: "com.cmuxterm.app.next", category: "model-router"))
     }()
     /// Where agent cursors draw (plans/cmux-next/agent-cursor.md section 3).
@@ -534,8 +539,6 @@ final class AppServices {
         DebugTimings.markLaunch("services.crash_reporting")
         machines = MachineRegistry(local: daemon)
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
-        _ = cloud  // built here, as before
-        _ = feed  // built here, as before
         _ = rightSidebarSections  // built at launch: its icons are made off the main thread before the first show
         _ = ssh  // built here, as before
         BrowserLifecycleTrace.shared.configure { tab, event in

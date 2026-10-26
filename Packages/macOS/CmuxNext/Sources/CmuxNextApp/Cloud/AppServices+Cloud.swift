@@ -2,10 +2,13 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHomeEngine
+import CmuxNextLaunch
 import CmuxNextPhone
 import CmuxNextMobile
 import CmuxNextMobileHost
 import CmuxNextPhoneAccess
+import CmuxNextSettings
+import CmuxNextWakeups
 import Observation
 
 extension AppServices {
@@ -28,7 +31,7 @@ extension AppServices {
     /// machine header work from any window.
     func cloudContextDidChange() {
         var context = registry.context
-        let signedIn = cloud.isSignedIn
+        let signedIn = cloudAuth.isSignedIn  // the auth, not `cloud`: a window's first show must not build CloudService
         context.remove([.signedIn, .signedOut, .cloudWorkspace])
         context.insert(signedIn ? .signedIn : .signedOut)
         if signedIn, let machine = windows.active?.state.machineID, machines.session(machine) != nil {
@@ -37,8 +40,23 @@ extension AppServices {
         if registry.context != context { registry.context = context }
     }
 
-    /// Starts Cloud and keeps the registry context current.
-    func startCloud() -> Task<Void, Never> {
+    /// The launch's Cloud start (`CloudStartPost`): right after the first frame when a window shows a remote
+    /// machine's workspace, or a restored one of another machine waits off screen for it; else after startup.
+    func postCloudStart(on startup: StartupScheduler) {
+        CloudStartPost(showsRemoteWorkspace: { [weak self] in
+            guard let windows = self?.windows else { return false }
+            return windows.controllers.contains { $0.state.machineID != MachineRegistry.localID }
+                || windows.awaitingContent.keys.contains { windows.states[$0].map { $0.machineID != MachineRegistry.localID } == true }
+        }, start: { [weak self] in self?.startCloudNow() }).post(on: startup)
+    }
+
+    /// Starts Cloud once (the launch's post, or an earlier need such as a sign-in callback): restores the
+    /// session, builds the feed (its mirror follows the account), follows the host replica, and keeps the
+    /// registry context current. A second call does nothing.
+    func startCloudNow() {
+        guard cloudContext == nil else { return }
+        notifications.startFeedHandoff(self)  // builds the feed: its account follow waits for the restore started below
+        if let settings { followHostReplica(settings) }
         // An agent's request waits in the sidebar card; with the active window's sidebar hidden it takes the sheet, so it never waits unseen.
         cloud.confirmCreate = { [weak self] in await CloudPresenter.confirmCreate($0, in: self?.windows.active?.window, asks: self?.windows.active?.state.sidebarHidden == false ? self?.machineAsks : nil, chatOpen: { [weak self] in self?.agentTabs.tab(showing: $0) != nil }) }
         cloud.start()
@@ -54,7 +72,8 @@ extension AppServices {
             body: $1, surface: nil, workspace: nil, defaultSound: true, category: IPhonePairNotices.category) },
             withdraw: { [weak self] in self?.notifications.desktop.withdraw([IPhonePairNotices.id]) })
         let cloud = cloud, machines = machines
-        return Task { [weak self] in
+        // task-owner: AppServices.cloudContext, cancelled by stopCloud() at quit; event-driven (Observation)
+        cloudContext = Task { [weak self] in
             var account: (user: String, team: String)?
             var routerUser: String??
             for await state in ObservationStream({ (cloud.isSignedIn, machines.cloud.count, cloud.auth.user?.id, cloud.auth.teamID) }) {
@@ -80,6 +99,19 @@ extension AppServices {
                 }
             }
         }
+    }
+
+    /// The phone host replica follows `settings` and the signed-in account (from the Cloud start on).
+    func followHostReplica(_ settings: SettingsController) {
+        cloud.hostReplica.follow(settings, local: machines.local, account: { [cloud] in cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled ? cloud.auth.user?.id : nil })
+    }
+
+    /// At quit: ends the Cloud start's follow, Cloud and its machines' connections. Builds nothing when Cloud never started.
+    func stopCloud() {
+        guard let cloudContext else { return }
+        cloudContext.cancel()
+        cloud.stop()
+        for session in machines.cloud { session.disconnect() }
     }
 }
 

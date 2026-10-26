@@ -96,7 +96,7 @@ extension HomeService {
     /// service runs Cloud Chief brains, and the placed one), or none: signed
     /// out, or the read failed (logged; the last read stays).
     func readCloudChiefs() async -> HomeCloudChiefs? {
-        guard services.cloud.auth.isSignedIn, case let feed = services.feed else { return HomeCloudChiefs() }
+        guard services.cloudAuth.isSignedIn, case let feed = services.feed else { return HomeCloudChiefs() }
         do {
             // An unknown probe keeps the last read: a Hosted Chief never drops out of the tab on one failed request.
             guard let brains = await hostedChief.brainsAvailable() else { return nil }
