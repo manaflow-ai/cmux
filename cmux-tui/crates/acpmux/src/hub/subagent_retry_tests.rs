@@ -626,6 +626,7 @@ async fn an_automatic_attempt_is_in_flight_from_its_fire_until_its_turn_ends() {
     assert!(fired["firedAt"].as_u64().is_some_and(|at| at > 0), "{fired}");
     assert!(fired["promptId"].as_str().is_some_and(|p| p.starts_with("subagent-retry-")));
     assert!(none_in_flight(&got[2]), "given up: {}", got[2]);
+    assert!(!retry_open(&session), "nothing left open for a load to settle");
 }
 
 /// A person's attempt is in flight from its fire (a second retry meanwhile is busy) until the
@@ -688,7 +689,7 @@ async fn an_attempt_refused_or_over_is_no_longer_in_flight() {
     assert_eq!((&entry["state"], &entry["retryable"]), (&json!("failed"), &json!(true)));
 }
 
-/// Stop and close end an attempt in flight; close also marks the chat's retries settled.
+/// Stop and close end an attempt in flight, and leave nothing open for a load to settle.
 #[tokio::test]
 async fn stop_and_close_end_an_attempt_in_flight() {
     for closed in [false, true] {
@@ -702,7 +703,7 @@ async fn stop_and_close_end_an_attempt_in_flight() {
         let entry = last_entry(&hub, &session, "s/t1").unwrap();
         assert!(none_in_flight(&entry), "{closed}: {entry}");
         assert_eq!(entry["retryable"], json!(!closed), "{entry}");
-        assert_eq!(retry_open(&session), !closed, "{closed}");
+        assert!(!retry_open(&session), "{closed}: nothing left open");
     }
 }
 
@@ -727,6 +728,12 @@ async fn a_restart_settles_an_attempt_left_in_flight() {
     hub.claim_subagent(&session, "s/t1", 1).unwrap();
     assert!(last_entry(&hub, &session, "s/t1").unwrap()["retryInFlight"].is_object());
     assert!(last_entry(&hub, &session, "s/t2").unwrap()["retry"].is_object());
+    // A fired retry prompt the queue kept, as one queued behind a turn is logged.
+    let queued = json!({"text": "Resume it", "client": "acpmux", "position": 1,
+        "promptId": "subagent-retry-t2-1-1", "turnId": "t-retry", "control": "local",
+        "prompt": [{"type": "text", "text": "Resume it"}],
+        "_meta": {"provenance": {"kind": PROVENANCE_KIND, "subagentId": "s/t2", "attempt": 1}}});
+    hub.append(&session, "mux", "queued", queued);
     hub.shutdown_all().await;
     drop((hub, session, conn));
 
@@ -740,6 +747,23 @@ async fn a_restart_settles_an_attempt_left_in_flight() {
         assert_eq!(entry["agentId"], format!("agent-{sub}"), "{entry}");
     }
     assert!(!retry_open(&session));
+    // Its queue came back with the retry prompt, which is refused at its start, never run.
+    hub.resume_queues();
+    let refused = || {
+        let records = hub.events(&session.id, 0, 10_000).unwrap();
+        let id = |e: &crate::store::EventRecord| e.msg["promptId"] == "subagent-retry-t2-1-1";
+        let ran = records.iter().any(|e| e.kind == "user_message" && id(e));
+        assert!(!ran, "the retry prompt ran after the restart");
+        records.iter().any(|e| (e.kind == "prompt_refused" || e.kind == "turn_result") && id(e))
+    };
+    for _ in 0..100 {
+        if refused() {
+            break;
+        }
+        settle().await;
+    }
+    assert!(refused(), "the restored retry prompt settled");
+    assert!(session.turn().is_none());
     let count = entries(&hub, &session, "s/t1").len();
     let refused = hub.retry_subagent(&session, "s/t1", by_person()).await.unwrap_err();
     assert_eq!(refused.data.unwrap()["reason"], "retry.unknown_subagent");
@@ -749,4 +773,41 @@ async fn a_restart_settles_an_attempt_left_in_flight() {
     let session = hub.resolve(&id).unwrap();
     assert_eq!(entries(&hub, &session, "s/t1").len(), count, "settled once");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A chat imported with a retry in flight (a bundle `acpmux export` wrote): the import settles
+/// its entries, as a restart does.
+#[tokio::test]
+async fn an_import_settles_an_attempt_left_in_flight() {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let dirs: Vec<std::path::PathBuf> = (0..3)
+        .map(|_| std::env::temp_dir().join(format!("acpmux-inflight-{}", uuid::Uuid::now_v7())))
+        .collect();
+    let hub_at = |dir: &Path| {
+        let mut cfg: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+        }))
+        .unwrap();
+        cfg.store.mode = StoreMode::Local;
+        cfg.auto_resume_delays_ms = Some(vec![60_000]);
+        Hub::new(cfg.clone(), crate::store::open(&cfg.store, dir).unwrap())
+    };
+    let source = hub_at(&dirs[0]);
+    let (session, _conn) = another_chat(&source).await;
+    source.observe_subagents(&session, &[failed("s/t1")]);
+    settle().await;
+    source.claim_subagent(&session, "s/t1", 1).unwrap();
+    assert!(retry_open(&session));
+    let bundle = source.export(&session, &dirs[2]).unwrap();
+
+    let here = hub_at(&dirs[1]);
+    let imported = here.import(&bundle, Some("imported".into())).await.unwrap();
+    let entry = last_entry(&here, &imported, "s/t1").unwrap();
+    assert!(none_in_flight(&entry) && entry["retry"].is_null(), "{entry}");
+    assert_eq!((&entry["state"], &entry["retryable"]), (&json!("failed"), &json!(false)));
+    assert!(!retry_open(&imported));
+    for dir in &dirs {
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
