@@ -1478,6 +1478,9 @@ repositories.
   duration, or no batching on that thread only). Do not use `--disable-features=RunTasksByBatches`, because
   child processes inherit it. cmux judges passes by the switch's 2 ms from fork API 26
   (`CEFPumpSchedule.pumpTimeSliceSwitchForkAPI`, the first API built on 066b083f), so 136 needs no cmux gate for 037.
+- 044 notes (manaflow-ai/cef `cp/p14-energy-044`, 27a449ef65521e51, one commit on the bundle tip ce852697): patch
+  `cmux_disk_space_check_backoff` (Q8 record below). It needs no API number and no cmux gate: the app makes no new call.
+  Its test is `components_unittests --gtest_filter=MacSystemMemoryPressureEvaluatorTest.*`.
 
 #### p14-energy-138 GlassModeWatch and BackdropVideoView follow EnergyPolicy
 - Files: `.../CmuxNextApp/GlassModeWatch.swift`, `.../CmuxNextApp/AppServices+Glass.swift`,
@@ -1543,6 +1546,30 @@ repositories.
   without an equivalent (stated).
 - Test phase: split-spring --suite=cef-idle before/after; idle-budget tabs-static `--gate`.
 - Size M each. Depends: 109, 040. Queue Q8.
+
+Q8 record (044, 2026-10-26). The rates come from the Chromium 154.0.8037.58 sources, not from a run: no probe run
+existed when the slots started. The lead's fleet run (`split-spring --suite=cef-idle --vdisplay=120` with `--queue`,
+then `idle-budget tabs-static --gate`) gives the measured values and adds a slot for each queue line that remains.
+
+| Slot | Location (process, thread) | Fix | per_s before | per_s after |
+| --- | --- | --- | --- | --- |
+| 042 | `MemoryReclaimerSupport::Run` (each process with PartitionAlloc, main thread; the app's CrBrowserMain too) | switch `PartitionAllocAdaptiveMemoryReclaimInterval`, landed | 0.25 per process | 0.017 per process |
+| 044 | `SystemMemoryPressureEvaluator::CheckDiskSpace` (browser: a timer task and a reply on CrBrowserMain, a statfs on a ThreadPool worker) | fork patch `cmux_disk_space_check_backoff` (044 notes in 136) | 0.2 each | 0.017 each with 60 GiB free, 0.0033 each with 300 GiB or more |
+| 043 | not pushed when this record was written | | | |
+
+- tabs-static app main wakes from Chromium, these locations only: before 0.65/s on CrBrowserMain (0.25 reclaim, 0.2
+  disk timer, 0.2 disk reply). After 136 is pinned: about 0.024/s with 300 GiB or more free, about 0.05/s with 60 GiB
+  free. The fleet run replaces these numbers.
+- Locations Chromium needs. They stay at the rates below. With the F2 host on, the browser-process ones run in the host,
+  not on the app's main thread. 045 gives the host the same switches, and the fork patch is in the host's Chromium too.
+  - Safe Browsing and CRLSet updates (section E). The component updater checks 1 min after start, then every 5 h
+    (configurator_impl.cc).
+  - PartitionAlloc reclaim at its adaptive interval: memory goes back to the system.
+  - The disk space check at its adaptive interval: Chrome's critical memory pressure vote below 250 MiB free.
+  - `BatteryStateSampler`: 1/min (base/power_monitor/battery_state_sampler.cc). Chrome's Battery Saver uses it.
+    This is under the threshold.
+  - GPU process: `GpuWatchdogThread::OnWatchdogTimeout` on the GpuWatchdog thread every 25 s on Mac (0.04/s,
+    gpu/ipc/common/gpu_watchdog_timeout.h). It restarts a hung GPU process. `disable-gpu-watchdog` removes it with no equivalent, so it is not a Q8 item.
 
 #### p14-energy-045 Chromium Host: same switches and saver wire message
 - Files: `Packages/macOS/CmuxNext/CEFShim/src/browser_host_main.mm`, `Packages/macOS/CmuxNext/CEFShim/src/chromium_host_wire.h`,
