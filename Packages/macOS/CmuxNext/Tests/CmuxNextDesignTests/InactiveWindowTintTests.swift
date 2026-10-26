@@ -31,21 +31,29 @@ import CmuxNextDesignTokens
         }
     }
 
-    /// The glass's environment reads the window's active appearance twice from one caller, the
-    /// material first. Nothing is forced until both reads are known, whichever comes first; then
-    /// only the lower one is, and a caller with one read or more than two never is.
-    @Test func onlyTheGlassMaterialReadIsForcedActive() {
-        var reads: [UInt: Set<UInt>] = [:]
-        #expect(!ActiveLookScope.isMaterialRead(site: 1860, caller: 7000, reads: &reads), "the traffic-light read first: not forced")
-        #expect(!ActiveLookScope.isMaterialRead(site: 1860, caller: 7000, reads: &reads), "still only one read known")
-        #expect(ActiveLookScope.isMaterialRead(site: 1584, caller: 7000, reads: &reads), "both known: the material read")
-        #expect(!ActiveLookScope.isMaterialRead(site: 1860, caller: 7000, reads: &reads), "the traffic-light read keeps AppKit's answer")
-        #expect(ActiveLookScope.isMaterialRead(site: 1584, caller: 7000, reads: &reads))
-        #expect(!ActiveLookScope.isMaterialRead(site: 10, caller: 8000, reads: &reads), "another caller's lone read")
-        _ = ActiveLookScope.isMaterialRead(site: 20, caller: 9000, reads: &reads)
-        _ = ActiveLookScope.isMaterialRead(site: 30, caller: 9000, reads: &reads)
-        #expect(!ActiveLookScope.isMaterialRead(site: 5, caller: 9000, reads: &reads), "three reads from one caller: not the glass")
-        #expect(!ActiveLookScope.isMaterialRead(site: 20, caller: 9000, reads: &reads))
+    /// One update's calibration reads show a pair only when they come from one caller at exactly
+    /// two sites (the glass's material and traffic-light reads), in any order.
+    @Test func calibrationFindsOnlyTheGlassPair() {
+        typealias Read = ActiveLookScope.Read
+        #expect(ActiveLookScope.pair(in: [Read(site: 1860, caller: 7), Read(site: 1584, caller: 7)]) == [1584, 1860])
+        #expect(ActiveLookScope.pair(in: [Read(site: 1584, caller: 7), Read(site: 1860, caller: 7), Read(site: 1584, caller: 7)]) == [1584, 1860])
+        #expect(ActiveLookScope.pair(in: [Read(site: 30, caller: 7), Read(site: 20, caller: 7), Read(site: 10, caller: 7)]) == nil,
+                "three sites: not the glass")
+        #expect(ActiveLookScope.pair(in: [Read(site: 1584, caller: 7), Read(site: 1860, caller: 8)]) == nil, "two callers")
+        #expect(ActiveLookScope.pair(in: [Read(site: 1584, caller: 7)]) == nil)
+    }
+
+    /// The material site is used only after `confirmations` updates in a row agree on the pair;
+    /// a disagreeing update starts the count again. Calibration reads only happen while AppKit
+    /// answers true, so nothing is forced before the site is fixed.
+    @Test func theMaterialSiteNeedsAgreeingUpdates() {
+        var candidate: (pair: [UInt], count: Int)?
+        #expect(ActiveLookScope.confirm([1584, 1860], candidate: &candidate) == nil)
+        #expect(ActiveLookScope.confirm(nil, candidate: &candidate) == nil, "a disagreeing update resets")
+        #expect(ActiveLookScope.confirm([1584, 1860], candidate: &candidate) == nil)
+        #expect(ActiveLookScope.confirm([10, 20], candidate: &candidate) == nil, "another pair resets")
+        #expect(ActiveLookScope.confirm([1584, 1860], candidate: &candidate) == nil)
+        #expect(ActiveLookScope.confirm([1584, 1860], candidate: &candidate) == 1584, "the lower site: the material read")
     }
 
     /// Only the window whose backdrop glass is updating is in scope, the innermost when updates

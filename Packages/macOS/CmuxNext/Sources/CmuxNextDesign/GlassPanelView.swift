@@ -236,42 +236,83 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
 ///
 /// The glass's private SwiftUI graph builds its environment in one AppKit function that reads the
 /// value twice: the material first, then a state the traffic lights follow (forcing both colored
-/// the close button of an inactive window). The scope learns the two reads before it forces
-/// anything. Each read inside a glass update for its own window, made by AppKit code with a SwiftUI
-/// frame above it in that same call, is filed under its caller's return address: two reads with
-/// one caller are one function's two reads, whatever symbols the binary has. A read is forced only
-/// when its caller has exactly two known reads, it is the lower one (the earlier in code), and
-/// AppKit answered false. Every other read, every read before both are known (the window is key
-/// when it first lays out its glass, so they are known before it can be inactive), and every read
-/// off the main thread keeps AppKit's answer.
+/// the close button of an inactive window). The scope finds that read by watching, and forces
+/// nothing while it watches:
+///
+/// 1. Calibration, only while AppKit answers true (the window is active, so nothing is forced):
+///    each read inside a glass update for its own window, made by AppKit code with a SwiftUI frame
+///    above it in the same call, is recorded with its site (the return address in the reader) and
+///    its caller. When the outermost update ends, a caller with exactly two sites that is the only
+///    caller with reads is a candidate pair. The same pair from ``confirmations`` updates in a row
+///    fixes the material site: the lower of the two, the earlier in code. Any other outcome
+///    resets the count.
+/// 2. After that, a read is forced only when its site is exactly that instruction, its stack has
+///    a SwiftUI frame, and its window is the updating one. Every other read, and every read off the
+///    main thread, keeps AppKit's answer. Until calibration ends the glass follows the key state.
 @MainActor
 enum ActiveLookScope {
+    /// One calibration read: where in AppKit it was, and the return address of its caller.
+    struct Read: Hashable {
+        let site: UInt
+        let caller: UInt
+    }
+
+    /// Updates in a row that must agree on the pair before its material site is used.
+    static let confirmations = 2
+
     /// The windows of the glass updates under way, innermost last.
     private static var windows: [ObjectIdentifier] = []
-    /// The graph reads seen, by the return address of their caller.
-    private static var reads: [UInt: Set<UInt>] = [:]
+    /// The calibration reads of the outermost update under way.
+    private static var pending: [Read] = []
+    /// The candidate pair and how many updates in a row agreed on it.
+    private static var candidate: (pair: [UInt], count: Int)?
+    /// The material read's site, once calibration ended.
+    private(set) static var materialSite: UInt?
     private static var installed = false
-    /// Frames read per check: enough for the reader, its caller and the SwiftUI frames above them
-    /// (the SwiftUI update was 3 to 6 frames up in the fleet traces).
+    /// Frames read per check: the reader, its caller and the SwiftUI frames above them (3 to 6
+    /// frames up in the fleet traces).
     private static let depth = 32
 
     /// Runs `body`, a glass update for `window`, with that window's material read forced active.
     static func during(_ window: NSWindow?, _ body: () -> Void) {
         guard let window else { return body() }
         windows.append(ObjectIdentifier(window))
-        defer { windows.removeLast() }
+        defer {
+            windows.removeLast()
+            if windows.isEmpty, materialSite == nil { finishCalibration() }
+        }
         body()
     }
 
     /// The window whose glass is updating now (tests read it).
     static var scopedWindow: ObjectIdentifier? { windows.last }
 
-    /// Files graph read `site` under `caller` and says whether to force it: only the lower of
-    /// exactly two known reads of one caller.
-    static func isMaterialRead(site: UInt, caller: UInt, reads: inout [UInt: Set<UInt>]) -> Bool {
-        reads[caller, default: []].insert(site)
-        guard let known = reads[caller], known.count == 2 else { return false }
-        return site == known.min()
+    /// The pair `reads` (one update's calibration reads) show: the two sites of their only caller,
+    /// ascending, or nil when they show anything else.
+    static func pair(in reads: [Read]) -> [UInt]? {
+        let callers = Set(reads.map(\.caller))
+        guard callers.count == 1 else { return nil }
+        let sites = Set(reads.map(\.site))
+        return sites.count == 2 ? sites.sorted() : nil
+    }
+
+    /// Folds one update's `pair` into `candidate`; returns the material site once `confirmations`
+    /// updates in a row agreed.
+    static func confirm(_ pair: [UInt]?, candidate: inout (pair: [UInt], count: Int)?) -> UInt? {
+        guard let pair else {
+            candidate = nil
+            return nil
+        }
+        let count = candidate?.pair == pair ? (candidate?.count ?? 0) + 1 : 1
+        candidate = (pair, count)
+        return count >= confirmations ? pair.first : nil
+    }
+
+    private static func finishCalibration() {
+        defer { pending.removeAll() }
+        // An update with no calibration reads (an inactive window, or no graph update) says nothing.
+        guard !pending.isEmpty else { return }
+        materialSite = confirm(pair(in: pending), candidate: &candidate)
     }
 
     /// Routes `NSWindow._hasActiveAppearanceIgnoringKeyFocus` through the scope, once.
@@ -296,17 +337,17 @@ enum ActiveLookScope {
     }
 
     private static func decide(_ window: NSWindow, answer: Bool) -> Bool {
-        // Outside a glass update for this window: one array read, AppKit's answer.
-        guard windows.last == ObjectIdentifier(window) else { return answer }
+        // Outside a glass update for this window, or nothing to learn or force: AppKit's answer.
+        guard windows.last == ObjectIdentifier(window), answer == (materialSite == nil) else { return answer }
         var frames = [UnsafeMutableRawPointer?](repeating: nil, count: depth)
         let count = Int(frames.withUnsafeMutableBufferPointer { backtrace($0.baseAddress, Int32(depth)) })
         guard let reader = (0..<count).first(where: { image(of: frames[$0]) != ownImage }), reader + 1 < count,
               image(of: frames[reader]) == appKitImage,
               frames[(reader + 1)..<count].contains(where: { isSwiftUI(image(of: $0)) }),
-              let site = frames[reader].map({ UInt(bitPattern: $0) }),
-              let caller = frames[reader + 1].map({ UInt(bitPattern: $0) }) else { return answer }
-        let material = isMaterialRead(site: site, caller: caller, reads: &reads)
-        return answer || material
+              let site = frames[reader].map({ UInt(bitPattern: $0) }) else { return answer }
+        if let materialSite { return site == materialSite }
+        if let caller = frames[reader + 1].map({ UInt(bitPattern: $0) }) { pending.append(Read(site: site, caller: caller)) }
+        return answer
     }
 
     private static let ownImage: UnsafeMutableRawPointer? = {
