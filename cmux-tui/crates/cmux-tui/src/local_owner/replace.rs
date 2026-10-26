@@ -42,6 +42,10 @@ use std::time::{Duration, Instant};
 
 use super::OwnerSpec;
 
+#[cfg(all(test, unix))]
+#[path = "replace_tests.rs"]
+mod tests;
+
 /// How long one `identify` may stay unanswered before the owner counts as
 /// unresponsive. Matches the lifecycle exchange bound.
 const PROBE_DEADLINE: Duration = super::ENSURE_DEADLINE;

@@ -123,6 +123,8 @@ pub(crate) const OWNER_READY_FD_ARG: &str = "--owner-ready-fd";
 mod identify;
 mod install_key;
 mod replace;
+#[cfg(all(test, unix))]
+mod recovery_tests;
 use identify::{IdentifyError, identify};
 pub(crate) use install_key::{OWNER_INSTALL_KEY_FD_ARG, install_key_from_launcher};
 pub(crate) use replace::{ReplaceError, replace_if_unresponsive};
