@@ -159,7 +159,7 @@ final class AppServices {
     /// "Restart cmux-tui to use new features" (plans/cmux-next/server-updates-DESIGN.md).
     private(set) lazy var serverUpdates = ServerUpdatePresenter(daemon: daemon, defaults: .standard,
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })
-    private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }))  // first read in init (no IUO)
+    private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }))  // first read by the Updater.attach post
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
     var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings); madeRemoteLocalhost?.follow(settings); if cloudContext != nil { followHostReplica(settings) } } } }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
@@ -683,7 +683,6 @@ final class AppServices {
             self?.keyRouter.pasteTarget(for: action, found: found, in: NSApp.keyWindow)
         }
         surfaceInvariant.services = self
-        surfaceInvariant.observeWindowOcclusion()
         cache.presentationChanges.subscribe("surface-invariant") { [weak self] in self?.surfaceInvariant.noteChange() }
         cache.presentationChanges.subscribe("browser-host") { [weak self] in // not for a change of only terminals and agent pages
             guard let self else { return }
@@ -700,19 +699,12 @@ final class AppServices {
         daemon.workTracker = { [registry] in registry.track($0) }
         palettes.whenBuilt { [weak self] in self?.paletteBuilt($0) }  // no palette at launch (p08-startup-023)
         terminalDelegate.services = self
-        let updateSheet = self.updateSheet  // built here, as before
-        updater.attach(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })
-        serverUpdates.start(registry: registry)
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {
                 for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }
             }
         }
-        input.start(services: self)
         DebugTimings.markLaunch("services.palette_updater")
-        browserHost = AppBrowserHost(services: self)
-        browserHost?.start()
-        notifications.start(services: self)
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
         // A mouse-down after AppKit dispatched it (focus has moved to the clicked pane). A click anywhere
         // ends link hints and a waiting chord (it may move the keyboard).
@@ -726,6 +718,8 @@ final class AppServices {
         }
         AppMemoryConsumers(services: self).registerMemoryConsumers()  // AppServices+Memory.swift
     }
+    /// Builds and starts the browser host's engine provider once, from its launch post (p08-startup-031).
+    func startBrowserHost() { if browserHost == nil { browserHost = AppBrowserHost(services: self); browserHost?.start() } }
     /// Starts the energy monitor and the idle histogram, and pushes the inputs, now and on each change, to the consumers
     /// that cannot import CmuxNextEnergy: WebKit's render rate, KeepAwake's battery rule, the video wallpaper. Only
     /// `AppDelegate` calls it, so an `AppServices` a test builds reads no IOKit (tests pass their own consumers).

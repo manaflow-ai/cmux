@@ -1,12 +1,18 @@
 import CmuxNextAgentPane
 import CmuxNextLaunch
+import CmuxNextSidebar
 import CmuxNextWakeups
 
 // Launch work no first frame needs, one StartupScheduler post per service (`LaunchServicePosts`, p08-startup-017).
 extension AppServices {
-    /// The free-tier attest, SSH, server reach, the updater (Sparkle) and the empty-workspace repair (built here
-    /// when no window's content built it first).
+    /// The starts `init` does not make (`LaunchServicePosts.serviceStarts`, p08-startup-031; before `Updater.start`, so the
+    /// sheet is attached first), then the free-tier attest, SSH, server reach, the updater (Sparkle) and the empty-workspace
+    /// repair (built here when no window's content built it first).
     func postNonPaintServices(on startup: StartupScheduler) {
+        LaunchServicePosts.serviceStarts(windowOcclusion: { [weak self] in self?.surfaceInvariant.observeWindowOcclusion() }, inputVerification: { [weak self] in if let self { input.start(services: self) } },
+                                         notifications: { [weak self] in if let self { notifications.start(services: self) } },
+                                         updateSheet: { [weak self] in if let self { updater.attach(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value }) } },
+                                         serverUpdates: { [weak self] in if let self { serverUpdates.start(registry: registry) } }, browserHost: { [weak self] in self?.startBrowserHost() }).post(on: startup)
         let attest = FreeTierAttestStarter(build: environment.build, bundle: .main, apiBaseURL: FeedService.apiBaseURL(auth: cloudAuth), settings: settings, signedIn: { [weak self] in self.map { $0.cloudAuth.isSignedIn || $0.cloudAuth.isRestoring } ?? true })
         LaunchServicePosts.nonPaint(freeTierAttest: { attest.start() }, ssh: { [weak self] in self?.ssh.start() }, serverReach: { [weak self] in self?.serverReach.start() },
                                     updater: { [weak self] in self?.updater.start(); DebugTimings.markLaunch("launch.non_paint_services") },

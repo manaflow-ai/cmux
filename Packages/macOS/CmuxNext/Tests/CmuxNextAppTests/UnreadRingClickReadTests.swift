@@ -36,6 +36,7 @@ struct UnreadRingClickReadTests {
     private static func open() async throws -> Fixture {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
+        services.notifications.start(services: services)  // the app's launch post (p08-startup-031); init starts nothing
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         let store = services.machines.local.store

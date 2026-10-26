@@ -73,6 +73,7 @@ final class NotificationCenterService {
     @ObservationIgnored let finishedBursts = FinishedBannerBursts()
     /// The Chief pet's notices (`NotificationCenterService+ChiefPet`); nil while it is off.
     @ObservationIgnored var chiefPet: ChiefPetController?
+    /// The newest notification handled; 0 at `start` (its launch post, p08-startup-031), so a live one that came before it still arrives.
     @ObservationIgnored private var lastSeen: UInt64 = 0
     /// The Dock badge this service set last (nil: none).
     @ObservationIgnored var dockBadgeLabel: String?
@@ -162,7 +163,6 @@ final class NotificationCenterService {
         }
         followApprovals(services)
         let store = services.daemon.store
-        lastSeen = store.notifications.map(\.notification.rawValue).max() ?? 0
         tasks.append(Task { [weak self] in
             for await newest in ObservationStream({ store.notifications.last?.notification.rawValue ?? 0 }) {
                 guard let self, newest > self.lastSeen else { continue }

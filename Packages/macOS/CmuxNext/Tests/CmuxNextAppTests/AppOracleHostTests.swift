@@ -45,6 +45,7 @@ import Testing
     @Test func theInvariantsFacetRunsTheDesyncCheck() throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
+        services.input.start(services: services)  // the app's launch post (p08-startup-031); init starts nothing
         let monitor = try #require(services.input.monitor)
         let before = monitor.checks
         let snapshot = try #require(try services.makeOracleFacets().beginCapture([.invariants]).completed)

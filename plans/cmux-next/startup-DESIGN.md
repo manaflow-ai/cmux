@@ -267,7 +267,8 @@ source order through O41; O42 to O46 were found later and follow at the end.
 
 ## 5. `AppServices.init` starts (031)
 
-Starts inside the initializer, outside Q1 and Q1b. 031: init holds no `start()` calls.
+Starts inside the initializer, outside Q1 and Q1b. 031: init holds no `start()` calls. Done (031): S6 to S10 are
+`LaunchServicePosts.serviceStarts` posts (`AppServices.postNonPaintServices`), posted before `Updater.start`.
 
 | # | Step | Priority | Destination | Owner | Reason |
 |---|---|---|---|---|---|
