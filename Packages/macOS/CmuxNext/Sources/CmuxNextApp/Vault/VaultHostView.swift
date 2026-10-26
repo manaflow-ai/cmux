@@ -16,6 +16,7 @@ final class VaultHostView: NSView {
         self.vault = vault
         super.init(frame: NSRect(x: 0, y: 0, width: 320, height: 480))
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         let actions = VaultRowActions(
             perform: { [weak vault, weak registry] id, session in
                 vault?.selection = session

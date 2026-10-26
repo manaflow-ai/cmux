@@ -65,6 +65,33 @@ export type GhosttyDiagnostic = {
   replacement: string | null;
 };
 
+/** The input that decided a feature (`features.list`): policy, env, local, remote, trial or default. */
+export type FeatureSource = "policy" | "env" | "local" | "remote" | "trial" | "default";
+
+/** One feature of `features.list` as the Feature Flags card reads it. */
+export type FeatureFlag = {
+  name: string;
+  state: "on" | "off";
+  source: FeatureSource;
+  /** The channel default. */
+  default: boolean;
+  kind: "perfPath" | "killSwitch" | "labs";
+  description: string;
+};
+
+/** Experimental > Feature Flags (`features` in the host lists): the socket's `features.list` plus the next launch's
+ * local choices. Null while feature `featureFlagsCard` is off. */
+export type FeatureFlagsState = {
+  channel: string;
+  /** Whether local choices apply on this channel (DEV and NIGHTLY). */
+  local_overrides: boolean;
+  safe_mode: { level: "regular" | "last-known-good" | "no-remote" | "overridden" } | null;
+  unknown_names: string[];
+  features: FeatureFlag[];
+  /** The local choices the next launch applies, by name. */
+  next_local: Record<string, boolean>;
+};
+
 /** One space or machine row (`cmux.settings.host.lists`). */
 /** `icon` is the row's wire icon (a space's; a machine's symbol): an emoji, a symbol or a stored asset. */
 export type HostListRow = {
@@ -142,6 +169,8 @@ export type HostLists = {
   terminal?: { ghostty_config: string; shell_integration: string | null };
   /** R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list). */
   ghostty_diagnostics?: GhosttyDiagnostic[] | null;
+  /** Experimental > Feature Flags: every feature's state and source; null while feature `featureFlagsCard` is off. */
+  features?: FeatureFlagsState | null;
   settings_file?: string | null;
   /** Computer Use Setup (Agents): the helper's grants; null while unknown (off, starting). */
   computer_use?: ComputerUseState | null;
@@ -780,6 +809,9 @@ export type SettingsOps = {
   "cmux.settings.web_updates.rollback": [Record<string, never>, Record<string, never>];
   /** Native: Settings > Chief > Voice input's switch writes home.voiceInput (the person's gesture only). */
   "cmux.settings.voice_input.set": [{ on: boolean }, Record<string, never>];
+  /** Native: Experimental > Feature Flags sets a feature on, off or back to no choice (null) for the next launch
+   * (DEV and NIGHTLY; the person's gesture only). */
+  "cmux.settings.features.set": [{ name: string; on: boolean | null }, Record<string, never>];
   /** Native: the Accounts part (providers, linked accounts, forms). */
   "cmux.settings.accounts.state": [Record<string, never>, AccountsState];
   /** Native: one Accounts gesture; a failed Keychain save answers its message. */

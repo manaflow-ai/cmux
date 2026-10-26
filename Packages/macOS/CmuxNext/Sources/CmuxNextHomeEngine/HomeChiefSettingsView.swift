@@ -345,7 +345,7 @@ public final class HomeChiefSettingsView: NSView {
             guard response == .OK, let url = panel.url else { return }
             self?.usePicture(url)
         }
-        if let window = pictureWindow() ?? window { panel.beginSheetModal(for: window, completionHandler: use) } else { use(panel.runModal()) }
+        if let window = pictureWindow() ?? window { panel.beginSheetModal(for: window, completionHandler: use) } else { panel.begin(completionHandler: use) }
     }
 
     @objc func useDefaultPicture() {

@@ -53,6 +53,16 @@ package struct WebKitGestureFreeEvaluation {
     ) -> Void
     private typealias PageWorldSend = @convention(c) (AnyObject, Selector, NSString, @escaping Completion) -> Void
 
+    /// The web view's implementation of `selector` called as `Send`, the typealias above spelled from
+    /// that selector's declaration in WebKit's WKWebViewPrivate.h. Only `evaluate` and `callAsync` call
+    /// it, after `path(in:)` or `functionPath()` found the selector answered.
+    private func implementation<Send>(of selector: Selector, as _: Send.Type) -> Send {
+        // SAFETY: `selector` is answered (checked by the caller through `responds`), so `method(for:)`
+        // returns its IMP, a C function pointer of the method's signature; `Send` is that signature
+        // with the receiver and selector first, so the cast changes no argument or return layout.
+        unsafe unsafeBitCast(webView.method(for: selector), to: Send.self)
+    }
+
     /// The path a plain script in `world` takes, nil when none can run it without a gesture.
     package func path(in world: WKContentWorld) -> Path? {
         if responds(Self.contentWorldSelector) { return .contentWorld }
@@ -70,13 +80,13 @@ package struct WebKitGestureFreeEvaluation {
     package func evaluate(_ script: String, in world: WKContentWorld) async throws -> BrowserJSValue {
         switch path(in: world) {
         case .contentWorld?:
-            let send = unsafeBitCast(webView.method(for: Self.contentWorldSelector), to: ContentWorldSend.self)
+            let send = implementation(of: Self.contentWorldSelector, as: ContentWorldSend.self)
             return try await answer { send(webView, Self.contentWorldSelector, script as NSString, nil, nil, world, false, $0) }
         case .asyncFunction?:
-            let send = unsafeBitCast(webView.method(for: Self.asyncFunctionSelector), to: AsyncFunctionSend.self)
+            let send = implementation(of: Self.asyncFunctionSelector, as: AsyncFunctionSend.self)
             return try await answer { send(webView, Self.asyncFunctionSelector, script as NSString, false, nil, nil, false, nil, world, $0) }
         case .pageWorld?:
-            let send = unsafeBitCast(webView.method(for: Self.pageWorldSelector), to: PageWorldSend.self)
+            let send = implementation(of: Self.pageWorldSelector, as: PageWorldSend.self)
             return try await answer { send(webView, Self.pageWorldSelector, script as NSString, $0) }
         case nil:
             throw BrowserTabError.unsupported("evaluation without a user gesture")
@@ -86,7 +96,7 @@ package struct WebKitGestureFreeEvaluation {
     /// `body` run as an async function with named `arguments` (main frame), what it resolves to.
     package func callAsync(_ body: String, arguments: [String: Any], in world: WKContentWorld) async throws -> BrowserJSValue {
         guard functionPath() == .asyncFunction else { throw BrowserTabError.unsupported("a function call without a user gesture") }
-        let send = unsafeBitCast(webView.method(for: Self.asyncFunctionSelector), to: AsyncFunctionSend.self)
+        let send = implementation(of: Self.asyncFunctionSelector, as: AsyncFunctionSend.self)
         return try await answer {
             send(webView, Self.asyncFunctionSelector, body as NSString, true, nil, arguments as NSDictionary, false, nil, world, $0)
         }

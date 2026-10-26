@@ -16,6 +16,14 @@ final class WorkspaceStatusView: NSView {
     private var status = SidebarWorkspaceStatus()
     private var reservesBar = false
 
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // updateLayer sets text and colors only
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
     nonisolated override var isFlipped: Bool { true }
     nonisolated override var wantsUpdateLayer: Bool { true }
 

@@ -7268,6 +7268,8 @@ function AcpmuxPane() {
             return {
               ...composerHandle.current?.wakeState(),
               ...(anchor ? { scrollAnchor: anchor } : anchor === null ? { atLatest: true } : {}),
+              // A chat a pick started behind the page, no prompt sent: the host keeps the page.
+              ...(harnessSwitch.holdsDeferred ? { pendingChat: true } : {}),
             };
           },
         };
