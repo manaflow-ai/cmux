@@ -355,6 +355,7 @@ impl Hub {
             self.apply_peer_notice(&peer, generation, notice);
             if settles {
                 current.mark_settled();
+                self.watches.peer_settled();
             }
         }
     }
@@ -755,6 +756,11 @@ impl Hub {
     /// Every peer's sessions, each with its peer's current `peerState` and
     /// whether the row is `stale` (last-known while the peer is down).
     pub fn remote_sessions(&self) -> Vec<Value> {
+        self.remote_rows(|_| true)
+    }
+
+    /// [`Self::remote_sessions`] of the rows `keep` takes, cloning no other.
+    fn remote_rows(&self, keep: impl Fn(&Value) -> bool) -> Vec<Value> {
         let states: HashMap<String, &'static str> = self
             .peers
             .lock()
@@ -764,6 +770,7 @@ impl Hub {
             .collect();
         let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
         map.values()
+            .filter(|r| keep(&r.summary))
             .map(|r| {
                 let mut summary = r.summary.clone();
                 summary["stale"] = Value::Bool(summary["stale"] == true);
@@ -782,6 +789,32 @@ impl Hub {
         // Newest first, ties by sessionId: the order session list pages keep.
         super::session_pages::sort_session_summaries(&mut v);
         v
+    }
+
+    /// For each of `ids`, the row [`Self::all_session_summaries`] puts first for that
+    /// `sessionId` (the newest; at one time, a local chat's before a peer's), without
+    /// summarizing any other chat: a wait reads them on every record (`server/wait.rs`),
+    /// and summarizing all 460 chats there kept huge-blue's daemon at 6 to 8 cores and
+    /// 4.5 GB (2026-10-22), and cosmic-gray's at 2 to 3 cores (2026-10-25).
+    pub fn session_summaries_of(&self, ids: &[String]) -> HashMap<String, Value> {
+        let local: Vec<Arc<Session>> = {
+            let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+            ids.iter().filter_map(|id| sessions.get(id).cloned()).collect()
+        };
+        let mut rows: Vec<Value> = local.iter().map(|s| self.session_summary(s)).collect();
+        rows.extend(self.remote_rows(|v| {
+            v.get("sessionId").and_then(Value::as_str).is_some_and(|id| ids.iter().any(|w| w == id))
+        }));
+        // The same stable sort over the same relative order as the full list, so a local
+        // chat and a peer's (or two peers') that share a bare id resolve to the same row.
+        super::session_pages::sort_session_summaries(&mut rows);
+        let mut out = HashMap::new();
+        for row in rows {
+            if let Some(id) = row.get("sessionId").and_then(Value::as_str) {
+                out.entry(id.to_owned()).or_insert(row);
+            }
+        }
+        out
     }
 }
 
@@ -831,5 +864,42 @@ mod tests {
             }),
         );
         assert_eq!(summary["lane"]["step"], "push [GitHub Personal Access Token]", "{summary}");
+    }
+
+    /// A wait reads the row the full list puts first for each id: a peer's newer chat
+    /// over a local one with the same bare id, and the newer of two peers' rows.
+    #[test]
+    fn summaries_of_some_ids_are_the_rows_the_full_list_puts_first() {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        for (id, at) in [("x", 10u64), ("solo", 30)] {
+            let meta = json!({"schema": "acpmux.session.v1", "id": id, "name": id, "harness": "claude",
+                              "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": at});
+            store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+        }
+        let hub = Hub::new(cfg, store);
+        let row = |id: &str, status: &str, at: u64| json!({"sessionId": id, "name": format!("lane-{id}"), "status": status, "turnCount": 1, "updatedAt": at});
+        for (peer, rows) in [
+            ("builder", vec![row("x", "running", 20), row("y", "waiting", 7)]),
+            ("other", vec![row("x", "idle", 5), row("y", "idle", 9)]),
+        ] {
+            let (tx, _rx) = tokio::sync::mpsc::channel(8);
+            let p = crate::peer::Peer::new(peer, "ws://127.0.0.1:9", None, None, tx);
+            hub.peers.lock().unwrap().insert(peer.to_owned(), p.clone());
+            hub.apply_peer_notice(peer, p.generation, crate::peer::PeerNotice::Sessions(rows));
+        }
+        let ids: Vec<String> = ["x", "y", "solo", "none", "x"].map(str::to_owned).to_vec();
+        let all = hub.all_session_summaries();
+        let some = hub.session_summaries_of(&ids);
+        for id in &ids {
+            let first = all.iter().find(|s| s["sessionId"] == id.as_str());
+            assert_eq!(some.get(id), first, "{id}: {some:?}");
+        }
+        assert_eq!(some["x"]["peer"], "builder", "the newer peer row, not the local chat");
+        assert_eq!(some["x"]["status"], "running");
+        assert_eq!(some["y"]["peer"], "other", "the newer of two peer rows");
+        assert!(some["solo"].get("peer").is_none(), "{:?}", some["solo"]);
+        assert_eq!(some.len(), 3, "{some:?}");
     }
 }

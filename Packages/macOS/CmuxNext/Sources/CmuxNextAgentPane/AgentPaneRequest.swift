@@ -13,6 +13,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case reconnect
     /// A bounded element report from the debug app-owned webview picker.
     case uiPointerReport(String)
+    /// `acpmux.restart {}`: the refusal card's Restart acpmux, after a handshake refused a daemon
+    /// another binary runs on this app's socket (``AgentPaneHostError/daemonRefused(holder:socketPath:reason:executable:owner:)``
+    /// with an owner): that daemon stops, keeping its sessions, and the page's next handshake
+    /// starts this app's own. Only with a real gesture; answers `{stopped}`.
+    case restartAcpmux
     /// The page switched to or created `sessionId`; the host keeps it so a
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)
@@ -253,6 +258,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case composerSetting(path: [String], show: Bool)
     /// `pane.setDisplay {key, value}`: the ··· menu's Text & Width popover writes one `agentPane.display.*`
     /// key (``AgentPaneDisplaySetting/writablePath(_:)``); a null value removes it.
+    /// `pane.setAttachmentView {view}` writes `agentPane.attachmentView` the same way (`inline` or `strip`).
     case displaySetting(path: [String], value: JSONValue?)
     /// `chat.toolCard.respond {id, action, value?}`: a click on a button of a tool card (``AgentPaneToolCard``),
     /// with what the person typed in its field.

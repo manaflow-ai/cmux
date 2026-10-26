@@ -52,6 +52,23 @@ export const PermissionCardFrame = React.forwardRef<HTMLFieldSetElement, Permiss
   },
 );
 
+/** A button's shortcut as a light hint after its label: the modifiers fainter than the key, so the
+ * eye finds 1, 2, 3 as in Claude Code's and Codex's numbered prompts. Decoration only: the button
+ * carries the key in `aria-keyshortcuts`. */
+/// How many asks' answers a card remembers: far more than a card shows before the snapshot moves on.
+const KEPT_ANSWERS = 32;
+
+function KeyHint({ shortcut }: { shortcut: string }) {
+  const key = Array.from(shortcut).at(-1) ?? "";
+  const modifiers = shortcut.slice(0, shortcut.length - key.length);
+  return (
+    <kbd className="acpmux-permission-action-shortcut" aria-hidden="true">
+      {modifiers && <span className="acpmux-permission-action-modifiers">{modifiers}</span>}
+      {key}
+    </kbd>
+  );
+}
+
 /** Shared action button so grouped and legacy cards present the same localized label and key hint.
  * Only the short label and the key: what an answer covers is the card's one scope line, never the
  * button's (Leo 2026-10-25: "the allow button ... it shouldn't be encompassing so much"). */
@@ -70,7 +87,7 @@ export function PermissionActionButton({
       aria-keyshortcuts={shortcut || undefined}
     >
       <span className="acpmux-permission-action-label">{label}</span>
-      {shortcut && <kbd className="acpmux-permission-action-shortcut">{shortcut}</kbd>}
+      {shortcut && <KeyHint shortcut={shortcut} />}
     </button>
   );
 }
@@ -78,8 +95,8 @@ export function PermissionActionButton({
 /// A permission ask as Claude Code desktop draws it: a glass card with the tool's glyph and what the
 /// call does as its title, the command clamped to its first line ("Show full command" opens all of
 /// it), and Allow once, Always allow and Deny, each shown only when the agent offered that kind
-/// (permissions/prompt.ts), with any other option the agent offered after them, all short and the
-/// same size in one row. What they cover (the folder or app, the Always allow rule) is one muted
+/// (permissions/prompt.ts), with any other option the agent offered after them: short buttons sized
+/// to their labels, grouped at the card's leading edge. What they cover (the folder or app, the Always allow rule) is one muted
 /// line under them, cut with an ellipsis and whole on hover. Deny opens a field for what the agent should do instead, sent with the
 /// deny through `onDenyWithFeedback`. Keys 1, 2 and 3, Return (Allow once) and Esc (Deny, or close
 /// the field) answer while this card is the prompt and nothing else has the keyboard.
@@ -93,7 +110,9 @@ export function PermissionCard({
   waiting = 0,
 }: {
   permission: AcpmuxPermission;
-  onAnswer(optionId: string): void;
+  /// Sends the answer. A promise that rejects means acpmux refused it (already answered elsewhere,
+  /// withdrawn, a policy change): the card says so and its keys answer again.
+  onAnswer(optionId: string): unknown;
   /// Denies with `optionId`, then gives the agent `text` (empty: only denies). False when acpmux
   /// refused the deny: the field stays, with what was typed.
   onDenyWithFeedback?(optionId: string, text: string): Promise<boolean>;
@@ -181,24 +200,77 @@ export function PermissionCard({
     backToOpener.current = true;
     setDraft(undefined);
   };
-  // The ask a key already answered: held keys repeat, and a second key can land before the
-  // snapshot clears the ask, so the keyboard answers each ask once. A click always answers (an
-  // answer acpmux never heard can be given again).
-  const answered = useRef<string | undefined>(undefined);
+  // Each ask's answer, out or taken, by the attempt that sent it: held keys repeat, a key and a
+  // click can both land before the snapshot clears the ask, and the card can show an ask again
+  // (another before it, then it) while its answer is still out, so each ask is answered once. A
+  // refusal from acpmux (the promise `onAnswer` returns rejects) frees it again: that answer was
+  // never heard. A taken answer is kept: the card can show that ask again before the snapshot
+  // drops it. Only the newest taken answers are kept, so a long chat's card stays small; an answer
+  // still out is kept until it settles, so its reply always finds it.
+  const answers = useRef(new Map<string, { attempt: number; out: boolean }>());
+  const attempts = useRef(0);
+  /// The ask shown now, read when an answer settles: only its own outcome changes what the card shows.
+  const shown = useRef(permission.permissionId);
+  shown.current = permission.permissionId;
+  /// The ask whose last answer acpmux refused: the card says so until the next answer.
+  const [refused, setRefused] = useState<string>();
+  type Sent = { permissionId: string; attempt: number };
+  /// Starts one answer for the ask shown now; undefined while one is out or taken for it.
+  const begin = (): Sent | undefined => {
+    const permissionId = permission.permissionId;
+    if (answers.current.has(permissionId)) return undefined;
+    const attempt = ++attempts.current;
+    answers.current.set(permissionId, { attempt, out: true });
+    setRefused(undefined);
+    return { permissionId, attempt };
+  };
+  /// Whether `sent` is still its ask's answer: no newer attempt for that ask has replaced it.
+  const owns = (sent: Sent) => answers.current.get(sent.permissionId)?.attempt === sent.attempt;
+  /// acpmux took the answer: it stays taken, among the KEPT_ANSWERS last taken; the ask shown is
+  /// never forgotten.
+  const taken = (sent: Sent) => {
+    if (!owns(sent)) return;
+    // Moved to the end: the map's order is the order answers were taken in.
+    answers.current.delete(sent.permissionId);
+    answers.current.set(sent.permissionId, { attempt: sent.attempt, out: false });
+    let settled = 0;
+    for (const answer of answers.current.values()) if (!answer.out) settled += 1;
+    for (const [id, answer] of answers.current) {
+      if (settled <= KEPT_ANSWERS) break;
+      if (answer.out || id === shown.current) continue;
+      answers.current.delete(id);
+      settled -= 1;
+    }
+  };
+  /// The ask's answer was refused: its keys and buttons answer it again, and the card says so.
+  const refuse = (sent: Sent) => {
+    if (!owns(sent)) return;
+    answers.current.delete(sent.permissionId);
+    if (shown.current === sent.permissionId) setRefused(sent.permissionId);
+  };
   // After an answer the keyboard goes back to the composer, so a stray key never answers the next
   // ask in line.
   const answer = (option: PermissionOption) => {
-    onAnswer(option.id);
+    const sent = begin();
+    if (!sent) return;
+    let reply: unknown;
+    try {
+      reply = onAnswer(option.id);
+    } catch (error) {
+      reply = Promise.reject(error);
+    }
     focusComposer?.();
+    // A refusal is never silent, and never leaves the ask unanswerable while it still waits.
+    Promise.resolve(reply).then(
+      () => taken(sent),
+      () => refuse(sent),
+    );
   };
-  const answerByKey = (option: PermissionOption) => {
-    if (answered.current === permission.permissionId) return;
-    answered.current = permission.permissionId;
-    answer(option);
-  };
+  const answerByKey = answer;
   /// Deny: the field for what to do instead when the pane can send it, else the deny itself.
   const deny = (byKey = false) => {
-    if (!denyOption) return;
+    // An answer already out or taken for the ask (a deny with feedback sending) is not given again.
+    if (!denyOption || answers.current.has(permission.permissionId)) return;
     if (feedback) openFeedback();
     else if (byKey) answerByKey(denyOption);
     else answer(denyOption);
@@ -212,7 +284,7 @@ export function PermissionCard({
         closeFeedback();
         return true;
       }
-      if (answered.current === permission.permissionId) return false;
+      if (answers.current.has(permission.permissionId)) return false;
       if (action === "deny") {
         if (!denyOption) return false;
         deny(true);
@@ -258,20 +330,32 @@ export function PermissionCard({
     return () => handlers.forEach(([event, handler]) => window.removeEventListener(event, handler));
   }, [active]);
   const sendFeedback = async (text: string) => {
-    if (!denyOption || !onDenyWithFeedback || writing?.sending || answered.current === permission.permissionId) return;
-    const permissionId = permission.permissionId;
-    answered.current = permissionId;
+    if (!denyOption || !onDenyWithFeedback || writing?.sending) return;
+    const sent = begin();
+    if (!sent) return;
+    const { permissionId } = sent;
     setDraft({ permissionId, text, sending: true });
-    if (await onDenyWithFeedback(denyOption.id, text.trim())) {
-      setDraft(undefined);
+    let denied = false;
+    try {
+      denied = await onDenyWithFeedback(denyOption.id, text.trim());
+    } catch {
+      // A throw is a refusal too: nothing says acpmux took the deny.
+    }
+    // The ask's draft is this attempt's while it sends: nothing else can open or send it.
+    const mine = owns(sent);
+    const onCard = shown.current === permissionId;
+    if (denied) {
+      taken(sent);
+      if (mine) setDraft((draft) => (draft?.permissionId === permissionId ? undefined : draft));
       // The keyboard goes back to the composer, as a plain deny's does.
-      focusComposer?.();
+      if (mine && onCard) focusComposer?.();
       return;
     }
     // Refused (answered elsewhere, or the connection dropped): the field stays with its text.
-    answered.current = undefined;
-    setDraft({ permissionId, text });
-    field.current?.focus();
+    if (!mine) return;
+    refuse(sent);
+    setDraft((draft) => (draft?.permissionId === permissionId ? { permissionId, text } : draft));
+    if (onCard) field.current?.focus();
   };
 
   return (
@@ -311,14 +395,7 @@ export function PermissionCard({
         )}
       </div>
       {!writing && (
-        <div
-          className="acpmux-permission-buttons"
-          style={
-            {
-              "--permission-answers": [allowOnce, allowAlways, denyOption].filter(Boolean).length + others.length,
-            } as React.CSSProperties
-          }
-        >
+        <div className="acpmux-permission-buttons">
           {allowOnce && (
             <PermissionActionButton
               label={t("permission.allowOnce")}
@@ -370,6 +447,11 @@ export function PermissionCard({
             );
           })}
         </div>
+      )}
+      {!writing && refused === permission.permissionId && (
+        <p className="acpmux-permission-refused" role="alert">
+          {t("permission.error.refused")}
+        </p>
       )}
       {!writing && scopeLine && (
         <p className="acpmux-permission-scope" data-scope-kind={permission.scope?.kind} title={scopeLine}>

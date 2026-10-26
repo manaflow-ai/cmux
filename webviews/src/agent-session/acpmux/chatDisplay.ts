@@ -15,6 +15,30 @@ import { useSyncExternalStore } from "react";
 export type ChatFontPreset = "system" | "serif" | "mono";
 /// What the chat keys hold: `markdown` follows the Markdown viewer's font.
 export type ChatFontChoice = ChatFontPreset | "markdown";
+/// Where the started chat's machine · folder chip sits: Left gets a row below tabs, Right keeps the
+/// original header slot, and Off hides it.
+export type EnvironmentPlacement = "left" | "right" | "off";
+
+/// The header surface that owns the environment chip. Left gets a dedicated row below tabs;
+/// Right preserves the original header slot and compact tab-row lead; Off and covered views mount
+/// nothing. Keeping this decision pure lets the App and rendering tests share the same contract.
+export function environmentPlacementSurface({
+  placement,
+  inTabRow,
+  hasEnvironment,
+  hasStatus,
+  covered,
+}: {
+  placement: EnvironmentPlacement;
+  inTabRow: boolean;
+  hasEnvironment: boolean;
+  hasStatus: boolean;
+  covered: boolean;
+}): { header: boolean; row: boolean; compact: boolean } {
+  if (placement === "off" || !hasEnvironment || covered) return { header: false, row: false, compact: false };
+  if (placement === "right") return { header: true, row: false, compact: inTabRow };
+  return { header: false, row: !hasStatus, compact: false };
+}
 
 export interface ChatDisplay {
   /// The column's cap in px (the chat's text width); `fullWidth` fills the pane instead.
@@ -40,12 +64,20 @@ export interface ChatDisplay {
   /// 2026-10-24: "in minimal mode ... one line is kind of enough sometimes for the ... preview of the
   /// message"). Not a look either: Reset leaves it.
   minimal: boolean;
+  /// Where the machine · folder chip sits below the tab row. Left keeps the default top-left
+  /// placement; right aligns it to the opposite edge; off removes the chip.
+  environmentPlacement: EnvironmentPlacement;
 }
 
 /// Settings > Agent Chat > Inspector (Swift AgentPaneDisplaySettingsSchema has the same row).
 export const INSPECTOR_PLACEMENT_KEY = "agentPane.display.inspector.placement";
+/// Settings > Agent Chat: the machine · folder chip's placement below the tab row.
+export const ENVIRONMENT_PLACEMENT_KEY = "agentPane.display.environment.placement";
 /// cmux's Minimal Mode, which the host sends with the chat's keys (Swift AgentPaneDisplaySetting).
 export const MINIMAL_MODE_KEY = "sidebar.minimal";
+/// Settings > Agent Chat > VS Code Minimap (chatMinimap/ChatMinimap.tsx), off by default. Not part of
+/// ChatDisplay: turning it on or off must not measure the transcript's rows again.
+export const CHAT_MINIMAP_KEY = "agentPane.display.vscodeMinimap";
 
 /// Each option: its cmux.json key, its range and default. The Swift schema has the same rows
 /// (AgentPaneDisplaySettingsSchema).
@@ -77,6 +109,7 @@ export const DEFAULT_CHAT_DISPLAY: ChatDisplay = {
   codeScale: null,
   inspector: "overlay",
   minimal: false,
+  environmentPlacement: "left",
 };
 
 /// The body font stacks, as the Markdown viewer's presets (pages/markdown/settings.ts).
@@ -95,6 +128,8 @@ const MEASURE_STACKS: Record<ChatFontPreset, string> = {
 type Values = Record<string, unknown>;
 const isPreset = (value: unknown): value is ChatFontPreset =>
   value === "system" || value === "serif" || value === "mono";
+const isEnvironmentPlacement = (value: unknown): value is EnvironmentPlacement =>
+  value === "left" || value === "right" || value === "off";
 const number = (value: unknown, range: { min: number; max: number }): number | null =>
   typeof value === "number" && Number.isFinite(value) ? Math.min(range.max, Math.max(range.min, value)) : null;
 /// A font family name safe to put in a CSS value: no quotes, braces or semicolons.
@@ -126,6 +161,9 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
       number(values[MARKDOWN_FOLLOWED.codeScale], CHAT_DISPLAY.codeScale),
     inspector: values[INSPECTOR_PLACEMENT_KEY] === "push" ? "push" : "overlay",
     minimal: values[MINIMAL_MODE_KEY] === true,
+    environmentPlacement: isEnvironmentPlacement(values[ENVIRONMENT_PLACEMENT_KEY])
+      ? values[ENVIRONMENT_PLACEMENT_KEY]
+      : DEFAULT_CHAT_DISPLAY.environmentPlacement,
   };
 }
 
@@ -188,6 +226,7 @@ const quoteFamily = (name: string) => (/[,\s]/.test(name) && !name.includes(",")
 
 let current = DEFAULT_CHAT_DISPLAY;
 let raw: Values = {};
+let minimapOn = false;
 const listeners = new Set<() => void>();
 
 /// Sets the variables on `root` (the document's root in the page).
@@ -202,7 +241,14 @@ export function applyChatDisplay(root: HTMLElement, display: ChatDisplay): void 
 export function setChatDisplay(value: unknown): void {
   raw = (value && typeof value === "object" && !Array.isArray(value) ? { ...(value as Values) } : {}) as Values;
   const next = resolveChatDisplay(raw);
-  if (JSON.stringify(next) === JSON.stringify(current)) return;
+  const minimap = raw[CHAT_MINIMAP_KEY] === true;
+  const same = JSON.stringify(next) === JSON.stringify(current);
+  if (same && minimap === minimapOn) return;
+  minimapOn = minimap;
+  if (same) {
+    for (const listener of listeners) listener();
+    return;
+  }
   current = next;
   if (typeof document !== "undefined") applyChatDisplay(document.documentElement, next);
   for (const listener of listeners) listener();
@@ -256,5 +302,8 @@ const subscribe = (listener: () => void) => {
   return () => void listeners.delete(listener);
 };
 const snapshot = () => current;
+const minimapSnapshot = () => minimapOn;
+/// Whether the chat minimap is on (CHAT_MINIMAP_KEY).
+export const useChatMinimap = (): boolean => useSyncExternalStore(subscribe, minimapSnapshot, minimapSnapshot);
 /// The live look, so layouts measured at the old metrics are measured again.
 export const useChatDisplay = (): ChatDisplay => useSyncExternalStore(subscribe, snapshot, snapshot);

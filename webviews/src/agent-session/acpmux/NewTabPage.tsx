@@ -49,6 +49,7 @@ import {
   useAttachmentIntake,
   useSendWhenAttached,
 } from "./composer/attachmentIntake";
+import { reordered } from "./composer/stripReorder";
 import { DropOverlay } from "./composer/DropOverlay";
 import { useHarnessesListed } from "./catalog";
 
@@ -413,14 +414,14 @@ export function NewTabPage({
   // The kind a prefix switched from, so Backspace in the empty field switches back.
   const [beforePrefix, setBeforePrefix] = useState<TabKind>();
   const field = useRef<HTMLInputElement>(null);
-  const { attachments, setAttachments, pending, loading, cancel, retry, attachError, drop, dropLanded } =
+  const { attachments, setAttachments, pending, unsettled, cancel, retry, attachError, drop, dropLanded } =
     useAttachmentIntake({
       allowImages: snapshot.summary?.promptCapabilities?.image !== false,
       pasteTarget: (target) => (kind === "agent" && field.current?.contains(target) ? { uploads: false } : undefined),
       dropZone: () => field.current?.closest(".acpmux-newtab") ?? null,
     });
   attachmentRef.current = attachments;
-  const holdForAttachments = useSendWhenAttached(loading);
+  const holdForAttachments = useSendWhenAttached(unsettled);
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page), staged attachments, and a kind or folder picked
   // (pages/shared/webSwap.ts).
@@ -703,6 +704,7 @@ export function NewTabPage({
               field.current?.focus();
             }}
             onRetry={retry}
+            onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
           />
           {dropHost && (
             <DropOverlay state={drop} onLanded={dropLanded} container={dropHost} landingTarget={dropLandingTarget} />
