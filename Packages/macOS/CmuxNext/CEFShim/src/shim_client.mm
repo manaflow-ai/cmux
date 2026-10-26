@@ -79,6 +79,8 @@
     case CMUX_SHIM_CURSOR:
     case CMUX_SHIM_DRAG_OPERATION:
     case CMUX_SHIM_TOOLTIP:
+    case CMUX_SHIM_POPUP_MENU:
+    case CMUX_SHIM_POPUP_MENU_HIDE:
     case CMUX_SHIM_SUGGESTIONS:
       return true;
   }
