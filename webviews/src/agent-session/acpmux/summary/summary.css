@@ -126,7 +126,7 @@
 .acpmux-pr-dock{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px;font-size:var(--text-control);line-height:18px}
 .acpmux-quick .acpmux-pr-dock{padding:6px 8px 0}
 .acpmux-pr-dock[data-mode="compact"]{padding-bottom:4px}
-.acpmux-pr-dock__count{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 4px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;cursor:default}
+.acpmux-pr-dock__count{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 4px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;cursor:default}
 .acpmux-pr-dock__count>svg{color:var(--agent-muted)}
 .acpmux-pr-dock__count:hover{color:var(--agent-text);background:var(--acpmux-composer-hover)}
 .acpmux-pr-dock__count:hover>svg{color:var(--agent-text)}
