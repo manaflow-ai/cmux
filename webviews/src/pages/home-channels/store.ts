@@ -766,9 +766,10 @@ export class HomeChannelsStore {
     if (batch.connection) patch.connection = batch.connection;
     // Typing is ephemeral: a reconnect or an inbox refetch ends every indicator.
     if (batch.connection || batch.inboxStale) patch.typing = [];
-    // Each presence frame is the whole set, so only a lost connection makes it stale (an inbox
-    // refetch keeps it: the conversation sockets stay subscribed and send no new set).
-    if (batch.connection) {
+    // Each presence frame is the whole set, so only lost frames make it stale: a lost connection
+    // or a stream overflow (an inbox refetch keeps it: the conversation sockets stay subscribed).
+    // Unknown shows as nobody, never as someone who left; the owner's next set brings them back.
+    if (batch.connection || batch.presenceLost) {
       this.viewingBy.clear();
       patch.viewing = [];
     }

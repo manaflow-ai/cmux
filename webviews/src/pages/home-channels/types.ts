@@ -419,6 +419,9 @@ export interface HomeEventBatch {
   stale?: string[];
   typing?: { conversation: string; participant: string; on: boolean }[];
   presence?: { conversation: string; participants: { participant: string; viewing: boolean }[] }[];
+  /** Presence frames may have been lost (a stream overflow): every viewer set is unknown until the
+   * owner's next whole set. */
+  presenceLost?: boolean;
   /** Running replies, in order (applied before this batch's messages). */
   drafts?: HomeDraftItem[];
   /** My own list state changes (pins, marks), in order. */

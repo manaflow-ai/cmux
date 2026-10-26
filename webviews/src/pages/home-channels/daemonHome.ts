@@ -1250,6 +1250,7 @@ export class DaemonHomeClient implements PageClient {
         deliver((batch) => {
           batch.inboxStale = true;
           batch.stale = [...this.opened];
+          batch.presenceLost = true;
         });
       }
     };

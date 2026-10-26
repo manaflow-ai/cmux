@@ -72,6 +72,11 @@ test("viewing presence follows the owner's frames, per conversation, and ends on
   // An inbox refetch keeps the set; a lost connection ends it.
   deliver?.({ inboxStale: true });
   expect(store.getSnapshot().viewing).toEqual(["tailnet:ana@example.com"]);
+  // A stream overflow may have lost the frame that took someone out: the set is unknown.
+  deliver?.({ inboxStale: true, presenceLost: true });
+  expect(store.getSnapshot().viewing).toEqual([]);
+  deliver?.({ presence: [{ conversation: "chief-conv", participants: [ana] }] });
+  expect(store.getSnapshot().viewing).toEqual(["tailnet:ana@example.com"]);
   deliver?.({ connection: "connecting" });
   expect(store.getSnapshot().viewing).toEqual([]);
   stop();
