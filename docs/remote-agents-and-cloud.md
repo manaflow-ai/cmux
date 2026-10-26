@@ -83,14 +83,19 @@ acpmux attach my-linux/api-work
 ```
 
 Replace `codex` with an installed harness, such as `claude`. Ctrl-Q detaches
-the TUI; the agent remains on the host. To view the same session in cmux NEXT:
+the TUI; the agent remains on the host. You can use that TUI in a cmux terminal.
+To view a remote session as a native cmux NEXT chat tab, select a local pane,
+wait for the app's peer inventory to load, and run:
 
 ```sh
-cmux agent open my-linux/api-work --group Remote
+cmux agent open-tab api-work --host my-linux --focus
 ```
 
-You can also pass `--group Remote` to `acpmux new` when invoking it from the
-Mac. This requests app sidebar placement; it does not move the session.
+The tab binds to the peer session mirrored by your Mac's daemon. If the name is
+ambiguous, use its session ID from `acpmux ls --json`. This does not move the
+agent. Remote sidebar group placement is a separate limitation: the checked
+launcher refuses combining `acpmux new --host` with `--group`; `agent open`
+creates workspaces for local/Chief sessions rather than performing this peer lookup.
 
 To end the current turn, stop the agent, or continue a saved session:
 
