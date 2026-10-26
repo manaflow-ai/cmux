@@ -157,8 +157,7 @@ impl Hub {
         let rearm = {
             let mut all = self.subagent_retries.lock();
             all.sent.remove(&(session.id.clone(), claim.wait.prompt_id.clone()));
-            let Some(sub) = all.subs.get_mut(&session.id).and_then(|s| s.get_mut(&claim.id))
-            else {
+            let Some(sub) = all.subs.get_mut(&session.id).and_then(|s| s.get_mut(&claim.id)) else {
                 return;
             };
             let wait = sub.failed.as_ref().and_then(|f| f.wait.as_ref());
@@ -169,7 +168,8 @@ impl Hub {
             let Some(failure) = sub.failed.as_mut() else { return };
             failure.idle = claim.idle;
             if claim.took_over {
-                let wait = Wait { wake: Arc::new(Notify::new()), fired: false, ..claim.wait.clone() };
+                let wait =
+                    Wait { wake: Arc::new(Notify::new()), fired: false, ..claim.wait.clone() };
                 failure.wait = Some(wait.clone());
                 Some((failure.clone(), wait))
             } else {

@@ -346,7 +346,8 @@ async fn a_person_retry_overtaken_after_its_claim_is_busy_and_gives_the_wait_bac
 async fn a_person_retry_skipped_before_its_prompt_starts_is_refused() {
     for skip in ["stop", "resume", "replace"] {
         let (hub, session, _conn) = chat(vec![60_000]).await;
-        let running = json!({"id": "s/t1", "parent": null, "state": "running", "task": "Push relay"});
+        let running =
+            json!({"id": "s/t1", "parent": null, "state": "running", "task": "Push relay"});
         hub.observe_subagents(&session, &[running, failed("s/t1")]);
         settle().await;
         let claim = hub.claim_subagent(&session, "s/t1", 1).unwrap();
@@ -363,7 +364,11 @@ async fn a_person_retry_skipped_before_its_prompt_starts_is_refused() {
         }
         let refused = hub.send_claim(&session, "s/t1", claim, by_person()).await.unwrap_err();
         let data = refused.data.unwrap();
-        assert_eq!((&data["reason"], &data["why"]), (&json!("retry.nothing_failed"), &json!("skipped")), "{skip}");
+        assert_eq!(
+            (&data["reason"], &data["why"]),
+            (&json!("retry.nothing_failed"), &json!("skipped")),
+            "{skip}"
+        );
         assert!(prompts(&hub, &session).is_empty(), "{skip}: nothing ran");
         assert!(session.turn().is_none(), "{skip}");
     }
@@ -409,7 +414,8 @@ async fn a_sub_session_retry_runs_and_names_its_sender() {
     };
     hub.observe_subagents(&session, &[failed("s/t1")]);
     settle().await;
-    let by = crate::hub::auto_resume::retry_turn::RetryBy { from: Some(parent.clone()), ..by_person() };
+    let by =
+        crate::hub::auto_resume::retry_turn::RetryBy { from: Some(parent.clone()), ..by_person() };
     let v = hub.retry_subagent(&session, "s/t1", by).await.unwrap();
     assert_eq!(v["kind"], "subagent", "{v}");
     let sent = prompts(&hub, &session);
