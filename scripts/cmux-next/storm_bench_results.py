@@ -5,7 +5,7 @@ checks the names the lab stories match on any host. Percentiles come only from s
 
 | Bench | Story (scripts/perf-lab/stories.d) | Series | Engine |
 | --- | --- | --- | --- |
-| cli-storm-session.py (runs bench_cli_storm.py) | cli-storm, cli-storm-stress | `cli_storm.request.<category>`, `cli_storm.frame_interval`, `cli_storm.main_busy` (ms); `cli_storm.{stalls,unanswered,pty_leaked}` (count); `cli_storm.footprint_growth` (ratio); `cli_storm.throughput` (per_s) | light none, stress chromium |
+| cli-storm-session.py (runs bench_cli_storm.py) | cli-storm, cli-storm-stress | `cli_storm.request.<category>` (ms, answered requests only), `cli_storm.frame_interval`, `cli_storm.main_busy` (ms); `cli_storm.{stalls,unanswered,request_errors,pty_leaked}` (count); `cli_storm.footprint_growth` (ratio); `cli_storm.throughput` (per_s) | light none, stress chromium |
 | script-storm-bench.py | script-storm, script-storm-stress | `script_storm.<phase>.{key_to_contents,frame_interval,main_busy}` (ms); `script_storm.<phase>.{missed_frames,stalls}` (count), valid phases only | light none, stress chromium |
 | bench_daemon_spawn.py | daemon-spawn | `daemon_spawn.create`, `daemon_spawn.read` (ms); `daemon_spawn.all_reaped` (s); `daemon_spawn.{create_errors,hosts_left,hosts_leaked}` (count) | none |
 
@@ -19,6 +19,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # its siblings, also under `python3 -I`
 from bench_launch import PERF_LAB, RecordError, load_by_path  # noqa: E402
+from typing_report import is_sample  # noqa: E402
 
 perf_stats = load_by_path("perf_stats", os.path.join(PERF_LAB, "perf_stats.py"))
 perf_result = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
@@ -28,36 +29,15 @@ SCRIPT_STORM_STORIES = {"light": "script-storm", "stress": "script-storm-stress"
 DAEMON_SPAWN_STORY = "daemon-spawn"
 SESSION_ENGINES = {"light": "none", "stress": "chromium"}
 
-# The per-frame arrays of `debug.frames` stop with `raw` (these and every `*_per_frame` key): recorded as result-v1,
-# never put into a report, which keeps the app's summary statistics.
-RAW_FRAME_KEYS = ("intervals_ms", "main_ms")
-
 Series = collections.namedtuple("Series", "metric unit better samples")
 
 
-def is_sample(value):
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
-def latency_row(values, digits=None):
+def latency_row(values):
     """{count, p50_ms, p95_ms, p99_ms, max_ms} of `values` (ms) through perf_stats.pct; None for a statistic of no
-    values. `digits` rounds."""
-    def shown(value):
-        return value if value is None or digits is None else round(value, digits)
+    values."""
     values = [v for v in values if is_sample(v)]
-    return {"count": len(values), "p50_ms": shown(perf_stats.pct(values, 0.5)),
-            "p95_ms": shown(perf_stats.pct(values, 0.95)), "p99_ms": shown(perf_stats.pct(values, 0.99)),
-            "max_ms": shown(max(values)) if values else None}
-
-
-def split_raw_frames(frames):
-    """(summary, {intervals_ms, main_ms}) of a `debug.frames` stop reply asked with `raw: true`. A reply that is not
-    a dict (an error, or a profile with no frame probe) is its own summary and has no samples."""
-    if not isinstance(frames, dict):
-        return frames, {key: [] for key in RAW_FRAME_KEYS}
-    raw = {key: [v for v in frames.get(key) or [] if is_sample(v)] for key in RAW_FRAME_KEYS}
-    summary = {k: v for k, v in frames.items() if k not in RAW_FRAME_KEYS and not k.endswith("_per_frame")}
-    return summary, raw
+    return {"count": len(values), "p50_ms": perf_stats.pct(values, 0.5), "p95_ms": perf_stats.pct(values, 0.95),
+            "p99_ms": perf_stats.pct(values, 0.99), "max_ms": max(values) if values else None}
 
 
 def _count(value):
@@ -69,8 +49,10 @@ def _kept(series):
 
 
 def cli_storm_series(storm):
-    """bench_cli_storm.py's report (`samples`, `criteria`, `throughput_rps`) as series. A criterion the profile cannot
-    see (legacy: no stalls) or a footprint(1) that failed gives no series, never a 0."""
+    """bench_cli_storm.py's report (`samples`, `criteria`, `throughput_rps`) as series. The request latencies are the
+    answered (ok) requests only: a fast error reply or a timeout is counted (request_errors, unanswered), never a
+    latency, so refusing requests cannot read as faster. A criterion the profile cannot see (legacy: no stalls) or a
+    footprint(1) that failed gives no series, never a 0."""
     samples = storm.get("samples") or {}
     criteria = storm.get("criteria") or {}
     series = [Series(f"cli_storm.request.{category}", "ms", "lower", list(values))
@@ -79,6 +61,7 @@ def cli_storm_series(storm):
                Series("cli_storm.main_busy", "ms", "lower", list(samples.get("main_busy_ms") or [])),
                Series("cli_storm.stalls", "count", "lower", _count(criteria.get("stalls_over_50ms"))),
                Series("cli_storm.unanswered", "count", "lower", _count(criteria.get("unanswered"))),
+               Series("cli_storm.request_errors", "count", "lower", _count(criteria.get("request_errors"))),
                Series("cli_storm.pty_leaked", "count", "lower", _count(criteria.get("pty_leaked"))),
                Series("cli_storm.footprint_growth", "ratio", "lower", _count(criteria.get("footprint_after_vs_baseline"))),
                Series("cli_storm.throughput", "per_s", "higher", _count(storm.get("throughput_rps")))]
@@ -87,7 +70,7 @@ def cli_storm_series(storm):
 
 def script_storm_series(phase, key_samples, frames_raw, missed, stalls):
     """One valid phase of script-storm-bench.py (an invalid phase is not the asked load and records nothing): its
-    closed keys' key_to_contents ms, the raw frame arrays (split_raw_frames), missed frames and stalls over 8 ms."""
+    closed keys' key_to_contents ms, the raw frame arrays (bench_frames.split_raw_frames), missed frames and stalls over 8 ms."""
     prefix = f"script_storm.{phase}"
     return _kept([Series(f"{prefix}.key_to_contents", "ms", "lower", list(key_samples)),
                   Series(f"{prefix}.frame_interval", "ms", "lower", list(frames_raw.get("intervals_ms") or [])),

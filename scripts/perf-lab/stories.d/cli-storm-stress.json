@@ -1,7 +1,7 @@
 {
   "id": "cli-storm-stress",
   "tier": "T2",
-  "description": "CLI storm in the STRESS session (cli-storm-session.py --session stress, perf-stress-session.py): the light story's storm with STRESS's workspaces, Chromium pages and busy terminals behind it; the same per-request, frame, stall, PTY, footprint and throughput series.",
+  "description": "CLI storm in the STRESS session (cli-storm-session.py --session stress, perf-stress-session.py): the light story's storm with STRESS's workspaces, Chromium pages and busy terminals behind it; the same per-request, error, frame, stall, PTY, footprint and throughput series.",
   "command": ["scripts/cmux-next/cli-storm-session.py", "--session", "stress"],
   "session": "stress",
   "engine": "chromium",
@@ -9,7 +9,7 @@
   "metrics": [
     {"name": "cli_storm\\.request\\.(read|create|send|rename|close)", "unit": "ms", "better": "lower"},
     {"name": "cli_storm\\.(frame_interval|main_busy)", "unit": "ms", "better": "lower"},
-    {"name": "cli_storm\\.(stalls|unanswered|pty_leaked)", "unit": "count", "better": "lower"},
+    {"name": "cli_storm\\.(stalls|unanswered|request_errors|pty_leaked)", "unit": "count", "better": "lower"},
     {"name": "cli_storm\\.footprint_growth", "unit": "ratio", "better": "lower"},
     {"name": "cli_storm\\.throughput", "unit": "per_s", "better": "higher"}
   ],

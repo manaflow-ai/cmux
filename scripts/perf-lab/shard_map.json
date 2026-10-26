@@ -5,8 +5,8 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 18220,
-            "T2": 22020
+            "T1": 17590,
+            "T2": 22650
           },
           "stories": {
             "T1": [
@@ -14,10 +14,8 @@
               "activation-stress",
               "blocking-hangs",
               "chat-anim",
-              "cli-storm",
               "command-pan",
               "daemon-ops",
-              "daemon-spawn",
               "home-idle",
               "launch-cold",
               "launch-cold-realistic",
@@ -38,7 +36,6 @@
               "palette-open-webkit",
               "pane-stress",
               "perf-gate",
-              "script-storm",
               "sidebar",
               "sidebar-mirror-rebuild",
               "sidebar-rows-live",
@@ -69,11 +66,14 @@
               "action-sweep-stress-7",
               "action-sweep-stress-8",
               "automation-typing",
+              "cli-storm",
               "cli-storm-stress",
               "command-pan-stress",
+              "daemon-spawn",
               "launch-after-reboot",
               "new-surfaces-stress",
               "perceived-speed",
+              "script-storm",
               "script-storm-stress",
               "sidebar-churn-typing",
               "typing-flood-stress"
@@ -91,7 +91,7 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 22020
+            "T2": 22650
           },
           "stories": {
             "T2": [
@@ -112,11 +112,14 @@
               "action-sweep-stress-7",
               "action-sweep-stress-8",
               "automation-typing",
+              "cli-storm",
               "cli-storm-stress",
               "command-pan-stress",
+              "daemon-spawn",
               "launch-after-reboot",
               "new-surfaces-stress",
               "perceived-speed",
+              "script-storm",
               "script-storm-stress",
               "sidebar-churn-typing",
               "typing-flood-stress"
@@ -134,7 +137,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 9160
+            "T1": 8920
           },
           "stories": {
             "T0": [
@@ -143,7 +146,6 @@
             "T1": [
               "activation-stress",
               "blocking-hangs",
-              "cli-storm",
               "command-pan",
               "daemon-ops",
               "launch-cold-realistic",
@@ -167,7 +169,7 @@
           "index": 1,
           "seconds": {
             "T0": 150,
-            "T1": 9060
+            "T1": 8670
           },
           "stories": {
             "T0": [
@@ -177,7 +179,6 @@
             "T1": [
               "activation",
               "chat-anim",
-              "daemon-spawn",
               "home-idle",
               "launch-cold",
               "launch-warm-realistic",
@@ -190,7 +191,6 @@
               "omnibar-click-webkit",
               "palette-open",
               "perf-gate",
-              "script-storm",
               "sidebar",
               "sidebar-mirror-rebuild",
               "sidebar-stress",

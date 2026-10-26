@@ -67,7 +67,8 @@ The STRESS session is built by perf-stress-session.py, which checks its shape: a
 "STRESS shape missed" and no numbers. The app launches through bench_launch.py.
 
 Percentiles are scripts/perf-lab/perf_stats.py's pct (linear interpolation). Each valid phase is also written as
-cmux-perf-result/v1 through BenchApp.record into OUT/<session> (storm_bench_results.script_storm_series: the closed keys'
+cmux-perf-result/v1 through BenchApp.record into OUT itself, where the lab runner's ingest reads (not recursive), with
+the app log as OUT/app-<session>.log (storm_bench_results.script_storm_series: the closed keys'
 key_to_contents, the raw debug.frames intervals and main-thread busy times, missed frames, stalls), in story
 script-storm (light, engine none) or script-storm-stress (stress, engine chromium); the run's entry lists them under
 `results`. An invalid phase records nothing. --session (the lab story runner) measures one session.
@@ -76,7 +77,7 @@ Fleet (an owned mini with a console; the step builds the app):
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh --ref SHA \\
     --artifact artifacts/split-spring/report.json --arg=--suite=script-storm [--arg=--vdisplay=120] [--arg=--sessions=light]
 """
-import argparse, collections, importlib.util, json, os, random, select, signal, socket, statistics, subprocess, sys
+import argparse, collections, importlib.util, json, os, random, select, signal, socket, subprocess, sys
 import threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -84,6 +85,9 @@ sys.path.insert(0, HERE)
 
 from bench_cli_storm import MAX_PTY_LIMIT, daemon_socket, ptys_in_use  # noqa: E402
 import storm_bench_results as results_v1  # noqa: E402
+from bench_frames import split_raw_frames  # noqa: E402
+# {n, p50, p95, p99, max, mean}, 2 decimals, None for no values: the typing benches' one distribution (perf_stats.pct).
+from typing_report import distribution  # noqa: E402
 
 # Validity of a phase. A storm that applied less than 90% of an asked rate (over the person's window, or in any one
 # second of it), or had more than 1% of its ops refused, is not the asked load.
@@ -114,16 +118,6 @@ SESSION_SHAPE = {"light": "light", "stress": "STRESS-busy-elsewhere"}
 def uptime():
     """Seconds since boot (CLOCK_UPTIME_RAW): one clock for this process, the script process and the app's probe."""
     return time.clock_gettime(time.CLOCK_UPTIME_RAW)
-
-
-def distribution(values):
-    """{n, p50, p95, p99, max, mean} of `values`, 2 decimals; percentiles are perf_stats.pct (linear interpolation).
-    None for no values."""
-    if not values:
-        return None
-    pct = results_v1.perf_stats.pct
-    return {"n": len(values), "p50": round(pct(values, 0.5), 2), "p95": round(pct(values, 0.95), 2),
-            "p99": round(pct(values, 0.99), 2), "max": round(max(values), 2), "mean": round(statistics.fmean(values), 2)}
 
 
 def drain_report(reply):
@@ -742,7 +736,8 @@ class Session:
 
     def __init__(self, name):
         self.name = name
-        self.app = BenchApp(opts.app, out=os.path.join(OUT, name), perf_session=name,
+        os.makedirs(os.path.join(OUT, name), exist_ok=True)  # the storm plans, logs and signposts of this session
+        self.app = BenchApp(opts.app, out=OUT, log_name=f"app-{name}.log", perf_session=name,
                             env={"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"},
                             config={"browser": {"defaultEngine": "chromium"}, "appearance": {"backgroundOpacity": 1}},
                             window=(80, 40, 1600, 1000))
@@ -1139,8 +1134,8 @@ class Session:
                 if rest > 0:
                     time.sleep(rest)  # bench script: the storm runs its full length
             elapsed = time.perf_counter() - started
-            frames, frames_raw = results_v1.split_raw_frames(self.rpc("debug.frames", {"action": "stop", "raw": True},
-                                                                      timeout=20))
+            frames, frames_raw = split_raw_frames(self.rpc("debug.frames", {"action": "stop", "raw": True},
+                                                           timeout=20))
             hangs = self.rpc("debug.hangs", {"limit": 12}, timeout=20)
             queue = self.rpc("debug.queue", timeout=20)
             drain = self.rpc("debug.drain_cost", timeout=20) if opts.hidden else None

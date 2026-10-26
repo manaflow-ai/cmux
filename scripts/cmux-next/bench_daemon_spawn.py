@@ -155,6 +155,14 @@ def first_pane(conn):
     raise SystemExit("bench: the daemon has no pane")
 
 
+def latency_report(latencies, reads):
+    """The round's `create_ms` and `read_ms` report rows (ms; perf_stats.pct, max 0 for no values)."""
+    return {"create_ms": {"p50": pct(latencies, 0.5), "p95": pct(latencies, 0.95), "p99": pct(latencies, 0.99),
+                          "max": max(latencies) if latencies else 0, "over_5s": sum(1 for v in latencies if v > 5000)},
+            "read_ms": {"count": len(reads), "p50": pct(reads, 0.5), "p95": pct(reads, 0.95), "p99": pct(reads, 0.99),
+                        "max": max(reads) if reads else 0}}
+
+
 def storm(daemon, creates):
     """Pipelined creates on one connection plus concurrent reads on another."""
     control = Connection(daemon.socket)
@@ -212,10 +220,7 @@ def storm(daemon, creates):
     return {
         "creates": creates, "ok": len(latencies), "errors": errors, "send_seconds": send_seconds,
         "total_seconds": total_seconds,
-        "create_ms": {"p50": pct(latencies, 0.5), "p95": pct(latencies, 0.95), "p99": pct(latencies, 0.99),
-                      "max": max(latencies) if latencies else 0, "over_5s": sum(1 for v in latencies if v > 5000)},
-        "read_ms": {"count": len(reads), "p50": pct(reads, 0.5), "p95": pct(reads, 0.95), "p99": pct(reads, 0.99),
-                    "max": max(reads) if reads else 0},
+        **latency_report(latencies, reads),
         "tabs_in_request_order": created_in_order == sorted(created_in_order, key=surfaces.index) if surfaces else True,
     }, surfaces, {"create_ms": latencies, "read_ms": list(reads)}
 

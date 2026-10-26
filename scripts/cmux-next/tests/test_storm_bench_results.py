@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """The CLI and daemon storm benches on perf_stats and result-v1 (p12-perf-process-056).
 
-1. bench_cli_storm.py: summarize keeps its report keys and takes its percentiles from perf_stats.pct; the next
-   profile stops debug.frames with `raw` and keeps only the summary in the report; `samples` holds every request's
-   latency by category; Client still imports under `python3 -I` (input-replay.py and the other importers).
+1. bench_cli_storm.py: summarize keeps its report keys and takes its percentiles from perf_stats.pct; a storm with
+   no sample fails "no request completed" instead of crashing; the next profile stops debug.frames with `raw` and
+   keeps only the summary in the report; `samples` holds only the answered requests' latency by category, and error
+   replies are counted apart; Client still imports under `python3 -I` (input-replay.py and the other importers).
 2. cli-storm-session.py: the session comes from --session, else $PERF_LAB_SESSION, else light; the storm's raw samples
    become cli_storm.* series, written by a real BenchApp.record into cli-storm or cli-storm-stress and stored by the
    real perf-lab ingest; the stored storm report drops the raw samples.
-3. script-storm-bench.py: distribution() is perf_stats.pct with the old keys; a valid phase records
-   script_storm.<phase>.* through Session.record; an invalid phase records nothing; --session picks one session.
+3. script-storm-bench.py: distribution() is typing_report.distribution; a valid phase of a Session built by its
+   real __init__ records script_storm.<phase>.* at the top of --out, where ingest reads; an invalid phase records
+   nothing; --session picks one session.
 4. bench_daemon_spawn.py: --app names the daemon and the build, --out needs --app; each round's raw create and read
-   latencies and the reap results become daemon_spawn.* series, written without an app by write_headless.
+   latencies and the reap results become daemon_spawn.* series; main() with a stub daemon writes them from
+   measured_build into --out, and a bundle with no sha exits before the daemon starts.
 5. The four benches leave the bench-migration queue (MQ1, MQ2, MQ3), every written metric fullmatches its story's
    patterns with the story's engine and session, and each story's needs name the debug methods its run calls.
 
@@ -43,7 +46,9 @@ import bench_launch as bl  # noqa: E402
 from test_bench_launch import FEATURES, HOST, record_bundle, result_lines  # noqa: E402
 
 import bench_cli_storm  # noqa: E402
+import bench_frames  # noqa: E402
 import storm_bench_results as results  # noqa: E402
+import typing_report  # noqa: E402
 
 session_bench = bl.load_by_path("cli_storm_session", str(HERE / "cli-storm-session.py"))
 spawn = bl.load_by_path("bench_daemon_spawn", str(HERE / "bench_daemon_spawn.py"))
@@ -70,7 +75,7 @@ def storm_report(frames_raw=True):
     """A bench_cli_storm.py report as main() writes it (next profile)."""
     return {"bench": "cli-storm", "throughput_rps": 412.5,
             "latency": {"read": {"count": 3}}, "frames": {"p99_ms": 9.1},
-            "criteria": {"unanswered": 0, "stalls_over_50ms": 2, "pty_leaked": 0,
+            "criteria": {"unanswered": 0, "request_errors": 1, "stalls_over_50ms": 2, "pty_leaked": 0,
                          "footprint_after_vs_baseline": 1.04, "p99_frame_ms": 9.1},
             "samples": {"latency_ms": {"read": [1.0, 2.0, 3.5], "create": [40.0, 51.0], "send": [0.4],
                                        "rename": [2.2, 2.4], "close": [8.0]},
@@ -131,6 +136,29 @@ class CliStormDriverTests(unittest.TestCase):
         self.assertEqual(report["read"]["outcomes"], {"ok": 10})
         self.assertEqual(report["close"]["outcomes"], {"busy": 1})
         self.assertEqual(report["all"]["count"], 11)
+
+    def test_a_storm_with_no_sample_fails_and_does_not_crash(self):
+        # Every worker's Client() failed to connect: no request recorded. The old report said max 0 and failed.
+        report = bench_cli_storm.summarize([])
+        self.assertEqual(report, {"all": {"count": 0, "p50_ms": None, "p95_ms": None, "p99_ms": None, "max_ms": None}})
+        self.assertEqual(bench_cli_storm.request_failures(report),
+                         ["no request completed (every client failed before its first request)"])
+        self.assertEqual(bench_cli_storm.outcome_totals(report), (0, 0))
+        self.assertEqual(bench_cli_storm.latency_line(report), "latency: all p50 - p99 - max -")
+
+    def test_a_request_past_the_deadline_fails(self):
+        late = (bench_cli_storm.DEADLINE_S + 0.5)
+        report = bench_cli_storm.summarize([("read", "m", 0.002, "ok"), ("read", "m", late, "ok")])
+        [failure] = bench_cli_storm.request_failures(report)
+        self.assertIn("a request waited 2500 ms", failure)
+        self.assertEqual(bench_cli_storm.request_failures(bench_cli_storm.summarize([("read", "m", 0.002, "ok")])), [])
+
+    def test_error_replies_and_timeouts_are_counted_never_a_latency(self):
+        samples = [("read", "m", 0.010, "ok"), ("read", "m", 0.0001, "busy"), ("read", "m", 0.0002, "daemon_error"),
+                   ("create", "m", 5.0, "client_timeout"), ("create", "m", 0.0, "connection:ConnectionResetError"),
+                   ("create", "m", 0.040, "ok")]
+        self.assertEqual(bench_cli_storm.answered_latencies(samples), {"create": [40.0], "read": [10.0]})
+        self.assertEqual(bench_cli_storm.outcome_totals(bench_cli_storm.summarize(samples)), (2, 2))
 
     def test_the_old_nearest_rank_against_perf_stats_on_the_fixed_vector(self):
         # The commit message's table: the deleted percentile() picked index round((n - 1) * p) (round half to even).
@@ -212,6 +240,8 @@ class CliStormSessionTests(RecordingCase):
         self.assertEqual(series["cli_storm.request.read"].samples, [1.0, 2.0, 3.5])
         self.assertEqual(series["cli_storm.frame_interval"].samples, [8.3, 8.4, 16.7])
         self.assertEqual((series["cli_storm.stalls"].unit, series["cli_storm.stalls"].samples), ("count", [2]))
+        self.assertEqual((series["cli_storm.request_errors"].unit, series["cli_storm.request_errors"].samples),
+                         ("count", [1]))
         self.assertEqual(series["cli_storm.footprint_growth"].unit, "ratio")
         self.assertEqual((series["cli_storm.throughput"].unit, series["cli_storm.throughput"].better), ("per_s", "higher"))
 
@@ -249,6 +279,8 @@ class CliStormSessionTests(RecordingCase):
 class ScriptStormTests(RecordingCase):
     def test_distribution_is_perf_stats_with_the_old_keys(self):
         bench = load_script_storm(["--app", "/a.app", "--out", self.out])
+        self.assertIs(bench.distribution, typing_report.distribution)
+        self.assertIs(bench.split_raw_frames, bench_frames.split_raw_frames)
         self.assertIsNone(bench.distribution([]))
         row = bench.distribution(VECTOR)
         self.assertEqual(set(row), {"n", "p50", "p95", "p99", "max", "mean"})
@@ -266,19 +298,27 @@ class ScriptStormTests(RecordingCase):
         return {"invalid": list(invalid), "frame_evidence": {"missed": 3}, "hangs": {"count": 1}}
 
     def session(self, bench, name):
-        session = object.__new__(bench.Session)
-        session.name, session.app = name, self.bench(f"script-{name}", name)
+        """A Session from its real __init__ (its BenchApp, its out folder), given what launch() would read."""
+        session = bench.Session(name)
+        self.addCleanup(shutil.rmtree, session.app.scratch, True)
+        session.app.read_host = lambda: dict(HOST)
+        session.app.features = FEATURES
         return session
 
     def test_a_valid_phase_records_its_series_and_an_invalid_one_nothing(self):
-        bench = load_script_storm(["--app", "/a.app", "--out", self.out])
+        bench = load_script_storm(["--app", record_bundle(self.folder, "script", commit=SHA), "--out", self.out])
         raw = {"intervals_ms": [8.3, 8.4], "main_ms": [2.0, 3.0]}
         for name in ("light", "stress"):
             session = self.session(bench, name)
+            self.assertEqual((session.app.out, session.app.log_path),
+                             (os.path.abspath(self.out), os.path.join(os.path.abspath(self.out), f"app-{name}.log")))
+            self.assertTrue(os.path.isdir(os.path.join(self.out, name)))  # its storm plans, logs and signposts
             written = session.record("script", self.phase_entry(), [4.5, 5.5, 6.0], raw)
             self.assertEqual(set(written), {f"script_storm.script.{s}" for s in
                                             ("key_to_contents", "frame_interval", "main_busy", "missed_frames", "stalls")})
             self.assertEqual(session.record("idle", self.phase_entry(["storm not applied"]), [4.0], raw), {})
+        for name in ("light", "stress"):
+            self.assertEqual(list(Path(self.out, name).glob("*.ndjson")), [], name)  # ingest does not look there
         lines = self.assert_story_contract()
         self.assertFalse([line for line in lines if line["metric"].startswith("script_storm.idle.")])
         runs = self.ingest()
@@ -313,25 +353,84 @@ class DaemonSpawnTests(RecordingCase):
         self.assertEqual(series["daemon_spawn.create_errors"].samples, [0, 2])
         self.assertEqual(series["daemon_spawn.hosts_left"].samples, [0, 1])
         self.assertEqual(series["daemon_spawn.hosts_leaked"].samples, [1])
-        app = record_bundle(self.folder, "spawn", commit=SHA)
         build = results.perf_result.Build(sha=SHA, config="bench", measure_version=bl.PERF_LAB_MEASURE_VERSION)
         results.write_headless(self.out, results.DAEMON_SPAWN_STORY, spawn.SESSION, list(series.values()), build,
                                results.perf_result.Host.from_dict(dict(HOST)), root=str(ROOT))
-        self.assertTrue(app)
         lines = self.assert_story_contract()
         self.assertEqual({line["features_hash"] for line in lines}, {None})
         [(engine, session, metrics)] = self.ingest().values()
         self.assertEqual((engine, session, metrics["daemon_spawn.create"]), ("none", "light", [12.0, 14.0, 90.0, 11.0]))
 
     def test_the_create_report_keeps_its_keys(self):
-        text = (HERE / "bench_daemon_spawn.py").read_text()
-        for key in ('"create_ms": {"p50"', '"p99"', '"max"', '"over_5s"', '"read_ms": {"count"'):
-            self.assertIn(key, text)
+        report = spawn.latency_report([12.0, 14.0, 6000.0], [0.5, 0.7])
+        self.assertEqual(set(report), {"create_ms", "read_ms"})
+        self.assertEqual(set(report["create_ms"]), {"p50", "p95", "p99", "max", "over_5s"})
+        self.assertEqual(set(report["read_ms"]), {"count", "p50", "p95", "p99", "max"})
+        self.assertEqual((report["create_ms"]["p50"], report["create_ms"]["max"], report["create_ms"]["over_5s"]),
+                         (14.0, 6000.0, 1))
+        self.assertEqual(report["read_ms"]["count"], 2)
+        empty = spawn.latency_report([], [])
+        self.assertEqual((empty["create_ms"]["max"], empty["read_ms"]["max"], empty["read_ms"]["count"]), (0, 0, 0))
+
+    def run_main(self, argv):
+        """spawn.main(argv) with a stub daemon and one round: (exit code, the daemons started, stdout)."""
+        started = []
+
+        class StubDaemon:
+            def __init__(self, binary, reap_grace):
+                self.binary, self.reap_grace, self.socket, self.pid = binary, reap_grace, "/nowhere.sock", 4242
+
+            def start(self):
+                started.append(self)
+
+            def hosts(self):
+                return set()
+
+            def stop(self):
+                pass
+
+        [first, _] = self.rounds()
+        created = {"creates": 3, "ok": 3, "errors": first["create"]["errors"], **spawn.latency_report(
+            first["samples"]["create_ms"], first["samples"]["read_ms"])}
+        version = mock.Mock(run=mock.Mock(return_value=mock.Mock(stdout="cmux-tui 1.0\n")))
+        printed = io.StringIO()
+        with mock.patch.object(spawn, "Daemon", StubDaemon), mock.patch.object(spawn, "ptys_in_use", return_value=0), \
+                mock.patch.object(spawn, "Connection"), mock.patch.object(spawn, "first_pane"), \
+                mock.patch.object(spawn, "storm", return_value=(created, ["s1"], first["samples"])), \
+                mock.patch.object(spawn, "close_and_reap", return_value=first["reap"]), \
+                mock.patch.object(spawn, "subprocess", version), \
+                mock.patch.object(bl, "read_host", return_value=dict(HOST)), \
+                redirect_stdout(printed), self.assertRaises(SystemExit) as exit:
+            spawn.main(argv)
+        return exit.exception.code, started, printed.getvalue()
+
+    def test_main_writes_the_rounds_from_the_measured_build(self):
+        bundle = record_bundle(self.folder, "spawn", commit=SHA)
+        code, started, _ = self.run_main(["--app", bundle, "--out", self.out])
+        self.assertEqual((code, len(started)), (0, 1))
+        report = json.loads(Path(self.out, "daemon-spawn-spawn.json").read_text())
+        self.assertEqual(set(report["rounds"][0]["create"]["create_ms"]), {"p50", "p95", "p99", "max", "over_5s"})
+        self.assertEqual(Path(report["results"]["path"]).parent, Path(self.out).resolve())
+        lines = self.assert_story_contract()
+        self.assertEqual({(line["build"]["sha"], line["build"]["config"]) for line in lines},
+                         {(SHA, bl.build_config(bundle, bl.main_binary(bundle)))})
+        [(engine, session, metrics)] = self.ingest().values()
+        self.assertEqual((engine, session, metrics["daemon_spawn.create"]), ("none", "light", [12.0, 14.0, 90.0]))
+        self.assertEqual(sorted(metrics), sorted(report["results"]["metrics"]))
+
+    def test_a_bundle_with_no_sha_exits_before_the_daemon_starts(self):
+        bundle = record_bundle(self.folder, "nosha")
+        environ = {k: v for k, v in os.environ.items() if k != "CMUX_CI_SHA"}
+        with mock.patch.dict(os.environ, environ, clear=True):
+            code, started, _ = self.run_main(["--app", bundle, "--out", self.out])
+        self.assertIn("no result-v1 can name this run", str(code))
+        self.assertEqual(started, [])
+        self.assertFalse(os.path.isdir(self.out) and list(Path(self.out).iterdir()))
 
 
 class QueueAndStoryTests(unittest.TestCase):
     def test_the_benches_leave_the_bench_migration_queue(self):
-        names = {f"scripts/cmux-next/{name}" for name in BENCHES + ("storm_bench_results.py",)}
+        names = {f"scripts/cmux-next/{name}" for name in BENCHES + ("storm_bench_results.py", "bench_frames.py")}
         for query in (queues.private_stats, queues.self_launch, queues.p95_without_p99):
             self.assertEqual(sorted(names & {item.key for item in query(str(ROOT))}), [], query.__name__)
 
