@@ -59,7 +59,9 @@ export function providerOf(model: VariantModel): {
 }
 
 /// `models` as one row per model, in order of each model's first row. Only rows that name a
-/// provider join: two bare ids are two models. `current` is the running row's id: its group lands it.
+/// provider join, and only one row per provider: two bare ids are two models, and so are two of one
+/// provider's rows that share a last id part ("openrouter/a/m" and "openrouter/b/m"). `current` is
+/// the running row's id: its group lands it.
 /// A provider's row is named without the provider ("Z.ai/GLM 5.3" is "GLM 5.3"); the menu names the
 /// provider beside it.
 export function groupVariants<T extends VariantModel>(models: readonly T[], current?: string): ModelGroup<T>[] {
@@ -68,7 +70,8 @@ export function groupVariants<T extends VariantModel>(models: readonly T[], curr
   for (const model of models) {
     const { provider, key, name, tag } = providerOf(model);
     const offer = { model, provider: provider ?? "" };
-    const group = provider ? byKey.get(key) : undefined;
+    const joined = provider ? byKey.get(key) : undefined;
+    const group = joined?.offers.some((each) => each.provider === provider) ? undefined : joined;
     if (group) {
       group.offers.push(offer);
       if (model.id === current) group.model = model;
@@ -82,7 +85,7 @@ export function groupVariants<T extends VariantModel>(models: readonly T[], curr
       offers: [offer],
     };
     groups.push(next);
-    if (provider) byKey.set(key, next);
+    if (provider && !byKey.has(key)) byKey.set(key, next);
   }
   return groups;
 }

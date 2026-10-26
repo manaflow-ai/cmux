@@ -110,6 +110,19 @@ describe("groupVariants", () => {
     expect(groups[0]!.tag).toBe("New");
   });
 
+  test("one provider's two rows with the same last id part are two models", async () => {
+    const { groupVariants } = await variants();
+    const groups = groupVariants([
+      { id: "openrouter/qwen/coder-3", name: "OpenRouter/Coder 3" },
+      { id: "openrouter/mistral/coder-3", name: "OpenRouter/Coder 3" },
+      { id: "together/qwen/coder-3", name: "Together/Coder 3" },
+    ]);
+    expect(groups.map((group) => group.offers.map((offer) => offer.model.id))).toEqual([
+      ["openrouter/qwen/coder-3", "together/qwen/coder-3"],
+      ["openrouter/mistral/coder-3"],
+    ]);
+  });
+
   test("the running provider's row is the one its model lands", async () => {
     const { groupVariants } = await variants();
     expect(groupVariants(rows, "deepseek/deepseek-v4-pro")[0]!.model.id).toBe("deepseek/deepseek-v4-pro");
@@ -134,8 +147,17 @@ const openCode = [
 ];
 
 // A rail beside it: another harness whose one model two providers serve, and one with plain models.
+// OpenCode lists more models than the compact rows hold, so some are under More models.
 const railed = [
-  ...openCode,
+  {
+    ...openCode[0]!,
+    models: [
+      ...openCode[0]!.models,
+      { id: "openrouter/meta/llama-scout", name: "OpenRouter/Llama Scout" },
+      { id: "together/meta/llama-scout", name: "Together/Llama Scout" },
+      { id: "mistral/codestral", name: "Mistral/Codestral" },
+    ],
+  },
   {
     id: "pi",
     name: "Pi",
@@ -224,6 +246,22 @@ test("a chat on another provider's row of a model checks that model's one row an
   const pro = modelRows(menus()[0]!).find((row) => nameOf(row) === "DeepSeek V4 Pro")!;
   expect(pro.getAttribute("aria-checked")).toBe("true");
   expect(detailOf(pro)).toBe("DeepSeek");
+});
+
+test("More models names the provider each of its models lands, each model once", async () => {
+  await mount(undefined, true);
+  const more = [...menus()[0]!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
+    item.textContent?.startsWith("More models"),
+  )!;
+  expect(more).toBeDefined();
+  await act(async () => more.click());
+  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  const rows = modelRows(menus().at(-1)!);
+  expect(rows.length).toBeGreaterThan(0);
+  const names = rows.map(nameOf);
+  expect(new Set(names).size).toBe(names.length);
+  // Every OpenCode row is a provider's: its provider is at the row's end.
+  for (const row of rows) expect(detailOf(row), nameOf(row)).not.toBe("");
 });
 
 // Astra on #25175: the Provider row is a row of the chat's tab, so the held list height and width

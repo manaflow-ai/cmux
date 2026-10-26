@@ -168,7 +168,7 @@ export function tabExtent(
 
 /// One row of any tab, for the width probe: its label, its name's tag, its secondary value, and
 /// whether it opens a submenu (a chevron), shows a number key, or shows the chosen model's check
-/// (wider: it has its own leading padding).
+/// (wider: it has its own leading padding), and whether it is an expanded provider row (indented).
 export type ProbeRow = {
   label: string;
   tag?: string;
@@ -176,7 +176,11 @@ export type ProbeRow = {
   sub?: boolean;
   shortcut?: boolean;
   check?: boolean;
+  offer?: boolean;
 };
+
+const probeClass = (row: ProbeRow) =>
+  `ui-menu-item acpmux-quick-item${row.sub ? " acpmux-quick-sub" : ""}${row.offer ? " acpmux-quick-offer" : ""}`;
 
 /// The tallest tab's rows and separators, unseen in the list's grid cell under the real rows, so
 /// switching tabs or typing never changes the menu's height while it is open. `widths` is every
@@ -196,7 +200,7 @@ function QuickMenuSpacer({
     <div className="acpmux-quick-spacer" aria-hidden="true" inert>
       <div className="acpmux-quick-probe">
         {widths.map((row, index) => (
-          <div key={index} className={`ui-menu-item acpmux-quick-item${row.sub ? " acpmux-quick-sub" : ""}`}>
+          <div key={index} className={probeClass(row)}>
             <span className="acpmux-menu-label">{row.label}</span>
             {row.tag && <span className="acpmux-quick-tag">{row.tag}</span>}
             {row.value && <span className="acpmux-quick-value">{row.value}</span>}
@@ -460,16 +464,29 @@ export function QuickModelMenu({
   const widths: ProbeRow[] = families
     ? [
         ...families.list.flatMap((family): ProbeRow[] => [
-          ...family.models
-            .slice(0, FILTER_ROWS)
-            .map((model): ProbeRow => ({
-              label: model.name,
-              ...(model.tag ? { tag: model.tag } : {}),
-              ...(model.provider ? { value: model.provider } : {}),
-              // The submenu version's row of a model several providers serve has a chevron.
-              ...(model.offers && menu.providers === "submenu" ? { sub: true } : {}),
-              ...(family.id === families.current && model.id === current ? { check: true } : { shortcut: true }),
-            })),
+          ...family.models.slice(0, FILTER_ROWS).flatMap((model): ProbeRow[] => {
+            const chat = family.id === families.current;
+            const named = { label: model.name, ...(model.tag ? { tag: model.tag } : {}) };
+            // The expanded version: the model's name heads its provider rows, indented under it.
+            if (model.offers && menu.providers === "expanded")
+              return [
+                named,
+                ...model.offers.map((offer) => ({
+                  label: offer.provider,
+                  offer: true,
+                  ...(chat && offer.id === current ? { check: true } : {}),
+                })),
+              ];
+            return [
+              {
+                ...named,
+                ...(model.provider ? { value: model.provider } : {}),
+                // The submenu version's row of a model several providers serve has a chevron.
+                ...(model.offers && menu.providers === "submenu" ? { sub: true } : {}),
+                ...(chat && model.id === current ? { check: true } : { shortcut: true }),
+              },
+            ];
+          }),
           ...(family.note && family.models.length === 0 ? [{ label: family.note }] : []),
           ...(family.note && family.logIn ? [{ label: t("harness.logIn") }] : []),
           ...(family.fork ? [{ label: t("picker.forkTo", { harness: family.name }) }] : []),
@@ -734,7 +751,12 @@ export function QuickModelMenu({
                     disabled={choice.disabled}
                     className="acpmux-quick-item"
                   >
-                    <span className="acpmux-menu-label">{choice.name}</span>
+                    {/* A model several providers serve names the provider it lands, as the list does. */}
+                    <span className="acpmux-quick-label">
+                      <span className="acpmux-menu-label">{choice.name}</span>
+                      {choice.tag && <span className="acpmux-quick-tag">{choice.tag}</span>}
+                      {choice.provider && <span className="acpmux-quick-value">{choice.provider}</span>}
+                    </span>
                   </MenuRadioItem>
                 ))}
               </MenuRadioGroup>
