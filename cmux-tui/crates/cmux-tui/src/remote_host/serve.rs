@@ -345,7 +345,7 @@ fn probe_reply(host: &Host, config: &Config, access: &str) -> Value {
 pub(super) fn proxied(config: &Config, login: Option<&str>, scopes: Option<&[Scope]>) -> bool {
     let Some(scopes) = scopes else { return false };
     let shared = login.is_some_and(|login| {
-        config.shares.iter().any(|share| super::config::same_login(&share.login, login))
+        config.shares.iter().any(|share| config::same_login(&share.login, login))
     });
     shared || !scopes.contains(&Scope::Shell)
 }

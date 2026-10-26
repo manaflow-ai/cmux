@@ -127,7 +127,8 @@ mod tests {
         fake.notify("_acpmux/event", record(3, "user_message"));
         // Records arrive in order (the fake's own replies may come first): none is the draft.
         loop {
-            let event = client.named_event("agent-session-record", WAIT).expect("the prompt record");
+            let event =
+                client.named_event("agent-session-record", WAIT).expect("the prompt record");
             assert_ne!(event["record"]["kind"], "composer", "the draft never arrives");
             if event["record"]["kind"] == "user_message" {
                 break;
