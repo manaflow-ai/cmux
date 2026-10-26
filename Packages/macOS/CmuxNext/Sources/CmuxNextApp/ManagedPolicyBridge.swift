@@ -3,6 +3,7 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextSettings
 import CmuxNextUpdater
+import CmuxNextWakeups
 import Observation
 
 /// Hands managed device keys from the managed policy (the settings
@@ -14,28 +15,32 @@ struct ManagedPolicyBridge {
     let settings: SettingsController
     let updater: UpdaterService
     let auth: CloudAuth
+    /// The app's main-thread scheduler: a policy change applies as one task on it.
+    let mainWork: MainWorkScheduler
+    /// The app's one observer per app notice (`AppServices.appEvents`).
+    let appEvents: AppEvents
 
-    func start() {
+    /// Applies the current values now, before Cloud starts, then follows changes. The caller keeps the returned
+    /// followers for the app's lifetime.
+    func start() -> [AnyObject] {
         let settings = settings
-        // The current values apply now, before Cloud starts; changes follow.
-        apply(settings.forcedManagedValuesNow())
-        // task-owner: app-lifetime observation of the managed policy; ends with the process
-        Task { [weak updater, weak auth] in
-            for await policy in ObservationStream({ settings.managedPolicy }) {
-                guard updater != nil, auth != nil else { return }
-                apply(policy)
-            }
+        Self.apply(settings.forcedManagedValuesNow(), updater: updater, auth: auth)
+        // `automation`: the device management profile (another process) changes the policy.
+        let policy = ServiceObservation(.automation, owner: "ManagedPolicyBridge.policy", on: mainWork) {
+            settings.managedPolicy
+        } apply: { [weak updater, weak auth] policy in
+            guard let updater, let auth else { return }
+            Self.apply(policy, updater: updater, auth: auth)
         }
         // A required update dismissed with Escape comes back when the app is next activated.
-        // task-owner: app-lifetime activation observer; ends with the process
-        Task { [weak updater] in
-            for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
-                updater?.recheckRequiredUpdate()
-            }
+        // raw-observer-allow: this is the AppEvents subscription recipe R-notif asks for (the app's one observer); only the notice's name matches
+        let activation = appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "ManagedPolicyBridge.requiredUpdate") { [weak updater] in
+            updater?.recheckRequiredUpdate()
         }
+        return [policy, activation]
     }
 
-    private func apply(_ policy: [String: JSONValue]) {
+    private static func apply(_ policy: [String: JSONValue], updater: UpdaterService, auth: CloudAuth) {
         updater.applyManagedPolicy(channel: policy["UpdateChannel"]?.stringValue,
                                    minimumVersion: policy["MinimumVersion"]?.stringValue)
         let team = policy["RestrictToManagedTeam"]?.boolValue == true ? policy["ManagedTeam"]?.stringValue : nil

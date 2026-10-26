@@ -50,7 +50,7 @@ extension AppServices {
         })
         palettes.whenBuilt { [weak self] palette in  // the palette is built after launch (p08-startup-023)
             guard let self else { return }
-            chromiumLikelyObservations.append(ChromiumPaletteSignal.observe(palette.model, warmup: chromiumWarmup))
+            lifetimeFollowers.append(ChromiumPaletteSignal(palette.model, warmup: chromiumWarmup, on: mainWork))
         }
     }
 }
