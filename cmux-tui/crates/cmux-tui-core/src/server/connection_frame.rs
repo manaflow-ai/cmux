@@ -328,6 +328,10 @@ pub(super) fn handle_request_with_cancellation(
         });
     }
 
+    if deferred_commands::handles(mux, client, &cmd) {
+        return deferred_commands::start(mux, client, id, cmd, &mut span, writer);
+    }
+
     let detach_self = match &cmd {
         Command::DetachClient { client: target, by, surface }
             if target.whole_client() == Some(client)
