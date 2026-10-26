@@ -47,6 +47,8 @@ pub(crate) enum Mask {
 /// Only ENOENT is omitted; other metadata failures retain a file mask so
 /// bwrap either conceals the path or refuses setup. Iteration ends after
 /// the supplied denies and the fixed Linux additions have been visited.
+/// `read_denies` stays an explicit caller-supplied list: the spawn wiring
+/// joins it with `rules::read_denies(...)` before calling this pure helper.
 pub(crate) fn masks(home: &Path, read_denies: &[PathBuf]) -> Vec<Mask> {
     read_denies
         .iter()
