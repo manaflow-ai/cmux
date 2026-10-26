@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "build": "4034780962501",
+  "notes": "notes/4034780962501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 25448,
+      "title": "acpmux peer snapshots (1/n): the on-disk form of a peer session's copy",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25319,
+      "title": "cmux NEXT Cloud: cmux cloud start-session, start an agent on a machine (2/2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25422,
+      "title": "VS Code Minimap: the keyboard scrollbar (aria-controls, aria-valuenow from the real range)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25460,
+      "title": "app: socket methods that run a sandboxed Run for the CLI (runs.sandbox.create, runs.wait, runs.cancel)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25460/9079156c/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "9079156c",
+      "tour": "core"
+    },
+    {
+      "pr": 25429,
+      "title": "Run routes: return shared errors with recovery steps",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25471,
+      "title": "fix(cloud): make VM recovery hints runnable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25372,
+      "title": "acpmux: a stopped session stays closed (session stop vs acpmux ls)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25217,
+      "title": "cloud new-machine: --persistent, --size, --name and a bootstrap script in one call",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23984,
+      "title": "Settings > Chief: an Engine row (Auto, This Mac, Hosted) for the Chief Home opens",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
