@@ -6,39 +6,58 @@ import Foundation
 /// no `CEFLoadedLibrary` and starts no pump: Chromium's message loop runs in the host, as the GPU
 /// process runs its own (content/gpu/gpu_main.cc) and the browser only holds a channel to it.
 ///
-/// One attach per runtime: every concurrent first start awaits the same one.
+/// One attach per runtime: every concurrent first start awaits the same one. It owns the runtime's
+/// one ``CEFHostReplies``, which the attached remote shim's REPLY frames resolve (task 018).
 final class CEFHostStart {
     /// Opens the remote dylib (off the main thread); ``CEFRemoteShim/open(_:)`` in the app.
     typealias Open = @Sendable (ChromiumHostAttachment) -> Result<CEFRemoteShim, CEFRuntime.BootError>
 
+    /// The async ops' replies, by token: ``expectReply()`` in the call's turn, then await it here.
+    let replies: CEFHostReplies
+    /// The attached remote shim, once the host said hello.
+    private(set) var remote: CEFRemoteShim?
     private let supervisor: any ChromiumHostSupervising
     private let open: Open
     private let helloDeadline: Duration
     private let clock: any Clock<Duration>
     private var task: Task<Result<CEFAttachedHost, CEFRuntime.BootError>, Never>?
+    /// The attached host maps the ids cmux mints (``CEFAttachedHost/mapsClientIDs``); set by
+    /// ``attached()`` (task 019 of plans/cmux-next/chrome-parity/p01-process.md).
+    var mapsClientIDs = false
 
     /// `helloDeadline`: how long, on `clock`, the host may take from the attach to its hello
-    /// before the start fails (a host that hangs while it starts Chromium).
+    /// before the start fails (a host that hangs while it starts Chromium). Reply deadlines run on
+    /// `clock` too.
     init(supervisor: any ChromiumHostSupervising, open: @escaping Open = { CEFRemoteShim.open($0) },
          helloDeadline: Duration = .seconds(30), clock: any Clock<Duration> = ContinuousClock()) {
         self.supervisor = supervisor
         self.open = open
         self.helloDeadline = helloDeadline
         self.clock = clock
+        replies = CEFHostReplies(clock: clock)
     }
 
     /// The attached host; the first caller starts the attach, later ones await it.
     func attached() async -> Result<CEFAttachedHost, CEFRuntime.BootError> {
-        if let task { return await task.value }
-        let task = Task { [supervisor, open, helloDeadline, clock] in
-            await CEFHostStart.attach(supervisor, open: open, helloDeadline: helloDeadline, clock: clock)
+        let task = self.task ?? Task { [supervisor, open, replies, helloDeadline, clock] in
+            await CEFHostStart.attach(supervisor, open: open, replies: replies, helloDeadline: helloDeadline, clock: clock)
         }
         self.task = task
-        return await task.value
+        let outcome = await task.value
+        if case .success(let host) = outcome { (remote, mapsClientIDs) = (host.remote, host.mapsClientIDs) }
+        return outcome
     }
 
-    private static func attach(_ supervisor: any ChromiumHostSupervising, open: @escaping Open, helloDeadline: Duration,
-                               clock: any Clock<Duration>) async -> Result<CEFAttachedHost, CEFRuntime.BootError> {
+    /// The REPLY token of the async shim call this turn just made, now expected in ``replies``;
+    /// nil when the call sent nothing or no host is attached.
+    func expectReply() -> UInt32? {
+        guard let token = remote?.lastReplyToken(), token != 0 else { return nil }
+        replies.expect(token)
+        return token
+    }
+
+    private static func attach(_ supervisor: any ChromiumHostSupervising, open: @escaping Open, replies: CEFHostReplies,
+                               helloDeadline: Duration, clock: any Clock<Duration>) async -> Result<CEFAttachedHost, CEFRuntime.BootError> {
         let elapsed = ContinuousClock()
         let started = elapsed.now
         let attachment: ChromiumHostAttachment
@@ -54,7 +73,7 @@ final class CEFHostStart {
             return .failure(error)
         }
         let hostExports: Set<String>
-        switch await remote.attach(attachment, helloDeadline: helloDeadline, clock: clock) {
+        switch await remote.attach(attachment, replies: replies, helloDeadline: helloDeadline, clock: clock) {
         case .success(let exports): hostExports = exports
         case .failure(let error): return .failure(error)
         }
@@ -62,8 +81,9 @@ final class CEFHostStart {
             let shim = try CEFShimLibrary.resolving(remote.symbol, hostExports: hostExports)
             let locale = CEFLocale.resolve(preferredLanguages: Locale.preferredLanguages,
                                            available: CEFLocale.available(lprojNames: attachment.frameworkLocales))
-            return .success(CEFAttachedHost(shim: shim, remote: remote, shimABI: CEFShimABI.bundledIdentity() ?? "",
-                                            locale: locale, loadDuration: elapsed.now - started))
+            return .success(CEFAttachedHost(shim: shim, remote: remote, replies: replies, shimABI: CEFShimABI.bundledIdentity() ?? "",
+                                            locale: locale, loadDuration: elapsed.now - started,
+                                            mapsClientIDs: hostExports.contains(CEFAttachedHost.clientIDsHelloName)))
         } catch {
             // The shim holds the host's wire from the attach on.
             remote.detach()
@@ -77,11 +97,21 @@ nonisolated struct CEFAttachedHost: Sendable {
     var shim: CEFShimLibrary
     /// Holds the host's wire: the runtime detaches it when Chromium does not start on it.
     var remote: CEFRemoteShim
+    /// The table the remote shim's REPLY frames resolve (``CEFHostStart/replies``): the runtime's
+    /// ``CEFHostReplyRoute`` answers its callers from it.
+    var replies: CEFHostReplies
     var shimABI: String
     /// UI locale and Accept-Language from the macOS preferred languages and the host's framework locales.
     var locale: CEFLocale
     /// From the supervisor's request to the host's hello.
     var loadDuration: Duration
+    /// The host maps the browser and DevTools ids cmux mints to Chromium's for every op and event
+    /// (its HELLO lists ``clientIDsHelloName``; HOST/src/host_client_ids.h), so cmux may create a
+    /// browser in the key's turn and name it by the minted id at once (task 019).
+    var mapsClientIDs: Bool
+
+    /// `cmux_host::mint::kClientIdsHelloName` (HOST/src/chromium_host_mint.h).
+    static let clientIDsHelloName = "cmux_host_client_ids"
 }
 
 /// What `CEFRuntime` initializes Chromium with: the in-process library or the attached host.
