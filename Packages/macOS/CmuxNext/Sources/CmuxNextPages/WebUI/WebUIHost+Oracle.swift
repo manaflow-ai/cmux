@@ -46,26 +46,31 @@ extension WebUIHost {
         return await WebUIHost.oracleAnswers(pages, within: deadline, clock: clock)
     }
 
-    /// The task group of ``oracleStates(of:within:clock:)``. A static function, as in the App before the move: the
-    /// same group inside the instance method is a pattern Swift 6.2's region-based isolation checker refuses.
+    /// The task group of ``oracleStates(of:within:clock:)``. Each child captures only Sendable values (the page is
+    /// main-actor bound) and awaits ``oracleAnswer(of:within:clock:)``, which runs on the main actor: a
+    /// `@MainActor` child closure here is a pattern the region-based isolation checker of Swift 6.3 refuses.
     private static func oracleAnswers(_ pages: [PageWebView], within deadline: Duration, clock: any Clock<Duration>)
         async -> [ObjectIdentifier: Result<PageWebView.OracleStateAnswer?, PageError>] {
         await withTaskGroup(of: (ObjectIdentifier, Result<PageWebView.OracleStateAnswer?, PageError>).self) { group in
             for page in pages {
                 let id = ObjectIdentifier(page)
-                group.addTask { @MainActor in
-                    let answer: Result<PageWebView.OracleStateAnswer?, PageError>
-                    do throws(PageError) {
-                        answer = .success(try await page.oracleState(within: deadline, clock: clock))
-                    } catch {
-                        answer = .failure(error)
-                    }
-                    return (id, answer)
+                group.addTask {
+                    (id, await WebUIHost.oracleAnswer(of: page, within: deadline, clock: clock))
                 }
             }
             var answers: [ObjectIdentifier: Result<PageWebView.OracleStateAnswer?, PageError>] = [:]
             for await (id, answer) in group { answers[id] = answer }
             return answers
+        }
+    }
+
+    /// `page`'s answer, or the typed error it failed with, on the main actor (the page's router lives there).
+    private static func oracleAnswer(of page: PageWebView, within deadline: Duration, clock: any Clock<Duration>)
+        async -> Result<PageWebView.OracleStateAnswer?, PageError> {
+        do throws(PageError) {
+            return .success(try await page.oracleState(within: deadline, clock: clock))
+        } catch {
+            return .failure(error)
         }
     }
 }
