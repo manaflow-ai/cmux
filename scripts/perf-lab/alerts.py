@@ -655,9 +655,18 @@ def _stats(samples: Sequence[float], unit: str) -> str:
     return " / ".join(_fmt(summary[key], unit) for key in ("p50", "p95", "p99"))
 
 
-def _sha_at(store, config: str, pos: int, *, before: bool) -> str | None:
-    query = ("SELECT sha FROM builds WHERE config = ? AND commit_pos < ? ORDER BY commit_pos DESC LIMIT 1" if before
-             else "SELECT sha FROM builds WHERE config = ? AND commit_pos >= ? ORDER BY commit_pos LIMIT 1")
+def waterfall_sha(store, config: str, pos: int, *, before: bool) -> str | None:
+    """An alert range's end as a commit: the last waterfall point before `pos`, or the first one at or after it.
+
+    Only waterfall runs count: a bisect or try run also stores its build at its commit position, and a range end
+    must be a commit the waterfall measured. The issue's compare link and the bisect range (pinpoint_exec.py) both
+    come from here."""
+    query = ("""SELECT b.sha FROM builds b WHERE b.config = ? AND b.commit_pos < ? AND EXISTS
+                (SELECT 1 FROM runs u WHERE u.build_id = b.id AND u.kind = 'waterfall')
+                ORDER BY b.commit_pos DESC LIMIT 1""" if before else
+             """SELECT b.sha FROM builds b WHERE b.config = ? AND b.commit_pos >= ? AND EXISTS
+                (SELECT 1 FROM runs u WHERE u.build_id = b.id AND u.kind = 'waterfall')
+                ORDER BY b.commit_pos LIMIT 1""")
     row = store._db.execute(query, (config, pos)).fetchone()
     return None if row is None else row["sha"]
 
@@ -687,8 +696,8 @@ def render_issue(store, group: sqlite3.Row, alerts: Sequence[GroupAlert], owner:
     ]
     for alert in alerts:
         before, after = _segment_samples(store, alert)
-        good = _sha_at(store, alert.series.build_config, alert.start_pos, before=True)
-        bad = _sha_at(store, alert.series.build_config, alert.end_pos, before=False)
+        good = waterfall_sha(store, alert.series.build_config, alert.start_pos, before=True)
+        bad = waterfall_sha(store, alert.series.build_config, alert.end_pos, before=False)
         span = f"{alert.start_pos}..{alert.end_pos}"
         if good and bad:
             span = f"[{span}](https://github.com/{repo}/compare/{good[:12]}...{bad[:12]})"

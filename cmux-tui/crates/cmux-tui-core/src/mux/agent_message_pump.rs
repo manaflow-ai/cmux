@@ -141,6 +141,7 @@ impl Mux {
     /// one still waits. A recipient one waits for (its hand-over is out),
     /// or acpmux cannot reach, gets nothing more this pass: its later
     /// messages never overtake it. The pass never waits for acpmux itself.
+    #[track_caller]
     fn pump_agent_messages(self: &Arc<Self>) -> bool {
         let session_id = self.session_public_id.as_str().to_owned();
         let mut cursor = (i64::MIN, i64::MIN);
@@ -176,6 +177,7 @@ impl Mux {
     /// Claims `id`'s hand-over to `recipient` if it is still queued and no
     /// hand-over to `recipient` is out, and starts it on its own thread,
     /// which records the outcome. The recipient waits for it this pass.
+    #[track_caller]
     fn pump_one(self: &Arc<Self>, session_id: &str, id: &str, recipient: &str) -> Pumped {
         let message = {
             let _delivering = self.agent_message_delivery_lock();
@@ -207,6 +209,7 @@ impl Mux {
     }
 
     /// `id`'s snapshot if its delivery to `recipient` is still queued.
+    #[track_caller]
     fn queued_message(
         &self,
         session_id: &str,
@@ -228,6 +231,7 @@ impl Mux {
 
     /// One claimed hand-over, outside the delivery lock, then its outcome
     /// under it; wakes the pump for the recipient's next message once done.
+    #[track_caller]
     fn hand_over(&self, session_id: &str, message: &Value, id: &str, recipient: &str) {
         let handover = self.acp_prompt_message(message, recipient);
         let pumped = {
@@ -256,6 +260,7 @@ impl Mux {
     }
 
     /// Records how `id`'s hand-over to `recipient`, still queued, went.
+    #[track_caller]
     fn record_handover(&self, id: &str, recipient: &str, handover: Handover) -> Pumped {
         let (state, error) = match handover {
             Handover::Delivered => ("delivered", None),
@@ -305,6 +310,7 @@ impl Mux {
 
     /// Counts a hand-over acpmux never accepted on a delivery that stays
     /// queued, with why.
+    #[track_caller]
     fn note_agent_message_attempt(
         &self,
         id: &str,
@@ -361,6 +367,7 @@ fn queued_acp(
 
 /// Waits for wakes, and while a delivery waits for the retry timer, until
 /// the daemon ends.
+#[track_caller]
 fn run(mux: &Weak<Mux>, woken: &Receiver<()>) {
     let mut retry: Option<Duration> = None;
     loop {

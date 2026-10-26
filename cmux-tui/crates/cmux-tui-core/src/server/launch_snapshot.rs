@@ -258,6 +258,7 @@ fn write_launch_snapshot(mux: &Mux, path: &Path) -> anyhow::Result<()> {
             options.mode(0o600);
         }
         let mut file = options.open(&temporary)?;
+        crate::request_path::note(crate::request_path::BlockingKind::FsWrite);
         file.write_all(&bytes)?;
         file.sync_data()?;
         drop(file);
@@ -298,7 +299,7 @@ mod tests {
                 return snapshot;
             }
             assert!(Instant::now() < deadline, "snapshot never matched: {:?}", read_snapshot(path));
-            std::thread::sleep(Duration::from_millis(20));
+            crate::request_path::sleep(Duration::from_millis(20));
         }
     }
 
@@ -501,7 +502,7 @@ mod tests {
         wait_for_snapshot(writer.path(), |_| true);
         let settled = writer.writes();
         assert!(settled >= 1);
-        std::thread::sleep(Duration::from_millis(400));
+        crate::request_path::sleep(Duration::from_millis(400));
         assert_eq!(writer.writes(), settled, "an idle session must not rewrite its snapshot");
 
         mux.create_empty_workspace(Some("burst".into()), None, None).unwrap();

@@ -53,6 +53,7 @@ impl Mux {
     /// `set-terminal-command-history`: the switch, and the retention when
     /// given (stored at once; lists hide what it expires, and the worker
     /// deletes those rows).
+    #[track_caller]
     pub(crate) fn set_terminal_command_history(
         self: &Arc<Self>,
         enabled: bool,
@@ -75,6 +76,7 @@ impl Mux {
     }
 
     /// `list-terminal-commands`.
+    #[track_caller]
     pub(crate) fn list_terminal_commands(
         &self,
         after_id: Option<u64>,
@@ -146,6 +148,7 @@ impl Mux {
     /// expire later. The pass runs here, on the constructing thread: a worker
     /// that upgraded its `Weak<Mux>` at start could keep a Mux (and its
     /// registry lock) alive after its creator dropped it to reopen the session.
+    #[track_caller]
     pub(super) fn start_command_history_for_persistent_registry(self: &Arc<Self>) {
         let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         if registry.session_journal_database_path().is_none() {
@@ -209,6 +212,7 @@ struct Worker {
 }
 
 impl Worker {
+    #[track_caller]
     fn run(mut self, receiver: Receiver<CommandHistoryMessage>, mut deadline: Option<u64>) {
         loop {
             let message = match deadline {
@@ -263,6 +267,7 @@ impl Worker {
     }
 
     /// Runs client deletes in order, then an expiry pass.
+    #[track_caller]
     fn delete(
         &mut self,
         deletes: Vec<(CommandDeletion, SyncSender<anyhow::Result<u64>>)>,
@@ -298,6 +303,7 @@ impl Worker {
 
     /// One store or expiry pass, then the WAL checkpoint when rows went.
     /// Returns the next deadline.
+    #[track_caller]
     fn pass(
         &mut self,
         work: impl FnOnce(

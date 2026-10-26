@@ -699,6 +699,12 @@
           "description": {
             "type": "string",
             "minLength": 1
+          },
+          "next_ordinal": {
+            "description": "The next ordinal to assign. Every ordinal below it was assigned once and is never given again, even after its command or event is removed; it never decreases.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 256
           }
         }
       }

@@ -306,7 +306,7 @@ impl HostedReader {
             // A live host's resync never fails the terminal, but
             // back-to-back resyncs are spaced.
             let delay = self.resync_backoff.next_delay();
-            std::thread::sleep(delay.unwrap_or(TERMINAL_HOST_RECONNECT_MAX_DELAY));
+            crate::request_path::sleep(delay.unwrap_or(TERMINAL_HOST_RECONNECT_MAX_DELAY));
         } else if !self.flap_backoff.wait_or_fail(pty) {
             return None;
         }
