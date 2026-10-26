@@ -1,5 +1,6 @@
 public import AppKit
 public import AVFoundation
+public import CmuxNextCompat
 import CmuxNextWakeups
 public import CmuxNextDesignTokens
 
@@ -10,7 +11,8 @@ public import CmuxNextDesignTokens
 /// - the window is visible (not occluded, minimized or hidden with the app), the screens are
 ///   awake and the session is the active one, and other windows hide less than nearly all of it
 ///   (``BackdropCoverage``: AppKit calls a window visible while any pixel of it shows);
-/// - not in Low Power Mode, and the thermal state is below serious;
+/// - not in Low Power Mode, and the thermal state is below serious (the App pushes both from its
+///   energy monitor, ``BackdropVideoPlayers/setEnergy(lowPowerMode:thermal:)``);
 /// - looping motion is allowed (`Motion.animatesLoops`: Reduce Motion or animation speed "off"
 ///   holds the frame it is on; before the first frame the art view below shows the poster).
 ///
@@ -24,19 +26,22 @@ public final class BackdropVideoView: NSView {
     public private(set) var url: URL?
     /// The layer the shared player draws into.
     public let playerLayer = AVPlayerLayer()
-    /// Tests: pins Reduce Motion, Low Power Mode or visibility for this view instead of the system's.
+    /// Tests: pins Reduce Motion, Low Power Mode or visibility for this view instead of the system's
+    /// (for Low Power Mode, instead of its players' energy inputs).
     public var reduceMotionOverride: Bool? { didSet { update() } }
     public var lowPowerOverride: Bool? { didSet { update() } }
     public var visibleOverride: Bool? { didSet { update() } }
     /// Tests: the windows above this one, in place of the screen's.
     public var windowsAboveOverride: (() -> [BackdropCoverage.Window])?
-    private let players: BackdropVideoPlayers
+    let players: BackdropVideoPlayers
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
     private var readyObservation: NSKeyValueObservation?
     private var screensAsleep = false
     private var sessionInactive = false
-    private var coverage = BackdropCoverage()
-    private let coverageTimer = DemandTimer(owner: "backdrop-video-coverage")
+    var coverage = BackdropCoverage()
+    let coverageTimer = DemandTimer(owner: "backdrop-video-coverage")
+    /// The window list a coverage sample waits for: at most one at a time, cancelled when sampling stops.
+    var coverageSample: Task<Void, Never>?
 
     public init(frame frameRect: NSRect, players: BackdropVideoPlayers = .shared) {
         self.players = players
@@ -47,6 +52,7 @@ public final class BackdropVideoView: NSView {
         layer?.addSublayer(playerLayer)
         isHidden = true
         setAccessibilityElement(false)
+        players.register(self)
     }
 
     @available(*, unavailable)
@@ -105,9 +111,9 @@ public final class BackdropVideoView: NSView {
 
     /// Everything ``wantsPlayback`` asks but coverage, which is sampled only while this holds.
     private var seen: Bool {
-        let lowPower = lowPowerOverride ?? ProcessInfo.processInfo.isLowPowerModeEnabled
+        let lowPower = lowPowerOverride ?? players.lowPowerMode
         let reduced = reduceMotionOverride ?? !Motion.panes.animatesLoops
-        let hot = ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue
+        let hot = players.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue
         return onScreen && !lowPower && !hot && !reduced
     }
 
@@ -146,7 +152,12 @@ public final class BackdropVideoView: NSView {
         CATransaction.commit()
     }
 
-    private func update() {
+    /// Low Power Mode or the thermal state changed (``BackdropVideoPlayers/setEnergy(lowPowerMode:thermal:)``).
+    func energyDidChange() {
+        update()
+    }
+
+    func update() {
         guard let url, playerLayer.player != nil else { return stopCoverage() }
         if seen {
             startCoverage()
@@ -154,33 +165,6 @@ public final class BackdropVideoView: NSView {
             stopCoverage()
         }
         players.setPlaying(wantsPlayback, seen: canBeSeen, url, viewer: ObjectIdentifier(self))
-    }
-
-    /// Samples how much of the window other windows hide, and rests or resumes the video on it.
-    public func sampleCoverage() {
-        guard let window else { return }
-        let above = windowsAboveOverride?() ?? BackdropCoverage.windows(above: window.windowNumber)
-        let resting = coverage.resting
-        coverage.sample(BackdropCoverage.covered(Self.screenFrame(window.frame), by: above, ignoring: Self.descendants(of: window)))
-        if coverage.resting != resting { update() }
-    }
-
-    /// The numbers of a window's child windows, theirs, and so on: its overlay panel and page windows.
-    static func descendants(of window: NSWindow) -> Set<Int> {
-        var numbers: Set<Int> = []
-        var pending = window.childWindows ?? []
-        while let child = pending.popLast() {
-            // A child never put on screen has no number yet; 0 would hide every unnumbered window.
-            if child.windowNumber > 0 { numbers.insert(child.windowNumber) }
-            pending += child.childWindows ?? []
-        }
-        return numbers
-    }
-
-    /// A window frame in CGWindowList's space: origin at the top left of the main display.
-    static func screenFrame(_ frame: NSRect) -> CGRect {
-        let top = NSScreen.screens.first?.frame.maxY ?? frame.maxY
-        return CGRect(x: frame.minX, y: top - frame.maxY, width: frame.width, height: frame.height)
     }
 
     private func startCoverage() {
@@ -203,6 +187,8 @@ public final class BackdropVideoView: NSView {
     /// Stops sampling; coverage seen before the window was hidden or closed is stale.
     private func stopCoverage() {
         coverageTimer.cancel()
+        coverageSample?.cancel()
+        coverageSample = nil
         coverage.reset()
     }
 
@@ -212,8 +198,7 @@ public final class BackdropVideoView: NSView {
             (app, NSWindow.didChangeOcclusionStateNotification, window), (app, NSWindow.didMiniaturizeNotification, window),
             (app, NSWindow.didDeminiaturizeNotification, window), (app, NSWindow.didBecomeMainNotification, window),
             (app, NSWindow.didBecomeKeyNotification, window), (app, NSApplication.didHideNotification, nil),
-            (app, NSApplication.didUnhideNotification, nil), (app, Notification.Name.NSProcessInfoPowerStateDidChange, nil),
-            (app, ProcessInfo.thermalStateDidChangeNotification, nil), (app, Motion.reduceMotionDidChange, nil),
+            (app, NSApplication.didUnhideNotification, nil), (app, Motion.reduceMotionDidChange, nil),
             (app, Motion.speedDidChange, nil),
             (workspace, NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, nil),
         ]
@@ -272,10 +257,20 @@ public final class BackdropVideoPlayers {
 
     private var entries: [URL: Entry] = [:]
 
+    /// macOS Low Power Mode as the App's energy monitor reports it: every video holds its frame.
+    public private(set) var lowPowerMode = false
+    /// The thermal state as the App's energy monitor reports it: serious or worse holds every video.
+    public private(set) var thermalState: ProcessInfo.ThermalState = .nominal
+    /// The views over these players, told when the two above change.
+    private let views = NSHashTable<BackdropVideoView>.weakObjects()
+
     /// How long a player no one can see keeps its decoder.
     public var releaseAfter: Duration = .seconds(60)
 
     private let clock: any Clock<Duration>
+
+    /// The lanes a view lists the windows above it on (the app's, set at launch); nil samples no coverage.
+    public var lanes: (any MayBlockRunner)?
 
     /// `clock` times ``releaseAfter`` (tests step a manual one).
     public init(clock: any Clock<Duration> = ContinuousClock()) {
@@ -284,6 +279,20 @@ public final class BackdropVideoPlayers {
 
     /// Players alive now (tests).
     public var count: Int { entries.count }
+
+    /// Sets Low Power Mode and the thermal state (the App, from its energy monitor, at launch and on
+    /// each change) and updates every view over these players.
+    public func setEnergy(lowPowerMode: Bool, thermal: ProcessInfo.ThermalState) {
+        guard lowPowerMode != self.lowPowerMode || thermal != thermalState else { return }
+        self.lowPowerMode = lowPowerMode
+        thermalState = thermal
+        for view in views.allObjects { view.energyDidChange() }
+    }
+
+    /// Tells `view` when the energy inputs change, while it lives.
+    func register(_ view: BackdropVideoView) {
+        views.add(view)
+    }
 
     /// Whether `url`'s player has given back its decoder (tests).
     public func isReleased(_ url: URL) -> Bool { entries[url].map { $0.looper == nil } ?? false }

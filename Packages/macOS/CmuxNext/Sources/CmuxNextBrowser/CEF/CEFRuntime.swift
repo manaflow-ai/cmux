@@ -429,14 +429,10 @@ final class CEFRuntime {
         if CEFPopupWindows.isEnabled(forkAPIVersion: Int(shim.forkAPIVersion())) { shim.setPopupWindowsEnabled(1) }
         // chrome://newtab without an extension override (BrowserNewTabPage).
         shim.setNewTabPageURL(BrowserNewTabPage.blankURL)
-        // cmux-page:// first-party pages from their bundled roots (CEFPageSchemes).
-        for (id, entry) in CEFPageSchemes.firstParty {
-            let added = entry.dynamicPrefixes.isEmpty && entry.entry == "index.html"
-                ? shim.pageSchemeAddFirstParty(id, entry.root.path, entry.csp)
-                : shim.pageSchemeAddFirstPartyDynamic(id, entry.root.path, entry.csp, entry.dynamicPrefixes.joined(separator: "\n"),
-                                                      entry.entry)
-            if added != 1 { logger.error("cmux-page \(id, privacy: .public) refused by the shim") }
-        }
+        // cmux-page:// first-party pages from their bundled roots, with their renderer groups (CEFPageSchemes).
+        let refusedPages = CEFPageSchemes.add(CEFPageSchemes.firstParty, to: shim)
+        if !refusedPages.pages.isEmpty { logger.error("cmux-page refused by the shim: \(refusedPages.pages.joined(separator: ", "), privacy: .public)") }
+        if !refusedPages.groups.isEmpty { logger.error("cmux-page groups refused by the shim: \(refusedPages.groups.joined(separator: ", "), privacy: .public)") }
         // Every document's start scripts and report channels, once for every browser, in the
         // renderer (fork API 29): no tab opens a DevTools session for them (`CEFDocumentScripts`).
         if CEFForkFeatures(shim).rendererPaths {

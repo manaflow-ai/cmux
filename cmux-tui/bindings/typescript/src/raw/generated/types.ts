@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 99ae6cf38c66f81f167fc68c348b16734fd957c31b35ed1f2aace34d3575877d. */
+/* cmux-tui mux protocol 12, IR e02313f2112ebdb438482aac92ad4c5097bcf1fdc45c4e910c3821f2bdc69333. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1064,6 +1064,17 @@ export type ServerStatsRegistryLock = {
   "wait_us": ServerStatsHistogram;
 };
 
+export type ServerStatsRequestLatency = {
+  "agent": ServerStatsHistogram;
+  "browser": ServerStatsHistogram;
+  "cloud": ServerStatsHistogram;
+  "create": ServerStatsHistogram;
+  "other": ServerStatsHistogram;
+  "query": ServerStatsHistogram;
+  "terminal_io": ServerStatsHistogram;
+  "topology": ServerStatsHistogram;
+};
+
 export type ServerStatsRequestPathIo = {
   "child_process": bigint;
   "fs_write": bigint;
@@ -1107,13 +1118,34 @@ export type ServerStatsResourceProjection = {
 
 export type ServerStatsResult = {
   "connections": ServerStatsConnections;
+  "dispatch_queue_us"?: ServerStatsHistogram;
   "journal_writer": (ServerStatsJournalWriter) | null;
   "registry_lock": ServerStatsRegistryLock;
+  "request_latency_us"?: ServerStatsRequestLatency;
   "request_path_io"?: ServerStatsRequestPathIo;
   "resource_projection"?: ServerStatsResourceProjection;
   "schema": number;
+  "slow_requests"?: ServerStatsSlowRequests;
   "uptime_ms": bigint;
   "write_path"?: ServerStatsWritePath;
+};
+
+export type ServerStatsSlowRequest = {
+  "busy_ms": bigint;
+  "client": bigint;
+  "duration_ms": (bigint) | null;
+  "method": string;
+  "started_ms": bigint;
+};
+
+export type ServerStatsSlowRequests = {
+  "expected_waits": bigint;
+  "recent": Array<ServerStatsSlowRequest>;
+  "spawn_failures": bigint;
+  "threshold_ms": bigint;
+  "total": bigint;
+  "unwatched": bigint;
+  "watchdog_wakeups": bigint;
 };
 
 export type ServerStatsWritePath = {

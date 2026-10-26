@@ -7,7 +7,10 @@
 //! against serde's own list of tags.
 #![cfg_attr(
     not(test),
-    expect(dead_code, reason = "read by daemon request spans and hang-watch (p09 014, 073)")
+    expect(
+        dead_code,
+        reason = "the hang deadlines and wire names are read by hang-watch (p09 073)"
+    )
 )]
 
 use std::time::Duration;
@@ -109,6 +112,12 @@ pub(super) struct CommandName {
 
 macro_rules! command_table {
     ($($variant:ident => $wire:literal $(| $alias:literal)*, $class:ident;)*) => {
+        /// The position of each command's row in [`COMMANDS`].
+        #[repr(u16)]
+        enum CommandIndex {
+            $($variant,)*
+        }
+
         impl Command {
             /// The canonical `cmd` tag of this command.
             pub(super) fn wire_name(&self) -> &'static str {
@@ -117,11 +126,44 @@ macro_rules! command_table {
                 }
             }
 
+            /// This command's row in [`COMMANDS`].
+            pub(super) fn wire_index(&self) -> u16 {
+                match self {
+                    $(Self::$variant { .. } => CommandIndex::$variant as u16,)*
+                }
+            }
+
             pub(super) fn method_class(&self) -> MethodClass {
                 match self {
                     $(Self::$variant { .. } => MethodClass::$class,)*
                 }
             }
+
+            /// This command's row in [`COMMANDS`]: the method id its
+            /// `daemon.request` trace slice carries.
+            pub(super) fn method_id(&self) -> u16 {
+                match self {
+                    $(Self::$variant { .. } => MethodIndex::$variant as u16,)*
+                }
+            }
+        }
+
+        impl Command {
+            /// The method id and class of the command whose `cmd` tag (or
+            /// alias) is `name`; None for a name no command has.
+            pub(super) fn method_of_wire(name: &str) -> Option<(u16, MethodClass)> {
+                match name {
+                    $($wire $(| $alias)* => {
+                        Some((MethodIndex::$variant as u16, MethodClass::$class))
+                    })*
+                    _ => None,
+                }
+            }
+        }
+
+        /// Each variant's index in [`COMMANDS`], numbered by the compiler.
+        enum MethodIndex {
+            $($variant,)*
         }
 
         /// Every command, in the enum's order.
@@ -134,6 +176,16 @@ macro_rules! command_table {
             },)*
         ];
     };
+}
+
+impl Command {
+    /// Whether the handler blocks by design for a time the request names
+    /// (`wait-for` waits up to its `timeout_ms`). The request watchdog does
+    /// not count such a run as slow (Chrome: a `ScopedBlockingCall` with
+    /// `WILL_BLOCK` invalidates the hang watch, base/threading/hang_watcher.cc).
+    pub(super) fn waits_by_design(&self) -> bool {
+        matches!(self, Self::WaitFor { .. })
+    }
 }
 
 // `Variant => "wire-name" | "alias", Class;`

@@ -88,6 +88,23 @@ import CmuxNextWakeupsTestSupport
         #expect(h.video.url == nil && h.video.isHidden && h.video.playerLayer.player == nil, "a still wallpaper keeps the video")
     }
 
+    /// The video follows the energy monitor's inputs the App pushes into its players, not its own
+    /// power-state and thermal observers (p14-energy-021: one observer per input for the app).
+    @Test func thePlayersEnergyInputsHoldTheVideo() async throws {
+        let clip = try await Self.clip()
+        let players = BackdropVideoPlayers()
+        let h = make(.file(path: clip.path), players: players)
+        defer { h.close() }
+        h.video.lowPowerOverride = nil
+        #expect(h.video.isPlaying)
+        players.setEnergy(lowPowerMode: false, thermal: .serious)
+        #expect(!h.video.isPlaying, "the video plays with the Mac running hot")
+        players.setEnergy(lowPowerMode: true, thermal: .nominal)
+        #expect(!h.video.isPlaying, "the video plays in Low Power Mode")
+        players.setEnergy(lowPowerMode: false, thermal: .fair)
+        #expect(h.video.isPlaying, "the video does not resume when the energy inputs allow it again")
+    }
+
     @Test func windowsShowingOneVideoShareOneDecoderAndAClosedWindowLetsItGo() async throws {
         let clip = try await Self.clip()
         let players = BackdropVideoPlayers()

@@ -382,8 +382,10 @@ import Testing
     }
 
     /// The commit a frame's requests cause is charged: after a 6 ms render pass (layout, display,
-    /// the Core Animation commit of what the requests changed), the next frame's scheduled work
-    /// stops at the 2 ms left of the 8 ms pass, not at 4 ms, and a cheap pass gives the 4 ms back.
+    /// the Core Animation commit of what the requests changed), the next 60 Hz tick's scheduled
+    /// work stops at the 2 ms left of the 8 ms pass, not at 4 ms. On real ticks the frame deadline
+    /// keeps the 6 ms in its commit estimate (the p95 of the last frames), so one cheap commit
+    /// does not give the 4 ms back at once; a 9 ms pass leaves only the first task.
     @Test func anExpensiveRenderPassLowersTheNextFramesScheduledWork() {
         let clock = BudgetClock()
         let budget = MainFrameBudget(uptimeNanos: clock.read)
@@ -402,11 +404,36 @@ import Testing
         budget.noteRenderPass(nanos: 6_000_000)
         #expect(frame(2) == 4, "a 6 ms commit leaves 2 ms of the 8 ms pass for the requests")
         budget.noteRenderPass(nanos: 1_000_000)
-        #expect(frame(3) == 8, "a cheap commit gives the frame its 4 ms back")
+        #expect(frame(3) == 4, "the commit estimate forgot the 6 ms pass after one cheap frame")
         budget.noteRenderPass(nanos: 9_000_000)
         #expect(frame(4) == 1, "past the whole pass: the first task of a frame still runs")
         #expect(budget.stats.renderPasses == 3)
         #expect(budget.stats.maxRenderPassNanos == 9_000_000)
+    }
+
+    /// A synthesized (stalled) frame has no deadline: the last render pass alone lowers its
+    /// scheduled work, and a cheap pass gives the 4 ms back.
+    @Test func anExpensiveRenderPassLowersTheNextSynthesizedFramesScheduledWork() {
+        let clock = BudgetClock()
+        let budget = MainFrameBudget(uptimeNanos: clock.read)
+        let request = budget.board.owner("workspace.move")
+        func frame() -> Int {
+            clock.advance(ms: 17)
+            budget.beginFrame(timestamp: nil, refreshInterval: nil)
+            var ran = 0
+            while budget.mayRun(.automation) {
+                budget.run(.automation, owner: request) { clock.advance(ms: 0.5) }
+                ran += 1
+            }
+            return ran
+        }
+        #expect(frame() == 8, "no render pass yet: 4 ms of 0.5 ms requests")
+        budget.noteRenderPass(nanos: 6_000_000)
+        #expect(frame() == 4, "a 6 ms commit leaves 2 ms of the 8 ms pass for the requests")
+        budget.noteRenderPass(nanos: 1_000_000)
+        #expect(frame() == 8, "a cheap commit gives the frame its 4 ms back")
+        budget.noteRenderPass(nanos: 9_000_000)
+        #expect(frame() == 1, "past the whole pass: the first task of a frame still runs")
     }
 
     /// The pending-input checks between tasks are main-thread work too: their time counts in the

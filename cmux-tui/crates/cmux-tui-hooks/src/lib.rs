@@ -10,23 +10,18 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
-#[cfg(unix)]
-use std::os::unix::process::CommandExt;
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-#[cfg(not(unix))]
-use std::process::Command;
-use std::process::{Child, Output, Stdio};
+use std::process::Output;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
+#[cfg(not(unix))]
+use cmux_process::Command;
+use cmux_process::{Child, Stdio};
 #[cfg(unix)]
 use cmux_tui_platform::unix_process_scope::{UnixChildExitSignal, UnixProcessScope};
 use serde_json::{Map, Value, json};
-#[cfg(not(unix))]
-use wait_timeout::ChildExt;
 #[cfg(windows)]
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 #[cfg(windows)]
@@ -785,7 +780,7 @@ struct HermesWindowsJob {
 
 #[cfg(windows)]
 impl HermesWindowsJob {
-    fn assign_and_resume(child: &std::process::Child) -> io::Result<Self> {
+    fn assign_and_resume(child: &Child) -> io::Result<Self> {
         let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if handle.is_null() {
             return Err(io::Error::last_os_error());
@@ -840,7 +835,7 @@ impl Drop for HermesWindowsJob {
 }
 
 #[cfg(windows)]
-fn resume_hermes_child(child: &std::process::Child) -> io::Result<()> {
+fn resume_hermes_child(child: &Child) -> io::Result<()> {
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
     if snapshot == INVALID_HANDLE_VALUE {
         return Err(io::Error::last_os_error());
@@ -1066,7 +1061,7 @@ fn run_hermes_command_with_timeout(
     #[cfg(windows)]
     command.creation_flags(CREATE_SUSPENDED);
     #[cfg(unix)]
-    tree.configure(&mut command);
+    tree.configure(&mut command).context("prepare Hermes process scope")?;
     let mut child = command.spawn().with_context(|| format!("run {}", binary.display()))?;
     #[cfg(test)]
     publish_hermes_test_child(child.id());
@@ -2995,7 +2990,7 @@ mod tests {
             }
         }
 
-        let child = std::process::Command::new("/bin/sleep").arg("30").spawn().unwrap();
+        let child = cmux_process::Command::new("/bin/sleep").arg("30").spawn().unwrap();
         let pid = libc::pid_t::try_from(child.id()).unwrap();
         let _child_guard = ChildGuard(pid);
         let child_exit = UnixChildExitSignal::observe(child.id()).unwrap();

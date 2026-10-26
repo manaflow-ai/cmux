@@ -18,7 +18,7 @@ struct GlassModeWatchReleaseTests {
 
     @Test func releasingTheWatchOnMainCancelsItsObservation() throws {
         let handoff = Handoff()
-        handoff.watch = GlassModeWatch {}
+        handoff.watch = GlassModeWatch { _ in }
         let loop = try #require(handoff.watch?.settings)
         handoff.watch = nil
         #expect(loop.isCancelled, "releasing the watch on main left its observation loop running")
@@ -26,7 +26,7 @@ struct GlassModeWatchReleaseTests {
 
     @Test func releasingTheWatchOffMainCancelsItsObservation() throws {
         let handoff = Handoff()
-        handoff.watch = GlassModeWatch {}
+        handoff.watch = GlassModeWatch { _ in }
         let loop = try #require(handoff.watch?.settings)
         Self.releaseOnAnotherThread(handoff)
         #expect(loop.isCancelled, "releasing the watch off main left its observation loop running")

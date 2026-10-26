@@ -288,6 +288,7 @@ the next free bit here first, then in every writer in the same change.
 | 18 | `ghostty` | no |
 | 19 | `resize` | no |
 | 20 | `webui` | no |
+| 21 | `log` | no |
 
 The black box records bits 0-8 from launch (section 3A of plans/cmux-next/chrome-parity/p09-observability.md);
 a `trace.start` recording turns on the others. The role (header byte 20) and phase (record byte 14) values are

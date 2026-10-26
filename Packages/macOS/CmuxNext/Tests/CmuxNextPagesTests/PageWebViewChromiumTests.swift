@@ -8,7 +8,7 @@ import Testing
 @MainActor
 struct PageWebViewChromiumTests {
     private let root: URL
-    private let descriptor = PageDescriptor(id: "test.chromium-page", resource: "chromium-page", namespaces: [])
+    private let descriptor = PageDescriptor(id: "test.chromium-page", resource: "chromium-page", processGroup: .solo, namespaces: [])
 
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("page-chromium-\(UUID().uuidString)", isDirectory: true)
@@ -134,7 +134,7 @@ struct PageWebViewChromiumTests {
     /// reaches the source.
     @Test func aChromiumPageGetsItsDynamicPathsFromTheHost() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
-        let dynamic = PageDescriptor(id: "test.chromium-dynamic", resource: "chromium-page", namespaces: [], dynamicPrefixes: ["asset"])
+        let dynamic = PageDescriptor(id: "test.chromium-dynamic", resource: "chromium-page", processGroup: .solo, namespaces: [], dynamicPrefixes: ["asset"])
         let hosting = FakeChromiumHosting()
         let source = OneResource()
         let view = try #require(PageWebView(descriptor: dynamic, root: root, routes: [], dynamicResources: source, chromium: hosting))
@@ -290,6 +290,7 @@ extension PageWebViewChromiumTests {
         #expect(call.params["expression"] as? String == "(async function(selector, text) {\nreturn text + selector;\n}).apply(null, [null,\"a\\\"b\"])")
         #expect(call.params["awaitPromise"] as? Bool == true)
         #expect(call.params["returnByValue"] as? Bool == true)
+        #expect(page.evaluations.last == call.params["expression"] as? String)
         view.close()
     }
 }

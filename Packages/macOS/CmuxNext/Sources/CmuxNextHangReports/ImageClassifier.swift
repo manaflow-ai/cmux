@@ -133,7 +133,9 @@ public nonisolated struct ImageClassifier: Sendable {
 
     /// A personal term that is part of our product names or of the report's fixed vocabulary
     /// ("cmux", "nightly", "apple", "stall") says nothing a report does not already say, and must
-    /// not refuse every report.
+    /// not refuse every report. The input latency labels are not here: the leak scan accepts them
+    /// only as exact values at their own keys (``PrivacyLeakScanner/closedSetValues``), so a
+    /// name inside one ("mina" in `terminal`) still refuses an image or any other string.
     static func isOwnWord(_ term: String) -> Bool {
         ownVocabulary.contains { $0.contains(term) }
     }

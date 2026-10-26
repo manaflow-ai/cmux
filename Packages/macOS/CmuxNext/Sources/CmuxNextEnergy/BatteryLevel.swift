@@ -33,13 +33,11 @@ nonisolated struct BatteryLevel: Equatable, Sendable {
         return min(max(Int(share), 0), 100)
     }
 
-    /// The battery now, from IOKit.
-    static func read() -> BatteryLevel {
-        guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
-              let list = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] else { return BatteryLevel() }
-        let descriptions = list.compactMap { source in
+    /// The internal battery in `info`, one `IOPSCopyPowerSourcesInfo` snapshot.
+    init(info: CFTypeRef) {
+        let list = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] ?? []
+        self.init(descriptions: list.compactMap { source in
             IOPSGetPowerSourceDescription(info, source)?.takeUnretainedValue() as? [String: Any]
-        }
-        return BatteryLevel(descriptions: descriptions)
+        })
     }
 }

@@ -15,6 +15,12 @@ struct ChiefViewsPageTests {
     private static let page = PageCallContext(page: "cmux.chief-views")
     private static let click = PageCallContext(page: "cmux.chief-views", userGesture: true, gestureEvent: 1)
 
+    /// The gallery renders repository text and PR titles with no host-power op: the viewer group
+    /// (its row of PageProcessGroupTableTests).
+    @Test func theGalleryIsInTheViewerGroup() {
+        #expect(PageDescriptor.chiefViews.processGroup == .viewer)
+    }
+
     @Test func lanesMapToTheFourStatesAndKeepTheirSummaryFields() throws {
         let summary: [String: Any] = [
             "sessionId": "s1", "name": "huge-blue/chiefviews", "peer": "huge-blue", "cwd": "/w/chiefviews/cmux",

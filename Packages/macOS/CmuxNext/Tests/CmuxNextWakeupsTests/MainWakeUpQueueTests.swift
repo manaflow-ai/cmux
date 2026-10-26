@@ -32,7 +32,8 @@ struct MainWakeUpQueueTests {
 
     @Test("Aligned fire dates are exact multiples of the grid in uptime ns", arguments: [WakeLeeway.defaultAlignment, WakeLeeway.saverAlignment])
     func gridMultiples(alignment: Duration) throws {
-        let rig = WakeUpQueueRig(alignment: alignment)
+        let saver = alignment == WakeLeeway.saverAlignment
+        let rig = WakeUpQueueRig(energy: EnergyPolicySource(EnergyPolicy(saverReason: saver ? .setting : nil)))
         let grid = alignment.nanosecondCount
         var deadline: UInt64 = 900 * Self.ms + 123_457
         for step in 0..<40 {
@@ -141,6 +142,23 @@ struct MainWakeUpQueueTests {
         #expect(rig.fires == 1)
     }
 
+    @Test("A fire that runs more than one entry counts as one coalesced fire; a fire of one entry does not")
+    func coalescedFiresCountWakesThatRanSeveralEntries() {
+        let rig = WakeUpQueueRig()
+        for at: UInt64 in [100, 101, 102] {
+            rig.queue.insert(owner: "a\(at)", at: at * Self.ms, window: .window(delay: .milliseconds(100))) {}
+        }
+        rig.fire()
+        #expect(rig.queue.count == 0)
+        #expect(rig.queue.coalescedFires == 1, "three entries shared one wake")
+        rig.queue.insert(owner: "alone", at: 500 * Self.ms, window: .window(delay: .milliseconds(100))) {}
+        rig.fire()
+        #expect(rig.fires == 2)
+        #expect(rig.queue.coalescedFires == 1, "a wake that runs one entry saved nothing")
+        #expect(rig.ledger.snapshot().allSatisfy { $0.owner != MainWakeUpQueue.ledgerOwner || $0.reason == "fire" },
+                "coalescing is not a wake, so it adds no ledger record")
+    }
+
     @Test("A new top with a later fire date re-arms later, so the wake runs both entries")
     func newLaterTopRearms() {
         let rig = WakeUpQueueRig()
@@ -218,6 +236,100 @@ struct MainWakeUpQueueTests {
         rig.queue.fire()
         #expect(log.count == 4_000)
         #expect(rig.fires == 1 && rig.queue.count == 0)
+    }
+
+    // MARK: Energy Saver (p14-energy-023)
+
+    @Test("Energy Saver snaps pending flexible entries to the 32 ms grid inside the latest they were inserted with")
+    func saverRealignsFlexibleEntries() {
+        let energy = EnergyPolicySource()
+        let rig = WakeUpQueueRig(energy: energy)
+        let log = RunLog()
+        rig.queue.insert(owner: "flex", after: .milliseconds(100)) { log.ran.append(100) }
+        rig.queue.insert(owner: "late", after: .milliseconds(450)) { log.ran.append(450) }
+        rig.queue.insert(owner: "precise", after: .milliseconds(30), policy: .precise) { log.ran.append(30) }
+        rig.queue.insert(owner: "seconds", after: .seconds(5)) { log.ran.append(5_000) }
+        #expect(rig.timer.arms.map(\.date) == [104 * Self.ms, 30 * Self.ms], "8 ms grid, then the exact precise date")
+        let armsBefore = rig.timer.arms.count
+
+        energy.update(EnergyPolicy(saverReason: .lowPowerMode))
+
+        #expect(rig.timer.arms.count == armsBefore, "the precise entry still fires first, at the same date: no re-arm")
+        rig.fire()
+        #expect(log.ran == [30])
+        #expect(rig.timer.arms.last == FakeWakeUpTimer.Arm(date: 108 * Self.ms, tolerance: 0),
+                "the 32 ms grid would say 128 ms; the entry keeps its 108 ms latest (AdjustDelayedRunTime)")
+        rig.queue.insert(owner: "posted", after: .milliseconds(100)) { log.ran.append(130) }
+        rig.fire()
+        #expect(log.ran == [30, 100])
+        #expect(rig.timer.arms.last == FakeWakeUpTimer.Arm(date: 160 * Self.ms, tolerance: 2 * Self.ms),
+                "inserted under the saver at 30 ms: 32 ms leeway, 130 ms on the 32 ms grid")
+        rig.fire()
+        #expect(rig.timer.arms.last == FakeWakeUpTimer.Arm(date: 458 * Self.ms, tolerance: 0), "480 ms clamped to its 458 ms latest")
+        rig.fire()
+        #expect(rig.timer.arms.last == FakeWakeUpTimer.Arm(date: 5_000 * Self.ms, tolerance: 500 * Self.ms),
+                "a whole-second entry keeps its grid and its 10% leeway")
+        rig.fire()
+        #expect(log.ran == [30, 100, 130, 450, 5_000])
+    }
+
+    @Test("Inserts under the saver take its 32 ms leeway; a switch back snaps them to the 8 ms grid at once")
+    func switchBackAndCancel() {
+        let energy = EnergyPolicySource(EnergyPolicy(saverReason: .setting))
+        let rig = WakeUpQueueRig(energy: energy)
+        let first = rig.queue.insert(owner: "a", after: .milliseconds(100)) {}
+        rig.queue.insert(owner: "b", after: .milliseconds(200)) {}
+        #expect(rig.timer.armedDate == 128 * Self.ms, "made under the saver: on the 32 ms grid")
+
+        energy.update(.normal)
+
+        #expect(rig.timer.armedDate == 104 * Self.ms, "back on the 8 ms grid: an earlier re-arm")
+        #expect(rig.queue.cancel(first))
+        #expect(rig.timer.armedDate == 200 * Self.ms)
+    }
+
+    @Test("An explicit sub-second window follows the grid too; whole-second ones and unchanged alignments do not")
+    func explicitWindowFollowsTheGrid() {
+        let energy = EnergyPolicySource()
+        let rig = WakeUpQueueRig(energy: energy)
+        rig.queue.insert(owner: "explicit", at: 100 * Self.ms, window: .window(delay: .milliseconds(100))) {}
+        rig.queue.insert(owner: "seconds", at: 2_000 * Self.ms, window: .window(delay: .seconds(2))) {}
+        energy.update(EnergyPolicy(onBattery: true))
+        #expect(rig.timer.arms.map(\.date) == [104 * Self.ms], "the alignment did not change: no re-arm")
+
+        energy.update(EnergyPolicy(saverReason: .battery, onBattery: true))
+
+        #expect(rig.timer.arms.map(\.date) == [104 * Self.ms, 108 * Self.ms], "128 ms clamped to the 108 ms latest")
+        rig.fire()
+        #expect(rig.timer.arms.last == FakeWakeUpTimer.Arm(date: 2_000 * Self.ms, tolerance: 200 * Self.ms))
+    }
+
+    @Test("A hidden entry keeps its whole-second fence under the saver: it never snaps to the 32 ms grid")
+    func hiddenEntryIgnoresTheSaverGrid() {
+        let energy = EnergyPolicySource()
+        let rig = WakeUpQueueRig(energy: energy, start: 10_000 * Self.ms + 1)
+        let log = RunLog()
+        rig.queue.insertHidden(owner: "hidden", after: .milliseconds(100)) { log.ran.append(1) }
+        #expect(rig.timer.armedDate == 11_000 * Self.ms)
+
+        energy.update(EnergyPolicy(saverReason: .setting))
+
+        #expect(rig.timer.armedDate == 11_000 * Self.ms, "the saver moves only flexible sub-second entries")
+        rig.fire()
+        #expect(log.ran == [1])
+    }
+
+    @Test("A released queue stops observing the energy policy")
+    func releasedQueueStopsObserving() {
+        let energy = EnergyPolicySource()
+        weak var released: MainWakeUpQueue?
+        do {
+            let rig = WakeUpQueueRig(energy: energy)
+            released = rig.queue
+            #expect(energy.observerCount == 1)
+        }
+        #expect(released == nil)
+        #expect(energy.observerCount == 0)
     }
 
     nonisolated private static func insertConcurrently(into queue: MainWakeUpQueue, log: RunLog) {

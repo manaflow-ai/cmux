@@ -36,6 +36,9 @@ public enum InputScrollPhase: UInt8, Hashable, Sendable {
     /// Not a scroll event, or a wheel notch with no phase.
     case none
     case mayBegin, began, changed, ended, cancelled
-    /// Momentum (the coast after the fingers lifted).
+    /// Momentum (the coast after the fingers lifted): began or changed.
     case momentum
+    /// The momentum ended or was cancelled: the scroll sequence is over (Chrome's
+    /// `mouse_wheel_phase_handler.cc` closes the latching sequence here).
+    case momentumEnded
 }

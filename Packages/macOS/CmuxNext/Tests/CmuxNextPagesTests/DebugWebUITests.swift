@@ -15,7 +15,7 @@ import WebKit
 @MainActor
 struct DebugWebUITests {
     private let root: URL
-    private let descriptor = PageDescriptor(id: "test.webui-census", resource: "webui-census", namespaces: [])
+    private let descriptor = PageDescriptor(id: "test.webui-census", resource: "webui-census", processGroup: .solo, namespaces: [])
 
     /// The keys of a page row, as WebUICensus documents them.
     static let pageKeys: Set<String> = [
@@ -195,7 +195,7 @@ struct DebugWebUITests {
         #expect(Set(page.objectValue?.keys.map { $0 } ?? []) == Self.pageKeys)
         #expect(page["engine"]?.stringValue == "chromium")
         #expect(page["state"]?.stringValue == "hidden")
-        #expect(page["group"] == .null)
+        #expect(page["group"]?.stringValue == "solo")
         #expect(page["browser_id"]?.doubleValue == 7)
         #expect(page["renderer_pids"] == .array([.number(100)]))
         #expect(page["webkit_pid"] == .null)

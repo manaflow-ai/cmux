@@ -9,6 +9,7 @@ use super::CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY;
 use super::CONNECTION_SURFACE_QUEUE_CAPACITY;
 use super::ConnectionPermit;
 use super::Request;
+use super::RequestArrival;
 use super::ResponseErrorDelivery;
 use super::ServerSurfaceAdmissionError;
 use super::ServerSurfaceBytesPermit;
@@ -34,6 +35,8 @@ use std::time::Instant;
 
 pub(super) struct PendingSurfaceRequest {
     pub(super) request: Request,
+    /// When its line arrived and parsed: its request span starts there.
+    pub(super) arrival: RequestArrival,
     pub(super) retained_bytes: usize,
     pub(super) _bytes_permit: ServerSurfaceBytesPermit,
 }
@@ -119,11 +122,27 @@ impl ConnectionSurfaceScheduler {
 }
 
 impl ConnectionSurfaceScheduler {
+    /// [`Self::dispatch_at`] for a request made in process.
+    #[cfg(test)]
     pub(super) fn dispatch(
         self: &Arc<Self>,
         mux: Arc<Mux>,
         client: u64,
         request: &mut Option<Request>,
+        retained_bytes: usize,
+        writer: MessageWriter,
+    ) -> Option<bool> {
+        self.dispatch_at(mux, client, request, RequestArrival::now(), retained_bytes, writer)
+    }
+
+    /// Queues `request`, whose line arrived and parsed at `arrival`, for the
+    /// connection's dispatcher.
+    pub(super) fn dispatch_at(
+        self: &Arc<Self>,
+        mux: Arc<Mux>,
+        client: u64,
+        request: &mut Option<Request>,
+        arrival: RequestArrival,
         retained_bytes: usize,
         writer: MessageWriter,
     ) -> Option<bool> {
@@ -179,6 +198,7 @@ impl ConnectionSurfaceScheduler {
         state.queued_bytes = state.queued_bytes.saturating_add(retained_bytes);
         state.requests.push_back(PendingSurfaceRequest {
             request: queued,
+            arrival,
             retained_bytes,
             _bytes_permit: bytes_permit,
         });
@@ -368,11 +388,22 @@ pub(super) fn run_pending_request(
     pending: PendingSurfaceRequest,
     writer: &MessageWriter,
 ) -> bool {
-    let PendingSurfaceRequest { request, _bytes_permit, .. } = pending;
+    let PendingSurfaceRequest { request, arrival, _bytes_permit, .. } = pending;
     // The dispatcher, a clear-history worker or a creation commit runs the
     // request: a request path like the reader's (`crate::request_path`).
     let _request_path = crate::request_path::RequestPathScope::enter(mux.request_path_stats());
-    handle_request_with_cancellation(mux, client, request, writer, Some(&scheduler.cancelled))
+    // Watched until the reply is queued: past 250 ms it lands in
+    // server-stats `slow_requests` (request_watchdog.rs). This runs off the
+    // connection thread, whose own watch ended with the hand-off.
+    let _watched = mux.request_watchdog.begin_command(client, &request.cmd);
+    handle_request_with_cancellation(
+        mux,
+        client,
+        request,
+        arrival,
+        writer,
+        Some(&scheduler.cancelled),
+    )
 }
 
 fn run_connection_surface_dispatcher(

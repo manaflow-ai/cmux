@@ -60,7 +60,7 @@ import Testing
     }
 
     private func call(_ router: ControlRouter, id: String = "1") async throws -> [String: JSONValue] {
-        let reply = try await router.handle(ControlRequest(id: id, method: "debug.memory")).get()
+        let reply = try await router.handle(ControlRequest(id: .string(id), method: "debug.memory")).get()
         return try #require(reply.objectValue)
     }
 
@@ -142,6 +142,34 @@ import Testing
         })
         #expect(reads.onMain == [true])
         #expect(samples.onMain == [false])
+    }
+
+    /// The answer has the histograms the read copied, and a read adds no sample: three reads that
+    /// each sample the processes leave one footprint sample, the emitter's (p07-memory-016).
+    @Test func readsShowTheHistogramsAndRecordNothing() async throws {
+        let pressure = MemoryPressureEvents(source: ManualMemoryPressureSource())
+        let histograms = MemoryHistograms(pressure: pressure, discardKinds: ["browser"])
+        histograms.recordFootprints(MemoryDiagnosticsProcesses(rows: [.init(kind: .app, pid: 501, physFootprintBytes: 300 << 20)]))
+        let rows: [MemoryDiagnosticsProcesses.Row] = [
+            .init(kind: .app, pid: 501, physFootprintBytes: 361 << 20),
+            .init(kind: .chromiumRenderer, pid: 812, physFootprintBytes: 62 << 20),
+        ]
+        let snapshot = Self.snapshot()
+        let memory = router(allowsDebug: false, rows: rows) {
+            var read = snapshot
+            read.histograms = histograms.snapshot()
+            return read
+        }
+        for id in ["1", "2", "3"] {
+            let json = try await call(memory, id: id)
+            #expect(json["processes"]?.arrayValue?.count == 2, "the answer lost the sampled processes")
+            let shown = try #require(json["histograms"]?.objectValue)
+            #expect(shown["app_pmf_mb"]?.objectValue?["count"] == 1)
+            #expect(shown["app_pmf_mb"]?.objectValue?["sum"] == 300)
+            #expect(shown["renderer_pmf_mb"]?.objectValue?["count"] == 0)
+            #expect(shown["discards_per_hour"]?.objectValue?.keys.sorted() == ["browser"])
+        }
+        #expect(histograms.snapshot().appFootprintMiB.count == 1, "a debug.memory read recorded a footprint")
     }
 
     @Test func answersNullOnceTheAppIsGone() async throws {
