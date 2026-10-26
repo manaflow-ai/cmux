@@ -50,6 +50,10 @@ Per mode:
            those cmux changed alone before it (pass: none), and a Quit AppleEvent to the bundle id (cmux quits, not
            the host; last row).
   failure  helper: when the host page never shows, the host's Chromium log tail and its crash reports.
+  cursor   `--modes cursor` (task 045 of plans/cmux-next/chrome-parity/p01-process.md): a Chromium tab of the app's
+           backend over a page of four bands, text (an input), link, col-resize and a CSS image cursor; the pointer
+           moves over each and `debug.cef`'s `page_cursor` (the page view's cursor in host mode) must name it. In
+           process the page window shows Chromium's own cursor and the row says so instead of passing.
 
 Debug build (reload.sh), not Release: the numbers compare the two paths, they are not shipping latencies.
 Not a gate: exit 1 only when a mode could not run (no host app, refused fork API, launch failure).
@@ -57,7 +61,7 @@ Not a gate: exit 1 only when a mode could not run (no host app, refused fork API
 On a fleet GUI host:
   python3 scripts/cmux-next/chromium-host-bench.py --app "<cmux DEV tag.app>" --out DIR [--count 60]
 """
-import argparse, json, os, pathlib, signal, struct, subprocess, sys, tempfile, time
+import argparse, base64, json, os, pathlib, signal, struct, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -114,6 +118,27 @@ window.__pace = function(ms) {
 window.__reset = function() { S.key = []; S.click = []; S.raf = []; S.key_paint = []; S.click_paint = []; report(); };
 report();
 </script>"""
+
+def cursor_png():
+    """A 16 x 16 opaque red PNG (stdlib only): the probe's CSS image cursor."""
+    import zlib
+    rows = b"".join(b"\x00" + b"\xff\x00\x00\xff" * 16 for _ in range(16))
+    chunk = lambda kind, data: struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff)
+    header = struct.pack(">IIBBBBB", 16, 16, 8, 6, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+
+
+# The cursor row's page: four bands, each a cursor the page view must show (expected CSS names in CURSOR_BANDS).
+CURSOR_BANDS = {"text": "text", "link": "pointer", "resize": "col-resize", "custom": "custom"}
+CURSOR_PAGE = """<!doctype html><meta charset=utf-8><title>cursor probe</title>
+<style>html,body{margin:0;height:100%;font:16px system-ui}div,a,input{position:fixed;left:0;width:100%;height:25%;
+margin:0;border:0;padding:0;display:block;box-sizing:border-box}</style>
+<input id=text style="top:0" value="text">
+<a id=link href="#link" style="top:25%;background:#cde">link</a>
+<div id=resize style="top:50%;cursor:col-resize;background:#dec">resize</div>
+<div id=custom style="top:75%;cursor:url(data:image/png;base64,PNG) 4 4,auto;background:#ecd">custom</div>""".replace(
+    "PNG", base64.b64encode(cursor_png()).decode())
+
 
 TUNABLES = {"version": 1, "values": {"browserHost.helper": True, "browserResize.layerHosting": True}}
 RESULT = {"build": "Debug", "modes": {}, "notes": []}
@@ -369,6 +394,10 @@ def main():
             ok = ok and inproc_tab is not None
         if "helper" in modes:
             ok = run_helper(rpc, url, inproc_tab) and ok
+        if "cursor" in modes:
+            cursor_probe = os.path.join(opts.out, "cursor.html")
+            open(cursor_probe, "w").write(CURSOR_PAGE)
+            ok = run_cursor(rpc, pathlib.Path(cursor_probe).as_uri()) and ok
         if opts.stress:
             run_stress_pump(rpc)
         if "helper" in modes and RESULT["modes"].get("helper", {}).get("kill"):
@@ -625,6 +654,44 @@ def run_helper(rpc, url, inproc_tab):
         added = lambda key: pixels.get(key) is not None and pixels[key] - pixels["before_open"] >= 0.02
         pixels["pass"] = added("shown") and (not after or added("after_restart"))
     row["pixels"] = pixels
+    return True
+
+
+def run_cursor(rpc, url):
+    """The cursor row: the pointer over each band of the cursor probe, then the page view's cursor (debug.cef)."""
+    opened = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True, "origin": "script"}, timeout=120)
+    tab = {}
+
+    def page(script):
+        reply = rpc("browser.page.eval", {"script": script, **({"tab": tab["tab"]} if tab.get("tab") else {})}, timeout=20)
+        if not isinstance(reply, dict) or "error" in reply:
+            return None
+        tab.setdefault("tab", reply.get("tab"))
+        return reply.get("value")
+    if not wait(lambda: page("document.readyState === 'complete' && document.title === 'cursor probe'"), 60, 0.5):
+        RESULT["modes"]["cursor"] = {"error": f"the cursor probe never loaded: {json.dumps(opened)[:200]}"}
+        return False
+
+    def shown_cursor():
+        entries = (rpc("debug.cef") or {}).get("devtools") or []
+        mine = [e for e in entries if (e.get("url") or "").startswith(url)]
+        return (mine or [{}])[0].get("page_cursor")
+
+    row = {}
+    for band, expected in CURSOR_BANDS.items():
+        rect = page(f"(() => {{ const r = document.getElementById('{band}').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; }})()")
+        if not rect:
+            row[band] = {"error": "no band rect"}
+            continue
+        rpc("debug.mouse", {"action": "move", "target": "page", "x": rect[0], "y": rect[1]})
+        # The renderer sends a changed cursor after the move reaches it; host mode adds the wire hop.
+        shown = wait(lambda: (lambda c: c if c == expected else None)(shown_cursor()), 5, 0.05) or shown_cursor()
+        row[band] = {"expected": expected, "shown": shown, "pass": shown == expected}
+    if all((row.get(band) or {}).get("shown") is None for band in CURSOR_BANDS):
+        row["not_measurable"] = "no page view cursor: the tab runs in process, where Chromium's page window shows its own cursor"
+    else:
+        row["pass"] = all((row.get(band) or {}).get("pass") for band in CURSOR_BANDS)
+    RESULT["modes"]["cursor"] = row
     return True
 
 

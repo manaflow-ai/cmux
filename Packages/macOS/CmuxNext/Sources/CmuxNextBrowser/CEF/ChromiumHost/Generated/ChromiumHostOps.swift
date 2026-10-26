@@ -44,14 +44,14 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
     case rendererPid = 152, setContextProxy = 153, setContextProxyServer = 154, contextProxyState = 155
     case releaseContext = 156, setNavigationGuard = 157, setAuthCallback = 158, prefGet = 159, prefSetBool = 160
     case prefWatch = 161, bookmarksSync = 162, pageSchemeAdd = 163, pageSchemeAddFirstParty = 164
-    case pageSchemeAddFirstPartyDynamic = 165, pageResourceRespond = 166, addDocumentScript = 167
-    case addPageChannel = 168, tabEvaluate = 169, tabSetFrozen = 170, tabSendClick = 171, tabSetColorScheme = 172
-    case pageSchemeSetGroup = 173, tabDiscard = 174
+    case pageSchemeAddFirstPartyDynamic = 165, pageResourceRespond = 166, setCursorEvents = 167
+    case addDocumentScript = 168, addPageChannel = 169, tabEvaluate = 170, tabSetFrozen = 171, tabSendClick = 172
+    case tabSetColorScheme = 173, pageSchemeSetGroup = 174, tabDiscard = 175
 
     /// The SHA-256 of the cmux_cef_shim.h this table was generated from (`CEFShimABI`).
-    static let abiIdentity = "588fca8016b02a0fa991f93b679b0928e086af927e43015e338195629a536bf8"
+    static let abiIdentity = "2881fefc27a0a6f365b1ec664143072a5727f97df04e0c4f9c7818d37cc6d4ab"
     /// This generation's op ids, classes and wire types; both HELLOs carry it.
-    static let wireIdentity = "4806cead3339ffcc3f9f4a5b8a4a28c04040f0774e4052824878a111ed9931cc"
+    static let wireIdentity = "5de61953ebaa14d3605a84c417458bb795e3c7ebde41dfd553461fb5d0836d33"
     /// Ops of fork API symbols the header does not declare yet (`r.optional` in CEFShimLibrary).
     static let optionalOps: Set<ChromiumHostOp> = [
         .addDocumentScript, .addPageChannel, .tabEvaluate, .tabSetFrozen, .tabSendClick, .tabSetColorScheme,
@@ -300,6 +300,7 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.preinit, [.string, .string, .string], [.int32]),
         Row(.preinit, [.string, .string, .string, .string, .string], [.int32]),
         Row(.post, [.int32, .int32, .string, .bytes], [.int32]),
+        Row(.local, [], []),
         Row(.preinit, [.string, .string, .int32, .int32], [.int32]),
         Row(.preinit, [.string, .string], [.int32]),
         Row(.async, [.int32, .int32, .string, .string, .int32], [.int32]),
@@ -426,7 +427,7 @@ nonisolated enum ChromiumHostEventKind: Int32, CaseIterable, Sendable {
     case prefChanged = 33, downloadStarted = 34, downloadProgress = 35, downloadDone = 36, authCallback = 37
     case localFileHandoff = 38, bookmarksEvent = 39, externalURL = 40, permissionPrompt = 41
     case permissionDismissed = 42, passwordPrompt = 43, beforeUnloadDialog = 44, beforeUnloadDismissed = 45
-    case pageResource = 46, pageDragEnter = 47, fileDialog = 48, pageMessage = 49, evaluateResult = 50
+    case pageResource = 46, pageDragEnter = 47, fileDialog = 48, cursor = 52, pageMessage = 49, evaluateResult = 50
     case createFailed = 51
 
     /// The mirrors this event refreshes; the host pushes them before the event. `request` is the

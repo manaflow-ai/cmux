@@ -188,6 +188,12 @@ typedef enum {
   // line (MIME types and ".ext"); s2 = the default path or file name. Chromium
   // shows no panel; a closed or crashed browser cancels it.
   CMUX_SHIM_FILE_DIALOG = 48,
+  // 49 to 51 are taken (plans/cmux-next/chromium-host-ops.json, optional_events).
+  // The page's cursor changed (CefDisplayHandler::OnCursorChange), only after
+  // cmux_shim_set_cursor_events(1): a = cef_cursor_type_t. For CT_CUSTOM (45)
+  // s1 = the image as PNG, base64; request = image pixels per DIP x 1000;
+  // b = the hotspot in image pixels, x in the low 32 bits, y in the high 32.
+  CMUX_SHIM_CURSOR = 52,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -1056,6 +1062,11 @@ CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add_first_party_dynamic(const char* i
 // Returns 1 when the request was waiting, 0 when it ended or was answered.
 CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond(int token, int status, const char* mime, const void* body,
                                                      size_t length);
+// 1: page cursors come to the host as CMUX_SHIM_CURSOR and Chromium sets no
+// NSCursor of its own (the Chromium Host, whose page windows never show: the
+// page view in cmux shows the cursor). 0 (the default): Chromium sets the
+// cursor over its page window. UI thread.
+CMUX_SHIM_EXPORT void cmux_shim_set_cursor_events(int enabled);
 
 #ifdef __cplusplus
 }

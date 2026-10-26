@@ -110,6 +110,8 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// A `cmux_shim_tab_evaluate` answer (EVALUATE_RESULT, fork API 29): `status` 1 value, 0
     /// exception, -1 no result (renderer ended, navigated away), -2 refused world name.
     case evaluateResult(token: Int32, status: Int, value: String)
+    /// The page's cursor changed (CURSOR; host mode, which turns it on): ``CEFPageCursor``.
+    case cursor(browser: Int32, cursor: CEFPageCursor)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -175,6 +177,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 49: self = .pageMessage(browser: browser, mainFrame: a == 1, channel: s1, payload: s2)
         case 50: self = .evaluateResult(token: request, status: Int(a), value: s1)
         case 51: self = .createFailed(browser: browser, request: request)
+        case 52: self = .cursor(browser: browser, cursor: CEFPageCursor(type: a, scaleMilli: request, hotspot: b, pngBase64: s1))
         default: self = .unknown(kind: kind)
         }
     }

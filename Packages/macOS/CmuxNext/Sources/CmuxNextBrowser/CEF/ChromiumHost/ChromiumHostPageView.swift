@@ -70,6 +70,12 @@ public final class ChromiumHostPageView: NSView {
     var standIn: NSView?
     /// The layer-hosting view that shows the context, under every other subview.
     let surface: Surface
+    /// The page's cursor (host mode), shown over the page; nil shows none (in process the page window does).
+    var pageCursor: CEFPageCursor? {
+        didSet { if pageCursor != oldValue { shownCursor = pageCursor?.makeCursor(); showPageCursor() } }
+    }
+    /// ``pageCursor`` as AppKit shows it, made once per change.
+    private(set) var shownCursor: NSCursor?
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Where frames for the host go (``InputTarget/view`` only), synchronously

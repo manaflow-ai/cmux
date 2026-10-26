@@ -250,6 +250,10 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "cmux-chromium-host: NSApp does not implement CefAppProtocol\n");
     return cmux_host::kExitInitialize;
   }
+  // The host's page windows never show: each page's cursor goes to the page
+  // view in cmux (CMUX_SHIM_CURSOR), as Chrome's browser process sends it to
+  // the app shim's view (RenderWidgetHostViewMac::DisplayCursor).
+  cmux_shim_set_cursor_events(1);
 
   HostMain host_main;
   cmux_host::HostPageViews page_views;

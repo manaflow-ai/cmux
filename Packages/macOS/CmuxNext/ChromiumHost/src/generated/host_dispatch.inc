@@ -174,24 +174,25 @@ enum Op : uint16_t {
   kOpPageSchemeAddFirstParty = 164,
   kOpPageSchemeAddFirstPartyDynamic = 165,
   kOpPageResourceRespond = 166,
-  kOpAddDocumentScript = 167,  // optional
-  kOpAddPageChannel = 168,  // optional
-  kOpTabEvaluate = 169,  // optional
-  kOpTabSetFrozen = 170,  // optional
-  kOpTabSendClick = 171,  // optional
-  kOpTabSetColorScheme = 172,  // optional
-  kOpPageSchemeSetGroup = 173,  // optional
-  kOpTabDiscard = 174,  // optional
+  kOpSetCursorEvents = 167,
+  kOpAddDocumentScript = 168,  // optional
+  kOpAddPageChannel = 169,  // optional
+  kOpTabEvaluate = 170,  // optional
+  kOpTabSetFrozen = 171,  // optional
+  kOpTabSendClick = 172,  // optional
+  kOpTabSetColorScheme = 173,  // optional
+  kOpPageSchemeSetGroup = 174,  // optional
+  kOpTabDiscard = 175,  // optional
 };
-inline constexpr uint16_t kOpCount = 174;
+inline constexpr uint16_t kOpCount = 175;
 inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
-inline constexpr int kEventKindCount = 51;
-inline constexpr char kShimAbiID[] = "588fca8016b02a0fa991f93b679b0928e086af927e43015e338195629a536bf8";
+inline constexpr int kEventKindCount = 52;
+inline constexpr char kShimAbiID[] = "2881fefc27a0a6f365b1ec664143072a5727f97df04e0c4f9c7818d37cc6d4ab";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "4806cead3339ffcc3f9f4a5b8a4a28c04040f0774e4052824878a111ed9931cc";
+inline constexpr char kWireID[] = "5de61953ebaa14d3605a84c417458bb795e3c7ebde41dfd553461fb5d0836d33";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 
