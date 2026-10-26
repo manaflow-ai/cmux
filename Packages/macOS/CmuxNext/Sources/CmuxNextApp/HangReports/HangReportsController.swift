@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
+import CmuxNextDaemon
 import CmuxNextHangReports
 import CmuxNextInput
 import CmuxNextMetrics
@@ -94,11 +95,13 @@ final class HangReportsController {
     /// classifier and dyld resolver, the app's own envelope values, and (when the wire schema carries
     /// them) the active time and `watchdog`'s main-turn and input-queueing histograms. Before each report the local
     /// daemon's request latency is folded from its metrics file in `metricsFolder` on `work`'s files lane. `memory`
-    /// samples at the report triggers too, and runs where nothing is sent.
+    /// samples at the report triggers too, and runs where nothing is sent. `wireSchema` is schema 3 only while the
+    /// `hangReportsSchema3` feature says cmux.com accepts it.
     static func forThisLaunch(policy: CrashReportingPolicy, folder: URL, counts: @escaping @Sendable () async -> CoarseCounts,
                               watchdog: MainThreadWatchdog, input: any InputObserving, events: AppEvents, memory: HiddenWorkspaceMemory,
                               work: BackgroundWork, mainWork: MainWorkScheduler,
                               metricsFolder: URL, daemonPID: @escaping @MainActor @Sendable () -> Int32?,
+                              wireSchema: HangReport.WireSchema = .deployed,
                               environment: [String: String] = ProcessInfo.processInfo.environment) -> HangReportsController {
         let devOptIn = policy.channel == .dev && environment[devOptInKey] == "1"
         let mayReport = (policy.channel == .nightly || devOptIn) && !CrashReportingPolicy.isTestProcess(environment)
@@ -111,6 +114,15 @@ final class HangReportsController {
         }
         let endpoint = devOptIn ? environment[devEndpointKey] ?? URLSessionHangReportTransport.defaultEndpoint
             : URLSessionHangReportTransport.defaultEndpoint
+        // Schema 3's field data: this process's histograms in the metrics folder the next launch folds, and the
+        // black boxes where the daemon (its key-flow folder), the holders and the hosts write them.
+        let bundleID = Bundle.main.bundleIdentifier
+        let metricsDirectory = HangReportFieldSources.appMetricsDirectory(bundleID: bundleID)
+        let flows = DaemonDiagnosticKnobs(processEnvironment: environment).daemonEnvironment["CMUX_TRACE_FLOWS"]
+        let rings = HangReportFieldSources.RingFolders.app(bundleID: bundleID, flowsDirectory: flows.map { URL(filePath: $0, directoryHint: .isDirectory) })
+        if wireSchema.carriesFieldData {
+            MetricsStore.startApp(directory: metricsDirectory, channel: policy.channel?.rawValue ?? "dev", work: work)
+        }
         // A managed block, or this Mac's consent record removed, while cmux runs: the next trigger
         // turns reports off and drops what was recorded. UserDefaults is thread-safe; the record is
         // read in the app's own domain.
@@ -120,7 +132,7 @@ final class HangReportsController {
             mainThreadHistograms: { [watchdog] in
                 MainThreadReportLedger.Histograms(edgesNanos: MainTurnHistogram.edgesNanos, turnCounts: watchdog.turnHistogram.snapshot().counts,
                                                   inputQueueingCounts: watchdog.inputQueueHistogram.snapshot().counts)
-            })
+            }, wireSchema: wireSchema, metricsDirectory: metricsDirectory, rings: rings)
         let feed = service.mainThreadLedger.map {
             MainThreadActivityFeed(ledger: $0, input: input, events: events, isActive: NSApp?.isActive ?? false)
         }
