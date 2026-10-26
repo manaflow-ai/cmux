@@ -793,6 +793,16 @@ mod tests {
     }
 
     #[test]
+    fn a_steer_counted_before_a_report_turn_started_still_makes_it_report() {
+        let mut k = TurnKinds::default();
+        // A task's steer is counted while turn 1 is the count, then the agent takes it into turn
+        // 2, a report turn that started meanwhile: turn 2 did a task, so it reports.
+        k.steer_in("c", 1);
+        k.report_only.insert(("c".into(), 2));
+        assert!(!k.end("c", 2), "the task's turn was taken for reports only");
+    }
+
+    #[test]
     fn the_last_reply_is_read_from_the_start_of_its_turn_however_many_records_it_streamed() {
         let rec = |seq: u64, kind: &str| crate::store::EventRecord {
             seq,
