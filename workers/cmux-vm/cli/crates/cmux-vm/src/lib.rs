@@ -996,7 +996,14 @@ async fn client_session(
                 "linuxUser": args.user,
             }))?;
             let reserved = match args.token_file.as_ref() {
-                Some(path) => Some((path.clone(), output::reserve_token_file(path)?)),
+                Some(path) => {
+                    if path.to_str().is_none() {
+                        return Err(CliError::usage(
+                            "--token-file must be a UTF-8 path so JSON output can name it",
+                        ));
+                    }
+                    Some((path.clone(), output::reserve_token_file(path)?))
+                }
                 None => None,
             };
             let response =
@@ -1005,9 +1012,9 @@ async fn client_session(
                 {
                     Ok(response) => response,
                     Err(error) => {
-                        if let Some((path, _)) = reserved.as_ref() {
-                            let _ = std::fs::remove_file(path);
-                        }
+                        // Keep the empty 0600 reservation in place. Removing
+                        // by pathname after a network wait could unlink a
+                        // different file if a parent was replaced.
                         return Err(error.for_vm(&args.vm_id, "client-session create"));
                     }
                 };

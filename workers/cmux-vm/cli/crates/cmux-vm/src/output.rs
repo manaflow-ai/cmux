@@ -370,6 +370,10 @@ impl<'a> Printer<'a> {
                 ))
             })?
             .to_owned();
+        let session_id = value
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown");
         let provider_vm = value
             .get("providerVmId")
             .and_then(serde_json::Value::as_str)
@@ -382,12 +386,18 @@ impl<'a> Printer<'a> {
         if let Some((path, mut file)) = token_file {
             if let Err(error) = file.write_all(token.as_bytes()) {
                 return Err(CliError::unexpected(format!(
-                    "could not finish writing the token for VM {vm_id} to {}: {error}; revoke the session and try again",
-                    path.display()
+                    "could not finish writing the token for VM {vm_id} to {}: {error}; revoke it with `cmux-vm client-session revoke {vm_id} {session_id} --yes`",
+                    path.display(),
+                )));
+            }
+            if let Err(error) = file.sync_all() {
+                return Err(CliError::unexpected(format!(
+                    "could not persist the token for VM {vm_id} to {}: {error}; revoke it with `cmux-vm client-session revoke {vm_id} {session_id} --yes`",
+                    path.display(),
                 )));
             }
             if self.json {
-                value["tokenFile"] = serde_json::json!(path);
+                value["tokenFile"] = serde_json::json!(path.to_string_lossy());
                 value["sshLine"] = serde_json::json!(ssh);
                 if let Some(object) = value.as_object_mut() {
                     object.remove("token");
