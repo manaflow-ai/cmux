@@ -99,8 +99,6 @@ final class BrowserHibernation {
     var urgentPasses = 0
     /// Pinned state of a tab (the daemon record); injected by the App.
     var isPinned: (String) -> Bool = { _ in false }
-    /// Memory pressure changed (the App resizes the terminal warm set).
-    var onPressureChange: ((MemoryPressureLevel) -> Void)?
     private(set) var exemptions: [String: HibernationPlanner.Exemption] = [:]
     private var settingsObservation: Task<Void, Never>?
     private(set) var hibernatedCount = 0
@@ -261,7 +259,6 @@ final class BrowserHibernation {
         guard level != pressure else { return }
         pressure = level
         logger.info("memory pressure \(level.rawValue, privacy: .public)")
-        onPressureChange?(level)
         updateFollowers()
         refreshNeighbors(replans: false)
         guard replans else { return }

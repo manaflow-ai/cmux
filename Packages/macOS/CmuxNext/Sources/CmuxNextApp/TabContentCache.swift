@@ -33,10 +33,8 @@ final class TabContentCache {
     var lifecycle = ContentLifecycle<String>()
     /// Shown tabs whose content does not exist yet (a Chromium page being created): their `mount` token, answered at install.
     var pendingMounts: [String: ContentLifecycle<String>.Token] = [:]
-    /// How many hidden terminal surfaces stay warm (memory budget; pressure).
-    var warmBudget = WarmSetBudget.standard
-    /// Set while a smaller warm budget evicts: surfaces close at once, with no last picture.
-    var evictsAtOnce = false
+    /// How many hidden terminal surfaces stay warm, and the memory consumer that sets it under pressure.
+    var warmBudget = WarmSetBudget.standard, warmSetRelease: WarmSetRelease?
     var onRelease: ((String) -> Void)?
     var hibernation: BrowserHibernation? // hibernates hidden browser pages (time, memory pressure) and restores them
     var pageLifecycle: PageLifecycle? // page tabs' freeze and discard, from each reveal and conceal (pageLifecycle; nil while off)
