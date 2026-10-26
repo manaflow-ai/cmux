@@ -54,55 +54,16 @@ impl LockHeld {
 }
 
 impl std::fmt::Display for LockHeld {
+    // "another acpmux daemon holds PATH" stays the message's start: a start that waits out a
+    // handover, and its tests, match it.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let holder = match self.pid {
-            Some(pid) => format!("another acpmux daemon (pid {pid})"),
-            None => "another acpmux daemon".to_owned(),
-        };
+        let holder = self.pid.map(|pid| format!(" (pid {pid})")).unwrap_or_default();
         write!(
             f,
-            "{holder} holds {}. See it with `{}`; the lock and its socket are that daemon's, so leave them in place (stop it with `acpmux daemon shutdown` to run another here).",
+            "another acpmux daemon holds {}{holder}. See it with `{}`; the lock and its socket are that daemon's, so leave them in place (stop it with `acpmux daemon shutdown` to run another here).",
             self.path.display(),
             self.status_command()
         )
-    }
-}
-
-/// `word` as one shell word: as is when it holds only safe characters, else single-quoted.
-fn shell_word(word: &str) -> String {
-    let safe = |c: char| c.is_ascii_alphanumeric() || "/._-+:@%=,".contains(c);
-    if !word.is_empty() && word.chars().all(safe) {
-        word.to_owned()
-    } else {
-        format!("'{}'", word.replace('\'', r"'\''"))
-    }
-}
-
-/// The pid the lock's holder wrote into it ([`record_pid`]), when that process still runs.
-#[cfg(unix)]
-fn holder_pid(file: &std::fs::File) -> Option<u32> {
-    use std::os::unix::fs::FileExt;
-    let mut buf = [0u8; 16];
-    let n = file.read_at(&mut buf, 0).ok()?;
-    let pid: libc::pid_t = std::str::from_utf8(&buf[..n]).ok()?.trim().parse().ok()?;
-    if pid <= 0 {
-        return None;
-    }
-    // SAFETY: signal 0 sends nothing; it only asks whether the process exists. EPERM: it does,
-    // as another user's.
-    let alive = unsafe { libc::kill(pid, 0) } == 0
-        || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
-    alive.then_some(pid as u32)
-}
-
-/// Write this daemon's pid into the lock it now holds, for the refusal a second daemon prints.
-/// Best effort: the lock itself is the flock, never the file's contents.
-#[cfg(unix)]
-fn record_pid(file: &std::fs::File) {
-    use std::os::unix::fs::FileExt;
-    let pid = format!("{}\n", std::process::id());
-    if file.set_len(0).is_ok() {
-        let _ = file.write_at(pid.as_bytes(), 0);
     }
 }
 
@@ -249,6 +210,8 @@ mod tests {
         let lock = dir.join("daemon.lock");
         let held = acquire_lock(&lock).unwrap();
         let why = acquire_lock(&lock).err().expect("the lock is held").to_string();
+        // The start every handover matches on stays.
+        assert!(why.starts_with(&format!("another acpmux daemon holds {}", lock.display())));
         assert!(why.contains(&format!("pid {}", std::process::id())), "{why}");
         assert!(
             why.contains(&format!("ACPMUX_HOME={} acpmux daemon status", dir.display())),
