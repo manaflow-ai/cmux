@@ -5,19 +5,19 @@ import CmuxNextDaemon
 import CmuxNextRemote
 import CmuxNextServer
 
-extension AppServices {
-    /// SSH machines (Connect to Machine…), made on first use (the `SSH.start` post, a remote action), never
-    /// in init (p08-startup-021); the install offer and the current remote-hosts policy are set before any
-    /// reader gets it.
-    var ssh: SSHService {
-        if let madeSSH { return madeSSH }
-        let made = SSHService(machines: machines, bundleID: environment.launch.bundleID, mainWork: mainWork)
-        madeSSH = made
-        made.offerInstall = { [weak registry] session in
+extension SSHService {
+    /// The app's SSH machines (`AppServices.ssh`), made on first use (the `SSH.start` post, a remote
+    /// action), never in init (p08-startup-021), as Chrome makes a keyed service on its first
+    /// GetServiceForBrowserContext (components/keyed_service/content/browser_context_keyed_service_factory.cc).
+    /// The install offer and the current remote-hosts policy are set before any reader gets it.
+    static func made(for services: AppServices) -> SSHService {
+        let made = SSHService(machines: services.machines, bundleID: services.environment.launch.bundleID, mainWork: services.mainWork)
+        services.madeSSH = made
+        made.offerInstall = { [weak registry = services.registry] session in
             // Asks through the registry's confirmation sheet (remote.install is destructive).
             _ = registry?.perform("remote.install", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: session.machineID)))
         }
-        made.applyPolicy(disabled: registry.disabledFeatures.contains(.remoteHosts))
+        made.applyPolicy(disabled: services.registry.disabledFeatures.contains(.remoteHosts))
         return made
     }
 }

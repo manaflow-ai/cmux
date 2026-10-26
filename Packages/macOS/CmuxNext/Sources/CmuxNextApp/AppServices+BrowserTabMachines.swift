@@ -13,9 +13,9 @@ extension AppServices {
     /// of another machine's workspace that runs here (cx-whr7: the page
     /// notice sits under a Chromium page's child window; the chip does not).
     func browserMachineBadge(key: String, url: URL?) -> (text: String, help: String)? {
-        if let tab = cache.findTab?(key) {
+        if machines.mayHaveLocalhostBadge(url), let tab = remoteLocalhost.tab(id: key) {
             let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
-            if let badge = localhostBadge(for: tab, url: url, engine: engine) { return badge }
+            if let badge = remoteLocalhost.badge(for: tab, url: url, engine: engine) { return badge }
         }
         // A machine browser page runs (or waits) on the machine, whatever address it shows.
         guard !MachineBrowserRecord.matches(url), !(cache.existingBrowser(key)?.tab is MachineBrowserPageTab),

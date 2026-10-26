@@ -101,7 +101,8 @@ final class AppServices {
     /// The wide Inbox page, backed by `feed.model`.
     private(set) lazy var feedPage = FeedPageService(services: self)
     /// SSH machines (Connect to Machine…); `serverReach`: paired servers' Chief sessions in the sidebar.
-    var madeSSH: SSHService?  // `ssh` once made (made on first use, RemoteHandlers.swift; p08-startup-021)
+    var ssh: SSHService { madeSSH ?? SSHService.made(for: self) }  // on first use, never in init (p08-startup-021)
+    var madeSSH: SSHService?
     private(set) lazy var serverReach = ServerReachService.app(services: self)
     /// Add Machine and Check Machine (plans/cmux-next/add-machine-DESIGN.md); each machine's last check.
     private(set) lazy var addMachine = AddMachineCard(services: .app(self))
@@ -404,7 +405,8 @@ final class AppServices {
     }
     private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))  // first read in init (no IUO)
     /// Browser tabs of remote machines reach that machine's localhost.
-    var madeRemoteLocalhost: RemoteLocalhostService?  // `remoteLocalhost` once made (on first use, RemoteLocalhostHandlers.swift)
+    var remoteLocalhost: RemoteLocalhostService { madeRemoteLocalhost ?? RemoteLocalhostService.made(for: self) }  // on first use
+    var madeRemoteLocalhost: RemoteLocalhostService?
     /// Which machines run browser tabs there, and their runtimes (cx-2cob slice 2).
     private(set) lazy var machineBrowserHosts = MachineBrowserHosts(machines: machines) { [weak self] in self?.remoteLocalhost }
     var chromiumLikelyObservations: [Task<Void, Never>] = []
@@ -483,7 +485,8 @@ final class AppServices {
     /// The browser host's engine provider (idle until the daemon offers the endpoint).
     private(set) var browserHost: AppBrowserHost?
     /// Remote-terminal tabs: mount, placeholder, snapshot, moves.
-    var madeRemoteTerminals: RemoteTerminalService?  // `remoteTerminals` once made (on first use, RemoteTerminalService.swift)
+    var remoteTerminals: RemoteTerminalService { madeRemoteTerminals ?? RemoteTerminalService.made(for: self) }  // on first use
+    var madeRemoteTerminals: RemoteTerminalService?
     /// Cross-build session discovery and acknowledge-then-close handoff.
     private(set) lazy var sessionTransfer = SessionTransferService(services: self)
     /// - Parameter launchReveal: The launch load-in the windows' sidebars and panes hold for

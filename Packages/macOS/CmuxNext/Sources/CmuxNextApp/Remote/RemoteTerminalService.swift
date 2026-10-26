@@ -7,19 +7,6 @@ import CmuxNextTerminal
 import CmuxNextWakeups
 import Observation
 
-extension AppServices {
-    /// Made on first use (a remote-terminal tab shown, closed or moved), or by the launch post when the
-    /// restore shows one (``RemoteTerminalService/postRestored(_:on:)``), never in init (p08-startup-021);
-    /// it follows every session's connection from then on.
-    var remoteTerminals: RemoteTerminalService {
-        if let madeRemoteTerminals { return madeRemoteTerminals }
-        let made = RemoteTerminalService(services: self)
-        madeRemoteTerminals = made
-        made.start()
-        return made
-    }
-}
-
 /// Remote-terminal tabs (plans/cmux-next/data-model.md 1.2b, 1.4, 1.5): a
 /// tab in one session's layout whose terminal runs on another session.
 ///
@@ -50,6 +37,16 @@ final class RemoteTerminalService {
 
     init(services: AppServices) {
         self.services = services
+    }
+
+    /// The app's service (`AppServices.remoteTerminals`), made on first use (a remote-terminal tab shown,
+    /// closed or moved) or by ``postRestored(_:on:)``, never in init (p08-startup-021); it follows every
+    /// session's connection from then on.
+    static func made(for services: AppServices) -> RemoteTerminalService {
+        let made = RemoteTerminalService(services: services)
+        services.madeRemoteTerminals = made
+        made.start()
+        return made
     }
 
     /// Makes the app's service after the first frame when the launch's restore shows a remote-terminal

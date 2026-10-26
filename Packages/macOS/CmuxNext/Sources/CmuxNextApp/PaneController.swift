@@ -273,7 +273,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         } else {
             // A browser tab names the machine whose localhost it sees.
             let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
-            let badge = services.localhostBadge(for: tab, url: tab.url.flatMap(URL.init(string:)), engine: engine)
+            let badge = tab.url.flatMap(URL.init(string:)).flatMap { services.machines.mayHaveLocalhostBadge($0) ? services.remoteLocalhost.badge(for: tab, url: $0, engine: engine) : nil }
             (item.machineBadge, item.machineBadgeHelp, item.machineName) = (badge?.text, badge?.help, services.machines.tabColorName(daemon.machineID, badge: badge?.text))
             // Incognito tabs have only a placeholder record in the daemon.
             let incognito = services.cache.browserTabs.isIncognitoTab(tab.id)

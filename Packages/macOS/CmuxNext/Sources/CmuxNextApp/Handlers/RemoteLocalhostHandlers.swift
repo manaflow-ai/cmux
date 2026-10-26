@@ -1,5 +1,4 @@
 import CmuxNextActions
-import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextRemoteLocalhost
 import CmuxNextRemoteLocalhostService
@@ -26,22 +25,13 @@ enum RemoteLocalhostHandlers {
     }
 }
 
-extension AppServices {
-    /// Made on first use (a browser tab's route or store, a loopback page's chip, a machine browser),
-    /// never in init (p08-startup-021), as Chrome makes a keyed service on its first
-    /// GetServiceForBrowserContext (components/keyed_service/content/browser_context_keyed_service_factory.cc).
-    var remoteLocalhost: RemoteLocalhostService {
-        if let madeRemoteLocalhost { return madeRemoteLocalhost }
-        let made = machines.makeRemoteLocalhost(following: settings)
-        madeRemoteLocalhost = made
+extension RemoteLocalhostService {
+    /// The app's remote localhost (`AppServices.remoteLocalhost`), made on first use (a browser tab's
+    /// route or store, a loopback page's chip, a machine browser), never in init (p08-startup-021).
+    static func made(for services: AppServices) -> RemoteLocalhostService {
+        let made = services.machines.makeRemoteLocalhost(following: services.settings)
+        services.madeRemoteLocalhost = made
         return made
-    }
-
-    /// The machine chip of browser tab `tab` at `url`: only a loopback page has one, so a tab strip of
-    /// other pages makes no remote localhost.
-    func localhostBadge(for tab: TabModel, url: URL?, engine: BrowserEngineKind) -> (text: String, help: String)? {
-        guard let url, LoopbackHost(url: url)?.isLoopback == true else { return nil }
-        return remoteLocalhost.badge(for: tab, url: url, engine: engine)
     }
 }
 
@@ -53,6 +43,10 @@ extension MachineRegistry: RemoteLocalhostMachines {
         if let settings { service.follow(settings) }
         return service
     }
+
+    /// Whether a tab at `url` can have a machine chip (only a loopback page): asked before the remote
+    /// localhost is made, so a tab strip of other pages makes none.
+    func mayHaveLocalhostBadge(_ url: URL?) -> Bool { url.flatMap(LoopbackHost.init(url:))?.isLoopback == true }
 
     func personalAddress(ofWorkspace id: String) -> (session: String, key: String)? {
         WindowProfiles.qualified(id, machines: self).map { ($0.session, $0.key) }
