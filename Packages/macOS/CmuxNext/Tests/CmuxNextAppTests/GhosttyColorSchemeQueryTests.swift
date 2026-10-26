@@ -14,7 +14,7 @@ import Testing
 @MainActor @Suite(.serialized) struct GhosttyColorSchemeQueryTests {
     @Test func aPlainDarkThemeInDarkModeReportsDark() async throws {
         _ = NSApplication.shared
-        _ = GhosttyRuntime.shared // runs ghostty_init, which config_new needs
+        GhosttyRuntime.startedForTests()
         // Dracula's colors with no theme pair: what `theme = Dracula` resolves to. A fresh config
         // keeps the runner's own Ghostty config out.
         let text = """
