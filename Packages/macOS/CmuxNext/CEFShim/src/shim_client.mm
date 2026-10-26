@@ -203,16 +203,10 @@ class Client : public CefClient,
   // MARK: Focus
 
   // CEF focuses a page after every navigation it starts (a new browser's
-  // first load, LoadURL); on macOS that activates the page window, which
-  // takes the keys from the host's omnibar. The host decides every
-  // request (its focus coordinator is the only owner of focus); returning
-  // true cancels it.
+  // first load, LoadURL). RefusesFocus decides (shim_browser.mm); returning
+  // true cancels the request.
   bool OnSetFocus(CefRefPtr<CefBrowser> browser, FocusSource source) override {
-    const Host& h = host();
-    if (!h.focus_request) {
-      return false;
-    }
-    return h.focus_request(h.ctx, browser->GetIdentifier(), source) == 0;
+    return RefusesFocus(browser->GetIdentifier(), source);
   }
 
   // Tab past the last element or Shift-Tab past the first: the host moves
@@ -537,6 +531,7 @@ class Client : public CefClient,
     DropBeforeUnload(id);
     CancelFileDialogs(id);
     TakeHostClose(id);
+    host().embedder_focus.Forget(id);
     ForgetNavigationGuard(id);
     ForgetCertificateState(id);
     registrations_.erase(id);
