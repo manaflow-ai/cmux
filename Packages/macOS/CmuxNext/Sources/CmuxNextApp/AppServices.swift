@@ -470,6 +470,8 @@ final class AppServices {
     /// The one owner of hover cards in the app: at most one card, ever
     /// (plans/cmux-next/hovercards.md). Its dismissals listen on ``inputTap``.
     let hoverCards: HoverCardCoordinator
+    /// What is above a window's content changed: overlays, the hover card, focus overlays (the overlays facet's wait).
+    let overlayChanges = OverlayChangeFeed()
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
@@ -525,7 +527,8 @@ final class AppServices {
         // on; the ring file opens on `.files`, never on main.
         traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil
         (self.wireStats, self.inputTap) = (wireStats, inputTap)
-        hoverCards = HoverCardCoordinator(input: inputTap)
+        hoverCards = HoverCardCoordinator(input: inputTap, changes: overlayChanges)
+        _ = CmuxDialogCenter.shared.observe { [overlayChanges] _ in overlayChanges.signal() } // an app dialog's host has no window
         (self.launchImages, self.relaunchWake, self.launchImageHold) = (launchImages, relaunchWake, launchImageHold)
         self.launchStartup = launchStartup
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)

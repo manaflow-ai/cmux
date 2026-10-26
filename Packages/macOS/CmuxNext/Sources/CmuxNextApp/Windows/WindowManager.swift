@@ -308,6 +308,8 @@ final class WindowManager {
             placedWindows += 1
         }
         let controller = WindowController(state: state, services: services, frame: frame)
+        controller.focus.overlayChanges = services.overlayChanges
+        if let window = controller.window { WindowOverlayHost.host(for: window).changes = services.overlayChanges }
         controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
         SidebarTabRowHandoff.install(on: controller, session: services.dragSession)
