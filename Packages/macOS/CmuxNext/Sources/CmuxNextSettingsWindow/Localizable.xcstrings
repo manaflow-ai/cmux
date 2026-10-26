@@ -1,6 +1,138 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settingsPage.chiefPet.about.mochi": {
+      "comment": "Chief pet character Mochi (an animated mochi cat): one-line description.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An animated mochi cat that types, waves and cheers."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "قطة موتشي متحركة تكتب وتلوّح وتحتفل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animirana mochi mačka koja tipka, maše i slavi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En animeret mochi-kat, der skriver, vinker og jubler."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine animierte Mochi-Katze, die tippt, winkt und jubelt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un gato mochi animado que teclea, saluda y celebra."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un chat mochi animé qui tape, salue et applaudit."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un gatto mochi animato che digita, saluta ed esulta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "タイプして、手を振って、喜ぶ、動くもち猫。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឆ្មាម៉ូជិដែលមានចលនា វាយអក្សរ គ្រវីដៃ និងអបអរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "타이핑하고 손을 흔들고 환호하는 움직이는 모찌 고양이."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En animert mochi-katt som skriver, vinker og jubler."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animowany kot mochi, który pisze, macha i wiwatuje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um gato mochi animado que digita, acena e comemora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анимированный кот-моти, который печатает, машет и радуется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แมวโมจิเคลื่อนไหวได้ ที่พิมพ์ โบกมือ และเฉลิมฉลอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yazan, el sallayan ve sevinen hareketli bir mochi kedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анімований кіт-моті, який друкує, махає і радіє."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chú mèo mochi hoạt hình biết gõ phím, vẫy tay và reo mừng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "会打字、挥手和欢呼的动态麻薯猫。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "會打字、揮手和歡呼的動態麻糬貓。"
+          }
+        }
+      }
+    },
     "settingsWindow.agentIntegrations.checking": {
       "extractionState": "manual",
       "localizations": {

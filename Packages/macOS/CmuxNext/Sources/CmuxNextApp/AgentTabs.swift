@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFloating
 import CmuxNextHomeEngine
 import CmuxNextRemote
 import CmuxNextSettings
@@ -143,6 +144,8 @@ final class AgentTabStore {
     var remoteMachineName: @MainActor (DaemonService) -> String? = { _ in nil }
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
     var blankChatHandler: ((String) -> NewTabPageHandler?)?
+    /// Each agent session's own avatar (Set Avatar… in the chat's ⋯ menu).
+    var agentAvatars: AgentAvatars?
     /// Opens a redeemed Run attempt's terminal, owned by an enrolled worker daemon, in the tab's pane.
     var runAttach: (@MainActor (_ key: String, _ request: AgentPaneRunAttach) async throws -> Void)?
     /// The New Tab page a new workspace's first tab shows, starting in the given folder.
@@ -514,6 +517,7 @@ final class AgentTabStore {
         // React-only New Tab). Chat panes keep it.
         if model.newTab != nil { view.showsLoadingState = false }
         pageChats.seed(view)
+        wireAgentAvatars(model, view: view)
         model.onComposerSetting = { [weak pageSettings] path, show in try await pageSettings?.setComposer(path, show) }
         model.onDisplaySetting = { [weak pageSettings] path, value in try await pageSettings?.setDisplay(path, value) }
         customization.start()
