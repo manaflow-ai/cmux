@@ -222,9 +222,9 @@ class HealthTests(unittest.TestCase):
         since = cmh.iso(down / 1000)
         recent = cmh.iso(t0 - 60)
         self.assertEqual(h["problems"], [
-            {"check": "peer", "detail": f"peer link to cosmic-gray down since {since} (18h): {HANDSHAKE}", "since": since},
+            {"check": "peer", "detail": f"peer link to cosmic-gray down since {since} (18h): WebSocket handshake not finished", "since": since},
             {"check": "peer", "detail": f"peer link to air-blue down since {since} (18h): connection refused", "since": since},
-            {"check": "peer", "detail": f"peer link to big-red down since {recent} (60s): {HANDSHAKE}", "since": recent},
+            {"check": "peer", "detail": f"peer link to big-red down since {recent} (60s): WebSocket handshake not finished", "since": recent},
             {"check": "peer", "detail": "peer link to new-mini has not connected", "since": h["checkedAt"]},
         ])
         self.assertEqual([f["action"] for f in h["fixed"]], ["forced a reconnect of the peer link to cosmic-gray", "forced a reconnect of the peer link to air-blue"])
@@ -285,7 +285,7 @@ class HealthTests(unittest.TestCase):
         host.linger = ["leo"]
         host.peers = [{"name": "evil\x1b[2Jname", "connected": False, "downSince": "soon", "error": "handshake refused: Bearer abc at /home/leo/.ssh/id"}]
         h = run(host)
-        self.assertEqual(details(h), ["peer link to a peer with an unreadable name has not connected: handshake refused: Bearer ... at ~/.ssh/id"])
+        self.assertEqual(details(h), ["peer link to a peer with an unreadable name has not connected: WebSocket handshake not finished"])
         host.peers = [{"name": f"p{i}", "connected": False} for i in range(5000)]
         host.t += 3600
         h = run(host, {"expectedPeers": ["p4999", "absent"]})
@@ -377,8 +377,27 @@ class HealthTests(unittest.TestCase):
         out = json.dumps(run(host))
         for bad in ("rm -rf", "SECRET1", "SECRET2", "curl", "| sh"):
             self.assertNotIn(bad, out)
-        self.assertIn("peer link to a peer with an unreadable name has not connected: run --token ... now", out)
-        self.assertIn("peer link to ok-host has not connected: refused: cmux --api-key=...", out)
+        self.assertIn("peer link to a peer with an unreadable name has not connected: an error it did not name (acpmux host doctor shows it)", out)
+        self.assertIn("peer link to ok-host has not connected: connection refused", out)
+        host.peers = [{"name": "a", "connected": False, "error": "rm -rf /"}, {"name": "b", "connected": False, "error": "refused\nrm -rf /"}]
+        host.t += 60
+        self.assertNotIn("rm -rf", json.dumps(run(host)))
+
+    def test_redaction_stays_linear_on_hostile_text(self):
+        import time
+        for text in ("--" + "auth" * 500, "token=" * 400, "a" * 2000, "=:" * 1000, '"' * 2000):
+            t0 = time.monotonic()
+            cmh.clean(text)
+            self.assertLess(time.monotonic() - t0, 0.25, text[:20])
+
+    def test_a_reconnect_record_survives_the_next_pass_whatever_the_name(self):
+        for name in ("h" * 80, "x; rm -rf /"):
+            host = FakeHost()
+            host.linger = ["leo"]
+            host.peers = [{"name": name, "connected": False, "downSince": (host.t - 3600) * 1000, "error": "x"}]
+            first = run(host)["fixed"]
+            host.t += 60
+            self.assertEqual(run(host)["fixed"], first, name)
 
     def test_reconnect_limits_are_per_daemon_socket(self):
         host = FakeHost()

@@ -16,8 +16,8 @@ problems: what is wrong now and could not be fixed. fixed: the last 24 h of acti
   ram     MemAvailable stays above a floor. Reported only: kills are the cgroup limits' job.
   acpmux  For each user with lingering on: a failed acpmux*.service user unit is reset and
           started (at most once per 5 min).
-  peer    For each running daemon: every peer that is not connected is reported with its last
-          error and how long it has been down; one down 10 min gets one forced reconnect
+  peer    For each running daemon: every peer that is not connected is reported with a fixed
+          summary of its last error (PEER_ERRORS, never the daemon's words) and how long it has been down; one down 10 min gets one forced reconnect
           (_acpmux/peer_reconnect, what `acpmux host doctor NAME --fix` does) per 15 min. An
           expected peer (config expectedPeers) the daemon has no peer for is reported, never added:
           adding one needs a route and a token, the operator's or app's call.
@@ -63,7 +63,7 @@ FIXED_ACTIONS = re.compile("|".join([
     r"restarted tailscaled so it picks systemd-resolved",
     r"started disk hygiene \(\d+ of \d+ commands\)",
     r"reset and started [A-Za-z0-9@._:-]{1,100} for [a-z_][a-z0-9_-]{0,31}",
-    r"forced a reconnect of the peer link to [A-Za-z0-9._?-]{1,64}"
+    r"forced a reconnect of the peer link to ([A-Za-z0-9][A-Za-z0-9._-]{0,79}|a peer with an unreadable name)"
 ]))
 HOSTNAME = re.compile(r"(?=.{1,253}$)[A-Za-z0-9_]([A-Za-z0-9_-]{0,62})(\.[A-Za-z0-9_]([A-Za-z0-9_-]{0,62}))*\.?")
 ORDER = ["acpmux", "dns", "disk", "ram", "peer", "loop"]
@@ -100,19 +100,60 @@ def ago(seconds):
     return f"{s}s" if s < 120 else f"{s // 60}m" if s < 7200 else f"{s // 3600}h" if s < 172800 else f"{s // 86400}d"
 
 
+# A daemon's error text is never copied into the report: it becomes one of these fixed summaries
+# (first match wins, by substring of the lowercased text), or the fallback. `acpmux host doctor
+# NAME` shows the daemon's own text to whoever can reach the machine.
+PEER_ERRORS = (
+    (("handshake",), "WebSocket handshake not finished"),
+    (("refused",), "connection refused"),
+    (("timed out", "timeout", "deadline"), "timed out"),
+    (("host key", "known_hosts", "known hosts"), "ssh host key mismatch"),
+    (("permission denied", "unauthorized", "forbidden", "401", "403", "auth"), "authentication failed"),
+    (("resolve", "name or service", "dns", "no such host"), "name does not resolve"),
+    (("unreachable", "no route"), "host unreachable"),
+    (("reset",), "connection reset"),
+    (("closed", "eof", "broken pipe"), "connection closed"),
+    (("tls", "certificate", "ssl"), "TLS error"),
+    (("version", "protocol"), "protocol mismatch"),
+)
+
+
 def daemon_error(text):
-    """A daemon's error as the report keeps it: its first clause only, never a command after it
-    (`;`, `&&`, `||`, `|`, a backtick or `$(`), cleaned by clean() after."""
-    return re.split(r";|&&|\|\||\||`|\$\(", str(text)[:2000], maxsplit=1)[0].strip()
+    """A fixed summary of a daemon's error (PEER_ERRORS), or "" for none; never its own words."""
+    low = str(text or "")[:2000].lower()
+    if not low.strip():
+        return ""
+    return next((summary for needles, summary in PEER_ERRORS if any(n in low for n in needles)), "an error it did not name (acpmux host doctor shows it)")
+
+
+SECRET_WORDS = ("token", "key", "secret", "password", "passwd", "auth", "cookie", "credential")
+# key[=:]value: a bounded key and separator, then the value; scanned left to right so every
+# key is seen (a value may itself start a key), and matching stays linear.
+KEY_SEP = re.compile(r"""(--?)?([\w-]{1,64})(["']?[ \t]{0,4}[:=][ \t]{0,4}|[ \t]{1,4}(?=["'\w]))""")
+VALUE = re.compile(r""""(?:[^"\\\n]|\\.){0,512}"?|'(?:[^'\\\n]|\\.){0,512}'?|[^\s"',}&]{1,512}""")
+
+
+def redact_keys(text):
+    out, pos = [], 0
+    while (m := KEY_SEP.search(text, pos)):
+        flag, key, sep = m.groups()
+        secret = any(w in key.lower() for w in SECRET_WORDS) and (flag or any(c in sep for c in ":="))
+        value = VALUE.match(text, m.end()) if secret else None
+        if value:
+            out.append(text[pos:m.end()] + "...")
+            pos = value.end()
+        else:
+            out.append(text[pos:m.end()])
+            pos = m.end()
+    return "".join(out) + text[pos:]
 
 
 def clean(text, homes=()):
     """Short plain text: no control characters, hint tail, home paths or credentials."""
     text = re.sub(r"\x1b\[[0-9;?]*[ -/]*[@-~]|[\x00-\x1f\x7f]", " ", str(text)[:2000]).split("; `")[0]
-    text = re.sub(r"(?i)\b(bearer|basic)\s+\S+", r"\1 ...", text)
-    text = re.sub(r"(?i)(--?[\w-]*(?:token|key|secret|passw(?:or)?d|auth\w*|cookie|credential)[\w-]*)(\s+|=)\S+", r"\1\2...", text)
-    text = re.sub(r"(?i)([a-z]+://)[^\s/@]+@", r"\1...@", text)
-    text = re.sub(r"""(?i)([\w-]*(?:token|key|secret|passw(?:or)?d|auth\w*|cookie|credential)[\w-]*["']?\s*[:=]\s*)("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?|[^\s"',}&]+)""", r"\1...", text)
+    text = re.sub(r"(?i)\b(bearer|basic)[ \t]+\S{1,2000}", r"\1 ...", text)
+    text = re.sub(r"(?i)([a-z]{1,16}://)[^\s/@]{1,512}@", r"\1...@", text)
+    text = redact_keys(text)
     for home in sorted({h for h in homes if h and h != "/"}, key=len, reverse=True):
         text = text.replace(home, "~")
     return re.sub(r"/(home|Users|root)(/[^\s/]+)?", "~", text).strip()[:200]
@@ -448,6 +489,8 @@ class Pass:
             if peer.get("connected") is True:
                 continue
             raw = peer.get("name") if isinstance(peer.get("name"), str) and peer.get("name") else None
+            if self.left() < 3:
+                break  # the report is always written inside the pass budget
             # Only a well-formed peer name is shown; any other is a placeholder (its hash keys its limits).
             shown = raw if raw and PEER_NAME.fullmatch(raw) else "a peer with an unreadable name"
             name, err, down = shown, daemon_error(peer.get("error") or ""), peer.get("downSince")
