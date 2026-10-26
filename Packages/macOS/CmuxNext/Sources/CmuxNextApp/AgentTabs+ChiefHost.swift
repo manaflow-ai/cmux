@@ -67,7 +67,7 @@ struct ChiefHomeAcpmux {
     ///   - ownHost: the pane host of the Chief home's own acpmux (its environment) for a Chief
     ///     on the app's acpmux: the daemon its subagents ran on before the move.
     init(home: ChiefHome, local: any AgentPaneHostProviding, ensureHost: @escaping @Sendable () async -> Void,
-         startHost: @escaping @Sendable () async -> Bool = { false },
+         startHost: @escaping @Sendable () async -> Bool,
          ownHost: @escaping @Sendable (AcpmuxEnvironment?) -> any AgentPaneHostProviding = { AcpmuxHost(environment: $0) }) {
         let host = Self.host(muxHome: home.muxHome)
         self.host = host

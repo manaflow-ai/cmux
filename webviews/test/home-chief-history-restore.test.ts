@@ -83,7 +83,11 @@ const host = (all: () => Message[], during: (op: string) => Promise<void> = asyn
       return () => {};
     },
   };
-  return { client, reconnect: () => reconnect?.(), event: (messages: Message[]) => deliver?.({ conversations: [conversation(messages.at(-1)!.seq)], messages }) };
+  return {
+    client,
+    reconnect: () => reconnect?.(),
+    event: (messages: Message[]) => deliver?.({ conversations: [conversation(messages.at(-1)!.seq)], messages }),
+  };
 };
 
 const topLevel = (messages: readonly Message[]) => messages.filter((m) => !threadOf(m));
