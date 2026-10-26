@@ -77,6 +77,10 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     /// (`MainWorkScheduler.noteDiscreteInput(expectsFrame:)`); other events report nothing.
     var inputDispatch: InputDispatchContext?
 
+    /// Each window's continuous input, coalesced to its frame (`FrameInputCoalescer`). `sendEvent`
+    /// flushes it before every discrete event; owners that post get it by injection.
+    private(set) lazy var frameInput = FrameInputCoalescers()
+
     @objc(setHandlingSendEvent:)
     func setHandlingSendEvent(_ value: Bool) { handlingSendEvent = value }
 
@@ -97,6 +101,8 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         currentEventIsSynthetic = !SyntheticInput.isUserInput(event)
         defer { currentEventIsSynthetic = previousSynthetic }
         BenchSpans.measure("app.inputObserver") { inputObserver?(event) }
+        // Pending moves and scrolls run before a key or click is handled (Chromium's ShouldFlushQueue).
+        frameInput.willDispatch(event.type)
         let previous = handlingSendEvent
         handlingSendEvent = true
         defer { handlingSendEvent = previous }

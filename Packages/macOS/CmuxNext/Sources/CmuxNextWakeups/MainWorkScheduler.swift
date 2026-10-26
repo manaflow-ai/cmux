@@ -12,10 +12,17 @@ public import QuartzCore
 /// would otherwise roll it several times a frame). Its link exists only while one of its clients
 /// has work; an idle app has no frame wakeups from it.
 ///
+/// Main-thread work that is not a batch is posted in a class with an owner
+/// (``post(_:owner:file:line:_:)``, ``postFromAnyThread(_:owner:file:line:_:)``, ``apply(_:owner:file:line:_:)``,
+/// and ``BackgroundWork/Pending/reply(on:class:owner:file:line:_:)`` for off-main work whose result
+/// comes back): each class has one FIFO queue here, and the board names the posting site of the
+/// task it runs.
+///
 /// ```swift
 /// // The composition root:
 /// let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
 /// let requests = FrameBatchQueue(owner: "Control.frames", budgeted: .automation, on: mainWork)
+/// mainWork.post(.automation, owner: "browser-host.open") { host.open(url) }
 ///
 /// // A test drives the frames by hand:
 /// let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: clock.read)) { _ in FakeLink() }
@@ -25,12 +32,17 @@ public import QuartzCore
 public final class MainWorkScheduler {
     /// The per-frame budget every budgeted batch draws on.
     public let budget: MainFrameBudget
+    /// The budget's board, readable from any thread (``postFromAnyThread(_:owner:file:line:_:)``
+    /// interns owners on it off the main thread).
+    public nonisolated let board: MainTaskBoard
     /// The display-link scheduler the budgeted clients tick on (the main screen's); the daemon
     /// services' drains are frame clients on it, so they tick before the budgeted classes.
     public let frames: FrameScheduler
 
     /// Times the render pass after each frame's scheduled work while the link runs (nil in tests).
     private let renderPasses: RenderPassMeter?
+    /// The posted work's class queues (MainWorkScheduler+Post.swift).
+    var posting = Posting()
 
     /// - Parameter budget: The app's budget (the app: ``SessionInputPending`` input and signposts on).
     ///   The render pass (layout, display, the Core Animation commit) is timed on the main run loop
@@ -45,6 +57,7 @@ public final class MainWorkScheduler {
 
     private init(budget: MainFrameBudget, frames: FrameScheduler, renderPasses: RenderPassMeter?) {
         self.budget = budget
+        board = budget.board
         self.frames = frames
         self.renderPasses = renderPasses
         // The link's ticks own the budget's window while it exists; an idle app times no pass.
