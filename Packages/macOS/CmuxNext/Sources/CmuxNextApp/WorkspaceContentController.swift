@@ -76,6 +76,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// its observers and drops its views at destruction the same way, so no late callback finds a
     /// half-live tab (content/browser/web_contents/web_contents_impl.cc, ~WebContentsImpl).
     private(set) var isTornDown = false
+    /// Tab strip offsets a remount's record gave panes not mounted yet (`makeContentView` takes each).
+    private var pendingTabStrips: [LayoutPaneID: CGFloat] = [:]
 
     /// Parks this content before its window shows another workspace. Its attention rings draw
     /// nothing while parked, so it stops following them (a global change wakes no parked workspace),
@@ -136,7 +138,10 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     }
 
     /// `parked`: mounted beside the shown workspace (`sidebar.multiView`), so its first apply sends the window no topology.
-    init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState, parked: Bool = false) {
+    /// `record`: the offsets the workspace showed when its window last unmounted it (`viewRecord()`), in place before
+    /// the first frame commits.
+    init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState, parked: Bool = false,
+         restoring record: WorkspaceViewRecord? = nil) {
         self.workspace = workspace
         isParked = parked
         self.daemon = daemon
@@ -176,6 +181,35 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
         // Observation applies the first snapshot synchronously, including the empty-state view.
         observe()
+        if let record { restoreScroll(record) }
+    }
+
+    // MARK: View record (p07-memory-033)
+
+    /// The offsets this content's views show that nothing else keeps, for a remount after `teardown`:
+    /// where each scroll settles; a pane or screen not mounted yet keeps what its record gave it while
+    /// the layout still has it. The selected tabs and the focused pane stay in the window's memory.
+    func viewRecord() -> WorkspaceViewRecord {
+        var record = WorkspaceViewRecord(screens: layoutView.scrollRecords())
+        if !pendingTabStrips.isEmpty {
+            let live = Set(layoutModel.screens.flatMap(\.layout.panes))
+            for (id, offset) in pendingTabStrips where live.contains(id) { record.tabStrips[id] = offset }
+        }
+        for (id, controller) in panes {
+            if let offset = WorkspaceViewRecord.stripOffset(controller.view.stripView.restorableScrollOffset) { record.tabStrips[id] = offset }
+        }
+        record.screenBar = WorkspaceViewRecord.stripOffset(screenBar.view.restorableScrollOffset)
+        return record
+    }
+
+    /// The scrolls rest where the record says from the first layout at the window's size, which
+    /// runs before the first frame commits; a pane mounted later takes its strip's when it mounts.
+    private func restoreScroll(_ record: WorkspaceViewRecord) {
+        layoutView.restoreScroll(record.screens)
+        for (id, offset) in record.tabStrips {
+            if let controller = panes[id] { controller.view.stripView.restoreScrollOffset(offset) } else { pendingTabStrips[id] = offset }
+        }
+        if let offset = record.screenBar { screenBar.view.restoreScrollOffset(offset) }
     }
 
     /// Ends everything this content started, so it and its views, panes and strips free after
@@ -194,6 +228,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             panes.removeAll()
             services.paneMounts.changed() // as `releaseContentView`: a pane left, its readers look again
         }
+        pendingTabStrips.removeAll()
         contentView.removeFromSuperview()
     }
 
@@ -393,6 +428,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         controller.view.toolbar = PaneToolbar(pane: controller) // the tab bar's hover "…" and pinned buttons
         controller.view.swapDrag = PaneSwapDrag(pane: controller)
         panes[pane] = controller
+        if let offset = pendingTabStrips.removeValue(forKey: pane) { controller.view.stripView.restoreScrollOffset(offset) }
         services.themes.applyPaneBackground(controller) // its own background and tint, before the first frame
         services.paneMounts.changed()
         sendTopology()
