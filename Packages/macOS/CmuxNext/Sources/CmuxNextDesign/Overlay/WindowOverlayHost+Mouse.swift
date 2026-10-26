@@ -8,12 +8,14 @@ extension WindowOverlayHost {
     /// The panel takes the mouse only where an interactive overlay is. The
     /// window server picks a window before any app code sees a click, so the
     /// panel switches on mouse moves (and on every present, layout and
-    /// dismiss) for the point under the pointer.
+    /// dismiss) for the point under the pointer. In the window's top layer
+    /// the layer's hit test picks each click's view (``OverlayTopLayerView``).
     func updateMouseRouting() {
         if isAppHost {
             panel.ignoresMouseEvents = handles.isEmpty
             return
         }
+        guard usesPanel else { return updateTopLayerClickRouting() }
         let regions = interactiveRegions()
         guard !regions.isEmpty || showsAgentCursorTags else {
             panel.ignoresMouseEvents = true
@@ -32,12 +34,26 @@ extension WindowOverlayHost {
         }
     }
 
-    /// One pointer event seen by `mouseRouting`: a click may give the panel the keyboard; a move, a
+    /// The window's top layer needs no pointer routing: an observer of clicks only, while a modal shows,
+    /// so a click into a tab dialog gives it the keyboard back (``clickDidLand(in:at:)``).
+    private func updateTopLayerClickRouting() {
+        guard handles.contains(where: { $0.options.isModal }) else {
+            mouseRouting = nil
+            return
+        }
+        guard mouseRouting == nil, let tap = requiredInputTap(inputTap, owner: "WindowOverlayHost.topLayerClicks") else { return }
+        mouseRouting = tap.subscribe(class: .button, while: { [weak self] in self?.isTopLayerInWindow == true }) { [weak self] event in
+            self?.routingEvent(event)
+        }
+    }
+
+    /// One pointer event seen by `mouseRouting`: a click may give the overlay the keyboard; a move, a
     /// drag or a tracking-area enter or exit routes the mouse (button ups pass by).
     func routingEvent(_ event: NSEvent) {
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
-            clickDidLand(in: event.window, at: event.window === panel ? event.locationInWindow : .zero)
+            let inOverlays = event.window != nil && event.window === overlayWindow
+            clickDidLand(in: event.window, at: inOverlays ? topLayer.convert(event.locationInWindow, from: nil) : .zero)
         case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .mouseEntered, .mouseExited:
             routePointerEvent(event)
         default:
@@ -62,7 +78,7 @@ extension WindowOverlayHost {
         let point = panelPoint(of: pointerLocation())
         routeClicks(at: point)
         // No tag shows in the panel: nothing to hover.
-        guard agentCursorCarrier?.window === panel else { return }
+        guard let carrierWindow = agentCursorCarrier?.window, carrierWindow === madePanel else { return }
         if let moves = tagHoverConsumer(), moves.post(event) { return }
         hoverAgentCursorTagNow(at: point)
     }
@@ -116,17 +132,26 @@ extension WindowOverlayHost {
     /// A tab dialog takes the keyboard when a click lands on it; a click
     /// anywhere else leaves the keyboard where that click puts it.
     func wantsKey(forClickIn clicked: NSWindow?, at point: NSPoint) -> Bool {
-        guard clicked === panel else { return false }
-        let bounds = panel.overlayContainer.bounds
+        guard let clicked, clicked === overlayWindow else { return false }
+        let bounds = topLayer.overlayContainer.bounds
         return handles.contains { $0.options.isModal && ($0.options.modalRegion ?? bounds).contains(point) }
     }
 
     func clickDidLand(in clicked: NSWindow?, at point: NSPoint) {
-        guard wantsKey(forClickIn: clicked, at: point), !panel.isKeyWindow else { return }
-        panel.makeKey()
-        if let top = handles.last(where: { $0.options.isModal }), !(panel.firstResponder is NSText) {
-            panel.makeFirstResponder(Self.keyViews(in: top.content).first ?? top.content)
+        guard wantsKey(forClickIn: clicked, at: point), let overlayWindow,
+              let top = handles.last(where: { $0.options.isModal }) else { return }
+        let first = Self.keyViews(in: top.content).first ?? top.content
+        guard usesPanel else {
+            // In the window's top layer: the dialog takes the window's keyboard back unless it has it. A text
+            // field the click lands on takes it from the first control after this observer.
+            if !((overlayWindow.firstResponder as? NSView)?.isDescendant(of: topLayer) ?? false) {
+                overlayWindow.makeFirstResponder(first)
+            }
+            return
         }
+        guard !overlayWindow.isKeyWindow else { return }
+        overlayWindow.makeKey()
+        if !(overlayWindow.firstResponder is NSText) { overlayWindow.makeFirstResponder(first) }
     }
 
     /// A mouse event reached the panel. A move updates the routing; a click

@@ -3,7 +3,17 @@ public import CmuxNextDesignTokens
 public import CmuxNextInput
 import CmuxNextWakeups
 
-/// The one place app overlays draw above Chromium pages.
+/// The one place app overlays draw above a window's content and its Chromium pages.
+///
+/// Overlays (tooltips, popovers, toasts, menus, drag ghosts, dialogs, the agent
+/// cursor) live in one view, ``topLayer`` (``OverlayTopLayerView``). With the
+/// feature `overlayTopLayer` (``OverlayTopLayerHosting``) and no page child
+/// window showing, that view is the window's top layer: the last subview of
+/// its content view, as Blink's top layer paints above the rest of the
+/// document (`third_party/blink/renderer/core/dom/document.cc`,
+/// `Document::AddToTopLayer`). No panel exists then and no child window is
+/// re-ordered: a Chromium page attached as a view (p03-rendering-045) is below
+/// it in the same view tree. What follows is the fallback for page child windows.
 ///
 /// Each Chromium page is a child window of the main window, and the CEF fork
 /// re-adds it above every other child each time it shows or moves to
@@ -26,7 +36,16 @@ import CmuxNextWakeups
 public final class WindowOverlayHost {
     /// The parent window; nil for the app host.
     public private(set) weak var window: NSWindow?
-    public let panel: OverlayHostPanel
+    /// The view every presented overlay lives in: in the window (``isTopLayerInWindow``) or in the panel.
+    public let topLayer: OverlayTopLayerView
+    /// The overlay child panel, made on first use: always for the app host and with the feature off, else
+    /// only while page child windows show (``planesWantPanel``).
+    public var panel: OverlayHostPanel { madePanel ?? makePanel() }
+    /// The panel if one was made (never makes one).
+    public private(set) var madePanel: OverlayHostPanel?
+    /// Overlays draw in the window's own top layer while no page child window shows (feature
+    /// `overlayTopLayer`, read from the window when the host is made).
+    let prefersWindowTopLayer: Bool
     let isAppHost: Bool
     var handles: [OverlayHandle] = []
     /// Dialogs still fading out after their removal: the panel stays until they finish.
@@ -43,7 +62,7 @@ public final class WindowOverlayHost {
         didSet {
             if mouseRouting == nil { stopTagHoverMoves() }
             // While the tap routes the mouse it hovers the carrier's tags in the panel: one hover path.
-            agentCursorCarrier?.routedPanel = mouseRouting == nil ? nil : panel
+            agentCursorCarrier?.routedPanel = mouseRouting == nil || !usesPanel ? nil : madePanel
         }
     }
     /// The windows' frame-aligned pointer input (feature `pointerFrameHover`, p04-input-036): the agent cursor's
@@ -55,7 +74,7 @@ public final class WindowOverlayHost {
             guard hoverFrames !== oldValue else { return }
             stopTagHoverMoves()
             agentCursorCarrier?.hoverMoves.frames = hoverFrames
-            panel.hoverFrameInput = hoverFrames
+            madePanel?.hoverFrameInput = hoverFrames
         }
     }
     /// The tag hover's consumer on the window's coalescer, made on the first move while ``mouseRouting`` holds.
@@ -126,23 +145,47 @@ public final class WindowOverlayHost {
     init(window: NSWindow?) {
         self.window = window
         isAppHost = window == nil
+        topLayer = OverlayTopLayerView(frame: .zero)
+        prefersWindowTopLayer = (window as? OverlayTopLayerHosting)?.overlaysInTopLayer == true
         inputTap = Self.appInputTap
-        panel = OverlayHostPanel()
+        hoverFrames = (window as? HoverFrameInputHosting)?.hoverFrameInput
+        for container in [topLayer.paneContainer, topLayer.windowContainer, topLayer.modalContainer] {
+            container.onLayout = { [weak self] in self?.containerDidLayout() }
+        }
+        topLayer.acceptsMouse = { [weak self] point in self?.acceptsMouse(at: point) ?? false }
+        topLayer.onCancel = { [weak self] in self?.escape() }
+        topLayer.onCycleKeyView = { [weak self] forward in self?.cycleKeyView(forward: forward) ?? false }
+        topLayer.onResize = { [weak self] in self?.topLayerDidResize() }
+        if isAppHost || !prefersWindowTopLayer { mountTopLayer(in: panel) }
+    }
+
+    /// The panel, made once: the top layer's fallback home above page child windows.
+    private func makePanel() -> OverlayHostPanel {
+        let panel = OverlayHostPanel(topLayer: topLayer)
+        madePanel = panel
         panel.onCancel = { [weak self] in self?.escape() }
         panel.onCycleKeyView = { [weak self] forward in self?.cycleKeyView(forward: forward) ?? false }
         panel.onMouseEvent = { [weak self] event in self?.panelMouseEvent(event) ?? false }
-        hoverFrames = (window as? HoverFrameInputHosting)?.hoverFrameInput
         panel.hoverFrameInput = hoverFrames
-        for container in [panel.paneContainer, panel.windowContainer, panel.modalContainer] {
-            container.onLayout = { [weak self] in self?.containerDidLayout() }
-        }
+        // Tab and Shift-Tab cycle through a modal overlay's controls only (``beginModal(_:)``).
+        panel.autorecalculatesKeyViewLoop = false
         if isAppHost {
             // Above the app's own windows while cmux is active; hidden while
             // another app is active, so it never covers other apps.
             panel.level = .modalPanel
             panel.hidesOnDeactivate = true
         }
+        return panel
     }
+
+    /// Whether overlays draw in the panel now: the app host, the feature off, or page child windows show.
+    var usesPanel: Bool { isAppHost || !prefersWindowTopLayer || planesWantPanel }
+
+    /// Whether the top layer is in the window itself now (no panel in between).
+    public var isTopLayerInWindow: Bool { !usesPanel && window != nil && topLayer.window === window }
+
+    /// The window the overlays draw in now (the panel, the main window, or nil while none shows).
+    var overlayWindow: NSWindow? { topLayer.window }
 
     /// The host of `window`, made on first use; it goes away with the window.
     public static func host(for window: NSWindow) -> WindowOverlayHost {
@@ -177,7 +220,7 @@ public final class WindowOverlayHost {
 
     /// `window`'s children changed (a page window was added or re-added):
     /// the panel goes back above every page window before the window
-    /// server composites a frame.
+    /// server composites a frame. Nothing runs while no panel is attached.
     public static func childWindowsDidChange(of window: NSWindow) {
         existingHost(for: window)?.reassertOrder()
     }
@@ -216,8 +259,11 @@ public final class WindowOverlayHost {
         syncPanel()
     }
 
-    /// Whether the panel is attached to the window now.
-    public var isPanelAttached: Bool { isAppHost ? panel.isVisible : panel.parent === window && window != nil }
+    /// Whether the panel is attached to the window now (never makes one).
+    public var isPanelAttached: Bool {
+        guard let madePanel else { return false }
+        return isAppHost ? madePanel.isVisible : madePanel.parent === window && window != nil
+    }
 
     func tearDown() {
         isTearingDown = true
@@ -230,43 +276,100 @@ public final class WindowOverlayHost {
         keyObserver = nil
         stopObservingWindow()
         removeAgentCursor()
+        if topLayer.window === window { topLayer.removeFromSuperview() }
         if let window {
-            if panel.parent === window { window.removeChildWindow(panel) }
+            if let madePanel, madePanel.parent === window { window.removeChildWindow(madePanel) }
             Self.hosts[ObjectIdentifier(window)] = nil
         }
-        panel.orderOut(nil)
+        madePanel?.orderOut(nil)
     }
 
     // MARK: Attach and order
 
-    /// Attaches the panel while something needs it, detaches it otherwise.
+    /// Puts the top layer where overlays draw now: in the panel, attached while something needs it, or in
+    /// the window's content view while an overlay or the agent cursor shows. The panel and its observers go
+    /// while the top layer is in the window.
     func syncPanel() {
         if isAppHost { return syncAppPanel() }
         guard let window else { return }
         let wanted = planesWantPanel || !handles.isEmpty || fadingOut > 0
-        if wanted {
-            if panel.frame != window.frame { panel.setFrame(window.frame, display: false) }
-            if panel.parent !== window {
-                window.themeScope.adopt(panel)
-                window.addChildWindow(panel, ordered: .above)
-                observeWindow(window)
-            }
-            reassertOrder()
-        } else if panel.parent === window {
-            window.removeChildWindow(panel)
-            panel.orderOut(nil)
-            stopObservingWindow()
+        let windowBefore = overlayWindow
+        if usesPanel {
+            mountTopLayer(in: panel)
+            if wanted { attachPanel(to: window) } else { detachPanel() }
+        } else {
+            detachPanel()
+            mountTopLayer(inWindowContent: wanted || agentCursorCarrier != nil ? window.contentView : nil)
         }
+        if overlayWindow !== windowBefore { topLayerDidChangeWindow() }
         placeAgentCursor()
         onPanelChange?()
+    }
+
+    private func attachPanel(to window: NSWindow) {
+        if panel.frame != window.frame { panel.setFrame(window.frame, display: false) }
+        if panel.parent !== window {
+            window.themeScope.adopt(panel)
+            window.addChildWindow(panel, ordered: .above)
+            observeWindow(window)
+        }
+        reassertOrder()
+    }
+
+    private func detachPanel() {
+        guard let madePanel, let window, madePanel.parent === window else { return }
+        window.removeChildWindow(madePanel)
+        madePanel.orderOut(nil)
+        stopObservingWindow()
+    }
+
+    /// The top layer fills `panel`'s content (window coordinates: the panel has the window's frame).
+    private func mountTopLayer(in panel: OverlayHostPanel) {
+        guard let root = panel.contentView, topLayer.superview !== root else { return }
+        topLayer.frame = root.bounds
+        root.addSubview(topLayer)
+    }
+
+    /// The top layer becomes the last subview of the window's content view, or leaves it (nil).
+    private func mountTopLayer(inWindowContent content: NSView?) {
+        guard let content else {
+            if let window, topLayer.window === window { topLayer.removeFromSuperview() }
+            return
+        }
+        if topLayer.frame != content.bounds { topLayer.frame = content.bounds }
+        if topLayer.superview !== content || content.subviews.last !== topLayer {
+            content.addSubview(topLayer, positioned: .above, relativeTo: nil)
+        }
+    }
+
+    /// The top layer moved between the panel and the window: the mouse routing follows its new home, and a
+    /// modal's keyboard (lost when its view left a window) goes to the newest modal in the new one.
+    private func topLayerDidChangeWindow() {
+        mouseRouting = nil
+        cachedRegions = nil
+        let top = handles.last { $0.options.isModal }
+        madePanel?.acceptsKey = top != nil && usesPanel
+        // A modal that already took the keyboard (``beginModal(_:)`` ran) takes it again in its new window.
+        if let top, overlayWindow != nil, keyObserver != nil { giveKeyboard(to: top) }
+        updateMouseRouting()
+    }
+
+    /// The window resized the top layer while it is in the window: the overlays follow, as the panel's do
+    /// on the window's resize notification.
+    private func topLayerDidResize() {
+        guard isTopLayerInWindow else { return }
+        handles.forEach(layout)
+        updateMouseRouting()
+        placeAgentCursor()
     }
 
     /// Child order, bottom to top: page windows, this panel, then app panels
     /// at the panel's level that are not on the host yet. `order(_:relativeTo:)`
     /// has no effect on child windows, so reordering re-adds them.
     public func reassertOrder() {
-        // Re-adding windows below calls back here (the window's addChildWindow override).
-        guard !isReordering, let window, panel.parent === window else { return }
+        // Re-adding windows below calls back here (the window's addChildWindow override). No panel attached
+        // (the top layer is in the window, or nothing shows): nothing to order.
+        guard !isReordering, let window, let panel = madePanel, panel.parent === window else { return }
         isReordering = true
         defer { isReordering = false }
         // AppKit places its own children (the full screen titlebar); they are never re-added.
@@ -292,7 +395,7 @@ public final class WindowOverlayHost {
         guard let window else { return true }
         let children = window.childWindows ?? []
         guard let last = children.lastIndex(where: { Self.isPageWindow($0) && $0.isVisible }) else { return true }
-        guard let index = children.firstIndex(where: { $0 === panel }) else { return false }
+        guard let index = children.firstIndex(where: { $0 === madePanel }) else { return false }
         return index > last
     }
 
@@ -343,7 +446,7 @@ public final class WindowOverlayHost {
     }
 
     private func windowGeometryDidChange() {
-        guard let window, panel.parent === window else { return }
+        guard let window, let panel = madePanel, panel.parent === window else { return }
         if panel.frame != window.frame { panel.setFrame(window.frame, display: false) }
         handles.forEach(layout)
         updateMouseRouting()
@@ -352,7 +455,7 @@ public final class WindowOverlayHost {
 
     private func syncAppPanel() {
         if handles.isEmpty, fadingOut == 0 {
-            panel.orderOut(nil)
+            madePanel?.orderOut(nil)
         } else {
             layoutAppPanel()
             panel.orderFrontRegardless()

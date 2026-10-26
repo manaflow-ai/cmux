@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextInput
 import CmuxNextWakeups
 
@@ -71,4 +72,23 @@ extension ShellWindow {
 /// coalescers (feature `pointerFrameHover`), read when they join the window.
 extension ShellWindow: HoverFrameInputHosting {
     var hoverFrameInput: FrameInputCoalescers? { (windowController as? WindowController)?.services.hoverFrameInput }
+}
+
+/// Overlays draw in the window's own top layer while no page child window shows (feature `overlayTopLayer`,
+/// p03-rendering-052), read when the overlay host is made. A modal there keeps the keys it had in the panel:
+/// the window routes keys as a panel over itself while ``overlayHasKeyboard`` holds (`KeyRouter.focus(for:)`),
+/// and a field editor's Tab cycles inside the modal.
+extension ShellWindow: OverlayTopLayerHosting {
+    var overlaysInTopLayer: Bool { (windowController as? WindowController)?.services.features.isEnabled(.overlayTopLayer) == true }
+
+    /// An overlay control of the top layer has the keyboard: no content shortcut runs below it.
+    var overlayHasKeyboard: Bool { WindowOverlayHost.existingHost(for: self)?.keyboardIsInWindowTopLayer == true }
+
+    override func selectNextKeyView(_ sender: Any?) {
+        if WindowOverlayHost.existingHost(for: self)?.cycleKeyViewInWindowTopLayer(forward: true) != true { super.selectNextKeyView(sender) }
+    }
+
+    override func selectPreviousKeyView(_ sender: Any?) {
+        if WindowOverlayHost.existingHost(for: self)?.cycleKeyViewInWindowTopLayer(forward: false) != true { super.selectPreviousKeyView(sender) }
+    }
 }
