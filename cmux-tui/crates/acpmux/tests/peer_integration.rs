@@ -327,6 +327,53 @@ async fn a_persons_prompt_through_a_peer_is_recorded_as_theirs_on_the_owning_dae
     assert_eq!(message.pointer("/_meta/provenance"), Some(&stamped), "{message}");
 }
 
+/// A teammate's prompt queued through a peer is listed with its author on the peer's session list
+/// too (the summary passes as B lists it; only its `prompt` is masked), so a pane on A that opens
+/// the chat cold knows the row is hers.
+#[tokio::test]
+async fn a_peer_lists_a_persons_queued_prompt_with_its_author() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "qauthor").await;
+    let mut cb = client(b.clone()).await;
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "shared"}}})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let hang = json!({"sessionId": id, "prompt": [{"type": "text", "text": "hang"}],
+                      "_meta": {"acpmux": {"promptId": "p-hang"}}});
+    cb.tx.send(Message::request(900, method::SESSION_PROMPT, hang).to_line()).await.unwrap();
+    cb.wait("_acpmux/prompt_accepted", |p| p["promptId"] == "p-hang").await;
+    cb.call(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
+
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let ana = json!({"id": "tailnet:ana@example.com", "name": "Ana", "node": "ana-mbp"});
+    let sent = json!({"sessionId": "b/shared", "prompt": [{"type": "text", "text": "from ana"}],
+                      "_meta": {"acpmux": {"promptId": "from-ana", "author": ana}}});
+    ca.tx.send(Message::request(901, method::SESSION_PROMPT, sent).to_line()).await.unwrap();
+    cb.wait(method::MUX_SESSION_CHANGED, |p| p["kind"] == "queue" && p["recordKind"] == "queued")
+        .await;
+
+    let listed = ca.call(method::MUX_SESSIONS, json!({})).await.unwrap();
+    let on_a = listed["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["name"] == "b/shared")
+        .cloned()
+        .unwrap();
+    assert_eq!(on_a["queue"][0]["promptId"], "from-ana", "{on_a}");
+    assert_eq!(on_a["queue"][0]["prompt"], "from ana", "{on_a}");
+    assert_eq!(
+        on_a["queue"][0]["author"],
+        json!({"id": "tailnet:ana@example.com", "name": "Ana"}),
+        "{on_a}"
+    );
+    let cancel = Message::notification(method::SESSION_CANCEL, json!({"sessionId": id}));
+    cb.tx.send(cancel.to_line()).await.unwrap();
+}
+
 /// Chat presence is this daemon's own (`hub/presence.rs`): a peer's link carries all of that
 /// daemon's clients, so it stands for none of them. A's client attached to B's chat gets no
 /// participants, B records no one for the link (its visible attach included), and typing or an

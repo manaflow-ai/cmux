@@ -10,7 +10,8 @@
 //! - The person's own prompt into a chat resumes that chat's pairs too ([`person_prompt`]).
 //!
 //! And `_acpmux/retry {sessionId, subagentId?}` ([`retry`]): the chat's failed last turn, retried
-//! now (`hub/auto_resume/retry_turn.rs`). It may reach a peer's chat (`peer_forward.rs`).
+//! now (`hub/auto_resume/retry_turn.rs`), or with `subagentId` that failed subagent, resumed now
+//! (`hub/subagent_retry_manual.rs`). It may reach a peer's chat (`peer_forward.rs`).
 
 use super::{Conn, Origin, session_key, str_param};
 use crate::hub::{Hub, Session};
@@ -52,7 +53,7 @@ pub(super) async fn handle(
 }
 
 /// `_acpmux/retry`: under the caller's rules, as a prompt it sent (its control, the trust gate
-/// and a paired machine's Full access). With `subagentId`, refused until subagents retry.
+/// and a paired machine's Full access). With `subagentId`, that failed subagent is resumed.
 async fn retry(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value, RpcError> {
     let s = hub.resolve(session_key(params)?)?;
     // A retry reads the failed turn's log, and its held prompts come back with the logs.
