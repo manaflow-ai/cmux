@@ -167,7 +167,6 @@ import Testing
         weak var runtime: CEFRuntime?
         var tab: CEFTab?
         var parked: [Int32] = []
-        var sentBeforeRelease = 0
         do {
             let rig = try Rig(forkAPI: 24)
             runtime = rig.runtime
@@ -176,7 +175,6 @@ import Testing
             // of its batch, with the rest still to send.
             await rig.settle()
             parked = Spy.unanswered
-            sentBeforeRelease = Spy.devToolsCalls.count
             rig.close()
         }
         try #require(!parked.isEmpty, "no DevTools call is parked, so the rest of this proves nothing")
@@ -198,10 +196,17 @@ import Testing
             await Task.yield()
         }
 
-        #expect(Spy.devToolsCalls.count > sentBeforeRelease,
-                "no call was sent after the runtime's last owner went: \(Spy.devToolsCalls)")
-        #expect(Spy.devToolsCalls.contains("Runtime.addBinding"),
-                "the media batch stopped before its bindings: \(Spy.devToolsCalls)")
+        // Reaching here is the assertion. The failure this guards is a trap in
+        // `swift_abortRetainUnowned`, which aborts the whole process, so before the fix this test
+        // cannot fail an expectation -- it takes the test helper down with it (the run that proved
+        // it exited 1 on signal 6 with `closure #1 in CEFMediaBridge.run` in frame 6, where the
+        // same suite with the fix exits 0). The `#require` above is what makes that meaningful: it
+        // proves a batch really was mid-flight when the runtime's last owner went.
+        //
+        // Nothing is asserted about `Spy`'s contents on purpose. It is static and this suite is
+        // only `.serialized`, so an unstructured bridge task from an earlier test can still append
+        // to it after `Spy.reset`; a count or a method name read from it would make this test's
+        // verdict depend on what ran before it.
         withExtendedLifetime(tab) {}
     }
 
