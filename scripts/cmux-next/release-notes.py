@@ -63,17 +63,18 @@ INTERNAL_TYPES = {"ci", "test", "tests", "refactor", "docs", "doc", "chore", "st
 INTERNAL_SCOPES = {"ci", "nightly", "fleet", "release", "build", "tests", "test", "gallery", "crash", "lint", "docs",
                    "feat-cmux-next", "browser-parity", "first-party-apps", "browser-automation", "automation", "daemon",
                    "protocol", "sdk", "cmux-tui", "app-ffi", "backend", "nightly-next", "e2e", "harness", "deps",
-                   "cmux-git", "cmux-tui-core"}
+                   "cmux-git", "cmux-tui-core", "changelog", "release-notes", "appcast"}
 # Subject words that mark internal work even without a type.
 INTERNAL_WORDS = re.compile(
     r"\b(red|unit tests?|tests?|godfile|crash ratchet|baseline|index_subscript|int_conversion|lint|repin|re-pin|pin|"
-    r"canary|fleet|review findings|move-only|ci|testbox|bisect|fixture|snapshot tests?|tree key|r2|ffi pin|budget|"
+    r"canary|fleet|review findings|move-only|ci|testbox|bisect|fixtures?|snapshot tests?|tree key|r2|ffi pin|budget|"
     r"isolated|wiring|socket|daemon|capabilit\w*|struct|type|owner|protocol|schema|sdk|refactor|smoke|acpmux|optchat-chief|"
     r"e2e|gallery|release notes?|publish\w*|pipeline|workflow|telemetry|crash reporting|exception reporting|benchmark|"
     r"frame budget|osc \d+|terminal host|seed|record\w*|nightly|headless|ffi|rust|regenerate|decode|renderer|texture|"
     r"machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|"
     r"boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|"
-    r"consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?|byte limit)\b", re.I | re.A)
+    r"consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?|byte limit|"
+    r"changelog|appcast\w*|validators?|release[- ](?:headings?|notary))\b", re.I | re.A)
 # Product names whose casing is not code ("MacOS": a title capitalized before LEADING_BRAND).
 BRANDS = re.compile(r"\b(?:[Mm]acOS|[Ii]OS|[Ii]PadOS|[Ii]Cloud|[Ii]Phone|[Ii]Pad|GitHub|YouTube|SwiftUI|WebKit|JavaScript|TypeScript|ChatGPT|OpenAI)\b")
 # Code-looking subjects (dotted names, snake_case, versioned ids, bead ids, backticks) are internal.
@@ -86,6 +87,20 @@ PR_NUMBER = re.compile(r"(?<!\S)#(?:N|\d{3,})(?![\w-])", re.A)
 SQUASH_REPAIR = re.compile(r"\bsquash(?:ed)? (?:merge|commit)\b|\bsquash$", re.I | re.A)
 CONVENTIONAL = re.compile(r"^(?P<type>[A-Za-z-]+)(?:\((?P<scope>[^)]*)\))?!?:\s*(?P<rest>.+)$")
 AREA_PREFIX = re.compile(r"^(cmux-next(?: \w+){0,2}|cmuxnext|cmux next|acpmux|apps?|browser|gallery|release notes?|cx-[\w.]+|feed [\d.]+|cmux-tui)\s*:\s*", re.I)
+# Files no user runs: CI, scripts, tests, docs, plans, release notes and their checker, galleries. A
+# commit that touches only these is internal whatever its subject says (nightly 4037632091801 read
+# "Fixed: validate release headings within their day", #25533: notesCheck.ts and its test).
+TOOLING_PATHS = re.compile(
+    r"^(?:\.github/|scripts/|tests/|tests_v2/|docs/|plans/|design/|release-notes/|webviews/test/|webviews/bench/"
+    r"|webviews/scripts/)|/Tests/|(?:^|/)(?:AGENTS|CLAUDE|README|STYLE|PLAN|TODO)\.md$|^[^/]+\.md$"
+    r"|\.(?:test|spec|gallery)\.[cm]?[jt]sx?$|^webviews/src/pages/changelog/notesCheck\.ts$")
+
+
+def tooling_only(paths):
+    """True when a commit touches at least one file and every one is CI or tooling (TOOLING_PATHS)."""
+    return bool(paths) and all(TOOLING_PATHS.search(path) for path in paths)
+
+
 # "area words: rest" after the conventional type: "cmux NEXT perf-split: review: …", "cmux-next strip: …".
 LABEL = re.compile(r"^(?P<area>[A-Za-z][\w-]*(?: [A-Za-z][\w-]*){0,2})(?:\((?P<scope>[^)]*)\))?!?:\s+(?P<rest>\S.*)$")
 # Work streams that measure or check the app (perf-split, perf-gate, motion-record, strip-scroll-check).
@@ -195,8 +210,8 @@ def summary_text(lines):
 
 
 def commit_subjects(since, head):
-    span = rev_range(since, head)
-    return [line for line in git("log", "--no-merges", "--format=%s", span).splitlines() if line.strip()][:MAX_CHANGES]
+    """The span's subjects for the summary, newest first: a tooling-only commit is left out."""
+    return [subject for subject, _, paths in span_commits(since, head) if not tooling_only(paths)]
 
 
 def git(*args):
@@ -349,10 +364,11 @@ def find_pr_media(highlight, path, head):
         return
 
 
-def change_item(subject, author):
+def change_item(subject, author, paths=()):
     """One structured change (UPDATE-CARD "What's changed"): the subject's
-    title without its "(#1234)" suffix, the commit author, the PR number."""
-    item = {"title": subject.strip(), "author": author.strip() or None}
+    title without its "(#1234)" suffix, the commit author, the PR number, and
+    "internal": true when every file it touches is CI or tooling (tooling_only)."""
+    item = {"title": subject.strip(), "author": author.strip() or None, "internal": tooling_only(paths) or None}
     match = PR_SUFFIX.match(subject)
     if match and match["title"].strip():
         item["title"], item["pr"] = match["title"].strip(), int(match["pr"])
@@ -444,9 +460,20 @@ def write_community_summary(digest, args):
 
 def commits_with_authors(since, head, limit=MAX_CHANGES):
     """(subject, author) of each non-merge commit in the span, newest first, at most `limit` (None: all)."""
-    span = rev_range(since, head)
-    commits = [line.split("\x1f", 1) for line in git("log", "--no-merges", "--format=%s%x1f%an", span).splitlines() if line.strip()]
-    return [(c[0], c[1] if len(c) > 1 else "") for c in commits if c[0].strip()][:limit]
+    return [(subject, author) for subject, author, _ in span_commits(since, head, limit)]
+
+
+def span_commits(since, head, limit=MAX_CHANGES):
+    """(subject, author, paths) of each non-merge commit in the span, newest first, at most `limit`
+    (None: all). `paths` are the files the commit touches (none for an empty commit)."""
+    out = []
+    log = git("log", "--no-merges", "--name-only", "--format=%x1e%s%x1f%an", rev_range(since, head))
+    for record in log.split("\x1e")[1:]:
+        head_line, _, files = record.partition("\n")
+        subject, _, author = head_line.partition("\x1f")
+        if subject.strip():
+            out.append((subject, author, [f for f in files.splitlines() if f.strip()]))
+    return out[:limit]
 
 
 def pr_lines(items, repo, limit=PR_LIMIT):
@@ -481,9 +508,11 @@ def prs(args):
 
 def build(args):
     span = rev_range(args.since, args.head)
-    commits = commits_with_authors(args.since, args.head)
-    changes = [subject for subject, _ in commits]
-    items = [change_item(subject, author) for subject, author in commits]
+    commits = span_commits(args.since, args.head)
+    changes = [subject for subject, _, _ in commits]
+    items = [change_item(subject, author, paths) for subject, author, paths in commits]
+    # The summary (and the What's New digest made from it) never names a tooling-only commit.
+    user_changes = [subject for subject, _, paths in commits if not tooling_only(paths)]
     added = git("log", "--diff-filter=A", "--name-only", "--format=", span, "--", HIGHLIGHTS).split()
     highlights = []
     deadline = time.monotonic() + PR_MEDIA_BUDGET
@@ -499,7 +528,7 @@ def build(args):
     # "head": the commit these notes end at; the next build's span starts there (`since`), so a
     # build whose notes never published loses no change to the build after it.
     notes = {"version": 1, "build": args.build, "shortVersion": args.short, "date": args.date, "head": args.head,
-             "highlights": highlights, "changes": changes, "items": items, "summary": summarize_changes(changes)}
+             "highlights": highlights, "changes": changes, "items": items, "summary": summarize_changes(user_changes)}
     digest = whats_new_digest(args, again)
     if digest is None:
         digest = summary_whats_new_digest(args, notes["summary"])

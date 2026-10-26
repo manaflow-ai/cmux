@@ -76,6 +76,9 @@ export interface ChangeItem {
   title: string;
   author?: string;
   pr?: number;
+  /** Every file the commit touches is CI or tooling (release-notes.py tooling_only): internal
+      whatever its subject says. Absent in notes published before the flag. */
+  internal?: boolean;
 }
 
 export interface ReleaseNotes {
