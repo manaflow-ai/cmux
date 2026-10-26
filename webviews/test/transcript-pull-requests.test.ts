@@ -7,7 +7,10 @@
 // Inspector, the agent's replies.
 import { expect, test } from "bun:test";
 import { sessionPullRequests, sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
-import { transcriptPullRequests } from "../src/agent-session/acpmux/summary/transcriptPullRequests";
+import {
+  transcriptPullRequestKey,
+  transcriptPullRequests,
+} from "../src/agent-session/acpmux/summary/transcriptPullRequests";
 import { activity, assistant, tool } from "../src/gallery/fixtures/acpmux";
 
 const shell = (command: string, output = "", exitCode = 0) =>
@@ -220,4 +223,15 @@ test("sources include fetched URLs, files read and MCP tools", () => {
     { url: "https://example.com/docs", label: "example.com/docs", kind: "url" },
     { label: "github · get issue", kind: "mcp" },
   ]);
+});
+
+test("the transcript PR cache key ignores prose but follows findings and row changes", () => {
+  const create = activity([shell('gh pr create --title "Retry"', "https://github.com/acme/uploader/pull/41")], 1);
+  const key = (text: string) => transcriptPullRequestKey([create, assistant(text, 2)], true);
+  expect(key("Working on the follow-up")).toBe(key("Working on the follow-up now."));
+  expect(key("See acme/uploader#42")).toBe(key("See acme/uploader#42 for details."));
+  expect(key("See acme/uploader#42")).not.toBe(key("See acme/uploader#43"));
+  expect(transcriptPullRequestKey([create])).not.toBe(
+    transcriptPullRequestKey([create, activity([shell("gh pr merge 41")], 2)]),
+  );
 });
