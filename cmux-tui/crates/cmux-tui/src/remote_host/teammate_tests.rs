@@ -506,34 +506,101 @@ fn a_share_is_pinned_to_the_consented_chat() {
 }
 
 #[test]
-fn a_changed_grant_closes_the_open_connections_and_admits_with_the_new_scopes() {
+fn every_access_change_restarts_the_listener_and_the_new_grant_applies() {
+    use super::config::{Listener, restarts};
     // A connection keeps what it was admitted with (a raw splice for shell, the filtered proxy for
-    // agents), so narrowing or changing a live grant must restart the listener.
+    // agents, an allow login's full access) until the listener closes it, so each verb's change
+    // restarts a running listener.
     for (before, after) in [
         (&[Scope::Shell][..], &[Scope::Agents][..]),
         (&[Scope::Shell][..], &[Scope::Status][..]),
         (&[Scope::Agents][..], &[Scope::Status][..]),
         (&[Scope::Agents][..], &[Scope::Agents, Scope::Shell][..]),
+        (&[Scope::Agents][..], &[Scope::Agents][..]),
     ] {
-        let mut config = leo_host(consented(LAWRENCE, before));
-        assert!(
-            grant::replace(&mut config, "Lawrence@Manaflow.ai", after.to_vec()),
-            "{before:?} -> {after:?}"
-        );
-        assert_eq!(config.grants.len(), 1, "the old grant is replaced, never kept beside it");
-        match decide_for(&config, PEER, person(LAWRENCE)) {
+        let old = leo_host(consented(LAWRENCE, before));
+        let mut new = old.clone();
+        grant::replace(&mut new, "Lawrence@Manaflow.ai", after.to_vec());
+        assert!(restarts(&old, &new, Listener::RestartIfChanged), "{before:?} -> {after:?}");
+        assert_eq!(new.grants.len(), 1, "the old grant is replaced, never kept beside it");
+        match decide_for(&new, PEER, person(LAWRENCE)) {
             Decision::Guest(_, scopes) => assert_eq!(scopes, after.to_vec()),
             other => panic!("expected guest, got {other:?}"),
         }
     }
-    // The same scopes again, a first grant, or a grant after a revoke (which already closed them)
-    // leave connections alone.
-    let mut same = leo_host(consented(LAWRENCE, &[Scope::Agents]));
-    assert!(!grant::replace(&mut same, LAWRENCE, vec![Scope::Agents]));
-    let mut first = Config { enabled: true, owner: Some(LEO.to_owned()), ..Config::default() };
-    assert!(!grant::replace(&mut first, LAWRENCE, vec![Scope::Shell]));
-    let mut revoked = consented(LAWRENCE, &[Scope::Shell]);
-    revoked.revoked_at = Some("2026-10-20T10:00:00Z".to_owned());
-    let mut after_revoke = leo_host(revoked);
-    assert!(!grant::replace(&mut after_revoke, LAWRENCE, vec![Scope::Status]));
+    let host = leo_host(consented(LAWRENCE, &[Scope::Agents]));
+    let mut revoked = host.clone();
+    revoked.grants[0].revoked_at = Some("2026-10-20T10:00:00Z".to_owned());
+    let mut denied = host.clone();
+    denied.allow.push(LAWRENCE.to_owned());
+    let mut unshared = host.clone();
+    unshared.shares.push(super::shares::Share {
+        surface: 7,
+        login: LAWRENCE.to_owned(),
+        role: super::shares::Role::Member,
+        shared_at: "now".to_owned(),
+        generation: "boot-1".to_owned(),
+        session: "acp_a".to_owned(),
+    });
+    for changed in [&revoked, &denied, &unshared] {
+        assert!(restarts(&host, changed, Listener::RestartIfChanged));
+        assert!(restarts(changed, &host, Listener::RestartIfChanged));
+    }
+    // Nothing changed: nothing to close. `enable` and `disable` handle the listener themselves.
+    assert!(!restarts(&host, &host.clone(), Listener::RestartIfChanged));
+    assert!(!restarts(&host, &revoked, Listener::Caller));
+}
+
+/// Every remote_host source file but config.rs, as the compiler sees it.
+const SOURCES: &[(&str, &str)] = &[
+    ("admit.rs", include_str!("admit.rs")),
+    ("agent_proxy.rs", include_str!("agent_proxy.rs")),
+    ("audit.rs", include_str!("audit.rs")),
+    ("client.rs", include_str!("client.rs")),
+    ("grant.rs", include_str!("grant.rs")),
+    ("mod.rs", include_str!("mod.rs")),
+    ("preface.rs", include_str!("preface.rs")),
+    ("serve.rs", include_str!("serve.rs")),
+    ("service.rs", include_str!("service.rs")),
+    ("shares.rs", include_str!("shares.rs")),
+];
+
+/// What in a source file writes or restarts around the config outside `config::commit`: naming
+/// the file (a hand-written write), calling the old save, or taking `Listener::Caller` (the verb
+/// handles the listener itself).
+fn bypasses(source: &str) -> Vec<&'static str> {
+    [
+        ("\"remote.json\"", "names remote.json"),
+        ("config::save", "calls config::save"),
+        ("Listener::Caller", "handles the listener itself"),
+    ]
+    .into_iter()
+    .filter(|(needle, _)| source.contains(needle))
+    .map(|(_, what)| what)
+    .collect()
+}
+
+#[test]
+fn every_config_write_goes_through_commit() {
+    // `config::save` is private, so a new verb cannot call it. This also refuses a verb that
+    // writes remote.json by hand, and a `Listener::Caller` outside enable and disable.
+    for (name, source) in SOURCES {
+        let found = bypasses(source);
+        if *name == "mod.rs" {
+            assert_eq!(found, ["handles the listener itself"], "mod.rs");
+            assert_eq!(source.matches("Listener::Caller").count(), 2, "only enable and disable");
+        } else {
+            assert!(found.is_empty(), "{name}: {found:?}; write the config through config::commit");
+        }
+    }
+    // A new verb that writes the config without the path is caught.
+    let new_verb = r#"fn pause(args: &[String]) -> anyhow::Result<()> {
+        let mut config = config::load()?;
+        config.enabled = false;
+        std::fs::write(config::dir()?.join("remote.json"), serde_json::to_vec(&config)?)?;
+        Ok(())
+    }"#;
+    assert_eq!(bypasses(new_verb), ["names remote.json"]);
+    let skips_restart = "config::commit(&before, &config, &lock, config::Listener::Caller)?;";
+    assert_eq!(bypasses(skips_restart), ["handles the listener itself"]);
 }

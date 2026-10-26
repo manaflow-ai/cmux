@@ -377,7 +377,8 @@ fn enable_report(flags: &Flags) -> anyhow::Result<Value> {
         },
     };
     let lock = config::lock()?;
-    let mut config = config::load()?;
+    let before = config::load()?;
+    let mut config = before.clone();
     config.enabled = true;
     config.owner = Some(owner);
     if let Some(session) = flags.value("session") {
@@ -394,7 +395,8 @@ fn enable_report(flags: &Flags) -> anyhow::Result<Value> {
         }
         config.spawn = false;
     }
-    config::save(&config, &lock)?;
+    // The listener is replaced below on every enable.
+    config::commit(&before, &config, &lock, config::Listener::Caller)?;
     let exe = self_exe()?;
     let mut notes = Vec::new();
     let with_service = !flags.has("no-service");
@@ -424,9 +426,11 @@ fn enable_report(flags: &Flags) -> anyhow::Result<Value> {
 fn disable(args: &[String]) -> anyhow::Result<()> {
     let flags = Flags::parse(args, &[], &["json"])?;
     let lock = config::lock()?;
-    let mut config = config::load()?;
+    let before = config::load()?;
+    let mut config = before.clone();
     config.enabled = false;
-    config::save(&config, &lock)?;
+    // The listener is stopped below.
+    config::commit(&before, &config, &lock, config::Listener::Caller)?;
     service::uninstall()?;
     service::stop_running();
     let status = tailnet::Tailnet::locate().and_then(|t| t.status()).ok();
@@ -548,7 +552,8 @@ fn edit_allow(args: &[String], add: bool) -> anyhow::Result<()> {
         return Err(usage("needs a person's tailnet login"));
     }
     let lock = config::lock()?;
-    let mut config = config::load()?;
+    let before = config::load()?;
+    let mut config = before.clone();
     // Checked under the lock, as `share` checks the list: neither change slips past the other.
     if add {
         shares::allowable(&config, login)?;
@@ -560,12 +565,11 @@ fn edit_allow(args: &[String], add: bool) -> anyhow::Result<()> {
             "{login} can now use this machine's cmux sessions with full access (run commands as you)."
         );
     }
-    config::save(&config, &lock)?;
     let mut notes = Vec::new();
-    // New connections read the file; connections already open were admitted
-    // under the old list, so `deny` restarts the listener to close them.
-    if !add && config.enabled && service::running_pid().is_some() {
-        notes.push(service::restart(&self_exe()?, service::installed())?);
+    if let Some(restarted) =
+        config::commit(&before, &config, &lock, config::Listener::RestartIfChanged)?
+    {
+        notes.push(restarted);
         notes.push("open connections were closed".to_owned());
     }
     let status = tailnet::Tailnet::locate().and_then(|t| t.status()).ok();
@@ -699,15 +703,15 @@ fn grant_access(args: &[String]) -> anyhow::Result<()> {
         bail!("not approved; nothing changed");
     }
     let lock = config::lock()?;
-    let mut config = config::load()?;
-    let closes = grant::replace(&mut config, &login, scopes);
+    let before = config::load()?;
+    let mut config = before.clone();
+    grant::replace(&mut config, &login, scopes);
     config.teammate_access = true;
-    config::save(&config, &lock)?;
+    let restarted = config::commit(&before, &config, &lock, config::Listener::RestartIfChanged)?;
     audit::append(&json!({"decision": "grant", "login": login, "outcome": "approved"}));
     let mut notes = vec![format!("approved teammate access for {login}")];
-    // A connection keeps the grant it was admitted with, so a changed grant closes them all.
-    if closes && config.enabled && service::running_pid().is_some() {
-        notes.push(service::restart(&self_exe()?, service::installed())?);
+    if let Some(restarted) = restarted {
+        notes.push(restarted);
         notes.push("open connections were closed".to_owned());
     }
     if !config.enabled {
@@ -726,7 +730,8 @@ fn revoke_access(args: &[String]) -> anyhow::Result<()> {
     };
     let login = login.trim();
     let lock = config::lock()?;
-    let mut config = config::load()?;
+    let before = config::load()?;
+    let mut config = before.clone();
     let now = grant::now_rfc3339();
     let mut found = false;
     for g in config.grants.iter_mut().filter(|g| config::same_login(&g.login, login)) {
@@ -739,11 +744,11 @@ fn revoke_access(args: &[String]) -> anyhow::Result<()> {
     if config.grants.iter().all(|g| g.revoked_at.is_some()) {
         config.teammate_access = false;
     }
-    config::save(&config, &lock)?;
+    let restarted = config::commit(&before, &config, &lock, config::Listener::RestartIfChanged)?;
     audit::append(&json!({"decision": "revoke", "login": login, "outcome": "revoked"}));
     let mut notes = vec![format!("revoked teammate access for {login}")];
-    if config.enabled && service::running_pid().is_some() {
-        notes.push(service::restart(&self_exe()?, service::installed())?);
+    if let Some(restarted) = restarted {
+        notes.push(restarted);
         notes.push("open connections were closed".to_owned());
     }
     let status = tailnet::Tailnet::locate().and_then(|t| t.status()).ok();

@@ -5,7 +5,7 @@ use anyhow::bail;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use super::{Flags, audit, config, grant, service};
+use super::{Flags, audit, config, grant};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -83,16 +83,13 @@ pub(super) fn run(verb: &str, args: &[String]) -> anyhow::Result<()> {
     // Applied to the config as it is now, under its lock: a grant revoked or a share changed
     // while the prompt waited is kept, and only this one share changes.
     let lock = config::lock()?;
-    let config = config::load()?;
-    let now = if verb == "share" { self::chat(&config, surface)? } else { Chat::default() };
-    let config = applied(verb, config, surface, &login, role, &chat, &now)?;
-    config::save(&config, &lock)?;
+    let before = config::load()?;
+    let now = if verb == "share" { self::chat(&before, surface)? } else { Chat::default() };
+    let config = applied(verb, before.clone(), surface, &login, role, &chat, &now)?;
+    // Replacements restart too: a member may have become a guest.
+    config::commit(&before, &config, &lock, config::Listener::RestartIfChanged)?;
     audit::append(&json!({"decision": verb, "surface": surface, "session": chat.session,
         "login": login, "role": role}));
-    // Restart on replacements too: a member may have become a guest.
-    if service::running_pid().is_some() {
-        service::restart(&super::self_exe()?, service::installed())?;
-    }
     println!("{}", json!({"shares": config.shares}));
     Ok(())
 }
