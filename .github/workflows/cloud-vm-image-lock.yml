@@ -20,7 +20,7 @@ on:
       - web/tests/vm-image-cmux-vm-bake-workflow.test.ts
       - web/tests/vm-image-cmux-vm-dev-tree.test.ts
       - web/tests/vm-image-cmux-vm-dns.test.ts
-      - web/tests/vm-image-cmux-vm-machine-health.test.ts tests/vm-image-cmux-vm-promote-workflow.test.ts
+      - web/tests/vm-image-cmux-vm-machine-health.test.ts
       - web/tests/vm-image-cmux-vm-promote-workflow.test.ts
       - web/services/vms/hygiene/cmux-machine-hygiene
       - .github/workflows/cloud-vm-image-lock.yml

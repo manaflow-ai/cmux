@@ -255,6 +255,28 @@ describe("delete_snapshot reference refusal (cleanup.ts --snapshot)", () => {
     expect(r.calls).toEqual([`get ${ID(200)}`]);
   });
 
+  test("fails closed: a channel file that does not parse refuses every id", async () => {
+    const root = fakeRoot();
+    writeFileSync(path.join(root, "images/cmux-vm/channels/broken.json"), `{ "snapshot_id": "sh-\\u0030${"0".repeat(31)}", `);
+    const r = await tryDelete(root, ID(23), { [ID(23)]: { slug: "cmuxnp-dev-vmimg-free" } });
+    expect(r.code).toBe(1);
+    expect(r.errors).toContain("images/cmux-vm/channels/broken.json: (file does not parse");
+    expect(r.calls).toEqual([]);
+  });
+
+  test("an escaped or upper-case id still counts as a reference", async () => {
+    const root = fakeRoot();
+    const id = ID(24);
+    writeFileSync(path.join(root, "images/cmux-vm/channels/escaped.json"), `{ "note": "${id.replace("-", "\\u002d")}", "loud": "${ID(25).toUpperCase()}" }\n`);
+    writeFileSync(path.join(root, "backend/apps/api/wrangler.jsonc"), `{ "vars": { "X_SNAPSHOT": "${ID(26).replace("sh", "s\\u0068")}" } }\n`);
+    for (const [n, ref] of [[24, "escaped.json: note"], [25, "escaped.json: loud"], [26, "wrangler.jsonc:1 X_SNAPSHOT"]] as const) {
+      const r = await tryDelete(root, ID(n), { [ID(n)]: { slug: "cmuxnp-dev-vmimg-free" } });
+      expect(r.code).toBe(1);
+      expect(r.errors).toContain(ref);
+      expect(r.calls).toEqual([]);
+    }
+  });
+
   test("a name only in a channel file (no id recorded) is refused", async () => {
     const r = await tryDelete(fakeRoot(), ID(98), { [ID(98)]: { slug: "cmuxnp-dev-vmimg-auto4" } });
     expect(r.code).toBe(1);

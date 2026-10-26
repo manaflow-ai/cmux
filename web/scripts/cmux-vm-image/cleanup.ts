@@ -35,42 +35,54 @@ export function referenceFiles(root: string): string[] {
   ];
 }
 
-/** `token` as a whole word: a slug never matches a longer slug it is a prefix of. */
-const wordPattern = (token: string) => new RegExp(`(?<![A-Za-z0-9_-])${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![A-Za-z0-9_-])`);
+/** `token` as a whole word, any case: a slug never matches a longer slug it is a prefix of. */
+const wordPattern = (token: string) => new RegExp(`(?<![A-Za-z0-9_-])${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![A-Za-z0-9_-])`, "i");
 
-/** JSON paths of every string value that mentions `pattern`. */
+/** JSON paths of every key or string value that mentions `pattern` (decoded, so an escaped id still matches). */
 function jsonPaths(value: unknown, pattern: RegExp, at: string, out: string[]): void {
   if (typeof value === "string") {
     if (pattern.test(value)) out.push(at || "(root)");
   } else if (Array.isArray(value)) {
     value.forEach((item, i) => jsonPaths(item, pattern, `${at}[${i}]`, out));
   } else if (value && typeof value === "object") {
-    for (const [key, item] of Object.entries(value)) jsonPaths(item, pattern, at ? `${at}.${key}` : key, out);
+    for (const [key, item] of Object.entries(value)) {
+      const where = at ? `${at}.${key}` : key;
+      if (pattern.test(key)) out.push(`${where} (key)`);
+      jsonPaths(item, pattern, where, out);
+    }
   }
 }
+
+/** JSONC string escapes decoded (\uXXXX, \/), so a reference cannot hide behind one. */
+const decodeEscapes = (text: string) => text.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16))).replace(/\\\//g, "/");
 
 /**
  * Every place in the reference files that mentions one of `tokens` (a snapshot id or name), as
  * "<file>: <json path>" for channel files and "<file>:<line> <var>" for wrangler.jsonc.
- * A channel file that does not parse is a reference too: nothing in it can be ruled out.
+ * Fails closed: a channel file that does not parse is a reference for every token.
  */
 export function snapshotReferences(root: string, tokens: ReadonlyArray<string>): string[] {
   const refs: string[] = [];
   for (const rel of referenceFiles(root)) {
     const text = readFileSync(path.join(root, rel), "utf8");
-    for (const token of tokens) {
-      const pattern = wordPattern(token);
-      if (!pattern.test(text)) continue;
-      if (rel.endsWith(".json")) {
+    if (rel.endsWith(".json")) {
+      let doc: unknown;
+      try {
+        doc = JSON.parse(text);
+      } catch (error) {
+        refs.push(`${rel}: (file does not parse: ${String(error).slice(0, 80)}) so nothing in it can be ruled out`);
+        continue;
+      }
+      for (const token of tokens) {
         const paths: string[] = [];
-        try {
-          jsonPaths(JSON.parse(text), pattern, "", paths);
-        } catch {
-          paths.push("(file does not parse)");
-        }
-        for (const p of paths.length ? paths : ["(text)"]) refs.push(`${rel}: ${p} mentions ${token}`);
-      } else {
-        text.split("\n").forEach((line, i) => {
+        jsonPaths(doc, wordPattern(token), "", paths);
+        for (const p of paths) refs.push(`${rel}: ${p} mentions ${token}`);
+      }
+    } else {
+      const lines = decodeEscapes(text).split("\n");
+      for (const token of tokens) {
+        const pattern = wordPattern(token);
+        lines.forEach((line, i) => {
           if (!pattern.test(line)) return;
           const keys = [...line.matchAll(/"([A-Za-z0-9_]+)":\s*"([^"]*)"/g)].filter((m) => pattern.test(m[2]!)).map((m) => m[1]);
           refs.push(`${rel}:${i + 1} ${keys.length ? keys.join(", ") : "(text)"} mentions ${token}`);
