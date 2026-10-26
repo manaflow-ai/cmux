@@ -825,7 +825,7 @@ class MeasureOrderTests(unittest.TestCase):
     def test_window_end_reads_sit_outside_every_counter_bracket(self):
         calls = []
         app = FakeApp(calls)
-        instance = type("Instance", (), {"pid": 1})()
+        instance = type("Instance", (), {"pid": 1, "harness": {}})()
         saved = (ib.process_set, ib.threads, procs.usage, procs.overhead, procs.gpu_ns_by_pid, procs.coalition_of,
                  procs.coalition_id, procs.thermal_state, procs.power_assertions, ib.time.sleep)
         ib.process_set = lambda _instance: ib.ProcessSet({1: f"{APP}/Contents/MacOS/cmux DEV"},
@@ -944,7 +944,7 @@ class MeasureOrderTests(unittest.TestCase):
                     (procs, "priorities", lambda _pids: {}), (ib, "acpmux_homes", lambda _env: []),
                     (ib.time, "sleep", lambda _seconds: None), (ib.time, "monotonic", lambda: next(clock))):
                 stack.enter_context(unittest.mock.patch.object(target, name, value))
-            result = ib.measure(FakeApp([]), type("Instance", (), {"pid": 1})(), 60, attribute=True, d15=d15)
+            result = ib.measure(FakeApp([]), type("Instance", (), {"pid": 1, "harness": {}})(), 60, attribute=True, d15=d15)
         self.assertEqual(calls, ["nettop start", "prepare", "begin", "end"])
         self.assertEqual(result["coalition"]["wakeups_per_s"], 9.0)
 
@@ -2214,6 +2214,583 @@ class WindowServerTests(unittest.TestCase):
         self.assertEqual(entry["windowserver"]["delta_per_s"], 39.0)
         self.assertIn("WindowServer (rusage, reported): 40.0/s, 1.0/s with cmux hidden (hidden), delta 39.0/s",
                       ib.table("light", {}, [], entry))
+
+
+ACPMUX = f"{APP}/Contents/Resources/bin/acpmux"
+FAKE = "/usr/bin/python3 /tmp/agent-idle/fake_agent.py"
+
+
+def agent_table():
+    """A process table with two agent hosts, a chat's (its harness runs a tool) and a pooled entry's (the multicall
+    spelling), plus a python that is no harness."""
+    return [(1, 0, f"{APP}/Contents/MacOS/cmux DEV"),
+            (10, 1, f"{ACPMUX} daemon run"),
+            (20, 1, f"{ACPMUX} __agent-host"),
+            (21, 20, FAKE),
+            (22, 21, "/bin/zsh -c make"),
+            (30, 1, f"{APP}/Contents/Resources/bin/cmux acp __agent-host"),
+            (31, 30, "/usr/local/bin/node /x/claude-agent-acp"),
+            (40, 1, "/usr/bin/python3 /tmp/other.py")]
+
+
+class AgentHarnessKindTests(unittest.TestCase):
+    """p14-energy-103: every process under an acpmux agent host, pooled ones included, is agent-harness."""
+
+    def test_kind_under_an_agent_host_is_agent_harness(self):
+        self.assertEqual(ib.kind(FAKE, under_agent_host=True), "agent-harness")
+        self.assertEqual(ib.kind("/bin/zsh -c make", under_agent_host=True), "agent-harness")
+        self.assertEqual(ib.kind(FAKE), "other:python3")
+        # The host is acpmux code, in both spellings (the acpmux binary, the cmux multicall binary).
+        self.assertEqual(ib.kind(f"{ACPMUX} __agent-host"), "acpmux")
+        self.assertEqual(ib.kind(f"{APP}/Contents/Resources/bin/cmux acp __agent-host"), "acpmux")
+        self.assertFalse(procs.is_agent_host(f"{ACPMUX} daemon run --note __agent-hostile"))
+
+    def test_harness_pids_are_every_descendant_of_a_host(self):
+        self.assertEqual(procs.agent_harness_pids(agent_table()), {21: 20, 22: 20, 31: 30})
+        # A host under a host is its own: its harness is the inner host's.
+        nested = [(20, 1, f"{ACPMUX} __agent-host"), (21, 20, f"{ACPMUX} __agent-host"), (22, 21, FAKE)]
+        self.assertEqual(procs.agent_harness_pids(nested), {22: 21})
+
+    def test_process_set_names_the_harness_of_its_own_table(self):
+        # process_set's instance read and its table are the one source: the harness map is the instance's.
+        darwin = types.SimpleNamespace(responsible=None)
+        with unittest.mock.patch.object(procs, "process_table", agent_table), \
+                unittest.mock.patch.object(procs, "_darwin", lambda: darwin):
+            instance = procs.Instance(APP, 1)
+            found = ib.process_set(instance)
+        self.assertEqual(instance.harness, {21: 20, 22: 20, 31: 30})
+        self.assertTrue(set(instance.harness) <= set(found))
+        self.assertFalse(hasattr(ib, "agent_harness"))  # one walk: procs.agent_harness_pids through Instance.pids
+
+    def test_instance_counts_harnesses_of_its_hosts(self):
+        darwin = types.SimpleNamespace(responsible=None)
+        table = agent_table() + [(50, 0, "/opt/acpmux __agent-host"), (51, 50, FAKE)]
+        with unittest.mock.patch.object(procs, "process_table", lambda: table), \
+                unittest.mock.patch.object(procs, "_darwin", lambda: darwin):
+            instance = procs.Instance(APP, 1)
+            pids = instance.pids()
+        self.assertTrue({20, 21, 22, 30, 31} <= set(pids))
+        self.assertNotIn(51, pids)  # another app's host and its harness
+        self.assertEqual(instance.harness, {21: 20, 22: 20, 31: 30})
+        self.assertEqual(instance.kind(21, FAKE), "agent-harness")
+        self.assertEqual(instance.kind(40, "/usr/bin/python3 /tmp/other.py"), procs.kind_of("/usr/bin/python3 /tmp/other.py"))
+        self.assertNotEqual(procs.kind_of(FAKE), "agent-harness")  # the kind comes from the tree, not the command
+
+    def test_rows_mark_the_hidden_chats_harness(self):
+        zero = procs.usage_from_words(rusage_words(), 1, 1)
+        woke = procs.usage_from_words(rusage_words(interrupt=6), 1, 1)
+
+        def snap(usage):
+            return {pid: (cmd, usage, (0, 4, 0, 0, 0), {}) for pid, _ppid, cmd in agent_table()}
+
+        rows = ib.process_rows(snap(zero), snap(woke), 2.0, {}, {}, ib.kind, harness={21: 20, 22: 20, 31: 30},
+                               hidden_hosts=(20,))
+        by_pid = {r["pid"]: r for r in rows}
+        self.assertEqual({pid: by_pid[pid]["kind"] for pid in (20, 21, 22, 30, 31, 40)},
+                         {20: "acpmux", 21: "agent-harness", 22: "agent-harness", 30: "acpmux", 31: "agent-harness",
+                          40: "other:python3"})
+        self.assertEqual([pid for pid, r in sorted(by_pid.items()) if r.get("hidden")], [21, 22])
+        self.assertEqual((by_pid[21]["agent_host"], by_pid[31]["agent_host"]), (20, 30))
+        kinds = ib.aggregate({"processes": rows})
+        self.assertEqual(kinds["agent-harness"]["n"], 3)
+        self.assertEqual(kinds["agent-harness"]["hidden_wakeups_max"], 3.0)
+
+    def test_measure_classifies_the_harness_of_the_last_read(self):
+        calls = []
+        commands = {pid: cmd for pid, _ppid, cmd in agent_table()}
+        instance = type("Instance", (), {"pid": 1, "harness": {}})()
+        # The first read saw a harness 21 under host 20 that exits; the last read's table has 31 under 30, and
+        # names 77, which is not in its set: the map is the last read's, filtered to its pids.
+        reads = [({**commands, 23: FAKE}, {21: 20, 22: 20, 23: 20}), (commands, {21: 20, 22: 20, 31: 30, 77: 30})]
+
+        def process_set(read_instance):
+            got, read_instance.harness = reads.pop(0) if len(reads) > 1 else reads[0]
+            return ib.ProcessSet(got, [row for row in agent_table() if row[0] in got])
+
+        d15 = ib.D15Readers(windowserver=lambda: (157, 10, "rusage", 0.0),
+                            start_network=lambda seconds, workdir: "nettop", network_pid=lambda started: None,
+                            finish_network=lambda started, start, end: {}, read_log=lambda pids, start, end: {})
+
+        patches = [unittest.mock.patch.object(ib, "process_set", process_set),
+                   unittest.mock.patch.object(ib, "threads", lambda _pid: {}),
+                   unittest.mock.patch.object(procs, "usage", lambda _pid: procs.usage_from_words(rusage_words(), 1, 1)),
+                   unittest.mock.patch.object(procs, "overhead", lambda _pid: (0, 4, 0, 0, 0)),
+                   unittest.mock.patch.object(procs, "gpu_ns_by_pid", lambda: {}),
+                   unittest.mock.patch.object(procs, "coalition_of", lambda _pid: None),
+                   unittest.mock.patch.object(procs, "thermal_state", lambda: "nominal"),
+                   unittest.mock.patch.object(procs, "power_assertions", lambda _pids: []),
+                   unittest.mock.patch.object(procs, "process_table", lambda: calls.append("ps") or agent_table()),
+                   unittest.mock.patch.object(procs, "priorities", lambda _pids: {}),
+                   unittest.mock.patch.object(ib, "acpmux_homes", lambda _env: []),
+                   unittest.mock.patch.object(ib.time, "sleep", lambda seconds: calls.append("sleep"))]
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+        result = ib.measure(FakeApp([]), instance, 60, hidden_hosts=(30,), d15=d15)
+        self.assertEqual(calls, ["sleep", "sleep"])  # no second ps read: the harness is the last process_set's
+        kinds = {r["pid"]: (r["kind"], r.get("hidden", False)) for r in result["processes"]}
+        self.assertEqual(kinds[31], ("agent-harness", True))
+        self.assertEqual(kinds[21], ("agent-harness", False))
+        self.assertNotIn(23, kinds)
+        self.assertNotIn(77, kinds)
+
+
+class AgentSessionTests(unittest.TestCase):
+    """The agent-idle, agent-working-visible and busy-hidden sessions and their D14 rows."""
+
+    def test_the_three_sessions_and_their_rows_exist(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        for name in ("agent-idle", "agent-working-visible", "busy-hidden"):
+            self.assertIn(name, ib.SESSIONS)
+            self.assertIn(name, budget["sessions"])
+        self.assertEqual(ib.SESSIONS["agent-idle"]["agents"], {"visible": True, "hidden": True, "pool": 1})
+        self.assertEqual(ib.SESSIONS["agent-working-visible"]["agents"], {"visible": True, "working": True, "engine": "cef"})
+        self.assertEqual(ib.SESSIONS["busy-hidden"]["busy_terminal"], 0.1)
+        # agent-idle settles past the hidden harness's freeze (p14-energy-117).
+        self.assertGreater(ib.settle_seconds("agent-idle", 60), ib.HARNESS_FREEZE_S)
+        self.assertEqual(ib.settle_seconds("busy-hidden", 60), 60)
+        self.assertIn("agent-harness", budget["kinds"])
+
+    def test_unknown_agent_session_refused(self):
+        with self.assertRaises(SystemExit) as raised:
+            ib.parse_sessions("agent-idle,agent-idel")
+        self.assertIn("unknown session agent-idel", str(raised.exception))
+        self.assertEqual(ib.parse_sessions("agent-idle,agent-working-visible,busy-hidden"),
+                         ["agent-idle", "agent-working-visible", "busy-hidden"])
+
+    def test_d14_budgets(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        idle = {"app": {"wakeups_per_s": 0.4}, "daemon": {"wakeups_per_s": 0.2}, "acpmux": {"wakeups_per_s": 0.3},
+                "agent-harness": {"wakeups_per_s": 9.0, "hidden_wakeups_max": 4.0}}
+        # The hidden harness is reported, not judged, until p14-energy-117 freezes it.
+        self.assertEqual(ib.over_budget("agent-idle", idle, budget), [])
+        self.assertIsNone(ib.limit_for(budget, "agent-idle", "agent-harness", "hidden_wakeups_max"))
+        # ... and the gap shows: an IDLE-BUDGET-NOT-JUDGED note with the value and the task that turns it on.
+        notes = ib.deferred_notes("agent-idle", idle, budget)
+        self.assertEqual(len(notes), 1)
+        self.assertTrue(notes[0].startswith("agent-idle agent-harness hidden_wakeups_max: not judged: 4.0 measured;"))
+        self.assertIn("p14-energy-117", notes[0])
+        self.assertIn("not measured", ib.deferred_notes("agent-idle", {}, budget)[0])
+        self.assertEqual(ib.deferred_notes("stress-static", {}, budget), [])  # a null with no reason stays quiet
+        loud ={**idle, "acpmux": {"wakeups_per_s": 0.6}}
+        self.assertIn(("app+daemon+acpmux", "wakeups_per_s", 1.2, 1.0), ib.over_budget("agent-idle", loud, budget))
+        working = {"app": {"wakeups_per_s": 20.0}, "cef-renderer": {"wakeups_per_s": 10.0},
+                   "cef-gpu": {"wakeups_per_s": 6.0}, "daemon": {"wakeups_per_s": 50.0}}
+        self.assertEqual(ib.over_budget("agent-working-visible", working, budget),
+                         [("app+cef-renderer+cef-gpu", "wakeups_per_s", 36.0, 35)])
+        # Busy: only the session's own rows judge (the daemon's 50/s carries the printing terminal).
+        busy = {"app": {"wakeups_per_s": 2.5, "main_wakes_per_s": 3.0}, "daemon": {"wakeups_per_s": 50.0}}
+        self.assertEqual(ib.over_budget("busy-hidden", busy, budget), [("app", "wakeups_per_s", 2.5, 2.0)])
+
+    def test_agent_home_config_and_records(self):
+        with tempfile.TemporaryDirectory() as folder:
+            home = ib.AgentHome(folder, "agent-idle")
+            self.assertEqual(home.env(), {"ACPMUX_HOME": home.home, "ACPMUX_SOCKET": home.socket})
+            self.assertLess(len(home.socket), 104)
+            home.write()
+            with open(os.path.join(home.home, "config.json")) as handle:
+                config = json.load(handle)
+            self.assertEqual(config, ib.agent_config(sys.executable, os.path.join(folder, "fake_agent.py")))
+            self.assertEqual(config["defaultHarness"], ib.AGENT_HARNESS_ID)
+            self.assertEqual(config["pool"], {"idleMinutes": ib.POOL_IDLE_MINUTES})
+            self.assertTrue(os.path.isfile(os.path.join(folder, "fake_agent.py")))
+            self.assertTrue(os.path.isdir(home.cwd) and os.path.isdir(home.pool_cwd))
+            self.assertEqual(home.pool_host_pids(), [])
+            os.makedirs(os.path.join(home.home, "hosts", "pool"))
+            with open(os.path.join(home.home, "hosts", "s1.json"), "w") as handle:
+                json.dump({"session_id": "s1", "host_pid": 4242}, handle)
+            with open(os.path.join(home.home, "hosts", "pool", "pool-1.json"), "w") as handle:
+                json.dump({"host_pid": 4343}, handle)
+            with open(os.path.join(home.home, "hosts", "pool", "pool-2.json.tmp-9"), "w") as handle:
+                json.dump({"host_pid": 9}, handle)
+            self.assertEqual(home.host_pid("s1"), 4242)
+            self.assertIsNone(home.host_pid("s2"))
+            self.assertEqual(home.pool_host_pids(), [4343])
+
+    def test_pool_ready_counts_only_ready_entries_in_its_folder(self):
+        with tempfile.TemporaryDirectory() as folder:
+            home = ib.AgentHome(folder, "agent-idle")
+            entries = [{"cwd": home.pool_cwd, "state": "ready", "roles": ["hinted"]},
+                       {"cwd": home.pool_cwd + "/", "state": "warming"},
+                       {"cwd": home.cwd, "state": "ready"}]  # the agent page's own prewarm hint
+            home.call = lambda method, params=None, timeout=10: {"pool": {"entries": entries}}
+            self.assertEqual(home.pool_ready(home.pool_cwd), [entries[0]])
+            home.call = lambda method, params=None, timeout=10: {"error": "closed"}
+            self.assertEqual(home.pool_ready(home.pool_cwd), [])
+
+    def test_trust_reports_a_refusal(self):
+        home = ib.AgentHome("/tmp/x", "agent-idle")
+        home.call = lambda method, params=None, timeout=10: {}
+        self.assertIsNone(home.trust("/tmp/x/agent-work"))
+        home.call = lambda method, params=None, timeout=10: {"error": {"code": -32601, "message": "no method"}}
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            self.assertEqual(home.trust("/w"), {"cwd": "/w", "error": {"code": -32601, "message": "no method"}})
+        self.assertTrue(printed.getvalue().startswith("AGENT-SESSION-TRUST-REFUSED "))
+
+    def test_gate_blocks_until_release(self):
+        with tempfile.TemporaryDirectory() as folder:
+            home = ib.AgentHome(folder, "agent-working-visible")
+            path = home.gate()
+            home.release()  # no reader yet: nothing to end, no error
+            got = []
+
+            def read():
+                with open(path) as gate:
+                    got.append(gate.readline())
+
+            reader = ib.threading.Thread(target=read)
+            reader.start()
+            for _ in range(500):  # the reader opens the FIFO at some point; release reaches it once it has
+                home.release()
+                reader.join(0.01)
+                if got:
+                    break
+            reader.join(5)
+            self.assertEqual(got, ["go\n"])
+
+    def test_chat_session_and_turn_done(self):
+        self.assertEqual(ib.chat_session({"result": json.dumps({"sessionId": "s1"})}), "s1")
+        self.assertEqual(ib.chat_session({"result": {"sessionId": "s2"}}), "s2")
+        self.assertEqual(ib.chat_session({"sessionId": "s3"}), "s3")
+        self.assertIsNone(ib.chat_session({"error": "no agent tab"}))
+        self.assertIsNone(ib.chat_session({"result": "not json"}))
+        self.assertTrue(ib.turn_done({"status": "ready", "lastTurn": {"endedAt": 5}}))
+        # idle is SessionStatus::Idle, "No child process": the harness exited, nothing would be measured.
+        self.assertFalse(ib.turn_done({"status": "idle", "lastTurn": {"endedAt": 5}}))
+        self.assertFalse(ib.turn_done({"status": "running", "lastTurn": {"endedAt": 5}}))
+        self.assertFalse(ib.turn_done({"status": "ready"}))
+
+
+def fake_wait(predicate, seconds, step=0.25):
+    """perf-stress-session.py's bounded poll with no sleep: up to 20 tries, an exception is no value."""
+    for _ in range(20):
+        try:
+            value = predicate()
+        except Exception:  # noqa: BLE001 - as the real poll: the state may not answer yet
+            value = None
+        if value:
+            return value
+    return None
+
+
+class FakeWorld:
+    """The app, its agent pages and its acpmux as the session builders see them: perf-stress-session.py's Stress
+    (workspaces, panes, tabs, show), debug.agent_pane per pane, and acpmux's replies (AgentHome.call), with the
+    host records acpmux writes. Every verb is recorded in `log`."""
+
+    def __init__(self, home, engine="cef", trust_error=None, prewarm=None, finished_status="ready", new_chat=None,
+                 send_error=None, write_hidden_record=True):
+        self.home, self.engine, self.log = home, engine, []
+        self.trust_error, self.prewarm = trust_error, prewarm or {"accepted": True}
+        self.finished_status, self.new_chat, self.send_error = finished_status, new_chat, send_error
+        self.write_hidden_record = write_hidden_record
+        self.workspaces = {"w1": [{"id": "p1", "tabs": [{"id": "t1", "selected": True}]}]}
+        self.focused = self.showing = "w1"
+        self.sessions, self.pool = {}, []
+        self.next_pid = 5000
+        world = self
+
+        class Stress:
+            def __init__(self, rpc):
+                self.rpc, self.refusals = rpc, []
+
+            def action(self, name, args=None, target=None, focus=True, timeout=120, settle=0.0):
+                world.log.append(("action", name, target))
+                return {}
+
+            def focused_workspace(self):
+                return world.focused
+
+            def workspace(self, workspace_id):
+                panes = world.workspaces.get(workspace_id)
+                return None if panes is None else {"id": workspace_id, "panes": panes}
+
+            @staticmethod
+            def panes(workspace):
+                return (workspace or {}).get("panes") or []
+
+            def new_workspace(self):
+                made = f"w{len(world.workspaces) + 1}"
+                world.workspaces[made] = [{"id": f"p{len(world.workspaces) + 1}", "tabs": [{"id": "tx", "selected": True}]}]
+                world.log.append(("new_workspace", made))
+                return made
+
+            def show(self, workspace):
+                world.log.append(("show", workspace))
+                world.showing = workspace
+
+            def window_showing(self, workspace, topology=None):
+                return {"workspace": workspace} if world.showing == workspace else None
+
+            def send(self, tab_id, text):
+                world.log.append(("send", tab_id, text))
+
+        self.module = types.SimpleNamespace(Stress=Stress, wait=fake_wait)
+        home.call = self.acpmux
+
+    def pid(self):
+        self.next_pid += 1
+        return self.next_pid
+
+    def record(self, path, pid):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as handle:
+            json.dump({"host_pid": pid}, handle)
+
+    # The app's control socket.
+    def rpc(self, method, params=None, timeout=30):
+        params = params or {}
+        if method != "debug.agent_pane":
+            return {}
+        action, pane = params["action"], params["pane"]
+        self.log.append(("page", action, pane))
+        session = f"s-{pane}"
+        if action == "chat_state":
+            return {"pane": pane, "sessionId": session if session in self.sessions else None}
+        if action == "engine":
+            return {"pane": pane, "engine": self.engine}
+        if action == "new_chat":
+            return self.new_chat or {"pane": pane, "sessionId": None}
+        if action == "send_prompt":
+            if self.send_error:
+                return {"pane": pane, "error": self.send_error}
+            gated = params["text"].startswith("gate: ")
+            self.sessions[session] = {"sessionId": session, "status": "running" if gated else self.finished_status,
+                                      "lastTurn": None if gated else {"endedAt": 1}}
+            if self.write_hidden_record or pane == "p1":
+                self.record(os.path.join(self.home.home, "hosts", f"{session}.json"), self.pid())
+            return {"pane": pane, "sent": True, "turnEnded": not gated, "sessionId": session}
+        return {"error": f"unknown action {action}"}
+
+    # acpmux's socket (AgentHome.call).
+    def acpmux(self, method, params=None, timeout=10):
+        self.log.append(("acpmux", method))
+        if method == "_acpmux/status":
+            return {"pool": {"entries": list(self.pool)}}
+        if method == "_acpmux/sessions":
+            return {"sessions": list(self.sessions.values())}
+        if method == "acp.trust.set":
+            return {"error": self.trust_error} if self.trust_error else {}
+        if method == "_acpmux/prewarm":
+            if self.prewarm.get("accepted"):
+                self.pool.append({"cwd": params["cwd"], "state": "ready"})
+                self.record(os.path.join(self.home.home, "hosts", "pool", "pool-1.json"), self.pid())
+            return self.prewarm
+        return {"error": "unknown"}
+
+
+class AgentSessionBuildTests(unittest.TestCase):
+    """build_agents, open_agent_chat, build_busy_hidden and main's session wiring against FakeWorld."""
+
+    def setUp(self):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, ignore_errors=True)
+        self.home = ib.AgentHome(folder, "agent-idle")
+        os.makedirs(self.home.home)
+        self.out = io.StringIO()
+        patch = unittest.mock.patch("sys.stdout", self.out)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def build(self, plan, **world):
+        self.world = FakeWorld(self.home, **world)
+        return ib.build_agents(self.world, self.home, plan, self.world.module)
+
+    def page_verbs(self, verb):
+        return [entry for entry in self.world.log if entry[:2] == ("page", verb)]
+
+    def test_agent_idle_builds_a_hidden_chat_a_visible_chat_and_a_pool_entry(self):
+        built = self.build(ib.SESSIONS["agent-idle"]["agents"])
+        hidden, visible = built["chats"]
+        self.assertEqual((hidden["workspace"], hidden["visible"], visible["workspace"], visible["visible"]),
+                         ("w2", False, "w1", True))
+        self.assertEqual(built["hidden_hosts"], [hidden["host_pid"]])
+        # The hidden workspace showed for its chat, then the launch workspace showed again over it.
+        self.assertEqual([e for e in self.world.log if e[0] == "show"], [("show", "w2"), ("show", "w1")])
+        self.assertEqual(self.world.showing, "w1")
+        self.assertEqual((built["pool_entries"], len(built["pool_hosts"])), (1, 1))
+        self.assertEqual(built["plan"], ib.SESSIONS["agent-idle"]["agents"])
+        self.assertEqual(built["trust"], [])
+        # One new chat and one prompt per chat: the user verbs never repeat.
+        self.assertEqual(len(self.page_verbs("new_chat")), 2)
+        self.assertEqual(len(self.page_verbs("send_prompt")), 2)
+        self.assertIn("AGENT-SESSION ", self.out.getvalue())
+
+    def test_working_chat_runs_its_gated_turn_on_cef(self):
+        built = self.build(ib.SESSIONS["agent-working-visible"]["agents"])
+        (chat,) = built["chats"]
+        self.assertEqual((chat["working"], chat["engine"]), (True, "cef"))
+        self.assertEqual(self.world.sessions[chat["session"]]["status"], "running")
+        self.assertEqual(len(self.home.gates), 1)
+        self.assertEqual(built["pool_hosts"], [])
+
+    def test_a_webkit_chat_is_refused_where_the_session_sums_cef(self):
+        with self.assertRaisesRegex(ib.SessionShapeError, "shows on webkit:own-host, the session measures cef"):
+            self.build(ib.SESSIONS["agent-working-visible"]["agents"], engine="webkit:own-host")
+        # agent-idle names no engine: a WebKit chat is recorded, not refused.
+        built = self.build({"visible": True}, engine="webkit:agentChat")
+        self.assertEqual(built["chats"][0]["engine"], "webkit:agentChat")
+
+    def test_a_refused_send_is_sent_once_then_refused(self):
+        with self.assertRaisesRegex(ib.SessionShapeError, "send_prompt refused"):
+            self.build({"visible": True}, send_error="timed out")
+        self.assertEqual(len(self.page_verbs("send_prompt")), 1)
+        with self.assertRaisesRegex(ib.SessionShapeError, "new_chat refused"):
+            self.build({"visible": True}, new_chat={"error": "timed out"})
+        self.assertEqual(len(self.page_verbs("new_chat")), 1)
+        self.assertEqual(self.page_verbs("send_prompt"), [])
+
+    def test_a_pending_start_is_refused_with_the_trust_refusal(self):
+        with self.assertRaisesRegex(ib.SessionShapeError, "waits on a question .*no method"):
+            self.build({"visible": True}, new_chat={"sessionId": None, "pending": True}, trust_error="no method")
+        self.assertIn("AGENT-SESSION-TRUST-REFUSED", self.out.getvalue())
+
+    def test_a_trust_refusal_is_reported(self):
+        built = self.build({"visible": True}, trust_error="no method")
+        self.assertEqual(built["trust"], [{"cwd": self.home.cwd, "error": "no method"}])
+
+    def test_a_harness_that_exited_is_no_finished_turn(self):
+        with self.assertRaisesRegex(ib.SessionShapeError, "its turn did not finish"):
+            self.build({"visible": True}, finished_status="idle")
+
+    def test_a_hidden_chat_with_no_host_record_is_refused(self):
+        with self.assertRaisesRegex(ib.SessionShapeError, "has no agent host record"):
+            self.build({"hidden": True}, write_hidden_record=False)
+
+    def test_a_refused_prewarm_is_refused(self):
+        with self.assertRaisesRegex(ib.SessionShapeError, "prewarm .* refused: .*the session pool is off"):
+            self.build({"pool": 1}, prewarm={"accepted": False, "reason": "the session pool is off"})
+
+    def test_a_pool_entry_the_page_hinted_does_not_count(self):
+        self.world = FakeWorld(self.home)
+        answer = self.world.acpmux
+
+        def acpmux(method, params=None, timeout=10):
+            if method != "_acpmux/prewarm":
+                return answer(method, params, timeout)
+            # A newer hint from the agent page superseded the bench's: the ready entry is in the page's folder.
+            self.world.pool.append({"cwd": self.home.cwd, "state": "ready"})
+            return {"accepted": True, "superseded": True}
+
+        self.home.call = acpmux
+        with self.assertRaisesRegex(ib.SessionShapeError, "1 ready pooled entries in .* wanted, 0"):
+            ib.build_agents(self.world, self.home, {"pool": 1}, self.world.module)
+
+    def test_busy_hidden_prints_in_the_launch_terminal_then_hides_it(self):
+        self.world = FakeWorld(self.home)
+        built = ib.build_busy_hidden(self.world, 0.1, self.world.module)
+        self.assertEqual(built, {"printing_workspace": "w1", "printing_tab": "t1", "period_s": 0.1,
+                                 "shown_workspace": "w2"})
+        self.assertIn(("send", "t1", "while :; do echo idle-budget-tick; sleep 0.1; done\n"), self.world.log)
+        self.assertEqual(self.world.showing, "w2")
+
+    def test_busy_hidden_refuses_a_workspace_with_no_terminal(self):
+        self.world = FakeWorld(self.home)
+        self.world.workspaces["w1"] = [{"id": "p1", "tabs": []}]
+        with self.assertRaisesRegex(ib.SessionShapeError, "has no terminal tab"):
+            ib.build_busy_hidden(self.world, 0.1, self.world.module)
+
+
+class AgentRefusalTests(unittest.TestCase):
+    """A window that did not measure the harnesses the session built is refused, not passed."""
+
+    AGENTS = {"plan": {"visible": True, "hidden": True, "pool": 1}, "hidden_hosts": [20], "pool_hosts": [30]}
+
+    def rows(self, *hosts):
+        return [{"kind": "agent-harness", "agent_host": host} for host in hosts] + [{"kind": "acpmux"}]
+
+    def test_both_harnesses_measured(self):
+        self.assertEqual(ib.agent_refusals(self.AGENTS, self.rows(20, 30)), [])
+
+    def test_the_hidden_harness_exited(self):
+        self.assertEqual(ib.agent_refusals(self.AGENTS, self.rows(30)),
+                         [("agents", "no agent-harness row under the hidden chat's host [20]")])
+
+    def test_an_empty_hidden_set_is_refused(self):
+        agents = {**self.AGENTS, "hidden_hosts": []}
+        self.assertEqual(ib.agent_refusals(agents, self.rows(20, 30)),
+                         [("agents", "no agent-harness row under the hidden chat's host []")])
+
+    def test_the_pooled_harness_is_gone(self):
+        self.assertEqual(ib.agent_refusals(self.AGENTS, self.rows(20)),
+                         [("agents", "no agent-harness row under a pooled host [30]")])
+
+    def test_sessions_without_agents_or_without_a_hidden_chat(self):
+        self.assertEqual(ib.agent_refusals(None, []), [])
+        working = {"plan": {"visible": True, "working": True}, "hidden_hosts": [], "pool_hosts": []}
+        self.assertEqual(ib.agent_refusals(working, []), [])
+
+    def test_refusals_reads_the_window_rows(self):
+        entry = {"saver": {"mismatch": None}, "agents": self.AGENTS, "result": {"processes": self.rows(30)}}
+        with unittest.mock.patch.object(ib, "shipping_refusals", lambda _entry: []):
+            self.assertEqual([what for what, _why in ib.refusals(entry)], ["agents"])
+
+
+class SessionWiringTests(unittest.TestCase):
+    """main's session wiring: the agent home's env reaches the app, its config is written before the launch, and
+    the gated turns end before the app stops."""
+
+    class App:
+        def __init__(self, path, out, env, config, log=None):
+            self.path, self.out, self.env, self.config = path, out, env, config
+            self.log = []
+
+        def launch(self):
+            self.log.append("launch")
+
+        def stop(self):
+            self.log.append("stop")
+
+    def test_an_agent_session_launches_with_its_acpmux_home(self):
+        with tempfile.TemporaryDirectory() as out:
+            app, agents = ib.session_app(self.App, "/A.app", out, "agent-idle", {"CMUX_X": "1"})
+            self.assertIsInstance(agents, ib.AgentHome)
+            self.assertEqual(app.env, {"CMUX_X": "1", **agents.env()})
+            self.assertEqual(app.out, os.path.join(out, "agent-idle"))
+            app, agents = ib.session_app(self.App, "/A.app", out, "busy-hidden", {"CMUX_X": "1"})
+            self.assertIsNone(agents)
+            self.assertEqual(app.env, {"CMUX_X": "1"})
+
+    def test_start_writes_the_home_before_the_launch_then_builds(self):
+        log = []
+        app = self.App("/A.app", "/o", {}, {})
+        app.launch = lambda: log.append("launch")
+        agents = types.SimpleNamespace(write=lambda: log.append("write"))
+        entry = {}
+        with unittest.mock.patch.object(ib, "build_agents", lambda *a: log.append("agents") or {"built": 1}), \
+                unittest.mock.patch.object(ib, "build_busy_hidden", lambda *a: log.append("busy") or {"busy": 1}):
+            ib.start_session(app, agents, ib.SESSIONS["agent-idle"], entry)
+            self.assertEqual(log, ["write", "launch", "agents"])
+            self.assertEqual(entry, {"agents": {"built": 1}})
+            log.clear()
+            ib.start_session(app, None, ib.SESSIONS["busy-hidden"], entry)
+            self.assertEqual(log, ["launch", "busy"])
+
+    def test_stop_releases_the_gates_before_the_app_stops(self):
+        log = []
+        app = types.SimpleNamespace(stop=lambda: log.append("stop"))
+        ib.stop_session(app, types.SimpleNamespace(release=lambda: log.append("release")))
+        self.assertEqual(log, ["release", "stop"])
+
+        def broken():
+            raise OSError("gate")
+
+        log.clear()
+        with self.assertRaises(OSError):
+            ib.stop_session(app, types.SimpleNamespace(release=broken))
+        self.assertEqual(log, ["stop"])  # the app stops whatever the release did
+        log.clear()
+        ib.stop_session(app, None)
+        self.assertEqual(log, ["stop"])
+
+    def test_main_uses_the_session_wiring(self):
+        source = Path(HERE / "idle-budget.py").read_text()
+        main = source[source.index("def main(argv=None):"):]
+        self.assertIn("session_app(BenchApp, opts.app, out, session, env)", main)
+        self.assertIn("start_session(app, agents, spec, entry)", main)
+        self.assertIn("stop_session(app, agents)", main)
+        self.assertLess(main.index("start_session("), main.index("settle_seconds("))
 
 
 if __name__ == "__main__":
