@@ -2422,6 +2422,10 @@ RAW_OBSERVER = re.compile(r"\baddObserver\(|\b(NSWindow|NSApplication)\.(did|wil
                           r"|\bNSWorkspace\.shared\.notificationCenter\b|\bnotifications\(named:"
                           r"|\bDistributedNotificationCenter\b|\.observe\(\\\.|\bNSView\.(frame|bounds)DidChangeNotification\b"
                           r"|\bdidUpdateNotification\b")  # queue Q4 of p06-scheduler.md section 6
+# R-notif's target: a notice name passed straight to a WindowEvents or AppEvents `subscribe(` (one observer per window
+# or app per name, fanned out by the subscriber's node). The name still matches RAW_OBSERVER; the subscription is not
+# a raw observer.
+SUBSCRIBED_NOTICE = re.compile(r"\bsubscribe\(\s*(?:NSWindow|NSApplication)\.(?:did|will)[A-Za-z]+Notification\b")
 TAP_FILE = re.compile(r"^" + re.escape(INPUT_TAP_MODULE) + r"InputEventTap(\+\w+)?\.swift$")
 
 
@@ -2556,6 +2560,18 @@ def timer_class_debt(version: Version, index: int) -> tuple[bool, list[int]]:
     return False, context
 
 
+def raw_observer_in(code: str) -> bool:
+    """Whether CODE (a line with comments dropped) holds a raw observer: a RAW_OBSERVER match other than a notice name
+    passed straight to a WindowEvents or AppEvents `subscribe(` (SUBSCRIBED_NOTICE, recipe R-notif's target).
+    p06_queue.py judges its Q4 hits with this too."""
+    return RAW_OBSERVER.search(SUBSCRIBED_NOTICE.sub("subscribe(", code)) is not None
+
+
+def raw_observer_debt(version: Version, index: int) -> tuple[bool, list[int]]:
+    """A raw observer on VERSION's line INDEX; a WindowEvents or AppEvents subscription to a named notice is not one."""
+    return raw_observer_in(code_of(version.lines[index])), []
+
+
 def scoped_to(matcher: Matcher, keep_file: Callable[[str], bool]):
     """matcher_rule(MATCHER) over the changed files KEEP_FILE accepts, each side's facts shared through SIDE_MEMO."""
     def find(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
@@ -2621,7 +2637,7 @@ MAIN_CLASS_RULES = (
          "per notice, fan-out to visible subscribers); a frame or bounds notice becomes the view's own `layout()` / "
          "`setFrameSize`; KVO on WebKit takes the tab's node",
          "// raw-observer-allow: <why no WindowEvents or AppEvents notice fits>",
-         scoped_to(Matcher(RAW_OBSERVER, allow_marker("raw-observer")),
+         scoped_to(Matcher(RAW_OBSERVER, allow_marker("raw-observer"), raw_observer_debt),
                    lambda path: not path.startswith(WAKEUPS))),
     Rule("local-monitor", "A second NSEvent monitor inside CmuxNextInput, outside the input tap (InputEventTap)",
          "the tap is the one monitor of the process (p06-scheduler.md Q8 target: 1); input-monitor refuses "
