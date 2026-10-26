@@ -860,7 +860,8 @@ As built: PL-memory's coordinator had landed, so the one observer is `MemoryCoor
 WebUIHost registers the slot as a `SpareMemoryConsumer`, ChromiumWarmup's spare windows close only at critical
 (`SpareMemoryConsumer.Closing.atCritical`), BrowserHibernation runs the ranked pass on the critical release slice.
 Order tests: WebUIHostPressureTests (stand-ins), WebUIPressureOrderTests (the app's real registrations). The
-pressure bench drives `debug.hibernation.pressure`. PL-memory told in p07-memory.md section 3.E.
+pressure bench drives `debug.hibernation.pressure`. PL-memory told in p07-memory.md section 3.E. PL-cef-tab:
+`CEFSpareWindow.setHeld` no longer closes the untaken spares; `CEFEngine.closeUntakenSpareWindows` does, at critical.
 
 **048 Stand-in.** Files: PageWebView+Paint.swift, PageWebView.swift, InternalPageView.swift. Change: a themed
 CALayer (WebTheme surface color, title through TypeScale) in the open's turn, removed at the first PagePaintProbe
