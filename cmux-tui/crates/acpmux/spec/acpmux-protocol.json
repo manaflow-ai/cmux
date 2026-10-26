@@ -586,6 +586,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/watch_add",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/watch_ls",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/watch_rm",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/ask",
       "params": true,
       "result": true
@@ -1677,6 +1695,90 @@
       ],
       "type": "object"
     },
+    "ErrorDetails": {
+      "description": "The facts of a typed failure (`errorKind`); only the keys that apply are present.",
+      "properties": {
+        "binary": {
+          "description": "The program that could not start.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cwd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "exitCode": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "freeBytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "lastSeenAt": {
+          "description": "When the peer last answered (RFC 3339).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "The folder whose disk is full or low.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "peer": {
+          "description": "The peer, by its name in `acpmux host ls`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "queued": {
+          "description": "The message is held in the durable outbox and goes when the peer or daemon is back.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "retryAfterMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "signal": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "totalBytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "EventKinds": {
       "anyOf": [
         {
@@ -1909,10 +2011,27 @@
             "null"
           ]
         },
+        "details": {
+          "anyOf": [
+            {
+              "$ref": "#/types/ErrorDetails"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "endedAt": {
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "errorKind": {
+          "description": "What kind of failure a failed turn was (`recovery.rs`): `disk.full`, `disk.low`,\n`peer.unreachable`, `daemon.restarting`, `spawn.failed` or `agent.exited`. A client\ntreats a kind it does not know as a plain error. The same key is on a request's error\n`data` and on the `turn_error` and `turn_result` records.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "errorSource": {
           "type": [
@@ -1927,6 +2046,13 @@
           ]
         },
         "promptId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recovery": {
+          "description": "One sentence saying what to do about the failure.",
           "type": [
             "string",
             "null"
@@ -3217,6 +3343,10 @@
           ],
           "description": "The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null\nwhen none waits."
         },
+        "retryDeciding": {
+          "description": "Its last turn failed on an error an automatic retry answers, and whether, and when, it\nis retried is not settled yet: `retry` is about to be set or stay null, or the retry is\nstarting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is\nsettled. Absent otherwise, and from a peer on an older acpmux.",
+          "type": "boolean"
+        },
         "rules": {
           "description": "The session has its own permission rules.",
           "type": "boolean"
@@ -3663,6 +3793,10 @@
             }
           ],
           "description": "The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null\nwhen none waits."
+        },
+        "retryDeciding": {
+          "description": "Its last turn failed on an error an automatic retry answers, and whether, and when, it\nis retried is not settled yet: `retry` is about to be set or stay null, or the retry is\nstarting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is\nsettled. Absent otherwise, and from a peer on an older acpmux.",
+          "type": "boolean"
         },
         "rules": {
           "description": "The session has its own permission rules.",

@@ -321,6 +321,8 @@ impl Hub {
             Made::Copy(_) | Made::Agent(..) => {}
         }
         self.store.save(&new.meta()).map_err(|e| RpcError::internal(e.to_string()))?;
+        // The fork copies transcript records, never the parent's reported Git branch.
+        self.restore_git_branch(&new, new.meta().git_branch);
         {
             let mut sessions = self.sessions.lock().unwrap();
             sessions.insert(id.clone(), new.clone());

@@ -100,6 +100,16 @@ extension AgentPaneView {
         String(localized: "agentPane.inspector.needsFocus", defaultValue: "Opening the ACP inspector requires focus.", bundle: .module)
     }
 
+    /// Shown when automation would open Session Info without an explicit focus request.
+    static var sessionInfoNeedsFocus: String {
+        String(localized: "agentPane.sessionInfo.needsFocus", defaultValue: "Opening Session Info requires focus.", bundle: .module)
+    }
+
+    /// Shown when Toggle Session Info runs with Session Info turned off in Settings.
+    static var sessionInfoOff: String {
+        String(localized: "agentPane.sessionInfo.off", defaultValue: "Session Info is turned off in Settings.", bundle: .module)
+    }
+
     /// cx-0q7o: an allow went to an agent daemon on another machine that holds no key of this
     /// app for that run (not started by this app, or restarted since), so it refuses the allow.
     static func remoteApprovalsOffTitle(_ machine: String) -> String {
