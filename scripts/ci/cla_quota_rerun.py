@@ -7,7 +7,9 @@ installation", 2026-10-06 and from 21:10Z on 2026-10-25), both fail, and they st
 until someone re-runs them by hand, often while the budget is still spent. Both files
 are a trusted control plane: a change to either needs a trusted maintainer's review
 (scripts/ci/validate-cla-policy.rb), so the retry lives here instead. ci-cla-quota-rerun.yml
-runs this every 10 minutes:
+runs this when a CLA run fails (and when one of this janitor's re-runs completes, so a
+backlog drains pass by pass), and every 10 minutes as a fallback: GitHub fires that cron
+late or not at all (12:35Z to 14:19Z on 2026-10-26, while #25466 sat blocked for 80 min).
 
 1. One `rate_limit` read of the workflow token's budget (free). Under the floor, a re-run
    now would fail the same way. When that budget resets within WAIT_FOR_RESET, the pass
@@ -23,11 +25,14 @@ runs this every 10 minutes:
    job's log says the API rate limit was exceeded. A CLA policy guard run reports every
    error, a spent budget included, as "rejected the proposed policy" (validate-cla-policy.rb
    rescues PolicyError and hides the reason), so a guard failure is re-run only with
-   evidence of an API failure: its own log shows a 403 or rate limit before the reject,
-   or a CLA Assistant job, on any pull request, logged "API rate limit exceeded for
-   installation" within
-   GUARD_WINDOW of it (the budget is the repository's, shared by both). A reject with
-   neither is never re-run: it is reported as a possible real policy rejection.
+   evidence of an API failure: its own log shows a 403 or rate limit before the reject;
+   or its pull request changes none of the paths the guard validates (POLICY_PATHS), so
+   it proposes no policy and only a failed read can have rejected it (while the run is
+   on an early attempt, NO_POLICY_MAX_ATTEMPT); or a CLA Assistant job, on any pull
+   request, logged "API rate limit exceeded for installation" within GUARD_WINDOW of it
+   (the budget is the repository's, shared by both). None of these needs the response's
+   x-ratelimit headers or a particular 403 wording. A reject with none of them is never
+   re-run: it is reported as a possible real policy rejection.
 
 A re-run changes no policy: the same trusted workflow runs again on the same head. Reads and re-runs use
 GH_TOKEN (the janitor's App token, its own budget); RATE_TOKEN is the workflow token
@@ -55,13 +60,28 @@ INSTALLATION_LIMITED = re.compile(r"API rate limit exceeded for installation", r
 # What a failed GitHub API read looks like in a log. "403" alone matches hashes and ids.
 API_FAILURE = re.compile(r"rate limit|\bHTTP 403\b|\b403 Forbidden\b|\(HTTP 403\)", re.IGNORECASE)
 GUARD_REJECT = "rejected the proposed policy"
+# Every path validate-cla-policy.rb reads as policy (CLA_POLICY_PATHS and GUARD_PATHS there;
+# tests/test_cla_quota_rerun.py keeps the two lists equal). A pull request that changes none
+# of them proposes no policy: the guard passes it unless a GitHub read fails.
+POLICY_PATHS = frozenset({
+    ".github/workflows/cla.yml", "CLA.md", ".github/scripts/rerun-failed-cla.sh",
+    ".github/scripts/refresh-cla-check.sh", ".github/workflows/cla-policy-guard.yml",
+    "scripts/ci/validate-cla-policy.rb",
+})
+# A no-policy pull request's guard is re-run on this evidence while its attempt is below
+# this: a branch far behind a policy change on main can still be rejected for real.
+NO_POLICY_MAX_ATTEMPT = 3
+MAX_FILE_PAGES = 3  # 300 changed files; a larger pull request gets no evidence this way
 GUARD_WINDOW = dt.timedelta(minutes=15)
 BASES = ("main", "feat-cmux-next")
 MAX_PULL_PAGES = 5
 FLOOR_SHARE = 0.1
 FLOOR_MIN = 500
 RERUN_COST = 40  # GITHUB_TOKEN calls a CLA Assistant or CLA policy guard re-run spends, generously
-WAIT_FOR_RESET = dt.timedelta(minutes=15)  # under the cron's observed 25-40 minute gaps
+# A pass that finds the budget spent waits for a reset this close (the job's timeout covers
+# it, and the App token, minted at the start, lives an hour). Rejects start passes, so the
+# last reject before a reset leaves one pass waiting for it.
+WAIT_FOR_RESET = dt.timedelta(minutes=40)
 RESET_GRACE = dt.timedelta(seconds=20)
 MAX_AGE = dt.timedelta(hours=24)
 MAX_ATTEMPT = 20
@@ -108,7 +128,9 @@ def open_heads(gh: GitHub, log: Callable[[str], None]) -> dict[str, set[int]]:
     heads: dict[str, set[int]] = {}
     for base in BASES:
         for page in range(1, MAX_PULL_PAGES + 1):
-            pulls = gh.request("GET", f"/repos/{gh.repo}/pulls?state=open&base={base}&per_page=100&page={page}") or []
+            # Most recently updated first: a fresh reject's pull request was just pushed or edited.
+            pulls = gh.request("GET", f"/repos/{gh.repo}/pulls?state=open&base={base}&per_page=100"
+                                      f"&sort=updated&direction=desc&page={page}") or []
             for pull in pulls:
                 if (pull.get("base") or {}).get("ref") == base and (pull.get("head") or {}).get("sha"):
                     heads.setdefault(pull["head"]["sha"], set()).add(int(pull.get("number") or 0))
@@ -185,6 +207,19 @@ def guard_api_failure(log: str) -> bool:
     return bool(API_FAILURE.search(before))
 
 
+def proposes_no_policy(gh: GitHub, number: int) -> bool:
+    """The pull request changes, adds, removes or renames none of POLICY_PATHS. False when
+    that is not known (over MAX_FILE_PAGES of files)."""
+    for page in range(1, MAX_FILE_PAGES + 1):
+        files = gh.request("GET", f"/repos/{gh.repo}/pulls/{number}/files?per_page=100&page={page}") or []
+        for item in files:
+            if {item.get("filename"), item.get("previous_filename")} & POLICY_PATHS:
+                return False
+        if len(files) < 100:
+            return True
+    return False
+
+
 def rotated(runs: list[dict[str, Any]], now: dt.datetime) -> list[dict[str, Any]]:
     """Oldest first, starting at a slot that moves every sweep, so a bounded scan reaches every
     candidate in turn and genuine failures cannot hold the read budget."""
@@ -197,8 +232,9 @@ def rotated(runs: list[dict[str, Any]], now: dt.datetime) -> list[dict[str, Any]
 
 def plan(gh: GitHub, now: dt.datetime, log: Callable[[str], None], limit: int = MAX_RERUNS) -> list[dict[str, Any]]:
     """The runs to re-run: CLA Assistant failures whose log shows the rate limit, and CLA
-    policy guard failures with evidence of an API failure (guard_api_failure, or a
-    rate-limited CLA Assistant job within GUARD_WINDOW). Log reads are bounded by
+    policy guard failures with evidence of an API failure (guard_api_failure, a pull request
+    that proposes no policy, or a rate-limited CLA Assistant job within GUARD_WINDOW). Log
+    and file reads are bounded by
     MAX_LOG_READS and MAX_GUARD_READS and rotate, so genuine failures cannot hold the read budget."""
     heads = open_heads(gh, log)
     assistant_runs = workflow_runs(gh, "cla.yml")
@@ -236,6 +272,9 @@ def plan(gh: GitHub, now: dt.datetime, log: Callable[[str], None], limit: int = 
         text, finished = failed_job(gh, run)
         near = lambda stamp: finished is not None and abs(stamp - finished) <= GUARD_WINDOW  # noqa: E731
         evidence = guard_api_failure(text) or any(near(stamp) for stamp in limited_at)
+        if not evidence and int(run.get("run_attempt") or 1) < NO_POLICY_MAX_ATTEMPT and reads < MAX_GUARD_READS:
+            reads += 1
+            evidence = proposes_no_policy(gh, run["number"])
         if not evidence and finished is not None:
             for other in extra:
                 stamp = when(other.get("updated_at"))
@@ -253,7 +292,8 @@ def plan(gh: GitHub, now: dt.datetime, log: Callable[[str], None], limit: int = 
             chosen.append(run)
         else:
             log(f"::warning title=CLA policy guard reject left alone::run {run['id']} for #{run['number']} at "
-                f"{run['head_sha'][:12]} shows no API failure and no rate-limited CLA Assistant within "
+                f"{run['head_sha'][:12]} changes CLA policy (or was re-run on that evidence already) and "
+                f"shows no API failure and no rate-limited CLA Assistant within "
                 f"{int(GUARD_WINDOW.total_seconds() // 60)} min; possibly a real policy rejection, not re-run")
     return chosen
 

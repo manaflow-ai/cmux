@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import datetime as dt
 import io
+import re
 import sys
 import unittest
 from contextlib import redirect_stdout
@@ -15,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import cla_quota_rerun as rerun  # noqa: E402
+import yaml  # noqa: E402
 
 NOW = dt.datetime(2026, 10, 26, 4, 30, tzinfo=dt.timezone.utc)
 LIMITED_LOG = "##[error]Could not complete the CLA check: ... API rate limit exceeded for installation."
@@ -25,6 +27,8 @@ GUARD_LOG = ("Run set -euo pipefail\n  BASE_SHA: c0a00581d66f425cdb55bf1a4a9c349
 GUARD_403_LOG = ("gh: API rate limit exceeded for installation ID 1 (HTTP 403)\n"
                  "##[error]CLA policy validation rejected the proposed policy\n")
 GUARD = "CLA policy guard"
+POLICY_CHANGE = [{"filename": ".github/workflows/cla.yml"}]
+NO_POLICY = [{"filename": "Sources/App.swift"}, {"filename": "tests/test_app.py"}]
 
 
 def run(run_id, head, *, number=1, attempt=1, name="CLA", updated="2026-10-26T04:00:00Z", conclusion="failure"):
@@ -38,9 +42,11 @@ def pull(number, head, base="main"):
 
 
 class FakeGitHub:
-    def __init__(self, assistant, guard, logs, *, pulls=None, finished=None, remaining=9000, reset=None):
+    def __init__(self, assistant, guard, logs, *, pulls=None, finished=None, remaining=9000, reset=None, files=None):
         # `remaining` may be a list: one value per rate_limit read, the last one repeating.
+        # `files`: pull request number -> its changed files (default: one that changes CLA policy).
         self.assistant, self.guard, self.logs = assistant, guard, logs
+        self.files = files or {}
         self.remaining = remaining if isinstance(remaining, list) else [remaining]
         self.reset = reset or NOW + dt.timedelta(hours=1)
         # By default every run's head is an open pull request into main.
@@ -57,6 +63,11 @@ class FakeGitHub:
         if method == "POST":
             self.posts.append(path)
             return {}
+        if "/files?" in path:
+            number = int(path.split("/pulls/")[1].split("/")[0])
+            page = int(path.rsplit("page=", 1)[1])
+            changed = self.files.get(number, POLICY_CHANGE)
+            return changed[(page - 1) * 100:page * 100]
         if path.startswith("/repos/o/r/pulls?state=open"):
             base = path.split("base=")[1].split("&")[0]
             return [p for p in self.pulls if p["base"]["ref"] == base] if path.endswith("page=1") else []
@@ -106,7 +117,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(fake.calls, [("GET", "/rate_limit")] * 2)
 
     def test_a_far_reset_is_not_waited_for(self):
-        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG}, remaining=0, reset=NOW + dt.timedelta(minutes=40))
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG}, remaining=0, reset=NOW + dt.timedelta(minutes=50))
         slept = []
         self.sweep(fake, slept=slept)
         self.assertEqual(slept, [])
@@ -178,8 +189,9 @@ class Tests(unittest.TestCase):
         fake = FakeGitHub([], [], {})
         self.sweep(fake)
         reads = [path for _, path in fake.calls if "/pulls?" in path]
-        self.assertEqual(reads, ["/repos/o/r/pulls?state=open&base=main&per_page=100&page=1",
-                                 "/repos/o/r/pulls?state=open&base=feat-cmux-next&per_page=100&page=1"])
+        self.assertEqual(reads, [
+            "/repos/o/r/pulls?state=open&base=main&per_page=100&sort=updated&direction=desc&page=1",
+            "/repos/o/r/pulls?state=open&base=feat-cmux-next&per_page=100&sort=updated&direction=desc&page=1"])
 
     def test_a_secondary_rate_limit_elsewhere_is_not_evidence_for_a_guard(self):
         guard_head, other_head = "b" * 40, "c" * 40
@@ -264,6 +276,65 @@ class Tests(unittest.TestCase):
             self.sweep(fake, now=NOW + dt.timedelta(minutes=10 * slot))
             reached.update(fake.posts)
         self.assertIn(rerun_path(99), reached)
+
+    def test_a_guard_reject_on_a_pull_request_that_proposes_no_policy_is_rerun(self):
+        # No x-ratelimit header, no 403 wording and no CLA Assistant failure needed: a pull
+        # request that changes no policy path passes the guard unless a GitHub read fails.
+        fake = FakeGitHub([], [run(2, "b" * 40, number=7, name=GUARD)], {2: GUARD_LOG}, files={7: NO_POLICY})
+        self.sweep(fake)
+        self.assertEqual(fake.posts, [rerun_path(2)])
+        self.assertIn(("GET", "/repos/o/r/pulls/7/files?per_page=100&page=1"), fake.calls)
+
+    def test_no_policy_evidence_stops_after_early_attempts(self):
+        fake = FakeGitHub([], [run(2, "b" * 40, number=7, attempt=rerun.NO_POLICY_MAX_ATTEMPT, name=GUARD)],
+                          {2: GUARD_LOG}, files={7: NO_POLICY})
+        self.assertIn("possibly a real policy rejection", self.sweep(fake))
+        self.assertEqual(fake.posts, [])
+
+    def test_a_pull_request_that_touches_any_policy_path_is_not_evidence(self):
+        for changed in ([{"filename": path} for path in sorted(rerun.POLICY_PATHS)]
+                        + [{"filename": "docs/cla.md", "previous_filename": "CLA.md"}]):
+            fake = FakeGitHub([], [run(2, "b" * 40, number=7, name=GUARD)], {2: GUARD_LOG},
+                              files={7: NO_POLICY + [changed]})
+            self.sweep(fake)
+            self.assertEqual(fake.posts, [], changed)
+
+    def test_a_pull_request_too_large_to_list_is_not_evidence(self):
+        many = [{"filename": f"f{i}.txt"} for i in range(100 * rerun.MAX_FILE_PAGES)]
+        fake = FakeGitHub([], [run(2, "b" * 40, number=7, name=GUARD)], {2: GUARD_LOG}, files={7: many})
+        self.sweep(fake)
+        self.assertEqual(fake.posts, [])
+
+    def test_policy_paths_match_the_guard(self):
+        # The guard's CLA_POLICY_PATHS and GUARD_PATHS, read from its source.
+        source = (ROOT / "scripts" / "ci" / "validate-cla-policy.rb").read_text(encoding="utf-8")
+        constants = dict(re.findall(r'^([A-Z0-9_]+_PATH) = "([^"]+)"\.freeze$', source, re.MULTILINE))
+        listed = re.search(r"^CLA_POLICY_PATHS = \[(.*?)\]", source, re.MULTILINE | re.DOTALL).group(1)
+        guard = re.search(r"^GUARD_PATHS = \[(.*?)\]", source, re.MULTILINE | re.DOTALL).group(1)
+        names = re.findall(r"[A-Z0-9_]+_PATH\b", listed + guard)
+        self.assertEqual(len(names), 6)
+        self.assertEqual({constants[name] for name in names}, set(rerun.POLICY_PATHS))
+
+    def test_the_workflow_runs_after_each_cla_failure_and_each_rerun(self):
+        workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "ci-cla-quota-rerun.yml").read_text())
+        on = workflow.get("on", workflow.get(True))
+        self.assertEqual(sorted(on["workflow_run"]["workflows"]), ["CLA Assistant", "CLA policy guard"])
+        self.assertEqual(on["workflow_run"]["types"], ["completed"])
+        self.assertIn("schedule", on)
+        job = workflow["jobs"]["cla-quota-rerun"]
+        for term in ("github.event.workflow_run.event == 'pull_request_target'",
+                     "github.event.workflow_run.conclusion == 'failure'", "github.event.workflow_run.run_attempt > 1"):
+            self.assertIn(term, job["if"])
+        # Job level: CLA runs that start no job must never displace a pending pass.
+        self.assertNotIn("concurrency", workflow)
+        self.assertEqual(job["concurrency"], {"group": "ci-cla-quota-rerun", "cancel-in-progress": False})
+        # The pass may wait WAIT_FOR_RESET, and the job outlives it.
+        wait = rerun.WAIT_FOR_RESET.total_seconds() / 60
+        step = next(s for s in job["steps"] if "cla_quota_rerun.py" in str(s.get("run", "")))
+        self.assertGreater(step["timeout-minutes"], wait)
+        self.assertGreater(job["timeout-minutes"], step["timeout-minutes"])
+        self.assertNotIn("pull_request_target", on)
+        self.assertEqual(workflow["permissions"], {})
 
     def test_dry_run_writes_nothing(self):
         fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG})
