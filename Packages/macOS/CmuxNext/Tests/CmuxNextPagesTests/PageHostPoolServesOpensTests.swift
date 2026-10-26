@@ -21,6 +21,9 @@ import Testing
 
         func serves(_ page: PageDescriptor) -> Bool { !unserved.contains(page.id) }
         func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?) async throws -> any PageChromiumPage { throw NoPages() }
+        func supervisorOutcome(then answer: @escaping @MainActor @Sendable (PageChromiumSupervisorOutcome) -> Void) {
+            answer(.gaveUp)
+        }
     }
 
     /// Asserts `servesOpens` gives `expected` and agrees with claim's engine decision over the pooled pages.
