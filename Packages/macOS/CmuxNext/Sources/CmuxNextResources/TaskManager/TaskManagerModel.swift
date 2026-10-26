@@ -8,10 +8,11 @@ public import Observation
 /// the previous one finished; stopped, it samples nothing.
 ///
 /// With `memorySaved` (the `taskManagerMemorySaved` feature) the snapshot also lists the items
-/// Memory Saver discarded, each with the memory it held in its last sample before the discard: the
-/// discarder's number when it had one, else the model's own last sample of the item. Chrome shows the
-/// same number from `PreDiscardResourceUsage`
-/// (chrome/browser/performance_manager/public/user_tuning/user_performance_tuning_manager.h).
+/// Memory Saver discarded, as the source reports them, each with the memory the discarder recorded
+/// when it discarded the item. The model keeps no number of its own: as in Chrome, where the
+/// discarder records `PreDiscardResourceUsage` on the page
+/// (chrome/browser/performance_manager/public/user_tuning/user_performance_tuning_manager.h), the
+/// page shows the same number however often it is closed and opened again.
 ///
 /// Kill Process goes through `kill`, which the App wires to the
 /// `taskManager.killProcess` action (one path for the row menu, the page's
@@ -38,9 +39,6 @@ public final class TaskManagerModel {
     @ObservationIgnored private let timer: DemandTimer
     @ObservationIgnored private let killAction: @MainActor (ProcessKey) -> Void
     @ObservationIgnored private var previous: TaskManagerSampleSet?
-    /// Each item's memory in the latest sample, by tab id, for an item discarded after that sample.
-    /// Only the items of the latest sample are kept.
-    @ObservationIgnored private var itemBytes: [String: UInt64] = [:]
     @ObservationIgnored private var running = false
     /// The first sample start() takes; stop() cancels it.
     @ObservationIgnored private var firstSample: Task<Void, Never>?
@@ -74,8 +72,7 @@ public final class TaskManagerModel {
         firstSample = Task { [weak self] in await self?.sample(generation) }
     }
 
-    /// Stops sampling and forgets the last sample (the next start has no CPU until its second sample,
-    /// and an item discarded meanwhile shows only the discarder's number).
+    /// Stops sampling and forgets the last sample (the next start has no CPU until its second sample).
     public func stop() {
         firstSample?.cancel()
         firstSample = nil
@@ -83,7 +80,6 @@ public final class TaskManagerModel {
         generation &+= 1
         running = false
         previous = nil
-        itemBytes = [:]
     }
 
     /// One periodic sample, then the deadline for the next. A sample that returns after stop() is
@@ -106,47 +102,11 @@ public final class TaskManagerModel {
 
     private func apply(_ set: TaskManagerSampleSet) {
         var next = TaskManagerSnapshot(current: set, previous: previous)
-        if memorySaved { next.setDiscarded(savedMemory(set)) }
+        if memorySaved { next.setDiscarded(set.discarded) }
         snapshot = next
         previous = set
         sampleCount += 1
         selection.formIntersection(Set(snapshot.rows.map(\.id)))
-    }
-
-    /// The discarded items of `set`, each with what it saved, and every item's memory noted for a later
-    /// discard. A discarded item keeps the number it had when it was discarded: its processes are gone,
-    /// so a later sample says nothing about it.
-    private func savedMemory(_ set: TaskManagerSampleSet) -> [TaskManagerDiscardedItem] {
-        let items = set.discarded.map { item in
-            var item = item
-            if item.savedBytes == nil { item.savedBytes = itemBytes[item.id] }
-            return item
-        }
-        let discarded = Set(items.map(\.id))
-        var noted = Self.itemMemory(set.resources).filter { !discarded.contains($0.key) }
-        for item in items { if let bytes = item.savedBytes { noted[item.id] = bytes } }
-        itemBytes = noted
-        return items
-    }
-
-    /// Each available tab's memory in `resources`: its processes' footprint (a process several tabs
-    /// share split evenly between them) plus its app-side estimate. Chrome estimates a page the same
-    /// way (`PageNodeImpl::EstimatePrivateFootprintSize`, components/performance_manager/graph/
-    /// page_node_impl.cc: the sum of its frames' shares of their process's footprint). A tab with
-    /// nothing measured is left out.
-    private static func itemMemory(_ resources: ResourceSampleSet) -> [String: UInt64] {
-        var sharers: [ProcessKey: UInt64] = [:]
-        for tab in resources.tabs { for process in Set(tab.processes) { sharers[process, default: 0] += 1 } }
-        var bytes: [String: UInt64] = [:]
-        for tab in resources.tabs where tab.available {
-            let own = Set(tab.processes).reduce(UInt64(0)) { total, process in
-                guard let memory = resources.samples[process]?.memoryBytes else { return total }
-                return total &+ memory / max(sharers[process] ?? 1, 1)
-            }
-            let total = own &+ tab.estimatedAppBytes
-            if total > 0 { bytes[tab.tabID] = total }
-        }
-        return bytes
     }
 
     /// Kill Process for `key` (asks first through the action).

@@ -131,6 +131,12 @@ final class BrowserHibernation {
     /// by the App. Run only under memory pressure, at most every `memoryMaxAge` seconds.
     var measureMemory: (() async -> [String: UInt64])?
     private(set) var memoryBytes: [String: UInt64] = [:]
+    /// Each hibernated page's memory in its last measurement before the discard (`memoryBytes`, from
+    /// the pressure sample or the Task Manager's), kept while it sleeps: what Memory Saver saved by
+    /// discarding it. Set at `release`, dropped when the page wakes or closes. Chrome records the
+    /// same number on the page at discard time (`PreDiscardResourceUsage`,
+    /// chrome/browser/performance_manager/public/user_tuning/user_performance_tuning_manager.h).
+    var savedBytes: [String: UInt64] = [:]
     private var memoryMeasuredAt: ContinuousClock.Instant?
     private var measuringMemory = false
     static let memoryMaxAge: Double = 30
@@ -212,6 +218,18 @@ final class BrowserHibernation {
             self.memoryBytes = sample
             self.memoryMeasuredAt = .now
             self.replan()
+        }
+    }
+
+    /// Notes the browser tabs' memory another sampler measured (the Task Manager's samples, the same
+    /// estimate as `measureMemory`), so a page discarded while it was open has its number. Only live
+    /// pages with a reading count: a closed or sleeping page, or one with nothing measured, keeps
+    /// what it had. In Chrome the resource monitor's samples land on the page node, where the
+    /// discarder reads them (`PageNodeImpl::EstimatePrivateFootprintSize`).
+    func noteMemory(_ bytes: [String: UInt64]) {
+        guard let cache else { return }
+        for (key, value) in bytes where value > 0 && cache.browsers[key] != nil && !cache.dormantTabs.contains(key) {
+            memoryBytes[key] = value
         }
     }
 
@@ -303,6 +321,7 @@ final class BrowserHibernation {
         focusedAt[key] = nil
         leased.remove(key)
         memoryBytes[key] = nil
+        savedBytes[key] = nil
         probeKeptAt[key] = nil
         snapshots.remove(key)
         wakeLog.forget(key)
@@ -632,6 +651,7 @@ final class BrowserHibernation {
         if let snapshot = saved.snapshot { keep(snapshot, for: key) }
         cache.swapPage(key, with: placeholder)
         cache.dormantTabs.set(key, true)
+        savedBytes[key] = memoryBytes[key].flatMap { $0 > 0 ? $0 : nil }
         hiddenAt[key] = nil
         // A probe that kept the page before no longer applies (`debug.surfaces`).
         exemptions[key] = nil
