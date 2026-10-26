@@ -18,8 +18,9 @@ The result is schemas/features/env-audit.json: per scope and name, its class, a 
 and every site (file:line, the kind of use, the compile condition and whether a Release build compiles it:
 true, false, or null when it depends on the target or a build variant). Swift sites take their condition
 from the `#if` stack. Rust sites take theirs from `#[cfg(...)]`, `#[test]`, `if cfg!(...) {`, `#![cfg(...)]`,
-the `mod` declaration that includes the file (`#[path]` too) and the crate's tests/, benches/ and examples/
-folders. A string constant is judged where its file uses it.
+the `mod` declarations that include the file (`#[path]` too; any of them) and the crate's tests/, benches/ and
+examples/ folders. A string constant is judged at each use that names it: a Swift use by its type, a Rust use
+by its path (`crate::`, `super::`, `self::`, a module name, or a `use` import).
 
 Classes. The script sets the first four and checks them on every run; a person sets the others:
 
@@ -85,12 +86,15 @@ AUTO_NOTES = {
 
 # Swift: what Release and bench (`scripts/reload.sh --config bench`: -DCMUX_BENCH_HOOKS, no DEBUG) builds
 # define. Other names (CMUX_NO_*, GHOSTTY_GPU_RESIDENT) and arch() are unknown: the line may be compiled.
-SWIFT_OFF = frozenset({"DEBUG", "CMUX_BENCH_HOOKS", "CMUX_BLOCKING_CHECKS", "CMUX_PGO_PROFILE",
-                       "CMUX_UI_LAYER_PREVIEW"})
+# CMUX_BLOCKING_CHECKS is unknown too: the nightly-next Release build defines it (nightly.yml).
+SWIFT_OFF = frozenset({"DEBUG", "CMUX_BENCH_HOOKS", "CMUX_PGO_PROFILE", "CMUX_UI_LAYER_PREVIEW"})
 SWIFT_BENCH_ON = frozenset({"CMUX_BENCH_HOOKS"})
+SWIFT_CONFIGS = (frozenset(), SWIFT_BENCH_ON, frozenset({"DEBUG"}))  # the names on in (release, bench, debug)
 SWIFT_PLATFORM = {"os": {"macOS"}}
-# Rust: what `cargo build --release` of the daemon sets. Targets and cargo features are unknown.
+# Rust: what `cargo build --release` of the daemon sets, and a debug build that is not a test build.
+# Targets and cargo features are unknown.
 RUST_OFF = frozenset({"debug_assertions", "test", "miri", "doc", "doctest", "fuzzing"})
+RUST_DEBUG_OFF = RUST_OFF - {"debug_assertions"}
 RUST_TEST_DIRS = ("tests", "benches", "examples")
 
 
@@ -127,14 +131,17 @@ def _not(value: bool | None) -> bool | None:
 
 @dataclass(frozen=True)
 class Gate:
-    """The compile condition of a site: its text, and its value in a Release and in a bench build."""
+    """The compile condition of a site: its text, and its value in a Release, a bench and a debug (not test)
+    build. A Rust site that a debug build does not compile is test code."""
 
     text: str = ""
     release: bool | None = True
     bench: bool | None = True
+    debug: bool | None = True
 
 
 def _combine(gates: Iterable[Gate | None]) -> Gate:
+    """All of the gates (a site inside each of them)."""
     present: list[Gate] = []
     for gate in gates:
         if gate is not None and gate.text and gate not in present:
@@ -142,7 +149,21 @@ def _combine(gates: Iterable[Gate | None]) -> Gate:
     if not present:
         return Gate()
     return Gate(" && ".join(gate.text for gate in present), _and(gate.release for gate in present),
-                _and(gate.bench for gate in present))
+                _and(gate.bench for gate in present), _and(gate.debug for gate in present))
+
+
+def _either(gates: Iterable[Gate]) -> Gate:
+    """Any of the gates (a file that more than one `mod` declaration includes)."""
+    present: list[Gate] = []
+    for gate in gates:
+        if not gate.text:
+            return Gate()
+        if gate not in present:
+            present.append(gate)
+    if len(present) == 1:
+        return present[0]
+    return Gate("(%s)" % " || ".join(gate.text for gate in present), _or(gate.release for gate in present),
+                _or(gate.bench for gate in present), _or(gate.debug for gate in present))
 
 
 _SWIFT_TOKEN = re.compile(r"\s*(\|\||&&|!|\(|\)|\w+\([^()]*\)|\w+)")
@@ -216,8 +237,8 @@ class SwiftCondition:
 
 def swift_gates(text: str) -> list[Gate]:
     """Per line of a Swift file (index 0 is line 1), the `#if` branches that compile it."""
-    # One entry per open #if group: (this branch's gate, the earlier branches' (release, bench) values).
-    stack: list[tuple[Gate, list[tuple[bool | None, bool | None]]]] = []
+    # One entry per open #if group: (this branch's gate, the earlier branches' values per SWIFT_CONFIGS).
+    stack: list[tuple[Gate, list[tuple[bool | None, ...]]]] = []
     out: list[Gate] = []
     for line in text.splitlines():
         directive = re.match(r"\s*#(if|elseif|else|endif)\b(.*)", line)
@@ -225,19 +246,18 @@ def swift_gates(text: str) -> list[Gate]:
             kind, rest = directive.group(1), directive.group(2)
             if kind in ("if", "elseif"):
                 condition = SwiftCondition(rest)
-                release, bench = condition.value(frozenset()), condition.value(SWIFT_BENCH_ON)
+                values = tuple(condition.value(on) for on in SWIFT_CONFIGS)
             if kind == "if":
-                stack.append((Gate(condition.text, release, bench), [(release, bench)]))
+                stack.append((Gate(condition.text, *values), [values]))
             elif kind in ("elseif", "else") and stack:
                 earlier = stack[-1][1]
-                none_release = _not(_or(value[0] for value in earlier))
-                none_bench = _not(_or(value[1] for value in earlier))
+                none = tuple(_not(_or(value[k] for value in earlier)) for k in range(len(SWIFT_CONFIGS)))
                 if kind == "elseif":
-                    gate = Gate("#elseif " + condition.text, _and((none_release, release)), _and((none_bench, bench)))
-                    stack[-1] = (gate, earlier + [(release, bench)])
+                    branch = tuple(_and(pair) for pair in zip(none, values))
+                    stack[-1] = (Gate("#elseif " + condition.text, *branch), earlier + [values])
                 else:
                     first = stack[-1][0].text if len(earlier) == 1 else "the #if group"
-                    stack[-1] = (Gate("#else of " + first, none_release, none_bench), earlier)
+                    stack[-1] = (Gate("#else of " + first, *none), earlier)
             elif kind == "endif" and stack:
                 stack.pop()
         out.append(_combine(entry[0] for entry in stack))
@@ -320,8 +340,9 @@ def _rust_predicate_text(tokens: list[Token]) -> str:
     return "".join(pieces)
 
 
-def rust_predicate(tokens: list[Token]) -> bool | None:
-    """The Release value of a cfg predicate: `name`, `name = "v"`, not(..), all(..), any(..)."""
+def rust_predicate(tokens: list[Token], off: frozenset[str] = RUST_OFF) -> bool | None:
+    """The value of a cfg predicate (`name`, `name = "v"`, not(..), all(..), any(..)) in a build where the
+    names in `off` are not set: a Release build by default."""
     position = 0
 
     def parse() -> bool | None:
@@ -344,9 +365,14 @@ def rust_predicate(tokens: list[Token]) -> bool | None:
         if position < len(tokens) and tokens[position].text == "=":
             position += 2  # `= "value"`: a target or feature, unknown
             return None
-        return False if name in RUST_OFF else None
+        return False if name in off else None
 
     return parse()
+
+
+def _cfg_gate(text: str, predicate: list[Token]) -> Gate:
+    release = rust_predicate(predicate)
+    return Gate(text % _rust_predicate_text(predicate), release, release, rust_predicate(predicate, RUST_DEBUG_OFF))
 
 
 def _attribute(tokens: list[Token], start: int) -> tuple[int, Gate | None, str | None, bool]:
@@ -364,11 +390,9 @@ def _attribute(tokens: list[Token], start: int) -> tuple[int, Gate | None, str |
     body = tokens[body_start:i - 1]
     words = [token.text for token in body]
     if len(body) >= 3 and words[:2] == ["cfg", "("]:
-        predicate = body[2:-1]
-        value = rust_predicate(predicate)
-        return i, Gate("cfg(%s)" % _rust_predicate_text(predicate), value, value), None, inner
+        return i, _cfg_gate("cfg(%s)", body[2:-1]), None, inner
     if words and words[-1] in ("test", "bench") and all(word == ":" or word.isidentifier() for word in words):
-        return i, Gate("#[%s]" % "".join(words), False, False), None, inner
+        return i, Gate("#[%s]" % "".join(words), False, False, False), None, inner
     if len(body) == 3 and words[:2] == ["path", "="] and body[2].kind == "str":
         return i, None, body[2].text, inner
     return i, None, None, inner
@@ -392,22 +416,35 @@ class _Pending:
 
 @dataclass
 class RustFile:
-    """Per token, the cfg gate in force; per identifier, its gates; the `mod name;` declarations."""
+    """Per token, the cfg gate and the inline module (`mod name { }`) in force; per identifier, its gates;
+    the `mod name;` declarations; the `use` leaves."""
 
-    tokens: dict[int, list[tuple[int, str, Gate]]] = field(default_factory=dict)  # line -> [(col, kind, gate)]
+    # line -> [(col, kind, gate, inline module path)]
+    tokens: dict[int, list[tuple[int, str, Gate, tuple[str, ...]]]] = field(default_factory=dict)
     idents: dict[str, list[tuple[int, Gate]]] = field(default_factory=dict)
     file_gate: Gate = field(default_factory=Gate)
     mods: list[tuple[str, str | None, Gate]] = field(default_factory=list)  # (name, #[path], gate)
+    # (inline module of the `use`, module path as written, imported name or `*`, local name)
+    imports: list[tuple[tuple[str, ...], tuple[str, ...], str, str]] = field(default_factory=list)
 
-    def at(self, line: int, column: int) -> tuple[str, Gate]:
-        """(kind, gate) of the token at or before (line, column); a line inside a long token takes its own."""
+    def _entry(self, line: int, column: int) -> tuple[int, str, Gate, tuple[str, ...]] | None:
         for number in range(line, 0, -1):
             entries = self.tokens.get(number, [])
             if number == line:
                 entries = [entry for entry in entries if entry[0] <= column]
             if entries:
-                return entries[-1][1], entries[-1][2]
-        return "punct", Gate()
+                return entries[-1]
+        return None
+
+    def at(self, line: int, column: int) -> tuple[str, Gate]:
+        """(kind, gate) of the token at or before (line, column); a line inside a long token takes its own."""
+        entry = self._entry(line, column)
+        return (entry[1], entry[2]) if entry else ("punct", Gate())
+
+    def scope(self, line: int, column: int) -> tuple[str, ...]:
+        """The inline modules around (line, column), outermost first."""
+        entry = self._entry(line, column)
+        return entry[3] if entry else ()
 
 
 def analyze_rust(text: str) -> RustFile:
@@ -415,6 +452,8 @@ def analyze_rust(text: str) -> RustFile:
     tokens = rust_tokens(text)
     result = RustFile()
     stack: list[Gate | None] = []
+    modules: list[str | None] = []  # per open bracket: the inline module it opens
+    scope: tuple[str, ...] = ()
     pending: list[_Pending] = []
     file_gates: list[Gate] = []
 
@@ -455,11 +494,13 @@ def analyze_rust(text: str) -> RustFile:
                 top.kind = "expr"
         elif top is not None and top.kind == "semi" and token.kind == "ident" and token.text == "fn":
             top.kind = "block"  # const fn, unsafe fn
-        result.tokens.setdefault(token.line, []).append((token.col, token.kind, active()))
+        result.tokens.setdefault(token.line, []).append((token.col, token.kind, active(), scope))
         if token.kind == "ident":
             if (token.text == "mod" and i + 2 < len(tokens) and tokens[i + 1].kind == "ident"
                     and tokens[i + 2].text == ";"):
                 result.mods.append((tokens[i + 1].text, top.path if top is not None else None, active()))
+            if token.text == "use":
+                result.imports += [(scope, *leaf) for leaf in rust_use_tree(tokens, i + 1)]
             if token.text == "if" and [t.text for t in tokens[i + 1:i + 4]] == ["cfg", "!", "("]:
                 j, nesting = i + 4, 1
                 while j < len(tokens) and nesting:
@@ -467,9 +508,8 @@ def analyze_rust(text: str) -> RustFile:
                         nesting += {"(": 1, ")": -1}.get(tokens[j].text, 0)
                     j += 1
                 if j < len(tokens) and tokens[j].text == "{":
-                    predicate = tokens[i + 4:j - 1]
-                    value = rust_predicate(predicate)
-                    stack.append(Gate("cfg!(%s)" % _rust_predicate_text(predicate), value, value))
+                    stack.append(_cfg_gate("cfg!(%s)", tokens[i + 4:j - 1]))
+                    modules.append(None)
                     i = j + 1
                     continue
             result.idents.setdefault(token.text, []).append((token.line, active()))
@@ -480,9 +520,14 @@ def analyze_rust(text: str) -> RustFile:
                     gate = _combine(top.gates)
                     pending.pop()
                 stack.append(gate)
+                inline = token.text == "{" and i >= 2 and tokens[i - 2].text == "mod" and tokens[i - 1].kind == "ident"
+                modules.append(tokens[i - 1].text if inline else None)
+                scope = scope + (tokens[i - 1].text,) if inline else scope
             elif token.text in ")]}":
                 if stack:
                     stack.pop()
+                if modules and modules.pop() is not None:
+                    scope = scope[:-1]
                 while pending and pending[-1].depth > len(stack):
                     pending.pop()
             elif top is not None and (token.text == ";" or (token.text == "," and top.kind == "expr")):
@@ -490,6 +535,41 @@ def analyze_rust(text: str) -> RustFile:
         i += 1
     result.file_gate = _combine(file_gates)
     return result
+
+
+def rust_use_tree(tokens: list[Token], start: int) -> list[tuple[tuple[str, ...], str, str]]:
+    """(module path as written, imported name or `*`, local name) of each leaf of the `use` tree that starts
+    at token `start` (just after `use`)."""
+    out: list[tuple[tuple[str, ...], str, str]] = []
+
+    def tree(i: int, prefix: tuple[str, ...]) -> int:
+        segments = list(prefix)
+        while i < len(tokens):
+            token = tokens[i]
+            if token.kind == "comment":
+                pass
+            elif token.kind == "ident" and token.text != "as":
+                segments.append(token.text)
+            elif token.text == "*":
+                out.append((tuple(segments), "*", "*"))
+                return i + 1
+            elif token.text == "{":
+                i += 1
+                while i < len(tokens) and tokens[i].text not in ("}", ";"):
+                    i = max(tree(i, tuple(segments)) if tokens[i].text != "," else i, i + 1)
+                return i + 1
+            elif token.text != ":":
+                break
+            i += 1
+        if len(segments) > len(prefix):
+            local = segments[-1]
+            if i + 1 < len(tokens) and tokens[i].text == "as" and tokens[i + 1].kind == "ident":
+                local, i = tokens[i + 1].text, i + 2
+            out.append((tuple(segments[:-1]), segments[-1], local))
+        return i
+
+    tree(start, ())
+    return out
 
 
 # ---------------------------------------------------------------------------------------------
@@ -670,6 +750,7 @@ class RustTree:
         self._gates: dict[str, Gate] = {}
         self._by_name: dict[str, list[str]] | None = None
         self._by_path: dict[str, list[str]] | None = None
+        self._modules: dict[str, frozenset[tuple[str, ...]]] = {}
 
     def file(self, rel: str) -> RustFile:
         if rel not in self._files:
@@ -691,20 +772,21 @@ class RustTree:
 
     @staticmethod
     def _child_paths(parent: str, name: str) -> tuple[str, ...]:
+        """Where `mod name;` in `parent` finds its file (Rust 2018): next to a mod.rs, lib.rs, main.rs or
+        build.rs, and in the folder named after any other file."""
         directory, base = os.path.dirname(parent), os.path.basename(parent)
-        here = (os.path.join(directory, name + ".rs"), os.path.join(directory, name, "mod.rs"))
-        if base in ("mod.rs", "lib.rs", "main.rs", "build.rs"):
-            return here
-        nested = os.path.join(directory, base[:-3])
-        return (os.path.join(nested, name + ".rs"), os.path.join(nested, name, "mod.rs")) + here
+        if base not in ("mod.rs", "lib.rs", "main.rs", "build.rs"):
+            directory = os.path.join(directory, base[:-3])
+        return (_join(directory, name + ".rs"), _join(directory, name + "/mod.rs"))
 
-    def _declaration(self, rel: str) -> tuple[str, Gate] | None:
-        """(parent file, gate of its `mod` line) of the declaration that includes `rel`."""
+    def _declarations(self, rel: str) -> list[tuple[str, str, Gate]]:
+        """(parent file, module name, gate of its `mod` line) of every declaration that includes `rel`."""
         self._index()
+        out: list[tuple[str, str, Gate]] = []
         for parent in self._by_path.get(rel, []):
-            for _, path_attr, gate in self.file(parent).mods:
+            for declared, path_attr, gate in self.file(parent).mods:
                 if path_attr and _join(os.path.dirname(parent), path_attr) == rel:
-                    return parent, gate
+                    out.append((parent, declared, gate))
         parts = rel.split("/")
         name = parts[-2] if parts[-1] == "mod.rs" else parts[-1][:-3]
         for parent in self._by_name.get(name, []):
@@ -712,8 +794,38 @@ class RustTree:
                 continue
             for declared, path_attr, gate in self.file(parent).mods:
                 if declared == name and path_attr is None:
-                    return parent, gate
-        return None
+                    out.append((parent, name, gate))
+        return out
+
+    @staticmethod
+    def _crate_root(rel: str) -> bool:
+        parts = rel.split("/")
+        return (len(parts) > 4 and parts[3] in RUST_TEST_DIRS) or (len(parts) == 4 and parts[-1] == "build.rs")
+
+    def modules(self, rel: str, seen: frozenset[str] = frozenset()) -> frozenset[tuple[str, ...]]:
+        """The module paths of a file in its crate (`crate::a::b` is ("a", "b")): through the `mod`
+        declarations that include it, else from its place under src/."""
+        if rel in self._modules:
+            return self._modules[rel]
+        out: set[tuple[str, ...]] = set()
+        if not self._crate_root(rel):
+            for parent, name, _ in self._declarations(rel):
+                if parent not in seen:
+                    out |= {path + (name,) for path in self.modules(parent, seen | {rel})}
+        if not out:
+            parts = rel.split("/")[3:]
+            inner = parts[parts.index("src") + 1:] if "src" in parts[:-1] else []
+            if inner[:1] == ["bin"] or inner[-1:] in (["lib.rs"], ["main.rs"]):
+                inner = []
+            elif inner[-1:] == ["mod.rs"]:
+                inner = inner[:-1]
+            elif inner:
+                inner[-1] = inner[-1][:-3]
+            out.add(tuple(inner))
+        modules = frozenset(out)
+        if not seen:
+            self._modules[rel] = modules
+        return modules
 
     def gate(self, rel: str, seen: frozenset[str] = frozenset()) -> Gate:
         if rel in self._gates:
@@ -721,13 +833,14 @@ class RustTree:
         parts = rel.split("/")
         gates = [self.file(rel).file_gate]
         if len(parts) > 4 and parts[3] in RUST_TEST_DIRS:  # cmux-tui/crates/<crate>/tests/...
-            gates.append(Gate(parts[3] + "/", False, False))
+            gates.append(Gate(parts[3] + "/", False, False, False))
         elif parts[-1] == "build.rs" and len(parts) == 4:
-            gates.append(Gate("build.rs", None, None))
+            gates.append(Gate("build.rs", None, None, None))
         else:
-            declaration = self._declaration(rel)
-            if declaration and declaration[0] not in seen:
-                gates += [self.gate(declaration[0], seen | {rel}), declaration[1]]
+            included = [_combine([self.gate(parent, seen | {rel}), gate])
+                        for parent, _, gate in self._declarations(rel) if parent not in seen]
+            if included:
+                gates.append(_either(included))
         gate = _combine(gates)
         self._gates[rel] = gate
         return gate
@@ -753,12 +866,84 @@ def _crate(rel: str) -> str:
     return "/".join(rel.split("/")[:3])
 
 
+class RustPaths:
+    """Which Rust constant a path names. A path that starts with `crate`, `self` or `super` resolves in its
+    crate; another (a crate name, or a module in scope) names a constant whose module is its last segment;
+    a bare name is a constant of its own module or one that a `use` there (a glob `use` too) brings in.
+    Modules are files and inline `mod name { }` blocks."""
+
+    def __init__(self, tree: RustTree, files: Iterable[str]):
+        self.tree = tree
+        self.crate_files: dict[str, list[str]] = {}  # the files that may re-export a constant
+        for rel in sorted(set(files)):
+            self.crate_files.setdefault(_crate(rel), []).append(rel)
+
+    def _modules(self, rel: str, scope: tuple[str, ...]) -> frozenset[tuple[str, ...]]:
+        return frozenset(path + scope for path in self.tree.modules(rel))
+
+    def _home(self, constant: Constant) -> tuple[tuple[str, ...], frozenset[tuple[str, ...]]]:
+        """(inline module, crate module paths) of the constant's declaration."""
+        scope = self.tree.file(constant.rel).scope(constant.line, 1 << 30)
+        return scope, self._modules(constant.rel, scope)
+
+    def module_names(self, constant: Constant) -> set[str]:
+        crate_name = _crate(constant.rel).rsplit("/", 1)[-1].replace("-", "_")
+        return {path[-1] if path else crate_name for path in self._home(constant)[1]}
+
+    @staticmethod
+    def resolve(here: frozenset[tuple[str, ...]], segments: tuple[str, ...]) -> set[tuple[str, ...]] | None:
+        """The crate modules that `segments`, written in module `here`, may name; None unless it starts with
+        `crate`, `self` or `super`."""
+        if segments[:1] == ("crate",):
+            return {segments[1:]}
+        if segments[:1] == ("self",):
+            return {path + segments[1:] for path in here}
+        if segments[:1] != ("super",):
+            return None
+        ups = len(segments) - len(tuple(segment for segment in segments if segment != "super"))
+        return {path[:len(path) - ups] + segments[ups:] for path in here if ups <= len(path)}
+
+    def names_module(self, crate: str, here: frozenset[tuple[str, ...]], segments: tuple[str, ...],
+                     constant: Constant, reexport: bool = True) -> bool:
+        """Whether module path `segments`, written in module `here` of `crate`, is the constant's module or
+        (one level) a module that imports the constant."""
+        targets = self.resolve(here, segments)
+        if targets is None:
+            return bool(segments) and segments[-1] in self.module_names(constant)
+        if crate != _crate(constant.rel):
+            return False
+        if targets & self._home(constant)[1]:
+            return True
+        return reexport and any(
+            self._modules(other, scope) & targets and self.brings(crate, self._modules(other, scope), leaf, constant)
+            for other in self.crate_files.get(crate, []) for scope, *leaf in self.tree.file(other).imports)
+
+    def brings(self, crate: str, here: frozenset[tuple[str, ...]], leaf: list, constant: Constant) -> bool:
+        """Whether the `use` leaf (module, name, local), in module `here`, brings the constant in under its
+        own name."""
+        module, name, local = leaf
+        return ((name == "*" or (name == constant.ident and local == constant.ident))
+                and self.names_module(crate, here, module, constant, reexport=False))
+
+    def names(self, rel: str, line: int, column: int, qualifier: tuple[str, ...], constant: Constant) -> bool:
+        """Whether `qualifier::IDENT` (a bare IDENT when empty) at (line, column) of `rel` names the constant."""
+        scope, crate = self.tree.file(rel).scope(line, column), _crate(rel)
+        here = self._modules(rel, scope)
+        if not qualifier:
+            return ((rel == constant.rel and scope == self._home(constant)[0])
+                    or any(self.brings(crate, here, leaf, constant)
+                           for inline, *leaf in self.tree.file(rel).imports if inline == scope))
+        if rel == constant.rel and (qualifier[-1] == "Self" or qualifier[-1][:1].isupper()):
+            return True  # an associated constant of a type in this file
+        return self.names_module(crate, here, qualifier, constant)
+
+
 def constant_uses(root: str, query: Query, constants: list[Constant], tree: RustTree,
                   swift_gates_of) -> list[tuple[str, Site]]:
     """(env name, site) for every use of a constant. An identifier declared once (in the sources for
-    Swift, in the crate for Rust) counts everywhere there. Otherwise a Rust use counts in its own file;
-    a Swift use counts when it is qualified by the constant's type, or unqualified (or `Self.`) inside
-    that type or an extension of it."""
+    Swift, in the crate for Rust) counts everywhere there. Otherwise a Rust use counts when its path names
+    the constant (RustPaths); a Swift use counts when it is qualified by the constant's type, or
+    unqualified (or `Self.`) inside that type or an extension of it."""
     if not constants:
         return []
     idents = sorted({constant.ident for constant in constants})
@@ -776,13 +961,17 @@ def constant_uses(root: str, query: Query, constants: list[Constant], tree: Rust
     by_ident: dict[str, list[Constant]] = {}
     for constant in constants:
         by_ident.setdefault(constant.ident, []).append(constant)
+    paths = RustPaths(tree, (row[0] for row in rows))
 
     def counts(constant: Constant, path: str, number: int, line: str, column: int) -> bool:
         if path == constant.rel and number == constant.line:
             return False
         unique = declared.get((constant.ident, "" if swift else _crate(constant.rel)), 0) == 1
         if not swift:
-            return path == constant.rel or (unique and _crate(path) == _crate(constant.rel))
+            if unique and _crate(path) == _crate(constant.rel):
+                return True
+            qualifier = re.search(r"(?:[A-Za-z_]\w*\s*::\s*)*$", line[:column]).group(0)
+            return paths.names(path, number, column, tuple(re.findall(r"[A-Za-z_]\w*", qualifier)), constant)
         if unique:
             return True
         qualifier = re.search(r"(\w+)\s*\.\s*$", line[:column])
@@ -849,11 +1038,6 @@ def effective_sites(sites: list[Site]) -> list[Site]:
     return [site for site in sites if site.kind != "comment" and not (used and site.kind == "constant")]
 
 
-def _is_test_gate(gate: Gate) -> bool:
-    return bool(re.search(r"\btest\b|#\[\w*:*test\]|#\[bench\]|^(tests|benches|examples)/|&& (tests|benches|examples)/",
-                          gate.text))
-
-
 def automatic_class(scope: str, sites: list[Site]) -> str | None:
     """The automatic class of a name, or None when a Release build may compile one of its code sites."""
     code = effective_sites(sites)
@@ -862,7 +1046,7 @@ def automatic_class(scope: str, sites: list[Site]) -> str | None:
     if any(site.gate.release is not False for site in code):
         return None
     if scope == "daemon":
-        return "testOnly" if all(_is_test_gate(site.gate) for site in code) else "debugOnly"
+        return "testOnly" if all(site.gate.debug is False for site in code) else "debugOnly"
     return "benchOnly" if any(site.gate.bench is not False for site in code) else "debugOnly"
 
 

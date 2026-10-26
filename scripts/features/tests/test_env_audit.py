@@ -107,6 +107,19 @@ class SwiftGateTests(unittest.TestCase):
         self.assertIsNone(by_text["g"].release)  # a build variant: maybe compiled
         self.assertEqual(by_text["h"].release, True)
 
+    def test_blocking_checks_is_not_debug_only(self):
+        # nightly.yml builds the nightly-next Release app with -DCMUX_BLOCKING_CHECKS.
+        gate = audit.swift_gates("#if DEBUG || CMUX_BLOCKING_CHECKS\nx\n#endif\n")[1]
+        self.assertIsNot(gate.release, False)
+        tree = Tree(self)
+        tree.write(f"{APP}/Checks.swift", """
+            #if DEBUG || CMUX_BLOCKING_CHECKS
+            let strict = ProcessInfo.processInfo.environment["CMUX_NEXT_STRICT_KNOB"]
+            #endif
+        """)
+        scanned = audit.scan(tree.root)["app"]
+        self.assertIsNone(audit.automatic_class("app", scanned["CMUX_NEXT_STRICT_KNOB"]))
+
     def test_unreadable_condition_is_an_error(self):
         with self.assertRaises(audit.AuditError):
             audit.swift_gates("#if DEBUG &&& X\n#endif\n")
@@ -231,6 +244,99 @@ class ScanTests(unittest.TestCase):
         self.assertEqual(audit.automatic_class("daemon", scanned["CMUX_TUI_DEBUG_THING"]), "debugOnly")
         self.assertIsNone(audit.automatic_class("daemon", scanned["CMUX_TUI_SHIPPED_THING"]))
         self.assertIn(("via SHIPPED_ENV", True), site_values(scanned, "CMUX_TUI_SHIPPED_THING"))
+
+    def test_a_nested_mod_line_does_not_gate_the_sibling_file(self):
+        # `mod foo;` in src/a.rs is src/a/foo.rs (Rust 2018), never src/foo.rs.
+        tree = Tree(self)
+        tree.write(f"{CRATES}/core/src/main.rs", "mod a;\nmod foo;\nfn main() {}\n")
+        tree.write(f"{CRATES}/core/src/a.rs", "#[cfg(test)]\nmod foo;\n")
+        tree.write(f"{CRATES}/core/src/a/foo.rs", 'fn t() { std::env::var("CMUX_TUI_NESTED_TEST_KNOB"); }\n')
+        tree.write(f"{CRATES}/core/src/foo.rs", 'pub fn knob() { std::env::var("CMUX_TUI_PERF_KNOB"); }\n')
+        scanned = audit.scan(tree.root)["daemon"]
+        self.assertEqual(site_values(scanned, "CMUX_TUI_PERF_KNOB"), [("use", True)])
+        self.assertIsNone(audit.automatic_class("daemon", scanned["CMUX_TUI_PERF_KNOB"]))
+        self.assertEqual(audit.automatic_class("daemon", scanned["CMUX_TUI_NESTED_TEST_KNOB"]), "testOnly")
+
+    def test_a_file_included_twice_takes_either_gate(self):
+        tree = Tree(self)
+        tree.write(f"{CRATES}/core/src/lib.rs", """
+            #[cfg(test)]
+            #[path = "shared.rs"]
+            mod shared_for_tests;
+            #[path = "shared.rs"]
+            mod shared;
+            #[cfg(test)]
+            #[path = "fixtures.rs"]
+            mod fixtures;
+            #[cfg(debug_assertions)]
+            #[path = "fixtures.rs"]
+            mod fixtures_debug;
+        """)
+        tree.write(f"{CRATES}/core/src/shared.rs", 'pub fn knob() { std::env::var("CMUX_TUI_SHARED_KNOB"); }\n')
+        tree.write(f"{CRATES}/core/src/fixtures.rs", 'pub fn knob() { std::env::var("CMUX_TUI_FIXTURE_KNOB"); }\n')
+        scanned = audit.scan(tree.root)["daemon"]
+        self.assertIsNone(audit.automatic_class("daemon", scanned["CMUX_TUI_SHARED_KNOB"]))
+        self.assertEqual(audit.automatic_class("daemon", scanned["CMUX_TUI_FIXTURE_KNOB"]), "debugOnly")
+
+    def test_rust_constant_declared_twice_counts_its_qualified_uses(self):
+        tree = Tree(self)
+        tree.write(f"{CRATES}/core/src/lib.rs", "mod a;\nmod b;\nmod c;\nmod d;\nmod e;\nmod f;\n")
+        tree.write(f"{CRATES}/core/src/a.rs", """
+            pub(crate) const ENV: &str = "CMUX_TUI_KNOB";
+            #[cfg(test)]
+            mod tests {
+                #[test]
+                fn reads() { std::env::var(super::ENV); }
+            }
+        """)
+        tree.write(f"{CRATES}/core/src/b.rs", """
+            const ENV: &str = "CMUX_TUI_OTHER";
+            #[cfg(test)]
+            fn t() { std::env::var(ENV); }
+        """)
+        tree.write(f"{CRATES}/core/src/c.rs", "pub fn knob() { std::env::var(crate::a::ENV); }\n")
+        tree.write(f"{CRATES}/core/src/d.rs", "use crate::{a::ENV, b};\npub fn knob() { std::env::var(ENV); }\n")
+        tree.write(f"{CRATES}/core/src/e.rs", "use crate::a;\npub fn knob() { std::env::var(a::ENV); }\n")
+        tree.write(f"{CRATES}/core/src/f.rs", "use super::b::*;\npub fn knob() { std::env::var(ENV); }\n")
+        scanned = audit.scan(tree.root)["daemon"]
+        knob = [site.at.split("/src/")[1] for site in scanned["CMUX_TUI_KNOB"] if site.kind == "via ENV"]
+        self.assertEqual(knob, ["a.rs:5", "c.rs:1", "d.rs:1", "d.rs:2", "e.rs:2"])
+        self.assertIsNone(audit.automatic_class("daemon", scanned["CMUX_TUI_KNOB"]))
+        other = [site.at.split("/src/")[1] for site in scanned["CMUX_TUI_OTHER"] if site.kind == "via ENV"]
+        self.assertEqual(other, ["b.rs:3", "f.rs:2"])
+
+    def test_rust_use_trees_and_inline_modules(self):
+        parsed = audit.analyze_rust(textwrap.dedent("""
+            use crate::{a::{self, ENV as E}, b::*};
+            mod tests {
+                pub(crate) use super::c::D;
+                fn t() { D; }
+            }
+            fn f() { D; }
+        """))
+        self.assertEqual(parsed.imports, [
+            ((), ("crate", "a"), "self", "self"), ((), ("crate", "a"), "ENV", "E"), ((), ("crate", "b"), "*", "*"),
+            (("tests",), ("super", "c"), "D", "D")])
+        self.assertEqual(parsed.scope(5, 14), ("tests",))
+        self.assertEqual(parsed.scope(7, 9), ())
+
+    def test_a_use_in_an_inline_module_applies_only_there(self):
+        tree = Tree(self)
+        tree.write(f"{CRATES}/core/src/lib.rs", "mod a;\nmod b;\nmod c;\n")
+        tree.write(f"{CRATES}/core/src/a.rs", 'pub(crate) const ENV: &str = "CMUX_TUI_SCOPED_KNOB";\n')
+        tree.write(f"{CRATES}/core/src/b.rs", 'pub(crate) const ENV: &str = "CMUX_TUI_SCOPED_OTHER";\n')
+        tree.write(f"{CRATES}/core/src/c.rs", """
+            #[cfg(test)]
+            mod tests {
+                use crate::a::ENV;
+                fn t() { std::env::var(ENV); }
+            }
+            use crate::b::ENV;
+            pub fn knob() { std::env::var(ENV); }
+        """)
+        scanned = audit.scan(tree.root)["daemon"]
+        self.assertEqual(audit.automatic_class("daemon", scanned["CMUX_TUI_SCOPED_KNOB"]), "testOnly")
+        self.assertIsNone(audit.automatic_class("daemon", scanned["CMUX_TUI_SCOPED_OTHER"]))
 
     def test_swift_constant_used_in_another_file(self):
         tree = Tree(self)

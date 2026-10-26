@@ -33,6 +33,10 @@
     "MQ7-04": {
       "title": "Compile CMUX_CEF_DEFER_EVENTS (the in-process host-mode rehearsal of p01 task 231) under DEBUG || CMUX_BENCH_HOOKS until host mode ships",
       "resolution": "compileOut"
+    },
+    "MQ7-05": {
+      "title": "Warm machine connection pool bound -> feature warmMachineConnections with a warmLimit param (default 5, at least 2), as Chrome sizes its back/forward cache with a kBackForwardCache param (content/browser/renderer_host/back_forward_cache_impl.cc); CMUX_TUI_WARM_MACHINES kept as its override alias",
+      "resolution": "feature:warmMachineConnections"
     }
   },
   "app": {
@@ -1695,6 +1699,7 @@
         {"at": "cmux-tui/crates/cmux-tui-core/src/chief_brains.rs:124", "kind": "via ENV", "cond": "", "release": true},
         {"at": "cmux-tui/crates/cmux-tui-core/src/chief_brains.rs:133", "kind": "via ENV", "cond": "", "release": true},
         {"at": "cmux-tui/crates/cmux-tui-core/src/chief_brains.rs:137", "kind": "via ENV", "cond": "", "release": true},
+        {"at": "cmux-tui/crates/cmux-tui/src/local_owner.rs:743", "kind": "via ENV", "cond": "", "release": true},
         {"at": "cmux-tui/crates/cmux-tui/tests/cli/chief_adopt.rs:335", "kind": "use", "cond": "tests/ && #[test]", "release": false},
         {"at": "cmux-tui/crates/cmux-tui/tests/cli/chief_brains.rs:204", "kind": "use", "cond": "tests/ && #[test]", "release": false},
         {"at": "cmux-tui/crates/cmux-tui/tests/cli/chief_brains.rs:231", "kind": "use", "cond": "tests/ && #[test]", "release": false},
@@ -2056,7 +2061,9 @@
         {"at": "cmux-tui/crates/cmux-tui-core/src/login_shell.rs:30", "kind": "constant", "cond": "", "release": true},
         {"at": "cmux-tui/crates/cmux-tui-core/src/login_shell.rs:50", "kind": "via MARKER", "cond": "", "release": true},
         {"at": "cmux-tui/crates/cmux-tui-core/src/login_shell.rs:51", "kind": "via MARKER", "cond": "", "release": true},
-        {"at": "cmux-tui/crates/cmux-tui-core/src/login_shell.rs:56", "kind": "via MARKER", "cond": "", "release": true}
+        {"at": "cmux-tui/crates/cmux-tui-core/src/login_shell.rs:56", "kind": "via MARKER", "cond": "", "release": true},
+        {"at": "cmux-tui/crates/cmux-tui-core/src/surface/holder_spawn.rs:313", "kind": "via MARKER", "cond": "cfg(unix) && cfg(all(test, target_os = \"macos\")) && #[test]", "release": false},
+        {"at": "cmux-tui/crates/cmux-tui-core/src/surface/holder_spawn.rs:327", "kind": "via MARKER", "cond": "cfg(unix) && cfg(all(test, target_os = \"macos\")) && #[test]", "release": false}
       ]
     },
     "CMUX_TUI_LOG_FILE": {
@@ -2234,6 +2241,7 @@
         {"at": "cmux-tui/crates/cmux-tui-hooks/src/lib.rs:3971", "kind": "write", "cond": "cfg(test) && cfg(unix) && #[test]", "release": false},
         {"at": "cmux-tui/crates/cmux-tui-hooks/src/lib.rs:3983", "kind": "write", "cond": "cfg(test) && cfg(unix) && #[test]", "release": false},
         {"at": "cmux-tui/crates/cmux-tui-hooks/src/lib.rs:3997", "kind": "write", "cond": "cfg(test) && cfg(unix) && #[test]", "release": false},
+        {"at": "cmux-tui/crates/cmux-tui/src/acp.rs:209", "kind": "via SESSION_SOCKET_ENV", "cond": "cfg(unix)", "release": null},
         {"at": "cmux-tui/crates/cmux-tui/src/agent_browser_provider.rs:159", "kind": "use", "cond": "cfg(unix)", "release": null},
         {"at": "cmux-tui/crates/cmux-tui/src/app_identity.rs:189", "kind": "use", "cond": "cfg(unix)", "release": null},
         {"at": "cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook.rs:203", "kind": "use", "cond": "", "release": true},
@@ -2814,6 +2822,7 @@
       "auto": true,
       "sites": [
         {"at": "cmux-tui/crates/cmux-tui/src/feature_flags.rs:37", "kind": "constant", "cond": "cfg(debug_assertions)", "release": false},
+        {"at": "cmux-tui/crates/cmux-tui/src/owner_start/background_checks.rs:37", "kind": "via TEST_URL_ENV", "cond": "cfg(debug_assertions)", "release": false},
         {"at": "cmux-tui/crates/cmux-tui/tests/feature_flags.rs:100", "kind": "write", "cond": "cfg(all(unix, debug_assertions)) && tests/", "release": false}
       ]
     },
@@ -3067,8 +3076,9 @@
       ]
     },
     "CMUX_TUI_WARM_MACHINES": {
-      "class": "releaseConfig",
-      "note": "How many remote machine connections stay warm (default 5, at least 2): a resource bound, not on a latency path.",
+      "class": "releasePerfPath",
+      "note": "How many machine connections stay warm (default 5, at least 2): a switch to one of the last N machines is instant, a switch past them connects cold.",
+      "followup": "MQ7-05",
       "sites": [
         {"at": "cmux-tui/crates/cmux-tui/src/machine_runtime.rs:445", "kind": "use", "cond": "", "release": true}
       ]
