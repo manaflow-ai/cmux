@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextFeatures
 import Foundation
 
@@ -147,8 +148,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// The Chromium `base::Feature` states that cmux features of process `chromium` decide
     /// (`chromium_feature` in schemas/features/features.d; p12-perf-process.md section 3.9). Every
     /// such feature passes its resolved state, so the registry, the environment lists, the remote
-    /// document and a policy can turn a Chromium feature on or off. A Chromium feature that two cmux
-    /// features map to is off when either resolves off.
+    /// document and a policy can turn a Chromium feature on or off. The generator maps each Chromium
+    /// feature from one cmux feature at most (gen-features.py), so each name lands on one list.
     nonisolated struct ChromiumFeatures: Equatable, Sendable {
         /// Chromium features to turn on, in registry order.
         var enabled: [String] = []
@@ -162,17 +163,21 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
 
         /// The states `list` resolved for its `process: chromium` features.
         init(_ list: FeatureList) {
-            var on: [String] = []
-            var off: [String] = []
+            self.init()
             for (feature, resolution) in list.entries where feature.process == .chromium {
                 guard let name = feature.chromiumFeature, !name.isEmpty else { continue }
-                if resolution.isEnabled {
-                    if !on.contains(name) { on.append(name) }
-                } else if !off.contains(name) {
-                    off.append(name)
-                }
+                if resolution.isEnabled { enabled.append(name) } else { disabled.append(name) }
             }
-            self.init(enabled: on.filter { !off.contains($0) }, disabled: off)
+        }
+
+        /// The states of the launch inputs this process has before AppServices owns a FeatureList:
+        /// the channel default of `bundleIdentifier`'s build and the `CMUX_DISABLE_FEATURES` /
+        /// `CMUX_ENABLE_FEATURES` lists of `environment`. Managed policy and the remote document
+        /// reach Chromium once the composition root passes its FeatureList to ``init(_:)``.
+        init(launchEnvironment environment: [String: String], bundleIdentifier: String?,
+             registry: FeatureRegistry = FeatureRegistry()) {
+            let channel = Feature.Channel(BuildIdentity(bundleID: bundleIdentifier, bundledTag: nil).kind)
+            self.init(FeatureList(registry: registry, channel: channel, overrides: FeatureOverrides(environment: environment)))
         }
 
         /// One `enable-features` and one `disable-features` switch; the shim merges both into the

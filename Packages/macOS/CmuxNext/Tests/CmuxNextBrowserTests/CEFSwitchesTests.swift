@@ -1,5 +1,6 @@
 @testable import CmuxNextBrowser
 import CmuxNextFeatures
+import Foundation
 import Testing
 
 /// cmux features of process `chromium` reach CEF's `--enable-features` and `--disable-features`
@@ -8,15 +9,13 @@ import Testing
 struct CEFSwitchesTests {
     private static let lensOff = chromium(0, "lensOverlay", "LensOverlay", FeatureDefaults(all: true))
     private static let asyncResize = chromium(1, "asyncLiveResize", "AsyncLiveResize", FeatureDefaults(all: true))
-    private static let promptDemo = chromium(2, "promptDemoMode", "IPH_DemoMode", FeatureDefaults(all: true))
-    private static let glicOn = chromium(3, "glic", "Glic", FeatureDefaults(all: false))
-    private static let lensAgain = chromium(4, "lensOverlayAgain", "LensOverlay", FeatureDefaults(all: true))
+    private static let glicOn = chromium(2, "glic", "Glic", FeatureDefaults(all: false))
     private static let appOnly = Feature(
-        index: 5, name: "appThing", owner: "PL-test", description: "A test app feature.", kind: .perfPath,
+        index: 3, name: "appThing", owner: "PL-test", description: "A test app feature.", kind: .perfPath,
         process: .app, chromiumFeature: nil, defaults: FeatureDefaults(all: true), expires: "2026-12-01",
         params: [], stories: [], sticky: false, runtimeMutable: false
     )
-    private static let registry = FeatureRegistry([lensOff, asyncResize, promptDemo, glicOn, lensAgain, appOnly])
+    private static let registry = FeatureRegistry([lensOff, asyncResize, glicOn, appOnly])
 
     private static func chromium(_ index: Int, _ name: String, _ chromiumName: String, _ defaults: FeatureDefaults) -> Feature {
         Feature(
@@ -47,7 +46,7 @@ struct CEFSwitchesTests {
     private static func disabled(_ arguments: [String]) -> [String] { names(arguments, CEFSwitches.disableFeaturesPrefix) }
 
     @Test func aRemoteOffIsOnTheDisableListAndNotTheEnableList() {
-        let switches = Self.arguments(FeatureOverrides(remote: ["glic": true, "lensOverlay": false, "lensOverlayAgain": false]))
+        let switches = Self.arguments(FeatureOverrides(remote: ["glic": true, "lensOverlay": false]))
         #expect(Self.disabled(switches).contains("LensOverlay"))
         #expect(!Self.enabled(switches).contains("LensOverlay"))
         #expect(Self.enabled(switches).contains("Glic"))
@@ -63,35 +62,50 @@ struct CEFSwitchesTests {
         #expect(!Self.enabled(switches).contains("Glic"))
     }
 
-    /// A Chromium feature cmux already enables (AsyncLiveResize before fork API 27, the prompt-off
-    /// IPH demo mode) is off when a cmux feature turns it off: the disable list wins.
+    /// A Chromium feature cmux already enables (AsyncLiveResize before fork API 27) is off when a
+    /// cmux feature turns it off: the disable list wins, and the emptied enable switch goes.
     @Test func aFeatureCEFSwitchesEnablesIsDisabledWhenACmuxFeatureTurnsItOff() {
         let base = Self.arguments(FeatureOverrides())
         #expect(Self.enabled(base).contains("AsyncLiveResize"))
-        #expect(Self.enabled(base).contains("IPH_DemoMode"))
 
-        let switches = Self.arguments(FeatureOverrides(remote: ["asyncLiveResize": false, "promptDemoMode": false]))
+        let switches = Self.arguments(FeatureOverrides(remote: ["asyncLiveResize": false]))
         #expect(Self.disabled(switches).contains("AsyncLiveResize"))
-        #expect(Self.disabled(switches).contains("IPH_DemoMode"))
         #expect(!Self.enabled(switches).contains("AsyncLiveResize"))
-        #expect(!Self.enabled(switches).contains("IPH_DemoMode"))
-        #expect(!switches.contains(CEFSwitches.enableFeaturesPrefix), "an emptied enable-features switch is left")
-        // The other prompt-off switches stay.
+        #expect(!switches.contains("enable-features=AsyncLiveResize"), "an emptied enable-features switch is left")
+        // The prompt-off switches stay.
         #expect(switches.contains("no-first-run"))
-    }
-
-    @Test func aChromiumFeatureTwoCmuxFeaturesMapToIsOffWhenEitherIsOff() {
-        let states = CEFSwitches.ChromiumFeatures(FeatureList(
-            registry: Self.registry, channel: .release, overrides: FeatureOverrides(remote: ["lensOverlayAgain": false])
-        ))
-        #expect(states.disabled == ["LensOverlay"])
-        #expect(!states.enabled.contains("LensOverlay"))
+        #expect(switches.contains("enable-features=IPH_DemoMode:chosen_feature/IPH_Dummy"))
     }
 
     @Test func onlyChromiumProcessFeaturesAreMapped() {
         let states = CEFSwitches.ChromiumFeatures(FeatureList(registry: Self.registry, channel: .release))
-        #expect(states.enabled == ["LensOverlay", "AsyncLiveResize", "IPH_DemoMode"])
+        #expect(states.enabled == ["LensOverlay", "AsyncLiveResize"])
         #expect(states.disabled == ["Glic"])
+    }
+
+    /// The launch inputs both Chromiums start with: `CMUX_DISABLE_FEATURES` turns a Chromium
+    /// feature off, and the build channel of the bundle picks the defaults.
+    @Test func theLaunchEnvironmentDecidesTheChromiumFeatures() {
+        let states = CEFSwitches.ChromiumFeatures(
+            launchEnvironment: [FeatureOverrides.disableVariable: "lensOverlay"],
+            bundleIdentifier: "com.cmuxterm.app.next", registry: Self.registry
+        )
+        #expect(states.disabled.contains("LensOverlay"))
+        #expect(!states.enabled.contains("LensOverlay"))
+        #expect(states.enabled.contains("AsyncLiveResize"))
+    }
+
+    /// The out-of-process Chromium host gets the same states as the in-process engine.
+    @Test func theChromiumHostCarriesADisabledFeatureToDisableFeatures() {
+        let root = URL(filePath: "/nonexistent/cmux")
+        let layout = CEFRuntimeLayout(frameworksDirectory: root, mainBundle: root, helperApp: root)
+        let arguments = ChromiumHostConfiguration.arguments(
+            layout: layout, rootCache: root, bundleIdentifier: "com.cmuxterm.app.next",
+            environment: [FeatureOverrides.disableVariable: "lensOverlay"], registry: Self.registry
+        )
+        let switches = arguments.filter { $0.hasPrefix("--cef-switch=") }.map { String($0.dropFirst("--cef-switch=".count)) }
+        #expect(Self.disabled(switches).contains("LensOverlay"))
+        #expect(!Self.enabled(switches).contains("LensOverlay"))
     }
 
     @Test func aPolicyOffBeatsAnEnvironmentOn() {

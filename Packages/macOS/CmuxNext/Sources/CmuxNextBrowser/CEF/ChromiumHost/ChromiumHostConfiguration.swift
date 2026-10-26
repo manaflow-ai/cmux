@@ -1,3 +1,4 @@
+import CmuxNextFeatures
 public import Foundation
 
 /// How cmux starts its Chromium host app: the executable and its arguments
@@ -33,12 +34,17 @@ public nonisolated struct ChromiumHostConfiguration: Sendable, Equatable {
             arguments: arguments(layout: layout, rootCache: rootCache, bundleIdentifier: bundleIdentifier, environment: environment))
     }
 
+    /// - Parameter registry: The cmux features whose `process: chromium` states reach the host's
+    ///   Chromium, as they reach the in-process engine's (``CEFSwitches/ChromiumFeatures``).
     static func arguments(layout: CEFRuntimeLayout, rootCache: URL, bundleIdentifier: String?,
-                          environment: [String: String]) -> [String] {
+                          environment: [String: String], registry: FeatureRegistry = FeatureRegistry()) -> [String] {
+        let features = CEFSwitches.ChromiumFeatures(launchEnvironment: environment, bundleIdentifier: bundleIdentifier,
+                                                    registry: registry)
         // The host refuses a fork without layer hosting, so the switch set is the one for
         // the resize-sync fork API (no AsyncLiveResize).
         let switches = CEFSwitches.current(forkAPIVersion: CEFSwitches.resizeSyncForkAPI,
-                                           bundleIdentifier: bundleIdentifier, environment: environment).arguments
+                                           bundleIdentifier: bundleIdentifier, environment: environment,
+                                           chromiumFeatures: features).arguments
             // The host runs Chromium's own message loop: there is no external pump pass to slice.
             .filter { !$0.hasPrefix("cmux-pump-time-slice-us=") }
             // Chromium's code-sign clone copies the main bundle (here the small host app)
