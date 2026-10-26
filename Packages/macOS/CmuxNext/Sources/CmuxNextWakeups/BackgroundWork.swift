@@ -54,6 +54,15 @@ import Dispatch
 /// ``ShutdownBehavior/blockShutdown`` ones; ``shutdown()`` then returns when every block-shutdown item, lane
 /// item or ``task(_:shutdown:fileID:line:_:)``, has finished. After that, a block-shutdown item is refused too
 /// (Chrome DCHECKs such a post): nothing would wait for it, and Debug records its site.
+///
+/// Quit waits for block-shutdown lane items, so shutdown raises them, as Chrome runs BLOCK_SHUTDOWN tasks at a
+/// normal thread priority once shutdown starts: a queued one, and one submitted later, starts at `.userInitiated`,
+/// and a running one below that gets one `.userInitiated` override on its thread until it ends. On
+/// ``BlockingLane/files`` a block-shutdown item keeps its level's slots, so each level keeps its width and post
+/// order (on a level one slot wide a later save never overtakes an earlier one) and the levels still run side by
+/// side. A block-shutdown
+/// ``task(_:shutdown:fileID:line:_:)`` keeps its priority: raising a running Swift task needs
+/// `Task.escalatePriority`, which macOS 14 and 15 lack (see the escalation note above).
 public final class BackgroundWork: Sendable {
     /// How many ``BlockingLane/cpu`` items run at once.
     public let cpuWidth: Int
@@ -129,7 +138,8 @@ public final class BackgroundWork: Sendable {
     }
 
     /// The designated init; tests pass ``TaskHooks`` to stop a task between its steps, the clock of the
-    /// system lane's ``mayBlockThreshold``, and a counting ``ThreadQoSOverride``.
+    /// system lane's ``mayBlockThreshold``, and a ``ThreadQoSOverride`` that counts the overrides a raise or
+    /// shutdown puts on running items.
     init(cpuWidth: Int, filesWidths: FilesLaneWidths = .standard, label: String, hangs: (any HangWatchScoping)? = nil,
          onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void,
          onRan: (@Sendable (BlockingLane, WorkPriority, UInt64, UInt64) -> Void)? = nil,
@@ -339,8 +349,10 @@ public final class BackgroundWork: Sendable {
     /// Starts shutdown and returns at once: drops every lane item that has not started except
     /// ``ShutdownBehavior/blockShutdown`` ones, cancels every ``ShutdownBehavior/skipOnShutdown`` task, refuses
     /// new items other than block-shutdown ones (a refused ``task(_:shutdown:fileID:line:_:)`` throws
-    /// `CancellationError`, and so does a continue-on-shutdown task that had not started), and lifts the
-    /// best-effort fence so held block-shutdown items run. Started continue-on-shutdown items run on. A second
+    /// `CancellationError`, and so does a continue-on-shutdown task that had not started), lifts the
+    /// best-effort fence so held block-shutdown items run, and raises block-shutdown lane items to
+    /// `.userInitiated` (queued ones start at it, running ones get one override each).
+    /// Started continue-on-shutdown items run on. A second
     /// call does nothing more. Quit calls it before the engines stop, so the lanes drain alongside them
     /// (QuitCompletion).
     public func beginShutdown() {
