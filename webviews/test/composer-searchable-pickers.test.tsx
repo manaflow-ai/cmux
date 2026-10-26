@@ -174,6 +174,7 @@ test("shared combobox ignores non-primary and disabled presses, while keyboard c
         inline
         label="Choose project"
         suggestions={["blocked", "open"]}
+        itemLabel={(value) => value}
         isItemDisabled={(value) => value === "blocked"}
         onQuery={() => {}}
         onSubmit={(value) => calls.push(value)}
