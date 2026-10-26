@@ -89,11 +89,13 @@ export function groupVariants<T extends VariantModel>(models: readonly T[], curr
   };
   const groups: ModelGroup<T>[] = [];
   const byIdentity = new Map<string, ModelGroup<T>>();
+  const byBareId = new Map<string, ModelGroup<T>>();
   for (const row of rows) {
     const { model, provider, name, tag } = row;
     const offer = { model, provider: provider ?? "" };
     const id = identity(row);
-    const joined = id === undefined ? undefined : byIdentity.get(id);
+    const bareId = id === undefined ? row.model.id.toLowerCase() : undefined;
+    const joined = id === undefined ? byBareId.get(bareId!) : byIdentity.get(id);
     if (joined) {
       joined.count += 1;
       const providerId = row.model.id.split("/")[0]!.toLowerCase();
@@ -127,6 +129,7 @@ export function groupVariants<T extends VariantModel>(models: readonly T[], curr
     };
     groups.push(next);
     if (id !== undefined && !byIdentity.has(id)) byIdentity.set(id, next);
+    if (bareId !== undefined && !byBareId.has(bareId)) byBareId.set(bareId, next);
   }
   return groups;
 }

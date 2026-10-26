@@ -470,13 +470,10 @@ export function QuickModelMenu({
             FILTER_ROWS,
             (families?.list ?? [])
               .filter((family) => !family.starred && !family.note)
+              .flatMap((family) => [...family.models, ...family.more])
+              .slice(0, FILTER_ROWS)
               .reduce(
-                (count, family) =>
-                  count +
-                  [...family.models, ...family.more].reduce(
-                    (rows, model) => rows + (model.searchRows ?? model.offers?.length ?? 1),
-                    0,
-                  ),
+                (rows, model) => rows + (menu.providers === "expanded" && model.offers ? 1 + model.offers.length : 1),
                 0,
               ),
           ),

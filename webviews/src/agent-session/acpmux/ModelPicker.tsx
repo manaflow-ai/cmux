@@ -135,7 +135,9 @@ function quickSections(
   const picks = [...top.filter((choice) => !isVariant(choice)), ...top.filter(isVariant)].slice(0, QUICK_ROWS);
   // The landing row may be an available sibling when the running provider is unavailable;
   // keep that logical group in the compact picks by matching the complete offer list.
-  const runs = mapped.find(({ group }) => group.offers.some((offer) => offer.model.id === model))?.choice;
+  const runs = mapped.find(
+    ({ group }) => group.model.id === model || group.offers.some((offer) => offer.model.id === model),
+  )?.choice;
   const chosen = new Set(runs && !picks.includes(runs) ? [...picks.slice(0, QUICK_ROWS - 1), runs] : picks);
   return { shown: all.filter((choice) => chosen.has(choice)), more: all.filter((choice) => !chosen.has(choice)) };
 }
@@ -206,13 +208,17 @@ export function pickerFaceHarness(catalog: ModelPickerProps["catalog"]): string 
 function searchModels(
   entries: readonly HarnessChoice[],
   query: ParsedQuery,
+  current?: string,
 ): { model: ModelChoice; entry: HarnessChoice }[] {
   return entries.flatMap((entry) => {
     const { latest, older } = sectionsFor(entry, true);
-    return groupVariants([...latest, ...older]).flatMap((group) => {
+    return groupVariants([...latest, ...older], current).flatMap((group) => {
       const matching = group.offers.filter((offer) => fitsQuery(offer.model, entry.name, query));
       if (matching.length === 0) return [];
-      const landing = matching.find((offer) => !offer.model.unavailable) ?? matching[0]!;
+      const landing =
+        matching.find((offer) => offer.model.id === current) ??
+        matching.find((offer) => !offer.model.unavailable) ??
+        matching[0]!;
       const model: ModelChoice = {
         ...landing.model,
         name: group.name,
@@ -503,7 +509,7 @@ export function ModelPicker(props: ModelPickerProps) {
       const searchable = harnesses.filter(
         (entry) => entry.pickable && !blockedProfile(entry) && loginFor(entry) === undefined,
       );
-      for (const { model, entry } of searchModels(searchable, parsed)) owner.set(model, entry);
+      for (const { model, entry } of searchModels(searchable, parsed, props.model)) owner.set(model, entry);
     } else if (starredView) {
       for (const entry of harnesses)
         if (!entry.folder && loginFor(entry) === undefined)
@@ -738,13 +744,20 @@ export function ModelPicker(props: ModelPickerProps) {
         entry.folder?.state !== "needs-enable" &&
         loginFor(entry) === undefined,
     );
-    return searchModels(searchable, typed).map(({ model, entry }) => {
+    return searchModels(searchable, typed, props.model).map(({ model, entry }) => {
       const effort = modelEffort(model, typed.effort);
       const hint = [!harnessFixed ? entry.name : undefined, effort, typed.fast ? fastText : undefined]
         .filter(Boolean)
         .join(" · ");
+      const quick = quickRow(entry.id, model);
+      const offers = quick.offers?.map((offer) => ({
+        ...offer,
+        ...(effort ? { effort } : {}),
+        ...(typed.fast ? { fast: true } : {}),
+      }));
       return {
-        ...quickRow(entry.id, model),
+        ...quick,
+        ...(offers ? { offers } : {}),
         ...(hint ? { hint } : {}),
         ...(effort ? { effort } : {}),
         ...(typed.fast ? { fast: true } : {}),
