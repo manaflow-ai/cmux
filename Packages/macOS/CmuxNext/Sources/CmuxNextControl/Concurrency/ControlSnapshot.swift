@@ -90,11 +90,19 @@ public final class ControlSnapshotStore: Sendable {
     }
 
     private let state = Mutex(State())
-    /// Main-actor state changed since the last publish and nothing has built it yet (a control work-queue frame):
-    /// ``fresh()`` builds it first. Set on the main actor, read by connection tasks.
+    /// Main-actor state changed since the last publish and nothing has built it yet (a control work-queue frame, a model
+    /// change waiting for its background publish): ``fresh()`` builds it first. Set on the main actor, read by connection tasks.
     private let stale = Atomic<Bool>(false)
-    /// Builds and publishes a stale snapshot on the main actor (the App's publisher); nil: none.
-    private let refresher = Mutex<(@MainActor @Sendable () -> Void)?>(nil)
+    /// How a stale snapshot is built (the App's publisher).
+    private struct Refreshers: Sendable {
+        /// Builds and publishes in the calling main-actor turn (``freshNow()``).
+        var now: (@MainActor @Sendable () -> Void)?
+        /// Builds and publishes for a reader off the main actor (``fresh()``) as the reader's own scheduled work
+        /// (the App's: one automation task); nil: ``now`` on a hop.
+        var promoted: (@Sendable () async -> Void)?
+    }
+
+    private let refreshers = Mutex(Refreshers())
 
     public init() {}
 
@@ -108,13 +116,26 @@ public final class ControlSnapshotStore: Sendable {
     /// until a read needs it).
     public func markStale() { stale.store(true, ordering: .releasing) }
 
-    /// Sets the closure that builds and publishes a stale snapshot on the main actor.
-    public func setRefresher(_ refresh: (@MainActor @Sendable () -> Void)?) { refresher.withLock { $0 = refresh } }
+    /// Sets the closures that build and publish a stale snapshot.
+    ///
+    /// - Parameters:
+    ///   - refresh: Builds in the calling main-actor turn (``freshNow()``, and ``fresh()`` without `promoted`).
+    ///   - promoted: Builds for a reader off the main actor as that reader's own scheduled work, so the build
+    ///     waits its turn behind the person's input (the App posts one automation task); nil: `refresh` on a hop.
+    public func setRefresher(_ refresh: (@MainActor @Sendable () -> Void)?, promoted: (@Sendable () async -> Void)? = nil) {
+        refreshers.withLock { $0 = Refreshers(now: refresh, promoted: promoted) }
+    }
 
     /// The latest snapshot, built first when main-actor state changed since the last publish (``markStale()``):
     /// what a control call reads, so it covers the writes of the calls before it.
     public func fresh() async -> ControlSnapshot {
-        if isStale, let refresh = refresher.withLock({ $0 }) { await refresh() }
+        guard isStale else { return current }
+        let hooks = refreshers.withLock { $0 }
+        if let promoted = hooks.promoted {
+            await promoted()
+        } else if let refresh = hooks.now {
+            await refresh()
+        }
         return current
     }
 
@@ -122,12 +143,12 @@ public final class ControlSnapshotStore: Sendable {
     /// reads see (the oracle's topology facet beside its other main-actor facets).
     @MainActor
     public func freshNow() -> ControlSnapshot {
-        if isStale, let refresh = refresher.withLock({ $0 }) { refresh() }
+        if isStale, let refresh = refreshers.withLock({ $0.now }) { refresh() }
         return current
     }
 
-    /// True while a reader waits for a newer topology; the publisher then
-    /// publishes on the next main-actor turn instead of the next frame.
+    /// True while a reader waits for a newer topology; the publisher then raises its
+    /// publish from background work to the reader's automation class.
     public var hasWaiters: Bool { state.withLock { !$0.waiters.isEmpty } }
 
     /// Applies `update` to a copy of the current snapshot and publishes the
