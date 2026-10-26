@@ -247,15 +247,23 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     }
   });
   /// A pending chip's ×: it goes, and whatever its read makes later is dropped.
-  const [cancel] = useState(() => (id: string) => {
+  /// Takes a tile off the strip; whatever its read makes later is dropped.
+  const [forget] = useState(() => (id: string) => {
     sources.current.delete(id);
     setPending((chips) => chips.filter((chip) => chip.id !== id));
+  });
+  /// The person's cancels (a tile's × or Backspace), counted: a prompt held for the tiles
+  /// (useSendWhenAttached) is an edit away from what was sent, so it stays in the field.
+  const [cancels, setCancels] = useState(0);
+  const [cancel] = useState(() => (id: string) => {
+    forget(id);
+    setCancels((count) => count + 1);
   });
   /// A failed chip's Retry: its file is read again (and uploaded again when it was).
   const [retry] = useState(() => (id: string) => {
     const source = sources.current.get(id);
     if (!source) return;
-    cancel(id);
+    forget(id);
     // Without the paste's kind: the host's record of where its files are was for that gesture only.
     void attach([source.file], source.uploads);
   });
@@ -301,6 +309,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     pending: shown,
     loading,
     cancel,
+    cancels,
     retry,
     attachError,
     setAttachError,
@@ -316,13 +325,16 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
 /// pending files (true; a later hold replaces it) and does nothing otherwise (false). `send` runs
 /// after the render that has the chips, so it must read the composer's state then (a ref). A new
 /// `scope` (the composer moved to another chat) drops a held prompt: it never goes to another chat.
-export function useSendWhenAttached(pending: number, scope?: string): (send: () => void) => boolean {
+/// So does the person cancelling a tile (`cancels`, the intake's count): the prompt was waiting for
+/// that file, so it stays in the field to edit or send again instead of going out without it.
+/// Before the `pending` effect, so a cancel that takes the last tile releases nothing.
+export function useSendWhenAttached(pending: number, scope?: string, cancels = 0): (send: () => void) => boolean {
   const held = useRef<(() => void) | undefined>(undefined);
   const count = useRef(pending);
   count.current = pending;
   useEffect(() => {
     held.current = undefined;
-  }, [scope]);
+  }, [scope, cancels]);
   useEffect(() => {
     const send = held.current;
     if (pending > 0 || !send) return;
