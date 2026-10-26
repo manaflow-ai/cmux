@@ -598,34 +598,47 @@ class Wiring(unittest.TestCase):
         self.assertNotIn("CI_NIGHTLY_NEXT_TRUSTED_RUNNER", self.jobs["release-compile"]["runs-on"])
         self.assertNotIn("CI_NIGHTLY_NEXT_TRUSTED_RUNNER", self.jobs["release-compile"]["env"]["CMUX_NEXT_RUNNER"])
 
-    def test_a_feat_push_release_compile_never_targets_the_dedicated_nightly_runner(self):
-        runs_on = self.jobs["release-compile"]["runs-on"]
-        context = self.context()
+    NIGHTLY_POOL = "glaeda-trusted-light-xcode-26.6"
+    NIGHTLY_RUNNER = "glaeda-runner-cmux22-nightly-next"
+
+    def nightly_push(self, ready: str, attempt: str = "1", **outputs: str) -> dict:
+        context = self.context(attempt, **outputs)
         context["github"].update(event_name="push", ref="refs/heads/feat-cmux-next", event={})
-        context["vars"].update(
-            CI_NIGHTLY_NEXT_TRUSTED_POOL="glaeda-trusted-light-xcode-26.6",
-            CI_NIGHTLY_NEXT_TRUSTED_RUNNER="glaeda-runner-cmux22-nightly-next",
-            CI_NEXT_PROMOTE_POOL=PROMOTE,
-        )
-        context["needs"]["macos-placement"]["outputs"]["nightly_runner_ready"] = "true"
-        self.assertNotEqual(evaluate(runs_on, context), [
-            "glaeda-trusted-light-xcode-26.6", "glaeda-runner-cmux22-nightly-next",
-            "glaeda-trusted-next-nightly",
-        ])
+        context["vars"].update(CI_NIGHTLY_NEXT_TRUSTED_POOL=self.NIGHTLY_POOL,
+                               CI_NIGHTLY_NEXT_TRUSTED_RUNNER=self.NIGHTLY_RUNNER, CI_NEXT_PROMOTE_POOL=PROMOTE)
+        context["needs"]["macos-placement"]["outputs"]["nightly_runner_ready"] = ready
+        return context
+
+    def assert_off_the_nightly_runner(self, label, why: str) -> None:
+        """`label` (a runs-on value: one label, or a list every runner must carry) names no nightly label."""
+        labels = label if isinstance(label, list) else [label]
+        self.assertTrue(labels and all(isinstance(name, str) and name for name in labels), f"{why}: {label!r}")
+        for name in labels:
+            self.assertNotIn(name, (self.NIGHTLY_POOL, self.NIGHTLY_RUNNER), f"{why}: {label!r}")
+            self.assertNotIn("nightly", name, f"{why}: {label!r}")
+
+    def test_a_feat_push_release_compile_never_targets_the_dedicated_nightly_runner(self):
+        """The nightly runner builds and signs nightly-next; the Release compile that gates it never takes it,
+        whatever placement read about it. The runs-on and the job's own label variable are evaluated, as a
+        single label or a label list, across the placement outputs a push can see."""
+        job = self.jobs["release-compile"]
+        for ready in ("true", ""):
+            for attempt in ("1", "2"):
+                for outputs in ({}, {"runner": ""}, {"large": " release-compile "}, {"small": " release-compile "},
+                                {"retry": SMALL}):
+                    context = self.nightly_push(ready, attempt, **outputs)
+                    why = f"ready={ready!r} attempt={attempt} outputs={outputs}"
+                    with self.subTest(ready=ready, attempt=attempt, outputs=outputs):
+                        self.assert_off_the_nightly_runner(evaluate(job["runs-on"], context), why)
+                        self.assert_off_the_nightly_runner(evaluate(job["env"]["CMUX_NEXT_RUNNER"], context), why)
 
     def test_a_configured_but_unavailable_dedicated_runner_overflows_to_blacksmith(self):
+        # Dedicated runner configured but not ready: the Blacksmith slot placement gave, else the owned route.
         runs_on = self.jobs["release-compile"]["runs-on"]
-        context = self.context()
-        context["github"].update(event_name="push", ref="refs/heads/feat-cmux-next", event={})
-        context["vars"].update(
-            CI_NIGHTLY_NEXT_TRUSTED_POOL="glaeda-trusted-light-xcode-26.6",
-            CI_NIGHTLY_NEXT_TRUSTED_RUNNER="glaeda-runner-cmux22-nightly-next",
-        )
-        context["needs"]["macos-placement"]["outputs"]["nightly_runner_ready"] = ""
-        self.assertNotEqual(evaluate(runs_on, context), [
-            "glaeda-trusted-light-xcode-26.6", "glaeda-runner-cmux22-nightly-next",
-            "glaeda-trusted-next-nightly",
-        ])
+        self.assertEqual(evaluate(runs_on, self.nightly_push("", large=" release-compile ")), LARGE)
+        self.assertEqual(evaluate(runs_on, self.nightly_push("", small=" release-compile ")), SMALL)
+        self.assertEqual(evaluate(runs_on, self.nightly_push("")), SIDE)
+        self.assertEqual(evaluate(runs_on, self.nightly_push("", runner="")), SMALL)
 
     def test_the_placement_knows_the_promotion_label_only_on_a_feat_push(self):
         place = next(step for step in self.jobs["macos-placement"]["steps"] if step.get("id") == "place")
