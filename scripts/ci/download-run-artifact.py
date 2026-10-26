@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import email.utils
 import hashlib
 import json
 import os
@@ -40,21 +41,34 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 # prepare job fall back to download-artifact's single connection: 611 s for the
 # unsigned app on run 40378565252 instead of about 2 min. Wait and retry instead,
 # within a bound far below what that fallback costs.
-RETRY_STATUSES = (403, 429, 500, 502, 503, 504)
+def retryable(code: int) -> bool:
+    """A refusal over a limit (403, 429) or a server error (any 5xx)."""
+    return code in (403, 429) or 500 <= code < 600
+
+
 RETRY_BUDGET_SECONDS = float(os.environ.get("CMUX_ARTIFACT_RETRY_BUDGET_SECONDS", "240"))
 sleep = time.sleep
 # One budget for the whole download (lookup, redirect and its refreshes), not per call.
 waited_seconds = 0.0
 
 
-def retry_wait(error: urllib.error.HTTPError, attempt: int) -> float:
-    """Seconds to wait before retrying a refused call: Retry-After, the limit's reset, else backoff."""
+def retry_wait(error: urllib.error.HTTPError, attempt: int, now: float | None = None) -> float:
+    """Seconds to wait before retrying a refused call: Retry-After, the limit's reset, else backoff.
+
+    Never less than one second, so every retry spends budget and the loop always ends.
+    """
+    now = time.time() if now is None else now
     headers = error.headers or {}
-    retry_after = headers.get("Retry-After")
-    if retry_after and retry_after.isdigit():
-        return float(retry_after)
+    retry_after = (headers.get("Retry-After") or "").strip()
+    if retry_after.isdigit():
+        return max(1.0, float(retry_after))
+    if retry_after:
+        try:
+            return max(1.0, email.utils.parsedate_to_datetime(retry_after).timestamp() - now)
+        except (TypeError, ValueError):
+            pass
     if headers.get("X-RateLimit-Remaining") == "0" and (headers.get("X-RateLimit-Reset") or "").isdigit():
-        return max(1.0, float(headers["X-RateLimit-Reset"]) - time.time() + 1)
+        return max(1.0, float(headers["X-RateLimit-Reset"]) - now + 1)
     return min(120.0, 10.0 * 2 ** (attempt - 1))
 
 
@@ -67,7 +81,7 @@ def with_retries(call, what: str):
         try:
             return call()
         except urllib.error.HTTPError as error:
-            if error.code not in RETRY_STATUSES:
+            if not retryable(error.code):
                 raise
             wait = retry_wait(error, attempt)
             if waited_seconds + wait > RETRY_BUDGET_SECONDS:
