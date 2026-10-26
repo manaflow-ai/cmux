@@ -66,17 +66,27 @@ type Jump = "click" | "step" | "scrub" | "bookmark";
 /// A row the rail's state names: the index the state holds for it, and its prompt's key.
 type KeyedRow = { index: number; key: string };
 
-/// The band's first turn at the last commit: its tick's key and row, where its prompt was in the
-/// layout, and where its row drew in the rail; and the first tick's key, which older turns change.
-type Anchor = { key: string; firstKey: string; index: number; layoutTop: number; y: number };
+/// The band's first turn at the last commit: its tick (key and row id) and row, where its prompt was
+/// in the layout, and where its row drew in the rail; and the first tick's, which older turns change.
+type Anchor = { tick: TickRef; first: TickRef; index: number; layoutTop: number; y: number };
 
-/// How many turns arrived above `anchor`'s since it was taken (undefined: none, or it is gone). By
-/// the ticks' keys, each its own (model.ts ticksOf), where two turns can share one.
+/// A tick as the rail's state remembers it: its key and its prompt's row id.
+type TickRef = Pick<MinimapTickRow, "key" | "id">;
+
+/// The index of the tick `ref` names in `ticks`, or -1: by its row first, then by its key. The row
+/// id holds where older turns arrive (a repeated key can move to an older echo, model.ts ticksOf);
+/// the key holds where acpmux's echo replaces this pane's row for a send (a new row, one promptId).
+export function tickIndex(ticks: readonly TickRef[], ref: TickRef, from = 0): number {
+  for (let index = from; index < ticks.length; index += 1) if (ticks[index]!.id === ref.id) return index;
+  for (let index = from; index < ticks.length; index += 1) if (ticks[index]!.key === ref.key) return index;
+  return -1;
+}
+
+/// How many turns arrived above `anchor`'s since it was taken (undefined: none, or it is gone).
 export function prependedBy(anchor: Anchor | undefined, ticks: readonly MinimapTickRow[]): number | undefined {
-  if (!anchor || !ticks.length || ticks[0]!.key === anchor.firstKey) return undefined;
-  for (let index = anchor.index; index < ticks.length; index += 1)
-    if (ticks[index]!.key === anchor.key) return index - anchor.index;
-  return undefined;
+  if (!anchor || !ticks.length || tickIndex(ticks, anchor.first) === 0) return undefined;
+  const at = tickIndex(ticks, anchor.tick, anchor.index);
+  return at < 0 ? undefined : at - anchor.index;
 }
 
 /// The prompt row's element, when the virtualized transcript has it mounted.
@@ -339,7 +349,7 @@ export function ThreadMinimap({
   useEffect(() => {
     /// An earlier step's turn, by its key (older turns arriving renumber the rows), while its scroll
     /// and landing are under way.
-    const pending = { key: undefined as string | undefined, until: 0 };
+    const pending = { tick: undefined as TickRef | undefined, until: 0 };
     /// From the turn being read (an earlier step's while it is under way, else the last whose
     /// landing is at or above the view's top): forward goes to the next match after it; back to its
     /// own prompt when that is above the view and matches, else to the match before it.
@@ -348,9 +358,7 @@ export function ThreadMinimap({
       const { turns: all, ticks: keys, tops, total } = live.current;
       if (!node || !all.length) return undefined;
       const stepping =
-        pending.key !== undefined && performance.now() < pending.until
-          ? keys.findIndex((tick) => tick.key === pending.key)
-          : -1;
+        pending.tick !== undefined && performance.now() < pending.until ? tickIndex(keys, pending.tick) : -1;
       const top = Math.min(node.scrollTop, Math.max(0, total - node.clientHeight));
       let reading = 0;
       if (stepping >= 0) reading = stepping;
@@ -365,7 +373,8 @@ export function ThreadMinimap({
       if (index === undefined) return;
       const to = jump(index, how);
       if (to === undefined) return;
-      pending.key = live.current.ticks[index]?.key;
+      const tick = live.current.ticks[index];
+      pending.tick = tick && { key: tick.key, id: tick.id };
       pending.until = performance.now() + STEP_PENDING_MS;
     };
     const any = () => true;
@@ -378,7 +387,7 @@ export function ThreadMinimap({
     ];
     // The reader's own scroll ends a pending step.
     const reader = () => {
-      pending.key = undefined;
+      pending.tick = undefined;
     };
     const node = scroller.current;
     const inputs = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
@@ -458,8 +467,8 @@ export function ThreadMinimap({
     const first = turns[onScreen.first];
     if (first)
       anchor.current = {
-        key: ticks[onScreen.first]!.key,
-        firstKey: ticks[0]!.key,
+        tick: { key: ticks[onScreen.first]!.key, id: ticks[onScreen.first]!.id },
+        first: { key: ticks[0]!.key, id: ticks[0]!.id },
         index: onScreen.first,
         layoutTop: layout.tops[first.index] ?? 0,
         y: railTop + onScreen.first * ROW_PITCH - scrolled,

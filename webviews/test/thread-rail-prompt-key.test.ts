@@ -133,9 +133,36 @@ test("older turns arriving find the anchored tick, not an earlier one with its p
   });
   const rows = [user("user-1", "p-1"), user("user-2", "p-7"), retried, user("user-3", "p-8")];
   const before = minimapTurns(rows, CHAT).ticks;
+  const ref = (index: number) => ({ key: before[index]!.key, id: before[index]!.id });
   // The band's first tick is the retried send's (index 2).
-  const anchor = { key: before[2]!.key, firstKey: before[0]!.key, index: 2, layoutTop: 0, y: 0 };
+  const anchor = { tick: ref(2), first: ref(0), index: 2, layoutTop: 0, y: 0 };
   // One older turn arrives above: the retried send is now at index 3.
   const after = minimapTurns([user("user-0", "p-0"), ...rows], CHAT).ticks;
   expect(prependedBy(anchor, after)).toBe(1);
+  // Nothing arrived: no shift.
+  expect(prependedBy(anchor, before)).toBeUndefined();
+});
+
+test("an older echo with the first tick's promptId arriving above moves no tick to its key", async () => {
+  const { prependedBy, tickIndex } = await import("../src/agent-session/acpmux/threadMinimap/ThreadMinimap");
+  const user = (id: string, promptId: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow =>
+    ({ id, version: 1, at: 0, kind: "user", text: id, promptId, ...extra }) as AcpmuxRow;
+  // The rail starts at the pane's retried send of p-7 (no echo of it loaded yet), then two more.
+  const retried = user("local-p-7", "p-7", {
+    promptId: undefined,
+    delivery: { state: "sending", promptId: "p-7", sessionId: CHAT, sentAt: 0 },
+  });
+  const rows = [retried, user("user-3", "p-8"), user("user-4", "p-9")];
+  const before = minimapTurns(rows, CHAT).ticks;
+  const ref = (index: number) => ({ key: before[index]!.key, id: before[index]!.id });
+  const anchor = { tick: ref(0), first: ref(0), index: 0, layoutTop: 0, y: 0 };
+  // The older echo of p-7 loads above it: it takes the prompt's key, the retried send keys on its row.
+  const after = minimapTurns([user("user-2", "p-7"), ...rows], CHAT).ticks;
+  expect(after[0]!.key).toBe(before[0]!.key);
+  expect(after[1]!.id).toBe("local-p-7");
+  // The anchored tick is the retried send's, now at index 1, and a step under way still finds it.
+  expect(prependedBy(anchor, after)).toBe(1);
+  expect(tickIndex(after, ref(0))).toBe(1);
+  // acpmux's echo replacing this pane's row for a send (a new row id, the same key) is still found.
+  expect(tickIndex(after, { key: after[2]!.key, id: "local-p-8" })).toBe(2);
 });
