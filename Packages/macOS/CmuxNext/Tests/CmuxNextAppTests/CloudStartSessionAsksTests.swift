@@ -23,6 +23,8 @@ struct CloudStartSessionAsksTests {
         var answers: [String: AgentToolCards.Answer] = [:]
         let (events, event) = AsyncStream<String>.makeStream()
 
+        deinit { event.finish() }
+
         func install(_ asks: CloudStartSessionAsks) {
             asks.present = { [unowned self] cards, tab, answer in
                 shown[tab] = cards.isEmpty ? nil : cards
@@ -205,6 +207,27 @@ struct CloudStartSessionAsksTests {
         // The same ask after starts afresh.
         runs.sleep = Self.waits
         #expect(try await Self.answer(runs) { ["session_id": .string("new")] }["session_id"] == .string("new"))
+    }
+
+    /// An end that lands as the caller's deadline fires reaches that caller (not pending), and the
+    /// run is not kept: the caller saw it.
+    @Test func anEndAtTheDeadlineReachesTheCaller() async throws {
+        let runs = CloudStartSessionRuns()
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        let (ending, ended) = AsyncStream<Void>.makeStream()
+        defer { open.finish(); ended.finish() }
+        // The deadline lets the run end, and fires once it has.
+        runs.sleep = { _ in
+            open.yield()
+            for await _ in ending { break }
+        }
+        let fields = try await Self.answer(runs) {
+            for await _ in gate { break }
+            ended.yield()
+            return ["session_id": .string("s")]
+        }
+        #expect(fields["session_id"] == .string("s"))
+        #expect(runs.count == 0, "the caller saw it end, so it is not kept")
     }
 
     @Test func aRunItsCallerSawEndIsNotKept() async throws {
