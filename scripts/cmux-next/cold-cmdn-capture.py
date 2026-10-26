@@ -170,10 +170,12 @@ def launch_and_seed(app_path):
         raise RuntimeError("relaunch did not create a distinct process in the same isolated HOME")
     bench = bench2
     SOCKET = second_socket
-    restored_rows = wait_for("restored workspace rows", lambda: ordered(workspace_rows()), timeout=60)
+    def restored_seed_rows():
+        rows = ordered(workspace_rows())
+        keys = [row.get("key") for row in rows]
+        return rows if len(rows) >= len(seed_keys) and set(seed_keys).issubset(keys) else None
+    restored_rows = wait_for("restored workspace rows", restored_seed_rows, timeout=60)
     restored_keys = [row.get("key") for row in restored_rows]
-    if not set(seed_keys).issubset(restored_keys):
-        raise RuntimeError("relaunch did not restore the seeded workspace identities")
     return {
         "mode": "app_fixture",
         "tag": second_tag,
