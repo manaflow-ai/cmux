@@ -10,8 +10,7 @@ import Foundation
 // WebKit view stays as an unloaded, hidden subview, so a page that fails in Chromium reopens in
 // WebKit at once (``fallBackToWebKit(_:)``) and WebKit-only hosts keep compiling.
 extension PageWebView {
-    /// The handlers the page scripts post to without a reply, in Chromium mode: every page has them
-    /// (``ChromiumPageHostBridge/rendererScripts(handlers:documentScripts:world:channel:)``).
+    /// The handlers the page scripts post to without a reply, in Chromium mode (every page has them).
     public static let chromiumFireAndForget = [
         PagePaintProbe.handlerName, PageInputReadiness.handlerName, ConsoleErrorCapture.handlerName,
         PageChromiumDocumentScripts.navigateHandler, PageChromiumDocumentScripts.hostDropHandler,
@@ -207,8 +206,7 @@ extension PageWebView {
             guard !chromiumSession.bridge.receive(devToolsMessage: json),
                   let event = ChromiumPageHostWire.documentEvent(json) else { return }
             chromiumEvent(event)
-        case .hostMessage(let envelope):
-            chromiumSession.bridge.receive(hostMessage: envelope)
+        case .hostMessage(let envelope): chromiumSession.bridge.receive(hostMessage: envelope)
         case .committed(let url):
             guard let url, url.scheme != "about" else { return }
             guard PageNavigation.policy(for: url, page: descriptor, userClicked: false, mainFrame: true, hook: onNavigate) == .allow else {
@@ -320,9 +318,7 @@ extension PageWebView {
         return result["value"]
     }
 
-    /// Makes `edit` in the focused editable element of a Chromium page (``PageInputReadiness``). On
-    /// renderer paths through ``PageChromiumPage/evaluate(_:)``, so a key typed before the page's
-    /// input was ready opens no DevTools session.
+    /// Makes `edit` in the focused editable element of a Chromium page (``PageInputReadiness``); no DevTools on renderer paths.
     static func apply(_ edit: PageInputReadiness.Edit, token: String?, expectedEpoch: Int?, in page: any PageChromiumPage) async -> Bool {
         let expression = "(function () {\n\(PageInputReadiness.editScript(edit, token: token, expectedEpoch: expectedEpoch))\n})()"
         if page.usesRendererPaths { return (try? await page.evaluate(expression)) == "true" }
