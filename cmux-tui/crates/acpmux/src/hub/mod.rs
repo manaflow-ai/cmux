@@ -129,6 +129,7 @@ pub mod person;
 pub mod presence;
 mod processes;
 mod pull_requests;
+pub(crate) mod purge_tombstones;
 pub(crate) mod questions;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
