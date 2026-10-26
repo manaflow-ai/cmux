@@ -91,6 +91,8 @@ pub struct AttachResult {
     /// More records lie beyond this page.
     pub has_more: bool,
     pub last_seq: u64,
+    /// Who has the chat open now, this attachment included (`hub/presence.rs`).
+    pub presence: super::presence::PresenceNote,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -131,6 +133,10 @@ pub struct ViewParams {
     pub session_id: String,
     /// The attached client shows the chat (`hub/seen.rs`).
     pub visible: bool,
+    /// An author changes only that person's presence (`hub/presence.rs`), not whether the
+    /// chat counts as shown.
+    #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+    pub meta: Option<super::presence::AuthorMeta>,
 }
 
 /// An acknowledgement with nothing in it.

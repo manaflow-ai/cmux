@@ -1,6 +1,7 @@
 import type { conversation } from "@cmux/home-core"
 import { describe, expect, it } from "vitest"
 import { messageEffectAuthorized } from "../src/chief-brain/effect-policy.ts"
+import { formatMessage } from "../src/chief-brain/brain-text.ts"
 import { AGENT_RATE_WINDOW_MS, MAX_POST_TRIES, retryPost } from "../src/chief-brain/brain-do.ts"
 
 /**
@@ -61,5 +62,17 @@ describe("retryPost: a busy group never drops a ready reply", () => {
     expect(retryPost("owner.unreachable", MAX_POST_TRIES - 2, 0, 0)).toBe(true)
     expect(retryPost("owner.unreachable", MAX_POST_TRIES - 1, 0, 0)).toBe(false)
     expect(retryPost("agent_budget", 0, 0, 0)).toBe(false)
+  })
+})
+
+describe("formatMessage names the Chief's owner in a shared conversation", () => {
+  const people = { ...head(), title: "Launch" } as unknown as Parameters<typeof formatMessage>[0]
+  it("marks the owner's message, and no one else's", () => {
+    expect(formatMessage(people, msg(ben, "ship it"), { owner: ben })).toBe("[Launch · group · Ben (your owner)] ship it")
+    expect(formatMessage(people, msg(ann, "ship it"), { owner: ben })).toBe("[Launch · group · Ann] ship it")
+  })
+  it("leaves the owner's own Chief line as it was", () => {
+    const line = { ...people, kind: "chief" } as typeof people
+    expect(formatMessage(line, msg(ben, "hi"), { owner: ben })).toBe("[Launch · chief · Ben] hi")
   })
 })

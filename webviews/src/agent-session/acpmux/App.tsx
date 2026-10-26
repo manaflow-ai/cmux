@@ -103,7 +103,7 @@ import { isDefaultChoice } from "./defaultChoice";
 import { topModelsFor } from "./topModels";
 import { applySwitch, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
 import { harnessProfiles } from "./harnessProfiles";
-import { pickedMode, setStartModeSource, startModeChanged } from "./startMode";
+import { setStartModeSource } from "./startMode";
 import { setPromptSurfaces } from "./surfaces/promptSurface";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { BridgeSocket } from "./bridgeSocket";
@@ -656,6 +656,12 @@ function failedRowIds(rowId: unknown, rowIds: unknown): string[] {
 function failedRowOf(error: unknown): string | undefined {
   const row = (error as { failedRow?: unknown } | null)?.failedRow;
   return typeof row === "string" ? row : undefined;
+}
+
+/// Whether a failed send's prompt stays in the chat, never back in the composer: its failed row,
+/// or the transcript, which drew it once acpmux took it (direct.ts `send`).
+function keptInChat(error: unknown): boolean {
+  return failedRowOf(error) !== undefined || (error as { taken?: unknown } | null)?.taken === true;
 }
 
 function callNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
@@ -4018,9 +4024,10 @@ export function VirtualTranscript({
   );
 }
 
-/// Answers `permission` with the option a button or key picked.
+/// Answers `permission` with the option a button or key picked; rejects when acpmux refused it, which
+/// the card shows.
 const answerPermission = (permission: AcpmuxPermission) => (optionId: string) =>
-  void callNative("chat.permission", { permissionId: permission.permissionId, optionId });
+  callNative("chat.permission", { permissionId: permission.permissionId, optionId });
 
 /// Sends a question card's reply: the harness's option (absent cancels) and its answers. The card
 /// shows a refusal (the promise rejects) and takes input again for a retry.
@@ -4029,6 +4036,7 @@ const replyToQuestion = (permission: AcpmuxPermission) => (sent: QuestionReply) 
     permissionId: permission.permissionId,
     ...(sent.optionId === undefined ? {} : { optionId: sent.optionId }),
     ...(sent.answers === undefined ? {} : { answers: sent.answers }),
+    ...(sent.annotations === undefined ? {} : { annotations: sent.annotations }),
   });
 
 /// Answers a secret card in the page (`chat.secret`): the value goes to acpmux only.
@@ -6215,9 +6223,9 @@ function AcpmuxPane() {
   const [startingSends] = useState(
     () =>
       new StartingSends(setStartingRows, (text, attachments, error) => {
-        // A prompt kept as its own failed row stays there; one a harness switch handed back is in
-        // the composer already.
-        if (failedRowOf(error) || (error as { handedBack?: unknown } | null)?.handedBack === true) return;
+        // A prompt kept as its own failed row or in the transcript stays there; one a harness switch
+        // handed back is in the composer already.
+        if (keptInChat(error) || (error as { handedBack?: unknown } | null)?.handedBack === true) return;
         if (composerHandle.current) composerHandle.current.restore(text, attachments);
         else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
       }),
@@ -6976,17 +6984,9 @@ function AcpmuxPane() {
             ? callNative("chat.persistSession", { sessionId }).catch(() => undefined)
             : Promise.resolve();
         /// Opens a chat this one made in a tab of its own (`chat.openTab`); false when the host opens none.
-        /// A mode pick on the shown chat. acpmux decides whether it is every new chat's start mode
-        /// (hub/start_mode.rs); a pending chat's kept answer follows it at once and then asks
-        /// acpmux again (startMode.ts), as older daemons send no `_acpmux/start_mode_changed`.
-        const setMode = async (modeId: string, ticket?: string) => {
-          await client.setMode(modeId, ticket);
-          const shown = snapshotRef.current;
-          if (shown?.origin === "remote" || shown?.origin === "peer" || shown?.summary?.host) return;
-          if (/^plan$/i.test(modeId)) return startModeChanged();
-          const name = shown?.summary?.modes?.availableModes.find((mode) => mode.id === modeId)?.name;
-          pickedMode(client.shownSession()?.harness ?? shown?.summary?.harness, modeId, name);
-        };
+        /// A mode pick on the shown chat: it holds for that chat only, never a new chat's start mode
+        /// (hub/start_mode.rs; Leo 2026-10-21).
+        const setMode = (modeId: string, ticket?: string) => client.setMode(modeId, ticket);
         /// `placement`: where the app opens it (AgentForkDestination: right, left, up, down, tab,
         /// workspace, window); none is a tab after this chat's.
         const openOwnTab = (sessionId: string, placement?: string) => {
@@ -7106,13 +7106,14 @@ function AcpmuxPane() {
           "chat.queue.edit": ({ promptId, ...edit }) => client.editQueued(String(promptId), edit as QueueEdit),
           "chat.secret": ({ secretId, value }) =>
             client.secret(String(secretId), typeof value === "string" ? value : undefined),
-          "chat.permission": ({ permissionId, optionId, answers, sessionId }) =>
+          "chat.permission": ({ permissionId, optionId, answers, annotations, sessionId }) =>
             client.permission(
               String(permissionId),
               optionId === undefined || optionId === null ? undefined : String(optionId),
               answers && typeof answers === "object" ? (answers as Record<string, unknown>) : undefined,
               // The Needs you list answers asks of other chats too.
               typeof sessionId === "string" && sessionId ? sessionId : undefined,
+              annotations && typeof annotations === "object" ? (annotations as Record<string, unknown>) : undefined,
             ),
           "chat.permission_group.respond": ({ groupId, revision, decision }) =>
             client.permissionGroup(String(groupId), Number(revision), decision as PermissionDecision),
@@ -8909,7 +8910,7 @@ function AcpmuxPane() {
                   },
                   (error: unknown) => {
                     cancelOpenInWindow();
-                    if (failedRowOf(error) || isTrustRefusal(error)) return;
+                    if (keptInChat(error) || isTrustRefusal(error)) return;
                     // A prompt a harness switch handed back (harnessSwitch.ts) is in the composer already.
                     if ((error as { handedBack?: unknown } | null)?.handedBack === true) return;
                     (composerHandle.current ?? holder)?.restore(text, attachments);
