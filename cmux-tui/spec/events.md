@@ -1533,10 +1533,10 @@ Example:
 Payload:
 
 ```text
-object{event:"output",surface:Id,data:Base64,colors?:TerminalColors}
+object{event:"output",surface:Id,data:Base64,colors?:TerminalColors,flow?:uint64}
 ```
 
-Meaning: Live PTY bytes applied after the `vt-state` snapshot. Chunks preserve byte order for the attached surface. Chunk boundaries are implementation details. Hosted output that atomically changes authored colors includes the complete `colors` value to apply with that chunk.
+Meaning: Live PTY bytes applied after the `vt-state` snapshot. Chunks preserve byte order for the attached surface. Chunk boundaries are implementation details. Hosted output that atomically changes authored colors includes the complete `colors` value to apply with that chunk. `flow` is present only on the first output after a `send` that carried a `flow`: it is that key press's id, for trace recordings (the echo of the key). A client that does not trace ignores it.
 
 Example:
 

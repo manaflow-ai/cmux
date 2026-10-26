@@ -426,6 +426,17 @@ and `HostHello`, with `FLAG_TERMINAL_METADATA`. Hosts that predate it reject a
 hello carrying it, so a client sets it only when the host record advertises
 `supports_shell_activity`, which records before version 4 must not set.
 
+`FLAG_INPUT_FLOW` is bit 9 and is valid only in protocol-v4 `ClientHello` and
+`HostHello`, and on an interactive `Input` frame (request id zero) of a
+connection that negotiated it; the host grants it only to a client with
+`INPUT`. A flagged `Input` payload ends with the 8-byte little-endian `flow`
+of the key press the bytes carry; the bytes before it go to the PTY, the
+trailer never does. The host marks its next PTY read with that flow
+(`host.pty.read`, trace recordings only). A flagged payload shorter than 8
+bytes closes the connection. Hosts that predate it reject a hello carrying it,
+so a client sets it only when the host record advertises `supports_input_flow`,
+which records before version 4 must not set.
+
 ## PTY custody and adoption
 
 A host normally holds the only copy of its PTY master, so the kernel hangs up

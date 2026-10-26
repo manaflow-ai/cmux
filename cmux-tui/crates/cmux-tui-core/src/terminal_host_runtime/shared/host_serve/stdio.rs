@@ -103,6 +103,7 @@ pub fn serve_terminal_host_stdio(
         supports_pty_custody: sys::SUPPORTS_PTY_CUSTODY,
         supports_program_status: true,
         supports_shell_activity: true,
+        supports_input_flow: true,
         orphan_grace_secs: host_orphan_grace().map(|grace| grace.as_secs()),
     };
     let record_root = Path::new(&launch.record_path)

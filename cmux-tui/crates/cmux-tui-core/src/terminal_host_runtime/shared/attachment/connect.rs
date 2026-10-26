@@ -176,6 +176,10 @@ pub(crate) fn connect_record_at_version(
     if shell_activity_requested {
         hello_frame.flags |= FLAG_SHELL_ACTIVITY;
     }
+    let input_flow_requested = protocol_version == PROTOCOL_VERSION && record.supports_input_flow;
+    if input_flow_requested {
+        hello_frame.flags |= FLAG_INPUT_FLOW;
+    }
     write_frame(&mut stream, &hello_frame)?;
     let hello_frame = read_host_hello(&mut stream)?;
     if hello_frame.kind != MessageKind::HostHello
@@ -186,7 +190,8 @@ pub(crate) fn connect_record_at_version(
                 | FLAG_LAUNCH_ACTIVATION_REQUIRED
                 | FLAG_TERMINAL_METADATA
                 | FLAG_PROGRAM_STATUS
-                | FLAG_SHELL_ACTIVITY)
+                | FLAG_SHELL_ACTIVITY
+                | FLAG_INPUT_FLOW)
             != 0
         || hello_frame.request_id != 1
         || hello_frame.sequence != 0
@@ -194,6 +199,7 @@ pub(crate) fn connect_record_at_version(
         || (!terminal_metadata_requested && hello_frame.flags & FLAG_TERMINAL_METADATA != 0)
         || (!program_status_requested && hello_frame.flags & FLAG_PROGRAM_STATUS != 0)
         || (!shell_activity_requested && hello_frame.flags & FLAG_SHELL_ACTIVITY != 0)
+        || (!input_flow_requested && hello_frame.flags & FLAG_INPUT_FLOW != 0)
     {
         anyhow::bail!("terminal host rejected owner handshake");
     }
@@ -278,6 +284,7 @@ pub(crate) fn connect_record_at_version(
         // every connection at the snapshot grid.
         viewer_size: Mutex::new(Some(snapshot_size)),
         viewer_size_acks: hello_frame.flags & FLAG_VIEWER_SIZE_ACKS != 0,
+        input_flow: hello_frame.flags & FLAG_INPUT_FLOW != 0,
         launch_process: None,
         launch_activation_pending,
         pty_custody: None,

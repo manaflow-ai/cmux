@@ -24,7 +24,9 @@ impl HostedReader {
         if crate::debug_spans::following() {
             follow_marks(pty, &output);
         }
-        cmux_flow_trace::hop("daemon.output.host", 0, pty.flow_terminal_id());
+        // The key press this output echoes: the first host output after a send with its flow.
+        let flow = pty.take_input_flow();
+        cmux_flow_trace::hop("daemon.output.host", flow, pty.flow_terminal_id());
         let mut scroll_changed = None;
         let mut title_update = None;
         let terminal_notifications;
@@ -85,10 +87,11 @@ impl HostedReader {
                 pty.broadcast_attach_frame(AttachFrame::OutputWithColors {
                     output,
                     colors: Box::new(pty.terminal_colors_locked(&term, defaults)),
+                    flow,
                 });
                 journal_output
             } else {
-                pty.broadcast_attach_output(&output);
+                pty.broadcast_attach_output_flow(&output, flow);
                 journal_enabled.then_some(output)
             };
             if self.title_changed.swap(false, Ordering::Relaxed) {

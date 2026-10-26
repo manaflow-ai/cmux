@@ -6,7 +6,10 @@
 
 // The daemon's trace.start, trace.stop and trace.status (p09-observability-015) and the exact
 // echo flow (p09-observability-018) call these.
-#![cfg_attr(not(test), expect(dead_code, reason = "called by p09-observability-015 and -018"))]
+#![cfg_attr(
+    not(test),
+    expect(dead_code, reason = "trace control is called by p09-observability-015")
+)]
 
 use std::io;
 use std::sync::Arc;

@@ -120,7 +120,8 @@ impl LocalOutput {
                     != cursor_activity;
             pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
             let after = terminal_scroll_position(&term);
-            let has_attach_taps = pty.broadcast_attach_output(normalized.as_ref());
+            let has_attach_taps =
+                pty.broadcast_attach_output_flow(normalized.as_ref(), pty.take_input_flow());
             if has_attach_taps && (term.color_revision() != color_revision || cursor_changed) {
                 pty.attach_colors_pending.store(true, Ordering::Release);
                 if term.color_reapply_revision() != color_reapply_revision || cursor_changed {

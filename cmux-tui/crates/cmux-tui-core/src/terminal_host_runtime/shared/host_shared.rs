@@ -63,6 +63,10 @@ pub(crate) struct HostShared {
     /// without blocking the reader from enqueueing the completing bytes.
     pub(crate) parser_progress: (Mutex<u64>, Condvar),
     pub(crate) next_client: AtomicU64,
+    /// The flow of the newest key press an `Input` with `FLAG_INPUT_FLOW`
+    /// wrote (0: none since the last read took it): the reader's next PTY
+    /// read carries it, once (p09-observability-018).
+    pub(crate) last_input_flow: AtomicU64,
     pub(crate) dead: AtomicBool,
     pub(crate) launch_owner_claimed: AtomicBool,
     pub(crate) launch_owner_stream_ready: AtomicBool,
@@ -363,9 +367,21 @@ impl HostShared {
         );
     }
 
-    pub(crate) fn write_input(&self, payload: &[u8], request_id: u64, target: &HostTap) -> bool {
+    /// Write `payload` to the PTY; `flow` (0: none) is the key press it
+    /// carries, which the reader's next PTY read takes ([`Self::take_input_flow`]).
+    pub(crate) fn write_input(
+        &self,
+        payload: &[u8],
+        request_id: u64,
+        flow: u64,
+        target: &HostTap,
+    ) -> bool {
+        // Before the write: the echo can be read before the write returns.
+        if flow != 0 {
+            self.last_input_flow.store(flow, Ordering::Release);
+        }
         // Marked before the writer lock, so the mark never runs under it.
-        cmux_flow_trace::hop_id("host.pty.write", 0, self.terminal_id.as_bytes());
+        cmux_flow_trace::hop_id("host.pty.write", flow, self.terminal_id.as_bytes());
         let delivered = {
             let mut writer = self.writer.lock().recover_poison();
             // Receipted input certifies delivery, so none of it is dropped. The master is
@@ -388,6 +404,15 @@ impl HostShared {
         response.request_id = request_id;
         let _broadcast = self.broadcast_lock.lock().recover_poison();
         target.try_send(response)
+    }
+
+    /// The key press the PTY read now echoes, once (0: none). Without a
+    /// flow this is one load, no write.
+    pub(crate) fn take_input_flow(&self) -> u64 {
+        if self.last_input_flow.load(Ordering::Acquire) == 0 {
+            return 0;
+        }
+        self.last_input_flow.swap(0, Ordering::AcqRel)
     }
 
     pub(crate) fn fence_client_detach(

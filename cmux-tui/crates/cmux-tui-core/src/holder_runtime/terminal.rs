@@ -75,6 +75,13 @@ impl HolderTerminal {
         self.service.untrack(self.chan);
     }
 
+    /// Tell the holder its next read of this terminal echoes the key press
+    /// `flow` (WRITE_FLOW, [`HolderService::mark_input_flow`]): the daemon
+    /// writes the bytes itself on its custody master.
+    pub(crate) fn mark_input_flow(&self, flow: u64) -> bool {
+        self.service.mark_input_flow(self.chan, flow)
+    }
+
     /// How to replay the screen for a new holder (the surface sets it).
     pub(crate) fn set_replay(&self, replay: Replay) {
         *self.replay.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(replay);

@@ -130,6 +130,7 @@ pub(crate) fn start_host_runtime(
         clipboard,
         parser_progress: (Mutex::new(0), Condvar::new()),
         next_client: AtomicU64::new(1),
+        last_input_flow: AtomicU64::new(0),
         dead: AtomicBool::new(false),
         launch_owner_claimed: AtomicBool::new(false),
         launch_owner_stream_ready: AtomicBool::new(false),
@@ -199,7 +200,11 @@ pub(crate) fn start_host_runtime(
                 }
                 Err(_) => break,
             };
-            cmux_flow_trace::hop_id("host.pty.read", 0, reader_host.terminal_id.as_bytes());
+            cmux_flow_trace::hop_id(
+                "host.pty.read",
+                reader_host.take_input_flow(),
+                reader_host.terminal_id.as_bytes(),
+            );
             let read = buffer.get(..count).unwrap_or(&buffer);
             if !publish_pty_output(
                 &reader_host,

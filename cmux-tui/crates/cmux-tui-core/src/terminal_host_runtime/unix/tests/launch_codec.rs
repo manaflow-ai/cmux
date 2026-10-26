@@ -516,6 +516,7 @@ fn clear_history_ack_preserves_known_not_delivered_failure() {
         next_request: AtomicU64::new(2),
         viewer_size: Mutex::new(None),
         viewer_size_acks: false,
+        input_flow: false,
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,

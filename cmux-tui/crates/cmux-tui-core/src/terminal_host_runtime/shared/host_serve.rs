@@ -195,10 +195,12 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                 | FLAG_VIEWER_SIZE_PRIORITY
                 | FLAG_PTY_CUSTODY
                 | FLAG_PROGRAM_STATUS
-                | FLAG_SHELL_ACTIVITY)
+                | FLAG_SHELL_ACTIVITY
+                | FLAG_INPUT_FLOW)
             != 0
         || (hello_frame.flags & FLAG_TERMINAL_METADATA != 0
             && hello_frame.version != PROTOCOL_VERSION)
+        || (hello_frame.flags & FLAG_INPUT_FLOW != 0 && hello_frame.version != PROTOCOL_VERSION)
         || (hello_frame.flags & FLAG_PROGRAM_STATUS != 0
             && hello_frame.flags & FLAG_TERMINAL_METADATA == 0)
         || (hello_frame.flags & FLAG_SHELL_ACTIVITY != 0
@@ -258,6 +260,13 @@ pub(crate) fn serve_client_with_snapshot_timeout(
     }
     if shell_activity_negotiated {
         hello_response.flags |= FLAG_SHELL_ACTIVITY;
+    }
+    // Key-press flows on input (p09-observability-018): only a client that may write input.
+    let input_flow = hello_frame.flags & FLAG_INPUT_FLOW != 0
+        && selected_version == PROTOCOL_VERSION
+        && granted_rights.contains(CapabilityRights::INPUT);
+    if input_flow {
+        hello_response.flags |= FLAG_INPUT_FLOW;
     }
     hello_response.request_id = hello_frame.request_id;
     write_frame(&mut stream, &hello_response)?;
@@ -440,9 +449,15 @@ pub(crate) fn serve_client_with_snapshot_timeout(
     thread::Builder::new().name("terminal-host-client-input".into()).spawn(move || {
         let mut detached = false;
         while let Ok(Some(frame)) = read_frame(&mut command_stream, MAX_FRAME_PAYLOAD) {
-            // Client-to-host messages currently define no flags and never
-            // participate in the host live-stream sequence.
-            if frame.version != selected_version || frame.flags != 0 || frame.sequence != 0 {
+            // Client-to-host messages define one flag (a negotiated
+            // FLAG_INPUT_FLOW on interactive Input) and never participate
+            // in the host live-stream sequence.
+            let flags_valid = frame.flags == 0
+                || (input_flow
+                    && frame.flags == FLAG_INPUT_FLOW
+                    && frame.kind == MessageKind::Input
+                    && frame.request_id == 0);
+            if frame.version != selected_version || !flags_valid || frame.sequence != 0 {
                 break;
             }
             match frame.kind {
@@ -457,13 +472,12 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                     command_host.mark_launch_owner_stream_ready();
                 }
                 MessageKind::Input => {
+                    let Some((input, flow)) = split_input_flow(frame.flags, &frame.payload) else {
+                        break;
+                    };
                     if !granted_rights.contains(CapabilityRights::INPUT)
                         || !input_request_is_supported(selected_version, frame.request_id)
-                        || !command_host.write_input(
-                            &frame.payload,
-                            frame.request_id,
-                            &command_sender,
-                        )
+                        || !command_host.write_input(input, frame.request_id, flow, &command_sender)
                     {
                         break;
                     }

@@ -24,22 +24,54 @@ fn host_connection_lost(error: &std::io::Error) -> bool {
     )
 }
 
+/// Tell the holder that runs `pty`'s shell, if one does, that its next
+/// output echoes the key press `flow` (WRITE_FLOW; nothing for 0 or for a
+/// holder without the capability). The runtime lock is not held across
+/// the holder link's send.
+#[cfg(unix)]
+fn mark_holder_input_flow(pty: &PtySurface, flow: u64) {
+    if flow == 0 {
+        return;
+    }
+    let holder = match &*pty.runtime.lock().unwrap() {
+        PtyRuntime::Local { holder, .. } => holder.clone(),
+        _ => None,
+    };
+    if let Some(holder) = holder {
+        holder.mark_input_flow(flow);
+    }
+}
+
 impl Surface {
     /// Write input bytes to the PTY child.
     pub fn write_bytes(&self, bytes: &[u8]) -> std::io::Result<()> {
+        self.write_bytes_flow(bytes, 0)
+    }
+
+    /// [`Self::write_bytes`] of the key press `flow` (0: none,
+    /// p09-observability-018). The next output of this terminal echoes it:
+    /// the PTY owner's next read (a host that negotiated
+    /// `FLAG_INPUT_FLOW`, a holder that granted WRITE_FLOW) and the
+    /// daemon's next output event carry `flow`, once.
+    pub(crate) fn write_bytes_flow(&self, bytes: &[u8], flow: u64) -> std::io::Result<()> {
         let Some(pty) = self.as_pty() else {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
                 "browser surface does not accept PTY bytes",
             ));
         };
+        // Before the write: its echo can reach the daemon before the write returns.
+        pty.note_input_flow(flow);
         #[cfg(any(unix, windows))]
-        if let Some(result) = Self::send_hosted_input(pty, MessageKind::Input, bytes) {
+        if let Some(result) = Self::send_hosted_input(pty, MessageKind::Input, bytes, flow) {
             return result;
         }
         // Not hosted: the daemon writes the PTY itself (the holder model's custody master). Marked
         // before the runtime lock, so the mark never runs under it.
-        cmux_flow_trace::hop("daemon.pty.write", 0, pty.flow_terminal_id());
+        cmux_flow_trace::hop("daemon.pty.write", flow, pty.flow_terminal_id());
+        // The holder reads the echo: its flow mark goes before the bytes.
+        #[cfg(unix)]
+        mark_holder_input_flow(pty, flow);
         let mut runtime = pty.runtime.lock().unwrap();
         match &mut *runtime {
             PtyRuntime::Local { writer, master, .. } => {
@@ -71,6 +103,7 @@ impl Surface {
         pty: &PtySurface,
         kind: MessageKind,
         bytes: &[u8],
+        flow: u64,
     ) -> Option<std::io::Result<()>> {
         let deadline = Instant::now() + HOST_INPUT_RECONNECT_WAIT;
         let mut first_error = None;
@@ -79,7 +112,7 @@ impl Surface {
             // the wait below, so no reconnect is missed.
             let observed = pty.stream_progress.revision();
             let sent = match &*pty.runtime.lock().unwrap() {
-                PtyRuntime::Hosted(host) => host.send(kind, bytes),
+                PtyRuntime::Hosted(host) => host.send_flow(kind, bytes, flow),
                 // Keep-on-exit: the final screen drops input (see
                 // write_bytes). Input that already failed to reach the host
                 // did not arrive: it keeps its error.
@@ -182,7 +215,7 @@ impl Surface {
         // Keep-on-exit terminals accept and drop paste input the same way
         // as keystrokes: the final screen is read-only, not broken.
         #[cfg(any(unix, windows))]
-        if let Some(result) = Self::send_hosted_input(pty, MessageKind::Paste, bytes) {
+        if let Some(result) = Self::send_hosted_input(pty, MessageKind::Paste, bytes, 0) {
             return result;
         }
         let bracketed = {

@@ -1532,6 +1532,7 @@ Params:
 | `expect_foreground` | `string` | default null | `send-expect-foreground-v1`; needs `surface`; write only while the foreground executable is this one |
 | `expect_agent` | `{session: string}` | default null | `send-expect-agent-v1`; needs `surface`; write only while the terminal's agent is `idle` in `session` |
 | `submit` | `boolean` | default false | `send-expect-agent-v1`; needs `surface`; Return after the payload, in the same request |
+| `flow` | `uint64` | default null | Trace recordings only: the key press's flow id. The PTY owner's next read and the surface's next `output` event carry it; it changes nothing else |
 
 With `send-expect-foreground-v1`, `expect_foreground` names the executable the caller saw in the
 foreground (`process-info`'s `foreground_executable`, compared byte for byte). Right before the write the

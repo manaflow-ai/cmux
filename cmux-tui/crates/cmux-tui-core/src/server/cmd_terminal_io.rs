@@ -113,7 +113,8 @@ pub(super) struct SendParams {
     #[serde(default)]
     pub(super) submit: bool,
     /// The app's id of the key press this input carries (`CMUX_TRACE_FLOWS`, trace.py key-press
-    /// flows); only recorded, never acted on. An older daemon ignores it.
+    /// flows); only recorded, never acted on: the PTY owner's next read and the terminal's next
+    /// `output` event carry it (p09-observability-018). An older daemon ignores it.
     #[serde(default)]
     pub(super) flow: Option<u64>,
 }
@@ -199,22 +200,16 @@ pub(super) fn send(
         }
         surface.write_paste(&payload)?;
     } else {
+        // The key press's flow goes with its bytes: the next output of the terminal echoes it.
+        let flow = flow.unwrap_or(0);
         if let Some(text) = text {
-            surface.write_bytes(text.as_bytes())?;
+            surface.write_bytes_flow(text.as_bytes(), flow)?;
         }
         if let Some(b64) = bytes {
             let raw = base64::engine::general_purpose::STANDARD.decode(b64)?;
-            cmux_flow_trace::hop(
-                "daemon.send.write",
-                flow.unwrap_or(0),
-                surface.flow_terminal_id(),
-            );
-            surface.write_bytes(&raw)?;
-            cmux_flow_trace::hop(
-                "daemon.send.written",
-                flow.unwrap_or(0),
-                surface.flow_terminal_id(),
-            );
+            cmux_flow_trace::hop("daemon.send.write", flow, surface.flow_terminal_id());
+            surface.write_bytes_flow(&raw, flow)?;
+            cmux_flow_trace::hop("daemon.send.written", flow, surface.flow_terminal_id());
         }
     }
     if submit {

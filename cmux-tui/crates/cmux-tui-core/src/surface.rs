@@ -282,11 +282,21 @@ pub struct AttachStream {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AttachFrame {
     Output(Vec<u8>),
+    /// [`Self::Output`] that echoes the key press `flow` (never 0): the
+    /// first output the PTY gave after a `send` carrying that flow
+    /// (p09-observability-018). Exists only while key flows record.
+    FlowOutput {
+        output: Vec<u8>,
+        flow: u64,
+    },
     /// One parser transition: consumers must apply `output` and replace the
     /// complete color state before rendering or notifying observers.
+    /// `flow` is the key press it echoes, as on [`Self::FlowOutput`] (0:
+    /// none).
     OutputWithColors {
         output: Vec<u8>,
         colors: Box<TerminalColors>,
+        flow: u64,
     },
     /// `pending_sequence` has the meaning documented on [`AttachStream`].
     Resized {
@@ -841,6 +851,7 @@ impl Surface {
                 taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", Vec::new()),
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
+                last_input_flow: AtomicU64::new(0),
                 snapshot_position: Default::default(),
                 last_attach_colors: RankedMutex::new(
                     LockRank::Leaf,
