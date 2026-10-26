@@ -75,7 +75,6 @@
   "unchecked": {
    "CMUXMobileCore": 7,
    "CmuxIrohTransport": 7,
-   "CmuxIrxTransport": 14,
    "CmuxMobileRPC": 3,
    "CmuxMobileSSH": 7,
    "CmuxMobileShellModel": 7,
