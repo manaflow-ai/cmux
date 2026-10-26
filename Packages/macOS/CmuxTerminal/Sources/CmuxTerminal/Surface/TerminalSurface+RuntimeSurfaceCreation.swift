@@ -347,9 +347,8 @@ extension TerminalSurface {
                 terminalRendererFailedCallback,
                 callbackContext.toOpaque()
             ) else {
-                // The surface is already in Ghostty's app registry. Retire
-                // that native ownership before freeing a failed creation so
-                // the next CLI-created surface cannot race its removal.
+                // No more surface calls follow failed creation. Retire native
+                // routing before destroying the surface and its IO threads.
                 ghostty_surface_request_process_termination(createdSurface)
                 ghostty_surface_free(createdSurface)
                 return (createdSurface: nil, runtimeInitialInput: runtimeInitialInput)
