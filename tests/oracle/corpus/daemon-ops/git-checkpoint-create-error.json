@@ -29,41 +29,19 @@
   ],
   "steps": [
     {
-      "id": "fx-workspace",
+      "id": "call",
       "op": "resource.call",
       "target": {
         "machine": "current",
         "session": "current"
       },
       "args": {
-        "method": "workspace.create",
-        "params": {
-          "initial_content": "terminal",
-          "name": "oracle"
-        },
-        "idempotencyKey": "git-checkpoint-create-error.fx-workspace"
-      },
-      "expect": {
-        "outcome": "ok",
-        "receipt": "mutation_result"
-      }
-    },
-    {
-      "id": "call",
-      "op": "resource.call",
-      "target": {
-        "machine": "current",
-        "session": "current",
-        "workspace": "$step:fx-workspace#/value/workspace_id",
-        "screen": "$step:fx-workspace#/value/screen_id",
-        "pane": "$step:fx-workspace#/value/pane_id",
-        "tab": "$step:fx-workspace#/value/tab_id",
-        "terminal": "$step:fx-workspace#/value/terminal_id"
-      },
-      "args": {
         "method": "git.checkpoint.create",
         "params": {
-          "path": ""
+          "path": "",
+          "include_untracked": [
+            "scratch.txt"
+          ]
         },
         "idempotencyKey": "git-checkpoint-create-error.call"
       },
@@ -75,7 +53,7 @@
         "before",
         "settled"
       ],
-      "note": "path breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "path is empty (value has too few UTF-8 bytes); the daemon's catalog check refuses it before any git runs"
     }
   ],
   "invariants": [
