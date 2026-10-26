@@ -4,22 +4,20 @@
 // built, with its own meta CSP, and under the app's real response header: the page host's
 // PageDescriptor.agent header (test/fixtures/agent-page-csp.txt, which AgentPageProviderTests
 // checks against the Swift value). The cmux-agent://pane scheme sends no header with the page
-// document, so the meta CSP alone governs it. Both policies allow only same-origin script files (script-src 'self', no
-// 'unsafe-inline'): the page runs with no CSP violation, and markup injected into it (an agent's
-// output rendered as HTML) cannot run script. Real engines (Playwright Chromium and WebKit);
-// skipped where they are not installed.
+// document, so the meta CSP alone governs it. Both policies allow only same-origin script files and the shared
+// chunks (script-src 'self' cmux-page://cmux.shared, no 'unsafe-inline'): the page runs with no CSP violation, and markup injected into it (an agent's
+// output rendered as HTML) cannot run script. The pane's shared chunks (cmux-page://cmux.shared/)
+// come from the same server (test/support/builtPane.ts). Real engines (Playwright Chromium and
+// WebKit); skipped where they are not installed.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
 import { chromium, webkit, type BrowserType } from "playwright";
+import { builtPaneResponse } from "./support/builtPane";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("agent-pane-locale.test.ts", async () => {
   setDefaultTimeout(120_000);
-  const pane = path.resolve(
-    import.meta.dir,
-    "../../Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane",
-  );
   const engines: [string, BrowserType][] = [];
   for (const engine of [
     ["chromium", chromium],
@@ -46,10 +44,9 @@ await requireBrowserLane("agent-pane-locale.test.ts", async () => {
     server = Bun.serve({
       port: 0,
       fetch(request) {
-        const name = new URL(request.url).pathname.replace(/^\/+/, "") || "index.html";
-        requests.push(name);
-        const file = Bun.file(path.join(pane, path.normalize(name).replace(/^(\.\.(\/|$))+/, "")));
-        return new Response(file, csp ? { headers: { "Content-Security-Policy": csp } } : undefined);
+        const pathname = new URL(request.url).pathname;
+        requests.push(pathname.replace(/^\/+/, "") || "index.html");
+        return builtPaneResponse(pathname, csp ? { "Content-Security-Policy": csp } : {});
       },
     });
   });

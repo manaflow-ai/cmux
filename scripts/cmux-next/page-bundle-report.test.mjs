@@ -7,7 +7,16 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { CAPS, moduleImports, pageNames, parseHtml, report, sectionChunks, settingsSections } from "./page-bundle-report.mjs";
+import {
+  CAPS,
+  compareWithBaseline,
+  moduleImports,
+  pageNames,
+  parseHtml,
+  report,
+  sectionChunks,
+  settingsSections,
+} from "./page-bundle-report.mjs";
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "page-bundle-report.mjs");
 const REACT = 'var e={};e.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE={H:null};export{e as R};\n';
@@ -227,6 +236,17 @@ test("a chunk URL that resolves to no built file is a finding", () => {
   });
   const result = report(trees, ["settings"], SECTIONS);
   assert.ok(result.findings.includes("settings: cmux-page://cmux.settings/_shared/react-AB12.js does not resolve to a built file"));
+});
+
+test("--baseline compares each document's total and requests with a base report's", () => {
+  const row = (name, ownBytes, sharedBytes, requests, missing = false) => ({ name, ownBytes, sharedBytes, requests, missing });
+  const base = [row("files", 100, 200, 4), row("stats", 50, 50, 3), row("agent pane", 900, 0, 13), row("diff", 0, 0, 0, true)];
+  const head = [row("files", 100, 220, 4), row("stats", 40, 50, 3), row("agent pane", 300, 590, 14), row("diff", 5, 0, 1)];
+  assert.deepEqual(compareWithBaseline(base, head), [
+    { name: "files", baseBytes: 300, bytes: 320, baseRequests: 4, requests: 4, grew: true },
+    { name: "stats", baseBytes: 100, bytes: 90, baseRequests: 3, requests: 3, grew: false },
+    { name: "agent pane", baseBytes: 900, bytes: 890, baseRequests: 13, requests: 14, grew: true },
+  ]);
 });
 
 test("moduleImports reads minified esbuild and Vite imports and skips strings that are not chunks", () => {
