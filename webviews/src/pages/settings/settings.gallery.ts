@@ -324,6 +324,15 @@ Object.assign(variants, {
           collection_title: "Apple Wallpapers",
           downloaded: false,
         },
+        {
+          id: "system:/aerials/4KSDR240FPS/B2.mov",
+          title: "Iceland Dusk",
+          attribution: "macOS system wallpaper · Iceland Dusk",
+          collection: "video",
+          collection_title: "Moving wallpapers",
+          video: true,
+          downloaded: false,
+        },
       ],
     },
     backdropImages: {

@@ -9,7 +9,10 @@
 //! Answer: `{"engine": {harness, model, effort, compactor_harness,
 //! compactor_model}, "choice": <engine.json>, "last_turn": <turn.end>|null,
 //! "recent": [<turn.end>...], "offered": {"models": [{id, name, family?,
-//! efforts?, fast?, aliases?, ...}...], "efforts": [...], "speeds": [...]}}`, or `{"error": {"code", "message"}}`.
+//! efforts?, fast?, aliases?, ...}...], "efforts": [...], "speeds": [...],
+//! "harnesses": [{id, displayName, family, chiefFamily, kind, capabilities,
+//! unavailable, unavailableReason?, ...}...]}}` (harness_offer.rs), or
+//! `{"error": {"code", "message"}}`.
 
 use serde_json::{Value, json};
 
@@ -202,6 +205,19 @@ impl Brain {
             .copied()
             .filter(|speed| crate::engine::check_speed(speed, family).is_ok())
             .collect();
+        // Every engine the picker can switch the next turn to (harness_offer.rs).
+        let harnesses = self
+            .agents
+            .harness_catalog()
+            .map(|answer| {
+                super::harness_offer::offered_harnesses(&answer, &self.settings.families, |h| {
+                    self.family_of(h)
+                })
+            })
+            .unwrap_or_else(|e| {
+                (self.log)(&format!("engine answer: acpmux harnesses: {e}"));
+                Vec::new()
+            });
         json!({
             "engine": {
                 "harness": engine.harness,
@@ -223,7 +239,7 @@ impl Brain {
             "choice": choice,
             "last_turn": recent.first().cloned().unwrap_or(Value::Null),
             "recent": recent,
-            "offered": {"models": models, "efforts": EFFORTS, "speeds": speeds},
+            "offered": {"models": models, "efforts": EFFORTS, "speeds": speeds, "harnesses": harnesses},
         })
     }
 
