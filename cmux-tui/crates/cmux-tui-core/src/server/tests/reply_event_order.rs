@@ -126,3 +126,67 @@ fn reply_event_order_flood_streams_keep_their_own_fifo() {
         assert_eq!(order, (0..FLOOD_ITEMS as u64).collect::<Vec<_>>(), "stream {surface}");
     }
 }
+
+#[test]
+fn reply_event_order_control_events_and_replies_keep_emit_order() {
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let events = writer.start_control_stream(&subscription_overflow_json()).unwrap();
+    let _flood = flood(&writer);
+    for n in 0..4 {
+        writer.send_stream(&json!({"event": "tree-changed", "n": n}), &events).unwrap();
+        writer.send_control(&json!({"id": n, "ok": true})).unwrap();
+    }
+
+    let written = drain_json(&outbound);
+    let control = written
+        .iter()
+        .take(8)
+        .map(|message| match message.get("event") {
+            Some(_) => format!("e{}", message["n"]),
+            None => format!("r{}", message["id"]),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(control, ["e0", "r0", "e1", "r1", "e2", "r2", "e3", "r3"]);
+    assert!(written[8..].iter().all(|message| message.get("flood").is_some()));
+}
+
+#[test]
+fn reply_event_order_control_stream_overflow_purges_only_its_items() {
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let events = writer.start_control_stream(&subscription_overflow_json()).unwrap();
+    let _flood = flood(&writer);
+    writer.send_stream(&json!({"event": "tree-changed"}), &events).unwrap();
+    writer.send_control(&json!({"id": 1, "ok": true})).unwrap();
+    for _ in 1..OUTBOUND_CAPACITY {
+        writer.send_stream(&json!({"event": "tree-changed"}), &events).unwrap();
+    }
+    let error = writer.send_stream(&json!({"event": "tree-changed"}), &events).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
+
+    let written = drain_json(&outbound);
+    assert_eq!(written[0]["id"], 1, "the reply survives its stream's overflow");
+    assert_eq!(written[1]["event"], "overflow");
+    assert!(written.iter().all(|message| message["event"] != "tree-changed"));
+    let flood_items = written.iter().filter(|message| message.get("flood").is_some()).count();
+    assert_eq!(flood_items, FLOOD_STREAMS as usize * FLOOD_ITEMS);
+    assert!(writer.is_open());
+}
+
+#[test]
+fn reply_event_order_control_stream_items_do_not_spend_the_control_reserve() {
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let events = writer.start_control_stream(&subscription_overflow_json()).unwrap();
+    for n in 0..OUTBOUND_CAPACITY - 1 {
+        writer.send_stream(&json!({"event": "tree-changed", "n": n}), &events).unwrap();
+    }
+    for id in 0..OUTBOUND_CONTROL_RESERVE {
+        writer.send_control(&json!({"id": id, "ok": true})).unwrap();
+    }
+
+    let written = drain_json(&outbound);
+    assert_eq!(written.len(), OUTBOUND_CAPACITY - 1 + OUTBOUND_CONTROL_RESERVE);
+    assert!(writer.is_open());
+}
