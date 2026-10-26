@@ -8,6 +8,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ChiefViewsPage } from "./chief-views/ChiefViewsPage";
+import { MockChiefViewsProvider } from "./chief-views/mockProvider";
 import { CHIEF_VIEWS } from "./chief-views/registry";
 import { ChiefViewsStore } from "./chief-views/store";
 import { runLabel, useNow } from "./home-channels/RunCard";
@@ -142,6 +143,36 @@ test("the Chief view gallery's minute tick rests while hidden and arms again on 
 
   await setVisibility("visible");
   expect(jest.getTimerCount()).toBe(1);
+});
+
+test("the Chief view stamps read the true time on show, before any further tick", async () => {
+  const chiefStrings = createStrings({}, ["en"]);
+  const started = (now?: number) => {
+    const store = new ChiefViewsStore(new MockChiefViewsProvider("busy", START), CHIEF_VIEWS, { persist: false });
+    return { store, element: <ChiefViewsPage store={store} strings={chiefStrings} now={now} /> };
+  };
+  const live = started();
+  const page = await mount(live.element);
+  await act(async () => live.store.start());
+  const stamps = (container: ParentNode) => [...container.querySelectorAll(".cv-ago")].map((node) => node.textContent);
+  const before = stamps(page);
+  expect(before.length).toBeGreaterThan(0);
+
+  await setVisibility("hidden");
+  await advance(10 * MINUTE);
+  await setVisibility("visible");
+  const shown = stamps(page);
+
+  // A page that never hid, at the same instant.
+  const reference = started(START + 10 * MINUTE);
+  const other = document.createElement("div");
+  document.body.append(other);
+  const otherRoot = createRoot(other);
+  await act(async () => otherRoot.render(reference.element));
+  await act(async () => reference.store.start());
+  expect(shown).toEqual(stamps(other));
+  expect(shown).not.toEqual(before);
+  await act(async () => otherRoot.unmount());
 });
 
 test("the Chief view gallery on a fixed clock (the gallery) holds no timer", async () => {
