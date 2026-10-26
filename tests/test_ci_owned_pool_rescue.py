@@ -975,6 +975,19 @@ class Rescuing(unittest.TestCase):
         self.assertEqual(result, "not rescued: too little of the job left to cancel and re-run")
         self.assertNotIn("cancel", api.calls)
 
+    def test_no_cancel_starts_without_time_for_the_rate_limit_waits_too(self):
+        # A watch that may still wait out rate limits needs that time on top of the settle.
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True)
+        api.rate_limit_waited = 0.0
+        target = rescue.Target(run_id=555, attempt=1, head_sha=HEAD, pr_number=7)
+        deadline = clock.now() + rescue.dt.timedelta(
+            seconds=rescue.CANCEL_WAIT_SECONDS + rescue.RERUN_MARGIN_SECONDS + rescue.RATE_LIMIT_WAIT_SECONDS - 1)
+        result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None,
+                               deadline=deadline)
+        self.assertEqual(result, "not rescued: too little of the job left to cancel and re-run")
+        self.assertNotIn("cancel", api.calls)
+
     def test_a_refused_force_cancel_keeps_waiting(self):
         # The run can settle between the read and the POST, and GitHub then
         # refuses the force-cancel; the next read sees it finished.
@@ -2685,6 +2698,32 @@ class Tokens(unittest.TestCase):
         self.assertEqual(waits, [60, 120, 7])
         self.assertEqual([entry[:2] for entry in seen], [("POST", f"{rescue.API}/repos/o/r/actions/runs/7/rerun-failed-jobs")] * 4)
         self.assertTrue(all(entry[2] == "Bearer repo-token" for entry in seen))
+
+    def test_an_app_read_refused_with_429_goes_on_github_token(self):
+        seen, patch = self.refusing([(429, {}, b"")])
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r", read_token="app-token")
+            api.sleep = lambda seconds: None
+            api.run(1)
+            api.run(1)
+        self.assertEqual([entry[2] for entry in seen],
+                         ["Bearer app-token", "Bearer repo-token", "Bearer app-token"])
+
+    def test_the_sweeper_thread_never_waits(self):
+        limited = b'{"message": "secondary rate limit"}'
+        seen, patch = self.refusing([(403, {}, limited)])
+        waits = []
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r")
+            api.sleep = waits.append
+            api.no_rate_limit_waits()
+            with self.assertRaises(rescue.urllib.error.HTTPError):
+                api.cancel(7)
+            other = []
+            worker = rescue.threading.Thread(target=lambda: other.append(api.rate_limit_waited))
+            worker.start()
+            worker.join()
+        self.assertEqual((len(seen), waits, other), (1, [], [0.0]))
 
     def test_every_limiter_message_counts(self):
         for said in ("You have exceeded a secondary rate limit", "You have triggered an abuse detection mechanism",

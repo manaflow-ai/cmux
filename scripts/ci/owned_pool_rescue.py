@@ -975,6 +975,11 @@ class GitHub:
     def rate_limit_tries(self) -> int:
         return getattr(self._limits, "tries", 0)
 
+    def no_rate_limit_waits(self) -> None:
+        """This thread's requests raise on a rate limit instead of waiting (the sweeper's own
+        listings, which run on its schedule and must not push its handover past the job's timeout)."""
+        self._limits.waited = float(RATE_LIMIT_WAIT_SECONDS)
+
     def _wait_for_rate_limit(self, method: str, path: str, error: urllib.error.HTTPError) -> bool:
         """Wait out a GITHUB_TOKEN request's rate-limit refusal; False when it is not one or the budget is spent."""
         try:
@@ -1016,10 +1021,11 @@ class GitHub:
                 # The same request again, after the wait (a refused request did nothing on GitHub's side).
                 return self.request(method, path, own_token=own_token,
                                     body=json.loads(data) if data is not None else None)
-            if error.code not in (401, 403) or headers is self.headers:
+            if error.code not in (401, 403, 429) or headers is self.headers:
                 raise
-            if error.code == 403:
-                # The installation lacks this read's permission: this one read goes on GITHUB_TOKEN.
+            if error.code in (403, 429):
+                # The installation lacks this read's permission, or its budget is spent: this one
+                # read goes on GITHUB_TOKEN (which waits through a rate limit).
                 return self.request(method, path, own_token=True)
             self.read_headers = self.headers
             return self.request(method, path)
@@ -1634,7 +1640,9 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     if int(run.get("run_attempt") or 0) != target.attempt:
         return "not rescued: someone else already re-ran the run"
     if run.get("status") != "completed" and deadline is not None and \
-            (deadline - now()).total_seconds() < CANCEL_WAIT_SECONDS + RERUN_MARGIN_SECONDS:
+            (deadline - now()).total_seconds() < CANCEL_WAIT_SECONDS + RERUN_MARGIN_SECONDS + max(
+                0.0, RATE_LIMIT_WAIT_SECONDS - getattr(api, "rate_limit_waited", RATE_LIMIT_WAIT_SECONDS)):
+        # (The rate-limit waits this watch may still make count too: they do not shorten the settle.)
         # A job killed between the cancel and the re-run would leave the
         # pull request's run cancelled for good; leave it as GitHub has it.
         return "not rescued: too little of the job left to cancel and re-run"
@@ -1961,6 +1969,10 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
           wait: Callable[[float], None] = time.sleep, light_retry: bool = False,
           side_seconds: int | None = None) -> dict[str, int]:
     """Watch every marked run until `sweep_seconds` pass. Returns outcome counts."""
+    # The sweeper's own listings raise on a rate limit as before (a failed read is tried next
+    # tick); only the watch threads, which cancel and re-run, wait (RESCUE_GRACE_SECONDS has room).
+    if hasattr(client, "no_rate_limit_waits"):
+        client.no_rate_limit_waits()
     stopping = threading.Event()
     lock = threading.Lock()
     outcomes: dict[str, int] = {}
