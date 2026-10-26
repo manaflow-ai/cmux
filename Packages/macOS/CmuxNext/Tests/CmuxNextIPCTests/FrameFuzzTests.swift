@@ -2,9 +2,8 @@ import CmuxNextIPC
 import Foundation
 import Testing
 
-/// Seeded fuzz of the app's ``FrameReader`` (plans/cmux-next/chrome-parity/p05-ipc.md, task 057), the
-/// Swift twin of cmux-tui/crates/cmux-ipc/tests/fuzz_reader.rs. It runs only with `CMUX_IPC_FUZZ=1`;
-/// agents run it on the fleet, CI does not (Lawrence 2026-10-23):
+/// Seeded fuzz of the app's ``FrameReader`` (plans/cmux-next/chrome-parity/p05-ipc.md, task 057). It runs
+/// only with `CMUX_IPC_FUZZ=1`; agents run it on the fleet, CI does not (Lawrence 2026-10-23):
 ///
 /// ```
 /// CMUX_IPC_FUZZ=1 swift test --filter FrameFuzzTests
@@ -13,7 +12,9 @@ import Testing
 /// Each case is random bytes, a valid stream of JSON lines and frames, a golden vector from
 /// cmux-tui/spec/fixtures/ipc-frames, or one of those mutated the way Mojo's fuzzers mutate messages
 /// (chromium mojo/core/channel_fuzzer.cc feeds raw bytes to `Channel::OnReadComplete`). The oracle is
-/// ``WireModel``, the section 3.2 rules written out byte by byte, so the reader is never its own judge:
+/// ``WireModel``, a byte-level copy of the check order and reason strings of the Rust reader
+/// (cmux-tui/crates/cmux-ipc/src/reader.rs and frame.rs, task 050), which the task 054 paragraph of
+/// p05-ipc.md makes the Swift reader's contract, so the reader is never its own judge:
 ///
 /// - the reader never traps (a trap ends the run: 0 crashes means the run finishes);
 /// - its messages are the model's messages, byte for byte (a frame is its header's 16 wire bytes and
@@ -35,7 +36,7 @@ import Testing
 )
 struct FrameFuzzTests {
     private static let defaultCases: UInt64 = 100_000
-    /// The seed of the Rust fuzzer, so both readers start from the same SplitMix64 sequence.
+    /// The default run; `CMUX_IPC_FUZZ_SEED` picks another.
     private static let defaultSeed: UInt64 = 0x0C3A_0053_F022_5EED
     private static let timeBudget: Duration = .seconds(60)
 
@@ -133,8 +134,8 @@ private struct Mismatch: Error {
 
 // MARK: - The reader under test
 
-/// The fuzzer's only contact with ``FrameReader`` (p05-ipc-054): bytes in, owned bytes and close
-/// reasons out.
+/// The fuzzer's only contact with ``FrameReader``: bytes in, owned bytes and close reasons out. Every call
+/// here is the interface in the task 054 paragraph of p05-ipc.md; change both together.
 private struct Subject {
     enum Step {
         case pending
@@ -189,9 +190,13 @@ private struct Subject {
 
 // MARK: - The oracle
 
-/// Section 3.2 of p05-ipc.md as a byte-level model of one connection's reader, in the order the Rust
-/// reader (cmux-ipc/src/reader.rs, frame.rs) checks: a message boundary starting with 0xFF is a frame,
-/// anything else a JSON line up to `\n`; a header is refused before any payload byte counts.
+/// A byte-level copy of the Rust reader (cmux-ipc/src/reader.rs, frame.rs): its order of checks and its
+/// reason strings, which the task 054 paragraph of p05-ipc.md requires of the Swift reader. The header
+/// layout, kinds and 32 MiB cap are section 3.2; the line rules (`line_too_long` against `maxLine`, strict
+/// UTF-8 as `invalid_utf8`, an unterminated trailing line at the end is a message) and the frame rules
+/// (`frames_not_negotiated` on any 0xFF before negotiation, `truncated` at the end) come from reader.rs. A
+/// message boundary starting with 0xFF is a frame, anything else a JSON line up to `\n`; a header is refused
+/// before any payload byte counts.
 private struct WireModel {
     static let magic: UInt8 = 0xFF
     static let headerLength = 16
@@ -417,7 +422,7 @@ private struct FuzzCase {
 
 // MARK: - Generation
 
-/// SplitMix64, as in the Rust fuzzer: small, fast and the same sequence on every platform.
+/// SplitMix64: small, fast and the same sequence on every platform, so a seed and a case index replay.
 private struct SplitMix64 {
     private var state: UInt64
 
