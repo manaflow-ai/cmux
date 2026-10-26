@@ -1,7 +1,7 @@
+import CmuxSafeConcurrency
 import Dispatch
 import dnssd
 import Foundation
-import os
 
 typealias CmxIrohBonjourBrowseHandler = @Sendable (
     DNSServiceFlags,
@@ -87,7 +87,7 @@ struct CmxIrohBonjourRawBrowseEvent: Sendable {
 final class CmxIrohBonjourBrowseIngress: Sendable {
     private let continuation: AsyncStream<CmxIrohBonjourRawBrowseEvent>.Continuation
     private let serviceNameAllowlist: Set<String>?
-    private let enqueuedKeys = OSAllocatedUnfairLock<Set<CmxIrohBonjourRawBrowseEvent.Key>>(initialState: [])
+    private let enqueuedKeys = Mutex<Set<CmxIrohBonjourRawBrowseEvent.Key>>([])
 
     init(
         continuation: AsyncStream<CmxIrohBonjourRawBrowseEvent>.Continuation,
@@ -207,7 +207,8 @@ private let cmxIrohBonjourResolveCallback: DNSServiceResolveReply = {
 }
 
 /// A DNS-SD service reference (an `OpaquePointer` to the daemon connection).
-private struct CmxIrohDNSServiceHandle: @unchecked Sendable { // crash-allow: the ref is used only on the DNS-SD queue it was bound to (DNSServiceSetDispatchQueue) and CmxIrohBonjourSystemOperation hands it out of its lock exactly once, to deallocate it on that queue
+// crash-allow: used only on the DNS-SD queue it is bound to; the operation hands it out of its lock once, to deallocate it there.
+private struct CmxIrohDNSServiceHandle: @unchecked Sendable {
     let ref: DNSServiceRef
 }
 
@@ -218,7 +219,7 @@ private final class CmxIrohBonjourSystemOperation: CmxIrohBonjourOperation {
     }
 
     private let queue: DispatchQueue
-    private let registration: OSAllocatedUnfairLock<Registration?>
+    private let registration: Mutex<Registration?>
 
     /// - Parameter releaseCallback: Balances the retain that keeps the callback box alive as the
     ///   C context; runs once, after the ref is deallocated, so no callback can still reach it.
@@ -228,8 +229,8 @@ private final class CmxIrohBonjourSystemOperation: CmxIrohBonjourOperation {
         releaseCallback: @escaping @Sendable () -> Void
     ) {
         self.queue = queue
-        registration = OSAllocatedUnfairLock(
-            initialState: Registration(
+        registration = Mutex(
+            Registration(
                 handle: CmxIrohDNSServiceHandle(ref: ref),
                 releaseCallback: releaseCallback
             )
@@ -238,8 +239,9 @@ private final class CmxIrohBonjourSystemOperation: CmxIrohBonjourOperation {
 
     func cancel() {
         let current = registration.withLock { registration in
-            defer { registration = nil }
-            return registration
+            let taken = registration
+            registration = nil
+            return taken
         }
         guard let current else { return }
         queue.sync { DNSServiceRefDeallocate(current.handle.ref) }
