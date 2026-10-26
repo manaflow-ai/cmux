@@ -58,12 +58,12 @@ final class OutboundTab {
         self.pane = pane
         key = ObjectIdentifier(pane)
         known = Set(pane.pane.tabs.map(\.id))
-        timer.schedule(after: Self.answerLimit) { @MainActor [weak self] in
+        timer.scheduleOnMain(after: Self.answerLimit) { [weak self] in
             // Not named yet (slow, refused or failed): the pane's new tabs show; a late answer still hides its own.
             guard let self, self.answering else { return }
             self.answering = false
             self.pane?.syncStripFromStore()
-            self.timer.schedule(after: Self.backstop) { @MainActor [weak self] in self?.end() }
+            self.timer.scheduleOnMain(after: Self.backstop) { [weak self] in self?.end() }
         }
     }
 
@@ -149,7 +149,7 @@ final class OutboundTab {
     private func didName() {
         latchStandIns()
         answering = false
-        timer.schedule(after: Self.backstop) { @MainActor [weak self] in self?.end() }
+        timer.scheduleOnMain(after: Self.backstop) { [weak self] in self?.end() }
         pane?.syncStripFromStore()
     }
 
@@ -164,7 +164,7 @@ final class OutboundTab {
         answering = false
         guard moved else { return end() }
         landed = true
-        timer.schedule(after: Self.landLimit) { @MainActor [weak self] in self?.end() }
+        timer.scheduleOnMain(after: Self.landLimit) { [weak self] in self?.end() }
         pane?.syncStripFromStore()
     }
 

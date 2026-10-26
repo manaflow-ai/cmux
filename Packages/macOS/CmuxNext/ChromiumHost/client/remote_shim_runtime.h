@@ -108,6 +108,14 @@ CMUX_REMOTE_EXPORT void cmux_remote_shim_set_reply(void* ctx, cmux_remote_reply_
 // Main thread. kOpInputAck records go to `ack(ctx, ...)`, in the host's dispatch order; NULL
 // drops them (input_acks_unhandled). Detach keeps it: the next host's acks go there too.
 CMUX_REMOTE_EXPORT void cmux_remote_shim_set_input_ack(void* ctx, cmux_remote_input_ack_fn ack);
+// Main thread. The input ring's writer (ChromiumHostInputRing, tasks 041 and 042) calls it for
+// each frame of an input kind (IsOrderedInput) it writes, in write order (kPing and kStats keep
+// `seq` as their request id): returns the frame's input seq (Header::seq) and puts in
+// `ctl_seq` the control seq to stamp (SetCtlSeq), that of the last ordered op posted before it.
+// Ordered ops carry the returned seq as the input they follow (task 092; chromium_host_wire.h,
+// "One ordered input stream"). With no host attached it returns 0 and `ctl_seq` 0: the writer
+// writes nothing for that frame. Both seqs start again with the next host.
+CMUX_REMOTE_EXPORT uint32_t cmux_remote_shim_order_input(uint32_t* ctl_seq);
 
 }  // extern "C"
 

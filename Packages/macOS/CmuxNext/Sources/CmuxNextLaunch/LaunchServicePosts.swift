@@ -61,8 +61,8 @@ public struct LaunchServicePosts {
     /// - Parameters:
     ///   - chromiumWarmup: Arms Chromium's own launch warm-up (task 018 moves its timers onto the scheduler).
     ///   - spareHooks: The New Tab spare's open hooks and target window, no spare yet
-    ///     (`NewTabSparePool.start(holdingWarm:)`).
-    ///   - spareWarming: Lets the New Tab spare be made (`NewTabSparePool.startWarming()`).
+    ///     (`NewTabPreload.start(holdingWarm:)`).
+    ///   - spareWarming: Lets the New Tab spare be made (`NewTabPreload.startWarming()`).
     ///   - pageHostPool: Starts the page host pool.
     ///   - agentTabImport: Starts the agent tab import.
     ///   - rightSidebarIcons: Posts the right sidebar's icon build on the cpu lane (a panel built first posted it).

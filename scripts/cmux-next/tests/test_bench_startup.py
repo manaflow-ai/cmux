@@ -214,6 +214,15 @@ class CompletionReasonTests(unittest.TestCase):
         self.assertEqual(bs.run_values(run), ["startup complete launchPhaseSettled"])
         self.assertIn(bs.STARTUP_COMPLETE, [mark for mark, _ in bs.MARKS], "startup_complete is a timed row")
 
+    def test_the_fence_cap_mark_is_no_completion_reason(self):
+        """p02-threads-114: a capped launch also sends the fence's cap mark; the reason stays the completion's."""
+        run = {"startup_complete.firstFrameCommitted": 3400.0, bs.STARTUP_COMPLETE: 3400.0,
+               "launch.best_effort_fence_capped": 3400.0}
+        self.assertEqual(bs.completion_reason(run), "firstFrameCommitted")
+        self.assertIn("  startup_complete: firstFrameCommitted 1 of 1 runs; 0 of 1 by the failsafe",
+                      bs.value_summary([run]))
+        self.assertIn("launch.best_effort_fence_capped", [row[1] for row in bs.table([run])], "a timed row")
+
     def test_the_summary_counts_reasons_and_the_failsafe(self):
         runs = [{"startup_complete.launchPhaseSettled": 900.0} for _ in range(8)]
         runs += [{"startup_complete.failsafe": 10000.0}, {"main_start": 3.0}]
@@ -345,13 +354,15 @@ class OneRunTests(unittest.TestCase):
         bs.tag_pids = lambda tag: [41]
         saved = list(bs.ORDER_MARKS)
         try:
-            bs.ORDER_MARKS[:] = ["launch.non_paint_services", "launch.agent_page_warmup|launch.agent_page_warmup_not_needed"]
+            bs.ORDER_MARKS[:] = ["launch.non_paint_services",
+                                 "launch.agent_page_warmup|launch.agent_page_warmup_not_needed|launch.agent_page_warmup_chromium"]
             bs.one_run("t", "warm", 5)
         finally:
             bs.ORDER_MARKS[:] = saved
         self.assertEqual([(marks, any_of) for marks, _, any_of in waited[-2:]],
                          [(["launch.non_paint_services"], True),
-                          (["launch.agent_page_warmup", "launch.agent_page_warmup_not_needed"], True)],
+                          (["launch.agent_page_warmup", "launch.agent_page_warmup_not_needed",
+                            "launch.agent_page_warmup_chromium"], True)],
                          "one wait per term, for any one of its marks")
         self.assertLessEqual(waited[-1][1], 5, "within what is left of the run's one timeout")
 
@@ -512,20 +523,30 @@ class OrderTests(unittest.TestCase):
         self.assertIn("t warm run 3: first_window_frame_committed at 150 ms, before launch_picture_shown at 160 ms", out)
 
     def test_a_term_with_alternatives_takes_the_mark_that_arrived(self):
-        # p08-startup-017: the agent page warm-up marks whether it made its page or was not needed.
-        order = "first_window_frame_committed<launch.agent_page_warmup|launch.agent_page_warmup_not_needed"
+        # p08-startup-017, p13-webui-046: the agent page warm-up marks whether it made its page, was not
+        # needed (an agent page started WebKit) or made none because agent pages open in Chromium.
+        term = "launch.agent_page_warmup|launch.agent_page_warmup_not_needed|launch.agent_page_warmup_chromium"
+        order = "first_window_frame_committed<" + term
         results = {"t": {"warm": [
             {"first_window_frame_committed": 150, "launch.agent_page_warmup": 400},
             {"first_window_frame_committed": 150, "launch.agent_page_warmup_not_needed": 400},
+            {"first_window_frame_committed": 150, "launch.agent_page_warmup_chromium": 400},
             {"first_window_frame_committed": 150, "launch.agent_page_warmup_not_needed": 120},
             {"first_window_frame_committed": 150},
         ]}}
         self.assertEqual(bs.check_orders(results, [order]), [
-            "t warm run 3: launch.agent_page_warmup|launch.agent_page_warmup_not_needed at 120 ms, "
-            "before first_window_frame_committed at 150 ms",
-            "t warm run 4: launch.agent_page_warmup|launch.agent_page_warmup_not_needed missing",
+            f"t warm run 4: {term} at 120 ms, before first_window_frame_committed at 150 ms",
+            f"t warm run 5: {term} missing",
         ])
-        self.assertIn(order, bs.LAUNCH_ORDER, "the budget-mode check accepts either mark")
+        self.assertIn(order, bs.LAUNCH_ORDER, "the budget-mode check accepts any of the three marks")
+
+    def test_the_chromium_warmup_skip_is_its_own_mark(self):
+        # p13-webui-046: a launch whose agent pages open in Chromium must not read like one where a
+        # restored WebKit agent page started WebKit first.
+        names = [name for name, _ in bs.MARKS]
+        for mark in ("launch.agent_page_warmup", "launch.agent_page_warmup_not_needed",
+                     "launch.agent_page_warmup_chromium"):
+            self.assertEqual(names.count(mark), 1, mark)
 
     def test_bad_orders_are_usage_errors(self):
         for order in ("first_window_frame_committed", "a<", "<b", "main_start<launch.temperature",

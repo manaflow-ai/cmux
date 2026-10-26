@@ -49,9 +49,11 @@ public struct CmuxNextApp {
         DebugTimings.markLaunch("main.warmup_started")
         // One hang watch for the process: the lanes, the daemon readers and the terminal output lanes.
         let hangWatch = TraceRuntime.shared.hangWatch
+        // The main task board, shared by the lanes (an awaited low item in an input turn is a Debug site) and the budget.
+        let mainBoard = MainTaskBoard()
         // The launch's file reads run on these lanes, never on the main thread (p08-startup 033).
-        let work = BackgroundWork(hangs: hangWatch, onRan: startupTrace?.laneJobSink)
-        // Idle and best-effort lane work waits for startup complete (Chrome's BeginBestEffortFence); the order made on it lowers it.
+        let work = BackgroundWork(hangs: hangWatch, onRan: startupTrace?.laneJobSink, inputTurns: mainBoard)
+        // Idle and best-effort lane work waits for startup complete, 3 s at most (Chrome's BeginBestEffortFence); the order made on it lowers it.
         let fence = LaunchOrder.BestEffortFence(raisingOn: work)
         startupTrace?.start(writingOn: work) // its file is written on work's files lane, never here
         startupTrace?.whenClosed { work.stopReportingRuns() } // a closed trace costs the lanes nothing
@@ -72,13 +74,14 @@ public struct CmuxNextApp {
         // Ghostty's resources folder, CLI helper and terminfo (a few stats), before the other launch reads on the
         // files lane: every shell's env and the daemon's start await it.
         environment.ghosttyProbe = GhosttyLaunchProbe.start(on: work)
-        // The incognito workspaces a crashed run left, before the settings read on the same serial lane: the
-        // launch window (made after that read lands) knows whether it may list every workspace (p08-startup 038).
+        // The incognito workspaces a crashed run left, then the settings read, in one sequence: the launch window
+        // (made after the settings read lands) knows whether it may list every workspace (p08-startup 038).
+        let ledgerThenSettings = work.sequence("launch.ledger-then-settings")
         environment.incognitoLeftovers = IncognitoWorkspaceLedger.startLaunchRead(
-            at: IncognitoWorkspaceLedger.standardURL(bundleIdentifier: Bundle.main.bundleIdentifier), on: work)
+            at: IncognitoWorkspaceLedger.standardURL(bundleIdentifier: Bundle.main.bundleIdentifier), in: ledgerThenSettings)
         // cmux-next.json (made on first launch) read and merged with the managed layers on the files lane, next:
         // the launch steps that need it run when it lands, never waiting for it on main (p08-startup 025).
-        let settingsRead = SettingsController.startLaunchRead(on: work)
+        let settingsRead = SettingsController.startLaunchRead(on: work, in: ledgerThenSettings)
         let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: state)
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
         TerminalLaunchFrames.beside(state).prefetch(on: work) { DebugTimings.markLaunch($0) }
@@ -109,7 +112,7 @@ public struct CmuxNextApp {
         // and services make any: their owners in many packages make them with no tap (p04-input-013).
         WindowOverlayHost.appInputTap = inputTap
         TooltipPresenter.shared.inputTap = inputTap
-        let order = LaunchOrder(fence: fence, input: inputTap) { DebugTimings.markLaunch($0) }
+        let order = LaunchOrder(fence: fence, board: mainBoard, input: inputTap) { DebugTimings.markLaunch($0) }
         DaemonLauncher.captureLoginEnvironment(after: order.startup) // at once only with nothing remembered (p08-startup-034)
         let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats,
                                    startupTrace: startupTrace, order: order, inputTap: inputTap, settingsRead: settingsRead,
@@ -123,6 +126,7 @@ public struct CmuxNextApp {
         app.setActivationPolicy(.regular)
         DebugTimings.markLaunch("main.nsapp")
         DebugTimings.markLaunch("main.run")
+        DebugTimings.armRunLoopStartMark()
         // NSApplication.delegate is weak; keep the delegate alive for the run.
         withExtendedLifetime(delegate) {
             app.run()

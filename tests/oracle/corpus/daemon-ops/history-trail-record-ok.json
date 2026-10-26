@@ -55,7 +55,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "one step of the window's location trail"
     }
   ],
   "invariants": [
@@ -64,5 +64,8 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
+  ],
+  "untested": [
+    "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.trail.record is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user"
   ]
 }

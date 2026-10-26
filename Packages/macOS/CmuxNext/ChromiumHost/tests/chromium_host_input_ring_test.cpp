@@ -255,7 +255,7 @@ void TestHostInputReportsItsEnd() {
     bool ended = false;
     Reader::End end = Reader::End::kStopped;
     HostInput<FixedDoorbell> input(mapping.base, doorbell);
-    input.Start([&ui](std::function<void()> task) { ui.Post(std::move(task)); }, [](const HostInput<FixedDoorbell>::Frames&) {},
+    input.Start([&ui](std::function<void()> task) { ui.Post(std::move(task)); }, [](const HostInput<FixedDoorbell>::Frames& frames, size_t) { return frames.size(); },
                 [&](Reader::End reported) {
                   std::lock_guard<std::mutex> lock(mutex);
                   ended = true;
@@ -276,7 +276,7 @@ void TestHostInputReportsItsEnd() {
     std::atomic<bool> ended{false};
     {
       HostInput<LocalDoorbell::Doorbell> input(mapping.base, local.get());
-      input.Start([&ui](std::function<void()> task) { ui.Post(std::move(task)); }, [](const auto&) {},
+      input.Start([&ui](std::function<void()> task) { ui.Post(std::move(task)); }, [](const auto& frames, size_t) { return frames.size(); },
                   [&ended](Reader::End) { ended = true; });
       input.Stop();
       ui.Stop();
@@ -304,14 +304,24 @@ void TestHostInputBackPressure() {
   bool ordered = true;
   uint64_t batches = 0;
   size_t largest = 0;
+  uint64_t partial = 0;  // offers taken in part
   std::atomic<bool> ended{false};
   Input input(mapping.base, local.get());
   input.Start([&ui](std::function<void()> task) { ui.Post(std::move(task)); },
-              [&](const Input::Frames& frames) {
+              [&](const Input::Frames& frames, size_t from) -> size_t {
                 ++batches;
                 largest = std::max(largest, frames.size());
-                for (const Header& frame : frames) {
-                  ordered = ordered && frame.seq == expected && frame.t0 == expected;
+                // Every third offer takes only half of what is left, as the host's ordered stream
+                // does while it is full, and the rest comes back on a later Retry (the next
+                // control message): the frames still arrive once each, in order.
+                size_t take = frames.size() - from;
+                if (batches % 3 == 0 && take > 1) {
+                  take /= 2;
+                  ++partial;
+                  ui.Post([&input] { input.Retry(); });
+                }
+                for (size_t index = from; index < from + take; ++index) {
+                  ordered = ordered && frames[index].seq == expected && frames[index].t0 == expected;
                   ++expected;
                 }
                 if (batches % 64 == 0) std::this_thread::yield();  // a UI thread that is sometimes busy
@@ -320,6 +330,7 @@ void TestHostInputBackPressure() {
                   done = true;
                   ready.notify_one();
                 }
+                return take;
               },
               [&ended](Reader::End) { ended = true; });
   Writer writer(mapping.base);
@@ -349,8 +360,10 @@ void TestHostInputBackPressure() {
   ui.Stop();
   EXPECT(ordered && expected == kFrames + 1);
   EXPECT(!ended);
-  std::printf("input ring host reader: %u frames, %llu batches (largest %zu), %llu writes found the ring full\n", kFrames,
-              static_cast<unsigned long long>(batches), largest, static_cast<unsigned long long>(full));
+  EXPECT(partial > 0);
+  std::printf("input ring host reader: %u frames, %llu offers (%llu taken in part, largest %zu), %llu writes found the ring full\n", kFrames,
+              static_cast<unsigned long long>(batches), static_cast<unsigned long long>(partial), largest,
+              static_cast<unsigned long long>(full));
 }
 
 void TestProcessPair() {
@@ -472,6 +485,83 @@ void TestAckBatch() {
   EXPECT(next.fields.size() == 3);
 }
 
+// The host's ring input on the ordered stream (OrderedInput, tasks 042 and 092): a frame waits
+// while input is closed (before initialize) and while the control message it names is not
+// applied; it is dispatched, and its move acked, only once that message ran, never before.
+// A full stream takes a batch in part; the rest comes in again after the next control message.
+void TestOrderedInputDispatchesAndAcksAfterItsControlMessage() {
+  using cmux_host::control::Message;
+  using cmux_host::control::OrderedStream;
+  std::vector<std::string> log;  // what ran, in order: "ctl N" or "frame N"
+  std::vector<Message> acks;
+  const char* malformed = nullptr;
+  OrderedStream::Limits limits;
+  limits.held_input = 2;
+  OrderedStream stream(
+      [&log](std::vector<Message> run) {
+        for (const Message& message : run) log.push_back("ctl " + std::to_string(message.ctl_seq));
+      },
+      limits);
+  cmux_host::OrderedInput input(
+      stream, [&log](const Header& frame) { log.push_back("frame " + std::to_string(frame.seq)); },
+      [&acks](Message message) { acks.push_back(std::move(message)); },
+      [&malformed](const char* what) { malformed = what; });
+  auto move = [](uint32_t seq, uint32_t ctl_seq) {
+    Header h;
+    h.kind = cmux_host::kMouse;  // v[2] 0: a move, which cmux paces and the host acks
+    h.seq = seq;
+    SetBrowser(&h, 7);
+    cmux_host::SetCtlSeq(&h, ctl_seq);
+    return h;
+  };
+  auto control = [](uint32_t ctl_seq) {
+    Message message;
+    message.op = 1;
+    message.ctl_seq = ctl_seq;
+    return message;
+  };
+  auto acked = [&acks]() {
+    std::vector<uint32_t> seqs;
+    for (const Message& message : acks) {
+      cmux_host::control::TlvReader r(message.fields);
+      while (!r.AtEnd() && r.ok()) {
+        r.I32();
+        r.I32();
+        seqs.push_back(r.U32());
+      }
+    }
+    return seqs;
+  };
+
+  // Before initialize: the frame is taken but waits, unacked.
+  EXPECT(input.Take({move(1, 0)}, 0) == 1);
+  EXPECT(log.empty() && acks.empty());
+  input.After(stream.OpenInput());
+  EXPECT(log == std::vector<std::string>{"frame 1"});
+  EXPECT(acked() == std::vector<uint32_t>{1});
+
+  // A frame written after control message 5 waits for it: not dispatched, not acked.
+  EXPECT(input.Take({move(2, 5)}, 0) == 1);
+  EXPECT(log.size() == 1 && acked().size() == 1);
+  input.After(stream.AddControl({control(5)}));
+  EXPECT((log == std::vector<std::string>{"frame 1", "ctl 5", "frame 2"}));
+  EXPECT((acked() == std::vector<uint32_t>{1, 2}));
+
+  // A full stream (2 held) takes 2 of 3 frames that wait for message 9; the third goes in after it.
+  const std::vector<Header> batch = {move(3, 9), move(4, 9), move(5, 9)};
+  EXPECT(input.Take(batch, 0) == 2);
+  EXPECT(log.size() == 3 && acked().size() == 2);
+  input.After(stream.AddControl({control(9)}));
+  EXPECT((log == std::vector<std::string>{"frame 1", "ctl 5", "frame 2", "ctl 9", "frame 3", "frame 4"}));
+  EXPECT(input.Take(batch, 2) == 1);  // HostInput::Retry offers the rest
+  EXPECT((acked() == std::vector<uint32_t>{1, 2, 3, 4, 5}));
+  EXPECT(malformed == nullptr);
+
+  // An input seq not after the one before is malformed: the host ends, and the batch counts as taken.
+  EXPECT(input.Take({move(5, 0), move(6, 0)}, 0) == 2);
+  EXPECT(malformed != nullptr);
+}
+
 }  // namespace
 
 int main() {
@@ -485,6 +575,7 @@ int main() {
   TestHostInputBackPressure();
   TestProcessPair();
   TestAckBatch();
+  TestOrderedInputDispatchesAndAcksAfterItsControlMessage();
   if (failures != 0) {
     std::fprintf(stderr, "%d failures\n", failures);
     return 1;

@@ -97,10 +97,6 @@ RUNTIME_DECODED_REQUEST_FIELDS = {
 # longer served only prints a note, so the task that schemas a name can land
 # before or after this list drops it.
 UNSCHEMAD_SNIFFED_COMMANDS = {
-    **dict.fromkeys(
-        ("agent-inventory", "agent-inventory-refresh", "agent-inventory-watch"),
-        "p05-ipc-015",
-    ),
     "oracle-state": "debug and --features oracle builds only (p15-oracle-021), not an SDK command",
 }
 
@@ -633,8 +629,15 @@ def _runtime_field_presence(field: RuntimeField) -> tuple[str, bool]:
     # and may be null.
     if optional_type and any("required_nullable" in value for value in field.attributes):
         return "required", True
-    # An `Option<T>` with the `non_null` deserializer may be absent but never null.
-    if optional_type and any('deserialize_with = "non_null"' in value for value in field.attributes):
+    # An `Option<T>` with the `non_null` deserializer may be absent but never null;
+    # so may one with `default` and `present_non_null` (server/command_args.rs).
+    if optional_type and (
+        any('deserialize_with = "non_null"' in value for value in field.attributes)
+        or (
+            any("present_non_null" in value for value in field.attributes)
+            and any(re.search(r"\bdefault\b", value) for value in field.attributes)
+        )
+    ):
         return "optional", False
     has_default = any(re.search(r"\bdefault\b", value) for value in field.attributes)
     presence = "optional" if optional_type or has_default else "required"

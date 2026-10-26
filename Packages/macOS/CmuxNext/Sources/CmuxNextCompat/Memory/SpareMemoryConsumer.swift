@@ -3,12 +3,14 @@
 /// Chromium's spare windows).
 ///
 /// Chrome's rule for its spare renderer (`content/browser/renderer_host/spare_render_process_host_manager_impl.cc`,
-/// p07-memory.md section 1.13): no spare under memory pressure, and none is warmed again until the
-/// pressure ends. A spare holds nothing a person made, so it is the first thing to go:
+/// p07-memory.md section 1.13): no new spare under memory pressure, and none is warmed again until the
+/// pressure ends. Chrome keeps an existing spare (`kKillSpareRenderOnMemoryPressure` is off by
+/// default); each cmux pool says at which level its untaken spares close (``Closing``). A spare holds
+/// nothing a person made, so it is the first thing to go:
 ///
-/// - At warning or critical the pool's spares close in the turn the level changes (one close each,
-///   as Chrome's pressure listener cleans up its spare), and ``allowsSpares`` is false: the pool
-///   makes none and parks none until normal.
+/// - Above normal ``allowsSpares`` is false: the pool makes none and parks none until normal.
+/// - At a level that closes them (``Closing``) the pool's spares close in the turn the level changes
+///   (`drop`); at a level that does not, the pool only holds them (`hold`).
 /// - Back at normal ``allowsSpares`` is true again and the pool is asked to refill once; it makes the
 ///   spare at its next idle moment, as it always does.
 /// - At normal one spare is kept in every Memory Saver mode. A spare's cost is fixed (one page or one
@@ -26,6 +28,24 @@
 /// ```
 @MainActor
 public final class SpareMemoryConsumer: MemoryLevelConsumer {
+    /// The pressure at which a pool's untaken spares close.
+    public enum Closing: Sendable {
+        /// Warning and critical close them (the page pools, cmux's choice: a page spare comes back at
+        /// the next idle moment after normal).
+        case atAnyPressure
+        /// Only critical closes them; warning keeps the untaken ones and refuses new ones, Chrome's
+        /// default for its spare renderer (Chromium's spare windows, p13-webui-047).
+        case atCritical
+
+        /// Whether `level` closes the untaken spares.
+        public func closes(at level: MemoryPressureLevel) -> Bool {
+            switch (self, level) {
+            case (_, .normal), (.atCritical, .warning): false
+            case (.atAnyPressure, .warning), (_, .critical): true
+            }
+        }
+    }
+
     /// A spare: one page or window (1 to 50 MB), nothing read or written to drop it, nothing a person
     /// made, rebuilt by a page load or a window build, and either kept whole or closed (no limit to
     /// scale, so the coordinator never manages it by mode).
@@ -36,12 +56,14 @@ public final class SpareMemoryConsumer: MemoryLevelConsumer {
     /// The level the coordinator acts on now; normal until the registration hands the current one.
     public private(set) var level: MemoryPressureLevel = .normal
 
-    /// Whether the pool may keep, make or park a spare now: only at normal pressure.
+    /// Whether the pool may make, park or give back a spare now: only at normal pressure.
     public var allowsSpares: Bool {
         level == .normal
     }
 
+    private let closing: Closing
     private let spares: @MainActor () -> Int
+    private let hold: (@MainActor () -> Void)?
     private let drop: @MainActor () -> Void
     private let refill: @MainActor () -> Void
     private var registration: MemoryConsumerRegistration?
@@ -52,17 +74,25 @@ public final class SpareMemoryConsumer: MemoryLevelConsumer {
     /// - Parameters:
     ///   - name: The pool's name in the memory report (stable, kebab-case).
     ///   - registry: The memory coordinator (injected).
+    ///   - closing: The pressure at which the untaken spares close; any pressure by default.
     ///   - spares: How many spares the pool holds now, from its own state (the memory report).
-    ///   - drop: Closes the pool's spares, and cancels a warm that has not started.
+    ///   - hold: Refuses new spares and cancels a warm that has not started, keeping the untaken
+    ///     ones; runs at each level above normal that `closing` does not close at.
+    ///   - drop: Closes the pool's spares, and cancels a warm that has not started; runs at each level
+    ///     `closing` closes at.
     ///   - refill: Asks the pool for its next spare at its next idle moment.
     public init(
         name: String,
         registry: any MemoryConsumerRegistry,
+        closing: Closing = .atAnyPressure,
         spares: @escaping @MainActor () -> Int,
+        hold: (@MainActor () -> Void)? = nil,
         drop: @escaping @MainActor () -> Void,
         refill: @escaping @MainActor () -> Void
     ) {
+        self.closing = closing
         self.spares = spares
+        self.hold = hold
         self.drop = drop
         self.refill = refill
         registration = MemoryConsumerRegistration(name: name, traits: Self.traits, consumer: self, registry: registry)
@@ -77,8 +107,10 @@ public final class SpareMemoryConsumer: MemoryLevelConsumer {
     public func memoryLevelDidChange(_ newLevel: MemoryPressureLevel) {
         let wasAllowed = allowsSpares
         level = newLevel
-        if !allowsSpares {
+        if closing.closes(at: newLevel) {
             drop()
+        } else if !allowsSpares {
+            hold?()
         } else if !wasAllowed {
             refill()
         }

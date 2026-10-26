@@ -2,7 +2,9 @@
 // off-screen view builds from an NSEvent (tests/cefclient/browser/browser_window_osr_mac.mm);
 // wheel ticks go through the fork's cmux_shim_browser_send_wheel, which keeps the scroll and
 // momentum phases a trackpad gesture needs (fork API 30), and through
-// CefBrowserHost::SendMouseWheelEvent on a fork without it.
+// CefBrowserHost::SendMouseWheelEvent on a fork without it. Keys go through
+// cmux_shim::SendHostKeyEvent with the frame's input seq, so a chord the page leaves unhandled
+// comes back as KEY_UNHANDLED with it (task 030); Edit menu commands go to the focused frame.
 #import <AppKit/AppKit.h>
 
 #include <algorithm>
@@ -45,7 +47,7 @@ uint64_t ModifierOfKey(int32_t key_code) {
 }
 
 // kKey: v0 phase (0 down, 1 up, 2 flags changed), v1 key code, v2 repeat, flags, ch, unmod.
-void SendKey(CefRefPtr<CefBrowserHost> host, const Header& frame) {
+void SendKey(int chromium_browser_id, const Header& frame) {
   CefKeyEvent event;
   event.native_key_code = frame.v[1];
   event.modifiers = CefFlags(frame.flags, 0);
@@ -53,19 +55,34 @@ void SendKey(CefRefPtr<CefBrowserHost> host, const Header& frame) {
   if (frame.v[0] == 2) {
     // No characters: CEF builds a flags-changed event.
     event.type = (frame.flags & ModifierOfKey(frame.v[1])) ? KEYEVENT_RAWKEYDOWN : KEYEVENT_KEYUP;
-    host->SendKeyEvent(event);
+    cmux_shim::SendHostKeyEvent(chromium_browser_id, 0, event);
     return;
   }
   event.character = frame.ch;
   event.unmodified_character = frame.unmod;
   event.type = frame.v[0] == 1 ? KEYEVENT_KEYUP : KEYEVENT_RAWKEYDOWN;
-  host->SendKeyEvent(event);
+  cmux_shim::SendHostKeyEvent(chromium_browser_id, frame.seq, event);
   if (frame.v[0] == 1) return;
   // Text: a character that is not a function key (U+F700..U+F8FF), with no Command chord.
   const bool function_key = frame.ch >= 0xF700 && frame.ch <= 0xF8FF;
   if (frame.ch != 0 && !function_key && !(frame.flags & NSEventModifierFlagCommand)) {
     event.type = KEYEVENT_CHAR;
-    host->SendKeyEvent(event);
+    cmux_shim::SendHostKeyEvent(chromium_browser_id, 0, event);
+  }
+}
+
+// kEdit: v0 0 copy, 1 cut, 2 paste, 3 select all, 4 undo, 5 redo, to the page's focused frame.
+void SendEdit(CefRefPtr<CefBrowser> browser, const Header& frame) {
+  CefRefPtr<CefFrame> focused = browser->GetFocusedFrame();
+  if (!focused) return;
+  switch (frame.v[0]) {
+    case 0: focused->Copy(); break;
+    case 1: focused->Cut(); break;
+    case 2: focused->Paste(); break;
+    case 3: focused->SelectAll(); break;
+    case 4: focused->Undo(); break;
+    case 5: focused->Redo(); break;
+    default: break;
   }
 }
 
@@ -108,13 +125,16 @@ void DispatchInputFrame(int chromium_browser_id, const Header& frame) {
   if (!host) return;
   switch (frame.kind) {
     case kKey:
-      SendKey(host, frame);
+      SendKey(chromium_browser_id, frame);
       break;
     case kMouse:
       SendMouse(host, frame);
       break;
     case kWheel:
       SendWheel(chromium_browser_id, host, frame);
+      break;
+    case kEdit:
+      SendEdit(browser, frame);
       break;
     default:
       break;

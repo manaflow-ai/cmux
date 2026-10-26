@@ -117,7 +117,7 @@ enum DurableTabLink {
             return false
         }
         let bound = DemandTimer(owner: "DurableTabLink.listed")
-        bound.schedule(after: listLimit) { @MainActor in listed.cancel() }
+        bound.scheduleOnMain(after: listLimit) { listed.cancel() }
         let found = await listed.value
         bound.cancel()
         return found && services.revealTab(id, intent: intent)

@@ -34,14 +34,14 @@
       "target": {
         "machine": "current",
         "session": "current",
-        "frontend_projection": "projection_00000000000000000000000000000000"
+        "frontend_projection": "projection_0000000000000000000000000000000a"
       },
       "args": {
         "method": "frontend_projection.put",
         "params": {
           "projection": {},
-          "frontend_id": "oracle",
-          "window_id": "oracle",
+          "frontend_id": "oracle-frontend",
+          "window_id": "oracle-window",
           "generation": "oracle"
         },
         "idempotencyKey": "frontend-projection-put-ok.call"
@@ -54,7 +54,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "put creates the projection: its id, frontend and window are the caller's names, not fixture objects"
     }
   ],
   "invariants": [
@@ -63,10 +63,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "target.frontend_projection is a fixed placeholder, not a fixture object; misc/_tuning.json tunes it",
-    "params.frontend_id is a fixed placeholder, not a fixture object; misc/_tuning.json tunes it",
-    "params.window_id is a fixed placeholder, not a fixture object; misc/_tuning.json tunes it"
   ]
 }

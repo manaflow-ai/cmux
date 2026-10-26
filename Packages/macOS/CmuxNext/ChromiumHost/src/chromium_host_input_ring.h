@@ -419,14 +419,20 @@ class BatchGate {
 // before. `Doorbell` is MachDoorbell in the host: `Wake Wait()` on the reader
 // thread, `bool Ring() const` and `void Stop()` from any thread. The object,
 // the mapping and the doorbell outlive every task it posted.
+//
+// The UI thread may take a batch only in part (the host's ordered stream is
+// full while its frames wait for a control message, task 092): the rest stays
+// here and the gate stays shut, so later frames stay in the ring and a full
+// ring makes cmux keep them on its side. Retry offers the rest again.
 template <typename Doorbell>
 class HostInput {
  public:
   using Frames = BatchGate::Frames;
   // Runs a task on the UI thread, in post order. Any thread.
   using Post = std::function<void(std::function<void()>)>;
-  // Runs a batch on the UI thread, oldest first.
-  using Deliver = std::function<void(const Frames&)>;
+  // On the UI thread: takes `frames` from index `from`, oldest first, and returns how many it
+  // took; fewer than the rest leaves them for the next Retry.
+  using Deliver = std::function<size_t(const Frames& frames, size_t from)>;
   // On the UI thread, when the reader ended without Stop (End::kBroken or
   // End::kDoorbellFailed): the host can no longer take input, and ends.
   using Ended = std::function<void(Reader::End)>;
@@ -452,6 +458,16 @@ class HostInput {
     });
   }
 
+  // The UI thread: offers the rest of a batch taken in part again (after
+  // what it waited for arrived). Nothing when no batch waits.
+  void Retry() {
+    if (stopped_.load(std::memory_order_acquire) || held_.empty()) return;
+    Offer();
+  }
+
+  // The UI thread: frames of a batch taken in part that wait here.
+  size_t held() const { return held_.size() - held_from_; }
+
   // The UI thread: ends the reader; batches that have not run are dropped.
   void Stop() {
     if (!thread_.joinable()) return;
@@ -465,12 +481,23 @@ class HostInput {
   void Flush() {
     Frames frames;
     if (!gate_.Flush(&frames)) return;
-    post_([this, frames = std::move(frames)] {
+    post_([this, frames = std::move(frames)]() mutable {
       if (stopped_.load(std::memory_order_acquire)) return;
-      deliver_(frames);
-      gate_.Done();
-      doorbell_.Ring();
+      held_ = std::move(frames);
+      held_from_ = 0;
+      Offer();
     });
+  }
+
+  // The UI thread: hands the held batch on; once all of it is taken the gate
+  // opens and the reader, which a refusal may have left waiting, is rung.
+  void Offer() {
+    held_from_ += deliver_(held_, held_from_);
+    if (held_from_ < held_.size()) return;
+    held_.clear();
+    held_from_ = 0;
+    gate_.Done();
+    doorbell_.Ring();
   }
 
   void* const mapping_;
@@ -480,6 +507,8 @@ class HostInput {
   Post post_;
   Deliver deliver_;
   Ended ended_;
+  Frames held_;            // the UI thread's: the batch being taken
+  size_t held_from_ = 0;   // the UI thread's: its first frame not taken yet
   std::atomic<bool> stopped_{false};
 };
 

@@ -70,8 +70,17 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var colorScheme: BrowserColorScheme = .system
 
     var machine = BrowserTabStateMachine() {
-        didSet { if machine.state.phase != oldValue.state.phase { pageWaiters.notePhase(machine.state.phase) } }
+        didSet {
+            let phaseChanged = machine.state.phase != oldValue.state.phase
+            if phaseChanged { pageWaiters.notePhase(machine.state.phase) }
+            if phaseChanged || machine.state.processExit != oldValue.state.processExit, runtime.hostStart == nil { onRenderersMayChange?() }
+        }
     }
+    /// Runs when the renderers that serve this page may have changed: its load phase changed (a navigation
+    /// can move it to another renderer) or its renderer ended (``publishRenderers(as:into:while:)``,
+    /// p14-energy-124). In process only: with the Chromium Host on, those shim calls are replies over the
+    /// wire, and attribution there is p14-energy-124a.
+    @ObservationIgnored var onRenderersMayChange: (() -> Void)?
     /// The page plays unmuted media (`BrowserAudibleReporting`): `state.media?.isAudible`, kept
     /// apart so its observers wake on the flip only, not on each load tick or title.
     public internal(set) var isAudible = false
@@ -88,6 +97,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var pendingFocus = false
     /// True while cmux's own `SetFocus(true)` runs (`chromiumRequestsFocus`).
     @ObservationIgnored var isGrantingFocus = false
+    /// Host mode: the embedder-active state last posted, and for which browser (a restarted host's
+    /// browser has a new id and hears it again).
+    @ObservationIgnored var embedderActive: (browser: Int32, active: Bool)?
     /// Navigation state to restore once the browser exists (created with
     /// an empty URL so its history starts empty).
     @ObservationIgnored var pendingRestore: String?
@@ -265,7 +277,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // it back on screen over the pane's current tab.
         let shown = host.visibleTab === self && !isOccluded
         host.lifecycleTrace.record(id, "attach pendingFocus=\(pendingFocus) shown=\(shown)")
-        if pendingFocus, shown { grantFocus(browser) }
+        if pendingFocus, shown { applyFocus(true, browser: browser) }
         if let action = pendingExtensionAction {
             pendingExtensionAction = nil
             runExtensionAction(action.id, anchor: action.anchor)
@@ -317,31 +329,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             reloadWhenShown = false
             if state.processExit != nil { reload() }
         }
-    }
-
-    /// The renderer ended (crash, kill, out of memory, launch failure). The
-    /// pane shows the sad tab; a hidden tab reloads when it is shown.
-    func rendererTerminated(_ exit: BrowserProcessExit) {
-        guard !isClosed else { return }
-        // A new renderer need not keep the old one's media emulation, so forget
-        // what the dead one was told: whichever way the page comes back (Reload
-        // here, or a hidden tab reloading when shown), the restarted renderer's
-        // `.loadStart` sends the color scheme again rather than trusting a memo
-        // no live page ever heard.
-        sentColorScheme = nil
-        machine.apply(.processExited(exit))
-        noteAudible()
-        // After the sad tab, not before it: no first paint or load end is
-        // coming for the document that was loading, so the page area stops
-        // standing in for it (`CEFTab+LoadingBackground`) -- but settling
-        // repaints the base white, and doing that before the view that reads
-        // `state.processExit` is laid out shows a white page area for a frame
-        // in a dark theme.
-        documentDidSettle()
-        firstContentFrame.contentShown() // the sad tab is what a new tab shows
-        reloadWhenShown = host.visibleTab !== self
-        findRequests.cancel()
-        runtime.recordRendererExit(exit, tab: self)
     }
 
     func contentDidDisappear() {
@@ -447,7 +434,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         pendingFocus = focused
         // Never activate a hidden page's window (see `attach`).
         guard !focused || shown, let browserID else { return }
-        if focused { grantFocus(browserID) } else { runtime.shim?.setFocus(browserID, 0) }
+        applyFocus(focused, browser: browserID)
     }
 
     /// Shows the page window (and a docked DevTools) at once, or hides it by

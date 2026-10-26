@@ -341,11 +341,21 @@ one registry grew to 41.6 GB. The daemon's output store
   `terminal.persistence.maxBytesPerTerminal` and
   `terminal.persistence.maxTotalBytes` cap the files (snapshot: 50 MB total;
   full: 100 MB per terminal, 2 GB total); the oldest go first.
-- `terminal.scrollback.maxTotalMemoryBytes` (default 256 MiB) bounds the
-  scrollback RAM of all terminals together; past it the terminals that printed
-  least recently get a lower Ghostty scrollback limit first (their oldest
-  pages go), and get their configured limit back when there is room again.
-  The per-terminal cap stays Ghostty's `scrollback-limit`.
+- `terminal.scrollback.maxTotalMemoryBytes` bounds the scrollback RAM of all
+  terminals together; past it the terminals that printed least recently get a
+  lower Ghostty scrollback limit first (their oldest pages go, each keeps at
+  least 1 MiB), and get their configured limit back when there is room again.
+  The per-terminal cap stays Ghostty's `scrollback-limit`. With the daemon
+  feature `memoryScrollbackPressure` off (the default) the setting defaults to
+  256 MiB. With it on, the default comes from installed RAM
+  (`DaemonBudget::scrollback_total`: 128 MiB at 8 GB, 256 MiB at 16 GB, 1 GiB
+  at 64 GB and more), and the budget is a lossy consumer
+  (`terminal.scrollback`) in the daemon's memory registry: at warning pressure
+  the applied total is half the budget, at critical 16 MiB, both least
+  recently active terminals first; limits come back only at normal pressure
+  and below 80 % of the budget, most recently active first. A level change
+  runs one pass on the output store's writer thread; full mode keeps the
+  dropped history in its segment files.
 - A respawn after a lost host (a reboot) seeds the new shell with the exit
   replay, else the store's screen (full mode: rebuilt from the segments),
   else an older registry's checkpoint blob. Clearing a terminal's history

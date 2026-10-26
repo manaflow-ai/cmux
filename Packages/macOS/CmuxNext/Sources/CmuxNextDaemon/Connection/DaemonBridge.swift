@@ -105,7 +105,7 @@ public struct DaemonBridge: Hashable, Sendable {
             Darwin.close(mine); Darwin.close(errRead)
             throw .launchFailed("spawn \(executable): \(String(cString: strerror(spawned)))")
         }
-        return Spawned(opened: Opened(fd: mine, child: BridgeChild(pid: pid, stderr: errRead)), stderr: errRead)
+        return Spawned(opened: Opened(fd: mine, child: BridgeChild(pid: pid, stderr: errRead, reaper: queues.reap)), stderr: errRead)
     }
 
     /// One line from the child's stderr within the deadline.
@@ -156,28 +156,43 @@ final class BridgeQueues: Sendable {
     /// Waits for the dial line of each opening connection, one `poll` of up to ``DaemonBridge/replyTimeoutMs``
     /// per byte. Concurrent: one slow dial never holds another, nor a spawn (the launcher's items only spawn).
     let dial = DispatchQueue(label: "com.cmuxterm.next.daemon.bridge-dial", qos: .userInitiated, attributes: .concurrent)
+    /// Reaps the killed bridge children from their process-exit sources (``ChildExitWatch``); utility, as nobody
+    /// waits for a closed connection's child.
+    let reap = DispatchQueue(label: "com.cmuxterm.next.daemon.bridge-reap", qos: .utility)
 }
 
 /// The bridge process of one connection: killed and reaped exactly once,
 /// when the connection closes or the transport goes away.
+///
+/// ``terminate()`` never waits for the child, so dropping the last reference on the main thread costs a `kill`
+/// and a `close`: the reap runs on the bridge's reap queue from a process-exit source, as Chromium's
+/// `EnsureProcessTerminated` does (base/process/kill_mac.cc). The lock only hands the stderr descriptor to the
+/// one caller that terminates; nothing is called while it is held.
 final class BridgeChild: Sendable {
     let pid: pid_t
-    private let state: Mutex<Int32>
+    private let errorPipe: Mutex<Int32>
+    private let reaper: DispatchQueue
 
-    init(pid: pid_t, stderr: Int32) {
+    /// - Parameters:
+    ///   - pid: The spawned bridge child.
+    ///   - stderr: The read end of its stderr, closed on ``terminate()``.
+    ///   - reaper: The serial queue that reaps it (``BridgeQueues/reap``).
+    init(pid: pid_t, stderr: Int32, reaper: DispatchQueue) {
         self.pid = pid
-        state = Mutex(stderr)
+        errorPipe = Mutex(stderr)
+        self.reaper = reaper
     }
 
+    /// Kills the child, closes its stderr and starts its reap on ``reaper``; returns at once. Later calls do nothing.
     func terminate() {
-        state.withLock { stderr in
-            guard stderr >= 0 else { return }
-            Darwin.kill(pid, SIGKILL)
-            var status: Int32 = 0
-            while waitpid(pid, &status, 0) < 0, errno == EINTR {}
-            Darwin.close(stderr)
-            stderr = -1
+        let descriptor = errorPipe.withLock { descriptor -> Int32 in
+            defer { descriptor = -1 }
+            return descriptor
         }
+        guard descriptor >= 0 else { return }
+        Darwin.kill(pid, SIGKILL)
+        Darwin.close(descriptor)
+        ChildExitWatch(pid: pid, queue: reaper).start { _ in }
     }
 
     deinit { terminate() }

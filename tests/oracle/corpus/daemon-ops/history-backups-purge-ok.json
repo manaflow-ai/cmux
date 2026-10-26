@@ -38,7 +38,7 @@
       "args": {
         "method": "history.backups.purge",
         "params": {
-          "restore_id": "oracle0000000000000000000000000000000000"
+          "restore_id": "history:0000000000000000000000000000000a"
         },
         "idempotencyKey": "history-backups-purge-ok.call"
       },
@@ -50,7 +50,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "a well-formed restore id; purging a backup that does not exist purges 0"
     }
   ],
   "invariants": [
@@ -61,6 +61,6 @@
     "verify the socket and state root are gone"
   ],
   "untested": [
-    "params.restore_id is a fixed placeholder, not a fixture object; misc/_tuning.json tunes it"
+    "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.backups.purge is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user"
   ]
 }

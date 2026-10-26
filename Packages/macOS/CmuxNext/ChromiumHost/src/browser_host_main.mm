@@ -16,12 +16,17 @@
 // Order on the wire: each side's HELLO (the host's after the fork
 // capabilities' MIRRORs); cmux's queued preinit ops, applied in order; INITIALIZE, which runs
 // cmux_shim_initialize (CefInitialize) with an event_fn that forwards each
-// event; then every other op. The channel's end (cmux quit or crashed), or
+// event; then every other op. Control messages and input frames meet in one
+// ordered stream (cmux_host::control::OrderedStream, task 092): an input frame
+// waits for the control message it names, an ordered control message (focus,
+// activation, geometry, IME, edit) for the input frame it follows, as Chrome's
+// one RenderWidgetHostNSViewHost pipe orders them. The channel's end (cmux quit or crashed), or
 // a shutdown op, closes every browser and ends the loop; a host that has
 // not ended kQuitLimitSeconds after that _exits, so a hung UI thread or a
 // hung CefInitialize never leaves an orphaned host behind.
 
 #import <AppKit/AppKit.h>
+#import <QuartzCore/QuartzCore.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <objc/runtime.h>
 #include <dlfcn.h>
@@ -166,6 +171,87 @@ std::string Arg(const std::vector<std::string>& args, const std::string& name) {
   return std::string();
 }
 
+}  // namespace
+
+// Runs main-thread work at the start of the main display's next frame
+// (TextInputPushes::RequestFrame), as ExternalBeginFrameSourceMac drives
+// Chrome's BeginFrames from the display link
+// (components/viz/service/frame_sinks/external_begin_frame_source_mac.cc).
+// The link is paused while no work waits, as Chrome stops BeginFrames no
+// client needs; a screen change makes a new link for the next request.
+// Main thread only.
+@interface ChromiumHostFrameClock : NSObject
+- (void)requestFrame:(std::function<void()>)task;
+- (void)invalidate;
+@end
+
+@implementation ChromiumHostFrameClock {
+  CADisplayLink* _link;  // retained; retains this clock until -invalidate
+  std::vector<std::function<void()>> _waiting;
+  id _screenObserver;
+}
+
+- (instancetype)init {
+  if ((self = [super init])) {
+    // The block retains this clock until -invalidate removes the observer.
+    _screenObserver = [[NSNotificationCenter.defaultCenter
+        addObserverForName:NSApplicationDidChangeScreenParametersNotification
+                    object:nil
+                     queue:NSOperationQueue.mainQueue
+                usingBlock:^(NSNotification*) {
+                  [self dropLink];
+                }] retain];
+  }
+  return self;
+}
+
+- (void)requestFrame:(std::function<void()>)task {
+  _waiting.push_back(std::move(task));
+  if (!_link) {
+    NSScreen* screen = NSScreen.mainScreen;
+    if (!screen) {
+      [self tick:nil];  // no display: no frame to wait for
+      return;
+    }
+    _link = [[screen displayLinkWithTarget:self selector:@selector(tick:)] retain];
+    [_link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+  }
+  _link.paused = NO;
+}
+
+- (void)tick:(CADisplayLink*)link {
+  _link.paused = YES;
+  std::vector<std::function<void()>> tasks;
+  tasks.swap(_waiting);
+  for (auto& task : tasks) task();
+}
+
+- (void)dropLink {
+  [_link invalidate];
+  [_link release];
+  _link = nil;
+  if (!_waiting.empty()) {
+    std::vector<std::function<void()>> tasks;
+    tasks.swap(_waiting);
+    for (auto& task : tasks) [self requestFrame:std::move(task)];
+  }
+}
+
+- (void)invalidate {
+  if (_screenObserver) {
+    [NSNotificationCenter.defaultCenter removeObserver:_screenObserver];
+    [_screenObserver release];
+    _screenObserver = nil;
+  }
+  _waiting.clear();
+  [_link invalidate];
+  [_link release];
+  _link = nil;
+}
+@end
+
+namespace {
+
 // A symbol of the shim linked into this executable (an optional export), or nullptr.
 void* ResolveShimSymbol(const char* name) {
   return dlsym(RTLD_DEFAULT, name);
@@ -293,32 +379,57 @@ int main(int argc, char* argv[]) {
   HostMain host_main;
   cmux_host::HostPageViews page_views;
   std::unique_ptr<cmux_host::control::Channel> channel;
+  // Outlives `host`, whose text input flushes it runs.
+  struct FrameClock {
+    ChromiumHostFrameClock* clock = [[ChromiumHostFrameClock alloc] init];
+    ~FrameClock() {
+      [clock invalidate];
+      [clock release];
+    }
+  } frame_clock;
   cmux_host::HostContext host(
       [&channel](const cmux_host::control::Message& message) { return channel && channel->Send(message); },
-      host_main, page_views, &ResolveShimSymbol);
+      host_main, page_views, &ResolveShimSymbol,
+      [clock = frame_clock.clock](std::function<void()> task) { [clock requestFrame:std::move(task)]; });
+  // Main thread only, like `host`. Ring frames (task 041) go in through
+  // `ordered_input` and are dispatched, then acked, only when the stream lets
+  // them run (task 042 on 092's barrier).
+  cmux_host::control::OrderedStream ordered(
+      [&host](std::vector<cmux_host::control::Message> messages) { host.OnMessages(std::move(messages)); });
+  cmux_host::OrderedInput ordered_input(
+      ordered,
+      [&host](const cmux_host::Header& frame) {
+        cmux_host::DispatchInputFrame(host.Browser(cmux_host::input_ring::BrowserOf(frame)), frame);
+      },
+      [&channel](cmux_host::control::Message acks) {
+        if (channel) channel->Send(acks);
+      },
+      [&host_main](const char* what) { host_main.BadMessage(what ? what : "the ordered input stream"); });
+  using HostInput = cmux_host::input_ring::HostInput<cmux_host::input_ring::MachDoorbell>;
+  std::unique_ptr<HostInput> input;
+  // Each control batch or the input's opening may let held frames run, and a
+  // batch the stream took in part is offered again (the rest waited in the
+  // ring meanwhile).
+  auto after = [&ordered_input, &input](cmux_host::control::OrderedStream::Result result) {
+    ordered_input.After(result);
+    if (input) input->Retry();
+  };
   // The reader thread starts here, after the framework load.
   channel = std::make_unique<cmux_host::control::Channel>(
       kControlFd, &PostToMain,
-      [&host](std::vector<cmux_host::control::Message> messages) { host.OnMessages(std::move(messages)); },
+      [&ordered, &after](std::vector<cmux_host::control::Message> messages) {
+        after(ordered.AddControl(std::move(messages)));
+      },
       [&host_main](cmux_host::control::End) { host_main.Quit(); });
 
-  // The input reader starts here too, after the framework load. Each frame goes to its page and
-  // the batch's moves and wheel ticks are acked once dispatched (host_input.h).
+  // The input reader starts here too, after the framework load. Frames that
+  // come before initialize wait in the stream (input opens after Resume).
   std::atomic<bool> user_input_queue{false};
-  using HostInput = cmux_host::input_ring::HostInput<cmux_host::input_ring::MachDoorbell>;
-  std::unique_ptr<HostInput> input;
   if (ring != nullptr) {
     input = std::make_unique<HostInput>(ring, doorbell);
     input->Start(
         [&user_input_queue](std::function<void()> task) { PostInputTask(user_input_queue, std::move(task)); },
-        [&host, &channel](const HostInput::Frames& frames) {
-          cmux_host::AckBatch acks;
-          for (const cmux_host::Header& frame : frames) {
-            cmux_host::DispatchInputFrame(host.Browser(cmux_host::input_ring::BrowserOf(frame)), frame);
-            acks.Add(frame);
-          }
-          if (!acks.empty() && channel) channel->Send(acks.Take());
-        },
+        [&ordered_input](const HostInput::Frames& frames, size_t from) { return ordered_input.Take(frames, from); },
         [&host_main](cmux_host::input_ring::Reader::End end) {
           if (end == cmux_host::input_ring::Reader::End::kBroken) {
             host_main.BadMessage("input ring: a position or a frame no writer makes");
@@ -363,7 +474,10 @@ int main(int argc, char* argv[]) {
     }
     host_main.set_running();
     user_input_queue.store(true, std::memory_order_release);
-    PostToMain([&host] { host.Resume(); });
+    PostToMain([&host, &ordered, &after] {
+      host.Resume();
+      after(ordered.OpenInput());  // the messages that waited for initialize ran first
+    });
     CefRunMessageLoop();
     if (input) input->Stop();  // no batch runs after this, so none reaches a shut down Chromium
     channel->Close();

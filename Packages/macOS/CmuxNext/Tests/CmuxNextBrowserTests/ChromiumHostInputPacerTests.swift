@@ -6,7 +6,8 @@ import Testing
 
 /// Ack-based pacing of a hosted page's input (p01-process-042): the first move or wheel tick
 /// leaves at once, later ones wait coalesced (latest move, wheel deltas summed per phase) and
-/// leave on the host's ack, at most one of each in flight; keys and clicks never wait.
+/// leave on the host's ack, at most one of each in flight; keys and clicks never wait, and what
+/// waited leaves ahead of them in arrival order.
 @MainActor
 @Suite struct ChromiumHostInputPacerTests {
     static func move(_ x: Int32, buttons: Int32 = 0) -> ChromiumHostFrame {
@@ -29,35 +30,40 @@ import Testing
         return frame
     }
 
+    /// Everything `submit` releases, in send order.
+    static func sent(_ release: ChromiumHostInputPacer.Release) -> [ChromiumHostFrame] {
+        release.ahead + (release.frame.map { [$0] } ?? [])
+    }
+
     @Test func theFirstMoveAndWheelTickLeaveAtOnce() {
         var pacer = ChromiumHostInputPacer()
-        #expect(pacer.submit(Self.move(1)) == Self.move(1))
-        #expect(pacer.submit(Self.wheel(dy: -3, phase: 2)) == Self.wheel(dy: -3, phase: 2))
+        #expect(pacer.submit(Self.move(1)) == .init(frame: Self.move(1)))
+        #expect(pacer.submit(Self.wheel(dy: -3, phase: 2)) == .init(frame: Self.wheel(dy: -3, phase: 2)))
         #expect(pacer.movesInFlight == 1 && pacer.wheelsInFlight == 1)
         #expect(pacer.stats.sent == 2)
     }
 
     @Test func movesBehindAnUnackedMoveCoalesceToTheLatestAndLeaveOnTheAck() {
         var pacer = ChromiumHostInputPacer()
-        #expect(pacer.submit(Self.move(1)) != nil)
-        for x in Int32(2)...100 { #expect(pacer.submit(Self.move(x, buttons: x == 100 ? 1 : 0)) == nil) }
+        #expect(pacer.submit(Self.move(1)).frame != nil)
+        for x in Int32(2)...100 { #expect(Self.sent(pacer.submit(Self.move(x, buttons: x == 100 ? 1 : 0))).isEmpty) }
         #expect(pacer.waitingCount == 1)
         #expect(pacer.stats.coalesced == 98)
         #expect(pacer.acked(.move) == Self.move(100, buttons: 1))
         #expect(pacer.movesInFlight == 1)
         #expect(pacer.acked(.move) == nil)
         #expect(pacer.movesInFlight == 0)
-        #expect(pacer.submit(Self.move(101)) == Self.move(101))  // nothing in flight: at once again
+        #expect(pacer.submit(Self.move(101)) == .init(frame: Self.move(101)))  // nothing in flight: at once again
         #expect(pacer.stats.maxMovesInFlight == 1)
     }
 
     @Test func wheelTicksSumPerPhaseAndLeaveOneAtATime() {
         var pacer = ChromiumHostInputPacer()
-        #expect(pacer.submit(Self.wheel(dy: -1, phase: 2)) != nil)  // began
-        for _ in 0..<4 { #expect(pacer.submit(Self.wheel(dy: -2)) == nil) }  // changed
-        #expect(pacer.submit(Self.wheel(dy: 0, phase: 4)) == nil)  // ended
-        for _ in 0..<3 { #expect(pacer.submit(Self.wheel(dy: -5, phase: 0, momentum: 3)) == nil) }
-        #expect(pacer.submit(Self.wheel(dy: -1, phase: 0, momentum: 3, flags: 1 << 17)) == nil)  // other modifiers
+        #expect(pacer.submit(Self.wheel(dy: -1, phase: 2)).frame != nil)  // began
+        for _ in 0..<4 { #expect(Self.sent(pacer.submit(Self.wheel(dy: -2))).isEmpty) }  // changed
+        #expect(Self.sent(pacer.submit(Self.wheel(dy: 0, phase: 4))).isEmpty)  // ended
+        for _ in 0..<3 { #expect(Self.sent(pacer.submit(Self.wheel(dy: -5, phase: 0, momentum: 3))).isEmpty) }
+        #expect(Self.sent(pacer.submit(Self.wheel(dy: -1, phase: 0, momentum: 3, flags: 1 << 17))).isEmpty)  // other modifiers
         #expect(pacer.waitingCount == 4)
         #expect(pacer.acked(.wheel) == Self.wheel(dy: -8))
         #expect(pacer.acked(.wheel) == Self.wheel(dy: 0, phase: 4))
@@ -71,27 +77,59 @@ import Testing
 
     @Test func coarseAndPreciseTicksDoNotFoldAndDeltasSaturate() {
         var pacer = ChromiumHostInputPacer()
-        #expect(pacer.submit(Self.wheel(dy: 1)) != nil)
-        #expect(pacer.submit(Self.wheel(dy: .max)) == nil)
-        #expect(pacer.submit(Self.wheel(dy: .max)) == nil)
-        #expect(pacer.submit(Self.wheel(dy: 4, precise: false)) == nil)
+        #expect(pacer.submit(Self.wheel(dy: 1)).frame != nil)
+        #expect(Self.sent(pacer.submit(Self.wheel(dy: .max))).isEmpty)
+        #expect(Self.sent(pacer.submit(Self.wheel(dy: .max))).isEmpty)
+        #expect(Self.sent(pacer.submit(Self.wheel(dy: 4, precise: false))).isEmpty)
         #expect(pacer.acked(.wheel) == Self.wheel(dy: .max))
         #expect(pacer.acked(.wheel) == Self.wheel(dy: 4, precise: false))
     }
 
-    @Test func keysAndClicksPassAtOnceAndAClickDropsTheStaleWaitingMove() {
+    /// The last move of a drag reaches the page before the mouse-up, never after it or not at all
+    /// (Blink's MainThreadEventQueue dispatches the coalesced move ahead of the discrete event).
+    @Test func aClickSendsTheWaitingMoveFirstThenItself() {
         var pacer = ChromiumHostInputPacer()
-        #expect(pacer.submit(Self.move(1)) != nil)
-        #expect(pacer.submit(Self.move(2)) == nil)
-        #expect(pacer.submit(Self.key(36)) == Self.key(36))  // a key leaves the waiting move alone
-        #expect(pacer.waitingCount == 1)
-        #expect(pacer.submit(Self.click(1, x: 3)) == Self.click(1, x: 3))
+        #expect(pacer.submit(Self.move(1, buttons: 1)).frame != nil)
+        #expect(Self.sent(pacer.submit(Self.move(2, buttons: 1))).isEmpty)
+        #expect(Self.sent(pacer.submit(Self.move(3, buttons: 1))).isEmpty)
+        #expect(Self.sent(pacer.submit(Self.click(2, x: 3))) == [Self.move(3, buttons: 1), Self.click(2, x: 3)])
         #expect(pacer.waitingCount == 0)
-        #expect(pacer.stats.superseded == 1)
-        #expect(pacer.submit(Self.click(2, x: 3)) == Self.click(2, x: 3))
-        #expect(pacer.acked(.move) == nil)  // the dropped move never leaves after the click
+        #expect(pacer.stats.flushedAhead == 1)
+        #expect(pacer.movesInFlight == 2)  // the first move and the flushed one, both unacked
+        #expect(pacer.acked(.move) == nil)
+        #expect(pacer.acked(.move) == nil)
+        #expect(pacer.movesInFlight == 0)
+    }
+
+    @Test func aKeySendsTheWaitingMoveFirstThenItself() {
+        var pacer = ChromiumHostInputPacer()
+        #expect(pacer.submit(Self.move(1)).frame != nil)
+        #expect(Self.sent(pacer.submit(Self.move(2))).isEmpty)
+        #expect(Self.sent(pacer.submit(Self.key(36))) == [Self.move(2), Self.key(36)])
+        #expect(Self.sent(pacer.submit(Self.key(37))) == [Self.key(37)])  // nothing waits: the key alone
         let focus = ChromiumHostFrame(.focus, v: [1])
-        #expect(pacer.submit(focus) == focus)
+        #expect(pacer.submit(focus) == .init(frame: focus))
+    }
+
+    @Test func aFlushKeepsTheMoveAndTheWheelTicksInArrivalOrder() {
+        var pacer = ChromiumHostInputPacer()
+        #expect(pacer.submit(Self.move(1)).frame != nil)
+        #expect(pacer.submit(Self.wheel(dy: 1, phase: 2)).frame != nil)
+        #expect(Self.sent(pacer.submit(Self.wheel(dy: 2))).isEmpty)  // waits first
+        #expect(Self.sent(pacer.submit(Self.move(2))).isEmpty)  // then the move
+        #expect(Self.sent(pacer.submit(Self.wheel(dy: 3, phase: 4))).isEmpty)  // then another phase
+        #expect(Self.sent(pacer.submit(Self.key(36)))
+            == [Self.wheel(dy: 2), Self.move(2), Self.wheel(dy: 3, phase: 4), Self.key(36)])
+        #expect(pacer.waitingCount == 0)
+    }
+
+    @Test func anUnsentPacedFrameIsNoLongerInFlight() {
+        var pacer = ChromiumHostInputPacer()
+        #expect(pacer.submit(Self.move(1)).frame != nil)
+        pacer.unsent(.move)  // the writer had no host: no ack will come
+        #expect(pacer.movesInFlight == 0)
+        #expect(pacer.submit(Self.move(2)) == .init(frame: Self.move(2)))
+        #expect(pacer.stats.unsent == 1)
     }
 
     @Test func anAckWithNothingInFlightIsCountedAndSendsNothing() {
@@ -104,10 +142,10 @@ import Testing
 
     @Test func aStoppedHostHoldsABoundedWheelQueue() {
         var pacer = ChromiumHostInputPacer()
-        #expect(pacer.submit(Self.wheel(dy: 1)) != nil)
+        #expect(pacer.submit(Self.wheel(dy: 1)).frame != nil)
         // Ticks that each differ from the last (other modifiers) never fold: the waiting queue stops at its limit.
         for index in 0..<(ChromiumHostInputPacer.waitingWheelLimit + 10) {
-            #expect(pacer.submit(Self.wheel(dy: 1, flags: UInt64(index + 1))) == nil)
+            #expect(Self.sent(pacer.submit(Self.wheel(dy: 1, flags: UInt64(index + 1)))).isEmpty)
         }
         #expect(pacer.waitingCount == ChromiumHostInputPacer.waitingWheelLimit)
         #expect(pacer.stats.dropped == 10)
@@ -115,13 +153,13 @@ import Testing
 
     @Test func resetForgetsWhatWasInFlightAndWaiting() {
         var pacer = ChromiumHostInputPacer()
-        #expect(pacer.submit(Self.move(1)) != nil)
-        #expect(pacer.submit(Self.move(2)) == nil)
-        #expect(pacer.submit(Self.wheel(dy: 1)) != nil)
-        #expect(pacer.submit(Self.wheel(dy: 1)) == nil)
+        #expect(pacer.submit(Self.move(1)).frame != nil)
+        #expect(Self.sent(pacer.submit(Self.move(2))).isEmpty)
+        #expect(pacer.submit(Self.wheel(dy: 1)).frame != nil)
+        #expect(Self.sent(pacer.submit(Self.wheel(dy: 1))).isEmpty)
         pacer.reset()
         #expect(pacer.waitingCount == 0 && pacer.movesInFlight == 0 && pacer.wheelsInFlight == 0)
-        #expect(pacer.submit(Self.move(3)) == Self.move(3))
+        #expect(pacer.submit(Self.move(3)) == .init(frame: Self.move(3)))
     }
 
     // MARK: The page view
@@ -131,16 +169,25 @@ import Testing
                              makeLayerHost: { _ in CALayer() })
     }
 
-    static func mouseMoved(at x: CGFloat) throws -> NSEvent {
-        try #require(NSEvent.mouseEvent(with: .mouseMoved, location: NSPoint(x: x, y: 10), modifierFlags: [],
-                                        timestamp: 1, windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0,
-                                        pressure: 0))
+    static func mouseEvent(_ type: NSEvent.EventType, at x: CGFloat) throws -> NSEvent {
+        try #require(NSEvent.mouseEvent(with: type, location: NSPoint(x: x, y: 10), modifierFlags: [],
+                                        timestamp: 1, windowNumber: 0, context: nil, eventNumber: 0,
+                                        clickCount: type == .leftMouseUp ? 1 : 0, pressure: 0))
     }
+
+    static func mouseMoved(at x: CGFloat) throws -> NSEvent {
+        try mouseEvent(.mouseMoved, at: x)
+    }
+
+    static let receipt = ChromiumHostInputReceipt(browser: 1, seq: 1)
 
     @Test func aPacedPageSendsOneMoveInFlightAndTheLatestOnTheAck() throws {
         let page = makePage()
         var sent: [ChromiumHostFrame] = []
-        page.sink = { sent.append($0) }
+        page.sink = { frame in
+            sent.append(frame)
+            return Self.receipt
+        }
         page.pacesInput = true
         for x in 1...50 { page.mouseMoved(with: try Self.mouseMoved(at: CGFloat(x))) }
         #expect(sent.count == 1)
@@ -153,10 +200,40 @@ import Testing
         #expect(page.inputPacer?.stats.maxMovesInFlight == 1)
     }
 
+    @Test func aPacedDragSendsItsLastMoveBeforeTheMouseUp() throws {
+        let page = makePage()
+        var sent: [ChromiumHostFrame] = []
+        page.sink = { frame in
+            sent.append(frame)
+            return Self.receipt
+        }
+        page.pacesInput = true
+        for x in 1...10 { page.mouseDragged(with: try Self.mouseEvent(.leftMouseDragged, at: CGFloat(x))) }
+        page.mouseUp(with: try Self.mouseEvent(.leftMouseUp, at: 10))
+        #expect(sent.map { $0.v[2] } == [0, 0, 2])  // move, the last move, then the up
+        #expect(sent.map { $0.v[0] } == [1, 10, 10])
+    }
+
+    @Test func aMoveTheWriterDidNotTakeDoesNotStallTheNext() throws {
+        let page = makePage()
+        var sent = 0
+        page.sink = { _ in
+            sent += 1
+            return nil  // no host attached: nothing written, no ack
+        }
+        page.pacesInput = true
+        for x in 1...5 { page.mouseMoved(with: try Self.mouseMoved(at: CGFloat(x))) }
+        #expect(sent == 5)
+        #expect(page.inputPacer?.movesInFlight == 0)
+    }
+
     @Test func anUnpacedPageSendsEveryMove() throws {
         let page = makePage()
         var sent = 0
-        page.sink = { _ in sent += 1 }
+        page.sink = { _ in
+            sent += 1
+            return nil
+        }
         for x in 1...50 { page.mouseMoved(with: try Self.mouseMoved(at: CGFloat(x))) }
         #expect(sent == 50)
         #expect(page.inputPacer == nil)
@@ -168,6 +245,7 @@ import Testing
         page.sink = { [weak page] frame in
             sent += 1
             if ChromiumHostInputPacer.paced(frame) == .move { page?.inputAcked(.move) }
+            return Self.receipt
         }
         page.pacesInput = true
         for x in 1...20 { page.mouseMoved(with: try Self.mouseMoved(at: CGFloat(x))) }

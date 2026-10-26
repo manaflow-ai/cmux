@@ -139,7 +139,7 @@ final class TerminalThemeSetting {
     func showShuffledArt() {
         guard let turn = shuffling?.turn(at: now(), calendar: calendar()) else { return }
         backdropScope.setBackdropSelection(turn.picture)
-        dailyTimer.schedule(after: .seconds(turn.wait)) { @MainActor [weak self] in self?.showShuffledArt() }
+        dailyTimer.scheduleOnMain(after: .seconds(turn.wait)) { [weak self] in self?.showShuffledArt() }
     }
 
     /// Puts `snapshot`'s appearance on the Ghostty overrides before the
@@ -173,7 +173,7 @@ final class TerminalThemeSetting {
             // Only the opacity or a frosted radius moved: the window repaints now, and Ghostty
             // reloads once after the last step instead of on every one.
             repaint()
-            return reloadTimer.schedule(after: reloadDelay) { @MainActor [weak self] in self?.reload() }
+            return reloadTimer.scheduleOnMain(after: reloadDelay) { [weak self] in self?.reload() }
         }
         // At launch the config already loaded with these overrides (primed) or none.
         let loaded = Self.primed ?? State(theme: nil, font: .init(), background: .init())

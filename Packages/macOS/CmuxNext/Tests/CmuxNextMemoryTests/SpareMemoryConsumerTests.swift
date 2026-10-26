@@ -12,6 +12,11 @@ import Testing
         var spares = 0
         private(set) var drops = 0
         private(set) var refills = 0
+        private(set) var holds = 0
+
+        func hold() {
+            holds += 1
+        }
 
         func drop() {
             drops += 1
@@ -86,6 +91,41 @@ import Testing
         #expect(test.pool.refills == 1, "back at normal the pool is asked once to refill")
         test.source.send(.normal)
         #expect(test.pool.refills == 1, "a repeated level asks nothing")
+    }
+
+    /// p13-webui-047: a pool that closes only at critical (Chromium's spare windows) keeps its
+    /// untaken spare at warning, as Chrome keeps its spare renderer, and only holds new ones; critical
+    /// closes it, and a later warning holds again without a second close.
+    @Test func closingAtCriticalHoldsAtWarningAndClosesAtCritical() {
+        let source = ManualMemoryPressureSource()
+        let pressure = MemoryPressureEvents(source: source)
+        let coordinator = MemoryCoordinator(pressure: pressure, mode: .medium, slicer: ManualSlicer(clock: ManualClock()))
+        let pool = Pool()
+        let consumer = SpareMemoryConsumer(
+            name: "test-spare-windows", registry: coordinator, closing: .atCritical, spares: { pool.spares },
+            hold: { pool.hold() }, drop: { pool.drop() }, refill: { pool.refill() })
+        pool.spares = 1
+
+        source.send(.warning)
+        #expect(pool.holds == 1 && pool.drops == 0, "a warning closed the untaken spare")
+        #expect(pool.spares == 1)
+        #expect(!consumer.allowsSpares, "a new spare was allowed at warning")
+
+        source.send(.critical)
+        #expect(pool.drops == 1 && pool.spares == 0, "critical must close the untaken spare")
+
+        source.send(.warning)
+        #expect(pool.holds == 2 && pool.drops == 1)
+        source.send(.normal)
+        #expect(consumer.allowsSpares)
+        #expect(pool.refills == 1)
+        withExtendedLifetime((pressure, coordinator)) {}
+    }
+
+    @Test func theClosingLevels() {
+        let anyPressure = SpareMemoryConsumer.Closing.atAnyPressure, onlyCritical = SpareMemoryConsumer.Closing.atCritical
+        #expect([MemoryPressureLevel.normal, .warning, .critical].map(anyPressure.closes(at:)) == [false, true, true])
+        #expect([MemoryPressureLevel.normal, .warning, .critical].map(onlyCritical.closes(at:)) == [false, false, true])
     }
 
     /// A pool made under pressure learns it before its consumer's init returns: it never warms.

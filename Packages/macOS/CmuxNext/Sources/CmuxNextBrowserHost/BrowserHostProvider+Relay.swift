@@ -42,7 +42,7 @@ extension BrowserHostProvider {
         let gen = relayGeneration
         var session = RelaySession(generation: gen, table: CDPRelayTable(firstRawID: rawIDCursor[targetID]))
         let deadline = DemandTimer(owner: "browser-host.relay-prepare", clock: clock)
-        deadline.schedule(after: prepareDeadline) { @MainActor [weak self] in
+        deadline.scheduleOnMain(after: prepareDeadline) { [weak self] in
             self?.prepareFailed(targetID, gen, "the tab's page did not start in time")
         }
         session.deadline = deadline
