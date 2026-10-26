@@ -153,7 +153,6 @@ impl Hub {
                 continue;
             };
             if !super::transfer::is_plain_id(agent_id) {
-                let _ = std::fs::remove_file(entry.path());
                 continue;
             }
             let Ok(marker) = std::fs::read(entry.path()) else { continue };
@@ -166,11 +165,9 @@ impl Hub {
                 let target = root.join(outer_id);
                 let backup = root.join(format!(".{outer_id}.replacement-backup"));
                 if target.join("session.json").exists() || backup.join("session.json").exists() {
-                    if !recovery_owner(
-                        root,
-                        value.get("agentId").and_then(Value::as_str).unwrap_or(""),
-                        outer_id,
-                    ) {
+                    if value.get("agentId").and_then(Value::as_str) != Some(agent_id)
+                        || !recovery_owner(root, agent_id, outer_id)
+                    {
                         continue;
                     }
                     if !replace_durable {
@@ -205,10 +202,14 @@ impl Hub {
             else {
                 continue;
             };
-            let landed = if super::transfer::is_plain_id(outer_id) {
+            let landed = if let (Some(transfer_id), true) = (
+                value.get("transferId").and_then(Value::as_str),
+                super::transfer::is_plain_id(outer_id),
+            ) {
                 let mut landed = false;
                 let _ = self.store.scan(outer_id, 0, &mut |event: EventRecord| {
-                    landed |= event.kind == "transferred_in";
+                    landed |= event.kind == "transferred_in"
+                        && event.msg.get("transferId").and_then(Value::as_str) == Some(transfer_id);
                     !landed
                 });
                 landed
