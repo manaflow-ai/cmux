@@ -143,7 +143,7 @@ how the chat reaches the host:
 - A session reached through your Mac's peer daemon (`acpmux new --host`,
   `cmux agent open-tab --host`, or `--group` with `--host`) cannot be approved
   from the card yet: the host refuses the Allow, and the card says "Remote
-  approvals are off". Use it for prompts that need no tool approval: a prompt
+  approvals are off". Peer-route approvals are in progress; until they ship, use it for prompts that need no tool approval: a prompt
   that needs no tools, a read-only Codex review (below), or a `vmHost` VM.
 - For tool approvals, connect the host in cmux NEXT with **File › Connect to
   Machine…** and start the chat there, on that machine. Before such a chat's
