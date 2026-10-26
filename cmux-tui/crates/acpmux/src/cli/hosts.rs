@@ -982,9 +982,10 @@ mod tests {
         let calls = std::fs::read_to_string(home.join("calls")).unwrap_or_default();
         let unit = std::fs::read_to_string(home.join(".config/systemd/user/acpmux.service"))
             .unwrap_or_default();
-        let units: Vec<String> = std::fs::read_dir(home.join(".config/systemd/user"))
+        let mut units: Vec<String> = std::fs::read_dir(home.join(".config/systemd/user"))
             .map(|dir| dir.filter_map(|e| e.ok()?.file_name().into_string().ok()).collect())
             .unwrap_or_default();
+        units.sort();
         let _ = std::fs::remove_dir_all(&home);
         LinuxRun {
             calls: calls.lines().map(str::to_owned).collect(),
@@ -995,6 +996,10 @@ mod tests {
             code: out.status.code(),
         }
     }
+
+    /// The daemon's unit and, beside it, `host_auto_update`'s timer and its service.
+    const WITH_TIMER: [&str; 3] =
+        ["acpmux-update.service", "acpmux-update.timer", "acpmux.service"];
 
     impl LinuxRun {
         fn started_by_systemd(&self) -> bool {
@@ -1010,7 +1015,7 @@ mod tests {
     fn linux_setup_installs_the_unit_and_hands_a_detached_daemon_to_it() {
         let run = linux_restart_run("setup", true, LINGERING);
         assert_eq!(run.unit, SYSTEMD_UNIT);
-        assert_eq!(run.units, ["acpmux.service"], "written beside and renamed, nothing left");
+        assert_eq!(run.units, WITH_TIMER, "written beside and renamed, nothing left");
         assert!(run.unit.contains("KillMode=process"), "a restart must keep the agent hosts");
         assert_never_gives_up(&run.unit);
         let steps: Vec<&str> = run
@@ -1099,18 +1104,22 @@ mod tests {
                 LinuxHost { installed_text: Some(old), ..host },
             );
             assert_eq!(run.unit, SYSTEMD_UNIT, "{}", run.err);
-            assert_eq!(run.units, ["acpmux.service"], "no temporary unit file is left");
+            assert_eq!(run.units, WITH_TIMER, "no temporary unit file is left");
             let reload = run.calls.iter().position(|c| c == "systemctl --user daemon-reload");
             let restart =
                 run.calls.iter().position(|c| c == "systemctl --user restart acpmux.service");
             assert!(reload.is_some() && reload < restart, "reload, then restart: {:?}", run.calls);
             assert!(run.started_by_systemd());
         }
-        // Already this build's text: not rewritten, no reload.
+        // Already this build's text: not rewritten, no reload before the
+        // restart (the one after it reads the update timer's new units).
         let run = linux_restart_run("refresh-same", false, host);
         assert_eq!(run.unit, SYSTEMD_UNIT);
+        let restart = run.calls.iter().position(|c| c == "systemctl --user restart acpmux.service");
         assert!(
-            !run.calls.iter().any(|c| c == "systemctl --user daemon-reload"),
+            !run.calls[..restart.unwrap_or(run.calls.len())]
+                .iter()
+                .any(|c| c == "systemctl --user daemon-reload"),
             "{:?}",
             run.calls
         );
@@ -1133,7 +1142,7 @@ mod tests {
         assert_eq!(run.unit, OLD_SYSTEMD_UNITS[0]);
         assert!(run.err.contains("did not reload"), "{}", run.err);
         assert!(run.started_by_systemd(), "{:?}", run.calls);
-        assert_eq!(run.units, ["acpmux.service"], "no temporary unit file is left");
+        assert_eq!(run.units, WITH_TIMER, "no temporary unit file is left");
         // Current text that systemd has not read: read before the restart;
         // when that read fails, no restart.
         let run = linux_restart_run("need-reload", false, LinuxHost { need_reload: true, ..host });
