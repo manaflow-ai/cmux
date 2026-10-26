@@ -22,8 +22,8 @@ public final class ChiefBrainWatch {
     /// Whether a pid runs an `optchat-chief`; the tests name a stand-in process instead.
     private let isChiefHost: (pid_t) -> Bool
     private var source: (any DispatchSourceProcess)?
-    /// One kernel event on the home's state folder while no host is watched (see ``armOnLock``).
-    private var lockSource: (any DispatchSourceFileSystemObject)?
+    /// The kernel sources that look for a host's lock while none is watched (see ``armOnLock``).
+    private var lockSources: [any DispatchSourceFileSystemObject] = []
     /// The process the armed source watches; an event for another pid is stale.
     private var watchedPID: pid_t?
     private var deaths: [ContinuousClock.Instant] = []
@@ -54,8 +54,7 @@ public final class ChiefBrainWatch {
             armOnLock()
             return
         }
-        lockSource?.cancel()
-        lockSource = nil
+        cancelLockSources()
         setWatched(pid)
         let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .main)
         weak let weakSelf = self
@@ -80,43 +79,56 @@ public final class ChiefBrainWatch {
         stopped = true
         source?.cancel()
         source = nil
-        lockSource?.cancel()
-        lockSource = nil
+        cancelLockSources()
         setWatched(nil)
     }
 
     /// A launch whose pid the shell did not print leaves nothing to watch until the host takes the
-    /// home's lock, which it does a moment later (`ChiefHostStop.runningHostPID` reads the pid the
-    /// holder writes there). So while no host is watched, one kernel event on the home's `state`
-    /// folder (where the lock is written) looks again: no polling and no timer. It ends when a host
-    /// is watched, at ``stop()``, or when the folder cannot be opened, and a reader of the brain's
-    /// liveness (Home's default Chief) hears the host through ``Watching`` either way.
+    /// home's lock, which it does a moment later. So while no host is watched, the kernel says when
+    /// the lock changes and the watch looks again: no polling and no timer.
+    ///
+    /// Two sources, because the host writes its pid into the lock file in place (optchat-chief's
+    /// `lock.rs` truncates it and writes, and never removes the file): a modified lock raises an
+    /// event on the **file**, never on the folder that holds it. The folder's event is for the
+    /// lock's first creation on a fresh home, where there is no file to watch yet; it arms again,
+    /// which then watches the file. They end when a host is watched and at ``stop()``, and a reader
+    /// of the brain's liveness (Home's default Chief) hears the host through ``Watching``.
     private func armOnLock() {
-        guard !stopped, lockSource == nil else { return }
+        guard !stopped else { return }
+        cancelLockSources()
         let state = home.root.appendingPathComponent("state")
-        // concurrency-allow: one open of a local folder per launch that watched nothing
-        let fd = open(state.path, O_EVTONLY)
-        guard fd >= 0 else {
-            logger.info("chief brain watch: no host and no state folder to watch for its lock")
-            return
+        for (url, isFolder) in [(state.appendingPathComponent("host.lock"), false), (state, true)] {
+            // concurrency-allow: one open of a local path while no host is watched
+            let fd = open(url.path, O_EVTONLY)
+            guard fd >= 0 else { continue }
+            let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: .write, queue: .main)
+            weak let weakSelf = self
+            source.setEventHandler {
+                // task-owner: one hop to the main actor per lock change
+                Task { @MainActor in
+                    // A folder change may be the lock's creation: arm again, which watches the file.
+                    if isFolder { weakSelf?.armOnLock() } else { weakSelf?.lockMayHaveAHost() }
+                }
+            }
+            source.setCancelHandler { close(fd) }
+            lockSources.append(source)
+            source.resume()
         }
-        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: .write, queue: .main)
-        weak let weakSelf = self
-        source.setEventHandler {
-            // task-owner: one hop to the main actor per state-folder change
-            Task { @MainActor in weakSelf?.lockMayHaveAHost() }
-        }
-        source.setCancelHandler { close(fd) }
-        lockSource = source
-        source.resume()
-        // The host may have taken the lock between the read above and this arming.
+        if lockSources.isEmpty { logger.info("chief brain watch: no host, and no lock or state folder to watch") }
+        // The host may have taken the lock between the read that found none and this arming.
         lockMayHaveAHost()
     }
 
-    /// The home's state folder changed while nothing was watched: watch the host that holds the
-    /// lock now, if one does. `watch` cancels this source once it has one.
+    private func cancelLockSources() {
+        for source in lockSources { source.cancel() }
+        lockSources = []
+    }
+
+    /// The home's lock changed while nothing was watched: watch the host that holds it now, if one
+    /// does. ``watch(_:)`` cancels these sources once it has a host.
     private func lockMayHaveAHost() {
-        guard !stopped, !restarting, source == nil, let pid = ChiefHostStop.runningHostPID(home: home, isChiefHost: isChiefHost) else { return }
+        guard !stopped, !restarting, source == nil,
+              let pid = ChiefHostStop.runningHostPID(home: home, isChiefHost: isChiefHost) else { return }
         watch(pid)
     }
 
