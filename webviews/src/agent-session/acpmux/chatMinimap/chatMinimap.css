@@ -8,8 +8,10 @@
   z-index: 3;
   height: 0;
 }
+/* Sized inline, so it contains its own layout and style (not paint: that would clip the focus ring). */
 .acpmux-chat-minimap__track {
   position: absolute;
+  contain: size layout style;
   cursor: default;
   border-radius: 4px;
   outline: none;

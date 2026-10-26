@@ -6,7 +6,7 @@
 // it do anything when a reply is streaming"): the rows above the reply draw once, the reply's place is
 // a placeholder with a shimmer (chatMinimap.css), and it draws once when the reply ends. The box then
 // moves only for the person's own scrolling, never for the transcript following the reply. Every listener, observer and timer goes on unmount.
-import React, { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { memo, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
 import { useChatDisplay, useChatMinimap } from "../chatDisplay";
@@ -112,6 +112,21 @@ const Minimap = memo(function Minimap({
   const canvas = useRef<HTMLCanvasElement>(null);
   const view = useRef<HTMLDivElement>(null);
   const control = useRef<HTMLDivElement>(null);
+  // The scrollbar controls the transcript: its id, given here when it has none.
+  const ownId = useId();
+  const [controls, setControls] = useState<string | undefined>(undefined);
+  // A passive effect: the scroller is this component's parent, whose ref is attached after this
+  // child's layout effects run.
+  useEffect(() => {
+    const node = scroller.current;
+    if (!node) return;
+    const given = !node.id;
+    if (given) node.id = ownId;
+    setControls(node.id);
+    return () => {
+      if (given && node.id === ownId) node.removeAttribute("id");
+    };
+  }, [scroller, ownId]);
   const [dragging, setDragging] = useState(false);
   /// The placeholder over the streaming reply: its place on the map, set once per stream.
   const [hold, setHold] = useState<{ top: number; height: number } | undefined>(undefined);
@@ -264,7 +279,10 @@ const Minimap = memo(function Minimap({
       schedule(true);
     };
     const resize = () => schedule(false);
-    const scrolled = () => {
+    // A scroll only asks for one frame: the scroller is read and the view box written there, once a
+    // frame however many scroll events came, and never inside the scroll event (no layout read there).
+    const follow = () => {
+      boxFrame = 0;
       const record = drawn.current;
       // While a reply streams, the transcript following it (its end, as the reply grows) leaves the box
       // where it was put when it reached the end; a scroll away from the end is the person's own, as
@@ -274,8 +292,12 @@ const Minimap = memo(function Minimap({
         if (atLatest && record.atLatest) return;
         record.atLatest = atLatest;
       } else record.atLatest = false;
-      record.scrolledAt = performance.now();
       placeView();
+    };
+    let boxFrame = 0;
+    const scrolled = () => {
+      drawn.current.scrolledAt = performance.now();
+      boxFrame ||= requestAnimationFrame(follow);
     };
     const theme = new MutationObserver(recolor);
     theme.observe(document.documentElement, {
@@ -289,6 +311,7 @@ const Minimap = memo(function Minimap({
       window.removeEventListener("resize", resize);
       node?.removeEventListener("scroll", scrolled);
       if (state.frame) cancelAnimationFrame(state.frame);
+      if (boxFrame) cancelAnimationFrame(boxFrame);
       if (state.timer) clearTimeout(state.timer);
       if (state.post) clearTimeout(state.post);
       state.frame = 0;
@@ -323,6 +346,9 @@ const Minimap = memo(function Minimap({
         aria-orientation="vertical"
         aria-valuemin={0}
         aria-valuemax={100}
+        // The share scrolled, as the view box shows it: written on focus and while focused (placeView).
+        aria-valuenow={0}
+        aria-controls={controls}
         onFocus={() => placeView()}
         data-dragging={dragging || undefined}
         style={{
@@ -374,7 +400,12 @@ const Minimap = memo(function Minimap({
           node.scrollTop = Math.max(0, node.scrollTop + delta);
         }}
       >
-        <canvas ref={canvas} className="acpmux-chat-minimap__canvas" style={{ width: MINIMAP_WIDTH, height: track }} />
+        <canvas
+          ref={canvas}
+          className="acpmux-chat-minimap__canvas"
+          style={{ width: MINIMAP_WIDTH, height: track }}
+          aria-hidden
+        />
         {hold && (
           <div
             className="acpmux-chat-minimap__placeholder"
