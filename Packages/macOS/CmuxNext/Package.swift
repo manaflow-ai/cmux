@@ -1019,9 +1019,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: uiSwiftSettings
         ),
         // The thumbnail grid: tiles, the thumbnail cache, drag out, drop reading, Quick Look and the
-        // command menu. It reads and changes no files (CmuxNextFiles does). System frameworks only.
+        // command menu. It reads and changes no files (CmuxNextFiles does). System frameworks and
+        // CmuxNextCompat only (the thumbnail cache is a memory consumer).
         .target(
             name: "CmuxNextFileGrid",
+            dependencies: ["CmuxNextCompat"],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
             ],
@@ -1038,7 +1040,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextScreenshotsTests",
-            dependencies: ["CmuxNextFileGrid", "CmuxNextFiles", "CmuxNextScreenshots"],
+            dependencies: ["CmuxNextCompat", "CmuxNextFileGrid", "CmuxNextFiles", "CmuxNextScreenshots"],
             swiftSettings: uiSwiftSettings
         ),
         // The built-in Memory Inspector (plans/cmux-next/memory-inspector-native-DESIGN.md):

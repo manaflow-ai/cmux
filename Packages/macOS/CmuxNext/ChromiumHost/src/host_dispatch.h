@@ -143,7 +143,6 @@ class HostContext {
   static void OnShimEvent(void* ctx, int kind, int browser_id, int request, int64_t a, int64_t b, const char* s1,
                           const char* s2);
   // The policy handlers installed through InstallPolicy* (initialize's ctx).
-  static int OnFocusRequest(void* ctx, int browser_id, int source);
   static int OnWindowRequest(void* ctx, int kind, int disposition, int source_browser_id, int has_bounds, int x,
                              int y, int width, int height, int user_gesture, const char* url,
                              const char* profile_path);
@@ -172,7 +171,7 @@ class HostContext {
   // so cmux reads the host's value after the op once the ACK clears its mark.
   void RefreshMirror(uint16_t op, const TlvWriter& key, uint32_t wildcards);
 
-  // Puts the host's own focus and window-request handlers in the shim
+  // Puts the host's window-request handler in the shim and clears its focus handler
   // (InstallPolicy* and Resume).
   void InstallHostPolicies();
 
@@ -226,7 +225,6 @@ class HostContext {
   // so ids it minted are bound first and every MIRROR and EVENT the op
   // caused reaches cmux before its ack (read-your-writes, task 016b).
   bool dispatching_ = false;
-  uint16_t dispatching_op_ = 0;
   uint64_t dispatching_view_ = 0;      // the page view token the op being dispatched opened
   std::optional<std::string> dispatching_profile_;  // a create_window's profile_cache_path
   std::vector<HeldEvent> held_events_;
