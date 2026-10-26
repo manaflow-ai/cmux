@@ -227,9 +227,8 @@ pub struct CheckedFolder {
     path: PathBuf,
     /// Its device and inode; None off unix.
     pin: Option<crate::cwd_pin::CwdPin>,
-    /// Keeps its inode from being reused while the start runs.
     #[cfg(unix)]
-    _held: Arc<std::fs::File>,
+    held: Arc<std::fs::File>,
 }
 
 impl std::ops::Deref for CheckedFolder {
@@ -276,7 +275,7 @@ impl CheckedFolder {
             path,
             pin,
             #[cfg(unix)]
-            _held: held,
+            held,
         })
     }
 
@@ -291,6 +290,15 @@ impl CheckedFolder {
         }
         Ok(())
     }
+
+    /// The open handle on it (unix): git runs in this very folder through it
+    /// (`subsession_worktree::Dir`).
+    pub(super) fn held(&self) -> Option<Arc<std::fs::File>> {
+        #[cfg(unix)]
+        return Some(self.held.clone());
+        #[cfg(not(unix))]
+        None
+    }
 }
 
 /// `subsessions.cwd_moved`: `cwd` no longer leads to the folder a sub-session's start checked.
@@ -303,6 +311,29 @@ fn moved_refusal(cwd: &Path) -> RpcError {
         ),
         json!({"cwd": cwd}),
     )
+}
+
+/// Ok when `start` (a sub-session's folder in the worktree just made from `source`) is in that
+/// very worktree (`subsession_worktree::verify_made`); else `subsessions.cwd_moved`.
+pub(super) async fn verify_worktree(
+    source: &CheckedFolder,
+    made: &crate::subsession_worktree::Worktree,
+    start: &CheckedFolder,
+) -> Result<(), RpcError> {
+    let (source_path, source_held) = (source.path.clone(), source.held());
+    let (start_path, start_held) = (start.path.clone(), start.held());
+    let made = made.clone();
+    let checked = tokio::task::spawn_blocking(move || {
+        use crate::subsession_worktree::{Dir, verify_made};
+        let source = Dir::held(&source_path, source_held.as_deref());
+        verify_made(source, &made, Dir::held(&start_path, start_held.as_deref()))
+    })
+    .await
+    .map_err(|e| RpcError::internal(e.to_string()))?;
+    checked.map_err(|why| {
+        tracing::warn!(cwd = %start.path.display(), %why, "sub-session worktree");
+        moved_refusal(&start.path)
+    })
 }
 
 impl CheckedFolder {
