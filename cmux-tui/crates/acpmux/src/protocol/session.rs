@@ -311,6 +311,9 @@ pub struct QueuedPromptSummary {
     /// The images it sends, in its order; `_acpmux/attachment` reads each by its id.
     #[serde(default)]
     pub images: Vec<QueuedImage>,
+    /// The sending agent's name when it is another agent's message, null for the person's: an
+    /// app draws it as a received message waiting for the turn, not as a composer row.
+    pub from_agent: Option<String>,
 }
 
 /// An image a queued prompt sends.
