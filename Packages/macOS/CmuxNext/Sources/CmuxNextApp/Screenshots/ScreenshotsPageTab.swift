@@ -30,6 +30,8 @@ final class ScreenshotsPageTab: BrowserTab {
     @ObservationIgnored var onNavigate: ((URL) -> Void)?
     /// Runs when the tab closes (the service stops following settings for it).
     @ObservationIgnored var onClose: (() -> Void)?
+    /// The scroll position a hibernation saved, for the rebuilt page's first show.
+    @ObservationIgnored let scrollRestore = BrowserAppPageScroll()
 
     init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, model: ScreenshotsModel, cache: ThumbnailCache,
          workspace: any ScreenshotsWorkspace, files: any FileOperating) {
@@ -64,6 +66,7 @@ final class ScreenshotsPageTab: BrowserTab {
 
     func setContentVisible(_ visible: Bool) {
         view.isHidden = !visible
+        if visible { scrollRestore.pageDidShow(view) } else { scrollRestore.pageDidHide() }
     }
 
     func snapshot() async throws -> CGImage {
@@ -87,7 +90,23 @@ final class ScreenshotsPageTab: BrowserTab {
     func showDevTools() {}
 
     func close() {
+        scrollRestore.cancel()
         model.stop()
         onClose?()
+    }
+}
+
+/// Hibernates as a web page does (`memoryDiscardPageTabs`): the shown folder, the file name filter
+/// and the grid's scroll go with the tab; its watches and reads stop with `close()`.
+extension ScreenshotsPageTab: BrowserAppPage {
+    func saveViewState() -> BrowserAppPageState {
+        BrowserAppPageState(url: state.url ?? ScreenshotsPageAddress.url, scroll: BrowserAppPageScroll.origin(in: view),
+                            search: model.query, selection: model.selectedSourceID)
+    }
+
+    func restoreViewState(_ saved: BrowserAppPageState) {
+        if let search = saved.search { model.query = search }
+        model.selectedSourceID = saved.selection
+        scrollRestore.restore(saved.scroll)
     }
 }

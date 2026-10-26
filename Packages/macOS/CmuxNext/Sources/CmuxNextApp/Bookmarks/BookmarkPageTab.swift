@@ -23,6 +23,8 @@ final class BookmarkPageTab: BrowserTab {
     @ObservationIgnored let source: BookmarkManagerSourceAdapter
     @ObservationIgnored let contentView: NSView
     @ObservationIgnored var onNavigate: ((URL) -> Void)?
+    /// The scroll position a hibernation saved, for the rebuilt page's first show.
+    @ObservationIgnored let scrollRestore = BrowserAppPageScroll()
 
     init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, source: BookmarkManagerSourceAdapter) {
         self.id = id
@@ -54,6 +56,7 @@ final class BookmarkPageTab: BrowserTab {
     func setContentVisible(_ visible: Bool) {
         contentView.isHidden = !visible
         if visible { model.reload() }
+        if visible { scrollRestore.pageDidShow(contentView) } else { scrollRestore.pageDidHide() }
     }
 
     func snapshot() async throws -> CGImage {
@@ -72,5 +75,20 @@ final class BookmarkPageTab: BrowserTab {
     func setZoom(_ zoom: Double) {}
     func exitContentFullscreen() {}
     func showDevTools() {}
-    func close() {}
+    func close() { scrollRestore.cancel() }
+}
+
+/// Hibernates as a web page does (`memoryDiscardPageTabs`): the shown folder, the search and the
+/// scroll go with the tab.
+extension BookmarkPageTab: BrowserAppPage {
+    func saveViewState() -> BrowserAppPageState {
+        BrowserAppPageState(url: state.url ?? BookmarkPageAddress.url, scroll: BrowserAppPageScroll.origin(in: contentView),
+                            search: model.query, selection: model.folder)
+    }
+
+    func restoreViewState(_ saved: BrowserAppPageState) {
+        if let folder = saved.selection { model.folder = folder }
+        if let search = saved.search { model.query = search }
+        scrollRestore.restore(saved.scroll)
+    }
 }

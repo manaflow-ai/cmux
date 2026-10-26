@@ -22,6 +22,8 @@ final class VaultPageTab: BrowserTab {
     @ObservationIgnored let vault: SessionVault
     @ObservationIgnored let contentView: NSView
     @ObservationIgnored var onNavigate: ((URL) -> Void)?
+    /// The scroll position a hibernation saved, for the rebuilt page's first show.
+    @ObservationIgnored let scrollRestore = BrowserAppPageScroll()
 
     init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, host: VaultHostView) {
         self.id = id
@@ -56,6 +58,7 @@ final class VaultPageTab: BrowserTab {
     func setContentVisible(_ visible: Bool) {
         contentView.isHidden = !visible
         if visible { reload() }
+        if visible { scrollRestore.pageDidShow(contentView) } else { scrollRestore.pageDidHide() }
     }
 
     func snapshot() async throws -> CGImage {
@@ -74,5 +77,20 @@ final class VaultPageTab: BrowserTab {
     func setZoom(_ zoom: Double) {}
     func exitContentFullscreen() {}
     func showDevTools() {}
-    func close() {}
+    func close() { scrollRestore.cancel() }
+}
+
+/// Hibernates as a web page does (`memoryDiscardPageTabs`): the list's scroll goes with the tab;
+/// its search and picked row live on the vault the rebuilt page shows again, and are saved too.
+extension VaultPageTab: BrowserAppPage {
+    func saveViewState() -> BrowserAppPageState {
+        BrowserAppPageState(url: state.url ?? VaultPageAddress.url, scroll: BrowserAppPageScroll.origin(in: contentView),
+                            search: vault.filter, selection: vault.selection)
+    }
+
+    func restoreViewState(_ saved: BrowserAppPageState) {
+        if let search = saved.search { vault.filter = search }
+        if let selection = saved.selection { vault.selection = selection }
+        scrollRestore.restore(saved.scroll)
+    }
 }

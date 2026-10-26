@@ -85,6 +85,9 @@ final class BrowserHibernation {
     /// A frozen page whose memory grows goes with its opener group (`FrozenGrowthRule`, feature
     /// `frozenGrowthDiscard`, set by the App); `growthDeadline` is its next one-shot reading.
     var discardsGrowingFrozenPages = false
+    /// cmux pages in browser tabs (`BrowserAppPage`) hibernate as web pages do (feature
+    /// `memoryDiscardPageTabs`, set by the App); off, they count as pages that cannot restore.
+    var discardsAppPages = false
     var frozenGrowth = FrozenGrowthRule()
     let growthDeadline = DemandTimer(owner: "BrowserFrozenGrowth")
     /// Tab `key`'s opener group (its openers and the tabs they opened), itself included; injected by the App.
@@ -750,8 +753,4 @@ final class BrowserHibernation {
         case go, stale
         case keep(HibernationPlanner.Exemption)
     }
-}
-
-private extension Duration {
-    var seconds: Double { Double(components.seconds) + Double(components.attoseconds) / 1e18 }
 }

@@ -26,6 +26,8 @@ final class HistoryPageTab: BrowserTab {
     /// The React page (Debug Settings `history.surface = web`; react-pages.md H1b), else nil.
     @ObservationIgnored let webPage: PageWebView?
     @ObservationIgnored var onNavigate: ((URL) -> Void)?
+    /// The scroll position a hibernation saved, for the rebuilt page's first show.
+    @ObservationIgnored let scrollRestore = BrowserAppPageScroll()
 
     init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, source: any HistoryPageSource,
          webPage: PageWebView? = nil) {
@@ -68,6 +70,7 @@ final class HistoryPageTab: BrowserTab {
         contentView.isHidden = !visible
         // The React page stays current from the owner's change events; the native one re-reads.
         if visible, webPage == nil { model.reload() }
+        if visible { scrollRestore.pageDidShow(contentView) } else { scrollRestore.pageDidHide() }
     }
 
     func snapshot() async throws -> CGImage {
@@ -90,7 +93,28 @@ final class HistoryPageTab: BrowserTab {
     func setZoom(_ zoom: Double) {}
     func exitContentFullscreen() {}
     func showDevTools() {}
-    func close() { webPage?.close() }
+    func close() {
+        scrollRestore.cancel()
+        webPage?.close()
+    }
+}
+
+/// Hibernates as a web page does (`memoryDiscardPageTabs`): the native page's search, selection
+/// and scroll go with the tab; the React page keeps none (it reads its state again when built).
+extension HistoryPageTab: BrowserAppPage {
+    func saveViewState() -> BrowserAppPageState {
+        let url = state.url ?? HistoryPageAddress.url
+        guard webPage == nil else { return BrowserAppPageState(url: url) }
+        return BrowserAppPageState(url: url, scroll: BrowserAppPageScroll.origin(in: contentView), search: model.text,
+                                   selection: model.selection)
+    }
+
+    func restoreViewState(_ saved: BrowserAppPageState) {
+        guard webPage == nil else { return }
+        if let search = saved.search { model.text = search }
+        model.selection = saved.selection
+        scrollRestore.restore(saved.scroll)
+    }
 }
 
 enum HistoryPageStrings {

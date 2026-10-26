@@ -26,6 +26,8 @@ final class AgentActivityPageTab: BrowserTab {
     @ObservationIgnored let model: AgentActivityModel
     @ObservationIgnored let contentView: NSView
     @ObservationIgnored var onNavigate: ((URL) -> Void)?
+    /// The scroll position a hibernation saved, for the rebuilt page's first show.
+    @ObservationIgnored let scrollRestore = BrowserAppPageScroll()
 
     init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, source: any AgentActivitySource, webUI: WebUIHost) {
         self.id = id
@@ -61,6 +63,7 @@ final class AgentActivityPageTab: BrowserTab {
 
     func setContentVisible(_ visible: Bool) {
         contentView.isHidden = !visible
+        if visible { scrollRestore.pageDidShow(contentView) } else { scrollRestore.pageDidHide() }
     }
 
     func snapshot() async throws -> CGImage {
@@ -79,5 +82,26 @@ final class AgentActivityPageTab: BrowserTab {
     func setZoom(_ zoom: Double) {}
     func exitContentFullscreen() {}
     func showDevTools() {}
-    func close() { (contentView as? PageWebView)?.close() }
+    /// Closed or discarded: the model's pushes stop (the host stops sending sessions and events),
+    /// then the page goes.
+    func close() {
+        scrollRestore.cancel()
+        model.stop()
+        (contentView as? PageWebView)?.close()
+    }
+}
+
+/// Hibernates as a web page does (`memoryDiscardPageTabs`): the filter, the selected session and
+/// the native list's scroll go with the tab; the rebuilt page starts a new model.
+extension AgentActivityPageTab: BrowserAppPage {
+    func saveViewState() -> BrowserAppPageState {
+        BrowserAppPageState(url: state.url ?? AgentActivityPageAddress.url, scroll: BrowserAppPageScroll.origin(in: contentView),
+                            search: model.filter, selection: model.selectedSessionID)
+    }
+
+    func restoreViewState(_ saved: BrowserAppPageState) {
+        if let search = saved.search { model.filter = search }
+        if let session = saved.selection { model.select(session: session) }
+        scrollRestore.restore(saved.scroll)
+    }
 }

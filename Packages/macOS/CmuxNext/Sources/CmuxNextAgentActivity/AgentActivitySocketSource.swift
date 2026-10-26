@@ -83,6 +83,20 @@ public final class AgentActivitySocketSource: AgentActivitySource {
         connect()
     }
 
+    /// Ends the subscription, its reconnects and the socket folder's watch: the page closed or was
+    /// discarded. Its pending drain finds no subscription and starts no reconnect.
+    public func stop() {
+        sink = nil
+        let connection = subscription
+        subscription = nil
+        connection?.cancel()
+        reconnect?.cancel()
+        reconnect = nil
+        directoryWatch?.cancel()
+        directoryWatch = nil
+        followed.removeAll()
+    }
+
     public func follow(session: String, _ on: Bool) {
         if on {
             followed.insert(session)
