@@ -9,9 +9,9 @@ import CmuxNextWakeups
 /// config sets explicitly (and its opacity and blur) still win. A light/dark
 /// pair resolves to the variant for the current system appearance.
 ///
-/// Configs are built once per theme name by `GhosttyRuntime` and dropped on
-/// every config change; `generation` bumps then and on a light/dark switch,
-/// so owners re-resolve.
+/// Configs are built once per theme name by `GhosttyRuntime`, on a lane, and
+/// dropped on every config change; `generation` bumps then, when a build
+/// lands and on a light/dark switch, so owners re-resolve.
 @MainActor
 final class ThemeResolver {
     struct Resolved {
@@ -38,10 +38,12 @@ final class ThemeResolver {
             previous?()
             self?.changed()
         }
+        // A theme's config builds on a lane: a level that got nil resolves again when it lands.
+        runtime.addThemeConfigHandler { [weak self] in self?.changed() }
     }
 
-    /// Colors and config for `spec`; nil for no spec, or when libghostty
-    /// cannot build a config (the level then inherits).
+    /// Colors and config for `spec`; nil for no spec, while its config builds,
+    /// or when libghostty cannot build one (the level then inherits).
     func resolve(_ spec: ThemeSpec?) -> Resolved? {
         guard let spec, case let name = spec.name(isDark: isDark), let config = GhosttyRuntime.shared.themeConfig(named: name),
               let colors = config.colors else { return nil }

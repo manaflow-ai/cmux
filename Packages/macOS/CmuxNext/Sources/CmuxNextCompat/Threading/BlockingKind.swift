@@ -58,6 +58,12 @@ public enum BlockingKind: String, Sendable, CaseIterable {
     /// site counts awaits without time. Chrome's rule: work a person waits for is `USER_BLOCKING`
     /// (base/task/task_traits.h).
     case priorityInversion = "priority-inversion"
+    /// A synchronous call into a C library that reads files or waits inside it, behind a C interface no Swift seam
+    /// can see into: libghostty's config load (`ghostty_config_load_default_files`, `ghostty_config_load_file`,
+    /// `ghostty_config_load_recursive_files`, and `ghostty_config_finalize`, which reads the theme file), through
+    /// ``blockingFFI(fileID:line:_:)``. Chrome marks the same calls into third-party code with a
+    /// `ScopedBlockingCall` at the call (base/threading/scoped_blocking_call.h).
+    case ffi
 
     /// Whether a site of this kind is recorded only, in every mode: ``lockWait`` (its measured wait includes the
     /// main thread's own scheduling delay) and ``priorityInversion`` (an await, not a wait).
