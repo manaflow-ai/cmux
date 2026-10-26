@@ -1,6 +1,9 @@
 import CmuxNextWakeups
 import Foundation
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Off-main event buffer. The pump appends; the main actor takes whole
 /// batches. At most one frame is requested per non-empty buffer.
@@ -350,7 +353,7 @@ extension DaemonStore {
                 refreshWaiters.insert(contentsOf: refreshing, at: 0)
                 if resyncRetry == nil { resumeRefreshWaiters() }
             } else {
-                for waiter in refreshing { waiter.resume() }
+                for waiter in refreshing { waiter.resume(returning: ()) }
             }
             if !failed, !refreshWaiters.isEmpty {
                 // Asked while this snapshot was in flight: fetch one after it.
@@ -364,10 +367,10 @@ extension DaemonStore {
     /// barrier, intents lifted and reapplied) and returns once one requested
     /// after this call is applied, or at once when no connection drives the
     /// store. A failed snapshot returns too (after its retries), and the
-    /// store keeps what it had.
+    /// store keeps what it had, as does a waiter dropped unresumed.
     public func refresh() async {
         guard driver != nil else { return }
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
             refreshWaiters.append(continuation)
             // A resync in flight was requested before this call: it fetches
             // another one when it finishes.
@@ -395,7 +398,7 @@ extension DaemonStore {
     func resumeRefreshWaiters() {
         let waiting = refreshWaiters
         refreshWaiters.removeAll()
-        for waiter in waiting { waiter.resume() }
+        for waiter in waiting { waiter.resume(returning: ()) }
     }
 
     private func scheduleResyncRetry(seedAgents: Bool) {

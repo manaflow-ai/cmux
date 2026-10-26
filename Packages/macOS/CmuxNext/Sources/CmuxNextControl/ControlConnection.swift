@@ -1,6 +1,9 @@
 import CmuxNextCompat
 import CmuxNextSettings
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import Darwin
 import Foundation
 
@@ -50,7 +53,7 @@ final class ControlConnection: Sendable {
         var isDescriptorClosed = false
         var continuation: AsyncStream<String>.Continuation?
         var consumer: Task<Void, Never>?
-        var hangupWaiters: [CheckedContinuation<Void, Never>] = []
+        var hangupWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
         /// Called once on the connection queue after the descriptor closed.
         var onClosed: (@Sendable () -> Void)?
     }
@@ -111,12 +114,12 @@ final class ControlConnection: Sendable {
     }
 
     /// Returns once the client stopped sending (EOF, error) or the
-    /// connection closed (a failed write to a gone client closes it).
+    /// connection closed (a failed write to a gone client closes it). A waiter dropped unresumed returns too.
     func hangup() async {
-        await withCheckedContinuation { waiter in
+        _ = try? await withOnceContinuation { (waiter: OnceContinuation<Void, OnceContinuationError>) in
             queue.async { [self] in
                 withState { state in
-                    if state.isInputFinished || state.isClosed { waiter.resume() } else { state.hangupWaiters.append(waiter) }
+                    if state.isInputFinished || state.isClosed { waiter.resume(returning: ()) } else { state.hangupWaiters.append(waiter) }
                 }
             }
         }
@@ -171,7 +174,7 @@ final class ControlConnection: Sendable {
     private func resumeHangupWaiters(_ state: inout State) {
         let waiters = state.hangupWaiters
         state.hangupWaiters.removeAll()
-        waiters.forEach { $0.resume() }
+        waiters.forEach { $0.resume(returning: ()) }
     }
 
     private func readAvailable(_ state: inout State) {
