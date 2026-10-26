@@ -83,9 +83,11 @@ function noteRows(notes: ReleaseNotes, language: string): Row[][] {
 
 /** The page's rows: the hero and New / Improved / Fixed / Security; All Changes only for bead ids. */
 function pageDefects(where: NotesDefect["where"], view: ReleaseView, heading = ""): NotesDefect[] {
-  const rows = [heading ? { title: heading, summary: "" } : undefined, view.hero, ...view.groups.flatMap((g) => g.items)].filter(
-    (i) => i !== undefined,
-  );
+  const rows = [
+    heading ? { title: heading, summary: "" } : undefined,
+    view.hero,
+    ...view.groups.flatMap((g) => g.items),
+  ].filter((i) => i !== undefined);
   const changes = view.changes.filter((c) => BEAD.test(c.title));
   return [...rowDefects(where, rows, true), ...changes.map((c) => ({ kind: "bead" as const, where, text: c.title }))];
 }
@@ -140,9 +142,7 @@ export function checkNightlyNotes(notes: ReleaseNotes, previous: ReleaseNotes[],
       "page (10 nightlies)",
       mergedView([notes, ...before], language),
       releaseTitle([notes, ...before], language),
-    ).filter(
-      (d) => !older.some((o) => same(o, d)),
-    ),
+    ).filter((d) => !older.some((o) => same(o, d))),
     ...rowDefects(
       "card",
       cardItems(notes, language).map((i) => ({ title: i.title, summary: i.summary ?? "" })),

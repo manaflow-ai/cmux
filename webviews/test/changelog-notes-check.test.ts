@@ -185,7 +185,12 @@ test("a curated headline repeated by an entry is reported as a duplicate", () =>
   const base = clean(notes);
   const headline = "Keep the Mac awake while agents work";
   const entries = [
-    { ...base.whatsNew!.entries[0]!, id: "curated-a", title: { en: "Different Hero" }, summary: { en: "A real feature" } },
+    {
+      ...base.whatsNew!.entries[0]!,
+      id: "curated-a",
+      title: { en: "Different Hero" },
+      summary: { en: "A real feature" },
+    },
     { ...base.whatsNew!.entries[0]!, id: "curated-b", title: { en: headline }, summary: { en: "Another detail" } },
   ];
   const duplicate = { ...base, whatsNew: { ...base.whatsNew!, headline: { en: headline }, entries } };
