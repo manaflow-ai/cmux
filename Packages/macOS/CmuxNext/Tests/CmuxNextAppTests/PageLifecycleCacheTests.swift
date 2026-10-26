@@ -105,7 +105,7 @@ struct PageLifecycleCacheTests {
         func openPageTab() -> String {
             let (host, folder) = (host, folder)
             let provider = WebPageProvider {
-                let descriptor = PageDescriptor(id: "test.lifecycle-cache", resource: "lifecycle-cache", namespaces: [])
+                let descriptor = PageDescriptor(id: "test.lifecycle-cache", resource: "lifecycle-cache", processGroup: .solo, namespaces: [])
                 return host.open(PageOpenRequest(descriptor: descriptor, root: folder, routes: [])) ?? NSView()
             }
             services.pages.register(provider)
