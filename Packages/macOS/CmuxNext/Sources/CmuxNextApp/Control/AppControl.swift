@@ -5,6 +5,7 @@ import CmuxNextBrowserImport
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextEnergy
 import CmuxNextErrorJournal
 import CmuxNextInput
 import CmuxNextSettings
@@ -523,8 +524,8 @@ final class AppControl {
             .mainActor("debug.crash.exception") { [weak services] _ in .value(DebugCrashes.raiseException(services?.crashReporting)) },
             // Low Power Mode as WebKit tabs follow it: `enabled: bool` overrides
             // macOS (no sudo needed), `enabled: null` follows macOS again.
-            .mainActor("debug.low_power_mode") { call in
-                let mode = LowPowerMode.system
+            .mainActor("debug.low_power_mode") { [weak services] call in
+                guard let mode = services?.energyMonitor.lowPowerMode else { return .value(.null) }
                 if let enabled = call.params["enabled"] { mode.override = enabled.boolValue }
                 return .value(["enabled": .bool(mode.isEnabled), "override": mode.override.map { .bool($0) } ?? .null,
                                "system": .bool(ProcessInfo.processInfo.isLowPowerModeEnabled)])
