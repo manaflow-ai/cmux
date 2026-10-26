@@ -1,6 +1,6 @@
 # cmux-next startup order: what runs before the first frame, and why
 
-Status: launch order table (p08-startup task 015), read at `2b8a58cca7f` (origin/perf/chrome-parity).
+Status: launch order table (p08-startup task 015), read at `cf1f106ddbe` (origin/perf/chrome-parity).
 Program spec: [chrome-parity/p08-startup.md](chrome-parity/p08-startup.md). Issue:
 [perf-lead.md](perf-lead.md) row 18 (#17587).
 
@@ -52,10 +52,10 @@ The cap is 15. Costs are not measured yet: task 072 seeds them at hour 0 and tas
 
 | # | Post name | Calls it covers (rows below) | Why the first frame needs it | Cost |
 |---|---|---|---|---|
-| 1 | `Settings.takeLaunchRead` | `CmuxConfigFile.prepareDefaultURL`, `SettingsController.readAtLaunch`, `TerminalThemeSetting.prime`, `SettingsController(...)` (O3, O19) | Theme, fonts, background and managed keys come from the settings; a frame in the defaults is wrong. 025 makes the read a LaunchRead from `main()`; this post only takes it. | to measure (072); today a sync file read |
+| 1 | `Settings.takeLaunchRead` | `CmuxConfigFile.prepareDefaultURL`, `SettingsController.readAtLaunch`, `TerminalThemeSetting.prime` (O3) | Theme, fonts, background and managed keys come from the settings; a frame in the defaults is wrong. It precedes `ThemeBridge.start` (the Ghostty overrides before the first config load). 025 makes the read a LaunchRead from `main()`; this post only takes it. | to measure (072); today a sync file read |
 | 2 | `ThemeBridge.start` | `ThemeBridge.start(` (Q2 26) | Chrome colors derive from the Ghostty theme; first `GhosttyRuntime.shared`. | to measure (072); 026 moves the config bytes off main |
 | 3 | `AppActions.bind` | `AppActions.bind` (O11) | Keys work from the first frame (registry handlers). | to measure (030) |
-| 4 | `Settings.applyManagedFeaturesNow` | `settings.applyManagedFeaturesNow(` (Q2 80) | Managed (MDM) feature policy applies before any feature or page engine starts (101). | to measure (101) |
+| 4 | `Settings.applyManagedFeaturesNow` | `SettingsController(registry:fileURL:launch:)` (O19), `settings.applyManagedFeaturesNow(` (Q2 80) | Managed (MDM) feature policy applies before any feature or page engine starts (101). The controller is made in this post: its init needs the `ActionRegistry`, which exists only after `AppServices` (O8), so it cannot be in post 1. | to measure (101) |
 | 5 | `ManagedPolicyBridge.start` | `ManagedPolicyBridge(...).start()` (O20) | Managed URL filter and updater policy before any page engine (101). | to measure (101) |
 | 6 | `TerminalTheme.follow` | `services.terminalTheme.follow(` (Q2 77) | Applies the loaded theme, background and backdrop art at once, so the first frame is not in the defaults. | to measure (072) |
 | 7 | `Themes.start` | `services.themes.start(` (Q2 78), `themes.followChromeTheme` (O32) | Per-workspace themes, backgrounds and the app accent are the look of the restored workspaces. | to measure (072) |
@@ -90,15 +90,20 @@ P1 target: `main_start` to `main.run` <= 10 ms on main, no file calls (033).
 | M10 | `AppEnvironment.current(openFiles:)` | main() | main | 033 | Its file reads become LaunchReads. |
 | M11 | `environment.sidebarSnapshotFile` / `layoutTemplatesFile` / `homeCachesDirectory` | main() | main | 033 | Path lookups; directory creation moves to a LaunchRead. |
 | M12 | `AgentPaneScrollAnchors.shared = ...`, `AgentPaneDraftAttachments.shared = ...` | main() | main | 033 | The 2 singletons become init injection. |
-| M13 | `BackgroundWork(hangs:onRan:)`, `startupTrace?.start(writingOn:)`, `whenClosed` | main() | main | 004 | The lanes every later read uses. |
-| M14 | `launchImages.prefetch`, `TerminalLaunchFrames.prefetch`, `relaunchWake.begin` | main() | `.lane(.files, .userBlocking)` | 001 | The last quit's pictures, decoded while AppKit starts. |
-| M15 | `DaemonWireStats.forBuild()` | main() | main | - | nil in Release. |
-| M16 | `DaemonService.prestart(...)` | main() | off main | 066 | The daemon connect overlaps AppKit's start. |
-| M17 | `CrashOnExceptions.register()` | main() | main | - | DEV and NIGHTLY crash at the throw site, before NSApp. |
-| M18 | `CmuxApplication.shared`, `refusesActivation` | main() | main | - | The CEF-ready NSApp subclass before anything touches NSApp. |
-| M19 | `AppDelegate(...)` init: `DisplayClock`, `FrameScheduler.install`, `StartupPhase`, `LaunchReveal`, `LaunchSettle`, `StartupReferences`, `InputEventTap`, `MainWorkScheduler`, `AppControl` | main() | main | 012 | Composition root of the main-thread scheduler; 012 makes the `StartupScheduler` and begins the best-effort fence here; LaunchSettle goes (016). |
-| M20 | `meterTurns`, `inputTap = delegate.inputTap`, `app.delegate`, `setActivationPolicy(.regular)` | main() | main | - | AppKit setup; the input tap hears every event from the first. |
-| M21 | `markLaunch("main.nsapp")`, `markLaunch("main.run")`, `app.run()` | main() | main | - | End of P1. |
+| M13 | `BackgroundWork(hangs:onRan:)` | main() | main | 004 | The lanes every later read uses. |
+| M14 | `LaunchOrder.BestEffortFence(raisingOn: work)` | main() | main | 012 | Chrome's `BeginBestEffortFence` (`base/task/thread_pool/thread_pool_instance.h`): idle and best-effort lane work waits for startup complete. Raised before the first launch read is posted; the order of M23 lowers it at completion. |
+| M15 | `startupTrace?.start(writingOn:)`, `whenClosed` | main() | main | 004 | The trace file is written on the files lane; a closed trace stops the lane reports. |
+| M16 | `launchImages.prefetch`, `TerminalLaunchFrames.prefetch`, `relaunchWake.begin` | main() | `.lane(.files, .userBlocking)` | 001 | The last quit's pictures, decoded while AppKit starts. |
+| M17 | `BrowserFaviconLoader.shared.useResolver(SystemRemoteResolver(runner: work))`, `BackdropVideoPlayers.shared.lanes = work` | wiring | - | - | Values: favicon host lookups and the wallpaper's window listing run on `work`'s system lane, never on main or the pool. |
+| M18 | `DaemonWireStats.forBuild()` | main() | main | - | nil in Release. |
+| M19 | `DaemonService.prestart(...)` | main() | off main | 066 | The daemon connect overlaps AppKit's start. |
+| M20 | `CrashOnExceptions.register()` | main() | main | - | DEV and NIGHTLY crash at the throw site, before NSApp. |
+| M21 | `CmuxApplication.shared`, `refusesActivation` | main() | main | - | The CEF-ready NSApp subclass before anything touches NSApp. |
+| M22 | `InputEventTap()` | main() | main | 012 | The one input tap (p04-input.md 3 (A)); made before the order so the budget's pending-input check observes it, then passed to the delegate by init. |
+| M23 | `LaunchOrder(fence:input:)`: `DisplayClock`, `FrameScheduler.install`, `StartupPhase` and its marks, `RenderStarvationGuard`, `MainWorkScheduler`, `StartupScheduler` | main() | main | 012 | The launch's order owners, made before the delegate (Chrome's `BrowserTaskExecutor` and after-startup state, `content/browser/scheduler/browser_task_executor.cc`). At completion it marks `startup_complete` and lowers M14's fence. |
+| M24 | `AppDelegate(...)` init: `FirstFrameGate(startup:)`, `LaunchReveal`, `LaunchSettle`, `StartupReferences`, `AppControl` | main() | main | 012, 016 | Takes the order (M23) and the input tap (M22) by init; the gate posts to `order.startup`. LaunchSettle and FirstFrameGate go (016). |
+| M25 | `meterTurns`, `inputTap = delegate.inputTap`, `app.delegate`, `setActivationPolicy(.regular)` | main() | main | - | AppKit setup; the input tap hears every event from the first. |
+| M26 | `markLaunch("main.nsapp")`, `markLaunch("main.run")`, `app.run()` | main() | main | - | End of P1. |
 
 Added to `main()` by later tasks (rows Q2 14, 18, 25, 42, O1, O4): the watchdog as the first statement
 (088), the LaunchPrefetch reads (025 settings, 026 Ghostty config, 074 launch snapshot, 075 sidebar snapshot
@@ -116,7 +121,7 @@ awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/
   | grep -o -E '[A-Za-z.?]+\.(start|follow|wire|load|install|prewarm|register[A-Za-z]*|activate|attach|keepCurrent|startCloud|startChromiumRuntime|observe[A-Za-z]*|warmWhenIdle|bindRegistryActions|startDaemonSync|watchScope|writeManagedStatus|applyManagedFeaturesNow)\(' | sort -u
 ```
 
-82 names at `2b8a58cca7f`. The spec's 81 were at `772cdfc45ac`; the one added since is
+82 names at `cf1f106ddbe`. The spec's 81 were at `772cdfc45ac`; the one added since is
 `GhosttyRuntime.shared.inputSources.start(` (row 16). After 014 the same names live in
 `CmuxNextApp/Startup/Startup+<Domain>.swift`, and `startup-lint.py` (104) replaces the awk range.
 
@@ -137,7 +142,7 @@ awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/
 | 13 | `DebugTerminalLinks.register(` | afterFirstFrame | main | 019 | Control method group (debug methods). |
 | 14 | `DebugTimings.install(` | main() | main | 088 | The mark sink and the watchdog hook; installed with the watchdog at the top of `main()`. |
 | 15 | `FirstPartyPageSchemes.install(` | afterFirstFrame (pane) | main | 028 | `cmux-page://` must be registered before the first page engine; an engine start before it (an external open, 096) waits for it by event, as for profiles. |
-| 16 | `GhosttyRuntime.shared.inputSources.start(` | afterFirstFrame | main (reads on `services.work`) | 079 | Input-source switch keys of the terminal key path; added after `772cdfc45ac`, so no domain task owns it. |
+| 16 | `GhosttyRuntime.shared.inputSources.start(` | afterFirstFrame | main (reads on `services.work`) | 079 (assigned here) | Input-source switch keys of the terminal key path; added after `772cdfc45ac`, so no domain task owns it. |
 | 17 | `KeepAwakeService.shared.start(` | afterStartup | main | 029 | Power assertion follow; nothing on screen needs it. |
 | 18 | `NativeCaretAccessory.install(` | main() | main | 033 (assigned here) | One process-wide `NSTextView` method swap that must precede any text field; needs no services. |
 | 19 | `NewTabClosed.wire(` | afterFirstFrame if Home or an agent page shows, else afterStartup | main | 027 | New Tab feed. |
@@ -209,13 +214,13 @@ awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/
 
 The Q2 regex misses calls on an expression (`X(...).start()`), trailing-closure calls and assignments.
 These are the remaining steps of `applicationDidFinishLaunching` and `startSettingsAndControl`, in
-source order.
+source order through O41; O42 to O46 were found later and follow at the end.
 
 | # | Step | Priority | Destination | Owner | Reason |
 |---|---|---|---|---|---|
 | O1 | `control.startWatchdog()` | main() | main | 088 | The watchdog starts as the first statement of `main()`. |
 | O2 | `Task.detached { BrowserDesignModeController.tempFiles.removeAll() }` | afterStartup | `.lane(.files, .idle)` | 079 | Design-mode files a crash left; nobody waits. |
-| O3 | `settingsFileURL()` (`CmuxConfigFile.prepareDefaultURL`) | critical: `Settings.takeLaunchRead` | main | 025 | Becomes part of the settings LaunchRead from `main()`; the post takes it. |
+| O3 | `settingsFileURL()` (`CmuxConfigFile.prepareDefaultURL`), `SettingsController.readAtLaunch`, `TerminalThemeSetting.prime` | critical: `Settings.takeLaunchRead` | main | 025 | Becomes the settings LaunchRead from `main()`; the post takes it and primes the Ghostty overrides before `ThemeBridge.start`. |
 | O4 | `NSApp.disableRelaunchOnLogin()` (no-activate launches) | main() | main | 033 (assigned here) | Process-wide; an agent launch never comes back at login. |
 | O5 | `WindowPlacement.noActivate`, `WindowPlacement.testScreen` | wiring | - | - | Values. |
 | O6 | `LastAppCLIPointer().publish(cliPath:)` | afterStartup | `.lane(.files, .bestEffort)` | 079 | The CLI shim pointer; nobody waits. |
@@ -231,7 +236,7 @@ source order.
 | O16 | `firstFrame.whenOpen { startNonPaintServices() }` | afterStartup, one post per service | main | 017 | FreeTierAttest, ssh, serverReach, updater; AgentTabImport and the page host pool. |
 | O17 | `windows.onPresent`, `windows.onFirstWindow`, `palette.onPresented`, `palette.openingEventTimestamp`, `iconPicker.onOpened`, `windows.onContentDidAppear`, `NSApp.servicesProvider` | wiring | - | 012, 096 | Closures; the first-window completion calls `firstFrameCommitted()` (012). |
 | O18 | `launchSettle.whenSettled { preparePalette }`, `IdleOnce.schedule { iconPicker.prepare() }` | afterStartup, one post per palette step, then the icon picker | main | 016 | Palette and icon picker warm-up at idle. |
-| O19 | `SettingsController(registry:fileURL:launch:)`, `TerminalThemeSetting.prime`, `SettingsController.readAtLaunch` | critical: `Settings.takeLaunchRead` | main | 025 | See the allowlist. |
+| O19 | `SettingsController(registry:fileURL:launch:)` | critical: `Settings.applyManagedFeaturesNow` | main | 101 | Needs the registry, so it runs after `AppServices` (O8); made inside the post that applies the managed features (allowlist row 4). |
 | O20 | `ManagedPolicyBridge(...).start()` | critical: `ManagedPolicyBridge.start` | main | 101 | See the allowlist. |
 | O21 | `launchCleanup.schedule(on: launchSettle)` | afterStartup | `.lane(.files, .idle)` | 016 | Temporary download files of an earlier run. |
 | O22 | `mouseSideButtons.start { ... }` | afterFirstFrame | main | 079 | Back and forward mouse buttons. |
@@ -257,6 +262,8 @@ source order.
 | O42 | `services.startEnergy()` (`EnergyMonitor.start`, `follow`) | afterFirstFrame (pane) | main | 031 (assigned here) | Low Power Mode, battery and thermal inputs for WebKit, KeepAwake and the video wallpaper; until it runs the inputs read nominal, and a tab made before it changes render rate once. |
 | O43 | `FrameScheduler.appDisplays.hub = VSyncHub()` (feature `vsyncHub`) | wiring | - | - | A value, off by default. |
 | O44 | `services.followEnergySaver(settings)` | afterFirstFrame | main | 029 (assigned here) | The `energy.saver` setting follow; the policy reads the default until then. |
+| O45 | `services.settings = settings` (its `didSet`: `madeAgentTabs?.follow`, `browserHost?.follow`, `cloud.hostReplica.follow`) | wiring for the store; the `cloud.hostReplica.follow` moves into the Cloud start post (afterFirstFrame) | main | 020 (assigned here) | The `didSet` reads `cloud`, so today it builds `CloudService` before the first frame (Q1-1); the host replica has nothing to show before the Cloud context starts. |
+| O46 | `order.startup.finishRegistration()` | wiring | - | 012 | The last statement of `applicationDidFinishLaunching`: every launch post is registered, so the implicit registration ref ends (Chrome's `StartupObserver`, `chrome/browser/after_startup_task_utils.cc`). |
 
 ## 5. `AppServices.init` starts (031)
 
@@ -283,7 +290,7 @@ Target <= 3 (cache, windows, keyRouter).
 
 | # | Build | Priority | Owner | Reason |
 |---|---|---|---|---|
-| Q1-1 | `_ = cloud` | onDemand | 020 | Built by its first reader (`startCloud`, an auth callback). |
+| Q1-1 | `_ = cloud` | onDemand once 020 splits out the auth; until then critical by reader, no gain | 020 (auth split assigned here) | Two readers run before the first frame: the `ManagedPolicyBridge.start` critical post reads `cloud.auth` (O20), and the `services.settings` `didSet` reads `cloud.hostReplica` (O45). Removing `_ = cloud` alone defers nothing. 020 makes `CloudAuth` its own `AppServices` member that `CloudService` takes by init, passes the bridge only that auth, and moves the host replica follow into the Cloud start post; then `startCloud` is the first reader. |
 | Q1-2 | `_ = feed` | onDemand | 020 | Built by its first reader. |
 | Q1-3 | `_ = rightSidebarSections` | onDemand; icon build afterStartup `.lane(.cpu, .idle)` | 022 | The right sidebar is not in the first frame unless shown. |
 | Q1-4 | `_ = ssh` | onDemand | 021 | SSH machines start after startup (017). |
@@ -302,15 +309,16 @@ Target <= 3 (cache, windows, keyRouter).
 | Q1-17 | `_ = configActions` | onDemand (its start is Q2 54) | 022 | Custom actions. |
 | Q1-18 | `_ = chromiumWarmup` | onDemand | 024 | CEFEngine factory; the warm-up runs on the scheduler (018). |
 
-022 now owns 8 builds (the spec says 6). The extra 2 are Q1-6 and Q1-7. With them, Q1 reaches the
-spec's target of 3.
+022 now owns 8 builds (the spec says 6). The extra 2 are Q1-6 and Q1-7. With them, and with 020's auth
+split for Q1-1, Q1 reaches the spec's target of 3. Without the auth split Q1-1 stays built before the
+first frame (by the critical `ManagedPolicyBridge.start`), so it does not count toward the target.
 
-## 7. Q1b stored initializers (41)
+## 7. Q1b stored initializers (42)
 
 Queue command: `grep -n -E '^    (let|var|private\(set\) (var|let)) [a-zA-Z]+(: [^=]+)? = [A-Z][A-Za-z.]*[(.]' Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppServices.swift`.
-41 hits at `2b8a58cca7f`; the spec's 43 were at `772cdfc45ac`. Since then `inputTap` (p04-input) and
-`energyMonitor` (p14-energy) are made by `AppDelegate` and passed by init, so they are no longer stored
-initializers. Line numbers at `2b8a58cca7f`. Mark: `value-only` (the initializer stores values, no I/O, no observer, no
+42 hits at `cf1f106ddbe`; the spec's 43 were at `772cdfc45ac`. Since then `inputTap` (p04-input) and
+`energyMonitor` (p14-energy) are made outside `AppServices` and passed by init, so they are no longer stored
+initializers, and `appEvents` (p06-scheduler-021) was added. Line numbers at `cf1f106ddbe`. Mark: `value-only` (the initializer stores values, no I/O, no observer, no
 source), `lazy` (becomes a lazy var built on first use), `posted` (the work in its initializer moves to a
 post). The "Init does" column comes from reading each initializer; 098 checks each and changes the
 `lazy` and `posted` rows.
@@ -323,46 +331,48 @@ post). The "Init does" column comes from reading each initializer; 098 checks ea
 | B4 | 90 | `machineAsks = SidebarAsks()` | Empty. | value-only | - |
 | B5 | 98 | `showcase = ShowcaseState()` | Value. | value-only | - |
 | B6 | 109 | `machineHealth = MachineHealthStore()` | Empty. | value-only | - |
-| B7 | 110 | `mobile = MobileHostService(displayName:)` | Stores a closure; the listener starts on `follow`. | value-only | - |
-| B8 | 112 | `iphone = IPhoneHostService()` | Starts a task that follows the supervisor's states. | lazy | 098 |
-| B9 | 119 | `blocking = BlockingDetector.forProcess()` | A handle to the process table. | value-only | - |
-| B10 | 125 | `openPanel = MadeAheadOpenPanel()` | Stores a factory; the panel is made at idle (Q2 69). | value-only | - |
-| B11 | 135 | `chromiumRuntime = ChromiumRuntimeService.make()` | Locates the CEF layout and reads the runtime pin file. | lazy (with 024's engine factory); the pin read becomes a LaunchRead | 098, 024 |
-| B12 | 137 | `browserStores = BrowserSharedStores.application()` | File-backed site settings and zoom levels per profile. | lazy; any read on `.files` | 098 |
-| B13 | 139 | `signInCallbacks = CEFSignInCallbacks()` | Empty. | value-only | - |
-| B14 | 141 | `resizes = ResizeCoordinator()` | Stores a closure; its frame client is lazy. | value-only | - |
-| B15 | 167 | `surfaceInvariant = SurfaceInvariantMonitor()` | A DemandTimer value; the observer starts in S6. | value-only | 031 |
-| B16 | 169 | `input = InputVerificationService()` | Values; observers start in S8. | value-only | 031 |
-| B17 | 178 | `workContext = WorkContextTrail()` | Value. | value-only | - |
-| B18 | 281 | `browserNativeInputs = BrowserNativeInputs()` | Values. | value-only | - |
-| B19 | 283 | `paneTabBars = PaneTabBarChoices()` | One `UserDefaults` array read; every pane build reads it. | value-only (the defaults domain is loaded once per process; 038 if Q5 lists it) | 038 |
-| B20 | 285 | `paneFullWidthTabs = PaneFullWidthTabs()` | One `UserDefaults` array read; every pane build reads it. | value-only (as B19) | 038 |
-| B21 | 287 | `paneMounts = PaneMounts()` | Value. | value-only | - |
-| B22 | 289 | `newTabChoices = NewTabChoiceMemory()` | Stores the defaults; reads on use. | value-only | - |
-| B23 | 291 | `newTabWeather = NewTabWeather()` | A `UserDefaults` data read and a JSON decode. | lazy | 098 |
-| B24 | 293 | `chiefModelRecents = HomeChiefModelRecents(defaults:)` | Stores the defaults. | value-only | - |
-| B25 | 294 | `newTabTypeAhead = NewTabTypeAhead()` | Empty. | value-only | - |
-| B26 | 296 | `homeSwitchKeys = HomeSwitchKeysSource()` | Stores the defaults and a reader. | value-only | - |
-| B27 | 298 | `memoryPressure = MemoryPressureEvents(source:)` | Starts the kernel memory-pressure source. | posted: afterFirstFrame, main (the level reads normal until then; the restored-page loader runs after startup) | 098 |
-| B28 | 328 | `terminalDelegate = TerminalHostDelegate()` | Value. | value-only | - |
-| B29 | 330 | `notifications = NotificationCenterService()` | Values; starts in S10. | value-only | 031 |
-| B30 | 359 | `chiefPetHomes = ChiefPetHomes()` | Empty. | value-only | - |
-| B31 | 361 | `chiefMascotPicks = ChiefMascotPicks(defaults:defaultChief:)` | A `UserDefaults` dictionary read. | lazy | 098 |
-| B32 | 384 | `terminalTheme = TerminalThemeSetting(backdropScope:)` | Stores the scope; `follow` is critical. | value-only | - |
-| B33 | 418 | `linkHints = LinkHintController()` | Values. | value-only | - |
-| B34 | 420 | `reactGrab = ReactGrab(scripts:)` | Stores the loader; loads on use. | value-only | - |
-| B35 | 422 | `windowHints = WindowHintController()` | Values. | value-only | - |
-| B36 | 439 | `pages = InternalPageTabStore()` | Values. | value-only | - |
-| B37 | 443 | `favicons = TabFaviconStore(loader:)` | Stores the loader. | value-only | - |
-| B38 | 446 | `hoverCards = HoverCardCoordinator()` | A DemandTimer value; observers with the first source. | value-only | - |
-| B39 | 448 | `refusalHUD = RefusalHUD()` | Stores the toast center. | value-only | - |
-| B40 | 458 | `burstTrace = BurstTrace()` | Empty. | value-only | - |
-| B41 | 460 | `vscodeServeWeb = VSCodeServeWebService(...)` | Stores a planner (home directory, environment) and a launcher. | lazy (only the VS Code page uses it; quit calls it only when built) | 098 |
+| B7 | 112 | `appEvents = AppEvents(center: .default)` | Stores the notification center; observers subscribe per name on use. | value-only | - |
+| B8 | 113 | `mobile = MobileHostService(displayName:)` | Stores a closure; the listener starts on `follow`. | value-only | - |
+| B9 | 115 | `iphone = IPhoneHostService()` | Starts a task that follows the supervisor's states. | lazy | 098 |
+| B10 | 122 | `blocking = BlockingDetector.forProcess()` | A handle to the process table. | value-only | - |
+| B11 | 128 | `openPanel = MadeAheadOpenPanel()` | Stores a factory; the panel is made at idle (Q2 69). | value-only | - |
+| B12 | 138 | `chromiumRuntime = ChromiumRuntimeService.make()` | Locates the CEF layout and reads the runtime pin file. | lazy (with 024's engine factory); the pin read becomes a LaunchRead | 098, 024 |
+| B13 | 140 | `browserStores = BrowserSharedStores.application()` | File-backed site settings and zoom levels per profile. | lazy; any read on `.files` | 098 |
+| B14 | 142 | `signInCallbacks = CEFSignInCallbacks()` | Empty. | value-only | - |
+| B15 | 144 | `resizes = ResizeCoordinator()` | Stores a closure; its frame client is lazy. | value-only | - |
+| B16 | 170 | `surfaceInvariant = SurfaceInvariantMonitor()` | A DemandTimer value; the observer starts in S6. | value-only | 031 |
+| B17 | 172 | `input = InputVerificationService()` | Values; observers start in S8. | value-only | 031 |
+| B18 | 181 | `workContext = WorkContextTrail()` | Value. | value-only | - |
+| B19 | 284 | `browserNativeInputs = BrowserNativeInputs()` | Values. | value-only | - |
+| B20 | 286 | `paneTabBars = PaneTabBarChoices()` | One `UserDefaults` array read; every pane build reads it. | value-only (the defaults domain is loaded once per process; 038 if Q5 lists it) | 038 |
+| B21 | 288 | `paneFullWidthTabs = PaneFullWidthTabs()` | One `UserDefaults` array read; every pane build reads it. | value-only (as B19) | 038 |
+| B22 | 290 | `paneMounts = PaneMounts()` | Value. | value-only | - |
+| B23 | 292 | `newTabChoices = NewTabChoiceMemory()` | Stores the defaults; reads on use. | value-only | - |
+| B24 | 294 | `newTabWeather = NewTabWeather()` | A `UserDefaults` data read and a JSON decode. | lazy | 098 |
+| B25 | 296 | `chiefModelRecents = HomeChiefModelRecents(defaults:)` | Stores the defaults. | value-only | - |
+| B26 | 297 | `newTabTypeAhead = NewTabTypeAhead()` | Empty. | value-only | - |
+| B27 | 299 | `homeSwitchKeys = HomeSwitchKeysSource()` | Stores the defaults and a reader. | value-only | - |
+| B28 | 301 | `memoryPressure = MemoryPressureEvents(source:)` | Starts the kernel memory-pressure source. | posted: afterFirstFrame, main (the level reads normal until then; the restored-page loader runs after startup) | 098 |
+| B29 | 331 | `terminalDelegate = TerminalHostDelegate()` | Value. | value-only | - |
+| B30 | 333 | `notifications = NotificationCenterService()` | Values; starts in S10. | value-only | 031 |
+| B31 | 362 | `chiefPetHomes = ChiefPetHomes()` | Empty. | value-only | - |
+| B32 | 364 | `chiefMascotPicks = ChiefMascotPicks(defaults:defaultChief:)` | A `UserDefaults` dictionary read. | lazy | 098 |
+| B33 | 387 | `terminalTheme = TerminalThemeSetting(backdropScope:)` | Stores the scope; `follow` is critical. | value-only | - |
+| B34 | 421 | `linkHints = LinkHintController()` | Values. | value-only | - |
+| B35 | 423 | `reactGrab = ReactGrab(scripts:)` | Stores the loader; loads on use. | value-only | - |
+| B36 | 425 | `windowHints = WindowHintController()` | Values. | value-only | - |
+| B37 | 442 | `pages = InternalPageTabStore()` | Values. | value-only | - |
+| B38 | 446 | `favicons = TabFaviconStore(loader:)` | Stores the loader. | value-only | - |
+| B39 | 449 | `hoverCards = HoverCardCoordinator()` | A DemandTimer value; observers with the first source. | value-only | - |
+| B40 | 451 | `refusalHUD = RefusalHUD()` | Stores the toast center. | value-only | - |
+| B41 | 461 | `burstTrace = BurstTrace()` | Empty. | value-only | - |
+| B42 | 463 | `vscodeServeWeb = VSCodeServeWebService(...)` | Stores a planner (home directory, environment) and a launcher. | lazy (only the VS Code page uses it; quit calls it only when built) | 098 |
 
 ## 8. How to check
 
-Every name once, and the code allowlist equals the critical rows (task 015 acceptance). From the
-repository root:
+Every name once, and the code allowlist equals the critical rows (task 015 acceptance). The script
+runs each queue command (Q2, Q1, Q1b) on the tree and fails when a row is missing, extra, out of order
+or (Q1b) at another line, and when a section heading's count is not its row count. From the repository root:
 
 ```sh
 python3 - <<'EOF'
@@ -380,7 +390,23 @@ q2 = subprocess.run(["sh", "-c", r"""awk '/func applicationDidFinishLaunching/,/
 section = doc.split("## 3.")[1].split("## 4.")[0]
 rows = re.findall(r"^\| \d+ \| `([^`]+)` \|", section, re.M)
 assert rows == q2, set(rows) ^ set(q2)
-print(f"allowlist {len(in_code)}, Q2 rows {len(rows)}: ok")
+def sh(cmd):
+    return subprocess.run(["sh", "-c", cmd], capture_output=True, text=True, check=True).stdout.splitlines()
+def section_of(head, nxt):
+    return doc.split(head)[1].split(nxt)[0]
+def counted(head, n):
+    assert re.search(rf"^{re.escape(head)}.*\({n}\)$", doc, re.M), (head, n)
+counted("## 3. Q2", len(rows))
+q1 = [re.search(r"_ = ([a-zA-Z]+)", l).group(1) for l in sh(r"""awk '/^    init\(environment: AppEnvironment/,/^    }$/' Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppServices.swift | grep -n -E '^\s*_ = [a-z][A-Za-z]*'""")]
+q1_rows = re.findall(r"^\| Q1-\d+ \| `_ = ([a-zA-Z]+)` \|", section_of("## 6.", "## 7."), re.M)
+assert q1_rows == q1, (q1_rows, q1)
+counted("## 6. Q1", len(q1))
+q1b = [(int(l.split(":", 1)[0]), re.match(r"\s*(?:let|var|private\(set\) (?:var|let)) ([a-zA-Z]+)", l.split(":", 1)[1]).group(1))
+       for l in sh(r"""grep -n -E '^    (let|var|private\(set\) (var|let)) [a-zA-Z]+(: [^=]+)? = [A-Z][A-Za-z.]*[(.]' Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppServices.swift""")]
+q1b_rows = [(int(n), name) for n, name in re.findall(r"^\| B\d+ \| (\d+) \| `([a-zA-Z]+) = ", section_of("## 7.", "## 8."), re.M)]
+assert q1b_rows == q1b, sorted(set(q1b_rows) ^ set(q1b))
+counted("## 7. Q1b", len(q1b))
+print(f"allowlist {len(in_code)}, Q2 rows {len(rows)}, Q1 rows {len(q1)}, Q1b rows {len(q1b)}: ok")
 EOF
 ```
 
