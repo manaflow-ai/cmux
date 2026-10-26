@@ -237,6 +237,10 @@ class PullRequestTiers(unittest.TestCase):
         result = tiers([f"{PACKAGE}/Tests/CmuxNextControlTests/CLISurfaceParityTests.swift"])
         self.assertEqual(result["swift_priority_filter"], "")
 
+    def test_cloud_bring_back_stays_prioritized_for_new_cases(self):
+        result = tiers([f"{PACKAGE}/Tests/CmuxNextAppTests/CloudBringBackTests.swift"])
+        self.assertEqual(result["swift_priority_filter"], r"^(CloudBringBackTests)\.")
+
     def test_ui_pr_runs_its_own_tests_without_the_daemon(self):
         result = tiers(PR_17470)
         self.assertEqual(result["swift_targets"], "CmuxNextAppTests")

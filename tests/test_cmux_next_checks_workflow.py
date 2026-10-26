@@ -590,6 +590,8 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertIn("SWIFT_PRIORITY_FILTER", script)
         self.assertIn("--skip", script)
         self.assertIn("priority", script.lower())
+        cloud = next(step for step in swift["steps"] if step.get("name") == "Run CloudBringBack cases in fresh processes")
+        self.assertIn("!contains(env.SWIFT_PRIORITY_FILTER, 'CloudBringBackTests')", cloud["if"])
 
     def test_generated_files_are_checked_outside_the_package_tests(self):
         """a925bd9 went red when PRs that skipped swift test landed a stale export."""
