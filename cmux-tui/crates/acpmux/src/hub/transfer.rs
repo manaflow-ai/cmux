@@ -193,6 +193,7 @@ impl Hub {
         meta.status = SessionStatus::Idle;
         // A family lives on one daemon: a moved-in sub-session is a root here.
         meta.subsession = None;
+        meta.lineage = None;
         self.prepare_harness_state(&meta, replace_durable)
             .map_err(|e| RpcError::internal(e.to_string()))?;
         self.store.save(&meta).map_err(|e| RpcError::internal(e.to_string()))?;

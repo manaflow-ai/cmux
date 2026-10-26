@@ -240,7 +240,9 @@ The CLI and MCP watch tools are not exposed yet; `acpmux wait` remains the scrip
 
 Agents spawned by acpmux get `ACPMUX_ENV=1`, `ACPMUX_SESSION_ID`, `ACPMUX_SESSION_NAME` and
 `ACPMUX_SOCKET`, and `@` names that session (`acpmux last @`), so an agent can drive its own
-session and siblings. The event log carries `turn_started` and `turn_result`
+session and siblings. A session an agent starts (`acpmux new` in its shell, or its
+`start_session` tool) records that session as its lineage `parent`, with the tree's `root` and
+its `depth`; `ACPMUX_TOOL_CALL_ID`, when the harness sets it, names the tool call that started it. The event log carries `turn_started` and `turn_result`
 (`completed|cancelled|failed`); a daemon that restarts mid-turn writes
 `turn_result failed outcome_unknown` so nobody replays a prompt that may have run. A turn a
 connection error cut off ("stream disconnected", a refused or reset connection, a 502/504), or

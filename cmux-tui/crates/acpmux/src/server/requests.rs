@@ -774,6 +774,9 @@ async fn dispatch_request(
                 let mut p = params.clone();
                 if let Some(m) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
                     m.remove("peer");
+                    // A family lives on one daemon: this daemon's caller is no session there.
+                    m.remove(crate::hub::lineage::PARENT_FIELD);
+                    m.remove(crate::hub::lineage::TOOL_CALL_FIELD);
                     // The peer would tie it to this daemon's long-lived connection, never to the
                     // client's: the client's own kill purges it (`ephemeral.rs`).
                     m.remove("ephemeral");
@@ -827,6 +830,19 @@ async fn dispatch_request(
                 return Err(RpcError::invalid_params(format!("route {r:?} is not a route id")));
             }
             let disallowed_tools = disallowed_tools(meta)?;
+            // Its parent is the session this connection proved it runs in (`hub/lineage.rs`):
+            // an agent's `acpmux new`. An adopted chat or an ephemeral run is nobody's child.
+            let parent_ask = crate::hub::lineage::parent_ask(meta)?;
+            let tool_call = crate::hub::lineage::tool_call_id(meta)?;
+            let lineage = if adopting || super::ephemeral::requested(&params) {
+                // It records none, but a parent it names is still one the caller owns.
+                if let crate::hub::lineage::ParentAsk::Named(id) = &parent_ask {
+                    hub.check_lineage_parent(conn.caller(), id)?;
+                }
+                None
+            } else {
+                hub.new_session_lineage(conn.caller(), parent_ask, tool_call)?
+            };
             let lane_parent = super::lane_parent(hub, conn, &params);
             let (asked_policy, agent) =
                 (policy.is_some(), conn.caller().filter(|_| !conn.is_person()));
@@ -857,6 +873,7 @@ async fn dispatch_request(
                 starter: hub.starter_of(conn.origin.web_class(), agent),
                 route,
                 subsession: None,
+                lineage,
                 disallowed_tools,
                 checked_cwd: None,
             };

@@ -38,6 +38,7 @@ mod health_view;
 mod idle;
 mod launch_roots;
 mod launchers;
+pub mod lineage;
 mod live_models;
 mod locate;
 pub mod media_handles;
@@ -863,6 +864,7 @@ impl Hub {
             harness_turn: AtomicBool::new(false),
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
+            start_calls: StdMutex::new(Default::default()),
             composers: StdMutex::new(Default::default()),
         });
         // Found by its tags from now on (`permissions/display.rs`).
