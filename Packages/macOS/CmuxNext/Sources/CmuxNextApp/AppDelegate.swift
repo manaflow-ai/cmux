@@ -103,6 +103,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // runtime's first config load, so the first frame needs no reload.
         let settingsRead = SettingsController.readAtLaunch(fileURL: settingsFileURL())
         TerminalThemeSetting.prime(settingsRead.snapshot)
+        // Before the import cards start (AppActions.bind): off at launch, they never scan or resume.
+        BrowserImportGate.prime(settingsRead.snapshot)
         DebugTimings.markLaunch("dfl.settings_read")
         // Chrome colors derive from the Ghostty theme; load it before any window.
         ThemeBridge.start(store: ThemeScope.app.store)
