@@ -68,7 +68,14 @@ const item = (name: string): TrayItem => ({
   kind: "agent",
   id: name,
   agent: { id: name, parent: null, name, task: name, state: "running", startedAt: Date.now() },
+  depth: 0,
 });
+const NONE = new Set<string>();
+/// An animation's end, as WebKit sends it and as React may listen for it (jsdom's styles carry the
+/// prefixed property, so React picks the prefixed event).
+const ended = (node: Element) => {
+  for (const name of ["animationend", "webkitAnimationEnd"]) node.dispatchEvent(new dom.window.Event(name, { bubbles: true }));
+};
 
 function mount() {
   const element = dom.window.document.getElementById("root")!;
@@ -85,7 +92,7 @@ describe("subagent tray motion", () => {
       act(async () =>
         root.render(
           items.length
-            ? createElement(SubagentTray, { items, working: true, waiting: new Set(), onOpen: () => {}, shown, enters })
+            ? createElement(SubagentTray, { items, working: true, waiting: NONE, onOpen: () => {}, shown, enters })
             : null,
         ),
       );
@@ -93,7 +100,7 @@ describe("subagent tray motion", () => {
     const card = host.querySelector<HTMLElement>(".acpmux-running-tray")!;
     expect(card.hasAttribute(TRAY_ENTER_ATTR)).toBe(true);
     // Its entrance ends: the mark goes.
-    card.dispatchEvent(new dom.window.AnimationEvent("animationend", { bubbles: true }));
+    ended(card);
     expect(card.hasAttribute(TRAY_ENTER_ATTR)).toBe(false);
     // The last line goes: the real card is gone at once, a copy plays in its place.
     await draw([], false);
@@ -120,11 +127,11 @@ describe("subagent tray motion", () => {
     const shown = { current: "chat-a" as string | undefined };
     const { root } = mount();
     await act(async () =>
-      root.render(createElement(SubagentTray, { items: [item("A")], working: true, waiting: new Set(), onOpen: () => {}, shown })),
+      root.render(createElement(SubagentTray, { items: [item("A")], working: true, waiting: NONE, onOpen: () => {}, shown })),
     );
     await act(async () => root.render(null));
     const ghost = host.querySelector<HTMLElement>(`.${TRAY_GHOST}`)!;
-    ghost.dispatchEvent(new dom.window.AnimationEvent("animationend", { bubbles: true }));
+    ended(ghost);
     expect(host.querySelector(`.${TRAY_GHOST}`)).toBeNull();
     await act(async () => root.unmount());
   });
@@ -138,7 +145,7 @@ describe("subagent tray motion", () => {
     expect(out.textContent).toBe("2 subagents running");
     expect(out.getAttribute("aria-hidden")).toBe("true");
     expect(element.querySelector(".acpmux-tick__in")!.textContent).toBe("3 subagents running");
-    await act(async () => out.dispatchEvent(new dom.window.AnimationEvent("animationend", { bubbles: true })));
+    await act(async () => ended(out));
     expect(element.querySelector(".acpmux-tick__out")).toBeNull();
     expect(element.textContent).toBe("3 subagents running");
     motion(false);
@@ -154,7 +161,7 @@ describe("subagent tray motion", () => {
     const { root } = mount();
     await act(async () =>
       root.render(
-        createElement(SubagentTray, { items: [item("A")], working: true, waiting: new Set(), onOpen: () => {}, shown, enters: true }),
+        createElement(SubagentTray, { items: [item("A")], working: true, waiting: NONE, onOpen: () => {}, shown, enters: true }),
       ),
     );
     expect(host.querySelector(".acpmux-running-tray")!.hasAttribute(TRAY_ENTER_ATTR)).toBe(false);
