@@ -373,6 +373,19 @@ pub fn spawn_failed(e: &anyhow::Error, harness: &str, program: &str, cwd: &Path)
     let Some(io) = e.chain().find_map(|c| c.downcast_ref::<std::io::Error>()) else {
         return RpcError::internal(format!("{e:#}"));
     };
+    let message =
+        format!("could not start the {harness} agent ({program} in {}): {io}", cwd.display());
+    // A full disk (or quota) is not the program's fault: say to free space, as any local write.
+    if matches!(io.kind(), std::io::ErrorKind::StorageFull | std::io::ErrorKind::QuotaExceeded)
+        || is_disk_full(&io.to_string())
+    {
+        let (recovery, details) = disk_full(Some(cwd));
+        return RpcError::internal(message).with_data(json!({
+            "errorKind": kind::DISK_FULL,
+            "recovery": recovery,
+            "details": details,
+        }));
+    }
     let recovery = if !cwd.is_dir() {
         format!(
             "The folder {} is gone; restore it, or start the chat in another folder.",
@@ -390,11 +403,7 @@ pub fn spawn_failed(e: &anyhow::Error, harness: &str, program: &str, cwd: &Path)
              {harness}` checks it step by step. Then send again."
         )
     };
-    RpcError::internal(format!(
-        "could not start the {harness} agent ({program} in {}): {io}",
-        cwd.display()
-    ))
-    .with_data(json!({
+    RpcError::internal(message).with_data(json!({
         "errorKind": kind::SPAWN_FAILED,
         "recovery": recovery,
         "details": {"binary": program, "cwd": cwd},
