@@ -417,8 +417,9 @@ void HostContext::OnWheelAck(void* ctx, int browser_id, const void* ack) {
   auto* host = static_cast<HostContext*>(ctx);
   if (host->state_ == State::kEnded) return;
   WheelAck read;
-  if (!ReadForkWheelAck(ack, &read)) return;
-  const std::optional<WheelAckEvent> event = host->wheel_acks_.Acked(browser_id, read);
+  // An unreadable ack still answers its wheel, so the next ack names the next wheel.
+  const bool readable = ReadForkWheelAck(ack, &read);
+  const std::optional<WheelAckEvent> event = host->wheel_acks_.Acked(browser_id, readable ? &read : nullptr);
   if (!event) return;
   host->ForwardEvent(kEventWheelAck, browser_id, event->request, event->a, event->b, "", "");
 }

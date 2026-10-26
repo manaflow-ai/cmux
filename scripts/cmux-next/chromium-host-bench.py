@@ -97,8 +97,13 @@ Per mode:
            run in the page: a control request in host mode) and the WHEEL_ACKs it decided from. Pass: back on flat,
            no navigation on wide, and on a host that acks wheels (`host_acks_wheels`) 0 probes per gesture. A swipe no
            gesture of reaches (`gestures` unchanged: the page view takes no scrolls before the host input route,
-           p01-process-042) says not_measurable. Pinch (magnifyWithEvent, PinchEvent and SmartMagnifyEvent of
-           render_widget_host_ns_view.mojom) is p01-process-054's row, not this one.
+           p01-process-042) says not_measurable.
+  pinch    `--modes pinch` (task 234), on an input host: a real trackpad pinch (pointer-probe.swift magnify, zoom in)
+           over a Chromium tab of the app's backend. Pass: the page's visual viewport scale grows (Chrome's pinch
+           zoom), the page stays put, and the pinch starts no swipe gesture (`debug.cef` `swipe`). The page counts
+           the ctrl+wheel events Chrome makes of a pinch, so a pinch that reached Chromium but did not zoom fails
+           apart from one that never arrived. In host mode a pinch that never reaches the page (the page view's
+           magnify route is p01-process-042's input route with p01-process-054's PinchEvent) says not_measurable.
 
 --native-ui runs instead the hosted widget rows (chromium_host_native_ui.py, p01-process-066): date, datalist,
 popup window, DevTools docked and in a window, an extension popup and a side panel, each shown by cmux from the
@@ -276,6 +281,19 @@ if (variant === 'wide') {
   wide.scrollLeft = wide.scrollWidth / 2 - innerWidth / 2;
 }
 window.__scrollLeft = () => (document.getElementById('wide') || document.scrollingElement).scrollLeft;
+</script>"""
+
+# The pinch probe: a page the pinch zooms. Chrome turns a trackpad pinch into ctrl+wheel events for the page first
+# (a script may take them) and, untaken, into a pinch of the visual viewport; the page counts the ctrl+wheels so a
+# pinch that reached Chromium but did not zoom shows apart from one that never arrived.
+PINCH_PAGE = """<!doctype html><meta charset=utf-8><title>pinch probe</title>
+<style>html,body{margin:0;background:#204080;color:#fff;font:16px system-ui}
+#grid{height:100vh;background:repeating-linear-gradient(45deg,#204080 0 20px,#f0c000 20px 40px)}</style>
+<div id=grid></div>
+<script>
+window.__pinch = {ctrlWheels: 0};
+addEventListener('wheel', event => { if (event.ctrlKey) window.__pinch.ctrlWheels += 1; }, {passive: true});
+window.__zoom = () => ({scale: visualViewport.scale, dpr: devicePixelRatio, ctrlWheels: window.__pinch.ctrlWheels});
 </script>"""
 # ChromiumHostDragDestination.forkAPI: the fork whose DragTarget calls reach a detached page (task 172).
 DRAG_TARGET_FORK_API = 31
@@ -644,6 +662,10 @@ def main():
             swipe_probe = os.path.join(opts.out, "swipe.html")
             open(swipe_probe, "w").write(SWIPE_PAGE)
             ok = run_swipe(rpc, pathlib.Path(swipe_probe).as_uri()) and ok
+        if "pinch" in modes:
+            pinch_probe = os.path.join(opts.out, "pinch.html")
+            open(pinch_probe, "w").write(PINCH_PAGE)
+            ok = run_pinch(rpc, pathlib.Path(pinch_probe).as_uri()) and ok
         if "dragin" in modes:
             drag_probe = os.path.join(opts.out, "drag.html")
             open(drag_probe, "w").write(DRAG_PAGE)
@@ -1312,17 +1334,7 @@ def run_swipe(rpc, url):
     if not probe:
         RESULT["modes"]["swipe"] = {"error": "pointer-probe.swift did not build (xcrun swiftc)"}
         return False
-    tab = {}
-
-    def page(script):
-        reply = rpc("browser.page.eval", {"script": script, **({"tab": tab["tab"]} if tab.get("tab") else {})}, timeout=20)
-        if not isinstance(reply, dict) or "error" in reply:
-            return None
-        tab.setdefault("tab", reply.get("tab"))
-        return reply.get("value")
-
-    def title_is(title):
-        return wait(lambda: page(f"document.readyState === 'complete' && document.title === {json.dumps(title)}"), 20, 0.2)
+    page, title_is = tab_page(rpc)
 
     def swipe_stats():
         return (rpc("debug.cef") or {}).get("swipe") or {}
@@ -1335,17 +1347,10 @@ def run_swipe(rpc, url):
         return False
     backend = rpc("debug.cef") or {}
     row["backend"] = backend.get("backend")
-    border = focused_pane_border(rpc)
-    window = next((w for w in (rpc("debug.window_list") or {}).get("windows") or []
-                   if w.get("kind") == "main" and w.get("visible")), None)
-    screen_h = subprocess.run([probe, "screen"], capture_output=True, text=True, timeout=20).stdout.strip()
-    if not border or not window or not screen_h:
+    center = focused_pane_center(rpc, probe)
+    if not center:
         RESULT["modes"]["swipe"] = {"error": "no pane, window or screen geometry (debug.pane_chrome, debug.window_list)"}
         return False
-    frame = window.get("frame") or {}
-    # The pane's center in screen points from the top left (the page view fills its border).
-    center = (frame.get("x", 0) + border[0] + border[2] / 2,
-              float(screen_h) - (frame.get("y", 0) + frame.get("height", 0)) + border[1] + border[3] / 2)
 
     def gesture(variant, expect_title):
         before = swipe_stats()
@@ -1391,6 +1396,91 @@ def run_swipe(rpc, url):
         zero_probes = not acks_on or row["probes_per_gesture"] == 0
         row["pass"] = bool(row["flat"].get("pass") and row.get("wide", {}).get("pass") and zero_probes)
     RESULT["modes"]["swipe"] = row
+    return True
+
+
+def tab_page(rpc):
+    """`page(script)`, the value of `script` in the tab of the first eval that names one (the focused tab), and
+    `title_is(title)`, true once that tab has loaded a page with that title (20 s)."""
+    tab = {}
+
+    def page(script):
+        reply = rpc("browser.page.eval", {"script": script, **({"tab": tab["tab"]} if tab.get("tab") else {})}, timeout=20)
+        if not isinstance(reply, dict) or "error" in reply:
+            return None
+        tab.setdefault("tab", reply.get("tab"))
+        return reply.get("value")
+
+    def title_is(title):
+        return wait(lambda: page(f"document.readyState === 'complete' && document.title === {json.dumps(title)}"), 20, 0.2)
+
+    return page, title_is
+
+
+def focused_pane_center(rpc, probe):
+    """The focused pane's center in screen points from the top left (the page view fills its border), or None
+    without pane, window or screen geometry."""
+    border = focused_pane_border(rpc)
+    window = next((w for w in (rpc("debug.window_list") or {}).get("windows") or []
+                   if w.get("kind") == "main" and w.get("visible")), None)
+    screen_h = subprocess.run([probe, "screen"], capture_output=True, text=True, timeout=20).stdout.strip()
+    if not border or not window or not screen_h:
+        return None
+    frame = window.get("frame") or {}
+    return (frame.get("x", 0) + border[0] + border[2] / 2,
+            float(screen_h) - (frame.get("y", 0) + frame.get("height", 0)) + border[1] + border[3] / 2)
+
+
+def run_pinch(rpc, url):
+    """The pinch row (task 234): a real trackpad pinch (pointer-probe magnify) over a Chromium tab must zoom the page
+    (its visual viewport's scale grows, as Chrome's pinch does) and must not become a swipe, now that the hosted page
+    view hands each scroll to the swipe first."""
+    probe = build_pointer_probe()
+    if not probe:
+        RESULT["modes"]["pinch"] = {"error": "pointer-probe.swift did not build (xcrun swiftc)"}
+        return False
+    page, title_is = tab_page(rpc)
+
+    def swipe_stats():
+        return (rpc("debug.cef") or {}).get("swipe") or {}
+
+    opened = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True,
+                                "origin": "script"}, timeout=120)
+    if not title_is("pinch probe"):
+        RESULT["modes"]["pinch"] = {"error": f"the pinch probe never loaded: {json.dumps(opened)[:200]}"}
+        return False
+    row = {"backend": (rpc("debug.cef") or {}).get("backend")}
+    center = focused_pane_center(rpc, probe)
+    if not center:
+        RESULT["modes"]["pinch"] = {"error": "no pane, window or screen geometry (debug.pane_chrome, debug.window_list)"}
+        return False
+    before = page("window.__zoom()") or {}
+    stats_before = swipe_stats()
+    pinched = subprocess.run([probe, "magnify", f"{center[0]:.0f}", f"{center[1]:.0f}", "0.05", "20"],
+                             capture_output=True, text=True, timeout=30)
+    start = before.get("scale") or 1
+    wait(lambda: ((page("window.__zoom()") or {}).get("scale") or start) > start + 0.05, 3, 0.1)
+    time.sleep(0.5)  # a swipe or navigation the pinch set off would show here
+    after = page("window.__zoom()") or {}
+    stats_after = swipe_stats()
+    row.update({
+        "probe": pinched.stdout.strip() or pinched.stderr.strip()[:200],
+        "before": before, "after": after, "title": page("document.title"),
+        "swipe": {key: (stats_after.get(key) or 0) - (stats_before.get(key) or 0) for key in ("gestures", "swipes")},
+    })
+    zoomed = (after.get("scale") or start) > start + 0.05
+    reached = zoomed or (after.get("ctrlWheels") or 0) > (before.get("ctrlWheels") or 0)
+    row["zoomed"] = zoomed
+    if not reached and row["backend"] == "host":
+        row["not_measurable"] = ("the pinch never reached the page: in host mode the page view sends the host no "
+                                 "magnify before the host input route (p01-process-042) and its PinchEvent "
+                                 "(p01-process-054)")
+    else:
+        row["pass"] = bool(zoomed and row["title"] == "pinch probe" and row["swipe"]["swipes"] == 0
+                           and row["swipe"]["gestures"] == 0)
+        if not reached:
+            row["error"] = "the posted pinch never reached the page (no ctrl+wheel, no zoom)"
+    RESULT["modes"]["pinch"] = row
     return True
 
 

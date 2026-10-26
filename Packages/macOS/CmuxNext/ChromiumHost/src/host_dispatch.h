@@ -57,7 +57,7 @@
 //   kOpReply   reply flag, token, the op's result and out-parameters
 //   kOpTextInputState  a watched browser's text input state, at most once per
 //              display frame (host_text_input.h)
-//   kOpEvent   CMUX_SHIM_WHEEL_ACK: the fork's ack of a page's latest wheel,
+//   kOpEvent   CMUX_SHIM_WHEEL_ACK: the fork's ack of one of a page's wheels,
 //              with that wheel's input seq (host_wheel_ack.h); the HELLO lists
 //              kWheelAcksHelloName when the fork has the handler
 //
@@ -208,11 +208,12 @@ class HostContext {
   static void OnTextInput(void* ctx, int browser_id, const void* state);
   // The fork's wheel ack handler; ctx is this HostContext and `ack` the
   // fork's cmux_wheel_ack_t. Forwards CMUX_SHIM_WHEEL_ACK with the input seq
-  // of the browser's latest wheel (WheelSent).
+  // of the browser's oldest unacked wheel (WheelSent).
   static void OnWheelAck(void* ctx, int browser_id, const void* ack);
   // The input dispatch gave Chromium's `chromium_id` the wheel of input seq
   // `seq` through the fork's wheel call (a momentum wheel when `momentum`):
-  // the fork's next ack of that browser answers it.
+  // the fork's first ack of that browser after the acks of the wheels sent
+  // before it answers it.
   void WheelSent(int chromium_id, uint32_t seq, bool momentum) { wheel_acks_.Sent(chromium_id, seq, momentum); }
   static int OnWindowRequest(void* ctx, int kind, int disposition, int source_browser_id, int has_bounds, int x,
                              int y, int width, int height, int user_gesture, const char* url,
@@ -380,8 +381,8 @@ class HostContext {
 
   // Browsers cmux watches the text input of, by Chromium id.
   TextInputPushes text_input_;
-  // The fork's wheel ack handler setter (SetWheelAckHandler) and the latest
-  // wheel each page was given, by Chromium id.
+  // The fork's wheel ack handler setter (SetWheelAckHandler) and each page's
+  // unacked wheels, by Chromium id.
   SetWheelAckHandlerFn set_wheel_ack_handler_ = nullptr;
   WheelAcks wheel_acks_;
   // Text input watches of minted ids whose creation has not come, by the

@@ -16,8 +16,9 @@
 // Event (an optional event of plans/cmux-next/chromium-host-ops.json):
 //   CMUX_SHIM_WHEEL_ACK = kEventWheelAck
 //   browser_id  the page's browser (cmux's id)
-//   request     the input seq (Header::seq) of the wheel it answers: the
-//               latest the host gave the page with cmux_shim_browser_send_wheel
+//   request     the input seq (Header::seq) of the wheel it answers, one of
+//               those the host gave the page with cmux_shim_browser_send_wheel
+//               (WheelAcks pairs each fork ack with its wheel)
 //   a           DIPs the page scrolled for it in hundredths: x in the low 32
 //               bits, y in the high 32 (each signed)
 //   b           kWheelAck* flags in the low 32 bits (with
@@ -36,7 +37,7 @@
 //       void (*fn)(void* ctx, int browser_id, const cmux_wheel_ack_t* ack),
 //       void* ctx);  // NULL fn clears it; returns 1 when set
 // The fork calls fn on the UI thread once per wheel cmux_browser_send_wheel
-// sent, when Chromium is done with it: at the ack of the GestureScrollUpdate
+// sent, a page's in the order it sent them, when Chromium is done with it: at the ack of the GestureScrollUpdate
 // it made (RenderWidgetHostViewMac::GestureEventAck), with the
 // DidOverscrollParams that came with that ack, or at the wheel's own ack when
 // it made no update (a script's preventDefault, a phase edge with no delta;
@@ -49,6 +50,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <optional>
 #include <unordered_map>
 
@@ -152,38 +154,58 @@ inline WheelAckEvent EncodeWheelAck(uint32_t seq, const WheelAck& ack) {
   return event;
 }
 
-// The latest wheel the host gave each page, so the fork's ack (which names
-// the browser only) carries the input seq cmux stamped on it. Chromium acks a
-// page's wheels in order, and cmux keeps at most one in flight per page
-// (task p01-process-042), so the ack is the latest one's.
+// The wheels the host gave each page that Chromium has not acked yet, oldest
+// first, so each fork ack (which names the browser only) carries the input
+// seq cmux stamped on the wheel it answers. The host hands a wheel to
+// Chromium before Chromium acks the one before it (task p01-process-042 acks
+// at dispatch), so several can be in flight; the fork acks a page's wheels
+// once each, in the order cmux_browser_send_wheel took them, as Chromium's
+// MouseWheelEventQueue (components/input/mouse_wheel_event_queue.cc) acks its
+// queue front first. So each ack answers the page's oldest unacked wheel.
 class WheelAcks {
  public:
+  // Unacked wheels kept per page; past it the oldest goes (a fork that
+  // stopped acking), so the queue stays bounded.
+  static constexpr size_t kMaxInFlight = 256;
+
   // `chromium_id` was given the wheel of input seq `seq` (0: cmux stamped
   // none, so nothing can name it), a momentum wheel when `momentum`.
   void Sent(int chromium_id, uint32_t seq, bool momentum) {
-    if (seq == 0) {
-      last_.erase(chromium_id);
-      return;
-    }
-    last_[chromium_id] = Last{seq, momentum};
+    std::deque<Wheel>& wheels = unacked_[chromium_id];
+    if (wheels.size() >= kMaxInFlight) wheels.pop_front();
+    wheels.push_back(Wheel{seq, momentum});
   }
-  // The event for the fork's ack of `chromium_id`'s latest wheel; nullopt
-  // when the host gave it no wheel cmux can name, or a momentum wheel.
-  std::optional<WheelAckEvent> Acked(int chromium_id, const WheelAck& ack) const {
-    auto found = last_.find(chromium_id);
-    if (found == last_.end() || found->second.momentum) return std::nullopt;
-    return EncodeWheelAck(found->second.seq, ack);
+  // The fork acked `chromium_id`'s oldest unacked wheel with `ack` (nullptr:
+  // an ack the host could not read, which still answers that wheel): the
+  // event for it, or nullopt when the page has no unacked wheel, the ack is
+  // unreadable, or the wheel is momentum (momentum never starts a swipe) or
+  // carries no seq.
+  std::optional<WheelAckEvent> Acked(int chromium_id, const WheelAck* ack) {
+    auto found = unacked_.find(chromium_id);
+    if (found == unacked_.end()) return std::nullopt;
+    const Wheel wheel = found->second.front();
+    found->second.pop_front();
+    if (found->second.empty()) unacked_.erase(found);
+    if (!ack || wheel.momentum || wheel.seq == 0) return std::nullopt;
+    return EncodeWheelAck(wheel.seq, *ack);
   }
   // The browser closed.
-  void Forget(int chromium_id) { last_.erase(chromium_id); }
-  size_t size() const { return last_.size(); }
+  void Forget(int chromium_id) { unacked_.erase(chromium_id); }
+  // Pages with unacked wheels.
+  size_t size() const { return unacked_.size(); }
+  // `chromium_id`'s unacked wheels.
+  size_t InFlight(int chromium_id) const {
+    auto found = unacked_.find(chromium_id);
+    return found == unacked_.end() ? 0 : found->second.size();
+  }
 
  private:
-  struct Last {
+  struct Wheel {
     uint32_t seq;
     bool momentum;
   };
-  std::unordered_map<int, Last> last_;
+  // Never holds an empty queue.
+  std::unordered_map<int, std::deque<Wheel>> unacked_;
 };
 
 // The fork's cmux_set_wheel_ack_handler.

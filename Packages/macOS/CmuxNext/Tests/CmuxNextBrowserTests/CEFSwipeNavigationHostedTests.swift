@@ -137,6 +137,24 @@ import Testing
         #expect(harness.swipe.stats.probes == 0)
     }
 
+    /// The host names each ack by its own wheel's seq (`WheelAcks`, several wheels in flight): a consumed ack of a
+    /// wheel sent before the gesture that comes after its began wheel went out is not the gesture's first answer.
+    @Test func aLateConsumedAckOfAnEarlierWheelDoesNotDeclineTheGesture() throws {
+        let harness = try Harness(acksWheels: true)
+        defer { harness.close() }
+        let swipe = harness.swipe
+        harness.deliver(try harness.scroll(phase: 0))
+        harness.deliver(try harness.scroll(phase: 1))
+        #expect(harness.sentSeqs == [11, 12], "the earlier wheel and the began wheel are both in flight")
+
+        harness.ack(seq: 11, consumed: true)
+        #expect(swipe.gesture.phase == .pending, "the earlier wheel's consumed ack is not this gesture's")
+        harness.ack(seq: 12, consumed: false)
+        #expect(swipe.gesture.phase == .pending, "the began wheel's own unconsumed ack leaves the gesture to the swipe")
+        #expect(swipe.stats.acks == 1)
+        #expect(swipe.stats.probes == 0)
+    }
+
     @Test func aHostWithoutAcksIsProbed() throws {
         let harness = try Harness(acksWheels: false)
         defer { harness.close() }

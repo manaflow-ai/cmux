@@ -2,7 +2,8 @@
 // p01-process-234) alone and through the dispatcher (src/host_dispatch.mm)
 // with a fake shim and a fake fork handler: the fork's struct is read with
 // its size; an ack goes out as one CMUX_SHIM_WHEEL_ACK under cmux's id with
-// the input seq of the page's latest wheel, its scrolled DIPs, flags,
+// the input seq of the wheel it answers (the page's oldest unacked one, with
+// several in flight), its scrolled DIPs, flags,
 // overscroll-behavior-x and overscroll; a momentum wheel's ack, an ack of a
 // page given no wheel and acks after the page closed go nowhere; the HELLO
 // lists kWheelAcksHelloName only on a fork with the handler, which Resume
@@ -236,21 +237,51 @@ void EncodesTheEvent() {
         "hundredths clamp and NaN is 0");
 }
 
-void KeepsTheLatestWheel() {
+void PairsEachAckWithItsWheel() {
   WheelAcks acks;
   WheelAck ack;
   ack.flags = kWheelAckUpdate;
-  Check(!acks.Acked(3, ack), "a page given no wheel: no event");
+  Check(!acks.Acked(3, &ack), "a page given no wheel: no event");
+
+  // Several wheels in flight (042 acks at dispatch): each ack answers the oldest.
   acks.Sent(3, 10, false);
   acks.Sent(3, 11, false);
-  Check(acks.Acked(3, ack) && acks.Acked(3, ack)->request == 11, "the latest wheel's seq");
-  acks.Sent(3, 12, true);
-  Check(!acks.Acked(3, ack), "a momentum wheel's ack: no event");
+  Check(acks.InFlight(3) == 2, "both wheels are in flight");
+  std::optional<WheelAckEvent> first = acks.Acked(3, &ack);
+  std::optional<WheelAckEvent> second = acks.Acked(3, &ack);
+  Check(first && first->request == 10 && second && second->request == 11, "acks in the order the wheels went");
+  Check(!acks.Acked(3, &ack) && acks.size() == 0, "every wheel acked: a further ack names none");
+
+  // A fling's last momentum wheel, then a new gesture's began wheel, before either is acked: the
+  // momentum wheel's (consumed) ack goes nowhere, and the began wheel's (unconsumed) ack names it.
+  acks.Sent(3, 1, true);
+  acks.Sent(3, 2, false);
+  WheelAck consumed;
+  consumed.flags = kWheelAckUpdate | kWheelAckConsumed;
+  WheelAck unconsumed;
+  unconsumed.flags = kWheelAckUpdate | kWheelAckOverscrolled;
+  Check(!acks.Acked(3, &consumed), "the momentum wheel's ack: no event, and not the began wheel's");
+  second = acks.Acked(3, &unconsumed);
+  Check(second && second->request == 2 && (second->b & kWheelAckConsumed) == 0,
+        "the began wheel's ack carries its own seq and flags");
+
   acks.Sent(3, 0, false);
-  Check(!acks.Acked(3, ack), "a wheel cmux stamped no seq on: no event");
+  acks.Sent(3, 13, false);
+  Check(!acks.Acked(3, &ack), "a wheel cmux stamped no seq on: no event");
+  first = acks.Acked(3, &ack);
+  Check(first && first->request == 13, "the next wheel's ack is still its own");
+
   acks.Sent(4, 20, false);
+  acks.Sent(5, 30, false);
+  first = acks.Acked(5, &ack);
+  Check(first && first->request == 30 && acks.InFlight(4) == 1, "pages' queues are apart");
   acks.Forget(4);
-  Check(!acks.Acked(4, ack) && acks.size() == 0, "a closed page is forgotten");
+  Check(!acks.Acked(4, &ack) && acks.size() == 0, "a closed page is forgotten");
+
+  for (uint32_t seq = 1; seq <= WheelAcks::kMaxInFlight + 2; ++seq) acks.Sent(6, seq, false);
+  Check(acks.InFlight(6) == WheelAcks::kMaxInFlight, "a page's queue is bounded");
+  first = acks.Acked(6, &ack);
+  Check(first && first->request == 3, "past the bound the oldest went");
 }
 
 void ForwardsAcksThroughTheDispatcher() {
@@ -285,8 +316,23 @@ void ForwardsAcksThroughTheDispatcher() {
   ForkWheelAck old = Ack(kWheelAckUpdate, 0, 0);
   old.size = 8;
   f.host.WheelSent(kChromiumBrowser, 80, false);
+  f.host.WheelSent(kChromiumBrowser, 81, false);
   f.Acked(kChromiumBrowser, old);
   Check(f.Acks().empty(), "an ack the host cannot read goes nowhere");
+  f.Acked(kChromiumBrowser, Ack(kWheelAckUpdate, 0, 0));
+  acks = f.Acks();
+  Check(acks.size() == 1 && acks[0].request == 81, "but it answered its wheel: the next ack names the next one");
+
+  // A vertical fling's momentum wheel still in flight when the next gesture begins: its consumed ack
+  // is not the began wheel's, so the began wheel's unconsumed ack goes out under its own seq.
+  f.host.WheelSent(kChromiumBrowser, 90, true);
+  f.host.WheelSent(kChromiumBrowser, 91, false);
+  f.Acked(kChromiumBrowser, Ack(kWheelAckUpdate | kWheelAckConsumed, 0, 12));
+  f.Acked(kChromiumBrowser, Ack(kWheelAckUpdate | kWheelAckOverscrolled, 0, 0, -8, kOverscrollAuto));
+  acks = f.Acks();
+  Check(acks.size() == 1 && acks[0].request == 91 && (acks[0].b & kWheelAckConsumed) == 0 &&
+            (acks[0].b & kWheelAckOverscrolled) != 0,
+        "one event: the began wheel's unconsumed overscroll");
 
   HostContext::OnShimEvent(&f.host, CMUX_SHIM_BEFORE_CLOSE, kChromiumBrowser, 0, 0, 0, "", "");
   f.sent.clear();
@@ -306,7 +352,7 @@ void NoHandlerNoAcks() {
 int main() {
   ReadsTheForkStruct();
   EncodesTheEvent();
-  KeepsTheLatestWheel();
+  PairsEachAckWithItsWheel();
   ForwardsAcksThroughTheDispatcher();
   NoHandlerNoAcks();
   if (failures) {
