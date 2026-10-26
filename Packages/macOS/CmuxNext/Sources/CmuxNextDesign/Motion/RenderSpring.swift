@@ -205,8 +205,9 @@ public struct RenderSpring {
             self.init(layer, keyPath, from: nil, to: value, velocity: velocity)
         }
 
-        /// `from` replaces the model value read at the start (a frame already written).
-        init<Value: RenderSpringValue>(_ layer: CALayer, _ keyPath: String, from: Value?, to value: Value, velocity: CGFloat = 0) {
+        /// `from` replaces the model value read at the start (a frame already written: a pane host
+        /// AppKit placed at rest in the change's turn springs from where it showed).
+        public init<Value: RenderSpringValue>(_ layer: CALayer, _ keyPath: String, from: Value?, to value: Value, velocity: CGFloat = 0) {
             self.layer = layer
             self.keyPath = keyPath
             target = value.layerValue

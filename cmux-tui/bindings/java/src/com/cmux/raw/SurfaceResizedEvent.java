@@ -12,12 +12,15 @@ import java.util.Objects;
 
 /** Immutable surface-resized event. Protocol v5; streams: subscribe. */
 public final class SurfaceResizedEvent implements WireValue, DeltaStreamEvent, ProtocolEvent, SubscribeEvent {
+    /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+    private final Field<EventCause> cause;
     private final int cols;
     private final UInt64 reservationId;
     private final int rows;
     private final UInt64 surface;
 
     private SurfaceResizedEvent(Builder builder) {
+        this.cause = builder.cause;
         if (!builder.colsSet) throw new IllegalArgumentException("cols is required");
         this.cols = builder.cols;
         if (!builder.reservationIdSet) throw new IllegalArgumentException("reservation_id is required");
@@ -30,6 +33,7 @@ public final class SurfaceResizedEvent implements WireValue, DeltaStreamEvent, P
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<EventCause> cause() { return cause; }
     public int cols() { return cols; }
     public UInt64 reservationId() { return reservationId; }
     public int rows() { return rows; }
@@ -40,6 +44,10 @@ public final class SurfaceResizedEvent implements WireValue, DeltaStreamEvent, P
         Map<String, Object> object = Wire.object(value, "SurfaceResizedEvent");
         Builder builder = builder();
         ProtocolSupport.literal(Wire.required(object, "event"), "surface-resized", "SurfaceResizedEvent.event");
+        Object rawCause = Wire.optional(object, "cause");
+        if (!Wire.isMissing(rawCause)) {
+            builder.cause(EventCause.fromWire(rawCause));
+        }
         Object rawCols = Wire.required(object, "cols");
         builder.cols(Wire.uint16(rawCols, "SurfaceResizedEvent.cols"));
         Object rawReservationId = Wire.required(object, "reservation_id");
@@ -55,6 +63,7 @@ public final class SurfaceResizedEvent implements WireValue, DeltaStreamEvent, P
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         object.put("event", "surface-resized");
+        Wire.put(object, "cause", cause);
         Wire.put(object, "cols", cols);
         Wire.put(object, "reservation_id", reservationId);
         Wire.put(object, "rows", rows);
@@ -65,16 +74,17 @@ public final class SurfaceResizedEvent implements WireValue, DeltaStreamEvent, P
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof SurfaceResizedEvent that)) return false;
-        return Objects.equals(cols, that.cols) && Objects.equals(reservationId, that.reservationId) && Objects.equals(rows, that.rows) && Objects.equals(surface, that.surface);
+        return Objects.equals(cause, that.cause) && Objects.equals(cols, that.cols) && Objects.equals(reservationId, that.reservationId) && Objects.equals(rows, that.rows) && Objects.equals(surface, that.surface);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cols, reservationId, rows, surface); }
+    public int hashCode() { return Objects.hash(cause, cols, reservationId, rows, surface); }
 
     @Override
     public String toString() { return "SurfaceResizedEvent" + toWire(); }
 
     public static final class Builder {
+        private Field<EventCause> cause = Field.omitted();
         private Integer cols;
         private boolean colsSet;
         private UInt64 reservationId;
@@ -84,6 +94,10 @@ public final class SurfaceResizedEvent implements WireValue, DeltaStreamEvent, P
         private UInt64 surface;
         private boolean surfaceSet;
 
+        public Builder cause(EventCause value) {
+            this.cause = Field.of(value);
+            return this;
+        }
         public Builder cols(int value) {
             this.cols = value;
             this.colsSet = true;

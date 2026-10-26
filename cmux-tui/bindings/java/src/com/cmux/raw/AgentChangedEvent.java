@@ -16,6 +16,8 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
     private final Field<String> agent;
     /** The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this. */
     private final Field<String> agentSessionId;
+    /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+    private final Field<EventCause> cause;
     /** The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted. */
     private final Field<String> lastPrompt;
     private final String session;
@@ -29,6 +31,7 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
     private AgentChangedEvent(Builder builder) {
         this.agent = builder.agent;
         this.agentSessionId = builder.agentSessionId;
+        this.cause = builder.cause;
         this.lastPrompt = builder.lastPrompt;
         if (!builder.sessionSet) throw new IllegalArgumentException("session is required");
         this.session = builder.session;
@@ -47,6 +50,7 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
 
     public Field<String> agent() { return agent; }
     public Field<String> agentSessionId() { return agentSessionId; }
+    public Field<EventCause> cause() { return cause; }
     public Field<String> lastPrompt() { return lastPrompt; }
     public String session() { return session; }
     public Field<UInt64> sinceMs() { return sinceMs; }
@@ -67,6 +71,10 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
         Object rawAgentSessionId = Wire.optional(object, "agent_session_id");
         if (!Wire.isMissing(rawAgentSessionId)) {
             builder.agentSessionId(rawAgentSessionId == null ? null : Wire.string(rawAgentSessionId, "AgentChangedEvent.agent_session_id"));
+        }
+        Object rawCause = Wire.optional(object, "cause");
+        if (!Wire.isMissing(rawCause)) {
+            builder.cause(EventCause.fromWire(rawCause));
         }
         Object rawLastPrompt = Wire.optional(object, "last_prompt");
         if (!Wire.isMissing(rawLastPrompt)) {
@@ -95,6 +103,7 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
         object.put("event", "agent-changed");
         Wire.put(object, "agent", agent);
         Wire.put(object, "agent_session_id", agentSessionId);
+        Wire.put(object, "cause", cause);
         Wire.put(object, "last_prompt", lastPrompt);
         Wire.put(object, "session", session);
         Wire.put(object, "since_ms", sinceMs);
@@ -108,11 +117,11 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof AgentChangedEvent that)) return false;
-        return Objects.equals(agent, that.agent) && Objects.equals(agentSessionId, that.agentSessionId) && Objects.equals(lastPrompt, that.lastPrompt) && Objects.equals(session, that.session) && Objects.equals(sinceMs, that.sinceMs) && Objects.equals(source, that.source) && Objects.equals(state, that.state) && Objects.equals(surface, that.surface) && Objects.equals(updatedAtMs, that.updatedAtMs);
+        return Objects.equals(agent, that.agent) && Objects.equals(agentSessionId, that.agentSessionId) && Objects.equals(cause, that.cause) && Objects.equals(lastPrompt, that.lastPrompt) && Objects.equals(session, that.session) && Objects.equals(sinceMs, that.sinceMs) && Objects.equals(source, that.source) && Objects.equals(state, that.state) && Objects.equals(surface, that.surface) && Objects.equals(updatedAtMs, that.updatedAtMs);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(agent, agentSessionId, lastPrompt, session, sinceMs, source, state, surface, updatedAtMs); }
+    public int hashCode() { return Objects.hash(agent, agentSessionId, cause, lastPrompt, session, sinceMs, source, state, surface, updatedAtMs); }
 
     @Override
     public String toString() { return "AgentChangedEvent" + toWire(); }
@@ -120,6 +129,7 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
     public static final class Builder {
         private Field<String> agent = Field.omitted();
         private Field<String> agentSessionId = Field.omitted();
+        private Field<EventCause> cause = Field.omitted();
         private Field<String> lastPrompt = Field.omitted();
         private String session;
         private boolean sessionSet;
@@ -139,6 +149,10 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
         }
         public Builder agentSessionId(String value) {
             this.agentSessionId = Field.ofNullable(value);
+            return this;
+        }
+        public Builder cause(EventCause value) {
+            this.cause = Field.of(value);
             return this;
         }
         public Builder lastPrompt(String value) {

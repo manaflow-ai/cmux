@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHibernation
 import CmuxNextPages
 import CmuxNextTerminal
 
@@ -155,5 +156,20 @@ final class BrowserEntry {
     func close() {
         tab.close()
         chrome.removeFromSuperview()
+    }
+}
+
+extension TabContent {
+    /// This content's class, whose ``TabContentClass/discard`` says how its hidden copy is released.
+    var contentClass: TabContentClass {
+        switch self {
+        case .terminal: .terminal
+        case .browser: .browser
+        case .agent: .agent
+        case .page: .page
+        case .placeholder: .placeholder
+        case .notice: .notice
+        case .conversation: .conversation
+        }
     }
 }

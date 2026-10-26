@@ -10891,6 +10891,13 @@
     }
    },
    "additional_properties": false
+  },
+  "EventCause": {
+   "kind": "enum",
+   "values": [
+    "frontend",
+    "automation"
+   ]
   }
  },
  "commands": {
@@ -31337,6 +31344,17 @@
       "nullable": true,
       "since": 12,
       "description": "The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted."
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -31471,6 +31489,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -31631,6 +31660,17 @@
       },
       "presence": "required",
       "nullable": true
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -31679,6 +31719,17 @@
       },
       "presence": "required",
       "nullable": true
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -31711,6 +31762,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -31735,6 +31797,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -31869,6 +31942,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -31990,6 +32074,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -32126,6 +32221,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -32218,6 +32324,17 @@
       },
       "presence": "optional",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false,
@@ -32271,6 +32388,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -32353,6 +32481,17 @@
       "nullable": false,
       "since": 12,
       "capability": "layout-delta-v1"
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -32449,6 +32588,17 @@
       "nullable": false,
       "since": 12,
       "capability": "notification-reply-v1"
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -32608,6 +32758,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -32640,6 +32801,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -33346,6 +33518,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -33378,6 +33561,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -33410,6 +33604,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -33442,6 +33647,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -33514,6 +33730,17 @@
       },
       "presence": "required",
       "nullable": true
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -33571,6 +33798,17 @@
       "presence": "required",
       "nullable": true,
       "since": 7
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -33883,6 +34121,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -33931,6 +34180,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -33972,6 +34232,17 @@
       "presence": "optional",
       "nullable": false,
       "since": 7
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -33996,6 +34267,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -34114,6 +34396,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -34502,6 +34795,17 @@
       },
       "presence": "required",
       "nullable": true
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -34697,6 +35001,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -34747,6 +35062,17 @@
       },
       "presence": "optional",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -34953,6 +35279,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -34993,6 +35330,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35036,6 +35384,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35092,6 +35451,17 @@
       },
       "presence": "required",
       "nullable": true
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35140,6 +35510,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35191,6 +35572,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35231,6 +35623,17 @@
       },
       "presence": "required",
       "nullable": true
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35271,6 +35674,17 @@
       },
       "presence": "required",
       "nullable": true
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35315,6 +35729,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35363,6 +35788,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35427,6 +35863,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35499,6 +35946,17 @@
       },
       "presence": "optional",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35571,6 +36029,17 @@
       },
       "presence": "optional",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35630,6 +36099,17 @@
       },
       "presence": "optional",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35678,6 +36158,17 @@
       },
       "presence": "optional",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35734,6 +36225,17 @@
       },
       "presence": "optional",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35790,6 +36292,17 @@
       },
       "presence": "optional",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35830,6 +36343,17 @@
       },
       "presence": "optional",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35894,6 +36418,17 @@
       },
       "presence": "optional",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35934,6 +36469,17 @@
       },
       "presence": "optional",
       "nullable": true
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35974,6 +36520,17 @@
       },
       "presence": "optional",
       "nullable": true
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -36054,6 +36611,17 @@
       },
       "presence": "optional",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -36102,6 +36670,17 @@
       },
       "presence": "optional",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -36197,6 +36776,17 @@
       "presence": "required",
       "nullable": true,
       "description": "When the hook observed the event; null on clear."
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -36237,6 +36827,17 @@
       },
       "presence": "required",
       "nullable": true
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false

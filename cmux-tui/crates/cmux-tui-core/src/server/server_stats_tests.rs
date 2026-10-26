@@ -149,6 +149,7 @@ fn request_path_a_queued_request_runs_in_the_daemon_scope() {
     let pending = PendingSurfaceRequest {
         request,
         arrival: RequestArrival::now(),
+        cause: crate::event_cause::EventCause::Program,
         retained_bytes: 0,
         _bytes_permit: mux.surface_operation_admission.try_reserve_bytes(0).expect("permit"),
     };

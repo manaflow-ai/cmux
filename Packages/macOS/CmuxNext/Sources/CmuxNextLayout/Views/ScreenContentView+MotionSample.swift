@@ -14,8 +14,8 @@ extension ScreenContentView {
 
     /// `debug.motion` `trace_*` sampler (registered by `LayoutRootView`): per display frame, each
     /// shown pane host as `[pane, x, y, width, height, alpha, z]`, where the rect is what shows of
-    /// it (its frame cut by its strip clip) in window points with a top-left
-    /// origin and `z` its index among this screen's subviews (higher draws in front); each divider
+    /// it (its frame cut by its strip clip, `PaneHostView.stripShownRect`) in window points with a top-left
+    /// origin and `z` its index in this screen's drawing order (`stackedSubviews`, higher draws in front); each divider
     /// as `[id, x, y, width, height, alpha, z]`; and `zoom`, the pane a zoom or unzoom moves (or "").
     /// Covered panes (a zoom's leaving ones) are listed too. Hidden screens report nothing.
     /// Each pane row goes on with what its content is laid out at: the host's frame
@@ -32,11 +32,10 @@ extension ScreenContentView {
             return [shown.minX, height - shown.maxY, shown.width, shown.height].map { (Double($0) * 100).rounded() / 100 }
         }
         var panes: [Any] = [], dividers: [Any] = []
-        for (index, subview) in screen.subviews.enumerated() {
+        for (index, subview) in screen.stackedSubviews.enumerated() {
             if let host = subview as? PaneHostView {
-                var visible = host.frame
-                if let mask = host.layer?.mask { visible = visible.intersection(mask.frame.offsetBy(dx: host.frame.minX, dy: host.frame.minY)) }
-                let rect = visible.isNull ? CGRect.zero : visible
+                let shown = host.stripShownRect
+                let rect = shown.isEmpty ? CGRect.zero : screen.convert(shown, from: host)
                 let header = CGRect(x: host.frame.minX + host.contentRect.minX, y: host.frame.minY + host.contentRect.minY,
                                     width: host.contentRect.width, height: host.headerHeight)
                 let shownHeader = header.intersection(rect)

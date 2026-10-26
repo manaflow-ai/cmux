@@ -192,6 +192,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         return result
     }
 
+    /// The tabs the strip leaves out: a dock-bound chat (`dockBound`) or a tab on its way to the side (`OutboundTab`).
+    var stripHidden: Set<String> { dockBound.union(OutboundTab.hidden(in: self)) }
+
     func structure(_ file: StaticString = #fileID, _ line: UInt = #line) -> Snapshot {
         #if DEBUG
         DebugLayoutCounters.paneSnapshots &+= 1
@@ -202,8 +205,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // This pane's own workspace record: reading its fields observes them
         // only, never the workspace list (a lookup by pane would).
         let ownWorkspace = workspace?.workspace ?? store.workspace(containing: pane.handle)
-        // A dock-bound chat (`dockBound`) or a tab on its way to the side (`OutboundTab`) stays hidden.
-        let hidden = dockBound.union(OutboundTab.hidden(in: self))
+        let hidden = stripHidden
         var local: [StripTabItem] = []
         for tab in state?.localBrowserTabs[paneKey] ?? [] where !hidden.contains(tab.id) {
             let page = services.cache.existingBrowser(tab.id)?.tab.state

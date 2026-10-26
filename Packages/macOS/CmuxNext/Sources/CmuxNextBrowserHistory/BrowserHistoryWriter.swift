@@ -195,7 +195,8 @@ public final class BrowserHistoryWriter {
         switch (page as? any BrowserHibernationSource)?.hibernationState() {
         case .webKit(let data)?: data.isEmpty ? nil : .init(engine: webKitTag, data: data.base64EncodedString())
         case .chromium(let state)?: state.isEmpty ? nil : .init(engine: chromiumTag, data: state)
-        case nil: nil
+        // A cmux page has no engine history: its record's URL opens it again.
+        case .appPage?, nil: nil
         }
     }
 

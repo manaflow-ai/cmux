@@ -170,7 +170,8 @@ extension TabContentCache {
         #endif
     }
 
-    private func makeAppPage(_ url: URL?, for tab: TabModel) -> (any BrowserTab)? {
+    /// The page at app page address `url` for `tab` (a hibernated one's wake too); nil for another address.
+    func makeAppPage(_ url: URL?, for tab: TabModel) -> (any BrowserTab)? {
         guard Self.isAppPage(url), let services = pageRequests.services else { return nil }
         let key = tab.id
         let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
