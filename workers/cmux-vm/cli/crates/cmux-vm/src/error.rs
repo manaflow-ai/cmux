@@ -89,6 +89,22 @@ impl CliError {
         self
     }
 
+    /// Add the VM and operation to an error from a VM-scoped command.
+    pub fn for_vm(mut self, vm_id: &str, operation: &str) -> Self {
+        let next = match operation {
+            "client-session create" => format!("cmux-vm get {vm_id}"),
+            "client-session list" | "client-session revoke" => {
+                format!("cmux-vm client-session list {vm_id}")
+            }
+            _ => format!("cmux-vm get {vm_id}"),
+        };
+        self.message = format!(
+            "VM {vm_id} {operation} failed: {}; next: `{next}`",
+            self.message
+        );
+        self
+    }
+
     pub async fn from_api(error: Error<ByteStream>) -> Self {
         match error {
             Error::ErrorResponse(response) => {

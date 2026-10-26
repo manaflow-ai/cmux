@@ -19,6 +19,25 @@ pub struct Printer<'a> {
     out: &'a mut dyn Write,
 }
 
+/// Reserve a token path before making the request that mints the one-time
+/// token. The caller owns this empty 0600 file and may remove it if the
+/// request fails.
+pub fn reserve_token_file(path: &Path) -> Result<(), CliError> {
+    let mut file = OpenOptions::new();
+    file.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        file.mode(0o600);
+    }
+    file.open(path).map(|_| ()).map_err(|e| {
+        CliError::unexpected(format!(
+            "could not prepare the token file {}: {e}; choose a new --token-file",
+            path.display()
+        ))
+    })
+}
+
 impl<'a> Printer<'a> {
     pub fn new(json: bool, out: &'a mut dyn Write) -> Self {
         Self { json, out }
@@ -362,7 +381,7 @@ impl<'a> Printer<'a> {
         let ssh = format!("{provider_vm}+{user}@beta-ssh.freestyle.sh");
         if let Some(path) = token_file {
             let mut file = OpenOptions::new();
-            file.write(true).create_new(true);
+            file.write(true).truncate(true);
             #[cfg(unix)]
             {
                 use std::os::unix::fs::OpenOptionsExt;
@@ -371,14 +390,20 @@ impl<'a> Printer<'a> {
             let mut file = file.open(path).map_err(|e| {
                 CliError::unexpected(format!("could not write the token for VM {vm_id} to {}: {e}; choose a new --token-file", path.display()))
             })?;
-            file.write_all(token.as_bytes()).map_err(|e| {
-                CliError::unexpected(format!(
-                    "could not finish writing the token for VM {vm_id}: {e}"
-                ))
-            })?;
+            if let Err(error) = file.write_all(token.as_bytes()) {
+                // The provider will never return this token again. Preserve
+                // recoverability if the selected file fails after minting.
+                self.line(&format!("token {token}"))?;
+                return Err(CliError::unexpected(format!(
+                    "could not finish writing the token for VM {vm_id}: {error}; the token was printed above"
+                )));
+            }
             if self.json {
                 value["tokenFile"] = serde_json::json!(path);
-                value["token"] = serde_json::Value::String("written to tokenFile".into());
+                value["sshLine"] = serde_json::json!(ssh);
+                if let Some(object) = value.as_object_mut() {
+                    object.remove("token");
+                }
                 return self.json_value(&value);
             }
             self.line(&format!("ssh {ssh}"))?;

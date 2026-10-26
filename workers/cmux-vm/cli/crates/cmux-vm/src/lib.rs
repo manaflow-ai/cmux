@@ -992,13 +992,24 @@ async fn client_session(
 ) -> Result<(), CliError> {
     match command {
         ClientSessionCommand::Create(args) => {
+            if let Some(path) = args.token_file.as_deref() {
+                output::reserve_token_file(path)?;
+            }
             let body: types::CreateClientSessionRequest = request_body(json!({
                 "linuxUser": args.user,
             }))?;
             let response =
-                fetch_body(client.agents_create_client_session(&args.vm_id, None, &body))
+                match fetch_body(client.agents_create_client_session(&args.vm_id, None, &body))
                     .await
-                    .map_err(|e| e.for_vm(&args.vm_id, "client-session create"))?;
+                {
+                    Ok(response) => response,
+                    Err(error) => {
+                        if let Some(path) = args.token_file.as_deref() {
+                            let _ = std::fs::remove_file(path);
+                        }
+                        return Err(error.for_vm(&args.vm_id, "client-session create"));
+                    }
+                };
             out.client_session_create(&response, args.token_file.as_deref(), &args.vm_id)
         }
         ClientSessionCommand::List(ClientSessionVmArgs { vm_id }) => {
@@ -1020,12 +1031,24 @@ async fn client_session(
                 }
                 let answer = prompt
                     .ask(&format!(
-                        "Revoke client session {session_id} on VM {vm_id}? Type revoke to confirm: "
+                        "Revoke a client session on VM {vm_id}? Type the VM id to confirm: "
                     ))
                     .map_err(|e| {
                         CliError::cancelled(format!("could not read confirmation: {e}"))
                     })?;
-                if answer.trim() != "revoke" {
+                if answer.trim() != vm_id {
+                    return Err(CliError::cancelled(format!(
+                        "revocation of client session {session_id} on VM {vm_id} was not confirmed"
+                    )));
+                }
+                let answer = prompt
+                    .ask(&format!(
+                        "Revoke client session {session_id} on VM {vm_id}? Type the session id to confirm: "
+                    ))
+                    .map_err(|e| {
+                        CliError::cancelled(format!("could not read confirmation: {e}"))
+                    })?;
+                if answer.trim() != session_id {
                     return Err(CliError::cancelled(format!(
                         "revocation of client session {session_id} on VM {vm_id} was not confirmed"
                     )));
