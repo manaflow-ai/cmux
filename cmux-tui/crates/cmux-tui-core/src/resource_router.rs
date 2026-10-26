@@ -163,7 +163,7 @@ pub(crate) fn handle_trusted_local_auxiliary(
 }
 
 pub(crate) fn malformed_resource_response(message: &str, error: ResourceError) -> Value {
-    let request = serde_json::from_str::<Value>(message).ok();
+    let request = crate::diagnostics::parse_request_json::<Value>(message).ok();
     let raw_id = request.as_ref().and_then(|value| value.get("id"));
     let id = raw_id
         .and_then(Value::as_str)

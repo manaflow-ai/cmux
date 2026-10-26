@@ -643,8 +643,7 @@ object{
     received:array<kind_count>, sent:array<kind_count>,
     parses:object{lines:parse_count,frames:parse_count},
     writes:object{messages:uint64,syscalls:uint64,syscalls_per_message:float64,stalls:uint64},
-    bad_message:uint64,
-    ring:object{resyncs:uint64,laps:uint64}
+    bad_message:uint64
   }
 }
 kind_count = object{kind:string,messages:uint64,bytes:uint64}
@@ -727,25 +726,28 @@ write is not counted. `dispatch_queue_us` is the time from a request's parse
 to its handler's start: the wait in the connection's request queue (0 for a
 line answered inline).
 
-`ipc` counts the IPC layer since daemon start. `streams`, `received`, `sent`
-and `writes` cover the control socket's connections (local and remote
-entry), not WebSocket connections. `streams` counts each connection's stream 0 and every stream a client opens
-on it (`open` now, `peak`, `opened` in total). `sequence_depth` samples the
-requests in a connection's sequence as each `cmd` request enters it.
-`received` and `sent` list messages and bytes by kind, only kinds seen at
-least once: `line` (a JSON line; bytes count its delimiter) first, then frame
-kinds by name in wire order (a frame's bytes count its header). `sent`
-counts what was handed to a connection writer. `parses.lines` counts local
-JSON-line requests (Unix socket and WebSocket; remote relay lines are not
-counted) and every JSON parse of their bytes, the hello gate's and each
-answering feature route's included; `parses.frames` the same for REQUEST
-frames. `json_parses_per_request` is 0 before the first request.
-`writes.syscalls` counts the writers' write calls and `writes.stalls` the
-calls that blocked for at least 1 ms on a full peer receive buffer.
-`bad_message` counts connections closed for a malformed message (a JSON line
-over the size limit, or a bad frame). `ring.resyncs` counts shared output
-ring gaps a reader resynchronized after and `ring.laps` spans the ring writer
-overwrote while a reader still held them.
+`ipc` counts the IPC layer since daemon start, over the connections of every
+transport: the local socket, the remote entry and WebSocket. `streams`
+counts each connection's stream 0 (`open` now, `peak`, `opened` in total);
+no connection opens a second stream yet, so `open` is the open connections.
+`sequence_depth` samples the requests in a connection's sequence as each
+`cmd` request arrives at it, itself included, also when the full sequence
+refuses it. `received` and `sent` list messages and bytes by kind, only kinds
+seen at least once: `line` (a JSON line, bytes counting its delimiter, or a
+WebSocket text message) first, then frame kinds by name in wire order (a
+frame's bytes count its header). `sent` counts what was handed to a
+connection writer. `parses.lines` counts every non-blank JSON line or
+WebSocket text message a connection reads, the ones its admission or hello
+gate answers included, and every JSON parse of their bytes where it happens
+(the admission's, the hello gate's, the v2 probe's and each feature route's,
+also a route that then declines the line); `parses.frames` the same for
+admitted REQUEST frames. `json_parses_per_request` is 0 before the first
+request. `writes.syscalls` counts the writers' write calls and
+`writes.stalls` the calls that blocked for at least 1 ms on a full peer
+receive buffer. `bad_message` counts connections closed for a malformed
+message: a JSON line over the size limit or not UTF-8, a bad frame, or a
+WebSocket message that is oversized, not UTF-8, binary or against the
+protocol.
 
 In a trace, each request is the slice `daemon.request`: arg0 is the method
 id (a command's row in the command table, `0x4000` plus a resource

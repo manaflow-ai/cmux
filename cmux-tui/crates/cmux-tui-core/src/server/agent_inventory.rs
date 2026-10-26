@@ -113,7 +113,8 @@ pub(super) fn try_handle(
     if !message.contains("agent-inventory") {
         return None;
     }
-    let Ok(Value::Object(mut fields)) = serde_json::from_str::<Value>(message) else {
+    let Ok(Value::Object(mut fields)) = crate::diagnostics::parse_request_json::<Value>(message)
+    else {
         return None;
     };
     let mode = match fields.remove("cmd").as_ref().and_then(Value::as_str) {

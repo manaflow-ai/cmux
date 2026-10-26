@@ -17,7 +17,10 @@ pub(super) fn try_handle(
     if !message.contains("machine-catalog-publish") {
         return None;
     }
-    let Ok(Value::Object(mut fields)) = serde_json::from_str::<Value>(message) else { return None };
+    let Ok(Value::Object(mut fields)) = crate::diagnostics::parse_request_json::<Value>(message)
+    else {
+        return None;
+    };
     if fields.remove("cmd").as_ref().and_then(Value::as_str) != Some("machine-catalog-publish") {
         return None;
     }

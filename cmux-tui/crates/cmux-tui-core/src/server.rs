@@ -25,7 +25,9 @@ use crate::workspace_registry::TerminalLifecycle;
 #[cfg(test)]
 use base64::Engine;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::Write;
+#[cfg(test)]
+use std::io::{BufRead, BufReader, Read};
 #[cfg(test)]
 use std::net::TcpListener;
 use std::net::{Shutdown, TcpStream};
@@ -145,6 +147,7 @@ mod app_trust;
 pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};
 mod client_hello;
 mod command_args;
+mod frame_dispatch;
 #[cfg(unix)]
 mod fs_wire;
 mod line_connection;
@@ -594,7 +597,7 @@ pub(crate) use protocol_key::{
 };
 
 mod wire_values;
-use wire_values::{default_renderer_capability_ttl_ms, json_line_payload_len, machine_usage_json};
+use wire_values::{default_renderer_capability_ttl_ms, machine_usage_json};
 
 #[derive(Deserialize)]
 struct Request {

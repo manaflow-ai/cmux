@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 98361af25b05526f72fdb923aa08991db43dc2680fb6a38b296a780618450698. */
+/* cmux-tui mux protocol 12, IR 525ac06e571b8bfe1ccd0f6886b756a81e1f5fd6fa1fcccd229197f40d776d9f. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "98361af25b05526f72fdb923aa08991db43dc2680fb6a38b296a780618450698" as const;
+export const SDK_IR_SHA256 = "525ac06e571b8bfe1ccd0f6886b756a81e1f5fd6fa1fcccd229197f40d776d9f" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -11461,10 +11461,11 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "ServerStatsIpc": {
     "additional_properties": false,
     "constraints": [
-      "Counters accumulate since daemon start; streams, received, sent and writes cover the control socket's connections (local and remote entry), not WebSocket connections.",
-      "sequence_depth samples the requests in a connection's sequence as each request enters it.",
+      "Counters accumulate since daemon start over the connections of every transport: the local socket, the remote entry and WebSocket.",
+      "streams counts each connection's stream 0 (no connection opens a second stream yet), so open is the open connections.",
+      "sequence_depth samples the requests in a connection's sequence as each request arrives at it, itself included, also when the full sequence refuses it.",
       "received and sent list only kinds seen at least once, line first, then frames in wire order.",
-      "bad_message counts connections closed for a malformed message (a JSON line over the size limit, or a bad frame)."
+      "bad_message counts connections closed for a malformed message: a JSON line over the size limit or not UTF-8, a bad frame, or a WebSocket message that is oversized, not UTF-8, binary or against the protocol."
     ],
     "fields": {
       "bad_message": {
@@ -11492,14 +11493,6 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "name": "ServerStatsIpcKind"
           },
           "kind": "array"
-        }
-      },
-      "ring": {
-        "nullable": false,
-        "presence": "required",
-        "type": {
-          "kind": "ref",
-          "name": "ServerStatsIpcRing"
         }
       },
       "sent": {
@@ -11543,7 +11536,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "ServerStatsIpcKind": {
     "additional_properties": false,
     "constraints": [
-      "kind is line (a JSON line; bytes count its delimiter) or a frame kind name (output, grid, event, snapshot, snapshot_more, replay, ring, ring_advance, input, shared_buffer, ring_ack, request, reply, error, typed_event, cancel); a frame's bytes count its header."
+      "kind is line (a JSON line, bytes counting its delimiter, or a WebSocket text message) or a frame kind name (output, grid, event, snapshot, snapshot_more, replay, ring, ring_advance, input, shared_buffer, ring_ack, request, reply, error, typed_event, cancel); a frame's bytes count its header."
     ],
     "fields": {
       "bytes": {
@@ -11576,7 +11569,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "ServerStatsIpcParse": {
     "additional_properties": false,
     "constraints": [
-      "json_parses counts every JSON parse of a request message's bytes, the hello gate's and each answering feature route's included; json_parses_per_request is 0 before the first request."
+      "json_parses counts every JSON parse of a request message's bytes where it happens: the admission's, the hello gate's, the v2 probe's and each feature route's, also a route that then declines the message; json_parses_per_request is 0 before the first request."
     ],
     "fields": {
       "json_parses": {
@@ -11609,7 +11602,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "ServerStatsIpcParses": {
     "additional_properties": false,
     "constraints": [
-      "lines counts local JSON-line requests (Unix socket and WebSocket), not remote relay lines; frames counts binary REQUEST frames."
+      "lines counts every non-blank JSON line or WebSocket text message a connection reads, the ones its admission or hello gate answers included; frames counts admitted binary REQUEST frames."
     ],
     "fields": {
       "frames": {
@@ -11626,31 +11619,6 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "ServerStatsIpcParse"
-        }
-      }
-    },
-    "kind": "object"
-  },
-  "ServerStatsIpcRing": {
-    "additional_properties": false,
-    "constraints": [
-      "resyncs counts shared output ring gaps a reader resynchronized after; laps counts spans the ring writer overwrote while a reader still held them."
-    ],
-    "fields": {
-      "laps": {
-        "nullable": false,
-        "presence": "required",
-        "type": {
-          "kind": "scalar",
-          "name": "uint64"
-        }
-      },
-      "resyncs": {
-        "nullable": false,
-        "presence": "required",
-        "type": {
-          "kind": "scalar",
-          "name": "uint64"
         }
       }
     },

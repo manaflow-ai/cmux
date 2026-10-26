@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "98361af25b05526f72fdb923aa08991db43dc2680fb6a38b296a780618450698";
+inline constexpr std::string_view kProtocolIrSha256 = "525ac06e571b8bfe1ccd0f6886b756a81e1f5fd6fa1fcccd229197f40d776d9f";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -188,7 +188,6 @@ struct ServerStatsIpc;
 struct ServerStatsIpcKind;
 struct ServerStatsIpcParse;
 struct ServerStatsIpcParses;
-struct ServerStatsIpcRing;
 struct ServerStatsIpcStreams;
 struct ServerStatsIpcWrites;
 struct ServerStatsJournalWriter;
@@ -5487,12 +5486,6 @@ struct ServerStatsIpcParses {
     friend bool operator==(const ServerStatsIpcParses&, const ServerStatsIpcParses&) = default;
 };
 
-struct ServerStatsIpcRing {
-    std::uint64_t laps{};
-    std::uint64_t resyncs{};
-    friend bool operator==(const ServerStatsIpcRing&, const ServerStatsIpcRing&) = default;
-};
-
 struct ServerStatsIpcStreams {
     std::uint64_t open{};
     std::uint64_t opened{};
@@ -5512,7 +5505,6 @@ struct ServerStatsIpc {
     std::uint64_t bad_message{};
     ServerStatsIpcParses parses{};
     std::vector<ServerStatsIpcKind> received{};
-    ServerStatsIpcRing ring{};
     std::vector<ServerStatsIpcKind> sent{};
     ServerStatsHistogram sequence_depth{};
     ServerStatsIpcStreams streams{};
@@ -7828,12 +7820,6 @@ template <>
 struct Codec<ServerStatsIpcParses> {
     static Result<Json> encode(const ServerStatsIpcParses& value);
     static Result<ServerStatsIpcParses> decode(const Json& value);
-};
-
-template <>
-struct Codec<ServerStatsIpcRing> {
-    static Result<Json> encode(const ServerStatsIpcRing& value);
-    static Result<ServerStatsIpcRing> decode(const Json& value);
 };
 
 template <>

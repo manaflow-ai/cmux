@@ -13,6 +13,7 @@ use tungstenite::{Message, WebSocket, accept_hdr_with_config};
 use super::attachment_http;
 use super::page_files;
 use super::*;
+use crate::diagnostics::{IpcTransport, JsonParseScope};
 use crate::net_keepalive::{WebSocketKeepalive, enable_tcp_keepalive};
 use crate::pairing::CredentialMatch;
 
@@ -359,12 +360,21 @@ fn handle_websocket_connection_with_permit(
     );
     let writer_outbound = outbound;
     let writer_close = writer.clone();
+    let writer_ipc = mux.ipc_stats().clone();
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-ws-out".into()).spawn(move || {
             let mut writer_stream = writer_stream;
             while let Some(item) = writer_outbound.recv() {
                 let result = match item {
-                    OutboundItem::Text(text) => writer_stream.write_websocket_text(&text),
+                    OutboundItem::Text(text) => {
+                        writer_ipc.line_sent(text.len());
+                        writer_stream.write_websocket_text(&text, &writer_ipc)
+                    }
+                    // The WebSocket sink refuses frames before they queue.
+                    OutboundItem::Frame(..) => Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "a frame reached a WebSocket",
+                    )),
                     OutboundItem::Flush(flushed) => writer_stream.flush().map(|()| {
                         let _ = flushed.send(());
                     }),
@@ -383,6 +393,10 @@ fn handle_websocket_connection_with_permit(
         return;
     };
     let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
+    // The connection's stream 0, open until the connection ends
+    // (`server-stats` `ipc`).
+    let ipc = mux.ipc_stats().clone();
+    let _stream = ipc.stream_opened();
     if admission == CredentialMatch::Person {
         mux.control_clients.mark_person(client);
     }
@@ -422,7 +436,10 @@ fn handle_websocket_connection_with_permit(
             Ok(Message::Text(text)) => {
                 // The frame's arrival, for its request span (server/request_spans.rs).
                 let arrived = Instant::now();
+                ipc.line_received(text.len());
                 let mut text = text.to_string();
+                // One request of `server-stats` `ipc`, as a line is.
+                let parses = JsonParseScope::enter(&ipc, IpcTransport::Lines);
                 let keep_open =
                     match hello.observe(&mux, client, &text, client_hello::Peer::unknown) {
                         Some(reply) => writer.send_control(&reply).is_ok(),
@@ -436,6 +453,7 @@ fn handle_websocket_connection_with_permit(
                             arrived,
                         ),
                     };
+                drop(parses);
                 zeroize_string(&mut text);
                 if !keep_open {
                     break;
@@ -448,6 +466,11 @@ fn handle_websocket_connection_with_permit(
                 let _ = websocket.flush();
             }
             Ok(Message::Close(_)) => break,
+            // The protocol is JSON text: a binary message is malformed.
+            Ok(Message::Binary(_)) => {
+                ipc.bad_message();
+                break;
+            }
             Ok(_) => break,
             // A full ping interval of inbound silence (the read timeout:
             // WouldBlock on Unix, TimedOut on Windows). Tungstenite keeps a
@@ -465,7 +488,12 @@ fn handle_websocket_connection_with_permit(
                     break;
                 }
             }
-            Err(_) => break,
+            Err(error) => {
+                if is_malformed_websocket_message(&error) {
+                    ipc.bad_message();
+                }
+                break;
+            }
         }
     }
     let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
@@ -473,6 +501,21 @@ fn handle_websocket_connection_with_permit(
     let _ = writer_thread.join();
     let _ = websocket.close(None);
     drop(connection_permit);
+}
+
+/// Whether a read error means the peer sent a malformed message (oversize,
+/// not UTF-8, against the protocol), not that the connection went away.
+fn is_malformed_websocket_message(error: &tungstenite::Error) -> bool {
+    use tungstenite::error::ProtocolError;
+    match error {
+        tungstenite::Error::Capacity(_)
+        | tungstenite::Error::Utf8(_)
+        | tungstenite::Error::AttackAttempt => true,
+        tungstenite::Error::Protocol(protocol) => {
+            !matches!(protocol, ProtocolError::ResetWithoutClosingHandshake)
+        }
+        _ => false,
+    }
 }
 
 /// What admitted the connection, once authenticated: `Person` for a

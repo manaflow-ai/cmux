@@ -311,7 +311,9 @@ impl LineAdmission for RemoteAdmission {
 
 /// The refusal of `line`: its `id` when it has one, and no detail.
 pub(super) fn denied(line: &str) -> Value {
-    let id = serde_json::from_str::<Value>(line).ok().and_then(|frame| frame.get("id").cloned());
+    let id = crate::diagnostics::parse_request_json::<Value>(line)
+        .ok()
+        .and_then(|frame| frame.get("id").cloned());
     let mut response = json!({"ok": false, "error": REMOTE_DENIED, "error_code": REMOTE_DENIED});
     if let Some(id) = id {
         response.insert("id", id);

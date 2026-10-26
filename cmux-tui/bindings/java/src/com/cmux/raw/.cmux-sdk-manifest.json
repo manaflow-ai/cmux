@@ -2472,7 +2472,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "9e74da3b13c1abb04689e7a5093c9e8f03998c5815ea587f783d7b65974b1159",
+      "sha256": "0139e88e634771105c40515f1343c47c27f5afd61c3815b59ff50cf740d0787a",
       "size": 7486
     },
     {
@@ -2857,8 +2857,8 @@
     },
     {
       "path": "ServerStatsIpc.java",
-      "sha256": "894ab81a6b773be1b4c08c49ab71a37b910ece32e03b64488a072273fc8a8e8e",
-      "size": 7322
+      "sha256": "ead7c036a72f45abd533dced856f61219e2a0673edc8156242a33cfb1b3c13be",
+      "size": 6657
     },
     {
       "path": "ServerStatsIpcKind.java",
@@ -2874,11 +2874,6 @@
       "path": "ServerStatsIpcParses.java",
       "sha256": "75d162b5e3f895a87f13e1c8ff2f553d0e67d4077bb0badf942674ce99766396",
       "size": 2689
-    },
-    {
-      "path": "ServerStatsIpcRing.java",
-      "sha256": "98b8449bcca464eb6b68ce5f3b5ec5372d5f0b0ab904d4abe7b3a60e21af75c0",
-      "size": 2592
     },
     {
       "path": "ServerStatsIpcStreams.java",
@@ -3852,7 +3847,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "98361af25b05526f72fdb923aa08991db43dc2680fb6a38b296a780618450698",
+  "ir_sha256": "525ac06e571b8bfe1ccd0f6886b756a81e1f5fd6fa1fcccd229197f40d776d9f",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

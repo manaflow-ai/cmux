@@ -218,7 +218,7 @@ pub(super) fn try_handle(
     if !message.contains("\"browser-runtime-") {
         return None;
     }
-    let RuntimeRequest { id, command } = serde_json::from_str(message).ok()?;
+    let RuntimeRequest { id, command } = crate::diagnostics::parse_request_json(message).ok()?;
     let runtimes = &mux.control_clients.browser_runtimes;
     if !(mux.control_clients.is_unix(client)
         && mux.control_clients.supports_capability(client, BROWSER_RUNTIME_CAPABILITY))

@@ -150,6 +150,7 @@ fn request_path_a_queued_request_runs_in_the_daemon_scope() {
         request,
         arrival: RequestArrival::now(),
         cause: crate::event_cause::EventCause::Program,
+        frame_call: None,
         retained_bytes: 0,
         _bytes_permit: mux.surface_operation_admission.try_reserve_bytes(0).expect("permit"),
     };
@@ -265,13 +266,14 @@ fn server_stats_include_reports_ipc_after_traffic() {
     assert_eq!(mux.ipc_stats().snapshot().streams.open, 0, "the stream closes with its connection");
 }
 
-/// A line over the size limit closes its connection as a bad message.
+/// `bytes` on a fresh line connection close it as a bad message; the
+/// counters once the connection loop has returned.
 #[cfg(unix)]
-#[test]
-fn server_stats_ipc_counts_an_oversized_line_as_bad_message() {
+fn ipc_after_a_bad_line(label: &str, bytes: &[u8]) -> crate::diagnostics::IpcSnapshot {
     use std::io::Write;
-    let mux = Mux::new_for_test("server-stats-ipc-bad", crate::SurfaceOptions::default());
-    let directory = std::env::temp_dir().join(format!("cmux-ipc-bad-{}", std::process::id()));
+    let mux =
+        Mux::new_for_test(format!("server-stats-ipc-{label}"), crate::SurfaceOptions::default());
+    let directory = std::env::temp_dir().join(format!("cmux-ipc-{label}-{}", std::process::id()));
     std::fs::create_dir_all(&directory).unwrap();
     let path = directory.join("s.sock");
     let listener = transport::listen(&path).unwrap();
@@ -288,14 +290,71 @@ fn server_stats_ipc_counts_an_oversized_line_as_bad_message() {
             &admission::LocalAdmission,
         );
     });
-    let oversized = vec![b'x'; MAX_JSON_LINE_BYTES + 1];
-    // The daemon closes as soon as it has read past the limit, so the
-    // write may fail.
-    let _ = client.write_all(&oversized).and_then(|()| client.write_all(b"\n"));
+    // The daemon closes as soon as it has read the bad bytes, so the write
+    // may fail.
+    let _ = client.write_all(bytes);
     handler.join().unwrap();
     let _ = std::fs::remove_dir_all(&directory);
-    let ipc = mux.ipc_stats().snapshot();
+    mux.ipc_stats().snapshot()
+}
+
+/// A line over the size limit closes its connection as a bad message.
+#[cfg(unix)]
+#[test]
+fn server_stats_ipc_counts_an_oversized_line_as_bad_message() {
+    let mut oversized = vec![b'x'; MAX_JSON_LINE_BYTES + 1];
+    oversized.push(b'\n');
+    let ipc = ipc_after_a_bad_line("oversized", &oversized);
     assert_eq!(ipc.bad_message, 1);
     assert_eq!(ipc.streams.open, 0);
-    assert_eq!(ipc.received[0].kind, "line");
+    assert_eq!(ipc.parses.lines.requests, 0, "a bad line is no request");
+}
+
+/// A line that is not UTF-8 is malformed too: it closes as a bad message.
+#[cfg(unix)]
+#[test]
+fn server_stats_ipc_counts_a_non_utf8_line_as_bad_message() {
+    let ipc = ipc_after_a_bad_line("utf8", b"{\"cmd\":\"\xff\xfe\"}\n");
+    assert_eq!(ipc.bad_message, 1);
+    assert_eq!(ipc.streams.open, 0);
+    assert_eq!(ipc.parses.lines.requests, 0, "a bad line is no request");
+}
+
+/// The parses one local line takes on its way to an answer.
+#[cfg(unix)]
+fn json_parses_of(mux: &Arc<Mux>, client: u64, line: &str) -> u64 {
+    let stats = crate::diagnostics::IpcStats::default();
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    {
+        let _scope = crate::diagnostics::JsonParseScope::enter(
+            &stats,
+            crate::diagnostics::IpcTransport::Lines,
+        );
+        handle_connection_frame(mux, client, ClientTransport::Unix, line, &writer(), &scheduler);
+    }
+    let _ = scheduler.close_and_wait(Duration::from_secs(5));
+    let parses = stats.snapshot().parses.lines;
+    assert_eq!(parses.requests, 1);
+    parses.json_parses
+}
+
+/// json_parses counts every parse where it happens, also a route's parse of
+/// a line it then declines: `agent_inventory` parses an
+/// `agent-inventory-watch` line (its name contains "agent-inventory") and
+/// declines it, and the watch route parses it again.
+#[cfg(unix)]
+#[test]
+fn server_stats_ipc_counts_the_parse_of_a_declining_route() {
+    let mux = Mux::new_for_test("server-stats-ipc-parses", crate::SurfaceOptions::default());
+    let client = mux.control_clients.register(ClientTransport::Unix, writer());
+    // Both lines take the v2 probe (two parses) and RequestHead (one).
+    let ping = json_parses_of(&mux, client, r#"{"id":1,"cmd":"ping"}"#);
+    assert_eq!(ping, 4, "the v2 probe, RequestHead and the Command parse");
+    let watch =
+        json_parses_of(&mux, client, r#"{"id":2,"cmd":"agent-inventory-watch","enabled":true}"#);
+    assert_eq!(
+        watch, 5,
+        "the v2 probe, RequestHead, agent_inventory's declined parse and the watch's"
+    );
 }

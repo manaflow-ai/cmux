@@ -9769,9 +9769,6 @@ Result<Json> Codec<ServerStatsIpc>::encode(const ServerStatsIpc& value) {
     auto encoded_received = encode_value(value.received);
     if (!encoded_received) return std::move(encoded_received).error();
     object.emplace("received", std::move(encoded_received).value());
-    auto encoded_ring = encode_value(value.ring);
-    if (!encoded_ring) return std::move(encoded_ring).error();
-    object.emplace("ring", std::move(encoded_ring).value());
     auto encoded_sent = encode_value(value.sent);
     if (!encoded_sent) return std::move(encoded_sent).error();
     object.emplace("sent", std::move(encoded_sent).value());
@@ -9817,15 +9814,6 @@ Result<ServerStatsIpc> Codec<ServerStatsIpc>::decode(const Json& value) {
         auto decoded = decode_value<std::vector<ServerStatsIpcKind>>(*field_received);
         if (!decoded) return std::move(decoded).error();
         result.received = std::move(decoded).value();
-    }
-    const Json* field_ring = value.find("ring");
-    if (!field_ring) {
-        return make_error(ErrorCode::decode, "missing required field 'ring'");
-    }
-    if (field_ring) {
-        auto decoded = decode_value<ServerStatsIpcRing>(*field_ring);
-        if (!decoded) return std::move(decoded).error();
-        result.ring = std::move(decoded).value();
     }
     const Json* field_sent = value.find("sent");
     if (!field_sent) {
@@ -9997,43 +9985,6 @@ Result<ServerStatsIpcParses> Codec<ServerStatsIpcParses>::decode(const Json& val
         auto decoded = decode_value<ServerStatsIpcParse>(*field_lines);
         if (!decoded) return std::move(decoded).error();
         result.lines = std::move(decoded).value();
-    }
-    return result;
-}
-
-Result<Json> Codec<ServerStatsIpcRing>::encode(const ServerStatsIpcRing& value) {
-    (void)value;
-    Json::Object object;
-    auto encoded_laps = encode_value(value.laps);
-    if (!encoded_laps) return std::move(encoded_laps).error();
-    object.emplace("laps", std::move(encoded_laps).value());
-    auto encoded_resyncs = encode_value(value.resyncs);
-    if (!encoded_resyncs) return std::move(encoded_resyncs).error();
-    object.emplace("resyncs", std::move(encoded_resyncs).value());
-    return Json(std::move(object));
-}
-
-Result<ServerStatsIpcRing> Codec<ServerStatsIpcRing>::decode(const Json& value) {
-    auto source = value.as_object();
-    if (!source) return std::move(source).error();
-    ServerStatsIpcRing result{};
-    const Json* field_laps = value.find("laps");
-    if (!field_laps) {
-        return make_error(ErrorCode::decode, "missing required field 'laps'");
-    }
-    if (field_laps) {
-        auto decoded = decode_value<std::uint64_t>(*field_laps);
-        if (!decoded) return std::move(decoded).error();
-        result.laps = std::move(decoded).value();
-    }
-    const Json* field_resyncs = value.find("resyncs");
-    if (!field_resyncs) {
-        return make_error(ErrorCode::decode, "missing required field 'resyncs'");
-    }
-    if (field_resyncs) {
-        auto decoded = decode_value<std::uint64_t>(*field_resyncs);
-        if (!decoded) return std::move(decoded).error();
-        result.resyncs = std::move(decoded).value();
     }
     return result;
 }

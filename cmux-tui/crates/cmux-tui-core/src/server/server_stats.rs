@@ -17,7 +17,7 @@ const SLOW_REQUESTS: &str = "slow_requests";
 const REQUESTS: &str = "requests";
 /// The optional section that reports the IPC layer: streams, sequence
 /// depths, messages and bytes by kind, parses and write syscalls per
-/// message, write stalls, bad_message closes and ring resyncs and laps.
+/// message, write stalls and bad_message closes.
 const IPC: &str = "ipc";
 
 /// Read every counter; sections outside `include` stay absent so older SDK

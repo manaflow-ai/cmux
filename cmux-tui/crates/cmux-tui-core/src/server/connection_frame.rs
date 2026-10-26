@@ -70,11 +70,6 @@ pub(super) fn handle_connection_frame_at(
             watched.as_ref(),
         );
     }
-    // Every local request line counts its JSON parses (`server-stats` `ipc`).
-    let _parses = crate::diagnostics::JsonParseScope::enter(
-        mux.ipc_stats(),
-        crate::diagnostics::IpcTransport::Lines,
-    );
     // Before the acknowledgement the handoff can still fail (for example
     // while `end_terminals` awaits every host) and this daemon keeps
     // serving. Closing here would drop the requester's pending
@@ -116,8 +111,6 @@ pub(super) fn handle_connection_frame_at(
         if request.is_err()
             && let Some(keep_open) = page_router::try_handle(mux, client, message, writer)
         {
-            // The answering route parsed the line; counted as one parse.
-            crate::diagnostics::note_json_parse();
             return span.answered(keep_open);
         }
         // Debug timing marks of a resource create, from the arrival of its
@@ -149,16 +142,13 @@ pub(super) fn handle_connection_frame_at(
     let mut routed =
         (!head.is_command()).then(|| head.open(stats, RequestArrival::parsed_now(arrived)));
     if let Some(keep_open) = route_line(mux, client, message, writer, &stage) {
-        // The answering route parsed the line; counted as one parse.
-        crate::diagnostics::note_json_parse();
         return match routed.as_mut() {
             Some(span) => span.answered(keep_open),
             None => keep_open,
         };
     }
     stage(FrameStage::Route);
-    crate::diagnostics::note_json_parse();
-    let request = match serde_json::from_str::<Request>(message) {
+    let request = match crate::diagnostics::parse_request_json::<Request>(message) {
         Ok(request) => request,
         Err(error) => {
             let mut span =
@@ -440,7 +430,7 @@ pub(super) fn write_vt_state_command_json(
 }
 
 pub(super) fn auth_token(message: &str) -> Option<String> {
-    let value: Value = serde_json::from_str(message).ok()?;
+    let value: Value = crate::diagnostics::parse_request_json(message).ok()?;
     let object = value.as_object()?;
     if object.len() != 1 {
         return None;
@@ -453,7 +443,7 @@ pub(super) fn auth_token(message: &str) -> Option<String> {
 }
 
 pub(super) fn pairing_request(message: &str) -> bool {
-    let Ok(value) = serde_json::from_str::<Value>(message) else { return false };
+    let Ok(value) = crate::diagnostics::parse_request_json::<Value>(message) else { return false };
     let Some(object) = value.as_object() else { return false };
     if object.len() != 1 {
         return false;

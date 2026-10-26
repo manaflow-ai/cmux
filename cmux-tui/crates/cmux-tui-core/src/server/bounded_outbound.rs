@@ -30,6 +30,7 @@ use super::OutboundStream;
 use super::RENDER_ATTACH_MAX_BYTES;
 use crate::panic_free::RecoverPoison;
 use crate::platform::transport;
+use cmux_ipc::FrameHeader;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::io::Read;
@@ -104,6 +105,8 @@ pub(super) struct RegularOutbound {
 
 pub(super) enum ControlOutbound {
     Text(Arc<BudgetedText>),
+    /// A framed request's REPLY or ERROR: counted like `Text`.
+    Frame(FrameHeader, Arc<BudgetedText>),
     /// An item of a control-sequence stream, in FIFO order with replies.
     Stream(RegularOutbound),
     Flush(std::sync::mpsc::SyncSender<()>),
@@ -111,6 +114,8 @@ pub(super) enum ControlOutbound {
 
 pub(super) enum OutboundItem {
     Text(Arc<BudgetedText>),
+    /// A frame: `header`, then the text as its payload, with no delimiter.
+    Frame(FrameHeader, Arc<BudgetedText>),
     Flush(std::sync::mpsc::SyncSender<()>),
 }
 
@@ -411,14 +416,35 @@ impl BoundedOutbound {
             .map(|usage| usage.stream.clone())
     }
 
+    /// Queues a framed request's reply in the control FIFO, under the same
+    /// reserve as a reply line.
+    pub(super) fn push_frame(
+        &self,
+        header: FrameHeader,
+        text: Arc<BudgetedText>,
+    ) -> std::io::Result<()> {
+        let mut state = self.state.lock().recover_poison();
+        Self::admit_control_locked(&mut state, text.len())?;
+        state.control.push_back(ControlOutbound::Frame(header, text));
+        drop(state);
+        self.changed.notify_one();
+        Ok(())
+    }
+
     pub(super) fn push_control_locked(
         state: &mut BoundedOutboundState,
         text: Arc<BudgetedText>,
     ) -> std::io::Result<()> {
+        Self::admit_control_locked(state, text.len())?;
+        state.control.push_back(ControlOutbound::Text(text));
+        Ok(())
+    }
+
+    /// Counts one control message of `bytes` against the control reserve.
+    fn admit_control_locked(state: &mut BoundedOutboundState, bytes: usize) -> std::io::Result<()> {
         if state.closed {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
-        let bytes = text.len();
         if state.control_messages >= OUTBOUND_CONTROL_RESERVE
             || bytes > OUTBOUND_CONTROL_BYTE_RESERVE.saturating_sub(state.control_bytes)
         {
@@ -429,16 +455,16 @@ impl BoundedOutbound {
         }
         state.control_messages += 1;
         state.control_bytes += bytes;
-        state.control.push_back(ControlOutbound::Text(text));
         Ok(())
     }
 
+    /// The next item's text (a frame's payload), in write order.
     #[cfg(test)]
     pub(super) fn try_pop(&self) -> Option<String> {
         let mut state = self.state.lock().recover_poison();
         loop {
             match Self::pop_locked(&mut state) {
-                Some(OutboundItem::Text(text)) => {
+                Some(OutboundItem::Text(text) | OutboundItem::Frame(_, text)) => {
                     drop(state);
                     self.changed.notify_all();
                     return Some(text.to_string());
@@ -486,6 +512,11 @@ impl BoundedOutbound {
                     state.control_messages = state.control_messages.saturating_sub(1);
                     state.control_bytes = state.control_bytes.saturating_sub(text.len());
                     OutboundItem::Text(text)
+                }
+                ControlOutbound::Frame(header, text) => {
+                    state.control_messages = state.control_messages.saturating_sub(1);
+                    state.control_bytes = state.control_bytes.saturating_sub(text.len());
+                    OutboundItem::Frame(header, text)
                 }
                 ControlOutbound::Stream(message) => {
                     state.control_stream_items = state.control_stream_items.saturating_sub(1);
@@ -571,6 +602,10 @@ pub(super) fn write_line_outbound_item<W: Write + ?Sized>(
             writer.write_all(text.as_bytes())?;
             writer.write_all(b"\n")
         }
+        OutboundItem::Frame(header, text) => {
+            writer.write_all(&header.encode())?;
+            writer.write_all(text.as_bytes())
+        }
         OutboundItem::Flush(flushed) => {
             writer.flush()?;
             let _ = flushed.send(());
@@ -640,14 +675,20 @@ impl SynchronizedTcpStream {
         self.stream.set_write_timeout(timeout)
     }
 
-    pub(super) fn write_websocket_text(&mut self, text: &str) -> std::io::Result<()> {
+    /// One text message; its write calls count in `ipc` (`server-stats`).
+    pub(super) fn write_websocket_text(
+        &mut self,
+        text: &str,
+        ipc: &crate::diagnostics::IpcStats,
+    ) -> std::io::Result<()> {
         if text.len() > RENDER_ATTACH_MAX_BYTES {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "WebSocket outbound message exceeds the protocol limit",
             ));
         }
-        self.write_websocket_frame(0x1, text.as_bytes())
+        let _guard = self.write_lock.lock().recover_poison();
+        write_websocket_frame_to(&mut ipc.counted(&mut self.stream), 0x1, text.as_bytes())
     }
 
     pub(super) fn write_websocket_close(&mut self) -> std::io::Result<()> {
@@ -665,13 +706,22 @@ impl SynchronizedTcpStream {
         opcode: u8,
         payload: &[u8],
     ) -> std::io::Result<()> {
-        let (header, header_len) = websocket_server_frame_header(opcode, payload.len());
         let _guard = self.write_lock.lock().recover_poison();
-        let header = header.get(..header_len).ok_or(std::io::ErrorKind::InvalidData)?;
-        self.stream.write_all(header)?;
-        self.stream.write_all(payload)?;
-        self.stream.flush()
+        write_websocket_frame_to(&mut self.stream, opcode, payload)
     }
+}
+
+/// One whole server frame; the caller holds the stream's write lock.
+fn write_websocket_frame_to<W: Write + ?Sized>(
+    out: &mut W,
+    opcode: u8,
+    payload: &[u8],
+) -> std::io::Result<()> {
+    let (header, header_len) = websocket_server_frame_header(opcode, payload.len());
+    let header = header.get(..header_len).ok_or(std::io::ErrorKind::InvalidData)?;
+    out.write_all(header)?;
+    out.write_all(payload)?;
+    out.flush()
 }
 
 pub(super) fn websocket_server_frame_header(opcode: u8, payload_len: usize) -> ([u8; 10], usize) {
@@ -758,6 +808,17 @@ impl MessageSink for QueuedSink {
 
     fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
         self.outbound.push_control(text)
+    }
+
+    fn send_frame(&self, header: FrameHeader, text: Arc<BudgetedText>) -> std::io::Result<()> {
+        match self.control {
+            Some(SinkControl::Unix(_)) => self.outbound.push_frame(header, text),
+            // Frames are granted only to local Unix peers (p05-ipc-060).
+            Some(SinkControl::WebSocket(_)) | None => Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "frames ride only a local Unix connection",
+            )),
+        }
     }
 
     fn send_terminal(

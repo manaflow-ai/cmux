@@ -61,7 +61,8 @@ pub(super) fn try_handle(
     if !message.contains("agent-cli-intents-") {
         return None;
     }
-    let Ok(Value::Object(mut fields)) = serde_json::from_str::<Value>(message) else {
+    let Ok(Value::Object(mut fields)) = crate::diagnostics::parse_request_json::<Value>(message)
+    else {
         return None;
     };
     if !fields.get("cmd").and_then(Value::as_str).is_some_and(|cmd| COMMANDS.contains(&cmd)) {

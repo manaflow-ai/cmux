@@ -158,7 +158,6 @@ MODEL_BY_PATH = {
     'types/ServerStatsIpcKind': models.ServerStatsIpcKind,
     'types/ServerStatsIpcParse': models.ServerStatsIpcParse,
     'types/ServerStatsIpcParses': models.ServerStatsIpcParses,
-    'types/ServerStatsIpcRing': models.ServerStatsIpcRing,
     'types/ServerStatsIpcStreams': models.ServerStatsIpcStreams,
     'types/ServerStatsIpcWrites': models.ServerStatsIpcWrites,
     'types/ServerStatsJournalWriter': models.ServerStatsJournalWriter,

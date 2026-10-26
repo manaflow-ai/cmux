@@ -87,7 +87,8 @@ pub(super) fn try_handle(
     if !message.contains(COMMAND) {
         return None;
     }
-    let Ok(Value::Object(mut fields)) = serde_json::from_str::<Value>(message) else {
+    let Ok(Value::Object(mut fields)) = crate::diagnostics::parse_request_json::<Value>(message)
+    else {
         return None;
     };
     if !matches!(fields.get("cmd").and_then(Value::as_str), Some(COMMAND | RESOLVE_COMMAND)) {

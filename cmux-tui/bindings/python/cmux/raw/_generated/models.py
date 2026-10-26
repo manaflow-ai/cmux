@@ -1714,7 +1714,6 @@ class ServerStatsIpc:
     bad_message: int
     parses: ServerStatsIpcParses
     received: List[ServerStatsIpcKind]
-    ring: ServerStatsIpcRing
     sent: List[ServerStatsIpcKind]
     sequence_depth: ServerStatsHistogram
     streams: ServerStatsIpcStreams
@@ -1742,13 +1741,6 @@ class ServerStatsIpcParses:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsIpcParses'
     frames: ServerStatsIpcParse
     lines: ServerStatsIpcParse
-
-
-@dataclass(frozen=True)
-class ServerStatsIpcRing:
-    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsIpcRing'
-    laps: int
-    resyncs: int
 
 
 @dataclass(frozen=True)
@@ -6906,7 +6898,6 @@ __all__ = [
     'ServerStatsIpcKind',
     'ServerStatsIpcParse',
     'ServerStatsIpcParses',
-    'ServerStatsIpcRing',
     'ServerStatsIpcStreams',
     'ServerStatsIpcWrites',
     'ServerStatsJournalWriter',

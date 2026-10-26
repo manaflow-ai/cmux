@@ -23,12 +23,12 @@ pub use resource_projection::{
     CommitSpans, ProjectionSpans, ResourceProjectionSnapshot, ResourceProjectionStats,
 };
 mod ipc;
-pub(crate) use ipc::note_json_parse;
 pub use ipc::{
-    CountedWrite, IpcKindSnapshot, IpcParseSnapshot, IpcParsesSnapshot, IpcRingSnapshot,
-    IpcSnapshot, IpcStats, IpcStreamsSnapshot, IpcTransport, IpcWritesSnapshot, JsonParseScope,
-    OpenStream, WRITE_STALL_THRESHOLD,
+    CountedWrite, IpcKindSnapshot, IpcParseSnapshot, IpcParsesSnapshot, IpcSnapshot, IpcStats,
+    IpcStreamsSnapshot, IpcTransport, IpcWritesSnapshot, JsonParseScope, OpenStream,
+    WRITE_STALL_THRESHOLD,
 };
+pub(crate) use ipc::{note_json_parse, parse_request_json};
 mod owner_panic_log;
 pub use owner_panic_log::owner_panic_log_path;
 mod slow_requests;
@@ -577,9 +577,8 @@ pub struct ServerStatsSnapshot {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dispatch_queue_us: Option<HistogramSnapshot>,
     /// Streams, sequence depths, messages and bytes by kind, parses per
-    /// request, write syscalls and stalls, bad_message closes and ring
-    /// resyncs and laps; present only when the request names `ipc` in
-    /// `include`.
+    /// request, write syscalls and stalls and bad_message closes; present
+    /// only when the request names `ipc` in `include`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ipc: Option<IpcSnapshot>,
 }

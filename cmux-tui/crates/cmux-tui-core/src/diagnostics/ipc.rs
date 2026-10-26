@@ -1,8 +1,11 @@
 //! The daemon's IPC layer, counted: streams, the per-connection sequence
 //! depth, messages and bytes by kind in each direction, JSON parses per
-//! request, write syscalls per message, write stalls, bad_message closes,
-//! and shared output ring resyncs and laps. `server-stats` reports them when
-//! `include` names `ipc` (plans/cmux-next/chrome-parity/p05-ipc.md, 3.7).
+//! request, write syscalls per message, write stalls and bad_message
+//! closes. `server-stats` reports them when `include` names `ipc`
+//! (plans/cmux-next/chrome-parity/p05-ipc.md, 3.7). Every transport is
+//! counted the same way: the local socket and the remote entry
+//! (`line_connection.rs`) and WebSocket connections
+//! (`websocket_listener.rs`).
 //!
 //! Chrome's channel keeps the same facts at the same points: a malformed
 //! read ends the channel with `Error::kReceivedMalformedData`
@@ -18,7 +21,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use cmux_ipc::frame::FrameKind;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{HistogramSnapshot, LogLinearHistogram};
 
@@ -26,11 +29,11 @@ use super::{HistogramSnapshot, LogLinearHistogram};
 /// full: a write stall.
 pub const WRITE_STALL_THRESHOLD: Duration = Duration::from_millis(1);
 
-/// The name of a JSON line in `received` and `sent`; frames use
-/// [`FrameKind::name`].
+/// The name of a JSON message (a line, or a WebSocket text message) in
+/// `received` and `sent`; frames use [`FrameKind::name`].
 const LINE_KIND: &str = "line";
 
-/// One slot per message kind: slot 0 is a JSON line, a frame's slot is its
+/// One slot per message kind: slot 0 is a JSON message, a frame's slot is its
 /// wire value (1..=20; unused values stay zero).
 const KIND_SLOTS: usize = 21;
 
@@ -60,7 +63,7 @@ struct ParseCounter {
     json_parses: AtomicU64,
 }
 
-/// Every IPC counter of one daemon, over all of its connections.
+/// Every IPC counter of one daemon, over the connections of every transport.
 pub struct IpcStats {
     streams_open: AtomicU64,
     streams_peak: AtomicU64,
@@ -74,8 +77,6 @@ pub struct IpcStats {
     write_syscalls: AtomicU64,
     write_stalls: AtomicU64,
     bad_message: AtomicU64,
-    ring_resyncs: AtomicU64,
-    ring_laps: AtomicU64,
 }
 
 impl Default for IpcStats {
@@ -93,15 +94,14 @@ impl Default for IpcStats {
             write_syscalls: AtomicU64::new(0),
             write_stalls: AtomicU64::new(0),
             bad_message: AtomicU64::new(0),
-            ring_resyncs: AtomicU64::new(0),
-            ring_laps: AtomicU64::new(0),
         }
     }
 }
 
 impl IpcStats {
-    /// A stream opened (a connection's stream 0, or a client-minted stream);
-    /// it counts as open until the guard drops.
+    /// A connection's stream 0 opened; it counts as open until the guard
+    /// drops. No connection opens a second stream yet (attach-streams,
+    /// p05-ipc-074), so today this counts open connections.
     #[must_use = "the stream counts as open until the guard drops"]
     pub fn stream_opened(&self) -> OpenStream<'_> {
         self.streams_opened.fetch_add(1, Ordering::Relaxed);
@@ -110,18 +110,20 @@ impl IpcStats {
         OpenStream { stats: self }
     }
 
-    /// A request entered its connection's sequence, which now holds `depth`
-    /// requests (itself included).
+    /// A request arrived at its connection's sequence, which then held
+    /// `depth` requests (itself included), also when the sequence was full
+    /// and refused it.
     pub fn sequence_depth(&self, depth: usize) {
         self.sequence_depth.record(depth as u64);
     }
 
-    /// A JSON line of `bytes` (its delimiter included) arrived.
+    /// A JSON message of `bytes` (a line's delimiter included) arrived.
     pub fn line_received(&self, bytes: usize) {
         self.received[0].add(bytes);
     }
 
-    /// A JSON line of `bytes` (its delimiter included) went to the writer.
+    /// A JSON message of `bytes` (a line's delimiter included) went to the
+    /// writer.
     pub fn line_sent(&self, bytes: usize) {
         self.sent[0].add(bytes);
         self.messages_written.fetch_add(1, Ordering::Relaxed);
@@ -142,16 +144,6 @@ impl IpcStats {
     /// A connection closed because a message was malformed.
     pub fn bad_message(&self) {
         self.bad_message.fetch_add(1, Ordering::Relaxed);
-    }
-
-    /// A shared output ring reader found a gap and resynchronized.
-    pub fn ring_resynced(&self) {
-        self.ring_resyncs.fetch_add(1, Ordering::Relaxed);
-    }
-
-    /// A shared output ring writer overwrote a span a reader still held.
-    pub fn ring_lapped(&self) {
-        self.ring_laps.fetch_add(1, Ordering::Relaxed);
     }
 
     /// `writer`, with each `write` call (one syscall on a socket) counted
@@ -183,10 +175,6 @@ impl IpcStats {
                 stalls: self.write_stalls.load(Ordering::Relaxed),
             },
             bad_message: self.bad_message.load(Ordering::Relaxed),
-            ring: IpcRingSnapshot {
-                resyncs: self.ring_resyncs.load(Ordering::Relaxed),
-                laps: self.ring_laps.load(Ordering::Relaxed),
-            },
         }
     }
 
@@ -265,34 +253,52 @@ impl<W: Write + ?Sized> Write for CountedWrite<'_, W> {
 }
 
 thread_local! {
-    /// JSON parses of request messages on this thread that no request has
-    /// taken yet; the next [`JsonParseScope`] to end on it takes them.
-    static JSON_PARSES: Cell<u64> = const { Cell::new(0) };
+    /// JSON parses of the request message this thread is handling, while a
+    /// [`JsonParseScope`] is open on it; `None` outside one.
+    static JSON_PARSES: Cell<Option<u64>> = const { Cell::new(None) };
 }
 
-/// Count one JSON parse of a request message's bytes on this thread. A
-/// connection's reader parses a line before it knows the line's request
-/// (the hello gate), so a parse counts toward the request that ends next.
+/// Count one JSON parse of a request message's bytes toward the request
+/// whose [`JsonParseScope`] is open on this thread. Outside a scope (a test
+/// that dispatches in process, the WebSocket authentication message) it
+/// counts nothing, so no parse carries over into a later request.
 pub(crate) fn note_json_parse() {
-    JSON_PARSES.with(|parses| parses.set(parses.get().wrapping_add(1)));
+    JSON_PARSES.with(|parses| {
+        if let Some(count) = parses.get() {
+            parses.set(Some(count.wrapping_add(1)));
+        }
+    });
 }
 
-/// One request message from arrival to dispatch: when it ends it counts as
-/// one request of its transport, with the parses noted on this thread since
-/// the last request ended.
+/// Parses a request message's bytes, counted by [`note_json_parse`]. Every
+/// request-path parse of a message goes through this, also one whose route
+/// then declines the message: that is the redundant parse IPC-4 removes.
+pub(crate) fn parse_request_json<'a, T: Deserialize<'a>>(
+    message: &'a str,
+) -> serde_json::Result<T> {
+    note_json_parse();
+    serde_json::from_str(message)
+}
+
+/// One request message from arrival to its answer or dispatch, entered by
+/// the connection loop that read it: when it ends it counts as one request
+/// of its transport, with the parses noted on this thread inside it.
 pub struct JsonParseScope<'a> {
     counter: &'a ParseCounter,
+    /// The count of a scope this one is nested in, restored when it ends.
+    outer: Option<u64>,
 }
 
 impl<'a> JsonParseScope<'a> {
     pub fn enter(stats: &'a IpcStats, transport: IpcTransport) -> Self {
-        Self { counter: stats.parses(transport) }
+        let outer = JSON_PARSES.with(|parses| parses.replace(Some(0)));
+        Self { counter: stats.parses(transport), outer }
     }
 }
 
 impl Drop for JsonParseScope<'_> {
     fn drop(&mut self) {
-        let parses = JSON_PARSES.with(|parses| parses.replace(0));
+        let parses = JSON_PARSES.with(|parses| parses.replace(self.outer)).unwrap_or(0);
         self.counter.requests.fetch_add(1, Ordering::Relaxed);
         self.counter.json_parses.fetch_add(parses, Ordering::Relaxed);
     }
@@ -302,7 +308,7 @@ impl Drop for JsonParseScope<'_> {
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct IpcSnapshot {
     pub streams: IpcStreamsSnapshot,
-    /// Requests in their connection's sequence as each one entered it.
+    /// Requests in their connection's sequence as each one arrived at it.
     pub sequence_depth: HistogramSnapshot,
     /// Messages and bytes that arrived, by kind; kinds never seen are absent.
     pub received: Vec<IpcKindSnapshot>,
@@ -310,9 +316,8 @@ pub struct IpcSnapshot {
     pub sent: Vec<IpcKindSnapshot>,
     pub parses: IpcParsesSnapshot,
     pub writes: IpcWritesSnapshot,
-    /// Connections closed for a malformed message.
+    /// Connections closed for a malformed message, on any transport.
     pub bad_message: u64,
-    pub ring: IpcRingSnapshot,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
@@ -348,12 +353,6 @@ pub struct IpcWritesSnapshot {
     pub syscalls: u64,
     pub syscalls_per_message: f64,
     pub stalls: u64,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
-pub struct IpcRingSnapshot {
-    pub resyncs: u64,
-    pub laps: u64,
 }
 
 #[cfg(test)]

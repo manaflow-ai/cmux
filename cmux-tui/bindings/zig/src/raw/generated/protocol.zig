@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "98361af25b05526f72fdb923aa08991db43dc2680fb6a38b296a780618450698";
+pub const ir_sha256 = "525ac06e571b8bfe1ccd0f6886b756a81e1f5fd6fa1fcccd229197f40d776d9f";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -2174,7 +2174,6 @@ pub const ServerStatsIpc = struct {
     bad_message: u64,
     parses: ServerStatsIpcParses,
     received: []const ServerStatsIpcKind,
-    ring: ServerStatsIpcRing,
     sent: []const ServerStatsIpcKind,
     sequence_depth: ServerStatsHistogram,
     streams: ServerStatsIpcStreams,
@@ -2196,11 +2195,6 @@ pub const ServerStatsIpcParse = struct {
 pub const ServerStatsIpcParses = struct {
     frames: ServerStatsIpcParse,
     lines: ServerStatsIpcParse,
-};
-
-pub const ServerStatsIpcRing = struct {
-    laps: u64,
-    resyncs: u64,
 };
 
 pub const ServerStatsIpcStreams = struct {

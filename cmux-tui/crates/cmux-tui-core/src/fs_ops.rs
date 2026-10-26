@@ -58,7 +58,7 @@ pub fn advertised() -> Option<&'static str> {
 /// The `cmd` of `line` when it is one of [`FS_COMMANDS`], exactly.
 #[must_use]
 pub fn frame_command(line: &str) -> Option<&'static str> {
-    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    let value: serde_json::Value = crate::diagnostics::parse_request_json(line).ok()?;
     let object = value.as_object()?;
     // A frame with `protocol` goes to the resource router, never to the
     // fs adapter: it is not an fs frame.

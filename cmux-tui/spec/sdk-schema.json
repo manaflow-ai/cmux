@@ -6160,7 +6160,7 @@
    },
    "additional_properties": false,
    "constraints": [
-    "kind is line (a JSON line; bytes count its delimiter) or a frame kind name (output, grid, event, snapshot, snapshot_more, replay, ring, ring_advance, input, shared_buffer, ring_ack, request, reply, error, typed_event, cancel); a frame's bytes count its header."
+    "kind is line (a JSON line, bytes counting its delimiter, or a WebSocket text message) or a frame kind name (output, grid, event, snapshot, snapshot_more, replay, ring, ring_advance, input, shared_buffer, ring_ack, request, reply, error, typed_event, cancel); a frame's bytes count its header."
    ]
   },
   "ServerStatsIpcParse": {
@@ -6193,7 +6193,7 @@
    },
    "additional_properties": false,
    "constraints": [
-    "json_parses counts every JSON parse of a request message's bytes, the hello gate's and each answering feature route's included; json_parses_per_request is 0 before the first request."
+    "json_parses counts every JSON parse of a request message's bytes where it happens: the admission's, the hello gate's, the v2 probe's and each feature route's, also a route that then declines the message; json_parses_per_request is 0 before the first request."
    ]
   },
   "ServerStatsIpcParses": {
@@ -6218,7 +6218,7 @@
    },
    "additional_properties": false,
    "constraints": [
-    "lines counts local JSON-line requests (Unix socket and WebSocket), not remote relay lines; frames counts binary REQUEST frames."
+    "lines counts every non-blank JSON line or WebSocket text message a connection reads, the ones its admission or hello gate answers included; frames counts admitted binary REQUEST frames."
    ]
   },
   "ServerStatsIpcWrites": {
@@ -6260,31 +6260,6 @@
    "additional_properties": false,
    "constraints": [
     "messages counts messages handed to the connection writers and syscalls their write calls; stalls counts write calls that blocked for at least 1 ms on a full peer receive buffer."
-   ]
-  },
-  "ServerStatsIpcRing": {
-   "kind": "object",
-   "fields": {
-    "resyncs": {
-     "type": {
-      "kind": "scalar",
-      "name": "uint64"
-     },
-     "presence": "required",
-     "nullable": false
-    },
-    "laps": {
-     "type": {
-      "kind": "scalar",
-      "name": "uint64"
-     },
-     "presence": "required",
-     "nullable": false
-    }
-   },
-   "additional_properties": false,
-   "constraints": [
-    "resyncs counts shared output ring gaps a reader resynchronized after; laps counts spans the ring writer overwrote while a reader still held them."
    ]
   },
   "ServerStatsIpc": {
@@ -6351,22 +6326,15 @@
      },
      "presence": "required",
      "nullable": false
-    },
-    "ring": {
-     "type": {
-      "kind": "ref",
-      "name": "ServerStatsIpcRing"
-     },
-     "presence": "required",
-     "nullable": false
     }
    },
    "additional_properties": false,
    "constraints": [
-    "Counters accumulate since daemon start; streams, received, sent and writes cover the control socket's connections (local and remote entry), not WebSocket connections.",
-    "sequence_depth samples the requests in a connection's sequence as each request enters it.",
+    "Counters accumulate since daemon start over the connections of every transport: the local socket, the remote entry and WebSocket.",
+    "streams counts each connection's stream 0 (no connection opens a second stream yet), so open is the open connections.",
+    "sequence_depth samples the requests in a connection's sequence as each request arrives at it, itself included, also when the full sequence refuses it.",
     "received and sent list only kinds seen at least once, line first, then frames in wire order.",
-    "bad_message counts connections closed for a malformed message (a JSON line over the size limit, or a bad frame)."
+    "bad_message counts connections closed for a malformed message: a JSON line over the size limit or not UTF-8, a bad frame, or a WebSocket message that is oversized, not UTF-8, binary or against the protocol."
    ]
   },
   "ServerStatsResult": {

@@ -14,7 +14,6 @@ public final class ServerStatsIpc implements WireValue {
     private final UInt64 badMessage;
     private final ServerStatsIpcParses parses;
     private final List<ServerStatsIpcKind> received;
-    private final ServerStatsIpcRing ring;
     private final List<ServerStatsIpcKind> sent;
     private final ServerStatsHistogram sequenceDepth;
     private final ServerStatsIpcStreams streams;
@@ -27,8 +26,6 @@ public final class ServerStatsIpc implements WireValue {
         this.parses = Wire.nonNull(builder.parses, "parses");
         if (!builder.receivedSet) throw new IllegalArgumentException("received is required");
         this.received = List.copyOf(Wire.nonNull(builder.received, "received"));
-        if (!builder.ringSet) throw new IllegalArgumentException("ring is required");
-        this.ring = Wire.nonNull(builder.ring, "ring");
         if (!builder.sentSet) throw new IllegalArgumentException("sent is required");
         this.sent = List.copyOf(Wire.nonNull(builder.sent, "sent"));
         if (!builder.sequenceDepthSet) throw new IllegalArgumentException("sequence_depth is required");
@@ -44,7 +41,6 @@ public final class ServerStatsIpc implements WireValue {
     public UInt64 badMessage() { return badMessage; }
     public ServerStatsIpcParses parses() { return parses; }
     public List<ServerStatsIpcKind> received() { return received; }
-    public ServerStatsIpcRing ring() { return ring; }
     public List<ServerStatsIpcKind> sent() { return sent; }
     public ServerStatsHistogram sequenceDepth() { return sequenceDepth; }
     public ServerStatsIpcStreams streams() { return streams; }
@@ -59,8 +55,6 @@ public final class ServerStatsIpc implements WireValue {
         builder.parses(ServerStatsIpcParses.fromWire(rawParses));
         Object rawReceived = Wire.required(object, "received");
         builder.received(Wire.array(rawReceived, "ServerStatsIpc.received", item -> ServerStatsIpcKind.fromWire(item)));
-        Object rawRing = Wire.required(object, "ring");
-        builder.ring(ServerStatsIpcRing.fromWire(rawRing));
         Object rawSent = Wire.required(object, "sent");
         builder.sent(Wire.array(rawSent, "ServerStatsIpc.sent", item -> ServerStatsIpcKind.fromWire(item)));
         Object rawSequenceDepth = Wire.required(object, "sequence_depth");
@@ -78,7 +72,6 @@ public final class ServerStatsIpc implements WireValue {
         Wire.put(object, "bad_message", badMessage);
         Wire.put(object, "parses", parses);
         Wire.put(object, "received", received);
-        Wire.put(object, "ring", ring);
         Wire.put(object, "sent", sent);
         Wire.put(object, "sequence_depth", sequenceDepth);
         Wire.put(object, "streams", streams);
@@ -89,11 +82,11 @@ public final class ServerStatsIpc implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ServerStatsIpc that)) return false;
-        return Objects.equals(badMessage, that.badMessage) && Objects.equals(parses, that.parses) && Objects.equals(received, that.received) && Objects.equals(ring, that.ring) && Objects.equals(sent, that.sent) && Objects.equals(sequenceDepth, that.sequenceDepth) && Objects.equals(streams, that.streams) && Objects.equals(writes, that.writes);
+        return Objects.equals(badMessage, that.badMessage) && Objects.equals(parses, that.parses) && Objects.equals(received, that.received) && Objects.equals(sent, that.sent) && Objects.equals(sequenceDepth, that.sequenceDepth) && Objects.equals(streams, that.streams) && Objects.equals(writes, that.writes);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(badMessage, parses, received, ring, sent, sequenceDepth, streams, writes); }
+    public int hashCode() { return Objects.hash(badMessage, parses, received, sent, sequenceDepth, streams, writes); }
 
     @Override
     public String toString() { return "ServerStatsIpc" + toWire(); }
@@ -105,8 +98,6 @@ public final class ServerStatsIpc implements WireValue {
         private boolean parsesSet;
         private List<ServerStatsIpcKind> received;
         private boolean receivedSet;
-        private ServerStatsIpcRing ring;
-        private boolean ringSet;
         private List<ServerStatsIpcKind> sent;
         private boolean sentSet;
         private ServerStatsHistogram sequenceDepth;
@@ -129,11 +120,6 @@ public final class ServerStatsIpc implements WireValue {
         public Builder received(List<ServerStatsIpcKind> value) {
             this.received = value;
             this.receivedSet = true;
-            return this;
-        }
-        public Builder ring(ServerStatsIpcRing value) {
-            this.ring = value;
-            this.ringSet = true;
             return this;
         }
         public Builder sent(List<ServerStatsIpcKind> value) {

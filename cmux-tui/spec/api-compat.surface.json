@@ -21106,18 +21106,6 @@
         "ty": "uint64",
         "required": true
       },
-      "/data/ipc/ring": {
-        "ty": "object",
-        "required": true
-      },
-      "/data/ipc/ring/laps": {
-        "ty": "uint64",
-        "required": true
-      },
-      "/data/ipc/ring/resyncs": {
-        "ty": "uint64",
-        "required": true
-      },
       "/data/ipc/sent": {
         "ty": "array",
         "required": true

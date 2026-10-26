@@ -51,17 +51,15 @@ fn every_frame_kind_has_a_slot() {
 #[test]
 fn parse_scopes_count_requests_and_parses_per_transport() {
     let stats = IpcStats::default();
-    // Parses this thread noted earlier belong to an earlier request.
-    let _ = JsonParseScope::enter(&IpcStats::default(), IpcTransport::Lines);
-    // A parse before the scope (the hello gate's) counts toward it.
-    note_json_parse();
     {
         let _scope = JsonParseScope::enter(&stats, IpcTransport::Lines);
         note_json_parse();
     }
     {
         let _scope = JsonParseScope::enter(&stats, IpcTransport::Lines);
-        note_json_parse();
+        let _: serde_json::Value = parse_request_json("{}").unwrap();
+        // A parse that fails still parsed the bytes.
+        assert!(parse_request_json::<serde_json::Value>("{").is_err());
         note_json_parse();
     }
     {
@@ -77,6 +75,43 @@ fn parse_scopes_count_requests_and_parses_per_transport() {
         parses.frames,
         IpcParseSnapshot { requests: 1, json_parses: 1, json_parses_per_request: 1.0 }
     );
+}
+
+#[test]
+fn parses_outside_a_scope_never_reach_a_later_request() {
+    let stats = IpcStats::default();
+    note_json_parse();
+    let _: serde_json::Result<serde_json::Value> = parse_request_json("{}");
+    {
+        let _scope = JsonParseScope::enter(&stats, IpcTransport::Lines);
+    }
+    note_json_parse();
+    {
+        let _scope = JsonParseScope::enter(&stats, IpcTransport::Lines);
+        note_json_parse();
+    }
+    assert_eq!(
+        stats.snapshot().parses.lines,
+        IpcParseSnapshot { requests: 2, json_parses: 1, json_parses_per_request: 0.5 }
+    );
+}
+
+#[test]
+fn a_nested_scope_keeps_its_parses_apart_from_the_outer_one() {
+    let outer_stats = IpcStats::default();
+    let inner_stats = IpcStats::default();
+    {
+        let _outer = JsonParseScope::enter(&outer_stats, IpcTransport::Lines);
+        note_json_parse();
+        {
+            let _inner = JsonParseScope::enter(&inner_stats, IpcTransport::Frames);
+            note_json_parse();
+            note_json_parse();
+        }
+        note_json_parse();
+    }
+    assert_eq!(outer_stats.snapshot().parses.lines.json_parses, 2);
+    assert_eq!(inner_stats.snapshot().parses.frames.json_parses, 2);
 }
 
 /// Takes at most `chunk` bytes per call, like a socket with a full buffer.
@@ -133,16 +168,12 @@ fn a_blocked_write_is_a_stall() {
 }
 
 #[test]
-fn bad_message_ring_and_depth_counters() {
+fn bad_message_and_depth_counters() {
     let stats = IpcStats::default();
     stats.bad_message();
-    stats.ring_resynced();
-    stats.ring_lapped();
-    stats.ring_lapped();
     stats.sequence_depth(3);
     let snapshot = stats.snapshot();
     assert_eq!(snapshot.bad_message, 1);
-    assert_eq!(snapshot.ring, IpcRingSnapshot { resyncs: 1, laps: 2 });
     assert_eq!(snapshot.sequence_depth.count, 1);
     assert_eq!(snapshot.sequence_depth.max, 3);
 }
