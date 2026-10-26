@@ -20,8 +20,9 @@ const MAX_NAME = 64;
 const MAX_ID = 256;
 
 /// A character a name may not hold (acpmux hub/composers.rs `hidden`): a control, or an invisible
-/// format character (a bidi override, a zero-width one) that could make a name read as another.
-const HIDDEN = /[\p{Cc}\u00AD\u061C\u180E\uFEFF\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFFF9-\uFFFB]/gu;
+/// format character (`\p{Cf}`: a bidi override, a zero-width one, a Unicode tag) that could make a
+/// name read as another, and the Mongolian vowel separator, which is no longer a format character.
+const HIDDEN = /[\p{Cc}\p{Cf}\u180E]/gu;
 
 /// A name as the pane draws it: hidden characters removed, one line, at most 64 characters.
 export function displayName(value: unknown): string | undefined {

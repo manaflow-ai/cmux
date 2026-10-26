@@ -78,6 +78,9 @@ test("initials take whole graphemes", () => {
 test("a name loses hidden characters and is bounded; an id is kept whole", () => {
   expect(displayName("Ana\u202Ezurz\u200B Ruiz\n")).toBe("Anazurz Ruiz");
   expect(displayName("\u202E\u200B")).toBeUndefined();
+  // Unicode tags (U+E0001, U+E0020 to U+E007F) draw nothing but would ride along in the label.
+  expect(displayName("Ana\u{E0041} Ruiz\u{E0001}\u{E007F}")).toBe("Ana Ruiz");
+  expect(displayName("\u00AD\u061C\u180E\uFEFF\u2066\uFFFB")).toBeUndefined();
   const long = `tailnet:${"a".repeat(80)}`;
   const presence = chatPresence(
     {

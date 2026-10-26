@@ -25,7 +25,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 4px;
   margin-bottom: 4px;
   padding-right: 4px;
   font-family: var(--cv-font);
@@ -51,11 +51,12 @@
 .cv-author__name--hidden,
 .cv-typing__words--hidden,
 .cv-presence__label {
+  /* Clipped whole and out of the flow: its box's height draws nothing. */
   position: absolute;
   width: 1px;
-  height: 1px;
   overflow: hidden;
   clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* Who else is here, in the header: faces overlap with the header's color between them. */
@@ -90,10 +91,10 @@
   display: flex;
   flex: none;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   min-height: 20px;
   margin: 0 var(--cv-inset, 0px);
-  padding: 0 12px 6px;
+  padding: 0 12px 4px;
   font-family: var(--cv-font);
   font-size: var(--text-detail);
   color: var(--cv-text-muted);
@@ -113,12 +114,11 @@
 .cv-typing__dots {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  height: 12px;
+  gap: 4px;
 }
 .cv-typing__dots > i {
   width: 4px;
-  height: 4px;
+  aspect-ratio: 1;
   border-radius: 50%;
   background: currentColor;
 }
