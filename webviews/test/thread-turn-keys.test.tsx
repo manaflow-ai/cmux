@@ -109,7 +109,7 @@ test("Previous Turn and Next Turn step the transcript through its prompts", asyn
       let read = 0;
       prompts.forEach((entry, index) => {
         const node = dom.window.document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${entry.id}"]`);
-        const top = Number(/translateY\(([\d.]+)px\)/.exec(node?.style.transform ?? "")?.[1] ?? NaN);
+        const top = Number.parseFloat(node?.style.top ?? "") - 16; // less the thread's top padding
         if (Math.max(0, 16 + top - 35) <= scroller.scrollTop + 1) read = index;
       });
       return read;

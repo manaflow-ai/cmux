@@ -97,7 +97,7 @@ import {
 import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
 import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "../../../services/vms/planUsage";
 import { publishVmOps, vmSyncReplaceOp } from "../../../services/vms/presencePublisher";
-import { idempotencyKeyFromRequest } from "../../../services/vms/routeInput";
+import { gcpCredentialFromRequest, gcpProviderMetadataFromRequest, idempotencyKeyFromRequest } from "../../../services/vms/routeInput";
 import { enforceVmAllocationRateLimit } from "../../../services/vms/allocationRateLimit";
 
 
@@ -434,6 +434,8 @@ export async function POST(request: Request): Promise<Response> {
       admissionStartedAt = performance.now();
       recordAdmission();
 
+      const providerMetadata = gcpProviderMetadataFromRequest(request, provider);
+
       // Wire the machine to coderouter inside the workflow: the route token
       // is bound to the VM row id, so provisioning runs after the row exists
       // and before the provider call, and a failure fails the create.
@@ -452,6 +454,7 @@ export async function POST(request: Request): Promise<Response> {
         image,
         imageVersion: imageSelection.imageVersion,
         provider,
+        providerMetadata,
         idempotencyKey,
         displayName: body.displayName,
         persistentHome: homeVolumeRequested && candidate.persistentHome === true,
@@ -465,6 +468,10 @@ export async function POST(request: Request): Promise<Response> {
         timing,
         // Keep the `vm.created` ledger write off New Machine's critical path.
         deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
+        // Allocated last, after every early return and every other input:
+        // createVm owns it from here and wipes it when the workflow ends,
+        // including a create that continues past its answer deadline.
+        providerCredential: gcpCredentialFromRequest(request, provider),
       }), {
         request,
         ...createRouteAnswerDeadline(idempotencyKey),

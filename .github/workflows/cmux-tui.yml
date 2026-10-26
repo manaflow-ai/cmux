@@ -396,7 +396,7 @@ jobs:
       - name: cargo clippy
         working-directory: cmux-tui
         # cmux-holder-v3 is the frozen fixture of an old shipped holder: never edited, never linted.
-        run: cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked -- -D warnings
+        run: cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked --keep-going -- -D warnings
 
       # Panic ratchet (plans/cmux-next/rust-panic-free.md): production targets
       # only (--lib --bins), so tests, benches and build scripts stay free.
@@ -727,7 +727,7 @@ jobs:
         id: clippy
         working-directory: cmux-tui
         # cmux-holder-v3 is the frozen fixture of an old shipped holder: never edited, never linted.
-        run: cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked -- -D warnings
+        run: cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked --keep-going -- -D warnings
 
       # Focused mode runs the requested filter here too (cx-jcfoz): before, this job ran only
       # its fixed groups, so a filtered dispatch reported macOS green without running the
@@ -831,6 +831,31 @@ jobs:
         env:
           EXACT_COMMIT: ${{ inputs.commit }}
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
+
+      - name: Use the pinned workspace Rust toolchain
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("cmux-tui/rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
+
+      # Path dependencies can add registry dependencies to Chief's separate
+      # workspace. Keep registry versions pinned and publish Cargo's repair;
+      # drift still fails this job before the expensive daemon build.
+      - name: Resolve Chief workspace lockfile
+        id: chief_lock
+        working-directory: Native/OptChat/optchat-chief
+        run: cargo update --workspace
+
+      - name: Publish generated Chief lockfile
+        if: always() && steps.chief_lock.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: optchat-chief-lock-${{ inputs.commit }}
+          path: Native/OptChat/optchat-chief/Cargo.lock
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Require committed Chief lockfile
+        run: git diff --exit-code -- Native/OptChat/optchat-chief/Cargo.lock
 
       - name: Init ghostty submodule
         run: git submodule update --init --depth 1 ghostty-next
@@ -1015,7 +1040,7 @@ jobs:
             # Process-heavy CLI tests can exceed the runner's child-process
             # limit on the smaller macOS and Windows matrix runners, and
             # timing-bound tests flake at 32 threads on Linux.
-            cargo test --workspace --exclude cmux-tui-core --locked -- --test-threads=2
+            cargo test --workspace --exclude cmux-tui-core --locked --no-fail-fast -- --test-threads=2
             mkdir -p target
             cargo test -p cmux-tui-core --locked --no-run --message-format=json \
               > target/cmux-tui-core-test-binaries.jsonl
@@ -1439,8 +1464,10 @@ jobs:
       attestations: write
     uses: ./.github/workflows/cmux-tui-build-package.yml
     with:
-      version: 0.0.0-nightly.19700101.0
-      pypi_version: 0.0.0.dev197001010
+      # Exercise release stamping: 0.0.0-* is reserved for raw artifacts,
+      # whose CLI intentionally reports the workspace version instead.
+      version: 0.0.1-nightly.19700101.0
+      pypi_version: 0.0.1.dev197001010
       package_npm: ${{ inputs.mode == 'full' }}
       package_pypi: ${{ inputs.mode == 'full' }}
       include_windows: ${{ inputs.mode == 'full' }}
