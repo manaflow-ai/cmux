@@ -425,9 +425,11 @@ public final class StartupScheduler {
 
     private nonisolated func submit(_ task: Pending, _ lane: StartupDestination.Lane, _ body: @escaping @Sendable () -> Void) {
         let (record, name, priority) = (task.record, task.name, task.priority)
-        background.post(lane.priority, mayBlock: lane.blockingLane) { [self] in
+        let run: @Sendable () -> Void = { [self] in
             guard !quitting.load(ordering: .acquiring) else { return }
             log.run(record, name, priority, onMain: false, body)
         }
+        guard let sequence = lane.sequence else { return background.post(lane.priority, mayBlock: lane.blockingLane, run) }
+        sequence.post(lane.priority, run)
     }
 }
