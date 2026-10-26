@@ -138,12 +138,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// Resting the pointer on a sidebar row or tab whose content is hibernated starts that content's cheap prewarm (cover decode, hidden renderer start) after a short dwell, at most two at once, never in Low Power Mode on battery or under memory pressure.
+    /// Resting the pointer on a sidebar row or tab whose browser page is frozen or hibernated wakes that page in the background after a short dwell, at most two at once, never in Low Power Mode on battery or under memory pressure.
     public static let intentPrewarmHover = Feature(
         index: 8,
         name: "intentPrewarmHover",
         owner: "PL-switch",
-        description: "Resting the pointer on a sidebar row or tab whose content is hibernated starts that content's cheap prewarm (cover decode, hidden renderer start) after a short dwell, at most two at once, never in Low Power Mode on battery or under memory pressure.",
+        description: "Resting the pointer on a sidebar row or tab whose browser page is frozen or hibernated wakes that page in the background after a short dwell, at most two at once, never in Low Power Mode on battery or under memory pressure.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,

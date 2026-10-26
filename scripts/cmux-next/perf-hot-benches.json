@@ -137,6 +137,11 @@
       "what": "one pointer move, drag or scroll event over a terminal and each coalesced delivery it gets (feature terminalPointerFrames: at most a leading and a trailing ghostty_surface_mouse_pos or mouse-reporting ghostty_surface_mouse_scroll per frame, PointerFrameCoalescer)",
       "bench": "swift test --filter 'TerminalPointerCoalescingTests' for Ghostty calls per frame; live: scripts/cmux-next/pointer-probe.swift path/drag (1000 Hz moves) over a terminal running a mouse-reporting program (vim with mouse=a), with CMUX_ENABLE_FEATURES=terminalPointerFrames and without, light and STRESS, reading ghostty.lock_wait and main stalls from debug.hangs",
       "owner": "PL-ghostty"
+    },
+    "intent-prewarm-hover": {
+      "what": "one hover target change in the sidebar or a tab strip with intentPrewarmHover on: a compare, the dwell timer's cancel and re-arm, and the warmer's isCold lookup",
+      "bench": "scripts/cmux-next/bench_hibernation.py (wake after hover vs click), then swift test --filter IntentPrewarmServiceTests",
+      "owner": "PL-switch"
     }
   }
 }
