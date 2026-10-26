@@ -19,13 +19,14 @@ struct CloudFileViewerTests {
     /// answers as a link that did not open; `served` false as a daemon without `fs-v1`. A path in
     /// `links` is a symlink to another path, as the daemon treats one: a stat answers the link's
     /// own revision, a read and a write follow it, and a write checks the target's revision.
-    /// `churn` writes the file again during every read; `writeCap` refuses larger writes.
+    /// `staleRead` is what every read returns while the VM writes the file again during it (a
+    /// read that races a write); `writeCap` refuses larger writes.
     final class MachineFiles: RemoteFileClient {
         var files: [String: (text: String, revision: Int)] = [:]
         var links: [String: String] = [:]
         var offline = false
         var served = true
-        var churn = false
+        var staleRead: String?
         var writeCap = Int.max
         var writes: [(String, String, String)] = []
 
@@ -53,7 +54,10 @@ struct CloudFileViewerTests {
         func read(_ path: String, maxBytes: Int) async throws -> FileSystemReadRequest.Response {
             try check(path)
             let file = files[target(path)]!
-            if churn { set(target(path), file.text + "+") }
+            if let staleRead {
+                set(target(path), file.text + "+")
+                return .init(text: staleRead, bytesBase64: nil, truncated: false, size: UInt64(staleRead.utf8.count))
+            }
             return .init(text: file.text, bytesBase64: nil, truncated: false, size: UInt64(file.text.utf8.count))
         }
 
@@ -273,12 +277,18 @@ struct CloudFileViewerTests {
                                         files: RemoteFilePageFiles(client: machine, machine: Self.machine))
         let config = try await Self.call(provider, "config")
         let base = try #require(config["hash"]?.stringValue)
-        // Every read races a write: the bytes and any revision never pair, so the save is a conflict.
-        machine.churn = true
-        await #expect(throws: PageError.self) {
+        // Every read races a write on the VM and still returns the page's bytes: no revision read
+        // alongside them is theirs, so the save is a conflict and the VM's text stays.
+        machine.staleRead = "one\n"
+        do {
             _ = try await Self.call(provider, "save", ["path": .string(path), "text": "mine\n", "baseHash": .string(base)])
+            Issue.record("a save replaced text written during its read")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.editor.conflict")
+            #expect(error.details?["deleted"] == nil)
         }
         #expect(machine.writes.isEmpty)
+        #expect(machine.files[path]?.text.hasPrefix("one\n+") == true)
         provider.close()
     }
 

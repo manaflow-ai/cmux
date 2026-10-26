@@ -21,6 +21,7 @@ extension LineTransport {
             case id, ok, event, error, type, reason, retryable, data
             case errorCode = "error_code"
             case streamID = "stream_id"
+            case errorDetails = "error_details"
         }
 
         private struct ResourceError: Decodable {
@@ -51,6 +52,9 @@ extension LineTransport {
                 } else if let data = try? c.decodeIfPresent(JSONValue.self, forKey: .data), case .object = data {
                     // A typed refusal's facts (`agent_session.needs_keyed_start`, cx-0w0jj).
                     errorDetails = data
+                } else if let details = try? c.decodeIfPresent(JSONValue.self, forKey: .errorDetails) {
+                    // An `fs.*` refusal's facts (`fs.revision_mismatch` names the `current` revision).
+                    errorDetails = details
                 }
                 retryable = try? c.decodeIfPresent(Bool.self, forKey: .retryable)
             } else if let structured = try? c.decodeIfPresent(ResourceError.self, forKey: .error) {
