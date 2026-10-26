@@ -353,7 +353,7 @@ pub enum Command {
     /// This machine as a hand of a Cloud Chief: pair, run, status.
     #[command(subcommand)]
     Hand(crate::hand::HandCmd),
-    /// The daemon: run, status, shutdown, config, harnesses, reload, models, schema.
+    /// The daemon: run, status, shutdown (also stop), config, harnesses, reload, models, schema.
     #[command(subcommand, alias = "d")]
     Daemon(DaemonCmd),
     /// Serve the local CodeRouter in a separate process.
@@ -876,7 +876,7 @@ pub enum DaemonCmd {
     /// adopt (a restart or an update); pooled hosts end. `--end-agents` ends
     /// every agent process too, agent hosts included, returns once they all
     /// exited, and fails naming any host left.
-    #[command(alias = "kill-server")]
+    #[command(visible_alias = "stop", alias = "kill-server")]
     Shutdown {
         /// Accepted for callers of older builds, where a plain shutdown ended
         /// the agents; hosted agents keep running anyway.
@@ -1313,6 +1313,31 @@ mod help_contract_tests {
     fn peer_alias_still_parses_after_host_becomes_canonical() {
         let parsed = Cli::try_parse_from(["acpmux", "peer", "status"]);
         assert!(parsed.is_ok(), "peer alias stopped working");
+    }
+
+    /// remote-ergo's fifth walk: "`acpmux daemon stop` fails with "unrecognized subcommand" and
+    /// no hint, but the command is `daemon shutdown`. Anyone who knows `session stop` will guess
+    /// "stop"."
+    #[test]
+    fn daemon_stop_is_daemon_shutdown_and_help_says_so() {
+        use super::{Command, flatten};
+        for (argv, want_end_agents) in [
+            (&["acpmux", "daemon", "stop"][..], false),
+            (&["acpmux", "daemon", "stop", "--end-agents"][..], true),
+            (&["acpmux", "--json", "daemon", "stop", "--keep-agents"][..], false),
+        ] {
+            let cli = Cli::try_parse_from(argv).unwrap_or_else(|e| panic!("{argv:?}: {e}"));
+            match cli.command.map(flatten) {
+                Some(Command::Shutdown { end_agents, .. }) => {
+                    assert_eq!(end_agents, want_end_agents, "{argv:?}")
+                }
+                _ => panic!("{argv:?} is not daemon shutdown"),
+            }
+        }
+        // `daemon --help` lists it on shutdown's line: `[aliases: stop]`.
+        let help = Cli::command().find_subcommand_mut("daemon").unwrap().render_help().to_string();
+        let line = help.lines().find(|l| l.trim_start().starts_with("shutdown")).unwrap();
+        assert!(line.contains("stop]"), "daemon --help does not list the stop alias:\n{help}");
     }
 
     #[test]
