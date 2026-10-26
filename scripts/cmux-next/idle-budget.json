@@ -29,7 +29,8 @@
     "webkit-gpu": {"wakeups_max": null, "threads_max": null},
     "webkit-networking": {"wakeups_max": null, "threads_max": null}
   },
-  "all_kinds": {"disk_bytes_per_s": 0, "log_lines": 0},
+  "_doc_d15": "D15 (p14-energy.md, task p14-energy-105, PL-idle with the Performance Lead 2026-10-26): after the settle, in every idle session, every kind writes 0 disk bytes (disk_bytes_per_s: the ri_diskio_byteswritten delta), 0 unified-log lines (log_lines: `log show` of the pid set, info and debug included) and 0 network bytes (network_bytes: nettop over the window, lo0 included) unless an allowed_periodic entry excuses it: an entry with `kind` and `metrics` (a list of disk_bytes_per_s, network_bytes, log_lines) excuses that kind's metric; with `remote` (host or host:port, matched whole) it excuses only network_bytes moved to that end, and the bytes to any other end must stay within the limit. all_kinds judges every measured kind under its own limits; busy and reference sessions take only their own. network_loopback_bytes, connections and WindowServer's wakeups (delta against a window with cmux hidden) are reported, not judged. A failed reader is unknown (IDLE-BUDGET-READER-FAILED, IDLE-BUDGET-NOT-JUDGED), never a pass.",
+  "all_kinds": {"disk_bytes_per_s": 0, "log_lines": 0, "network_bytes": 0},
   "sessions": {
     "light-webkit": {
       "kinds": {

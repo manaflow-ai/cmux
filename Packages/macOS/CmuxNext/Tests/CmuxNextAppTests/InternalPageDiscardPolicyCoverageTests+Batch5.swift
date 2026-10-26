@@ -293,11 +293,11 @@ import Testing
     static let confirmed = PageCallContext(page: PageDescriptor.cloud.id, origin: "user", confirmed: true)
     /// The Mobile Pairing page's namespace on a test page id (a first-party id is served only
     /// from its bundled root, which `swift test` does not build).
-    static let pairingDescriptor = PageDescriptor(id: "test.mobile-pairing", resource: "discard", namespaces: ["cmux.mobilePairing."])
+    static let pairingDescriptor = PageDescriptor(id: "test.mobile-pairing", resource: "discard", processGroup: .privileged, namespaces: ["cmux.mobilePairing."])
 
     /// A page in `web`'s fake Chromium host, opened on `route`.
     static func testPage(_ web: WebRig, route: String?, clock: ManualClock) -> PageWebView? {
-        let page = PageWebView(descriptor: PageDescriptor(id: "test.discard", resource: "discard", namespaces: []),
+        let page = PageWebView(descriptor: PageDescriptor(id: "test.discard", resource: "discard", processGroup: .solo, namespaces: []),
                                root: web.folder, routes: [], route: route, chromium: web.hosting)
         // The engine's no-message deadline never runs out here.
         page?.chromiumClock = clock
@@ -339,7 +339,7 @@ import Testing
         return shown
     }
 
-    static func subscribe(_ stream: String) -> JSONValue {
+    static func subscribe(_ stream: String) -> CmuxNextSettings.JSONValue {
         ["t": .string("sub"), "id": .number(1), "stream": .string(stream)]
     }
 

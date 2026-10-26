@@ -827,14 +827,16 @@ class MeasureOrderTests(unittest.TestCase):
         app = FakeApp(calls)
         instance = type("Instance", (), {"pid": 1})()
         saved = (ib.process_set, ib.threads, procs.usage, procs.overhead, procs.gpu_ns_by_pid, procs.coalition_of,
-                 procs.thermal_state, procs.power_assertions, ib.time.sleep)
+                 procs.coalition_id, procs.thermal_state, procs.power_assertions, ib.time.sleep)
         ib.process_set = lambda _instance: ib.ProcessSet({1: f"{APP}/Contents/MacOS/cmux DEV"},
                                                          [(1, 0, f"{APP}/Contents/MacOS/cmux DEV")])
         ib.threads = lambda _pid: {}
-        procs.usage = lambda _pid: calls.append("usage") or procs.usage_from_words(rusage_words(), 1, 1)
+        procs.usage = lambda pid: calls.append("usage" if pid == 1 else f"usage {pid}") or procs.usage_from_words(
+            rusage_words(), 1, 1)
         procs.overhead = lambda _pid: (0, 30, 0, 0, 0)
         procs.gpu_ns_by_pid = lambda: {}
         procs.coalition_of = lambda _pid: None
+        procs.coalition_id = lambda _pid: 7
         procs.thermal_state = lambda: "nominal"
         procs.power_assertions = lambda _pids: calls.append("pmset") or []
         ib.time.sleep = lambda seconds: calls.append(f"sleep {seconds:g}")
@@ -842,11 +844,17 @@ class MeasureOrderTests(unittest.TestCase):
         procs.priorities = lambda _pids: calls.append("roles") or {1: {"base": 4, "nice": 0, "darwinbg": True}}
         procs.process_table = lambda: calls.append("ps") or []
         ib.acpmux_homes = lambda _env: []
+        d15 = ib.D15Readers(windowserver=lambda: calls.append("windowserver") or (157, 10, "rusage", len(calls)),
+                            start_network=lambda seconds, workdir: calls.append(f"nettop start {seconds:g}") or "nettop",
+                            network_pid=lambda started: 77,
+                            finish_network=lambda started, start, end: calls.append(f"nettop finish {started}") or {},
+                            read_log=lambda pids, start, end: calls.append("log show") or None)
         try:
-            result = ib.measure(app, instance, 60, read_anim=lambda: calls.append("anim") or {"count": 0, "t_ms": 0})
+            result = ib.measure(app, instance, 60, read_anim=lambda: calls.append("anim") or {"count": 0, "t_ms": 0},
+                                d15=d15)
         finally:
             (ib.process_set, ib.threads, procs.usage, procs.overhead, procs.gpu_ns_by_pid, procs.coalition_of,
-             procs.thermal_state, procs.power_assertions, ib.time.sleep) = saved
+             procs.coalition_id, procs.thermal_state, procs.power_assertions, ib.time.sleep) = saved
             (procs.priorities, procs.process_table, ib.acpmux_homes) = roles_saved
         probes = {"debug.energy", "pmset", "anim"}
         counters = [i for i, c in enumerate(calls) if c in ("debug.hangs", "debug.wakeups", "debug.cef", "debug.layers", "usage")]
@@ -854,7 +862,9 @@ class MeasureOrderTests(unittest.TestCase):
         end_probes = [i for i, c in enumerate(calls) if c in probes and i > counters[-1]]
         self.assertEqual(len(start_probes) + len(end_probes), sum(1 for c in calls if c in probes))
         self.assertEqual((len(start_probes), len(end_probes)), (3, 3))
-        self.assertEqual(calls[start_probes[-1] + 1], f"sleep {ib.QUIET_GAP_S:g}")  # a quiet gap before the counters
+        # nettop starts, then a quiet gap (its start-up and the start reads' aftermath) before the counters
+        self.assertEqual(calls[start_probes[-1] + 1:start_probes[-1] + 3],
+                         [f"nettop start {60 + ib.NETTOP_LEAD_S:g}", f"sleep {ib.QUIET_GAP_S:g}"])
         # debug.webui runs on the app's main actor: the census the kinds need is read after every counter.
         self.assertGreater(calls.index("debug.webui"), counters[-1])
         self.assertEqual(calls.count("debug.webui"), 1)
@@ -867,6 +877,86 @@ class MeasureOrderTests(unittest.TestCase):
         self.assertEqual((result["processes"][0]["role"], result["processes"][0]["pooled"]), ("darwinbg", False))
         # The pooled agents come from the set's own `ps` rows: no second `ps` read in the window.
         self.assertNotIn("ps", calls)
+        # D15: WindowServer is read outside the process counters; nettop starts before every bracket (no exec or
+        # start-up of it inside one), samples its lead plus the window and ends after the last read; its own usage
+        # is read right at the window's two ends (its coalition share is taken out); `log show` reads logd after.
+        usage = [i for i, c in enumerate(calls) if c == "usage"]
+        window = calls.index("sleep 60")
+        servers = [i for i, c in enumerate(calls) if c == "windowserver"]
+        self.assertEqual(len(servers), 2)
+        self.assertTrue(servers[0] < usage[0] and servers[1] > usage[-1])
+        started = calls.index(f"nettop start {60 + ib.NETTOP_LEAD_S:g}")
+        self.assertLess(started, calls.index(f"sleep {ib.QUIET_GAP_S:g}"))
+        self.assertTrue(started < usage[0] < window < usage[-1] < calls.index("nettop finish nettop"))
+        self.assertEqual([i for i, c in enumerate(calls) if c == "usage 77"], [window - 1, window + 1])
+        self.assertGreater(calls.index("log show"), usage[-1])
+        self.assertEqual(result["readers"], {"network": True, "log": False})
+        self.assertEqual([r["network_bytes"] for r in result["processes"]], [0])
+        self.assertEqual([r["log_lines"] for r in result["processes"]], [None])
+        self.assertEqual(result["windowserver"]["source"], "rusage")
+
+    def test_nettop_runs_before_the_power_window_and_leaves_the_coalition(self):
+        """nettop exists before PowerWindow lists the coalition's outside members, and the coalition rates lose its
+        share: a reader started inside the bracket (after prepare) fails here."""
+        calls, ticks = [], {"coalition": 0, 77: 0}
+
+        class FakeWindow:
+            def __init__(self, *_args):
+                pass
+
+            def prepare(self):
+                calls.append("prepare")
+
+            def begin(self):
+                calls.append("begin")
+
+            def end(self):
+                calls.append("end")
+
+            def finish(self):
+                return None
+
+        def coalition(_pid):
+            ticks["coalition"] += 1
+            wakeups = 0 if ticks["coalition"] == 1 else 600  # 10/s over the 60 s window, nettop's 1/s of it
+            return procs.CoalitionUsage(0, 0, 0, 0, 0, wakeups, 0)
+
+        def usage(pid):
+            if pid == 77:
+                ticks[77] += 1
+                return procs.usage_from_words(rusage_words(interrupt=0 if ticks[77] == 1 else 60), 1, 1)
+            return procs.usage_from_words(rusage_words(), 1, 1)
+
+        d15 = ib.D15Readers(windowserver=lambda: (157, 10, "rusage", 0.0),
+                            start_network=lambda seconds, workdir: calls.append("nettop start") or "nettop",
+                            network_pid=lambda started: 77, finish_network=lambda started, start, end: {},
+                            read_log=lambda pids, start, end: {})
+        clock = iter(range(0, 1000, 60))
+        with contextlib.ExitStack() as stack:
+            for target, name, value in (
+                    (ib, "process_set", lambda _instance: ib.ProcessSet({1: f"{APP}/Contents/MacOS/cmux DEV"},
+                                                                        [(1, 0, f"{APP}/Contents/MacOS/cmux DEV")])),
+                    (ib, "threads", lambda _pid: {}), (ib, "frame_sources", lambda _app: None),
+                    (ib.power_attribution, "PowerWindow", FakeWindow), (procs, "usage", usage),
+                    (procs, "overhead", lambda _pid: (0, 30, 0, 0, 0)), (procs, "gpu_ns_by_pid", lambda: {}),
+                    (procs, "coalition_of", coalition), (procs, "coalition_id", lambda _pid: 7),
+                    (procs, "thermal_state", lambda: "nominal"), (procs, "power_assertions", lambda _pids: []),
+                    (procs, "priorities", lambda _pids: {}), (ib, "acpmux_homes", lambda _env: []),
+                    (ib.time, "sleep", lambda _seconds: None), (ib.time, "monotonic", lambda: next(clock))):
+                stack.enter_context(unittest.mock.patch.object(target, name, value))
+            result = ib.measure(FakeApp([]), type("Instance", (), {"pid": 1})(), 60, attribute=True, d15=d15)
+        self.assertEqual(calls, ["nettop start", "prepare", "begin", "end"])
+        self.assertEqual(result["coalition"]["wakeups_per_s"], 9.0)
+
+    def test_a_reader_outside_the_app_coalition_is_not_subtracted(self):
+        coalition = {"energy_mw_cpu": 1.0, "energy_mw_billed": 1.0, "cpu_pct": 0.5, "wakeups_per_s": 4.0,
+                     "pkg_idle_wakeups_per_s": 1.0, "gpu_ms_per_s": 0.0}
+        nettop = procs.usage_from_words(rusage_words(interrupt=60), 1, 1)
+        self.assertEqual(ib.coalition_without(coalition, procs.Usage(), nettop, 60)["wakeups_per_s"], 3.0)
+        self.assertIsNone(ib.coalition_without(coalition, procs.Usage(), None, 60))  # gone: unknown, not the app's
+        with unittest.mock.patch.object(procs, "coalition_id", lambda pid: {1: 7, 77: 8}.get(pid)):
+            self.assertFalse(ib.same_coalition(77, 1))
+            self.assertTrue(ib.same_coalition(1, 1))
 
 
 # The role reads of one window (procs.priorities' seams): each task's base priority (proc_pidinfo PROC_PIDTASKINFO
@@ -1721,6 +1811,409 @@ class ShippingModeTests(unittest.TestCase):
     def test_gate_refuses_a_session_with_no_shipping_record(self):
         self.assertEqual([what for what, _ in ib.refusals({"saver": {"mismatch": None}})],
                          ["activated", "sentry", "hang_reports"])
+
+
+# ---------------------------------------------------------------------------------------------------------
+# D15: disk, network, log and WindowServer (task p14-energy-105)
+
+# `nettop -x -n -d -L 3 -s 1`: sample 0 (totals so far) and two window samples. The app has a TLS flow and a
+# listening socket; the daemon only a loopback flow; mDNSResponder is not in the set.
+NETTOP = """time,,interface,state,bytes_in,bytes_out,rx_dupe,rx_ooo,re-tx,rtt_avg,rcvsize,tx_win,tc_class,tc_mgt,cc_algo,P,C,R,W,arch,
+12:00:00.000000,cmux DEV t.501,,,90000,80000,0,0,0,,,,,,,,,,,,
+12:00:00.000000,tcp4 192.168.1.20:50001<->17.253.4.125:443,en0,Established,90000,80000,0,0,0,20.0 ms,131072,131072,BE,-,cubic,,,,,,
+12:00:00.000000,cmux-tui.502,,,5000,5000,0,0,0,,,,,,,,,,,,
+12:00:00.000000,tcp4 127.0.0.1:50002<->127.0.0.1:9222,lo0,Established,5000,5000,0,0,0,,,,,,,,,,,,
+time,,interface,state,bytes_in,bytes_out,rx_dupe,rx_ooo,re-tx,rtt_avg,rcvsize,tx_win,tc_class,tc_mgt,cc_algo,P,C,R,W,arch,
+12:00:01.000000,cmux DEV t.501,,,120,80,0,0,0,,,,,,,,,,,,
+12:00:01.000000,tcp4 192.168.1.20:50001<->17.253.4.125:443,en0,Established,120,80,0,0,0,20.0 ms,131072,131072,BE,-,cubic,,,,,,
+12:00:01.000000,tcp4 *:7000<->*:*,lo0,Listen,0,0,0,0,0,,,,,,,,,,,,
+12:00:01.000000,cmux-tui.502,,,0,0,0,0,0,,,,,,,,,,,,
+12:00:01.000000,tcp4 127.0.0.1:50002<->127.0.0.1:9222,lo0,Established,0,0,0,0,0,,,,,,,,,,,,
+12:00:01.000000,mDNSResponder.300,,,64,64,0,0,0,,,,,,,,,,,,
+time,,interface,state,bytes_in,bytes_out,rx_dupe,rx_ooo,re-tx,rtt_avg,rcvsize,tx_win,tc_class,tc_mgt,cc_algo,P,C,R,W,arch,
+12:00:02.000000,cmux DEV t.501,,,0,0,0,0,0,,,,,,,,,,,,
+12:00:02.000000,tcp4 192.168.1.20:50001<->17.253.4.125:443,en0,Established,0,0,0,0,0,20.0 ms,131072,131072,BE,-,cubic,,,,,,
+12:00:02.000000,tcp4 *:7000<->*:*,lo0,Listen,0,0,0,0,0,,,,,,,,,,,,
+12:00:02.000000,cmux-tui.502,,,0,0,0,0,0,,,,,,,,,,,,
+12:00:02.000000,tcp4 127.0.0.1:50002<->127.0.0.1:9222,lo0,Established,0,0,0,0,0,,,,,,,,,,,,
+"""
+
+# `log show --style ndjson --info --debug`: two app lines in the window (one subsystem, one with none), one daemon
+# line, one app line before the window, a line of a pid outside the set and log's closing summary object.
+LOG = "\n".join(json.dumps(event) for event in [
+    {"timestamp": "2026-10-25 12:00:00.500000+0000", "processID": 501, "subsystem": "com.cmuxterm.next", "category": "pump",
+     "eventMessage": "tick"},
+    {"timestamp": "2026-10-25 12:00:01.250000+0000", "processID": 501, "subsystem": "com.cmuxterm.next", "category": "pump",
+     "eventMessage": "tick"},
+    {"timestamp": "2026-10-25 12:00:01.500000+0000", "processID": 501, "subsystem": "", "category": "",
+     "senderImagePath": "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit", "eventMessage": "x"},
+    {"timestamp": "2026-10-25 12:00:01.700000+0000", "processID": 502, "subsystem": "", "category": "",
+     "senderImagePath": "/x/cmux-tui", "eventMessage": "y"},
+    {"timestamp": "2026-10-25 12:00:01.800000+0000", "processID": 999, "subsystem": "com.apple.x", "category": "y"},
+]) + "\n{\"count\":5,\"finished\":1}\n"
+WINDOW_START = procs.datetime.datetime(2026, 10, 25, 12, 0, 1, tzinfo=procs.datetime.timezone.utc).timestamp()
+WINDOW_END = WINDOW_START + 2
+# nettop's `time` is the local time of day: the window around NETTOP's two delta samples (12:00:01, 12:00:02).
+NETTOP_HEADER = NETTOP.split("\n", 1)[0] + "\n"
+NET_START = procs.datetime.datetime(2026, 10, 25, 12, 0, 0, 500000).timestamp()
+NET_END = procs.datetime.datetime(2026, 10, 25, 12, 0, 2, 200000).timestamp()
+
+TOP = """Processes: 512 total, 3 running, 509 sleeping, 2401 threads
+PID    IDLEW
+157    48211+
+"""
+
+D15_PROCESSES = {501: f"{APP}/Contents/MacOS/cmux DEV", 502: f"{APP}/Contents/Resources/bin/cmux-tui server --socket s"}
+
+
+def d15_snapshots(app_disk=0):
+    """Two snapshots (procs.Usage, overhead (disk, threads, mach, syscalls, csw), threads) of the app and the daemon,
+    the app writing `app_disk` bytes in between."""
+    usage = procs.usage_from_words(rusage_words(), 1, 1)
+    first = {pid: (cmd, usage, (1_000_000, 10, 0, 0, 0), {}) for pid, cmd in D15_PROCESSES.items()}
+    last = {pid: (cmd, usage, (1_000_000 + (app_disk if pid == 501 else 0), 10, 0, 0, 0), {})
+            for pid, cmd in D15_PROCESSES.items()}
+    return first, last
+
+
+class D15ParserTests(unittest.TestCase):
+    def test_nettop_counts_the_window_samples_per_pid(self):
+        net = procs.parse_nettop(NETTOP)
+        self.assertEqual(net[501]["bytes"], 200)
+        self.assertEqual(net[501]["connections"], 1)
+        self.assertEqual(net[501]["remotes"], ["tcp4 17.253.4.125:443"])
+        self.assertEqual(net[502], {"bytes": 0, "loopback_bytes": 0, "connections": 1, "remotes": ["tcp4 127.0.0.1:9222"],
+                                    "remote_bytes": {}})
+        self.assertEqual(procs.parse_nettop(NETTOP, NET_START, NET_END), net)  # the window covers both samples
+        self.assertEqual(net[300]["bytes"], 128)
+
+    def test_nettop_counts_loopback_bytes_and_skips_the_totals_sample(self):
+        text = NETTOP.replace("12:00:01.000000,cmux-tui.502,,,0,0", "12:00:01.000000,cmux-tui.502,,,300,0")
+        text = text.replace("12:00:01.000000,tcp4 127.0.0.1:50002<->127.0.0.1:9222,lo0,Established,0,0",
+                            "12:00:01.000000,tcp4 127.0.0.1:50002<->127.0.0.1:9222,lo0,Established,300,0")
+        net = procs.parse_nettop(text)
+        self.assertEqual(net[502]["bytes"], 300)  # not the 10000 of sample 0
+        self.assertEqual(net[502]["loopback_bytes"], 300)
+        self.assertEqual(net[501]["loopback_bytes"], 0)
+
+    def test_nettop_that_did_not_sample_the_window_is_not_measured(self):
+        self.assertIsNone(procs.parse_nettop(""))
+        sample0 = NETTOP.split("time,", 2)
+        self.assertIsNone(procs.parse_nettop("time," + sample0[1]))  # one sample: the totals only
+        header_once = NETTOP.split("\n", 1)[0] + "\n" + "\n".join(
+            line for line in NETTOP.splitlines()[1:] if not line.startswith("time,"))
+        self.assertIsNone(procs.parse_nettop(header_once))
+        self.assertIsNone(procs.parse_nettop(header_once, NET_START, NET_END))
+
+    def test_nettop_counts_only_the_samples_stamped_inside_the_window(self):
+        late = NETTOP + NETTOP_HEADER + "12:00:03.000000,cmux DEV t.501,,,999,0,0,0,0,,,,,,,,,,,,\n" + \
+            "12:00:03.000000,tcp4 127.0.0.1:50003<->127.0.0.1:8123,lo0,Established,999,0,0,0,0,,,,,,,,,,,,\n"
+        self.assertEqual(procs.parse_nettop(late)[501]["bytes"], 1199)  # no window: every sample
+        net = procs.parse_nettop(late, NET_START, NET_END)
+        self.assertEqual(net[501]["bytes"], 200)  # the bench's end reads at 12:00:03 are not the app's
+        self.assertEqual(net[501]["loopback_bytes"], 0)
+        self.assertEqual(net[501]["remote_bytes"], {"tcp4 17.253.4.125:443": 200})
+        self.assertEqual(net[501]["connections"], 1)  # open at the window's last sample (12:00:02)
+
+    def test_nettop_samples_that_do_not_cover_the_window_are_not_measured(self):
+        self.assertIsNone(procs.parse_nettop(NETTOP, NET_START, NET_END + 3))  # nettop stopped 3 s early
+        self.assertIsNone(procs.parse_nettop(NETTOP, NET_START - 1, NET_END))  # its totals came after the start
+        self.assertIsNotNone(procs.parse_nettop(NETTOP, NET_START, NET_END + 1))  # within one sample of the end
+
+    def test_finish_nettop_of_a_header_once_csv_is_a_failed_reader(self):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder)
+        path = os.path.join(folder, "nettop.csv")
+        with open(path, "w") as handle:
+            handle.write(NETTOP.split("\n", 1)[0] + "\n" + "\n".join(
+                line for line in NETTOP.splitlines()[1:] if not line.startswith("time,")))
+        done = types.SimpleNamespace(wait=lambda timeout=None: 0, returncode=0, kill=lambda: None)
+        self.assertIsNone(ib.finish_nettop(ib.NettopRun(done, path, 0.0), NET_START, NET_END))
+        first, last = d15_snapshots()
+        rows = ib.process_rows(first, last, 60.0, None, None, ib.kind, network=ib.NOT_MEASURED, logs={})
+        entry = ib.summarize("light", {"processes": rows, "ends": ends(False, False),
+                                       "readers": {"network": False, "log": True}}, D15BudgetTests.BUDGET)
+        self.assertEqual(entry["over"], [])
+        self.assertIn("light app network_bytes: not judged: unknown", entry["not_judged"])
+
+    def test_remote_matches_the_whole_host_or_end(self):
+        self.assertTrue(procs.remote_matches("17.253.4.125:443", "tcp4 17.253.4.125:443"))
+        self.assertTrue(procs.remote_matches("17.253.4.125", "tcp4 17.253.4.125:443"))
+        self.assertTrue(procs.remote_matches("tcp4 17.253.4.125:443", "tcp4 17.253.4.125:443"))
+        self.assertTrue(procs.remote_matches("2606:4700::1", "tcp6 2606:4700::1.443"))
+        for allowed, end in (("1.1.1.1:443", "tcp4 11.1.1.1:443"), ("17.253.4.12", "tcp4 17.253.4.125:443"),
+                             ("10.0.0.1", "tcp4 10.0.0.10:443"), ("17.0.0.1:443", "tcp4 117.0.0.1:443"),
+                             ("17.253.4.125:80", "tcp4 17.253.4.125:443")):
+            self.assertFalse(procs.remote_matches(allowed, end), (allowed, end))
+
+    def test_nettop_command_covers_the_window(self):
+        command = procs.nettop_command(60)
+        self.assertEqual(command[0], "/usr/bin/nettop")
+        self.assertEqual(command[command.index("-L") + 1], "61")
+        self.assertIn("-x", command)
+        self.assertIn("-d", command)
+
+    def test_log_counts_lines_of_the_set_inside_the_window(self):
+        logs = procs.parse_log(LOG, {501, 502}, WINDOW_START, WINDOW_END)
+        self.assertEqual(logs[501], {"lines": 2, "owners": {"com.cmuxterm.next:pump": 1, "AppKit": 1}})
+        self.assertEqual(logs[502], {"lines": 1, "owners": {"cmux-tui": 1}})
+        self.assertNotIn(999, logs)
+        self.assertEqual(procs.parse_log(LOG, {501})[501]["lines"], 3)  # no window: every line
+
+    def test_log_command_names_every_pid(self):
+        command = procs.log_command({502, 501}, WINDOW_START + 0.4, WINDOW_END + 0.2)
+        self.assertEqual(command[command.index("--predicate") + 1], "processID == 501 OR processID == 502")
+        self.assertIn("ndjson", command)
+        self.assertIn("--debug", command)
+
+    def test_top_idlew(self):
+        self.assertEqual(procs.parse_top_idlew(TOP, 157), 48211)
+        self.assertIsNone(procs.parse_top_idlew(TOP, 158))
+
+
+class D15BudgetTests(unittest.TestCase):
+    BUDGET = {"all_kinds": {"disk_bytes_per_s": 0, "log_lines": 0, "network_bytes": 0},
+              "kinds": {"app": {"wakeups_per_s": 1.0}}}
+
+    def kinds(self, network=None, logs=None, app_disk=0):
+        first, last = d15_snapshots(app_disk)
+        rows = ib.process_rows(first, last, 60.0, None, None, ib.kind, network=network, logs=logs)
+        return ib.aggregate({"processes": rows})
+
+    def measured(self, app_disk=0):
+        return self.kinds(procs.parse_nettop(NETTOP), procs.parse_log(LOG, {501, 502}, WINDOW_START, WINDOW_END),
+                          app_disk)
+
+    def test_checked_in_budget_has_the_d15_zeros(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        self.assertEqual(budget["all_kinds"], {"disk_bytes_per_s": 0, "log_lines": 0, "network_bytes": 0})
+        for name in ("light", "tabs-static", "signed-in", "minimized"):
+            for field in ib.D15_FIELDS:
+                self.assertEqual(ib.limit_for(budget, name, "app", field), 0, (name, field))
+        for rule in budget["allowed_periodic"]:
+            self.assertGreaterEqual(rule["period_s"], 15)
+            if "metrics" in rule:  # a D15 excuse names its kind and only D15 fields
+                self.assertTrue(rule["kind"])
+                self.assertLessEqual(set(rule["metrics"]), set(ib.D15_FIELDS))
+
+    def test_rows_and_kinds_carry_disk_network_and_log(self):
+        kinds = self.measured(app_disk=6000)
+        self.assertEqual(kinds["app"]["disk_bytes"], 6000)
+        self.assertEqual(kinds["app"]["disk_bytes_per_s"], 100.0)
+        self.assertEqual(kinds["app"]["disk_writers"], [501])
+        self.assertEqual(kinds["app"]["network_bytes"], 200)
+        self.assertEqual(kinds["app"]["connections"], 1)
+        self.assertEqual(kinds["app"]["log_lines"], 2)
+        self.assertEqual(kinds["daemon"]["disk_bytes_per_s"], 0)
+        self.assertEqual(kinds["daemon"]["network_bytes"], 0)
+        self.assertEqual(kinds["daemon"]["network_loopback_bytes"], 0)
+        self.assertEqual(kinds["daemon"]["log_lines"], 1)
+        self.assertNotIn("disk_writers", kinds["daemon"])
+
+    def test_4kb_written_by_the_app_prints_an_over(self):
+        kinds = self.kinds({}, {}, app_disk=4096)
+        overs = ib.over_budget("light", kinds, self.BUDGET)
+        self.assertEqual(overs, [("app", "disk_bytes_per_s", round(4096 / 60, 3), 0)])
+        self.assertEqual(ib.over_line("light", overs[0], kinds),
+                         f"IDLE-BUDGET-OVER light app disk_bytes_per_s {round(4096 / 60, 3)} > 0 pids=501")
+
+    def test_4kb_written_by_the_app_is_an_over_against_the_checked_in_budget(self):
+        kinds = self.kinds({}, {}, app_disk=4096)
+        overs = ib.over_budget("light", kinds, ib.load_budget(ib.BUDGET_FILE))
+        self.assertIn(("app", "disk_bytes_per_s", round(4096 / 60, 3), 0), overs)
+
+    def test_quiet_processes_are_in_budget(self):
+        self.assertEqual(ib.over_budget("light", self.kinds({}, {}), self.BUDGET), [])
+
+    def test_a_failed_reader_is_not_measured_not_a_pass_or_an_over(self):
+        kinds = self.kinds(ib.NOT_MEASURED, ib.NOT_MEASURED)
+        self.assertIsNone(kinds["app"]["network_bytes"])
+        self.assertIsNone(kinds["app"]["log_lines"])
+        self.assertEqual(kinds["app"]["disk_bytes_per_s"], 0)  # disk comes from rusage, not a reader
+        self.assertEqual(ib.over_budget("light", kinds, self.BUDGET), [])
+        self.assertEqual(ib.kind_notes("light", kinds, self.BUDGET),
+                         ["light app log_lines: not judged: unknown", "light app network_bytes: not judged: unknown",
+                          "light daemon log_lines: not judged: unknown", "light daemon network_bytes: not judged: unknown"])
+
+    def test_a_run_that_does_not_read_network_or_log_has_no_such_fields(self):
+        kinds = self.kinds()
+        self.assertNotIn("network_bytes", kinds["app"])
+        self.assertNotIn("log_lines", kinds["app"])
+        self.assertEqual(ib.kind_notes("light", kinds, self.BUDGET), [])
+
+    def test_summarize_lists_the_failed_readers(self):
+        first, last = d15_snapshots()
+        rows = ib.process_rows(first, last, 60.0, None, None, ib.kind, network=ib.NOT_MEASURED, logs={})
+        entry = ib.summarize("light", {"processes": rows, "ends": ends(False, False),
+                                       "readers": {"network": False, "log": True}}, self.BUDGET)
+        self.assertEqual(entry["readers_failed"], ["network"])
+        self.assertIn("light app network_bytes: not judged: unknown", entry["not_judged"])
+
+    def test_log_and_network_overs_name_their_owners(self):
+        kinds = self.measured()
+        lines = [ib.over_line("light", over, kinds) for over in ib.over_budget("light", kinds, self.BUDGET)]
+        self.assertIn("IDLE-BUDGET-OVER light app network_bytes 200 > 0 remotes=tcp4 17.253.4.125:443", lines)
+        self.assertIn("IDLE-BUDGET-OVER light app log_lines 2 > 0 owners=com.cmuxterm.next:pump=1,AppKit=1", lines)
+        self.assertIn("IDLE-BUDGET-OVER light daemon log_lines 1 > 0 owners=cmux-tui=1", lines)
+
+    def test_allowed_periodic_excuses_only_its_kind_metric_and_remote(self):
+        kinds = self.kinds(procs.parse_nettop(NETTOP), {})
+        rule = {"owner": "DeviceHubSocket.ping", "period_s": 30, "why": "keepalive", "kind": "app",
+                "metrics": ["network_bytes"], "remote": "17.253.4.125:443"}
+        self.assertEqual(ib.over_budget("light", kinds, {**self.BUDGET, "allowed_periodic": [rule]}), [])
+        for other in ({**rule, "remote": "1.1.1.1:443"}, {**rule, "kind": "daemon"}, {**rule, "metrics": ["log_lines"]},
+                      {"owner": "DeviceHubSocket.ping", "period_s": 30, "why": "a wakeup owner only"}):
+            self.assertEqual([o[:2] for o in ib.over_budget("light", kinds, {**self.BUDGET, "allowed_periodic": [other]})],
+                             [("app", "network_bytes")], other)
+        # an excuse covers D15 metrics only, never a wakeup limit
+        self.assertFalse(ib.periodic_excuse({"allowed_periodic": [{**rule, "metrics": ["wakeups_per_s"]}]}, "app",
+                                            "wakeups_per_s", kinds["app"]))
+
+    def test_a_remote_excuse_matches_the_whole_end_not_a_substring(self):
+        text = NETTOP.replace("17.253.4.125:443", "11.1.1.1:443")
+        kinds = self.kinds(procs.parse_nettop(text), {})
+        rule = {"owner": "x", "period_s": 30, "why": "y", "kind": "app", "metrics": ["network_bytes"],
+                "remote": "1.1.1.1:443"}
+        self.assertEqual([o[:2] for o in ib.over_budget("light", kinds, {**self.BUDGET, "allowed_periodic": [rule]})],
+                         [("app", "network_bytes")])
+
+    def test_a_remote_excuse_survives_an_idle_open_connection_elsewhere(self):
+        text = NETTOP.replace(  # a second, zero-byte flow of the app open to the bench's tab server at the end
+            "12:00:02.000000,tcp4 *:7000<->*:*,lo0,Listen,0,0",
+            "12:00:02.000000,tcp4 127.0.0.1:50009<->127.0.0.1:8123,lo0,Established,0,0")
+        kinds = self.kinds(procs.parse_nettop(text), {})
+        self.assertEqual(kinds["app"]["connections"], 2)
+        self.assertEqual(kinds["app"]["remotes"], ["tcp4 17.253.4.125:443", "tcp4 127.0.0.1:8123"])
+        rule = {"owner": "x", "period_s": 30, "why": "y", "kind": "app", "metrics": ["network_bytes"],
+                "remote": "17.253.4.125:443"}
+        self.assertEqual(ib.over_budget("light", kinds, {**self.BUDGET, "allowed_periodic": [rule]}), [])
+
+    def test_a_remote_excuse_leaves_bytes_to_other_ends_an_over(self):
+        text = NETTOP.replace(
+            "12:00:02.000000,cmux DEV t.501,,,0,0", "12:00:02.000000,cmux DEV t.501,,,50,0").replace(
+            "12:00:02.000000,tcp4 *:7000<->*:*,lo0,Listen,0,0",
+            "12:00:02.000000,tcp4 192.168.1.20:50010<->8.8.8.8:443,en0,Established,50,0")
+        kinds = self.kinds(procs.parse_nettop(text), {})
+        rule = {"owner": "x", "period_s": 30, "why": "y", "kind": "app", "metrics": ["network_bytes"],
+                "remote": "17.253.4.125"}
+        self.assertEqual(ib.over_budget("light", kinds, {**self.BUDGET, "allowed_periodic": [rule]}),
+                         [("app", "network_bytes", 250, 0)])
+
+    def test_a_remote_excuses_no_disk_or_log_value(self):
+        kinds = self.kinds(procs.parse_nettop(NETTOP), procs.parse_log(LOG, {501, 502}, WINDOW_START, WINDOW_END))
+        rule = {"owner": "x", "period_s": 30, "why": "y", "kind": "app", "metrics": ["log_lines"],
+                "remote": "17.253.4.125:443"}
+        self.assertFalse(ib.periodic_excuse({"allowed_periodic": [rule]}, "app", "log_lines", kinds["app"]))
+
+    def test_a_process_that_exits_in_the_window_keeps_its_network_and_log(self):
+        first, last = d15_snapshots()
+        helper = f"{APP}/Contents/Frameworks/cmux Helper.app/Contents/MacOS/cmux Helper --type=utility"
+        first = {**first, 503: (helper, first[501][1], first[501][2], {})}
+        network = {**procs.parse_nettop(NETTOP), 503: {"bytes": 4096, "loopback_bytes": 0, "connections": 0,
+                                                       "remotes": ["tcp4 1.2.3.4:443"],
+                                                       "remote_bytes": {"tcp4 1.2.3.4:443": 4096}}}
+        logs = {503: {"lines": 3, "owners": {"com.x:y": 3}}}
+        rows = ib.process_rows(first, last, 60.0, None, None, ib.kind, network=network, logs=logs)
+        exited = ib.exited_rows(first, last, ib.kind, network=network, logs=logs)
+        self.assertEqual([(r["pid"], r["exited"], r["disk_bytes"]) for r in exited], [(503, True, None)])
+        kinds = ib.aggregate({"processes": rows, "exited": exited})
+        name = ib.kind(helper)
+        self.assertEqual(kinds[name]["exited"], [503])
+        self.assertEqual(kinds[name]["n"], 0)
+        self.assertEqual(kinds[name]["network_bytes"], 4096)
+        self.assertEqual(kinds[name]["log_lines"], 3)
+        self.assertIsNone(kinds[name]["disk_bytes_per_s"])  # its rusage left with it: unknown, not 0
+        overs = ib.over_budget("light", kinds, self.BUDGET)
+        self.assertIn((name, "network_bytes", 4096, 0), overs)
+        self.assertIn((name, "log_lines", 3, 0), overs)
+        self.assertIn(f"light {name} disk_bytes_per_s: not judged: unknown", ib.kind_notes("light", kinds, self.BUDGET))
+
+    def test_busy_and_reference_sessions_do_not_take_the_d15_zeros(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        kinds = self.kinds({}, {}, app_disk=4096)
+        self.assertEqual(ib.over_budget("busy-hidden", kinds, budget), [])
+        self.assertEqual(ib.over_budget("chrome-static", kinds, budget), [])
+
+    def test_cron_rows_have_the_d15_units(self):
+        report = {"sessions": {"light": {"kinds": {"app": {"disk_bytes_per_s": 68.267, "network_bytes": 0, "log_lines": None}}}}}
+        rows = ib.cron_rows(report, self.BUDGET)
+        self.assertEqual(rows["idle_budget.light.app.disk_bytes_per_s"],
+                         {"p50": 68.267, "p95": 68.267, "unit": "B/s", "budget": 0, "floor": 0.5})
+        self.assertEqual(rows["idle_budget.light.app.network_bytes"]["unit"], "bytes")
+        self.assertNotIn("idle_budget.light.app.log_lines", rows)
+
+    def test_table_has_the_d15_columns(self):
+        kinds = self.kinds({}, ib.NOT_MEASURED, app_disk=4096)
+        text = ib.table("light", kinds, ib.over_budget("light", kinds, self.BUDGET))
+        self.assertIn("| disk B/s | net bytes (conns) | log lines |", text)
+        self.assertIn(f"| **{round(4096 / 60, 3)}** | 0 (0) | - |", text)
+
+
+class WindowServerTests(unittest.TestCase):
+    TABLE = [(1, 0, "/sbin/launchd"), (157, 1, "/System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon")]
+
+    def test_reading_prefers_rusage_then_top(self):
+        root = lambda pid: procs.Usage(interrupt_wakeups=900)  # noqa: E731
+        clock = lambda: 5.0  # noqa: E731
+        self.assertEqual(ib.windowserver_reading(self.TABLE, root, lambda pid: 1, clock), (157, 900, "rusage", 5.0))
+        self.assertEqual(ib.windowserver_reading(self.TABLE, lambda pid: None, lambda pid: 48211, clock),
+                         (157, 48211, "top-idlew", 5.0))
+        self.assertEqual(ib.windowserver_reading(self.TABLE, lambda pid: None, lambda pid: None, clock),
+                         (157, None, "unreadable", 5.0))
+        self.assertEqual(ib.windowserver_reading(self.TABLE[:1], root, None, clock), (None, None, "not-found", 5.0))
+
+    def test_rate_and_delta_against_the_hidden_reference(self):
+        rate = ib.windowserver_rate((157, 1000, "rusage", 10.0), (157, 1600, "rusage", 70.0))
+        self.assertEqual(rate, 10.0)
+        self.assertEqual(ib.windowserver_report(rate, 7.5, "rusage"),
+                         {"source": "rusage", "wakeups_per_s": 10.0, "hidden_reference_per_s": 7.5, "reference": "hidden",
+                          "delta_per_s": 2.5})
+
+    def test_no_rate_across_a_restart_or_a_source_change(self):
+        self.assertIsNone(ib.windowserver_rate((157, 1000, "rusage", 0.0), (158, 1600, "rusage", 60.0)))
+        self.assertIsNone(ib.windowserver_rate((157, 1000, "rusage", 0.0), (157, 1600, "top-idlew", 60.0)))
+        self.assertIsNone(ib.windowserver_report(None, 7.5, "unreadable")["delta_per_s"])
+
+    def test_a_hidden_session_is_its_own_reference_and_zero_seconds_takes_none(self):
+        server = ib.windowserver_report(4.0, None, "rusage")
+        self.assertEqual(ib.windowserver_with_reference(None, server, {"hide": True}, 60, {}),
+                         {"source": "rusage", "wakeups_per_s": 4.0, "hidden_reference_per_s": 4.0, "reference": "self",
+                          "delta_per_s": 0.0})
+        self.assertEqual(ib.windowserver_with_reference(None, server, {}, 0, {})["reference"], "none")
+
+    def test_a_hide_that_is_not_confirmed_takes_no_reference(self):
+        class HideApp:
+            def __init__(self, hide_reply, windows):
+                self.hide_reply, self.windows, self.calls = hide_reply, windows, []
+
+            def rpc(self, method, params=None, timeout=30):
+                self.calls.append(method)
+                return self.hide_reply if method == "action.run" else {"windows": self.windows}
+
+        server = ib.windowserver_report(4.0, None, "rusage")
+        shown = [{"kind": "main", "visible": True}]
+        hidden = [{"kind": "main", "visible": False}]
+        readings = iter([(157, 100, "rusage", 0.0), (157, 160, "rusage", 60.0)])
+        with unittest.mock.patch.object(ib.time, "sleep", lambda _seconds: None), \
+                unittest.mock.patch.object(ib, "windowserver_reading", lambda: next(readings)):
+            for reply, windows in (({"error": {"code": "unknown_action"}}, hidden), ({}, shown), ({}, None)):
+                app, entry = HideApp(reply, windows), {}
+                report = ib.windowserver_with_reference(app, server, {}, 60, entry)
+                self.assertEqual((report["reference"], report["hidden_reference_per_s"], report["delta_per_s"]),
+                                 ("hide-failed", None, None), (reply, windows))
+                self.assertEqual(entry["windowserver_hide"], reply)
+            confirmed = ib.windowserver_with_reference(HideApp({}, hidden), server, {}, 60, {})
+        self.assertEqual((confirmed["reference"], confirmed["hidden_reference_per_s"], confirmed["delta_per_s"]),
+                         ("hidden", 1.0, 3.0))
+
+    def test_windowserver_is_reported_never_judged(self):
+        budget = {"all_kinds": {"disk_bytes_per_s": 0}, "kinds": {"windowserver": {"wakeups_per_s": 0}}}
+        entry = ib.summarize("light", {"processes": [], "ends": ends(False, False),
+                                       "windowserver": ib.windowserver_report(40.0, 1.0, "rusage")}, budget)
+        self.assertEqual(entry["over"], [])
+        self.assertEqual(entry["windowserver"]["delta_per_s"], 39.0)
+        self.assertIn("WindowServer (rusage, reported): 40.0/s, 1.0/s with cmux hidden (hidden), delta 39.0/s",
+                      ib.table("light", {}, [], entry))
 
 
 if __name__ == "__main__":

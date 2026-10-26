@@ -337,6 +337,74 @@ class LiveSchemaTests(unittest.TestCase):
         with self.assertRaisesRegex(CHECKER.SdkSchemaError, "presence drift for apps-logs"):
             self.validate(document, self.inventory)
 
+    def test_agent_session_literals_use_the_struct_the_module_decodes(self) -> None:
+        fields = CHECKER.runtime_command_fields()
+        page = {"surface", "after_seq", "before_seq", "limit", "kinds"}
+        self.assertEqual(set(fields["agent-session-attach"]), page)
+        self.assertEqual(set(fields["agent-session-observe"]), page)
+        self.assertEqual(set(fields["agent-session-children"]), {"surface"})
+        self.assertIn("cwd", fields["agent-session-start"])
+        self.assertEqual(set(fields["agent-session-trust"]), {"surface", "cwd", "level", "home_confirmed"})
+        self.assertEqual(
+            CHECKER._runtime_type_shape(fields["agent-session-permission"]["answered_by"].rust_type),
+            "ref<AgentSessionAnsweredBy>",
+        )
+
+    def test_agent_session_request_field_drift_is_rejected(self) -> None:
+        document = copy.deepcopy(self.document)
+        document["commands"]["agent-session-prompt"]["request"]["fields"].pop("prompt_id")
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "request field for agent-session-prompt"):
+            self.validate(document, self.inventory)
+        document = copy.deepcopy(self.document)
+        document["types"]["AgentSessionAnsweredBy"]["fields"].pop("feed_item")
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "request field for AgentSessionAnsweredBy"):
+            self.validate(document, self.inventory)
+
+    def test_a_literal_must_name_the_struct_its_module_decodes(self) -> None:
+        source = """\
+enum AgentSessionCommand {
+    Attach(PageParams),
+    Children(SurfaceParams),
+}
+
+fn parse(cmd: &str, params: Value) -> Option<Self> {
+    Some(match cmd {
+        "agent-session-attach" => Self::Attach(from_value(params).ok()?),
+        "agent-session-children" => Self::Children(from_value(params).ok()?),
+        _ => return None,
+    })
+}
+
+fn start(params: Map) -> bool {
+    let Ok(params) = serde_json::from_value::<agent_session_start::StartParams>(params) else {
+        return false;
+    };
+    true
+}
+
+struct PageParams {
+    surface: SurfaceId,
+}
+
+struct SurfaceParams {
+    surface: SurfaceId,
+}
+"""
+        literal = {"request": "SurfaceParams", "handler": "try_handle", "variant": "AgentSessionCommand::Children"}
+        self.assertEqual(
+            set(CHECKER._module_literal_fields(source, "agent-session-children", literal, "fixture")),
+            {"surface"},
+        )
+        wrong = {**literal, "request": "PageParams"}
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "decodes 'agent-session-children' as SurfaceParams"):
+            CHECKER._module_literal_fields(source, "agent-session-children", wrong, "fixture")
+        moved = {**literal, "variant": "AgentSessionCommand::Attach"}
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "no longer decodes 'agent-session-children'"):
+            CHECKER._module_literal_fields(source, "agent-session-children", moved, "fixture")
+        handled = {"request": "agent_session_trust::TrustParams", "handler": "start"}
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "as StartParams, not agent_session_trust::TrustParams"):
+            CHECKER._module_literal_fields(source, "agent-session-start", handled, "fixture")
+
     def test_module_enum_parser_reads_every_variant_form(self) -> None:
         body = """\
     #[serde(rename = "x-unit")]
