@@ -1,10 +1,11 @@
 import type { Env } from "../env.ts"
+import type { Principal } from "@cmux/ownership"
 import { brainModel } from "../model-gateway/routes.ts"
 import { ackWake, chiefPrincipal, chiefRecord, postReply, readConversation } from "../chief-brain/brain-io.ts"
 import { manageChiefs } from "../chief-brain/brain-chiefs.ts"
 import type { BrainConfig } from "../chief-brain/brain-store.ts"
 import { OWNER_APPROVAL_REQUIRED } from "../chief-brain/effect-policy.ts"
-import { attachmentLine, type AttachmentMeta } from "../chief-brain/brain-text.ts"
+import { attachmentLine, rootOf, threadOf, type AttachmentMeta } from "../chief-brain/brain-text.ts"
 
 /**
  * The Chief Protocol HOST services O's brain calls (brain -> host JSON-RPC requests), as the Chief
@@ -38,6 +39,16 @@ const str = (v: unknown, name: string): string => {
   return v
 }
 
+/**
+ * The thread a reply to `message` goes in (brain-text threadOf): that message's root, or the message itself
+ * at the top level. Undefined when it is not among the newest messages, as before (no root is guessed).
+ */
+const answeredThread = async (env: Env, conversation: string, principal: Principal, message: string): Promise<string | undefined> => {
+  const view = await readConversation(env, conversation, principal, 100)
+  if ("refused" in view) return undefined
+  return rootOf(message, view.messages) ?? undefined
+}
+
 export const hostCall = async (env: Env, who: Who, method: string, params: Record<string, unknown>): Promise<unknown> => {
   const principal = chiefPrincipal(who.agent, who.owner)
   switch (method) {
@@ -62,13 +73,17 @@ export const hostCall = async (env: Env, who: Who, method: string, params: Recor
       const rows = view.messages
         .filter((m) => m.seq > after && m.retracted_at === undefined)
         .slice(-limit)
-        .map((m) => ({
-          id: m.id,
-          seq: m.seq,
-          author: m.author === who.agent ? { id: m.author, name: "you", kind: "self" } : { id: m.author, ...(names.get(m.author) ?? { name: m.author, kind: "person" }) },
-          text: TEXT_PARTS(m.parts as ReadonlyArray<{ type: string; text?: string }>),
-          ...(m.thread_root ? { thread_root: m.thread_root } : {})
-        }))
+        .map((m) => {
+          // A reply without its own root reads as in the thread it answers (brain-text threadOf), as Home shows it.
+          const root = threadOf(m, view.messages)
+          return {
+            id: m.id,
+            seq: m.seq,
+            author: m.author === who.agent ? { id: m.author, name: "you", kind: "self" } : { id: m.author, ...(names.get(m.author) ?? { name: m.author, kind: "person" }) },
+            text: TEXT_PARTS(m.parts as ReadonlyArray<{ type: string; text?: string }>),
+            ...(root ? { thread_root: root } : {})
+          }
+        })
         .filter((m) => m.text)
       return { conversation: { id: view.head.id, kind: view.head.kind ?? "group", ...(view.head.title ? { title: view.head.title } : {}) }, messages: rows, cursor: Math.max(after, ...view.messages.map((m) => m.seq)) }
     }
@@ -78,12 +93,15 @@ export const hostCall = async (env: Env, who: Who, method: string, params: Recor
       const body = typeof params.body === "string" ? params.body : ""
       if (!body.trim()) throw new HostRefused(-32602, "body is empty")
       const run = typeof params.run === "string" ? params.run : undefined
+      const replyTo = typeof params.reply_to === "string" ? params.reply_to : undefined
+      // A reply names its thread: without one it would show at the top level and draw its parent again there.
+      const root = typeof params.thread_root === "string" ? params.thread_root : replyTo ? await answeredThread(env, conversation, principal, replyTo) : undefined
       const res = await postReply(env, principal, {
         conversation,
         text: body,
         run: { id: run ?? key, host: `cloud-chief-opencode:${who.agent}`, steps: 0 },
-        ...(typeof params.reply_to === "string" ? { reply_to: params.reply_to } : {}),
-        ...(typeof params.thread_root === "string" ? { thread_root: params.thread_root } : {}),
+        ...(replyTo ? { reply_to: replyTo } : {}),
+        ...(root ? { thread_root: root } : {}),
         key: `${who.agent}:${key}`
       })
       if (!res.ok) throw new HostRefused(res.code === "agent_rate" ? -32005 : -32003, `${res.code}: ${res.message}`)

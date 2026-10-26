@@ -121,7 +121,9 @@ export function threadTitle(root: HomeMessage): string {
   return plain.length > TITLE_MAX ? `${plain.slice(0, TITLE_MAX - 1)}…` : plain;
 }
 
-/** The thread a message belongs to (its root's id), or undefined for a top-level message. */
+/** The thread a message belongs to (its root's id), or undefined for a top-level message. A reply
+ * without the owner's root (from before threads, or an inline reply) is in the thread of the message it
+ * answers; `withThreadRoots` gives it that message's root when the answered message is a thread reply. */
 export function threadOf(message: HomeMessage): string | undefined {
   const root = message.threadRoot ?? message.replyTo?.message;
   return root && root !== message.id ? root : undefined;
@@ -339,7 +341,8 @@ export function hashLink(hash: string): string | undefined {
   return match ? `cmux://${match[1]}` : undefined;
 }
 
-/** Merges a page or event messages into an ascending window by seq; a newer copy replaces the old one. */
+/** Merges a page or event messages into an ascending window by seq; a newer copy replaces the old one.
+ * Replies without a root get their thread's root (`withThreadRoots`). */
 export function mergeMessages(
   window: readonly HomeMessage[],
   incoming: readonly HomeMessage[],
@@ -349,8 +352,36 @@ export function mergeMessages(
   const bySeq = new Map<number, HomeMessage>();
   for (const message of window) bySeq.set(message.seq, message);
   for (const message of incoming) bySeq.set(message.seq, message);
-  const merged = [...bySeq.values()].sort((a, b) => a.seq - b.seq);
+  const merged = withThreadRoots([...bySeq.values()].sort((a, b) => a.seq - b.seq));
   return merged.length > limit ? merged.slice(merged.length - limit) : merged;
+}
+
+/** The messages with each reply that has no root of its own (`replyTo` only) given the root of the
+ * loaded thread reply it answers, through any chain of such replies. A reply to a thread reply then
+ * shows in that thread, not under the reply as a thread of its own (a top-level row with the reply
+ * drawn again above it); one that answers a top-level message keeps `threadOf`'s rule. */
+export function withThreadRoots(messages: HomeMessage[]): HomeMessage[] {
+  const byId = new Map(messages.map((message) => [message.id, message]));
+  // The thread `message` is in: its root, else the thread of the message it answers, else that
+  // message (top level, or not loaded); undefined at the top level or in a reply loop.
+  const rootOf = (message: HomeMessage, seen: Set<string>): string | undefined => {
+    if (message.threadRoot) return message.threadRoot;
+    const target = message.replyTo?.message;
+    if (!target || target === message.id || seen.has(target)) return undefined;
+    seen.add(message.id);
+    const answered = byId.get(target);
+    return (answered && rootOf(answered, seen)) ?? target;
+  };
+  let resolved: HomeMessage[] | undefined;
+  messages.forEach((message, index) => {
+    if (message.threadRoot || !message.replyTo) return;
+    const root = rootOf(message, new Set());
+    // The answered message itself is what `threadOf` reads already: the message stays as it is.
+    if (!root || root === message.id || root === message.replyTo.message) return;
+    resolved ??= [...messages];
+    resolved[index] = { ...message, threadRoot: root };
+  });
+  return resolved ?? messages;
 }
 
 /** The timeline with the running reply as its last row (grouped under the author's own last

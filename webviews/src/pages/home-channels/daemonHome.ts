@@ -206,9 +206,9 @@ export function message(raw: Json): HomeMessage {
     result.thread = object;
   }
   if (replyTo) result.replyTo = { message: replyTo.message_id, partIndex: replyTo.part_index };
-  // A message from before threads marked its thread as a reply to the root (HomeCoreMapping).
-  const root = (raw.thread_root as string | undefined) ?? replyTo?.message_id;
-  if (root) result.threadRoot = root;
+  // The owner's root only: a reply without one is in the thread of the message it answers, which
+  // the window resolves (model `withThreadRoots`, `threadOf`); its target may be a thread reply.
+  if (typeof raw.thread_root === "string") result.threadRoot = raw.thread_root;
   return result;
 }
 

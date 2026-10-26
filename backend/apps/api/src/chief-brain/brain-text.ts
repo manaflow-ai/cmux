@@ -156,9 +156,28 @@ export const formatMessage = (head: Head, m: Message, opts: { readonly files?: b
 }
 
 /**
+ * The thread a message is in: its `thread_root`, else, for a reply without one (`reply_to` only, which
+ * every Home client draws in the thread of the message it answers), the thread of that message: its
+ * root when it is a thread reply itself, else that message. Null for a top-level message, and for a
+ * reply whose target is not in `messages` (an unknown root would be refused as invalid_thread_root).
+ */
+export const threadOf = (m: Message, messages: ReadonlyArray<Message>): string | null => {
+  if (m.thread_root) return m.thread_root
+  const target = m.reply_to?.message_id
+  return target && target !== m.id ? rootOf(target, messages) : null
+}
+
+/** The thread a reply to `message` goes in: its root, or `message` itself; null when it is not in `messages`. */
+export const rootOf = (message: string, messages: ReadonlyArray<Message>): string | null => {
+  const answered = messages.find((x) => x.id === message)
+  return answered ? (answered.thread_root ?? answered.id) : null
+}
+
+/**
  * Where the reply goes: in a channel or group, the thread of the message answered (its own thread,
  * or the thread it is in); in the chief's line or a DM, the main timeline unless that message was
- * already in a thread.
+ * already in a thread. `threadRoot` is the answered message's thread (`threadOf`), so a reply to a
+ * message in a thread always names both `reply_to` and `thread_root` and never shows at the top level.
  */
 export const replyTarget = (kind: string, message: string, threadRoot: string | null): { reply_to?: string; thread_root?: string } => {
   if (kind === "chief" || kind === "dm") return threadRoot ? { reply_to: message, thread_root: threadRoot } : {}
