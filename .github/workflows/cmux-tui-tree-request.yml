@@ -162,7 +162,7 @@ jobs:
                             or .event == "workflow_dispatch")]
                   | sort_by(.id) | last | if . == null then "" else "\(.id)\t\(.status)\t\(.html_url)" end')"
           if [[ -z "$latest" ]]; then
-            echo "::error::no cmux-tui artifacts run exists for $COMMIT (it was never a pushed branch head). Publish it by hand: git push origin $COMMIT:refs/heads/cmux-tui-pin-${COMMIT:0:12}"
+            echo "::error::no cmux-tui artifacts run exists for $COMMIT (it was never a pushed branch head). This tree has no artifact yet; re-run after feat-cmux-next publishes it."
             report unpublishable
             exit 1
           fi

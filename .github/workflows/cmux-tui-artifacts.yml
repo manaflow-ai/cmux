@@ -1310,7 +1310,7 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           short="${SHA:0:12}"
-          echo "::notice title=publish skipped::${REF_NAME} is build-only. Use a cmux-tui-pin-* branch to publish: git push origin ${SHA}:refs/heads/cmux-tui-pin-${short}"
+          echo "::notice title=publish skipped::${REF_NAME} is build-only. This tree has no artifact yet; re-run after a trusted feat-cmux-next publication."
 
   sentry-dsyms:
     environment: sentry-dsyms
