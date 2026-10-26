@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextLaunch
 import CmuxNextMallocZone
 import CmuxNextSidebar
 import CmuxNextTerminal
@@ -13,6 +14,8 @@ import CmuxNextWakeups
 public struct CmuxNextApp {
     public static let shared = Self()
     public func main() {
+        // CMUX_TRACE_STARTUP: the startup trace's ring, before the first mark (unset: one getenv, no ring).
+        let startupTrace = DebugTimings.makeStartupTrace()
         DebugTimings.markLaunch("main_start")
         announceBenchHooksBuild()
         // First, while the process has one thread: install the delegating
@@ -49,7 +52,8 @@ public struct CmuxNextApp {
         AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
         // The last quit's agent pages, terminal frames and chat composers are read and decoded off the main thread
         // from here, while AppKit starts, so each pane's first frame can use them without waiting.
-        let state = environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), work = BackgroundWork()
+        let state = environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), work = BackgroundWork(onRan: startupTrace?.laneJobSink)
+        startupTrace?.start(writingOn: work) // its file is written on work's files lane, never here
         let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: state)
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
         TerminalLaunchFrames.beside(state).prefetch(on: work) { DebugTimings.markLaunch($0) }

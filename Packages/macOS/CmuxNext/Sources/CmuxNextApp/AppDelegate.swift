@@ -83,7 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         })
         control.startWatchdog()
         DebugTimings.markLaunch("did_finish_launching_start")
-        DebugTimings.install()
+        DebugTimings.install(watchdog: control.watchdog)
         defer { DebugTimings.markLaunch("did_finish_launching_end") }
         // No system caret bubble over cmux's own native text fields (before any field edits).
         NativeCaretAccessory.install()

@@ -46,6 +46,7 @@ public final class BackgroundWork: Sendable {
     public let label: String
     private let lanes: [LaneScheduler]
     private let onQueued: @Sendable (BlockingLane, WorkPriority) -> Void
+    private let onRan: (@Sendable (BlockingLane, WorkPriority, UInt64, UInt64) -> Void)?
     // concurrency-allow: id counter and the shutdown count, read and written synchronously by submitters and lane threads (lock carve-out: a counter, no I/O under it).
     private let state = Mutex(DrainState())
 
@@ -64,11 +65,16 @@ public final class BackgroundWork: Sendable {
     ///     did not start at once), after it is queued and before it can start; default nothing. Traces
     ///     count waits with it; tests use it as the point after which a cancel or an escalation meets a
     ///     queued item, not the checks at the call.
+    ///   - onRan: called on the lane thread after each item ran, with its lane, its priority and its start
+    ///     and end in `CLOCK_UPTIME_RAW` nanoseconds; default none, and then no item reads the clock. The
+    ///     startup trace (CmuxNextLaunch's StartupTrace) records lane jobs with it.
     public init(cpuWidth: Int = BackgroundWork.defaultCPUWidth, label: String = "com.cmuxterm.next.work",
-                onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void = { _, _ in }) {
+                onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void = { _, _ in },
+                onRan: (@Sendable (BlockingLane, WorkPriority, UInt64, UInt64) -> Void)? = nil) {
         self.cpuWidth = max(1, cpuWidth)
         self.label = label
         self.onQueued = onQueued
+        self.onRan = onRan
         lanes = BlockingLane.allCases.map { lane in
             switch lane {
             case .files: LaneScheduler(label: "\(label).\(lane)", policy: .perPriority)
@@ -125,7 +131,7 @@ public final class BackgroundWork: Sendable {
         let scheduler = lanes[lane.rawValue]
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
-                let job = makeJob(id: id, shutdown: shutdown,
+                let job = makeJob(id: id, lane: lane, priority: priority, shutdown: shutdown,
                                   work: { continuation.resume(with: Result { try body() }) },
                                   abandoned: { continuation.resume(throwing: CancellationError()) })
                 // Checked under the lane's lock, so a cancel either finds the item queued or stops it here.
@@ -146,7 +152,7 @@ public final class BackgroundWork: Sendable {
     ///   - body: the blocking work. It runs on a lane thread, never on the cooperative pool.
     public func post(_ priority: WorkPriority, mayBlock lane: BlockingLane,
                      shutdown: ShutdownBehavior = .skipOnShutdown, _ body: @escaping @Sendable () -> Void) {
-        let job = makeJob(id: nextID(), shutdown: shutdown, work: body, abandoned: {})
+        let job = makeJob(id: nextID(), lane: lane, priority: priority, shutdown: shutdown, work: body, abandoned: {})
         submitted(lanes[lane.rawValue].submit(job, at: priority, posted: true, unless: { false }), job, on: lane)
     }
 
@@ -244,11 +250,21 @@ public final class BackgroundWork: Sendable {
         }
     }
 
-    private func makeJob(id: UInt64, shutdown: ShutdownBehavior, work: @escaping @Sendable () -> Void,
-                         abandoned: @escaping @Sendable () -> Void) -> LaneJob {
+    private func makeJob(id: UInt64, lane: BlockingLane, priority: WorkPriority, shutdown: ShutdownBehavior,
+                         work: @escaping @Sendable () -> Void, abandoned: @escaping @Sendable () -> Void) -> LaneJob {
+        let run: @Sendable () -> Void
+        if let onRan {
+            run = {
+                let start = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+                work()
+                onRan(lane, priority, start, clock_gettime_nsec_np(CLOCK_UPTIME_RAW))
+            }
+        } else {
+            run = work
+        }
         let blocks = shutdown == .blockShutdown
         if blocks { state.withLock { $0.blocking += 1 } }
-        return LaneJob(id: id, shutdown: shutdown, work: work, abandoned: abandoned, done: { [self] in
+        return LaneJob(id: id, shutdown: shutdown, work: run, abandoned: abandoned, done: { [self] in
             guard blocks else { return }
             let waiters = state.withLock { state -> [CheckedContinuation<Void, Never>] in
                 state.blocking -= 1

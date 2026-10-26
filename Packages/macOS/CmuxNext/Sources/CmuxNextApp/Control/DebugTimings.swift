@@ -1,6 +1,8 @@
 import AppKit
 import class CmuxNextAgentPane.AgentPaneLaunchTimings
+import CmuxNextControl
 import CmuxNextDesign
+import CmuxNextLaunch
 import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextTerminal
@@ -19,8 +21,9 @@ import CmuxNextCompat
 enum DebugTimings {
     static let signposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "stalls")
 
-    /// Launch marks from any thread (the daemon start path runs off main).
-    private nonisolated static let launchMarks = Mutex<[(name: String, ms: Double)]>([])
+    /// Launch marks from any thread (the daemon start path runs off main), and the startup trace they go
+    /// to when the launch asked for one (`CMUX_TRACE_STARTUP`).
+    private nonisolated static let launchMarks = Mutex<LaunchMarks>(LaunchMarks())
     private static var paletteOpens: [PaletteOpenTiming] = []
     private static var iconPickerOpens: [IconPickerOpenTiming] = []
     private static var surfaces: [Double] = []
@@ -52,23 +55,29 @@ enum DebugTimings {
     /// Records a launch mark (milliseconds since process start) once per
     /// name, from any thread. The first record of a name goes to
     /// ``LaunchMarkSink``: a launch os_signpost in every build, and the
-    /// bench's pipe when one was passed.
+    /// bench's pipe when one was passed; and to the startup trace when one is attached.
     nonisolated static func markLaunch(_ name: String, at date: Date = Date()) {
-        let ms = date.timeIntervalSince(processStart) * 1_000
-        let first = launchMarks.withLock { marks in
-            guard !marks.contains(where: { $0.name == name }) else { return false }
-            marks.append((name, ms))
-            return true
-        }
-        if first {
-            LaunchMarkSink.shared.write(name: name, ms: ms)
-            #if DEBUG || CMUX_BENCH_HOOKS
-            UpdateHarness.mark("launch.\(name)", at: date)
-            #endif
-        }
+        let (ms, trace) = launchMarks.withLock { ($0.record(name, at: date, processStart: processStart), $0.trace) }
+        guard let ms else { return }
+        LaunchMarkSink.shared.write(name: name, ms: ms)
+        LaunchMarks.forward(name, at: date, to: trace)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        UpdateHarness.mark("launch.\(name)", at: date)
+        #endif
     }
 
-    static func install() {
+    /// The startup trace `CMUX_TRACE_STARTUP` asks for, attached before the first mark (`main`).
+    nonisolated static func makeStartupTrace() -> StartupTrace? {
+        guard let trace = StartupTrace.fromEnvironment(processStartNanos: LaunchMarks.uptimeNanos(of: processStart)) else { return nil }
+        launchMarks.withLock { $0.attach(trace, processStart: processStart) }
+        return trace
+    }
+
+    /// - Parameter watchdog: Sends main-thread turns over 1 ms to the startup trace, when one is attached.
+    static func install(watchdog: MainThreadWatchdog) {
+        if let trace = launchMarks.withLock({ $0.trace }) {
+            watchdog.setMainTurnSink(minimumNanos: StartupTrace.mainTurnThresholdNanos) { trace.mainTurn(start: $0, end: $1) }
+        }
         DaemonLaunchTimings.shared.install { markLaunch($0, at: $1) }
         AgentPaneLaunchTimings.shared.install { markLaunch($0) }
         TerminalTimings.onSurfaceCreated = { duration in
@@ -124,10 +133,24 @@ enum DebugTimings {
         return report
     }
 
+    /// `debug.startup_trace`: writes what the startup trace holds now (on the files lane, never on main) and
+    /// returns its status; `{"close": true}` closes it first. With no trace: `trace_ring_bytes` 0.
+    nonisolated static var startupTraceMethod: ControlMethod {
+        .async("debug.startup_trace") { call in
+            guard let trace = launchMarks.withLock({ $0.trace }) else { return ["enabled": false, "trace_ring_bytes": 0] }
+            if call.params["close"]?.boolValue == true { trace.close() }
+            let status = await trace.flush()
+            return ["enabled": true, "file": .string(status.file.path), "seconds": .number(status.seconds),
+                    "trace_ring_bytes": .number(Double(status.ringBytes)), "pending": .number(Double(status.pending)),
+                    "dropped": .number(Double(status.dropped)), "written_events": .number(Double(status.written)),
+                    "closed": .bool(status.closed), "failure": status.failure.map(JSONValue.string) ?? .null]
+        }
+    }
+
     private static var report: JSONValue {
         func round(_ ms: Double) -> JSONValue { .number((ms * 10).rounded() / 10) }
         var launch: [String: JSONValue] = [:]
-        for mark in launchMarks.withLock({ $0 }) { launch[mark.name] = round(mark.ms) }
+        for mark in launchMarks.withLock({ $0.all }) { launch[mark.name] = round(mark.ms) }
         return [
             "launch_ms_since_process_start": .object(launch),
             "palette_opens": .array(paletteOpens.map { open in
