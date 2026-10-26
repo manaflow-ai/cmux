@@ -257,6 +257,21 @@ fn git_dirs(script: &str, found: &dyn Fn(&str) -> bool) -> Option<Vec<Option<Str
     Some(git)
 }
 
+/// Ends a word that holds an unquoted glob: the shell expands it after this has read it, so a
+/// command whose arguments this checks by text (git) asks. The script refuses control
+/// characters, so none of its own words holds one.
+const GLOBBED: char = '\0';
+
+/// Whether `text` names a signature check, which verifies with gpg: a `signature` atom or sort
+/// key, or a `%G` placeholder with or without a modifier (`%+G?`, `%-GS`, `% GK`).
+fn names_signature(text: &str) -> bool {
+    text.contains("signature")
+        || text.match_indices('%').any(|(i, _)| {
+            let rest = &text[i + 1..];
+            rest.strip_prefix(['+', '-', ' ']).unwrap_or(rest).starts_with('G')
+        })
+}
+
 /// What a command that passed the allowlist reads.
 enum Reads {
     Plain,
@@ -270,13 +285,18 @@ fn segments(script: &str) -> Option<Vec<Vec<String>>> {
     let mut segs = vec![Vec::new()];
     let mut word = String::new();
     let mut in_word = false;
+    let mut globbed = false;
     let mut chars = script.chars().peekable();
-    let end = |segs: &mut Vec<Vec<String>>, word: &mut String, in_word: &mut bool| {
-        if *in_word && let Some(last) = segs.last_mut() {
-            last.push(std::mem::take(word));
-        }
-        *in_word = false;
-    };
+    let end =
+        |segs: &mut Vec<Vec<String>>, word: &mut String, in_word: &mut bool, globbed: &mut bool| {
+            if std::mem::take(globbed) {
+                word.push(GLOBBED);
+            }
+            if *in_word && let Some(last) = segs.last_mut() {
+                last.push(std::mem::take(word));
+            }
+            *in_word = false;
+        };
     while let Some(c) = chars.next() {
         match c {
             // Bash splits words only at space, tab and newline: a `\r` stays in the word.
@@ -329,33 +349,34 @@ fn segments(script: &str) -> Option<Vec<Vec<String>>> {
                 if !lone_bracket && (!in_word || word.is_empty() || word.starts_with('-')) {
                     return None;
                 }
+                globbed |= !lone_bracket;
                 in_word = true;
                 word.push(c);
             }
             '#' if !in_word => while chars.next_if(|n| *n != '\n').is_some() {},
             ';' | '\n' => {
-                end(&mut segs, &mut word, &mut in_word);
+                end(&mut segs, &mut word, &mut in_word, &mut globbed);
                 segs.push(Vec::new());
             }
             '&' => {
                 // `&&` separates; a lone `&` runs a job in the background.
                 chars.next_if_eq(&'&')?;
-                end(&mut segs, &mut word, &mut in_word);
+                end(&mut segs, &mut word, &mut in_word, &mut globbed);
                 segs.push(Vec::new());
             }
             '|' => {
                 chars.next_if_eq(&'|');
-                end(&mut segs, &mut word, &mut in_word);
+                end(&mut segs, &mut word, &mut in_word, &mut globbed);
                 segs.push(Vec::new());
             }
-            ' ' | '\t' => end(&mut segs, &mut word, &mut in_word),
+            ' ' | '\t' => end(&mut segs, &mut word, &mut in_word, &mut globbed),
             ch => {
                 in_word = true;
                 word.push(ch);
             }
         }
     }
-    end(&mut segs, &mut word, &mut in_word);
+    end(&mut segs, &mut word, &mut in_word, &mut globbed);
     Some(segs)
 }
 
@@ -390,6 +411,9 @@ fn segment_ok(words: &[String]) -> Option<Reads> {
     }
     let name = command_name(first)?;
     if name == "git" {
+        if args.iter().any(|a| a.ends_with(GLOBBED)) {
+            return None;
+        }
         return git_ok(args).map(Reads::Git);
     }
     let any = |f: &dyn Fn(&str) -> bool| args.iter().any(|a| f(a));
@@ -496,10 +520,8 @@ fn git_read_ok(args: &[String]) -> bool {
             || long_is(a, "--open-files-in-pager")
             || long_is(a, "--ext-diff")
             || long_is(a, "--show-signature")
-            || a.contains("%G")
-            // Any signature atom, sort key or dereference (`--sort=signature:grade`,
-            // `%(*signature)`) verifies with gpg.
-            || a.contains("signature")
+            // Any signature atom, sort key, dereference or `%G` placeholder verifies with gpg.
+            || names_signature(a)
             // Opens the manual in a viewer.
             || long_is(a, "--help")
             // Runs smudge filters (git-lfs can fetch) and textconv drivers.
@@ -626,7 +648,7 @@ fn repository_runs_nothing(git_bin: &Path, env: &Env, dir: &Path, depth: u8) -> 
         let person = !matches!(scope, "local" | "worktree");
         // A value that names a signature check (`branch.sort = signature:grade`, a `%G` format)
         // makes a read verify with gpg, whatever key holds it.
-        let verifies = value.contains("signature") || value.contains("%G");
+        let verifies = names_signature(value);
         let passes = key_runs_nothing(key, value)
             || (person && person_key_runs_nothing(key))
             // `git lfs install` (runner images, Homebrew): its clean filter runs only on files
