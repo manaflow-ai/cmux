@@ -166,10 +166,14 @@ await requireBrowserLane("agent-pane-short-pane-composer.test.ts", async () => {
         // long prompts readable without repeating the oversized growth Lawrence called out.
         const styles = await page.locator(".acpmux-composer-prompt").evaluate((node) => {
           const computed = getComputedStyle(node);
-          return {
-            line: parseFloat(computed.getPropertyValue("--text-title--line-height")) || 22,
-            control: parseFloat(computed.getPropertyValue("--cmux-control-height")) || 23,
-          };
+          // Custom properties retain calc() text. Measure their used length, rather than treating
+          // parseFloat("calc(...)") as a missing token and asserting against a fallback.
+          const control = document.createElement("div");
+          control.style.cssText = "position:absolute;visibility:hidden;height:var(--cmux-control-height,23px)";
+          node.append(control);
+          const controlHeight = control.getBoundingClientRect().height;
+          control.remove();
+          return { line: parseFloat(computed.lineHeight), control: controlHeight };
         });
         expect(drawn.prompt.cap).toBeCloseTo(Math.min(760 * 0.4, styles.line * 12 + styles.control), 0);
         expect(drawn.prompt.scrolls).toBe(true);
