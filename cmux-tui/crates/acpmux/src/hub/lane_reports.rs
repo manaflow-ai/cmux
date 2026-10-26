@@ -837,21 +837,36 @@ mod tests {
     fn a_steer_dropped_before_its_answer_is_not_counted_forever() {
         let turns = StdMutex::new(TurnKinds::default());
         // The steer's request is dropped (its client went away) before the agent answers, in
-        // turn 1: it may have gone in, so turn 1 reports, and only that one.
+        // turn 1. It may already be with the agent, to be read in turn 1 or the next: both
+        // report, and no later one.
         let count = SteerCount::new(&turns, "c", || 1);
-        turns.lock().unwrap().report_only.insert(("c".into(), 1));
+        for turn in [1, 2, 3] {
+            turns.lock().unwrap().report_only.insert(("c".into(), turn));
+        }
         drop(count);
         let mut k = turns.lock().unwrap();
         assert!(k.in_flight.is_empty(), "a dropped steer stays on its way");
         assert!(!k.end("c", 1));
-        k.report_only.insert(("c".into(), 2));
-        assert!(k.end("c", 2), "every later report turn reports");
+        assert!(!k.end("c", 2), "the next turn, which may have read it, did not report");
+        assert!(k.end("c", 3), "every later report turn reports");
         drop(k);
         // Answered, it counts as the answer says.
-        SteerCount::new(&turns, "c", || 3).done(false);
+        SteerCount::new(&turns, "c", || 4).done(false);
         let mut k = turns.lock().unwrap();
-        k.report_only.insert(("c".into(), 3));
-        assert!(k.end("c", 3));
+        k.report_only.insert(("c".into(), 4));
+        assert!(k.end("c", 4));
+    }
+
+    #[test]
+    fn a_steer_answered_after_its_session_was_forgotten_leaves_nothing() {
+        let turns = StdMutex::new(TurnKinds::default());
+        let answered = SteerCount::new(&turns, "c", || 1);
+        let dropped = SteerCount::new(&turns, "c", || 1);
+        turns.lock().unwrap().forget("c");
+        answered.done(true);
+        drop(dropped);
+        let k = turns.lock().unwrap();
+        assert!(k.in_flight.is_empty() && k.carried.is_empty(), "a retired lane left state");
     }
 
     #[test]
