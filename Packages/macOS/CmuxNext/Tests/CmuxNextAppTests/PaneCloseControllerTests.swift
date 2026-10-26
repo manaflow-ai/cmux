@@ -298,6 +298,18 @@ import Testing
         #expect(shown.ratioIntents.sorted() == ["split:1=0.3333", "split:2=0.5000"], "sent \(shown.ratioIntents)")
     }
 
+    /// The same two closes, both landing in ONE daemon snapshot (each closed pane the other's
+    /// sibling): the chain ends even and its ratio goes once.
+    @Test func overlappingClosesInOneChainLandingInOneSnapshotEndEven() throws {
+        let shown = try Shown(tree: Self.tree(Self.chain([1, 2, 3, 4])))
+        defer { shown.end() }
+        _ = try #require(try shown.controller(4).showPaneClose())
+        _ = try #require(try shown.controller(3).showPaneClose())
+        shown.echo(Self.chain([1, 2], [0.25]))
+        #expect(Self.near(shown.ratio(1), 0.5), "s1 \(String(describing: shown.ratio(1)))")
+        #expect(shown.ratioIntents == ["split:1=0.5000"], "sent \(shown.ratioIntents)")
+    }
+
     /// The same two closes, both accepted, their echoes in order: p1 | p2 stay at halves through
     /// both, and the ratio goes once, after the last echo.
     @Test func overlappingClosesInOneChainKeepTheirRatiosThroughTheirEchoes() throws {
