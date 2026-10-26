@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextMemory
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -6,20 +7,54 @@ import UniformTypeIdentifiers
 
 /// Hibernated pages' last frames, kept compressed (JPEG, or PNG when transparent) under their
 /// own budget, least recently used first out, so every hibernated tab wakes to its picture
-/// (PR 23083). They used to share the 32 MB decoded `previews` LRU with terminal previews at up
+/// (PR 23083). They used to share the decoded `previews` LRU with terminal previews at up
 /// to a quarter of it each: four hibernated pages kept a picture and the others woke to an empty
 /// pane.
+///
+/// Its full size is `SubsystemBudget.hibernationSnapshotBytes` (M / 256 MiB: 64 MiB on a 16 GB Mac,
+/// plans/cmux-next/chrome-parity/p07-memory.md, task 058). Registered with the memory coordinator
+/// (`memoryImageCaches`), it is a lossy consumer (a dropped picture comes back only at the page's next
+/// sleep, and its wake shows the page loading) that the coordinator limits only at critical pressure,
+/// in the last release tier. Under a limit it keeps the N most recent pictures that fit the scaled
+/// bytes, and always the pictures of the tabs beside each shown tab (``neighbors``), which Ctrl-Tab and
+/// Cmd-Shift-[ ] wake next: at the critical limit (0 %) only those stay. Chrome keeps no picture of a
+/// discarded tab; its `FrameEvictionManager` (components/viz/client/frame_eviction_manager.cc) keeps
+/// the saved frames of the most recently shown hidden views and culls them on `OnReleaseMemory`.
 ///
 /// A picture's image decodes from its bytes when drawn; the placeholder decodes it off the main
 /// thread, and holds the decoded pixels only while a pane shows it (`HibernatedBrowserTab`).
 @MainActor
 final class HibernationSnapshots {
-    /// A page picture at 2x is about 0.2 to 1.5 MB as JPEG, so this holds 40 to 300 of them.
-    let capacityBytes: Int
+    /// The consumer's name in the memory report.
+    static let memoryConsumerName = "hibernation-snapshots"
+    /// The consumer's traits: lossy and expensive to rebuild (only a new sleep pictures the page again),
+    /// so the coordinator leaves it whole at warning and releases it in its last tier; it honors partial limits.
+    static let memoryTraits = MemoryConsumerTraits(
+        estimatedUsage: .large,
+        dataAccess: .none,
+        retention: .lossy,
+        recreateCost: .expensive,
+        releaseCPUCost: .low,
+        isStateful: true,
+        supportsMemoryLimit: true
+    )
+
+    /// The bytes it keeps at the default limit. A page picture at 2x is about 0.2 to 1.5 MB as JPEG,
+    /// so 64 MiB holds 40 to 300 of them.
+    let fullCapacityBytes: Int
+    /// The bytes it keeps now: ``fullCapacityBytes`` scaled by the memory coordinator's limit. The
+    /// neighbors' pictures stay past it.
+    var capacityBytes: Int { memoryLimit.scale(fullCapacityBytes) }
+    /// The limit the memory coordinator gave last.
+    private(set) var memoryLimit = MemoryLimit.default
+    /// The tabs beside each shown tab now, whose pictures are kept at any limit (`BrowserHibernation`
+    /// sets it; read once per trim).
+    var neighbors: () -> Set<String> = { [] }
     private(set) var totalBytes = 0
     private var pictures: [String: Picture] = [:]
     /// Least recently used first.
     private var order: [String] = []
+    private var memoryRegistration: MemoryConsumerRegistration?
 
     /// One page's picture: `data` is the JPEG or PNG (nil for a decoded picture kept in `previews`
     /// when `HibernationTunables.compressedSnapshots` is off), `image` decodes from it.
@@ -28,11 +63,25 @@ final class HibernationSnapshots {
         let image: CGImage
     }
 
-    init(capacityBytes: Int = 64 << 20) {
-        self.capacityBytes = capacityBytes
+    /// - Parameter fullCapacityBytes: The bytes it keeps at the default limit (`SubsystemBudget.hibernationSnapshotBytes`).
+    init(fullCapacityBytes: Int) {
+        self.fullCapacityBytes = max(0, fullCapacityBytes)
+    }
+
+    /// The store of this Mac's budget.
+    convenience init(budget: SubsystemBudget = .forThisMac(gpuResidentAvailable: false)) {
+        self.init(fullCapacityBytes: budget.hibernationSnapshotBytes)
     }
 
     var count: Int { pictures.count }
+
+    /// Registers with the app's memory coordinator (once; a later call replaces the registration).
+    ///
+    /// - Parameter registry: The memory coordinator.
+    func registerMemoryConsumer(with registry: any MemoryConsumerRegistry) {
+        memoryRegistration = MemoryConsumerRegistration(
+            name: Self.memoryConsumerName, traits: Self.memoryTraits, consumer: self, registry: registry)
+    }
 
     func image(for key: String) -> CGImage? {
         guard let picture = pictures[key] else { return nil }
@@ -41,19 +90,35 @@ final class HibernationSnapshots {
         return picture.image
     }
 
+    /// Keeps `picture` for `key` as the most recent one, then drops the oldest pictures past
+    /// ``capacityBytes`` that are not a neighbor's. A picture larger than the full store is not kept.
     func insert(_ picture: Picture, for key: String) {
-        guard let cost = picture.data?.count, cost <= capacityBytes else { return }
+        guard let cost = picture.data?.count, cost <= fullCapacityBytes else { return }
         remove(key)
         pictures[key] = picture
         order.append(key)
         totalBytes += cost
-        while totalBytes > capacityBytes, let oldest = order.first { remove(oldest) }
+        _ = trim(to: capacityBytes, within: nil)
     }
 
     func remove(_ key: String) {
         guard let picture = pictures.removeValue(forKey: key) else { return }
         totalBytes -= picture.data?.count ?? 0
         order.removeAll { $0 == key }
+    }
+
+    /// Drops the oldest pictures that are not a neighbor's until the store holds at most `capacity`
+    /// bytes or `slice` expires.
+    private func trim(to capacity: Int, within slice: MemoryReleaseSlice?) -> MemoryReleaseProgress {
+        guard totalBytes > capacity else { return .done }
+        let kept = neighbors()
+        var index = 0
+        while totalBytes > capacity, index < order.count {
+            if slice?.isExpired == true { return .more }
+            let key = order[index]
+            if kept.contains(key) { index += 1 } else { remove(key) }
+        }
+        return .done
     }
 
     /// Pixels a picture keeps at most: a 2560 x 1600 pt pane at 2x (16.4 M) keeps its size.
@@ -92,5 +157,22 @@ final class HibernationSnapshots {
               let pixels = context.data?.bindMemory(to: UInt8.self, capacity: side * side * 4) else { return false }
         context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
         return stride(from: 3, to: side * side * 4, by: 4).allSatisfy { pixels[$0] == 255 }
+    }
+}
+
+extension HibernationSnapshots: MemoryConsumer {
+    /// Keeps the limit: the next picture kept trims to it. Frees nothing.
+    func updateMemoryLimit(_ limit: MemoryLimit) {
+        memoryLimit = limit
+    }
+
+    /// Drops the oldest pictures that are not a neighbor's until the store fits the slice's limit.
+    func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
+        trim(to: slice.limit.scale(fullCapacityBytes), within: slice)
+    }
+
+    /// The compressed bytes and picture count, from counters.
+    var memoryUsage: MemoryUsage? {
+        MemoryUsage(footprintBytes: totalBytes, entries: pictures.count)
     }
 }

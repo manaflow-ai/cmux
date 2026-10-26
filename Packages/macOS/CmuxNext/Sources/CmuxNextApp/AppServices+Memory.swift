@@ -55,10 +55,27 @@ struct AppMemoryConsumers {
         _ = services.memoryCoordinator  // follows pressure from launch, before any consumer registers
         // One line per package, sorted by package name, for example:
         // registerTabs()  // CmuxNextTabs
+        registerImageCaches()  // CmuxNextApp, CmuxNextBridge
         registerInternalPageDiscards()  // CmuxNextApp
         registerConversationDiscards()  // CmuxNextHibernation, CmuxNextHome
         registerPageLifecycle()  // CmuxNextPages
         registerTerminalLastFrames()  // CmuxNextTerminal
+    }
+
+    /// `memoryImageCaches` (default off): tab previews and page thumbnails are lossless consumers that shrink
+    /// at warning and empty at critical (p07-memory-058). The hibernation pictures register when the
+    /// hibernation starts (``registerHibernationSnapshots(_:)``).
+    private func registerImageCaches() {
+        guard services.features.isEnabled(.memoryImageCaches) else { return }
+        services.cache.previews.registerMemoryConsumer(name: "preview-images", with: services.memoryCoordinator)
+        services.cache.pageThumbnails.registerMemoryConsumer(name: "page-thumbnails", with: services.memoryCoordinator)
+    }
+
+    /// `memoryImageCaches` (default off): `hibernation`'s pictures are a lossy consumer that keeps only the
+    /// neighbors' pictures at critical (p07-memory-058). `startHibernation` calls it once it made the hibernation.
+    func registerHibernationSnapshots(_ hibernation: BrowserHibernation) {
+        guard services.features.isEnabled(.memoryImageCaches) else { return }
+        hibernation.snapshots.registerMemoryConsumer(with: services.memoryCoordinator)
     }
 
     /// `memoryTerminalLastFrames` (default off): evicted terminals' last frames are one lossless

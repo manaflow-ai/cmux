@@ -180,7 +180,12 @@ final class BrowserHibernation {
         self.memory = memory
         self.audible = audible
         audible?.onEnded = { [weak self] key in self?.soundDidEnd(key) }
+        snapshots.neighbors = { [weak self] in self?.pictureNeighbors ?? [] }
     }
+
+    /// The tabs one step beside each pane's shown tab, at any pressure and setting: their pictures stay
+    /// under every memory limit (`HibernationSnapshots`), since Ctrl-Tab and Cmd-Shift-[ ] show them next.
+    private var pictureNeighbors: Set<String> { neighbors.awake(radius: 1) }
 
     /// Tabs on each side of a shown tab that stay awake now: the setting, or 0 under memory pressure or in Low Power Mode.
     var neighborRadius: Int {

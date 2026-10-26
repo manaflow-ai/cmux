@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "memoryImageCaches",
+  "owner": "PL-memory",
+  "description": "Tab previews, page thumbnails and hibernated tabs' pictures follow memory pressure: previews shrink at warning; at critical they empty and only the pictures of tabs beside a shown tab stay, so other woken tabs may show loading first.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

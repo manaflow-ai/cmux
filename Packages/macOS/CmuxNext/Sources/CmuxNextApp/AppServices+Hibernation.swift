@@ -39,6 +39,7 @@ extension AppServices {
         hibernation.agentPages = agentPages
         hibernation.follow(settings)
         hibernation.start()
+        AppMemoryConsumers(services: self).registerHibernationSnapshots(hibernation)  // AppServices+Memory.swift
         cache.warmSetRelease = WarmSetRelease(host: cache, normalCapacity: WarmSetBudget.standard.terminalCapacity, registry: memoryCoordinator)
         _ = parkedWorkspaceBudget  // registers with the coordinator before any pressure change reads it
     }

@@ -6,6 +6,7 @@ import CmuxNextDesign
 import CmuxNextHibernation
 import CmuxNextLaunch
 import CmuxNextMacScreen
+import CmuxNextMemory
 import CmuxNextPages
 import CmuxNextRemote
 import CmuxNextSignposts
@@ -19,7 +20,8 @@ import Observation
 /// view (`SurfaceLedger`). Surfaces exist for tabs presented on screen or in
 /// the keep-alive band (off-screen columns within one viewport width, paused)
 /// plus an LRU of 8 recently hidden ones; older hidden surfaces are destroyed and re-attach
-/// from the daemon replay when shown. Previews of destroyed surfaces stay in a 32 MB image LRU.
+/// from the daemon replay when shown. Previews of destroyed surfaces stay in an image LRU sized by
+/// ``ImageCacheShares`` from the Mac's memory.
 final class TabContentCache {
     private let daemon: DaemonService
     /// Given to every terminal session this cache makes: the modifier watch (``TerminalModifierWatch``), and the scheduler its host follows its models through.
@@ -46,7 +48,9 @@ final class TabContentCache {
     var pageLifecycle: PageLifecycle? // page tabs' freeze and discard, from each reveal and conceal (pageLifecycle; nil while off)
     let contentOwners = ContentLifecycleOwners<ContentLifecycle<String>.Token>() // page and conversation tabs' lifecycle effects (memoryDiscard*; empty while off)
     let dormantTabs = DormantTabs() // hibernated tabs, observed by the tab strips
-    let previews = PreviewImageCache()
+    /// Terminal previews, discarded internal pages' pictures and decoded hibernation pictures: a quarter of
+    /// the image cache budget (``ImageCacheShares``), a memory consumer once registered (`memoryImageCaches`).
+    let previews: PreviewImageCache
     /// New tabs' `create.tab` intervals waiting for their first frame (p09-observability task 030).
     let createTabs = CreateTabTimings()
     /// Evicted terminals' last frames: shown at once when the terminal is shown again, pictured
@@ -57,7 +61,8 @@ final class TabContentCache {
     /// Browser pages' hover card thumbnails (R131), at most `TabPreviewFitting.cachedPixelSize`
     /// each, with the page version each shows (`pageVersion`): a page is captured again only when
     /// its version moved. Kept apart from `previews`, whose full-size page images hibernation shows.
-    let pageThumbnails = PreviewImageCache(capacityBytes: 16 << 20)
+    /// An eighth of the image cache budget (``ImageCacheShares``).
+    let pageThumbnails: PreviewImageCache
     var pageThumbnailVersions: [String: Int] = [:]
     var pageCapturesInFlight: Set<String> = []
     /// How long a leave capture may take before its thumbnail is dropped (the capture runs on the
@@ -168,10 +173,14 @@ final class TabContentCache {
     ///   - terminalModifiers: The terminals' one modifier watch on the app's input tap; tests without a tap pass none.
     ///   - terminalPointerFrames: The windows' pointer coalescers while `terminalPointerFrames` is on; nil otherwise.
     ///   - mainWork: The app's main-thread scheduler, for every terminal session it makes.
+    ///   - imageCaches: The image caches' shares of this Mac's `SubsystemBudget.imageCacheBytes`; tests pass their own.
     init(daemon: DaemonService, chromium: ChromiumEngineSlot, fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
          resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil,
-         terminalPointerFrames: FrameInputCoalescers? = nil, mainWork: MainWorkScheduler) {
+         terminalPointerFrames: FrameInputCoalescers? = nil, mainWork: MainWorkScheduler,
+         imageCaches: ImageCacheShares = ImageCacheShares(.forThisMac(gpuResidentAvailable: false))) {
+        previews = PreviewImageCache(fullCapacityBytes: imageCaches.previewBytes)
+        pageThumbnails = PreviewImageCache(fullCapacityBytes: imageCaches.pageThumbnailBytes)
         (self.daemon, self.terminalModifiers, self.chromium, self.resizes, self.mainWork) = (daemon, terminalModifiers, chromium, resizes, mainWork)
         self.terminalPointerFrames = terminalPointerFrames
         webKit = WebKitEngine(fileInput: fileInput, stores: chromium.stores, waitDeadlines: chromium.waitDeadlines)
