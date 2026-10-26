@@ -461,6 +461,13 @@ impl Hub {
             })),
             ..PromptOptions::default()
         };
+        // The last step before the parent's queue: a lane that closed (or a parent that changed)
+        // since its report was taken has its link retired, and sends nothing. The queueing
+        // itself is async (`prompt_with`), so the lock is not held across it: a close in the few
+        // steps between here and the queue still lets that one report in.
+        if !self.lane_links(|links| links.get(lane).is_some_and(|l| l.parent == parent)) {
+            return Ok(());
+        }
         // The answer comes when the parent's turn ends; the report is in once it is accepted.
         let hub = self.clone();
         // Never steered in: a report waits for the parent's turn to end (see above).
