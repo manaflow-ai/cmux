@@ -224,12 +224,12 @@ final class CEFRuntime {
 
     /// Takes the engine's stores, sign-in tabs and wait deadlines (the process has one Chromium, so the
     /// App's one engine hands them over before its first start or tab), and its host supervisor, which
-    /// puts a runtime that has not started in host mode. Without `waitDeadlines` the runtime keeps its
-    /// own queue; the pump made at the start runs on the queue adopted before it. Idempotent for the
-    /// same stores.
+    /// puts a runtime that has not started in host mode (with the host's widgets in cmux when `hostWidgets`).
+    /// Without `waitDeadlines` the runtime keeps its own queue; the pump made at the start runs on the queue
+    /// adopted before it. Idempotent for the same stores.
     func adopt(stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks, waitDeadlines: MainWakeUpQueue? = nil,
-               hostSupervisor: (any ChromiumHostSupervising)? = nil) {
-        if let hostSupervisor, hostStart == nil, state == .idle { hostStart = CEFHostStart(supervisor: hostSupervisor) }
+               hostSupervisor: (any ChromiumHostSupervising)? = nil, hostWidgets: Bool = false) {
+        if let hostSupervisor, hostStart == nil, state == .idle { hostStart = CEFHostStart(supervisor: hostSupervisor, showsWidgets: hostWidgets) }
         self.signInCallbacks = signInCallbacks
         if let waitDeadlines { wakeUps = waitDeadlines }
         guard stores !== self.stores else { return }
@@ -471,6 +471,7 @@ final class CEFRuntime {
         // patches NSApp at runtime. In host mode the host's NSApp runs Chromium.
         if case .inProcess = library, shim.prepareApplication() != 1 { throw .application }
         self.shim = shim
+        if case .host = library { showHostWidgets(shim) }
         if case .inProcess(let loaded) = library {
             layout = loaded.layout
             startInProcessPump(shim)
@@ -485,7 +486,8 @@ final class CEFRuntime {
             spareAfterFirstTab: spareAfterFirstTabFeature(),
             bundleIdentifier: Bundle.main.bundleIdentifier,
             environment: environment,
-            builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled
+            builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled,
+            pageSiteCaps: CEFPageSchemes.siteCaps(CEFPageSchemes.firstParty)
         )
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
         processReusePerRendererDevTools = switchSet.arguments.contains(CEFSwitches.processReusePerRendererDevTools)
@@ -526,9 +528,9 @@ final class CEFRuntime {
         let context = Unmanaged.passUnretained(self).toOpaque()
         // The shim sets `external_message_pump` from this callback: in process only, where the app pumps.
         let schedule: CEFShimLibrary.ScheduleFn? = if case .inProcess = library { cefScheduleCallback } else { nil }
-        // Chromium never opens a window (fork API 8) nor focuses a page of its own.
+        // Chromium never opens a window (fork API 8) nor focuses a page cmux did not focus.
         shim.setWindowRequestHandler(cefWindowRequestCallback)
-        shim.setFocusRequestHandler(cefFocusRequestCallback)
+        installFocusRequestPolicy(shim)
         let paths = library.chromiumPaths
         let ok = switchStorage.withUnsafeBufferPointer { buffer in  // never empty (ends with nil); no base: 0, a failed init
             buffer.baseAddress?.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in

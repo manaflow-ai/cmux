@@ -11,6 +11,13 @@ final class OverlayContainerView: NSView {
         super.layout()
         onLayout?()
     }
+
+    /// The container fills the whole layer: only what it holds takes the mouse, never the empty container,
+    /// or the topmost one would take every click of the layers below it (an agent cursor tag, a popover).
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return hit === self ? nil : hit
+    }
 }
 
 /// Clips a `.pane` overlay to its pane minus the occluders (a mask with holes).

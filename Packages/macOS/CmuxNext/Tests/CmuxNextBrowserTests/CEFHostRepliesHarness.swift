@@ -141,6 +141,8 @@ final class ReplyTestUptime: Sendable {
         ChromiumHostAttachment(controlFD: -1, remoteShim: URL(filePath: "/nonexistent/libcmux_cef_shim_remote.dylib"),
                                frameworkLocales: ["en.lproj"])
     }
+
+    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {}
 }
 
 /// The remote shim's wire entry points over a test's spy dylib (``HostRepliesHarness/attachedHost(over:)``):

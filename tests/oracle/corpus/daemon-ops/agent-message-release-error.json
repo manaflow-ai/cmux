@@ -29,6 +29,48 @@
   ],
   "steps": [
     {
+      "id": "fx-workspace",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "workspace.create",
+        "params": {
+          "initial_content": "terminal",
+          "name": "oracle"
+        },
+        "idempotencyKey": "agent-message-release-error.fx-workspace"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "fx-message",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "agent.message.send",
+        "params": {
+          "recipients": [
+            "$step:fx-workspace#/value/terminal_id"
+          ],
+          "body": "oracle"
+        },
+        "idempotencyKey": "agent-message-release-error.fx-message"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -38,7 +80,7 @@
       "args": {
         "method": "agent.message.release",
         "params": {
-          "message_id": "",
+          "message_id": "$step:fx-message#/value/id",
           "recipient": "oracle",
           "decision": "approve"
         },
@@ -46,13 +88,17 @@
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "operation.failed",
+        "errorDetails": {
+          "operation": "agent.message.release",
+          "reason": "release_needs_app"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "message_id breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a plain local connection may be an agent that left out its launch credential, so it never releases a delivery"
     }
   ],
   "invariants": [

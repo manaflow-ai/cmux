@@ -37,8 +37,8 @@ final class CEFInProcessPump {
         // keep the ms path.
         let absoluteRunTimes = shim.setScheduleDelayed(cefScheduleDelayedCallback) == 1
         logger.notice("CEF pump delayed work: \(absoluteRunTimes ? "absolute run times" : "whole milliseconds", privacy: .public)")
-        pump = CEFMessagePump(work: work, timer: makeTimer(wakeUps), gate: gate, absoluteRunTimes: absoluteRunTimes,
-                              crashKeys: crashKeys)
+        pump = CEFMessagePump(work: work, timer: makeTimer(wakeUps), timeSlice: CEFPumpSchedule.timeSlice(forkAPI: forkAPI),
+                              gate: gate, absoluteRunTimes: absoluteRunTimes, crashKeys: crashKeys)
         if let inputPolicy { pump.setInputPolicy(inputPolicy) }
     }
 }

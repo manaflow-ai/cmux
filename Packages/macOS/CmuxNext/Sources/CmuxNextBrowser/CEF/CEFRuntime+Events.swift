@@ -101,6 +101,7 @@ extension CEFRuntime {
         case .chromeCommand(let browser, let command):
             chromeWindowCommandBlocked(command, browser: browser)
         case .beforeClose(let browser):
+            widgetHost?.ownerClosed(browser)
             browserClosed(browser)
         case .beforeUnloadDialog(let browser, let token, let isReload):
             // A page with no tab to ask in never keeps its unload waiting: it leaves.
@@ -114,6 +115,10 @@ extension CEFRuntime {
             }
         case .evaluateResult(let token, let status, let value):
             evaluationAnswered(token: token, CEFEvaluationResult(status: status, text: value))
+        case .widgetContext(let context):
+            widgetHost?.show(context)
+        case .widgetGone(_, let widget):
+            widgetHost?.remove(widget)
         case .pageDragEnter(let browser, let pathsJSON):
             if let tab = tabsByBrowser[browser], let entered = tab.pageFilesDragged { entered(CEFTab.dragPaths(pathsJSON)) }
         case .fileDialog(_, let dialogID, _, _, _):
@@ -258,6 +263,7 @@ extension CEFRuntime {
     private func browserClosed(_ browser: Int32) {
         windowRequests.linkClicks.forget(opener: browser)
         if let tab = tabsByBrowser.removeValue(forKey: browser) {
+            pageWindowWidgetsBrowserClosed(browser)
             tab.browserDidClose(closesTab: shutdownSequence == nil)
         } else {
             // Never registered: drop a pending adoption of it.
@@ -324,6 +330,8 @@ extension CEFRuntime {
             popupWindowBoundsChanged(window: window)
         case .sidePanelChanged:
             for host in hosts.values where host.owns(window: window) { host.visibleTab?.sidePanel.scheduleRefresh() }
+        case .pageWindowWidget:
+            pageWindowWidgetReported(CEFPageWindowWidgetEvent(value: value), window: window, browser: browser)
         case .moved, .unknown:
             break
         }
@@ -447,8 +455,10 @@ extension CEFShimEvent {
              .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _),
              .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _), .pageDragEnter(let b, _),
              .fileDialog(let b, _, _, _, _),
-             .pageMessage(let b, _, _, _):
+             .pageMessage(let b, _, _, _), .widgetGone(let b, _):
             b
+        case .widgetContext(let context):
+            context.owner
         case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .evaluateResult, .unknown:
             nil
         }

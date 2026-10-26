@@ -90,7 +90,7 @@ public final class TerminalLaunchFrames {
         }
         self.read = read
         // A deadline: the frames no pane took by then are dropped (decoded frames are large).
-        discard.schedule(after: keep) { @MainActor [weak self] in self?.dropRead() }
+        discard.scheduleOnMain(after: keep) { [weak self] in self?.dropRead() }
         // task-owner: shows the frames of the panes that asked before the read ended; ends then.
         return Task { [weak self] in
             _ = await read.finished()

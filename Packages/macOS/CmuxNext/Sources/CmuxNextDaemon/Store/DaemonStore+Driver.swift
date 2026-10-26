@@ -401,7 +401,7 @@ extension DaemonStore {
         }
         let timer = DemandTimer(owner: "DaemonStore.resync", clock: resyncClock)
         resyncRetry = timer
-        timer.schedule(after: delay) { @MainActor [weak self] in
+        timer.scheduleOnMain(after: delay) { [weak self] in
             guard let self, self.driver != nil, self.resyncRetry === timer else { return }
             self.resyncRetry = nil
             self.resync(seedAgents: seedAgents)

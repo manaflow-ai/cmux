@@ -4584,6 +4584,125 @@
       "reply_event": "wire:REPLY",
       "reason": "WebContents::Discard refuses a page Chromium counts visible, which only the host knows. In process CEFTab.discard() reads the answer and the page host closes the page on a refusal; in host mode the return only says the op was sent, so CEFShimLibrary binds no tabDiscard there and the page host closes the page until CEFTab.discard() awaits the reply (host_mode_rewrites, p13-webui-031).",
       "fork_api": 29
+    },
+    {
+      "name": "cmux_shim_widget_set_geometry",
+      "class": "post",
+      "args": [
+        {
+          "name": "widget_id",
+          "type": "int"
+        },
+        {
+          "name": "x",
+          "type": "int"
+        },
+        {
+          "name": "y",
+          "type": "int"
+        },
+        {
+          "name": "width",
+          "type": "int"
+        },
+        {
+          "name": "height",
+          "type": "int"
+        },
+        {
+          "name": "scale_milli",
+          "type": "int"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "A hosted widget cmux places (WIDGET_CONTEXT kinds devTools, devToolsWindow, popupWindow) moved or resized: widget id, bottom left in AppKit screen points, size in points, backing scale x 1000. One value per widget, so a waiting one is replaced (StateKeyFor). The host sizes the widget to it, as NativeWidgetNSWindowBridge reports a window's bounds to the browser (task 066).",
+      "fork_api": 29
+    },
+    {
+      "name": "cmux_shim_widget_dismiss",
+      "class": "post",
+      "args": [
+        {
+          "name": "widget_id",
+          "type": "int"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The person closed a hosted widget in cmux (an undocked DevTools window's close button, a click away from an extension popup): cmux took it down already and the host closes the widget; its WIDGET_GONE follows (task 066).",
+      "fork_api": 29
+    },
+    {
+      "name": "cmux_shim_widget_send_input",
+      "class": "post",
+      "args": [
+        {
+          "name": "widget_id",
+          "type": "int"
+        },
+        {
+          "name": "kind",
+          "type": "int"
+        },
+        {
+          "name": "v0",
+          "type": "int"
+        },
+        {
+          "name": "v1",
+          "type": "int"
+        },
+        {
+          "name": "v2",
+          "type": "int"
+        },
+        {
+          "name": "v3",
+          "type": "int"
+        },
+        {
+          "name": "v4",
+          "type": "int"
+        },
+        {
+          "name": "v5",
+          "type": "int"
+        },
+        {
+          "name": "flags",
+          "type": "int64_t"
+        },
+        {
+          "name": "time_ns",
+          "type": "int64_t"
+        },
+        {
+          "name": "ch",
+          "type": "int"
+        },
+        {
+          "name": "unmod",
+          "type": "int"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Input to a hosted widget, as a page view's input goes to its page: kind, v0..v5, flags, time_ns, ch and unmod are the fields of a ChromiumHostFrame of kind mouse, wheel, key, focus or edit (ChromiumHost/src/chromium_host_wire.h); the host sends it to the widget's RenderWidgetHost (task 066).",
+      "fork_api": 29,
+      "channel": "input"
     }
   ],
   "optional_events": [
@@ -4604,6 +4723,18 @@
       "value": 51,
       "refreshes": [],
       "reason": "Host mode only (task 019): the host refused a browser cmux minted. browser_id = the minted id, request = create_window's request (0 for tab_add and tab_duplicate). In process the shim's 0 return says it; the host's call returned the minted id or 1 when sent, so this event carries the refusal (HOST/src/host_client_ids.h, cmux_host::mint::kEventCreateFailed)."
+    },
+    {
+      "kind": "CMUX_SHIM_WIDGET_CONTEXT",
+      "value": 52,
+      "refreshes": [],
+      "reason": "A Views widget with a WebContents is shown or changed (fork task 173: extension popup, side panel, DevTools, popup window, InitAsPopup page popup): browser = owner, request = widget id, a = CAContext id | kind << 32, s1 = bounds x,y,width,height in DIPs from the primary display's top-left (the side panel's: from its page's top-left), s2 = title; ChromiumHostWidgetHost shows it (task 066)."
+    },
+    {
+      "kind": "CMUX_SHIM_WIDGET_GONE",
+      "value": 53,
+      "refreshes": [],
+      "reason": "The widget of WIDGET_CONTEXT closed: browser = owner, request = widget id (task 066)."
     }
   ],
   "host_mode_rewrites": [

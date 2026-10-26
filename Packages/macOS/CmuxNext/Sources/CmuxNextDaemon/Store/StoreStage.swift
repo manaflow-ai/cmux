@@ -81,7 +81,7 @@ public final class StoreStage {
         deadlineRemaining = remaining
         let timer = self.deadline ?? DemandTimer(owner: "StoreStage.deadline", clock: clock)
         self.deadline = timer
-        timer.schedule(after: max(remaining(), .zero)) { @MainActor [weak self] in self?.commitAll() }
+        timer.scheduleOnMain(after: max(remaining(), .zero)) { [weak self] in self?.commitAll() }
         return batch
     }
 
