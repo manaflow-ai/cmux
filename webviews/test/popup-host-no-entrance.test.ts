@@ -22,15 +22,15 @@ const MODEL: PopupModel = {
 };
 
 /// Shows and updates a menu through a fake native side; what each call sent there.
-async function sent(): Promise<[string, unknown][]> {
+async function sent(kind?: PopupModel["kind"]): Promise<[string, unknown][]> {
   const calls: [string, unknown][] = [];
   const host = createPopupHost(
     async (call, params) => calls.push([call, params.instant]),
     () => () => {},
   );
   const owner = {};
-  await host.show(MODEL, owner);
-  host.update({ ...MODEL, highlighted: "0" }, owner);
+  await host.show({ ...MODEL, ...(kind ? { kind } : {}) }, owner);
+  host.update({ ...MODEL, ...(kind ? { kind } : {}), highlighted: "0" }, owner);
   return calls;
 }
 
@@ -46,8 +46,19 @@ test("on a New Tab, the menu it shows past the window's edge asks for no entranc
   }
 });
 
-test("anywhere else the request leaves the flag out", async () => {
-  expect(await sent()).toEqual([
+test("menus and lists outside New Tab ask the native host for no entrance", async () => {
+  for (const kind of [undefined, "menu", "list"] as const)
+    expect({ kind, calls: await sent(kind) }).toEqual({
+      kind,
+      calls: [
+        ["show", true],
+        ["update", true],
+      ],
+    });
+});
+
+test("a tooltip outside New Tab keeps its existing entrance", async () => {
+  expect(await sent("tooltip")).toEqual([
     ["show", undefined],
     ["update", undefined],
   ]);
