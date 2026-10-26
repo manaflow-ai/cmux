@@ -79,6 +79,9 @@ extension AgentRestoreLiveOwnerAdmissionTests {
         launchOptions: [String] = [],
         launchSessionArguments: [String]? = nil,
         scopedProcess: Bool = false,
+        ownerWorkspaceID: UUID = UUID(),
+        ownerSurfaceID: UUID = UUID(),
+        requestedSessionID: String? = nil,
         corruptStoreKinds: Set<RestorableAgentKind> = []
     ) throws -> Fixture {
         let root = FileManager.default.temporaryDirectory
@@ -115,7 +118,7 @@ extension AgentRestoreLiveOwnerAdmissionTests {
             sessionID = "T-" + UUID().uuidString.lowercased()
             sessionArguments = []
         default:
-            sessionID = UUID().uuidString.lowercased()
+            sessionID = requestedSessionID ?? UUID().uuidString.lowercased()
             sessionArguments = ["--session-id", sessionID]
         }
         let executable = "/usr/local/bin/\(kind.rawValue)"
@@ -149,8 +152,6 @@ extension AgentRestoreLiveOwnerAdmissionTests {
                 source: "test"
             )
         )
-        let ownerWorkspaceID = UUID()
-        let ownerSurfaceID = UUID()
         let hookStateDirectory = root.appendingPathComponent("hook-state", isDirectory: true)
         let hookEnvironment = ["CMUX_AGENT_HOOK_STATE_DIR": hookStateDirectory.path]
         try FileManager.default.createDirectory(at: hookStateDirectory, withIntermediateDirectories: true)
