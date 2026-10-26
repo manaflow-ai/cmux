@@ -8,12 +8,14 @@ path or terminal text is in it: tabs are kinds (terminal, chromium, webkit, brow
 other value is a count, an index or a flag. `validate` refuses any other key or value, so a recorder bug cannot
 put text in a corpus blob.
 
-  export: read the tree over the socket (`snapshot.get`, and `debug.layers` pane frames of each workspace with
-          more than one pane, shown one at a time, then the shown workspace and focused pane are put back).
+  export: read the tree over the socket (`snapshot.get`, and the laid-out `debug.layers` pane frames and engines
+          of each workspace with more than one pane or a selected browser tab, shown one at a time, then the shown
+          workspace and focused pane are put back). Zoomed panes, docked panes and several screens are refused.
   import: rebuild it in a freshly launched app with perf-stress-session.py's own action calls (`split_chain`,
           `equalize`, `fill_pane`, `select_tab`, `make_busy`), then export again: the digest must match.
 
-The digest (`digest`) is the sha256 of the snapshot's canonical JSON; it is the corpus manifest's layout blob id.
+The digest (`digest`) is the sha256 of the snapshot's canonical JSON, which is exactly the bytes `write` puts in
+the file (no trailing newline): it is the corpus manifest's layout blob id (manifest.py's sha256 of the file).
 Splits come back even (`equalizeSplits`): a snapshot with uneven split sizes is refused at import, since
 actions cannot set a split's ratio.
 
@@ -50,6 +52,11 @@ PAGE_KIND = re.compile(r"^page:[a-z][a-z0-9-]{0,31}$")  # an app page id (new-ta
 IMPORTABLE_PAGES = {"page:new-tab"}  # newTab.page; other pages have no action that opens them in a pane
 # Two pane frames closer than this along an axis (points) touch: a divider is a few points wide.
 CUT_TOLERANCE = 4.0
+# The widest space two neighbor panes may leave between them (points): the divider hit width tunable goes to 24
+# (ChromeTunables.dividerHitWidth). A wider space is area no pane covers: a layout pass that has not run.
+GAP_LIMIT = 24.0
+# How long a shown workspace may take to lay out its panes before export gives up (seconds).
+SETTLE_S = 10.0
 
 
 class LayoutSnapshotError(RuntimeError):
@@ -104,7 +111,7 @@ def _node_problems(node, where):
             problems.append(f"{where}: selected is a tab index")
         return problems
     problems = [f"{where}: unknown key {key!r}" for key in sorted(set(node) - {"split", "children"})]
-    if node.get("split") not in SPLITS:
+    if not isinstance(node.get("split"), str) or node["split"] not in SPLITS:
         problems.append(f"{where}: split is right or down")
     children = node.get("children")
     if not isinstance(children, list) or len(children) < 2:
@@ -153,16 +160,19 @@ def validate(snapshot):
     busy = snapshot.get("busy")
     if not isinstance(busy, list):
         return problems + ["busy is a list of [workspace, pane, tab]"]
+    addresses = []  # the entries that are [int, int, int], for the duplicate check
     for entry in busy:
-        if not (isinstance(entry, list) and len(entry) == 3 and _index(entry[0], len(workspaces))):
+        if not (isinstance(entry, list) and len(entry) == 3 and all(_index(v, 1 << 31) for v in entry)
+                and _index(entry[0], len(workspaces))):
             problems.append(f"busy entry {str(entry)[:40]} is not [workspace, pane, tab]")
             continue
+        addresses.append(tuple(entry))
         tree = trees[entry[0]]
         panes = leaves(tree) if tree else []
         if tree and not (_index(entry[1], len(panes)) and _index(entry[2], len(panes[entry[1]]["tabs"]))
                          and panes[entry[1]]["tabs"][entry[2]] == "terminal"):
             problems.append(f"busy entry {entry} is not a terminal tab")
-    if len({tuple(e) for e in busy if isinstance(e, list)}) != len(busy):
+    if len(set(addresses)) != len(addresses):
         problems.append("busy has a terminal twice")
     return problems
 
@@ -180,10 +190,12 @@ def read(path):
 
 
 def write(snapshot, path):
-    check(snapshot)
+    """Writes `snapshot`'s canonical bytes to `path`, nothing else, and returns their sha256: the digest is the
+    file's sha256, the corpus blob id."""
+    data = canonical_bytes(check(snapshot))
     with open(path, "wb") as handle:
-        handle.write(canonical_bytes(snapshot) + b"\n")
-    return digest(snapshot)
+        handle.write(data)
+    return hashlib.sha256(data).hexdigest()
 
 
 # Export.
@@ -193,12 +205,22 @@ def tree_from_frames(frames, leaf):
     `debug.layers`): the panes side by side are a `right` split (left to right), stacked ones a `down` split
     (top to bottom), same-direction splits flattened. `leaf(pane)` gives each pane's node. Returns
     (tree, even, panes in leaf order); `even` is True when every split's children share it evenly
-    (perf-stress-session.py's EVEN_TOLERANCE). Raises LayoutSnapshotError for frames no split tree makes."""
+    (perf-stress-session.py's EVEN_TOLERANCE). Raises LayoutSnapshotError for frames no split tree makes: a
+    frame of zero width or height, two frames that overlap, or frames that leave part of the layout area (their
+    bounding box) uncovered by more than a divider (GAP_LIMIT)."""
     tolerance = load_stress().EVEN_TOLERANCE
+    axes = ("right", "down")
 
     def spans(item, axis):
         _, (x, y, w, h) = item
         return (x, x + w) if axis == "right" else (-(y + h), -y)  # down: top first
+
+    def extent(items, axis):
+        return min(spans(i, axis)[0] for i in items), max(spans(i, axis)[1] for i in items)
+
+    def overlap(a, b, axis):
+        (a0, a1), (b0, b1) = spans(a, axis), spans(b, axis)
+        return min(a1, b1) - max(a0, b0)
 
     def groups(items, axis):
         made, end = [], None
@@ -212,28 +234,52 @@ def tree_from_frames(frames, leaf):
                 end = stop
         return made
 
-    def build(items):
+    def build(items, rect):
+        """The node of `items`, which must tile `rect` ({axis: (start, stop)}) up to the dividers."""
         if len(items) == 1:
-            return leaf(items[0][0]), True, [items[0][0]]
-        for axis in ("right", "down"):
+            pane = items[0][0]
+            for axis in axes:
+                start, stop = spans(items[0], axis)
+                if abs(start - rect[axis][0]) > CUT_TOLERANCE or abs(stop - rect[axis][1]) > CUT_TOLERANCE:
+                    raise LayoutSnapshotError(f"pane {pane} does not fill its part of the layout area: the pane frames "
+                                              "leave area no pane covers")
+            return leaf(pane), True, [pane]
+        for axis in axes:
             parts = groups(items, axis)
             if len(parts) < 2:
                 continue
+            cross = "down" if axis == "right" else "right"
+            bounds = [extent(part, axis) for part in parts]
+            gaps = [bounds[0][0] - rect[axis][0], rect[axis][1] - bounds[-1][1]]
+            gaps += [after[0] - before[1] for before, after in zip(bounds, bounds[1:])]
+            if max(gaps) > GAP_LIMIT or abs(gaps[0]) > CUT_TOLERANCE or abs(gaps[1]) > CUT_TOLERANCE:
+                raise LayoutSnapshotError(f"pane frames {sorted(p for p, _ in items)} leave {max(gaps):.0f} pt of the "
+                                          "layout area that no pane covers")
             children, even, order = [], True, []
-            sizes = []
-            for part in parts:
-                node, part_even, part_order = build(part)
+            for part, bound in zip(parts, bounds):
+                node, part_even, part_order = build(part, {axis: bound, cross: rect[cross]})
                 children.append(node)
                 even = even and part_even
                 order += part_order
-                sizes.append(max(spans(i, axis)[1] for i in part) - min(spans(i, axis)[0] for i in part))
+            sizes = [stop - start for start, stop in bounds]
             even = even and max(sizes) - min(sizes) <= tolerance * max(sizes)
             return {"split": axis, "children": children}, even, order
         raise LayoutSnapshotError(f"pane frames {sorted(p for p, _ in items)} are not a split tree")
 
     if not frames:
         raise LayoutSnapshotError("no pane frames")
-    return build(list(frames.items()))
+    items = sorted(frames.items())
+    for pane, frame in items:
+        if not (isinstance(frame, (list, tuple)) and len(frame) == 4
+                and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in frame)):
+            raise LayoutSnapshotError(f"pane {pane}: frame {str(frame)[:60]} is not [x, y, width, height]")
+        if frame[2] < 1 or frame[3] < 1:
+            raise LayoutSnapshotError(f"pane {pane}: frame {frame} has no area (its layout pass has not run)")
+    for index, a in enumerate(items):
+        for b in items[index + 1:]:
+            if all(overlap(a, b, axis) > CUT_TOLERANCE for axis in axes):
+                raise LayoutSnapshotError(f"pane frames of {a[0]} and {b[0]} overlap")
+    return build(items, {axis: extent(items, axis) for axis in axes})
 
 
 def builder_hints(builder):
@@ -267,6 +313,41 @@ def pane_frames(window, pane_ids):
     return frames
 
 
+def settled_window(rpc, window_key, pane_ids, where):
+    """The `debug.layers` window once the shown workspace has laid out `pane_ids`: a ring with a frame of some
+    area for each of them, every plane `in_sync`, and the same frames in two reads in a row (a show answers
+    before the layout pass that sizes the panes). Raises LayoutSnapshotError after SETTLE_S."""
+    stress = load_stress()
+    last = {}
+
+    def stable():
+        window = layers_window(rpc, window_key)
+        planes = (window or {}).get("planes") or []
+        frames = pane_frames(window, pane_ids)
+        ready = (set(frames) == pane_ids and planes and all(plane.get("in_sync") is True for plane in planes)
+                 and all(frame[2] >= 1 and frame[3] >= 1 for frame in frames.values()))
+        previous, last["frames"] = last.get("frames"), frames if ready else None
+        return window if ready and frames == previous else None
+
+    window = stress.wait(stable, SETTLE_S, step=0.05)
+    if window is None:
+        raise LayoutSnapshotError(f"{where}: debug.layers did not settle on frames for its {len(pane_ids)} panes in "
+                                  f"{SETTLE_S:.0f} s (planes in sync, the same frames twice)")
+    return window
+
+
+def tab_engine(asked, shown, where):
+    """The engine to export for a browser tab the builder asked as `asked` (chromium, webkit, browser or None)
+    whose engine `debug.layers` reports as `shown` (chromium, webkit or None). What the app shows comes first; an
+    ask for one engine that the app opened as the other is refused. `browser` (the app's default engine) takes
+    either and stays `browser`, so a snapshot that names no engine names none after a round trip."""
+    if asked in ("chromium", "webkit") and shown and shown != asked:
+        raise LayoutSnapshotError(f"{where}: a tab asked as {asked} is a {shown} page (debug.layers)")
+    if asked == "browser":
+        return asked
+    return shown or asked
+
+
 def tab_kind(tab, engine):
     """The snapshot kind of a `snapshot.get` tab; `engine` is chromium or webkit when known."""
     kind = tab.get("kind")
@@ -284,8 +365,9 @@ def tab_kind(tab, engine):
 def export_layout(rpc, builder=None, log=None):
     """The layout snapshot of the app behind `rpc`. `builder`: the perf-stress-session builder that made the
     session (its tab engines and busy terminals; without it, a browser tab whose engine the app does not show
-    is `browser`, and no terminal is busy). Each workspace with several panes is shown once to read its pane
-    frames; the shown workspace and focused pane are put back after."""
+    is `browser`, and no terminal is busy). Each workspace with several panes or a selected browser tab is shown
+    once to read its laid-out pane frames and its shown engines (`settled_window`); the shown workspace and
+    focused pane are put back after, also when the export fails."""
     stress = load_stress()
     reader = stress.Stress(rpc, log=log or (lambda line: None))
     engines, busy_ids = builder_hints(builder)
@@ -299,58 +381,63 @@ def export_layout(rpc, builder=None, log=None):
     frame = (layers or {}).get("frame")
     if not frame:
         raise LayoutSnapshotError(f"debug.layers gave no frame for window {window.get('key')}")
-    pane_engines = shown_engines(layers)
     workspaces = [w for w in topology.get("workspaces") or [] if w.get("id")]
     specs, addresses, moved = [], {}, False
     shown_index = focused_index = None
-    for index, workspace in enumerate(workspaces):
-        screens = workspace.get("screens") or []
-        if len(screens) != 1:
-            raise LayoutSnapshotError(f"workspace {index} has {len(screens)} screens; a snapshot has one per workspace")
-        if screens[0].get("zoomed_pane"):
-            raise LayoutSnapshotError(f"workspace {index} has a zoomed pane")
-        panes = {p["id"]: p for p in reader.panes(workspace) if p.get("id")}
-        if not panes:
-            raise LayoutSnapshotError(f"workspace {index} has no pane")
-        # A selected browser's engine shows in debug.layers only while its workspace shows.
-        unknown_engine = any(t.get("kind") == "browser" and t.get("id") == reader.selected_tab(p) and t.get("id") not in engines
-                             for p in panes.values() for t in p.get("tabs") or [])
-        if len(panes) > 1 or unknown_engine:
-            if workspace["id"] != shown_id or moved:
-                reader.show(workspace["id"])
-                moved = True
-            shown_layers = layers_window(rpc, window.get("key"))
-            pane_engines.update(shown_engines(shown_layers))
-            frames = pane_frames(shown_layers, set(panes))
-            if set(frames) != set(panes):
-                raise LayoutSnapshotError(f"workspace {index}: debug.layers has frames for {len(frames)} of its {len(panes)} panes")
-        else:
-            frames = {next(iter(panes)): [0, 0, 1, 1]}
+    try:
+        for index, workspace in enumerate(workspaces):
+            screens = workspace.get("screens") or []
+            if len(screens) != 1:
+                raise LayoutSnapshotError(f"workspace {index} has {len(screens)} screens; a snapshot has one per workspace")
+            if screens[0].get("zoomed_pane"):
+                raise LayoutSnapshotError(f"workspace {index} has a zoomed pane")
+            every_pane = [p for p in screens[0].get("panes") or [] if p.get("id")]
+            if any(p.get("dock") for p in every_pane):
+                raise LayoutSnapshotError(f"workspace {index} has a docked pane; a snapshot has no docks")
+            panes = {p["id"]: p for p in every_pane}
+            if not panes:
+                raise LayoutSnapshotError(f"workspace {index} has no pane")
+            # A selected browser's engine shows in debug.layers only while its workspace shows; it is read even
+            # when the builder knows what it asked for, since the app may have opened the other engine.
+            shows_browser = any(t.get("kind") == "browser" and t.get("id") == reader.selected_tab(p)
+                                for p in panes.values() for t in p.get("tabs") or [])
+            pane_engines = {}
+            if len(panes) > 1 or shows_browser:
+                if workspace["id"] != shown_id or moved:
+                    reader.show(workspace["id"])
+                    moved = True
+                shown_layers = settled_window(rpc, window.get("key"), set(panes), f"workspace {index}")
+                pane_engines = shown_engines(shown_layers)
+                frames = pane_frames(shown_layers, set(panes))
+            if len(panes) == 1:
+                frames = {next(iter(panes)): [0, 0, 1, 1]}
 
-        def leaf(pane_id):
-            pane = panes[pane_id]
-            tabs = pane.get("tabs") or []
-            selected = reader.selected_tab(pane)
-            kinds = [tab_kind(t, engines.get(t.get("id")) or (pane_engines.get(pane_id) if t.get("id") == selected else None))
-                     for t in tabs]
-            if not kinds:
-                raise LayoutSnapshotError(f"workspace {index}: pane has no tab")
-            return {"tabs": kinds, "selected": next((i for i, t in enumerate(tabs) if t.get("id") == selected), 0)}
+            def leaf(pane_id):
+                pane = panes[pane_id]
+                tabs = pane.get("tabs") or []
+                selected = reader.selected_tab(pane)
+                kinds = [tab_kind(t, tab_engine(engines.get(t.get("id")), pane_engines.get(pane_id) if t.get("id") == selected else None,
+                                                f"workspace {index}"))
+                         for t in tabs]
+                if not kinds:
+                    raise LayoutSnapshotError(f"workspace {index}: pane has no tab")
+                return {"tabs": kinds, "selected": next((i for i, t in enumerate(tabs) if t.get("id") == selected), 0)}
 
-        tree, even, order = tree_from_frames(frames, leaf)
-        specs.append({"tree": tree, "even": even})
-        for pane_index, pane_id in enumerate(order):
-            for tab_index, tab in enumerate(panes[pane_id].get("tabs") or []):
-                addresses[tab.get("id")] = [index, pane_index, tab_index]
-        if workspace["id"] == shown_id:
-            shown_index = index
-            focused_index = order.index(focused_id) if focused_id in order else None
-    if shown_index is None:
-        raise LayoutSnapshotError(f"the shown workspace {shown_id} is not in the topology")
-    if moved:
-        reader.show(shown_id)
-        if focused_id:
-            reader.focus_pane(focused_id)
+            tree, even, order = tree_from_frames(frames, leaf)
+            specs.append({"tree": tree, "even": even})
+            for pane_index, pane_id in enumerate(order):
+                for tab_index, tab in enumerate(panes[pane_id].get("tabs") or []):
+                    addresses[tab.get("id")] = [index, pane_index, tab_index]
+            if workspace["id"] == shown_id:
+                shown_index = index
+                focused_index = order.index(focused_id) if focused_id in order else None
+        if shown_index is None:
+            raise LayoutSnapshotError(f"the shown workspace {shown_id} is not in the topology")
+    finally:
+        if moved:
+            reader.show(shown_id)
+            if focused_id:
+                reader.focus_pane(focused_id)
     busy = sorted(addresses[tab] for tab in busy_ids if tab in addresses
                   if leaves(specs[addresses[tab][0]]["tree"])[addresses[tab][1]]["tabs"][addresses[tab][2]] == "terminal")
     snapshot = {"schema": SCHEMA, "window": [round(frame[2]), round(frame[3])], "workspaces": specs,
@@ -423,7 +510,8 @@ def _fill(stress_builder, workspace, pane, spec):
 def import_layout(rpc, snapshot, builder=None, log=None):
     """Rebuilds `snapshot` in the freshly launched app behind `rpc` with perf-stress-session.py's calls: the
     bench window (`size_window`), then per workspace (the app's lone launch workspace first) its splits, shown,
-    equalized, and each pane's tabs; then the busy terminals, the shown workspace and its focused pane. Returns
+    equalized, and each pane's tabs; then the busy terminals, the shown workspace and its focused pane. A snapshot
+    with Chromium tabs is refused when Chromium is not running or fell back to WebKit (`cef_problems`). Returns
     the builder, which serves the browser tabs' local pages: close it when the app stops."""
     check(snapshot)
     problems = importable(snapshot)
@@ -463,6 +551,12 @@ def import_layout(rpc, snapshot, builder=None, log=None):
     if snapshot["focused_pane"] is not None:
         made.focus_pane(pane_ids[snapshot["shown"]][snapshot["focused_pane"]])
     made.measured = shown
+    # The topology says only "browser": a Chromium ask that opened WebKit shows in debug.cef (Stress.summary's check).
+    if any("chromium" in pane["tabs"] for spec in snapshot["workspaces"] for pane in leaves(spec["tree"])):
+        problems = [r for r in made.refusals if r.startswith("openBrowser.chromium")]
+        problems += stress.cef_problems(rpc("debug.cef"))
+        if problems:
+            raise LayoutSnapshotError("the snapshot's Chromium pages are not Chromium: " + "; ".join(problems[:4]))
     return made
 
 

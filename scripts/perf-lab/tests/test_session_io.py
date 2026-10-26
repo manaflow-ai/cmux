@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import hashlib
 import io
 import importlib.util
 import json
@@ -52,11 +53,20 @@ class TreeApp:
     * equalizeSplits evens every container of a shown workspace and is refused for a hidden one.
     * debug.layers reports the shown workspace's pane frames with AppKit's bottom-left origin, and the engine of
       each pane whose selected tab is a browser. The topology never says a browser tab's engine.
-    * Tabs carry a title, a cwd and a URL (text an export must drop)."""
+    * Tabs carry a title, a cwd and a URL (text an export must drop).
+    * `lag`: after a goToWorkspace, that many debug.layers reads give the new workspace's panes zero-size frames
+      and a plane out of sync (the layout pass has not run). `unsettled`: workspaces that never lay out.
+    * `chromium="webkit"`: openBrowser.chromium opens a WebKit page; `cef` is the debug.cef reply.
+    * `docked`: pane ids the topology reports with a `dock`."""
 
-    def __init__(self, chat="opens", frame=(160, 50, 1600, 1000)):
+    def __init__(self, chat="opens", frame=(160, 50, 1600, 1000), lag=0, chromium="cef", cef=None):
         self.clock = None
         self.chat = chat
+        self.lag, self.lagging = lag, 0
+        self.unsettled = set()
+        self.chromium = chromium
+        self.cef = cef or {"state": "ready", "unavailable": None, "fallback": None}
+        self.docked = set()
         self.next = 0
         self.workspaces = []  # {"id", "name", "tree"}
         self.panes = {}  # id -> {"id", "tabs": [...], "selected": tab id}
@@ -162,7 +172,8 @@ class TreeApp:
             return fields
 
         workspaces = [{"id": w["id"], "name": w["name"], "title": PRIVATE[3], "screens": [{"id": "screen_1", "zoomed_pane": None,
-                       "panes": [{"id": p, "selected_tab": self.panes[p]["selected"], "column": None, "dock": None,
+                       "panes": [{"id": p, "selected_tab": self.panes[p]["selected"], "column": None,
+                                  "dock": "left" if p in self.docked else None,
                                   "tabs": [tab_json(t) for t in self.panes[p]["tabs"]]} for p in self.leaves(w["tree"])]}]}
                       for w in self.workspaces]
         windows = [{"id": "win_1", "key": "win_1", "workspace": self.shown, "focused_pane": self.focused_pane, "visible": True}]
@@ -179,8 +190,13 @@ class TreeApp:
             tab = next(t for t in pane["tabs"] if t["id"] == pane["selected"])
             if tab["kind"] == "browser":
                 browsers.append({"pane": pane_id, "engine": tab["engine"]})
+        laid_out = not self.lagging and workspace["id"] not in self.unsettled
+        self.lagging = max(self.lagging - 1, 0)
+        if not laid_out:
+            frames = {p: [0.0, 0.0, 0.0, 0.0] for p in frames}
         rings = [{"pane": p, "frame_in_window": f} for p, f in frames.items()]
-        return {"windows": [{"id": "win_1", "frame": list(self.frame), "planes": [{"rings": rings}], "browsers": browsers,
+        planes = [{"in_sync": laid_out, "rings": rings}]
+        return {"windows": [{"id": "win_1", "frame": list(self.frame), "planes": planes, "browsers": browsers,
                              "divider_areas_in_window": [], "screen_visible_frame": [0, 0, 1920, 1170],
                              "screen_frame": [0, 0, 1920, 1200]}]}
 
@@ -197,7 +213,7 @@ class TreeApp:
         if method == "debug.layers":
             return self.layers()
         if method == "debug.cef":
-            return {"state": "ready", "unavailable": None, "fallback": None}
+            return dict(self.cef)
         if method == "debug.screens":
             return {"windows": []}
         if method == "debug.window_frame":
@@ -214,6 +230,7 @@ class TreeApp:
             return {}
         if action == "goToWorkspace":
             self.shown, self.focused_pane = args["workspace"], None
+            self.lagging = self.lag
             return {}
         if target.startswith("tab:"):
             pane = self.pane_of_tab(target[len("tab:"):])
@@ -237,7 +254,8 @@ class TreeApp:
         elif action == "newSurface":
             self.add(pane, self.new_tab("terminal"), beside)
         elif action in ("openBrowser", "openBrowser.chromium", "openBrowser.webkit"):
-            self.add(pane, self.new_tab("browser", engine="webkit" if action.endswith("webkit") else "cef"), beside)
+            engine = "webkit" if action.endswith("webkit") or (action.endswith("chromium") and self.chromium == "webkit") else "cef"
+            self.add(pane, self.new_tab("browser", engine=engine), beside)
         elif action == "palette.newAgentChat":
             if self.chat == "refused":
                 return {"error": {"code": "unavailable", "data": {"reason": "agent launch denied"}}}
@@ -326,6 +344,19 @@ class TreeFromFramesTests(Case):
         with self.assertRaises(session_io.LayoutSnapshotError):
             session_io.tree_from_frames(frames, lambda pane: {"tabs": ["terminal"], "selected": 0})
 
+    def test_frames_of_a_layout_pass_that_has_not_run_are_refused(self):
+        cases = {
+            "all zero": {"a": [0, 0, 0, 0], "b": [0, 0, 0, 0], "c": [0, 0, 0, 0]},
+            "one with no width": {"a": [0, 0, 800, 1000], "b": [804, 0, 0, 1000]},
+            "overlapping": {"a": [0, 0, 1000, 1000], "b": [500, 0, 1100, 1000]},
+            "a gap no pane covers": {"a": [0, 0, 600, 1000], "b": [1000, 0, 600, 1000]},
+            "a pane short of its column": {"a": [0, 0, 800, 1000], "b": [804, 500, 796, 500]},
+            "not a frame": {"a": [0, 0, 800], "b": [804, 0, 796, 1000]},
+        }
+        for name, frames in cases.items():
+            with self.assertRaises(session_io.LayoutSnapshotError, msg=name):
+                session_io.tree_from_frames(frames, lambda pane: {"tabs": ["terminal"], "selected": 0})
+
 
 class ValidateTests(Case):
     def test_the_mixed_layout_is_valid_and_importable(self):
@@ -340,6 +371,8 @@ class ValidateTests(Case):
             "a url key on a pane": lambda s: s["workspaces"][1]["tree"].update(url="https://example.com"),
             "a key at the top": lambda s: s.update(cwd="/Users/someone"),
             "a string where an index belongs": lambda s: s.update(shown="ws_3"),
+            "a list in a busy entry": lambda s: s.update(busy=[[0, [1], 0]]),
+            "a list where the split belongs": lambda s: s["workspaces"][2]["tree"].update(split=["x"]),
         }
         for name, change in cases.items():
             snapshot = copy.deepcopy(MIXED)
@@ -369,6 +402,15 @@ class ValidateTests(Case):
             with contextlib.redirect_stdout(printed):
                 self.assertEqual(session_io.main(["digest", path]), 0)
             self.assertEqual(printed.getvalue().split()[0], written)
+
+    def test_the_digest_is_the_sha256_of_the_file(self):
+        # The corpus manifest names a blob by the sha256 of its file bytes (manifest.py blob_ref).
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "layout.json")
+            written = session_io.write(MIXED, path)
+            with open(path, "rb") as handle:
+                self.assertEqual(hashlib.sha256(handle.read()).hexdigest(), written)
+            self.assertEqual(session_io.digest(MIXED), written)
 
 
 class RoundTripTests(Case):
@@ -412,6 +454,46 @@ class RoundTripTests(Case):
         app = fresh_app(chat="refused")
         with self.assertRaisesRegex(session_io.LayoutSnapshotError, "workspace 2"):
             made, _ = session_io.roundtrip(app.rpc, MIXED, log=lambda line: None)
+
+    def test_an_export_waits_for_the_layout_pass_of_each_workspace_it_shows(self):
+        for lag in (1, 3):
+            app = fresh_app(lag=lag)
+            made, again = session_io.roundtrip(app.rpc, MIXED, log=lambda line: None)
+            self.keep(made)
+            self.assertEqual(again, MIXED, f"lag {lag}")
+
+    def test_a_workspace_that_never_lays_out_fails_and_the_export_puts_the_app_back(self):
+        app = fresh_app()
+        made = self.keep(session_io.import_layout(app.rpc, MIXED, log=lambda line: None))
+        last = app.workspaces[3]
+        app.rpc("action.run", {"action": "splitRight", "target": "pane:" + app.leaves(last["tree"])[0]})
+        app.unsettled.add(last["id"])
+        shown, focused = app.shown, app.focused_pane
+        with self.assertRaisesRegex(session_io.LayoutSnapshotError, "workspace 3: debug.layers did not settle"):
+            session_io.export_layout(app.rpc, builder=made)
+        self.assertEqual((app.shown, app.focused_pane), (shown, focused))
+
+    def test_a_docked_pane_is_refused_and_the_export_puts_the_app_back(self):
+        app = fresh_app()
+        made = self.keep(session_io.import_layout(app.rpc, MIXED, log=lambda line: None))
+        app.docked.add(app.leaves(app.workspaces[3]["tree"])[0])
+        shown, focused = app.shown, app.focused_pane
+        with self.assertRaisesRegex(session_io.LayoutSnapshotError, "workspace 3 has a docked pane"):
+            session_io.export_layout(app.rpc, builder=made)
+        self.assertEqual((app.shown, app.focused_pane), (shown, focused))
+
+    def test_a_chromium_ask_that_opens_webkit_fails_the_round_trip(self):
+        fallback = {"state": "ready", "unavailable": None, "fallback": "startFailed"}
+        with self.assertRaisesRegex(session_io.LayoutSnapshotError, "not Chromium"):
+            session_io.roundtrip(fresh_app(chromium="webkit", cef=fallback).rpc, MIXED, log=lambda line: None)
+        # debug.cef reports nothing: the engine debug.layers shows still refuses the builder's asked kind.
+        with self.assertRaisesRegex(session_io.LayoutSnapshotError, "asked as chromium is a webkit page"):
+            session_io.roundtrip(fresh_app(chromium="webkit").rpc, MIXED, log=lambda line: None)
+
+    def test_chromium_that_is_not_running_fails_the_import(self):
+        missing = {"state": "failed", "unavailable": "notBundled", "fallback": None}
+        with self.assertRaisesRegex(session_io.LayoutSnapshotError, "notBundled"):
+            session_io.roundtrip(fresh_app(cef=missing).rpc, MIXED, log=lambda line: None)
 
     def test_an_app_that_is_not_fresh_is_refused(self):
         app = fresh_app()
