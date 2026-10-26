@@ -705,6 +705,12 @@
       "row": "stateful_singletons",
       "allow": 1,
       "why": "CmuxNextCompat CheckedQueueLog.app (Debug and bench builds only, #if DEBUG || CMUX_BENCH_HOOKS): the record of every queue DispatchQueue.checked made (label, QoS, target, call site, registry problem), which debug.threads lists (p02-threads-018, RUN-3(b)). DispatchQueue.checked is a static factory called wherever a queue is made, in every module and before any composition root exists, so it has no injection path; the same shape as BlockingViolationTable.shared. Written once per queue creation under CmuxNextCompat Mutex, bounded at 512 records; ThreadsControl takes it injected (tests pass their own log). Not in Release builds."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "observer_sites",
+      "allow": 4,
+      "why": "p14-energy-120: SuspendWatch (CmuxNextEnergy) is the app's one sleep, wake and display sleep adapter the task asks for: it subscribes once per app to NSWorkspace willSleep, didWake, screensDidSleep and screensDidWake through the app's workspace AppEvents fan-out (recipe R-notif; the display notices share AppVisibilitySource's NotificationCenter observer there), the four sites counted, and publishes them to every keepalive owner through EnergyPolicy instead of each owner observing them. Chrome's PowerMonitor is the same single suspend and resume source (base/power_monitor/power_monitor.h). Made only with the sleepWakeKeepalives feature on; FeedService's own sleep notices move onto it once that feature ships."
     }
   ],
   "observer_wrappers": [

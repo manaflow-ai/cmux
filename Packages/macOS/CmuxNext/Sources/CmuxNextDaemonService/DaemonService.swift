@@ -233,7 +233,6 @@ public final class DaemonService {
         }
     }
 
-
     /// Connects with `makeConnection`, retrying the first connect until it
     /// succeeds (`DaemonStartup`), then mirrors the connection into `store`.
     /// The connection reconnects by itself afterwards. `handOff` runs before
@@ -368,6 +367,7 @@ public final class DaemonService {
 
     private func didConnect(_ connection: DaemonConnection, identity: DaemonIdentity) {
         Self.launchMark("daemon_connected")
+        connection.heartbeat.follow(KeepaliveGate(mainWork.energy))
         self.connection = connection
         rememberLaunchSnapshot(identity)
         resumeConnectionWaiters()

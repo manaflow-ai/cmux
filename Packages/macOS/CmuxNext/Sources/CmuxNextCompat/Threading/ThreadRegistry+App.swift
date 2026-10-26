@@ -103,6 +103,7 @@ extension ThreadRegistry {
         ThreadDeclaration("cmux-next resource bundle warm-up", qos: .userInitiated),
         ThreadDeclaration("cmux-next launch warm-up", qos: .userInitiated),
         ThreadDeclaration("cmux.updates.network", qos: .utility),
+        ThreadDeclaration("com.cmuxterm.next.energy.wake-path", qos: .utility),
         ThreadDeclaration("cmux.home.fixture.video", qos: .utility),
         ThreadDeclaration("cmux.home.promised-files", match: .operationQueue, qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.next.workspace-open", qos: .userInitiated),
