@@ -349,6 +349,12 @@ def check_wiring():
     _check(preflight["outputs"].get("stale") == "${{ steps.stale.outputs.stale }}", "tree-preflight exports stale")
     _check("needs.tree-preflight.outputs.stale != 'true'" in str(all_jobs["tree-owner-wait"].get("if", "")),
            "a superseded push skips tree-owner-wait")
+    # A cp/, lane/ or perf/ run may turn out superseded and then hands nothing off, so the same-commit
+    # election never makes one the owner another run waits for.
+    inspect_run = str(step("tree-preflight", "inspect")["run"])
+    election = inspect_run[inspect_run.index("same_sha_json="):]
+    _check('[[ "$candidate_branch" == cp/* || "$candidate_branch" == lane/* || "$candidate_branch" == perf/* ]] && continue'
+           in election, "the same-commit election never elects a cp/, lane/ or perf/ run")
 
     daemon = all_jobs["cmux-next-daemon-tests"]
     steps = daemon["steps"]
