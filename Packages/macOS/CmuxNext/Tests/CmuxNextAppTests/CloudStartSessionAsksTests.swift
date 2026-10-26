@@ -22,7 +22,7 @@ struct CloudStartSessionAsksTests {
     final class Cards {
         var shown: [String: [AgentPaneToolCard]] = [:]
         var answers: [String: AgentToolCards.Answer] = [:]
-        let (events, event) = AsyncStream<String>.makeStream()
+        let (events, event) = AsyncStream<(tab: String, state: AgentPaneToolCard.State)>.makeStream()
 
         deinit { event.finish() }
 
@@ -30,14 +30,15 @@ struct CloudStartSessionAsksTests {
             asks.present = { [unowned self] cards, tab, answer in
                 shown[tab] = cards.isEmpty ? nil : cards
                 answers[tab] = answer
-                if !cards.isEmpty { event.yield(tab) }
+                if let first = cards.first { event.yield((tab, first.state)) }
                 return true
             }
         }
 
-        /// Waits until a card shows in `tab` (the ask reached its card).
+        /// Waits until an ask's card shows in `tab` (the ask reached its card). Other cards shown
+        /// there before (a run's working or done card) are passed over.
         func shownIn(_ tab: String) async {
-            for await shownTab in events where shownTab == tab { return }
+            for await shown in events where shown.tab == tab && shown.state == .ask { return }
         }
 
         func click(_ tab: String, _ action: String) { answers[tab]?("cloud-start-session-" + tab, action, nil) }
@@ -237,6 +238,21 @@ struct CloudStartSessionAsksTests {
         #expect(cards.shown["chat-10"]?.first?.state == .ask)
         cards.click("chat-10", "notNow")
         _ = try? await second.value
+    }
+
+    /// A sign-out or team switch removes a done card: its Open Chat would show a chat of the
+    /// account that ended.
+    @Test func endAllRemovesADoneCard() async throws {
+        let asks = CloudStartSessionAsks(), cards = Cards()
+        cards.install(asks)
+        let ask = Self.ask(asks, "chat-11")
+        await cards.shownIn("chat-11")
+        cards.click("chat-11", "start")
+        let token = try await ask.value
+        asks.started(tab: "chat-11", token: token, text: "started", gone: "") { true }
+        #expect(cards.shown["chat-11"]?.first?.state == .done)
+        asks.endAll()
+        #expect(cards.shown["chat-11"] == nil)
     }
 
     /// The page reads the done state by its name (toolCardStore.ts).

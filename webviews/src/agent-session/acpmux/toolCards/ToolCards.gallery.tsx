@@ -37,7 +37,7 @@ const failed: ToolCard = {
 const started: ToolCard = {
   id: "cloud-start-session-tab_1",
   state: "done",
-  text: "claude runs on Cloud machine dev. Its chat is in that machine's workspace.",
+  text: "claude runs on Cloud machine dev. Its chat is in that machine's workspace in the sidebar.",
   actions: [
     { id: "open", title: "Open Chat" },
     { id: "dismiss", title: "Dismiss" },
