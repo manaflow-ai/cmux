@@ -443,6 +443,8 @@ private final class FakeSupervisor: ChromiumHostSupervising {
         return ChromiumHostAttachment(controlFD: controlFD, remoteShim: URL(filePath: "/nonexistent/libcmux_cef_shim_remote.dylib"),
                                       frameworkLocales: ["en.lproj", "ja.lproj"])
     }
+
+    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {}
 }
 
 /// The remote dylib's functions: the ABI id, attach (records the control descriptor and says hello
