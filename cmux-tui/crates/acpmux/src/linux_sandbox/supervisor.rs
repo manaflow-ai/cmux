@@ -136,9 +136,12 @@ fn resolve(task: RawFd, dir: i32, path: &str, flags: i32, nspid: &str) -> Result
         };
         let mut fs: statfs = unsafe { std::mem::zeroed() };
         checked(unsafe { fstatfs(pin.as_raw_fd(), &mut fs) }).map_err(|_| EACCES)?;
-        let fs_type = i64::try_from(fs.f_type).map_err(|_| EACCES)?;
-        let proc_magic = i64::try_from(PROC_SUPER_MAGIC).map_err(|_| EACCES)?;
-        if fs_type == proc_magic {
+        // libc's statfs field and PROC_SUPER_MAGIC use architecture-dependent
+        // integer aliases; normalize both before comparing across Linux ABIs.
+        #[allow(clippy::useless_conversion)]
+        let is_proc = i64::try_from(fs.f_type).map_err(|_| EACCES)?
+            == i64::try_from(PROC_SUPER_MAGIC).map_err(|_| EACCES)?;
+        if is_proc {
             if target != Path::new("/proc")
                 || queue.len() != 3
                 || magic.is_some()
@@ -318,6 +321,7 @@ mod tests {
             ("CLAUDE_PROJECT", fixture.0.join("transcript")),
         ]
         .into_iter()
+        .map(|(key, value)| (key.to_owned(), value))
         .collect();
         let policy = WritePolicy::from_profile(crate::hub::remote_sandbox::PROFILE, &params)
             .expect("profile policy");
