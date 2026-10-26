@@ -104,12 +104,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// Hidden cmux page tabs move through Hidden, Frozen and Discarded on one deadline, fed by the tab content lifecycle; a page thaws in the turn it shows, before it is visible.
+    /// Hidden cmux page tabs go Hidden, Frozen, Discarded on one deadline, fed by the tab content lifecycle, browser.hibernation, memory pressure and Low Power Mode; a page thaws before it shows. When on, it replaces memoryDiscardInternalPages for page tabs.
     public static let pageLifecycle = Feature(
         index: 6,
         name: "pageLifecycle",
         owner: "PL-webui",
-        description: "Hidden cmux page tabs move through Hidden, Frozen and Discarded on one deadline, fed by the tab content lifecycle; a page thaws in the turn it shows, before it is visible.",
+        description: "Hidden cmux page tabs go Hidden, Frozen, Discarded on one deadline, fed by the tab content lifecycle, browser.hibernation, memory pressure and Low Power Mode; a page thaws before it shows. When on, it replaces memoryDiscardInternalPages for page tabs.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,

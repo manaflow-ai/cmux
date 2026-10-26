@@ -96,8 +96,7 @@ final class TabContentCache {
     /// Runs work after the current pass's frame committed (`AfterFrameCommit`); tests pass their own.
     private let afterFrame: (@escaping @MainActor () -> Void) -> Void
     /// Restored browser tabs start as `DeferredBrowserTab` (nothing loads)
-    /// until the user reloads one: set after cmux quit unexpectedly twice in
-    /// a row (`LaunchRecovery.restartedSafely`).
+    /// until the user reloads one: set after cmux quit unexpectedly twice in a row (`LaunchRecovery.restartedSafely`).
     var defersRestoredPages = false
     /// Tabs whose deferred page the user started.
     var startedDeferred: Set<String> = []
@@ -117,8 +116,7 @@ final class TabContentCache {
     var profileBadgeMenu: ((String) -> NSMenu?)?
     /// The omnibar and tab-strip machine chip of tab `key` for a URL.
     var machineBadge: ((String, URL?) -> (text: String, help: String)?)?
-    /// The tab with durable id `key` on any machine (`browserTabs` only
-    /// knows the local daemon).
+    /// The tab with durable id `key` on any machine (`browserTabs` only knows the local daemon).
     var findTab: ((String) -> TabModel?)?
     /// A CEF page finished its asynchronous creation; panes showing `key` re-show.
     var onBrowserReady: ((String) -> Void)?
@@ -129,15 +127,13 @@ final class TabContentCache {
     /// page window is key, so `ShellWindow` never gets the key).
     weak var keyRouter: KeyRouter?
     /// A page's chrome hands the keyboard back to page `key` (find bar
-    /// closed, address bar editing ended); the App routes it through the
-    /// window's focus coordinator.
+    /// closed, address bar editing ended); the App routes it through the window's focus coordinator.
     var onPageFocusRequest: ((String) -> Void)?
     /// A provisional split's terminal tab got its daemon surface on a daemon (``awaitConfirm(_:of:daemon:)``).
     var onTerminalConfirmed: ((TabModel, DaemonService) -> Void)?
     /// Every new page's chrome gets this (the page info bubble's registry router).
     var onBrowserEntryCreated: ((BrowserEntry) -> Void)?
-    /// The Extensions (puzzle) menu handler of Chromium tab `key` (the App's
-    /// action registry, `ExtensionMenuRouter`).
+    /// The Extensions (puzzle) menu handler of Chromium tab `key` (the App's action registry, `ExtensionMenuRouter`).
     var makeExtensionMenuHandler: ((String) -> (any ExtensionMenuHandling)?)?
     /// Page `key`'s docked DevTools opened (and takes the keyboard) or
     /// closed; the App routes it through the window's focus coordinator.
@@ -213,8 +209,7 @@ final class TabContentCache {
         return entry
     }
 
-    /// Tab ids whose Ghostty surface has focus (first responder in the key
-    /// window), for `debug.focus`.
+    /// Tab ids whose Ghostty surface has focus (first responder in the key window), for `debug.focus`.
     var focusedTerminalTabs: [String] {
         terminals.filter { $0.value.session.model.isFocused }.map(\.key).sorted()
     }
@@ -360,8 +355,7 @@ final class TabContentCache {
         swapPage(key, with: webKit.makeWebKitTab(id: old.id, profile: profile, initialURL: url, zoom: old.state.zoom))
     }
 
-    /// A WebKit page for a Chromium record, with the fallback recorded and
-    /// the one-time notice shown when this is the first.
+    /// A WebKit page for a Chromium record, with the fallback recorded and the one-time notice shown when this is the first.
     private func fallBack(_ tab: TabModel, url: URL?, reason: CEFUnavailableReason) -> BrowserEntry {
         let fallbacks = browserTabs.fallbacks
         fallbacks.record(reason, source: .recordedTab, machine: browserTabs.daemon(for: tab).machineID, surface: tab.surface)
@@ -435,8 +429,7 @@ final class TabContentCache {
         return true
     }
 
-    /// Swaps `tab`'s page for `page` (an adopted popup that arrived after
-    /// the tab's placeholder page was created).
+    /// Swaps `tab`'s page for `page` (an adopted popup that arrived after the tab's placeholder page was created).
     func replacePage(of tab: TabModel, with page: any BrowserTab) {
         let key = tab.id
         browserTabs.untrack(key)
@@ -448,8 +441,7 @@ final class TabContentCache {
     /// Replaces `key`'s page (hibernation, restore): the old page closes,
     /// the record write-back follows the new one, and panes showing `key`
     /// re-show with the new view. A page woken from hibernation passes the
-    /// state it slept on (`asleep`): its omnibar shows that address from the
-    /// first frame, not the new page's blank one.
+    /// state it slept on (`asleep`): its omnibar shows that address from the first frame, not the new page's blank one.
     func swapPage(_ key: String, with page: any BrowserTab, asleep: BrowserTabState? = nil) {
         browserTabs.untrack(key)
         browsers.removeValue(forKey: key)?.close()
@@ -516,8 +508,7 @@ final class TabContentCache {
 @MainActor
 protocol SurfacePresenter: AnyObject {
     /// `key`'s view now belongs to another presenter, or its surface was
-    /// destroyed. Drop the view if it is still installed here; do not
-    /// withdraw or pause it.
+    /// destroyed. Drop the view if it is still installed here; do not withdraw or pause it.
     func surfaceWasDisplaced(_ key: String)
     /// The window it presents in, if any.
     var presentingWindow: NSWindow? { get }

@@ -330,7 +330,7 @@ final class AppServices {
                 self?.settings?.snapshot.browserDefaultEngine ?? self?.cache.browserTabs.preference.defaultEngine ?? .fallback
             },
             keyRouter: keyRouter, work: work),
-        openPanel: openPanel, memoryPressure: memoryPressure, registry: .processWide, deadlines: mainDeadlines)
+        openPanel: openPanel, memoryPressure: memoryPressure, registry: .processWide)
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
     private(set) lazy var iconPicker = IconPickerService(services: self, webUI: webUI)
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.

@@ -57,17 +57,26 @@ struct AppMemoryConsumers {
     }
 
     /// `pageLifecycle` (default off): page tabs' reveal and conceal drive the page lifecycle
-    /// (p13-webui-022). Agent chats join in p13-webui-038.
+    /// (p13-webui-022), on the app's one deadline scheduler. Agent chats join in p13-webui-038.
     private func registerPageLifecycle() {
         guard services.features.isEnabled(.pageLifecycle) else { return }
-        let pages = services.pages, lifecycle = services.webUI.lifecycle
+        installPageLifecycle(PageLifecycle(deadlines: services.mainDeadlines))
+    }
+
+    /// Makes `lifecycle` the one lifecycle of cmux pages: a page tab's reveal and conceal drive it, a
+    /// page WebUIHost closes leaves it, and the browser hibernation (`startHibernation`) hands it
+    /// `browser.hibernation`, the memory pressure and Low Power Mode. Tests pass one on their own deadlines.
+    func installPageLifecycle(_ lifecycle: PageLifecycle) {
+        let pages = services.pages
         lifecycle.pageOfTab = { [weak pages] key in (pages?.existingView(key)?.content as? PageWebView).map(PageWebViewLifecycle.init) }
+        services.webUI.lifecycle = lifecycle
         services.cache.pageLifecycle = lifecycle
     }
 
-    /// `memoryDiscardInternalPages` (default off): hidden page tabs' views go after their policy.
+    /// `memoryDiscardInternalPages` (default off): hidden page tabs' views go after their policy. With
+    /// `pageLifecycle` on, that lifecycle is page tabs' one discard controller, so this one stays off.
     private func registerInternalPageDiscards() {
-        guard services.features.isEnabled(.memoryDiscardInternalPages) else { return }
+        guard services.features.isEnabled(.memoryDiscardInternalPages), !services.features.isEnabled(.pageLifecycle) else { return }
         services.pages.enableDiscards(ContentDiscardScheduler(kind: .internalPage, memory: services.memoryCoordinator), on: services.cache)
     }
 }

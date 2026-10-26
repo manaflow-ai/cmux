@@ -146,7 +146,7 @@ extension TabContentCache {
             switch effect {
             case .mount(let key, let token):
                 trace(key, "mount \(token)")
-                if hasContent(for: key) || pageDiscards?.adoptPage(key) == true { // a page tab's view: live
+                if hasContent(for: key) || pageDiscards?.adoptPage(key) == true || adoptLifecyclePage(key) { // a page tab's view: live
                     applyLifecycle(lifecycle.send(.mounted(key, token)))
                 } else {
                     pendingMounts[key] = token
@@ -165,6 +165,14 @@ extension TabContentCache {
                 if pageDiscards?.restorePage(key, token: token) != true { hibernation?.restore(key, token: token) }
             }
         }
+    }
+
+    /// A page tab showing a cmux page under `pageLifecycle` is live once its view exists, so its reveal and
+    /// conceal reach the page lifecycle; its memory is that lifecycle's, never the warm set's.
+    private func adoptLifecyclePage(_ key: String) -> Bool {
+        guard pageLifecycle?.pageOfTab(key) != nil else { return false }
+        ledger.setRetained(key, false)
+        return true
     }
 
     /// Installs the page that replaces a tab's page (`swapPage`). The tab's

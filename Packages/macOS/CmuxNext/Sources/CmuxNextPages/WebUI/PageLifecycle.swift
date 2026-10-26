@@ -1,5 +1,4 @@
 import AppKit
-package import CmuxNextCompat
 package import CmuxNextHibernation
 package import CmuxNextWakeups
 
@@ -12,6 +11,9 @@ package protocol PageLifecycleTarget {
     var lifecycleGroup: String? { get }
     /// What the page itself knows keeps it (loading, focused), read once per planner pass.
     var lifecycleKeepReasons: Set<PageLifecyclePlanner.KeepReason> { get }
+    /// From now on the page calls ``PageLifecycle/pageReasonsDidChange(_:)`` when a reason it reports
+    /// starts or ends with no show or hide (its load). Called once per page object.
+    func reportsReasonChanges(to lifecycle: PageLifecycle)
     /// Hidden to frozen: no task, timer or frame runs; the page keeps its memory.
     func freeze()
     /// Back to running, in the turn of the show and before the page is visible: after a freeze it
@@ -33,15 +35,18 @@ package struct PageWebViewLifecycle: PageLifecycleTarget {
 
     package var lifecycleGroup: String? { view?.descriptor.processGroup.rawValue }
 
-    /// Loading until its first paint (Chrome's kLoading), and focused while it holds its window's
-    /// first responder.
+    /// Loading while its document loads (``PageLoadState``: Chrome's kLoading reads the
+    /// page's loading state, which also ends while the page is hidden), and focused while it holds its
+    /// window's first responder.
     package var lifecycleKeepReasons: Set<PageLifecyclePlanner.KeepReason> {
         guard let view else { return [] }
         var reasons: Set<PageLifecyclePlanner.KeepReason> = []
-        if !view.hasPainted { reasons.insert(.loading) }
+        if view.loadState.isLoading { reasons.insert(.loading) }
         if let responder = view.window?.firstResponder as? NSView, responder.isDescendant(of: view) { reasons.insert(.focused) }
         return reasons
     }
+
+    package func reportsReasonChanges(to lifecycle: PageLifecycle) { view?.loadState.lifecycle = lifecycle }
 
     package func freeze() {}
     package func thaw() {}
@@ -54,10 +59,11 @@ package struct PageWebViewLifecycle: PageLifecycleTarget {
 /// Frozen, Discarded.
 ///
 /// Chrome's freezing policy works the same way (components/performance_manager/freezing/
-/// freezing_policy.cc): page nodes report visibility to one policy, which freezes a page once no
-/// `CannotFreezeReason` holds and unfreezes it when it shows or a reason appears. As there, nothing
-/// here observes a page: a show or hide is one call from the content lifecycle, and its work is
-/// O(1); the planner runs only at the next deadline, on the hidden pages, from one one-shot
+/// freezing_policy.cc): page nodes report visibility and loading state to one policy, which freezes
+/// a page once no `CannotFreezeReason` holds and unfreezes it when it shows or a reason appears. As
+/// there, nothing here observes a page: a show or hide is one call from the content lifecycle, a load
+/// that starts or ends is one call from the page (``pageReasonsDidChange(_:)``), and each is O(1);
+/// the planner runs only at the next deadline, on the hidden pages, from one one-shot
 /// ``MainDeadline`` in the background class (nobody sees hidden pages). A show thaws in its own turn,
 /// before the content lifecycle reveals the page.
 ///
@@ -74,7 +80,7 @@ package final class PageLifecycle {
         var target: any PageLifecycleTarget
         /// The state the target was last put in.
         var state: State = .active
-        /// When the page last hid (uptime); nil while shown.
+        /// When the page last hid (the scheduler's uptime); nil while shown.
         var hiddenAt: Duration?
         /// The reasons its owners set (``setKeepReasons(_:for:)``).
         var reasons: Set<KeepReason> = []
@@ -82,8 +88,9 @@ package final class PageLifecycle {
 
     private let planner: PageLifecyclePlanner
     package private(set) var conditions: PageLifecyclePlanner.Conditions
+    /// The deadline's scheduler, whose clock is the lifecycle's: due times and wakes share it.
+    private let deadlines: MainDeadlineScheduler
     private let deadline: MainDeadline
-    private let uptime: @MainActor () -> Duration
     private var entries: [String: Entry] = [:]
     /// The key of each page object, so a closed view is forgotten without a scan.
     private var keys: [ObjectIdentifier: String] = [:]
@@ -93,7 +100,7 @@ package final class PageLifecycle {
     private var hiddenKeys: Set<String> = []
     /// The page that holds `mostRecentlyUsed`, as the last pass or hide left it; nil when unknown.
     private var mostRecentlyHidden: String?
-    /// The uptime of the armed pass, nil when none is armed.
+    /// The uptime of the armed pass (the scheduler's clock), nil when none is armed.
     package private(set) var nextPassAt: Duration?
     /// Runs after each pass (debug trace and tests).
     package var didRunPass: (@MainActor () -> Void)?
@@ -103,23 +110,17 @@ package final class PageLifecycle {
 
     /// - Parameters:
     ///   - planner: The pure plan, with its times.
-    ///   - conditions: The memory pressure, Low Power Mode and `browser.hibernation` at start.
-    ///   - deadlines: The app's one deadline scheduler (a test passes one nobody runs and calls
-    ///     ``runPass()`` at ``nextPassAt``).
-    ///   - uptime: Monotonic time; the default counts from this controller's creation.
+    ///   - conditions: The memory pressure, Low Power Mode and `browser.hibernation` until the first
+    ///     ``setConditions(_:)``.
+    ///   - deadlines: The app's one deadline scheduler (`AppServices.mainDeadlines`); a test passes one
+    ///     on a fake wake-up timer and uptime.
     package init(planner: PageLifecyclePlanner = PageLifecyclePlanner(),
                  conditions: PageLifecyclePlanner.Conditions = .init(),
-                 deadlines: MainDeadlineScheduler,
-                 uptime: (@MainActor () -> Duration)? = nil) {
+                 deadlines: MainDeadlineScheduler) {
         self.planner = planner
         self.conditions = conditions
+        self.deadlines = deadlines
         deadline = MainDeadline(owner: "webui.lifecycle", workClass: .background, scheduler: deadlines)
-        if let uptime {
-            self.uptime = uptime
-        } else {
-            let start = ContinuousClock.now
-            self.uptime = { start.duration(to: .now) }
-        }
     }
 
     /// `key`'s state as last performed; nil for a page the lifecycle does not know.
@@ -195,6 +196,15 @@ package final class PageLifecycle {
         remove(key)
     }
 
+    /// `page`'s own reasons changed with no show or hide (its load started or ended,
+    /// ``PageLoadState``): a hidden page is looked at again now, so a load that ends
+    /// while the page is hidden lets it freeze, and one that starts thaws it.
+    package func pageReasonsDidChange(_ page: AnyObject) {
+        guard let key = keys[ObjectIdentifier(page)], entries[key]?.target.object === page,
+              hiddenKeys.contains(key) else { return }
+        arm(at: uptime())
+    }
+
     /// The reasons `key`'s owners say keep it (page JS can only add some). A freeze-blocking reason
     /// thaws a frozen page now, as Chrome unfreezes a page that starts to play audio; a dropped
     /// reason arms a pass.
@@ -202,31 +212,25 @@ package final class PageLifecycle {
         guard var entry = entries[key], entry.reasons != reasons else { return }
         let dropped = !entry.reasons.subtracting(reasons).isEmpty
         entry.reasons = reasons
-        let thaws = entry.state == .frozen && reasons.contains(where: \.blocksFreeze)
+        let thaws = entry.state == .frozen && reasons.contains(where: \.thawsFrozenPage)
         if thaws { entry.state = .hidden }
         entries[key] = entry
         if thaws { entry.target.thaw() }
         if dropped, hiddenKeys.contains(key) { arm(at: uptime()) }
     }
 
-    /// The memory pressure, Low Power Mode or `browser.hibernation` changed: a pass looks again.
+    /// The memory pressure, Low Power Mode, or `browser.hibernation` and its companions changed (the
+    /// app's browser hibernation passes on what it follows): a pass looks again.
     package func setConditions(_ conditions: PageLifecyclePlanner.Conditions) {
         guard conditions != self.conditions else { return }
         self.conditions = conditions
         if !hiddenKeys.isEmpty { arm(at: uptime()) }
     }
 
-    /// The memory pressure changed (``WebUIHost``'s one subscription).
-    package func setPressure(_ pressure: MemoryPressureLevel) {
-        var conditions = conditions
-        conditions.pressure = pressure
-        setConditions(conditions)
-    }
-
     // MARK: Pass (at a deadline, O(hidden pages))
 
     /// Plans the hidden pages and performs the plan; arms the next deadline, if any. The deadline
-    /// calls it; tests call it at ``nextPassAt``.
+    /// calls it.
     package func runPass() {
         nextPassAt = nil
         deadline.cancel()
@@ -256,9 +260,9 @@ package final class PageLifecycle {
     }
 
     /// Moves one page toward the planned state. A pass only moves pages down (hidden, frozen,
-    /// discarded); it thaws a frozen page only for a reason that appeared since (loading, focus),
-    /// never for a reason about time alone: the most recently used one, or a longer recently
-    /// visible window after Low Power Mode ends (Chrome does not unfreeze a page for those).
+    /// discarded); it thaws a frozen page only for a reason that appeared since
+    /// (``PageLifecyclePlanner/KeepReason/thawsFrozenPage``: loading, focus, a setting), never for time
+    /// alone: the most recently used one, or a longer recently visible window after Low Power Mode ends.
     private func perform(_ decision: PageLifecyclePlanner.Decision) {
         guard var entry = entries[decision.key], entry.state != decision.state else { return }
         switch (entry.state, decision.state) {
@@ -267,7 +271,7 @@ package final class PageLifecycle {
         case (.hidden, .discarded), (.frozen, .discarded):
             entry.target.discard()
         case (.frozen, .hidden):
-            guard decision.keptBy.contains(where: { $0.blocksFreeze && !Self.timeReasons.contains($0) }) else { return }
+            guard decision.keptBy.contains(where: \.thawsFrozenPage) else { return }
             entry.target.thaw()
         default:
             return
@@ -278,12 +282,13 @@ package final class PageLifecycle {
 
     // MARK: Helpers
 
-    /// Freeze-blocking reasons that only time and the order of hides set; they never thaw a page.
-    private static let timeReasons: Set<KeepReason> = [.recentlyVisible, .mostRecentlyUsed]
+    private func uptime() -> Duration { deadlines.uptime }
 
-    /// `key`'s entry with `page` as its target; a new page object starts a fresh entry.
+    /// `key`'s entry with `page` as its target; a new page object starts a fresh entry and reports
+    /// its reason changes from now on.
     private func adopt(_ key: String, page: any PageLifecycleTarget, object: AnyObject) -> Entry {
         let identity = ObjectIdentifier(object)
+        if keys[identity] != key { page.reportsReasonChanges(to: self) }
         guard var entry = entries[key] else {
             keys[identity] = key
             return Entry(target: page)
