@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextInput
 import CmuxNextTabs
 import CmuxNextWakeups
 import Observation
@@ -93,8 +94,9 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// - Parameter reveal: Holds the strip until the first tabs arrive and
     ///   the content until the first terminal frame (launch load-in): the app's
     ///   one (`AppServices.launchReveal`).
-    init(stripModel: TabStripModel, reveal: LaunchReveal) {
-        stripView = TabStripView(model: stripModel)
+    /// - Parameter input: The app's input tap, for the strip's mode subscriptions (`AppServices.inputTap`).
+    init(stripModel: TabStripModel, reveal: LaunchReveal, input: InputEventTap) {
+        stripView = TabStripView(model: stripModel, input: input)
         super.init(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         barPosition = DesignSettings.shared.tabBarPosition
         barOrder = DesignSettings.shared.tabBarOrder
