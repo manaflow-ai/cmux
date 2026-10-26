@@ -1,5 +1,5 @@
+import CmuxSafeConcurrency
 public import Foundation
-import os
 import OSLog
 
 /// One journaled transport event. Every state transition, dial attempt,
@@ -46,8 +46,7 @@ public struct IrxJournalEvent: Sendable {
 public final class IrxJournal: Sendable {
     public static let ringCapacity = 512
 
-    /// The ring, the counters and the terminal-trace rate window; the journal
-    /// file is written under the same lock so lines never interleave.
+    /// The ring, the counters and the terminal-trace rate window.
     private struct State: Sendable {
         var ring: [IrxJournalEvent] = []
         var counters: [String: Int] = [:]
@@ -59,8 +58,10 @@ public final class IrxJournal: Sendable {
     /// The append-only JSONL file this journal writes, when one was configured.
     public let fileURL: URL?
     private let logger: Logger
-    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let state = Mutex(State())
     private let startedAt = DispatchTime.now()
+    /// Opened `O_APPEND`, so each line's single `write(2)` lands whole at the
+    /// end of the file; concurrent records need no lock around the write.
     private let fileHandle: FileHandle?
     private static let terminalTraceEventsPerMinute = 120
     private static func isoTimestamp(_ date: Date) -> String {
@@ -76,21 +77,16 @@ public final class IrxJournal: Sendable {
     }
 
     private static func openAppending(_ journalFileURL: URL) -> FileHandle? {
-        let manager = FileManager.default
-        try? manager.createDirectory(
+        try? FileManager.default.createDirectory(
             at: journalFileURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        if !manager.fileExists(atPath: journalFileURL.path) {
-            manager.createFile(atPath: journalFileURL.path, contents: nil)
+        let descriptor = journalFileURL.withUnsafeFileSystemRepresentation { path -> Int32 in
+            guard let path else { return -1 }
+            return open(path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0o644)
         }
-        let handle = try? FileHandle(forWritingTo: journalFileURL)
-        _ = try? handle?.seekToEnd()
-        return handle
-    }
-
-    deinit {
-        try? fileHandle?.close()
+        guard descriptor >= 0 else { return nil }
+        return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
     }
 
     /// Records one event. `attributes` values must already be privacy-safe:
@@ -136,10 +132,8 @@ public final class IrxJournal: Sendable {
             if state.ring.count > Self.ringCapacity {
                 state.ring.removeFirst(state.ring.count - Self.ringCapacity)
             }
-            if let fileHandle {
-                try? fileHandle.write(contentsOf: Data((rendered + "\n").utf8))
-            }
         }
+        try? fileHandle?.write(contentsOf: Data((rendered + "\n").utf8))
     }
 
     /// Counter snapshot for diagnostics (dials, admissions, denials by code,

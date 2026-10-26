@@ -1,8 +1,8 @@
 public import CMUXMobileCore
 import CmuxIrohTransport
+import CmuxSafeConcurrency
 public import Foundation
 public import IrohLib
-import os
 
 /// Serialized writer for one QUIC send stream: concurrent senders cannot
 /// interleave bytes mid-frame.
@@ -47,7 +47,7 @@ public actor IrxStreamWriter {
 /// process is serving the connection. Written from every stream reader, so it
 /// is a lock rather than an actor hop per read.
 public final class IrxInboundActivityClock: Sendable {
-    private let last = OSAllocatedUnfairLock<ContinuousClock.Instant?>(initialState: nil)
+    private let last = Mutex<ContinuousClock.Instant?>(nil)
 
     public init() {}
 

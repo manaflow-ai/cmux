@@ -1,7 +1,7 @@
+import CmuxSafeConcurrency
 import Darwin
 public import Foundation
 import Network
-import os
 
 /// One outbound TCP connection the tunnel relays to. Every call suspends
 /// until the operation is done, which is what bounds the relay's memory:
@@ -228,7 +228,7 @@ final class IrxTunnelNWChannel: IrxTunnelByteChannel {
 
 /// Resumes the connect continuation exactly once, from whichever of state
 /// change, timeout, or cancellation comes first.
-private final class IrxTunnelConnectOutcome: Sendable {
+final class IrxTunnelConnectOutcome: Sendable {
     private typealias Outcome = Result<Void, IrxTunnelOpenError>
 
     private struct State: Sendable {
@@ -236,7 +236,7 @@ private final class IrxTunnelConnectOutcome: Sendable {
         var pending: Outcome?
     }
 
-    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let state = Mutex(State())
 
     func install(_ continuation: CheckedContinuation<Result<Void, IrxTunnelOpenError>, Never>) {
         let pending: Outcome? = state.withLock { state in

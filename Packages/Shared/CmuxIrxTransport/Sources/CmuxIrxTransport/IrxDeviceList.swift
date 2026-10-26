@@ -1,5 +1,5 @@
+import CmuxSafeConcurrency
 public import Foundation
-import os
 
 /// One account device as the control plane's directory describes it, keyed by
 /// its TLS endpoint identity. The judge consults `revoked` only; the rest is
@@ -117,7 +117,7 @@ public struct IrxDeviceListSnapshot: Equatable, Sendable {
 /// `IrxAdmission().performServer`), so this is a lock-guarded box the runtime
 /// swaps atomically on every directory apply and clears on sign-out.
 public final class IrxDeviceListCurrent: Sendable {
-    private let snapshot = OSAllocatedUnfairLock<IrxDeviceListSnapshot?>(initialState: nil)
+    private let snapshot = Mutex<IrxDeviceListSnapshot?>(nil)
 
     public init() {}
 
