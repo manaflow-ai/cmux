@@ -18,6 +18,21 @@ struct SplitRenderMotion: RenderServerMotion {
     }
 }
 
+/// A zoom or an unzoom (Cmd-Shift-Enter) on the render server (chrome-parity R2, p03-rendering-027; on with
+/// `motion.renderServer`): the zooming pane goes to its rest frame in the key's turn, laid out once at its
+/// rest size, and Core Animation shows it springing there on the zoom token (`PaneZoomMotion`). It stays
+/// above the docks until it lands (`rank`, set once in the turn; subview order, not a layer zPosition, so
+/// clicks go where it shows), the panes it covers stay untouched under it, and the landing restores the
+/// stacking and lets them go once. Chromium runs a transform animation of a layer that keeps its place in
+/// the paint order the same way (`cc/animation/keyframe_model.h`, `cc/trees/property_tree.h`).
+struct ZoomRenderMotion: RenderServerMotion {
+    var kind: RenderMotionKind { .zoom }
+
+    func begin(on screen: ScreenContentView, policy: MotionPolicy) -> MotionBackend {
+        screen.springZoomOnRenderServer() ? .renderServer : .cpuStep
+    }
+}
+
 extension ScreenContentView {
     /// The render-server springs still carrying this screen's panes and dividers (``RenderSpringTrack``),
     /// in the screen's coordinates.
@@ -52,6 +67,7 @@ extension ScreenContentView {
     /// the camera until the render server takes this change too (``springCloseOnRenderServer()``).
     func takeRenderSpringsBack() {
         releaseRenderClose()
+        zoomMotion.takeBackFromRenderServer()
         guard !renderTracks.isEmpty else { return }
         let now = renderClockTime
         for (pane, track) in renderTracks.panes {
@@ -92,8 +108,9 @@ extension ScreenContentView {
     /// changed the structure while render-server springs still ran (their state came back to the CPU frames,
     /// ``takeRenderSpringsBack()``: the next split, the daemon's echo of the last one): its pane and divider
     /// springs go to the render server from what shows, at their velocities, and their CPU springs rest. A
-    /// close is ``springCloseOnRenderServer()``'s; a zoom (027), a new dock column (028) and a screen with a
-    /// docked column (its strip clip is placed at rest until p03-rendering-023) stay on the CPU step.
+    /// close is ``springCloseOnRenderServer()``'s and a zoom ``springZoomOnRenderServer()``'s; a new dock column
+    /// (028) and a screen with a docked column (its strip clip is placed at rest until p03-rendering-023) stay
+    /// on the CPU step.
     /// Returns whether it took the motion.
     func springSplitOnRenderServer() -> Bool { // perf-hot: 4ms motion-frame
         guard !arriving.isEmpty || renderTracks.tookBack, newDockColumns.isEmpty, geometry.dock.isEmpty, zoomMotion.pane == nil,
@@ -162,6 +179,33 @@ extension ScreenContentView {
         return true
     }
 
+    /// The change's turn started a zoom or an unzoom (`PaneZoomMotion`), or changed the structure while one
+    /// ran (its spring came back to the CPU frame, ``takeRenderSpringsBack()``): the zooming pane springs on
+    /// the render server from where it shows, at its velocity, on the zoom token. Nothing else may move with
+    /// it (another pane or divider, a camera, a pan, a dock column growing in): those changes stay on the CPU
+    /// step. The panes the zoom covers and the stacking `reconcile` gave it are not touched until it lands
+    /// (``renderSpringLanded()``). Returns whether it took the motion.
+    func springZoomOnRenderServer() -> Bool { // perf-hot: 4ms motion-frame
+        guard let pane = zoomMotion.pane, !zoomMotion.rendersOnServer, let frame = paneFrames[pane],
+              let host = context.hosts[pane], holds(host), arriving.isEmpty, newDockColumns.isEmpty, !isGesturing,
+              !scrollRidesFrames, !isCameraMoving,
+              paneFrames.allSatisfy({ $0.key == pane || $0.value.showsRest }), dividerFrames.values.allSatisfy(\.showsRest)
+        else { return false }
+        let strip = stripShift, scale = self.scale
+        let moves = SplitMotion.renderMoves([pane: frame]) { pane, rect in shownRect(rect, of: pane, strip: strip, scale: scale) }
+        guard let move = moves[pane] else { return false }
+        paneFrames[pane]?.snap()
+        zoomMotion.handToRenderServer()
+        springMoves(panes: [pane: move], dividers: [:], token: zoomMotion.spring(for: pane))
+        return true
+    }
+
+    /// A camera of this screen still moves: the strip's, a row column's, a scroll area's or the canvas's.
+    private var isCameraMoving: Bool {
+        (!isUserScrolling && (scroll.value != scroll.target || scroll.velocity != 0)) || rowsMoving || areasMoving
+            || canvasState.camera.isMoving
+    }
+
     /// The strip camera and each row column's rest at their targets, and hit testing reads the rest
     /// (``refreshRowShift()``). Returns whether the strip camera moved.
     private func restCameras() -> Bool {
@@ -175,8 +219,9 @@ extension ScreenContentView {
     /// Springs `panes` and `dividers` from where they show to their rest frames on the change's frame
     /// spring token, and records each spring (``renderTracks``); the layout motion ends when the last one
     /// lands (``renderSpringLanded()``).
-    private func springMoves(panes: [PaneID: SplitMotion.RenderMove], dividers: [DividerHandleView.Kind: SplitMotion.RenderMove]) {
-        let spring = Motion.panes.renderSpring(motionState.frameSpring)
+    private func springMoves(panes: [PaneID: SplitMotion.RenderMove], dividers: [DividerHandleView.Kind: SplitMotion.RenderMove],
+                             token: MotionSpring? = nil) {
+        let spring = Motion.panes.renderSpring(token ?? motionState.frameSpring)
         let laysOut = window != nil && bounds.width >= 1 && bounds.height >= 1
         let begin = renderClockTime, parameters = spring.parameters
         let landed: @MainActor @Sendable () -> Void = { [weak self] in self?.renderSpringLanded() }
@@ -238,7 +283,8 @@ extension ScreenContentView {
     /// One render-server spring call of this screen landed. After the last, divider hover follows the rest
     /// frames once and the layout motion ends, unless a pan holds it (``isGesturing``) or CPU springs still
     /// run (the root ends it when they land). A close still owning the camera (``RenderClose``) gives it back
-    /// and sends the report it owed.
+    /// and sends the report it owed; a zoom gives its pane back its place in the stacking order and lets go
+    /// of the panes it covered.
     func renderSpringLanded() {
         renderSpringsInFlight -= 1
         guard renderSpringsInFlight == 0 else { return }
@@ -247,6 +293,13 @@ extension ScreenContentView {
             renderClose = nil
             scrollRidesFrames = false
             if close.reportsLeadingColumn { reportLeadingColumn() }
+        }
+        if zoomMotion.landedOnRenderServer() {
+            // `rank` without the zooming pane, the strip container back at its range, the clips and backing
+            // re-read once: the same pass the CPU path runs in its landing frame.
+            ensureStacking()
+            applyPresentation(force: true)
+            releaseCovered()
         }
         refreshDividerHover()
         guard userMotionActive, !isGesturing else { return }
@@ -277,4 +330,9 @@ extension SplitMotion {
         }
         return moves
     }
+}
+
+private extension AnimatedFrame {
+    /// The frame shows its rest: geometry and alpha at their targets (what ``ScreenContentView/hasMotion`` reads).
+    var showsRest: Bool { rect == targetRect && alpha.value == alpha.target }
 }
