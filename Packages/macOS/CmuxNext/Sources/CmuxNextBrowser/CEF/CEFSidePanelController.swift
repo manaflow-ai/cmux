@@ -33,12 +33,15 @@ final class CEFSidePanelController {
         guard let tab else { return }
         guard let browserID = tab.browserID, let shim = tab.runtime.shim, tab.runtime.forkAPIVersion >= 13,
               let state = shim.takeString(shim.sidePanelState(browserID)).flatMap(CEFSidePanelState.init(json:)) else {
+            if let browserID = tab.browserID { tab.runtime.widgetHost?.place(.sidePanel, owner: browserID, in: nil) }
             removeHeader(from: tab)
             return
         }
         let header = header ?? makeHeader(in: tab)
         self.state = state
         header.apply(state)
+        // Host mode: the panel's page is a widget context at its bounds inside the tab's page.
+        tab.runtime.widgetHost?.place(.sidePanel, owner: browserID, in: tab.host.hostView)
         tab.container.layoutContent()
     }
 

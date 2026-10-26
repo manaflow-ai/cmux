@@ -79,6 +79,8 @@ extension CEFPaneHost {
             window = .live(window: popupWindow)
             lastActivated = browser
             _ = shim.tabActivate(browser)
+            // Host mode: the window's pixels are its widget context, shown filling this host's view.
+            runtime.widgetHost?.place(.popupWindow, owner: browser, in: hostView)
             hostView.postGeometryChange()
             lifecycleTrace.record(tab.id, "popup-window-attached")
             runtime.notePopupWindow("window=\(popupWindow) attached")

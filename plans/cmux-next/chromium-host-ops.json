@@ -4111,6 +4111,18 @@
       "value": 50,
       "refreshes": [],
       "reason": "Answers tab_evaluate: request = the caller's token, a = status, s1 = value; resumed by token (task 018)."
+    },
+    {
+      "kind": "CMUX_SHIM_WIDGET_CONTEXT",
+      "value": 51,
+      "refreshes": [],
+      "reason": "A Views widget with a WebContents is shown or changed (fork task 173: extension popup, side panel, DevTools, popup window, InitAsPopup page popup): browser = owner, request = widget id, a = CAContext id | kind << 32, s1 = bounds x,y,width,height in DIPs from the primary display's top-left (the side panel's: from its page's top-left), s2 = title; ChromiumHostWidgetHost shows it (task 066)."
+    },
+    {
+      "kind": "CMUX_SHIM_WIDGET_GONE",
+      "value": 52,
+      "refreshes": [],
+      "reason": "The widget of WIDGET_CONTEXT closed: browser = owner, request = widget id (task 066)."
     }
   ],
   "host_mode_rewrites": [

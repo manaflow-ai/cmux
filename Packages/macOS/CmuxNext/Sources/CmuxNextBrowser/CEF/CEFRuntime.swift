@@ -151,6 +151,10 @@ final class CEFRuntime {
     var loadInProcess: @Sendable (CEFRuntimeLayout?) -> Result<CEFLoadedLibrary, BootError> = { CEFRuntime.loadLibrary($0) }
     /// Host mode (``BrowserBackend/host``): the attach that replaces ``loadInProcess``; nil in process.
     var hostStart: CEFHostStart?
+    /// Host mode: the host's widgets (extension popups, side panel, DevTools, popup windows,
+    /// page popups) in cmux panels and panes (``showHostWidgets(on:)``, feature `chromiumHostWidgets`);
+    /// nil in process.
+    var widgetHost: ChromiumHostWidgetHost?
     private(set) var preloaded = false
     /// The preload finished mapping the framework (CEF not started yet).
     private(set) var libraryLoaded = false
