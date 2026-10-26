@@ -144,7 +144,8 @@ async fn a_failed_turn_with_output_is_continued() {
     assert_eq!(row(&hub, &id)["lastTurn"]["status"], "completed");
 }
 
-/// A retry that waits fires now: its minute's wait ends at once, under the attempt's own id.
+/// A retry that waits is taken over and sent now, under the attempt's own id: its minute's wait
+/// ends at once and its timer sends nothing.
 #[tokio::test]
 async fn a_waiting_retry_fires_now() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
@@ -154,12 +155,10 @@ async fn a_waiting_retry_fires_now() {
     until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_scheduled")).await;
     assert_eq!(row(&hub, &id)["retry"]["attempt"], 1);
     let v = c.request(RETRY, json!({"sessionId": id})).await.unwrap();
-    assert_eq!(v, json!({"promptId": "p-cap~resume-1", "kind": "turn"}));
-    // Asked again before it started: the same retry, or busy; never a second prompt.
-    match c.request(RETRY, json!({"sessionId": id})).await {
-        Ok(v) => assert_eq!(v["promptId"], "p-cap~resume-1", "{v}"),
-        Err(e) => assert!(e.starts_with("retry.busy"), "{e}"),
-    }
+    assert_eq!((&v["promptId"], &v["kind"]), (&json!("p-cap~resume-1"), &json!("turn")), "{v}");
+    // Asked again: busy while it runs, nothing failed once it went through; never a second prompt.
+    let e = c.request(RETRY, json!({"sessionId": id})).await.unwrap_err();
+    assert!(e.starts_with("retry.busy") || e.starts_with("retry.nothing_failed"), "{e}");
     let k = until(&hub, &id, |k| turn_results(k) == 2).await;
     assert_eq!(turn_results(&k), 2, "fired within seconds, not a minute: {k:?}");
     let messages = user_messages(&hub, &id);
@@ -167,4 +166,113 @@ async fn a_waiting_retry_fires_now() {
     assert_eq!(messages[1]["promptId"], "p-cap~resume-1");
     assert_eq!(row(&hub, &id)["retry"], Value::Null);
     assert_eq!(row(&hub, &id)["lastTurn"]["status"], "completed");
+    let skipped = hub.events(&id, 0, 10_000).unwrap().into_iter().find(|e| e.kind == "auto_resume_skipped");
+    assert_eq!(skipped.map(|e| e.msg["skipped"].clone()), Some(json!("superseded")));
+}
+
+/// A Web caller's retry runs under the Web's rules: one that could not prompt the chat leaves
+/// the waiting retry as it was, never sends it early (Codex review of #25296).
+#[tokio::test]
+async fn a_caller_that_may_not_prompt_the_chat_cannot_take_over_a_waiting_retry() {
+    let (hub, mut c) = setup(PermissionPolicy::Ask).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![60_000]);
+    let id = new_session(&mut c, "retry-web").await;
+    prompt(&mut c, &id, "p-cap", "cap-fail-once: build it").await.unwrap_err();
+    until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_scheduled")).await;
+    // The fake harness's `normal` mode does not ask, by this table: the Web may not prompt it.
+    hub.config.write().await.web_asking_modes.insert("fake".into(), vec!["strict".into()]);
+    let (in_tx, in_rx) = tokio::sync::mpsc::channel(64);
+    let (out_tx, out_rx) = tokio::sync::mpsc::channel(4096);
+    let web = acpmux::server::Origin::Web;
+    tokio::spawn(acpmux::server::serve_connection_with(hub.clone(), in_rx, out_tx, web));
+    let mut web = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+    let e = web.request(RETRY, json!({"sessionId": id})).await.unwrap_err();
+    assert!(e.contains("does not ask"), "{e}");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(user_messages(&hub, &id).len(), 1, "{:?}", kinds(&hub, &id));
+    assert_eq!(row(&hub, &id)["retry"]["attempt"], 1, "the retry still waits");
+    assert!(!kinds(&hub, &id).iter().any(|k| k == "auto_resume_skipped"));
+}
+
+/// Stop between a retry's claim and its turn's start refuses it (`retry.stopped`): the
+/// failed turn is not sent again.
+#[tokio::test]
+async fn stop_before_a_retrys_turn_starts_prevents_it() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![]);
+    let id = new_session(&mut c, "retry-stop").await;
+    let e = prompt(&mut c, &id, "p-x", "net-fail-then-exit").await.unwrap_err();
+    assert!(e.contains("stream disconnected"), "{e}");
+    // The agent exits: the retry's prompt waits on the config to start it again
+    // (`cold_prompt_check`), past the claim and before its turn starts.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let session = hub.resolve(&id).unwrap();
+    let mut other = connect(&hub).await;
+    let config = hub.config.write().await;
+    let sid = id.clone();
+    let retry = tokio::spawn(async move { other.request(RETRY, json!({"sessionId": sid})).await });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let _ = tokio::time::timeout(Duration::from_secs(2), hub.cancel(&session)).await;
+    drop(config);
+    let e = retry.await.unwrap().unwrap_err();
+    assert!(e.starts_with("retry.stopped"), "{e}");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(user_messages(&hub, &id).len(), 1, "{:?}", kinds(&hub, &id));
+}
+
+/// A failed turn of agent messages put the ones that joined it back (`digest.rs`): its retry is
+/// the continuation, so each joined message reaches the agent once, when it runs again.
+#[tokio::test]
+async fn a_failed_turn_of_agent_messages_is_continued_not_sent_again() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![]);
+    let id = new_session(&mut c, "retry-digest").await;
+    c.send(method::SESSION_PROMPT, json!({"sessionId": id, "prompt": [{"type": "text", "text": "until-cancel"}]})).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
+    let mut agents = connect(&hub).await;
+    for (pid, agent, text) in [("p-a", "lane-a", "from a"), ("p-b", "lane-b", "[fail-digest-once] from b")] {
+        agents.send(method::SESSION_PROMPT, json!({"sessionId": id, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": pid, "fromAgent": agent}}})).await;
+        agents.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == pid && p["queued"] == true).await;
+    }
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    // The cancelled turn, then the failed turn of both messages.
+    until(&hub, &id, |k| turn_results(k) == 2).await;
+    for _ in 0..200 {
+        if row(&hub, &id)["lastTurn"]["status"] == "failed" && hub.resolve(&id).unwrap().turn().is_none() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let v = c.request(RETRY, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(v["kind"], "turn", "{v}");
+    // The continuation, then the message put back.
+    until(&hub, &id, |k| turn_results(k) == 4).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let messages = user_messages(&hub, &id);
+    let sent = |s: &str| messages.iter().filter(|m| m["text"].as_str().unwrap_or_default().contains(s)).count();
+    assert_eq!(sent("from b"), 2, "the failed turn and its message again, never a third: {messages:?}");
+    assert!(messages.iter().any(|m| m["text"].as_str().unwrap_or_default().starts_with("Your previous turn was cut off")), "{messages:?}");
+}
+
+/// A prompt's hidden context is not recorded (`prompt_context.rs`): a failed turn that had one
+/// is continued, never sent again without it.
+#[tokio::test]
+async fn a_failed_turn_with_hidden_context_is_continued() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![]);
+    let id = new_session(&mut c, "retry-context").await;
+    let context = "<cmux-workspace-context>CTX-MARK</cmux-workspace-context>";
+    let r = c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "fail-once: hello"}],
+               "_meta": {"acpmux": {"promptId": "p-c", "context": context}}}),
+    );
+    r.await.unwrap_err();
+    assert_eq!(user_messages(&hub, &id)[0]["hiddenContext"], true);
+    let v = c.request(RETRY, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(v["promptId"], "p-c~resume-1", "{v}");
+    until(&hub, &id, |k| turn_results(k) == 2).await;
+    let messages = user_messages(&hub, &id);
+    let text = messages[1]["text"].as_str().unwrap();
+    assert!(text.starts_with("Your previous turn was cut off by an error"), "{text}");
 }
