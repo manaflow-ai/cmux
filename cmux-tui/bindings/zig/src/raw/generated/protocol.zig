@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "07f25cd97f355ba0c33e4e9958a84c274851a8c72048a29a69edad5286828785";
+pub const ir_sha256 = "2b7eb48372c3df8cc72e67889a80d49f239b8b46a4d55c94efb165fb7882cb97";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -2204,6 +2204,24 @@ pub const ServerStatsLockStall = struct {
     waiter: []const u8,
 };
 
+pub const ServerStatsLockWait = struct {
+    holder: ?[]const u8 = null,
+    lock: []const u8,
+    site: []const u8,
+    waited_us: u64,
+    waiter: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "holder",
+    };
+};
+
+pub const ServerStatsLockWaits = struct {
+    dropped: u64,
+    long_waits: u64,
+    recent: []const ServerStatsLockWait,
+};
+
 pub const ServerStatsRegistryLock = struct {
     contended_acquisitions: u64,
     hold_us: ServerStatsHistogram,
@@ -2231,6 +2249,7 @@ pub const ServerStatsRequestPathIo = struct {
     host_wait: u64,
     journal_wait: u64,
     lock_hold_over_1ms: ?u64 = null,
+    lock_waits: ?ServerStatsLockWaits = null,
     network: u64,
     proc_scan: u64,
     process_spawn: u64,
@@ -2242,6 +2261,7 @@ pub const ServerStatsRequestPathIo = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "lock_hold_over_1ms",
+        "lock_waits",
     };
 };
 
