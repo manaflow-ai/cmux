@@ -19630,6 +19630,61 @@
         "ty": "uint32",
         "required": true
       },
+      "/data/slow_requests": {
+        "ty": "object"
+      },
+      "/data/slow_requests/expected_waits": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/slow_requests/recent": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/slow_requests/recent/*": {
+        "ty": "object"
+      },
+      "/data/slow_requests/recent/*/busy_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/slow_requests/recent/*/client": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/slow_requests/recent/*/duration_ms": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/slow_requests/recent/*/method": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/slow_requests/recent/*/started_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/slow_requests/spawn_failures": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/slow_requests/threshold_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/slow_requests/total": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/slow_requests/unwatched": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/slow_requests/watchdog_wakeups": {
+        "ty": "uint64",
+        "required": true
+      },
       "/data/uptime_ms": {
         "ty": "uint64",
         "required": true

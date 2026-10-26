@@ -1695,6 +1695,7 @@ dependencies = [
  "cmux-sdk",
  "cmux-terminal-iface",
  "cmux-terminal-sizing",
+ "cmux-threads",
  "cmux-tui-cdp",
  "cmux-tui-cloud-conversations",
  "cmux-tui-image-paste",
