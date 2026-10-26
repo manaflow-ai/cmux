@@ -1,0 +1,504 @@
+// libcmux_cef_shim_remote.dylib (remote_shim_runtime.h): the runtime the generated exports call,
+// and the local exports that need no function pointer. Plain C++ so that
+// scripts/cmux-next/tests/remote-shim-abi.test.sh builds it on any machine; built for cmux by
+// scripts/cmux-next/build-chromium-host.sh.
+//
+// Wire (chromium_host_control.h frames, fields as chromium_host_tlv.h):
+//   cmux -> host  generated op ids 1..kOpCount with the export's arguments; INITIALIZE is
+//                 kOpInitialize with cmux_shim_initialize's strings, severity and switches
+//   host -> cmux  kOpEvent    i32 kind, i32 browser, i32 request, i64 a, i64 b, str s1, str s2
+//                 kOpMirror   i32 mirror op, bytes key (EncodeFields), then bytes value, or no
+//                             value to forget the key; before the EVENT that refreshes it
+//                 kOpAck      `token`'s op ran: its pending marks clear
+//                 kOpReply    `token`'s answer, its fields handed to the reply callback
+// Anything else from the host is malformed and ends it, as bad_message::ReceivedBadMessage ends
+// a renderer (content/browser/bad_message.cc).
+
+#include "cmux_cef_shim.h"
+#include "remote_shim_mirror.h"
+#include "remote_shim_runtime.h"
+
+#include <cassert>
+#include <cstdlib>
+#include <cstring>
+#include <functional>
+#include <limits>
+#include <memory>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
+#include <pthread.h>
+#include <unistd.h>
+#if !defined(__APPLE__)
+#include <sys/syscall.h>
+#endif
+
+#include "generated/remote_shim.inc"
+
+namespace cmux_remote {
+namespace {
+
+using cmux_host::control::Channel;
+using cmux_host::control::End;
+using cmux_host::control::Field;
+using cmux_host::control::Message;
+
+bool OnMainThread() {
+#if defined(__APPLE__)
+  return pthread_main_np() == 1;
+#else
+  return syscall(SYS_gettid) == getpid();
+#endif
+}
+
+#define CMUX_REMOTE_ASSERT_MAIN() assert(OnMainThread() && "the remote shim is main-thread only")
+
+void RunMainTask(void* task) {
+  std::unique_ptr<std::function<void()>> run(static_cast<std::function<void()>*>(task));
+  (*run)();
+}
+
+int EndReason(End end) {
+  switch (end) {
+    case End::kClosed:
+      return CMUX_REMOTE_END_CLOSED;
+    case End::kPeerClosed:
+      return CMUX_REMOTE_END_PEER_CLOSED;
+    case End::kMalformed:
+      return CMUX_REMOTE_END_MALFORMED;
+    case End::kQuotaCeiling:
+      return CMUX_REMOTE_END_QUOTA;
+    case End::kIoError:
+      return CMUX_REMOTE_END_IO_ERROR;
+  }
+  return CMUX_REMOTE_END_IO_ERROR;
+}
+
+Message MakeMessage(uint16_t op, uint32_t token, std::vector<Field> fields) {
+  Message message;
+  message.op = op;
+  message.token = token;
+  message.fields = std::move(fields);
+  return message;
+}
+
+// The dylib's state. The C ABI has no context argument, so there is one per process, as in
+// libcmux_cef_shim.dylib.
+class Runtime {
+ public:
+  void Configure(const cmux_remote_shim_callbacks& callbacks) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    callbacks_ = callbacks;
+  }
+
+  int Attach(int fd, void* in_ring, void* out_ring) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    if (callbacks_.post_main == nullptr || fd < 0 || link_ == Link::kAttached) return 0;
+    const uint64_t generation = ++generation_;
+    const cmux_remote_shim_callbacks callbacks = callbacks_;
+    channel_ = std::make_unique<Channel>(
+        fd,
+        [callbacks](std::function<void()> task) {
+          callbacks.post_main(callbacks.ctx, &RunMainTask, new std::function<void()>(std::move(task)));
+        },
+        [this, generation](std::vector<Message> batch) { Deliver(generation, std::move(batch)); },
+        [this, generation](End end) { Ended(generation, end); });
+    link_ = Link::kAttached;
+    in_ring_ = in_ring;
+    out_ring_ = out_ring;
+    for (const Message& message : preinit_) Send(message);
+    if (initialize_) Send(*initialize_);
+    std::vector<Message> queued = std::move(queued_);
+    queued_.clear();
+    for (const Message& message : queued) Send(message);
+    return 1;
+  }
+
+  void Detach() {
+    CMUX_REMOTE_ASSERT_MAIN();
+    Disconnect();
+  }
+
+  bool attached() const { return link_ == Link::kAttached; }
+
+  void GetStats(cmux_remote_shim_stats* out) const {
+    CMUX_REMOTE_ASSERT_MAIN();
+    *out = stats_;
+    if (channel_) {
+      const cmux_host::control::Stats channel = channel_->stats();
+      out->quota_excess += channel.quota_excess;
+      out->coalesced += channel.coalesced;
+      out->pending_messages = channel.pending_messages;
+    }
+  }
+
+  void Post(uint16_t op, uint32_t token, const TlvWriter& args) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    Message message = MakeMessage(op, token, args.fields());
+    switch (link_) {
+      case Link::kNotYet:
+        if (queued_.size() >= cmux_host::control::kQuotaMessages) {
+          Dropped(token);
+        } else {
+          queued_.push_back(std::move(message));
+        }
+        break;
+      case Link::kAttached:
+        Send(message);
+        break;
+      case Link::kDetached:
+        Dropped(token);
+        break;
+    }
+  }
+
+  void PostPreinit(uint16_t op, const TlvWriter& args) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    if (initialize_) {
+      Post(op, 0, args);
+      return;
+    }
+    preinit_.push_back(MakeMessage(op, 0, args.fields()));
+    if (link_ == Link::kAttached) Send(preinit_.back());
+  }
+
+  int Initialize(const TlvWriter& args, void* ctx, cmux_shim_event_fn event) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    if (initialize_) return 0;
+    event_ctx_ = ctx;
+    event_fn_ = event;
+    initialize_ = MakeMessage(kOpInitialize, 0, args.fields());
+    if (link_ == Link::kAttached) Send(*initialize_);
+    return 1;
+  }
+
+  uint32_t NextToken() {
+    CMUX_REMOTE_ASSERT_MAIN();
+    if (++token_ == 0) token_ = 1;
+    return token_;
+  }
+
+  int32_t MintID(uint16_t op) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    if (op == kOpDevtoolsCall) return next_devtools_id_ < kEndMintedDevToolsID ? next_devtools_id_++ : 0;
+    return next_browser_id_ < std::numeric_limits<int32_t>::max() ? next_browser_id_++ : 0;
+  }
+
+  void MarkPending(uint16_t mirror_op, uint32_t token, const TlvWriter& key, uint32_t wildcards) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    // With no host to ack it, a mark would never clear.
+    if (link_ == Link::kDetached) return;
+    mirror_.MarkPending(mirror_op, token, key.fields(), wildcards);
+  }
+
+  TlvReader MirrorLookup(uint16_t mirror_op, const TlvWriter& key) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    if (link_ != Link::kAttached) {
+      ++stats_.reads_unattached;
+      return TlvReader();
+    }
+    return mirror_.Lookup(mirror_op, key.fields());
+  }
+
+  void SetPolicy(uint16_t op, void* fn) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    policies_[op] = fn;
+  }
+  void* Policy(uint16_t op) const {
+    const auto it = policies_.find(op);
+    return it == policies_.end() ? nullptr : it->second;
+  }
+
+  void UnmigratedAsync(uint16_t) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    ++stats_.unmigrated_async;
+  }
+
+  uint64_t ViewToken(void* view) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    if (view == nullptr) return 0;
+    const auto [it, added] = view_tokens_.try_emplace(view, next_view_token_);
+    if (added) ++next_view_token_;
+    return it->second;
+  }
+
+  void* in_ring() const { return in_ring_; }
+  void* out_ring() const { return out_ring_; }
+
+ private:
+  enum class Link {
+    kNotYet,    // before the first attach: posts queue
+    kAttached,  // posts go out
+    kDetached,  // the host is gone: posts drop until the next attach
+  };
+
+  void Send(const Message& message) {
+    if (!channel_->Send(message)) Dropped(message.token);
+  }
+
+  void Dropped(uint32_t token) {
+    ++stats_.unsendable;
+    if (token != 0) mirror_.Ack(token);
+  }
+
+  // Closes the channel. Its reader thread ends on its own and its end reaches Ended, which
+  // destroys it there: destroying a Channel joins that thread, which is done by then.
+  void Disconnect() {
+    if (!channel_) return;
+    channel_->Close();
+    closing_.emplace(generation_, std::move(channel_));
+    ++generation_;
+    link_ = Link::kDetached;
+    in_ring_ = nullptr;
+    out_ring_ = nullptr;
+    mirror_.Clear();
+  }
+
+  void Deliver(uint64_t generation, std::vector<Message> batch) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    for (const Message& message : batch) {
+      // A callback below may have detached, or detached and attached again.
+      if (generation != generation_) return;
+      if (!Apply(message)) {
+        Disconnect();
+        if (callbacks_.ended) callbacks_.ended(callbacks_.ctx, CMUX_REMOTE_END_MALFORMED);
+        return;
+      }
+    }
+  }
+
+  void Ended(uint64_t generation, End end) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    if (generation == generation_) {
+      Disconnect();
+      if (callbacks_.ended) callbacks_.ended(callbacks_.ctx, EndReason(end));
+    }
+    closing_.erase(generation);
+  }
+
+  // False for a malformed frame.
+  bool Apply(const Message& message) {
+    TlvReader r(message.fields);
+    switch (message.op) {
+      case kOpEvent: {
+        const int32_t kind = r.I32();
+        const int32_t browser = r.I32();
+        const int32_t request = r.I32();
+        const int64_t a = r.I64();
+        const int64_t b = r.I64();
+        const std::string s1 = r.Str().value_or(std::string());
+        const std::string s2 = r.Str().value_or(std::string());
+        if (!r.ok() || !r.AtEnd()) return false;
+        if (event_fn_) event_fn_(event_ctx_, kind, browser, request, a, b, s1.c_str(), s2.c_str());
+        return true;
+      }
+      case kOpMirror: {
+        const int32_t op = r.I32();
+        const std::string key_bytes = r.Bytes();
+        const bool forget = r.AtEnd();
+        const std::string value_bytes = forget ? std::string() : r.Bytes();
+        std::vector<Field> key;
+        std::vector<Field> value;
+        if (!r.ok() || !r.AtEnd() || op < 1 || op > kOpCount) return false;
+        if (!cmux_host::control::DecodeFields(key_bytes, &key)) return false;
+        if (!cmux_host::control::DecodeFields(value_bytes, &value)) return false;
+        if (forget) {
+          mirror_.Erase(static_cast<uint16_t>(op), key);
+        } else {
+          mirror_.Set(static_cast<uint16_t>(op), key, std::move(value));
+        }
+        return true;
+      }
+      case kOpAck:
+        if (!message.fields.empty()) return false;
+        mirror_.Ack(message.token);
+        return true;
+      case kOpReply: {
+        std::string fields;
+        if (!cmux_host::control::EncodeFields(message.fields, &fields)) return false;
+        if (callbacks_.reply) {
+          callbacks_.reply(callbacks_.ctx, message.token, fields.data(), fields.size());
+        } else {
+          ++stats_.replies_unhandled;
+        }
+        return true;
+      }
+      default:
+        return false;
+    }
+  }
+
+  cmux_remote_shim_callbacks callbacks_ = {};
+  Link link_ = Link::kNotYet;
+  std::unique_ptr<Channel> channel_;
+  // Closed channels whose reader has not reported its end yet, by generation.
+  std::unordered_map<uint64_t, std::unique_ptr<Channel>> closing_;
+  // Bumped by every attach and disconnect: frames of an earlier channel are dropped.
+  uint64_t generation_ = 0;
+  void* in_ring_ = nullptr;
+  void* out_ring_ = nullptr;
+  std::vector<Message> queued_;
+  std::vector<Message> preinit_;
+  std::optional<Message> initialize_;
+  void* event_ctx_ = nullptr;
+  cmux_shim_event_fn event_fn_ = nullptr;
+  MirrorCache mirror_;
+  std::unordered_map<uint16_t, void*> policies_;
+  std::unordered_map<void*, uint64_t> view_tokens_;
+  uint64_t next_view_token_ = 1;
+  uint32_t token_ = 0;
+  int32_t next_browser_id_ = kFirstMintedBrowserID;
+  int32_t next_devtools_id_ = kFirstMintedDevToolsID;
+  cmux_remote_shim_stats stats_ = {};
+};
+
+Runtime& R() {
+  // Never destroyed: an exit-time destructor would race the main thread and the reader.
+  static Runtime* runtime = new Runtime();
+  return *runtime;
+}
+
+}  // namespace
+
+void TlvWriter::View(void* ns_view) {
+  ViewToken(R().ViewToken(ns_view));
+}
+
+void Post(uint16_t op, uint32_t token, const TlvWriter& args) {
+  R().Post(op, token, args);
+}
+void PostInput(uint16_t op, uint32_t token, const TlvWriter& args) {
+  R().Post(op, token, args);
+}
+void PostPreinit(uint16_t op, const TlvWriter& args) {
+  R().PostPreinit(op, args);
+}
+uint32_t NextToken() {
+  return R().NextToken();
+}
+int32_t MintID(uint16_t op) {
+  return R().MintID(op);
+}
+char* Dup(const std::string& text) {
+  auto* out = static_cast<char*>(std::malloc(text.size() + 1));
+  if (out == nullptr) return nullptr;
+  std::memcpy(out, text.data(), text.size());
+  out[text.size()] = '\0';
+  return out;
+}
+void MarkPending(uint16_t mirror_op, uint32_t token, const TlvWriter& key, uint32_t wildcards) {
+  R().MarkPending(mirror_op, token, key, wildcards);
+}
+TlvReader MirrorLookup(uint16_t mirror_op, const TlvWriter& key) {
+  return R().MirrorLookup(mirror_op, key);
+}
+void SetPolicy(uint16_t op, void* fn) {
+  R().SetPolicy(op, fn);
+}
+void* Policy(uint16_t op) {
+  return R().Policy(op);
+}
+void UnmigratedAsync(uint16_t op) {
+  R().UnmigratedAsync(op);
+}
+void* InputRing() {
+  return R().in_ring();
+}
+void* OutputRing() {
+  return R().out_ring();
+}
+
+}  // namespace cmux_remote
+
+using cmux_remote::R;
+
+extern "C" {
+
+void cmux_remote_shim_configure(const cmux_remote_shim_callbacks* callbacks) {
+  R().Configure(callbacks ? *callbacks : cmux_remote_shim_callbacks{});
+}
+
+int cmux_remote_shim_attach(int ctl_fd, void* in_ring, void* out_ring) {
+  return R().Attach(ctl_fd, in_ring, out_ring);
+}
+
+void cmux_remote_shim_detach(void) {
+  R().Detach();
+}
+
+int cmux_remote_shim_attached(void) {
+  return R().attached() ? 1 : 0;
+}
+
+void cmux_remote_shim_get_stats(cmux_remote_shim_stats* out) {
+  if (out != nullptr) R().GetStats(out);
+}
+
+// --- local exports (chromium-host-ops.json class local) --------------------------------------
+
+// The framework is the host's (task 101): nothing is mapped here.
+CMUX_SHIM_EXPORT int cmux_shim_load(const char* framework_binary, char* err, size_t err_len) {
+  (void)framework_binary;
+  if (err != nullptr && err_len > 0) err[0] = '\0';
+  return 1;
+}
+
+// The app process runs no CEF, so NSApp needs no CefAppProtocol.
+CMUX_SHIM_EXPORT int cmux_shim_prepare_application(void) {
+  return 1;
+}
+
+// Keeps `event` for the host's EVENT frames and sends INITIALIZE; CONTEXT_INITIALIZED comes
+// later as an event. `schedule` is never called: the host runs Chromium's message loop
+// (task 034). `key` is unused: keys route cmux-first (task 030). Returns 1 once INITIALIZE is
+// sent or queued, 0 on a second call.
+CMUX_SHIM_EXPORT int cmux_shim_initialize(const char* framework_dir,
+                                          const char* main_bundle_path,
+                                          const char* subprocess_path,
+                                          const char* root_cache_path,
+                                          const char* log_file,
+                                          int log_severity,
+                                          const char* locale,
+                                          const char* accept_languages,
+                                          const char* const* switches,
+                                          void* ctx,
+                                          cmux_shim_schedule_fn schedule,
+                                          cmux_shim_event_fn event,
+                                          cmux_shim_key_fn key) {
+  (void)schedule;
+  (void)key;
+  cmux_remote::TlvWriter args;
+  args.Str(framework_dir);
+  args.Str(main_bundle_path);
+  args.Str(subprocess_path);
+  args.Str(root_cache_path);
+  args.Str(log_file);
+  args.I32(log_severity);
+  args.Str(locale);
+  args.Str(accept_languages);
+  int count = 0;
+  while (switches != nullptr && switches[count] != nullptr) ++count;
+  args.StrList(switches, count);
+  return R().Initialize(args, ctx, event);
+}
+
+// No external message pump in host mode (task 034).
+CMUX_SHIM_EXPORT void cmux_shim_do_work(void) {}
+
+// Strings this dylib returns are Dup's malloc'd copies.
+CMUX_SHIM_EXPORT void cmux_shim_free(char* s) {
+  std::free(s);
+}
+
+CMUX_SHIM_EXPORT void cmux_shim_free_owned(char* s) {
+  std::free(s);
+}
+
+// Swift writes password entries for this binary, which compiles the same header; the host
+// checks its own layout.
+CMUX_SHIM_EXPORT int cmux_shim_password_entry_size(void) {
+  return static_cast<int>(sizeof(cmux_shim_password_entry));
+}
+
+}  // extern "C"

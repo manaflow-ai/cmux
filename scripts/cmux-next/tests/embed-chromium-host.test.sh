@@ -4,7 +4,8 @@
 # against the shim build and its artifact, and puts it at
 # Contents/MacOS/<Product> Chromium Host (the app is Chromium's main bundle, so
 # the helpers' sandbox reaches the framework); it removes the earlier
-# Frameworks/<Product> Chromium Host.app. A Release embed never builds it and
+# Frameworks/<Product> Chromium Host.app; the same build's remote shim goes to
+# Frameworks/libcmux_cef_shim_remote.dylib. A Release embed never builds it and
 # removes one left by an earlier Debug build, so Release, RC and NIGHTLY
 # bundles carry no host. A host that does not build leaves a Debug
 # build without the host app (a warning), unless
@@ -49,6 +50,7 @@ cat > "$scripts/build-chromium-host.sh" <<STUB
 echo "\${CMUX_CEF_ARCH:-} \$1 \$2" >> "$TMP/host-builds"
 [[ -f "$TMP/host-fails" ]] && { echo "error: stand-in host compile failed" >&2; exit 1; }
 mkdir -p "$TMP/host"; printf 'host binary' > "$TMP/host/cmux-chromium-host"; chmod +x "$TMP/host/cmux-chromium-host"; printf host-key > "$TMP/host/.build-key"
+printf 'remote shim' > "$TMP/host/libcmux_cef_shim_remote.dylib"
 echo "$TMP/host"
 STUB
 chmod +x "$scripts/"*.sh
@@ -64,6 +66,7 @@ embed() { # <configuration> [VAR=value...]
   run_embed "$@" || fail "embed-cef.sh failed for $1: $(cat "$TMP/embed-$1.log")"
 }
 host_app="$TMP/build/app.app/Contents/MacOS/app Chromium Host"
+remote_shim="$TMP/build/app.app/Contents/Frameworks/libcmux_cef_shim_remote.dylib"
 old_host_app="$TMP/build/app.app/Contents/Frameworks/app Chromium Host.app"
 
 # 1. Debug: the host, built from the arm64 shim build, in Contents/MacOS; the earlier host app is removed.
@@ -73,11 +76,13 @@ embed Debug
 [[ ! -e "$old_host_app" ]] || fail "a Debug embed keeps the earlier Frameworks/... Chromium Host.app"
 [[ "$(cat "$TMP/host-builds")" == "arm64 $dist $TMP/shim" ]] || fail "the host was not built once against the arm64 artifact and shim build: $(cat "$TMP/host-builds")"
 [[ "$(cat "$host_app")" == "host binary" ]] || fail "the host is not the host build"
+[[ "$(cat "$remote_shim")" == "remote shim" ]] || fail "a Debug embed has not the host build's remote shim"
 
 # 2. Release on the same bundle: no host build, and the Debug host app is gone.
 rm -f "$TMP/host-builds"
 embed Release
 [[ ! -e "$host_app" ]] || fail "a Release embed keeps a Chromium host app"
+[[ ! -e "$remote_shim" ]] || fail "a Release embed keeps the remote shim"
 [[ ! -e "$TMP/host-builds" ]] || fail "a Release embed built the Chromium host"
 [[ -d "$TMP/build/app.app/Contents/Frameworks/app Helper.app" ]] || fail "a Release embed lost the base helper"
 
@@ -88,6 +93,7 @@ embed Debug
 : > "$TMP/host-fails"
 embed Debug
 [[ ! -e "$host_app" ]] || fail "a Debug embed whose host did not build keeps a host app"
+[[ ! -e "$remote_shim" ]] || fail "a Debug embed whose host did not build keeps the remote shim"
 grep -q "warning: the Chromium host app did not build" "$TMP/embed-Debug.log" || fail "no warning for a host that did not build"
 [[ -d "$TMP/build/app.app/Contents/Frameworks/app Helper.app" ]] || fail "a Debug embed whose host did not build lost the base helper"
 
@@ -97,6 +103,7 @@ embed Debug
 [[ -f "$host_app" ]] || fail "a Debug embed has no Chromium host before the skip"
 embed Debug CMUX_NEXT_SKIP_CEF=1
 [[ ! -e "$host_app" ]] || fail "a CMUX_NEXT_SKIP_CEF=1 embed keeps the Chromium host"
+[[ ! -e "$remote_shim" ]] || fail "a CMUX_NEXT_SKIP_CEF=1 embed keeps the remote shim"
 : > "$TMP/host-fails"
 
 # 5. The same failing host with CMUX_NEXT_REQUIRE_CHROMIUM_HOST=1: the build fails.

@@ -1,0 +1,317 @@
+// The remote shim (client/remote_shim.mm) against a fake host on a socket pair: calls return at
+// once, preinit ops go first and in order at every attach, ids are minted from 1 << 20, mirror
+// values pushed before an EVENT are read in that event's callback, a post's pending keys hide
+// the old value until the ack, and a bad frame ends the host. Built and run by
+// scripts/cmux-next/tests/remote-shim-abi.test.sh; needs no CEF. One translation unit with the
+// client, for the generated op ids (generated/remote_shim.inc also defines the exports).
+#include "remote_shim.mm"
+
+#include <poll.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <deque>
+#include <functional>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <utility>
+#include <vector>
+
+namespace {
+
+using cmux_host::control::Decode;
+using cmux_host::control::Encode;
+using cmux_host::control::EncodeFields;
+using cmux_host::control::Message;
+using cmux_host::control::Parse;
+using cmux_host::control::TlvReader;
+using cmux_host::control::TlvWriter;
+
+int failures = 0;
+#define CHECK(cond)                                                       \
+  do {                                                                    \
+    if (!(cond)) {                                                        \
+      std::fprintf(stderr, "%s:%d: CHECK failed: %s\n", __FILE__, __LINE__, #cond); \
+      ++failures;                                                         \
+    }                                                                     \
+  } while (0)
+
+// The test's main thread queue: what cmux's MainWorkScheduler is in the app.
+std::mutex queue_mutex;
+std::deque<std::pair<cmux_remote_main_task_fn, void*>> queue;
+
+void PostMain(void*, cmux_remote_main_task_fn run, void* task) {
+  std::lock_guard<std::mutex> lock(queue_mutex);
+  queue.emplace_back(run, task);
+}
+
+// Runs posted tasks until `done` holds or `limit` passes.
+bool PumpUntil(const std::function<bool()>& done, std::chrono::milliseconds limit = std::chrono::seconds(5)) {
+  const auto deadline = std::chrono::steady_clock::now() + limit;
+  while (!done()) {
+    std::deque<std::pair<cmux_remote_main_task_fn, void*>> tasks;
+    {
+      std::lock_guard<std::mutex> lock(queue_mutex);
+      tasks.swap(queue);
+    }
+    for (auto& [run, task] : tasks) run(task);
+    if (std::chrono::steady_clock::now() > deadline) return false;
+    if (tasks.empty()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  return true;
+}
+
+// The fake host's end: frames cmux sent, and frames to send back.
+struct Host {
+  int fd = -1;
+  std::vector<uint8_t> buffer;
+  std::deque<int> fds;
+
+  // Reads until `count` messages arrived (or 5 s pass).
+  std::vector<Message> Read(size_t count) {
+    std::vector<Message> out;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (out.size() < count && std::chrono::steady_clock::now() < deadline) {
+      Message message;
+      size_t used = 0;
+      const Parse parse = buffer.empty() ? Parse::kNeedMore : Decode(buffer.data(), buffer.size(), &fds, &message, &used);
+      if (parse == Parse::kFrame) {
+        buffer.erase(buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(used));
+        out.push_back(std::move(message));
+        continue;
+      }
+      if (parse == Parse::kMalformed) break;
+      pollfd p{fd, POLLIN, 0};
+      if (::poll(&p, 1, 50) <= 0) continue;
+      uint8_t chunk[4096];
+      const ssize_t n = ::read(fd, chunk, sizeof chunk);
+      if (n <= 0) break;
+      buffer.insert(buffer.end(), chunk, chunk + n);
+    }
+    return out;
+  }
+
+  void Send(const Message& message) {
+    std::vector<uint8_t> bytes;
+    CHECK(Encode(message, &bytes));
+    CHECK(::write(fd, bytes.data(), bytes.size()) == static_cast<ssize_t>(bytes.size()));
+  }
+};
+
+int AttachNew(Host* host) {
+  int pair[2];
+  if (::socketpair(AF_UNIX, SOCK_STREAM, 0, pair) != 0) return 0;
+  host->fd = pair[1];
+  host->buffer.clear();
+  return cmux_remote_shim_attach(pair[0], nullptr, nullptr);
+}
+
+Message Mirror(uint16_t op, int32_t browser, const char* value) {
+  TlvWriter key;
+  key.I32(browser);
+  TlvWriter v;
+  v.Str(value);
+  std::string key_bytes, value_bytes;
+  EncodeFields(key.fields(), &key_bytes);
+  EncodeFields(v.fields(), &value_bytes);
+  TlvWriter m;
+  m.I32(op);
+  m.Bytes(key_bytes.data(), key_bytes.size());
+  m.Bytes(value_bytes.data(), value_bytes.size());
+  Message message;
+  message.op = cmux_remote::kOpMirror;
+  message.fields = m.Take();
+  return message;
+}
+
+Message Event(int kind, int browser) {
+  TlvWriter w;
+  w.I32(kind);
+  w.I32(browser);
+  w.I32(0);
+  w.I64(7);
+  w.I64(8);
+  w.Str("s1");
+  w.Str(nullptr);
+  Message message;
+  message.op = cmux_remote::kOpEvent;
+  message.fields = w.Take();
+  return message;
+}
+
+struct Seen {
+  int events = 0;
+  std::string state_in_event;
+  std::string s2;
+  int ended = -1;
+  bool scheduled = false;
+};
+Seen seen;
+
+std::string NavigationState(int browser) {
+  char* s = cmux_shim_tab_navigation_state(browser);
+  std::string out = s ? s : "<null>";
+  cmux_shim_free(s);
+  return out;
+}
+
+void OnEvent(void*, int, int browser_id, int, int64_t a, int64_t b, const char*, const char* s2) {
+  ++seen.events;
+  CHECK(a == 7 && b == 8);
+  seen.s2 = s2;
+  seen.state_in_event = NavigationState(browser_id);
+}
+
+void OnSchedule(void*, int64_t) {
+  seen.scheduled = true;
+}
+
+void OnEnded(void*, int reason) {
+  seen.ended = reason;
+}
+
+}  // namespace
+
+int main() {
+  // ABI identity and the local exports.
+  CHECK(std::strcmp(cmux_shim_abi_id(), CMUX_TEST_ABI_ID) == 0);
+  char err[16] = "x";
+  CHECK(cmux_shim_load("/nonexistent", err, sizeof err) == 1 && err[0] == '\0');
+  CHECK(cmux_shim_prepare_application() == 1);
+  CHECK(cmux_shim_password_entry_size() == static_cast<int>(sizeof(cmux_shim_password_entry)));
+  cmux_shim_do_work();
+
+  // Before attach: mints, a queued post, queued preinit ops, a mirror read that is a fault.
+  CHECK(cmux_shim_tab_add(1, "https://a.test/", 0, 1) == cmux_remote::kFirstMintedBrowserID);
+  CHECK(cmux_shim_tab_add(1, "https://b.test/", 1, 0) == cmux_remote::kFirstMintedBrowserID + 1);
+  CHECK(cmux_shim_create_window(5, nullptr, 800, 600, "https://c.test/", nullptr) == 1);
+  CHECK(cmux_shim_devtools_call(1, "Page.enable", "{}") == cmux_remote::kFirstMintedDevToolsID);
+  cmux_shim_set_background_color(0xff102030u);
+  CHECK(cmux_shim_page_scheme_add("docs", "/tmp", nullptr) == 1);
+  CHECK(cmux_shim_window_count() == 0);
+  cmux_remote_shim_stats stats = {};
+  cmux_remote_shim_get_stats(&stats);
+  CHECK(stats.reads_unattached == 1);
+
+  const char* switches[] = {"enable-logging", "v=1", nullptr};
+  CHECK(cmux_shim_initialize("/fw", "/app", "/helper", "/cache", nullptr, 0, "en-US", nullptr, switches, nullptr,
+                             &OnSchedule, &OnEvent, nullptr) == 1);
+  CHECK(cmux_shim_initialize("/fw", "/app", "/helper", "/cache", nullptr, 0, nullptr, nullptr, nullptr, nullptr,
+                             &OnSchedule, &OnEvent, nullptr) == 0);
+  // After initialize a preinit export is a post, sent after INITIALIZE.
+  cmux_shim_set_new_tab_page_url("cmux-page://new-tab/");
+
+  CHECK(cmux_remote_shim_attach(3, nullptr, nullptr) == 0);  // not configured
+  cmux_remote_shim_callbacks callbacks = {};
+  callbacks.post_main = &PostMain;
+  callbacks.ended = &OnEnded;
+  cmux_remote_shim_configure(&callbacks);
+
+  Host host;
+  CHECK(AttachNew(&host) == 1);
+  CHECK(cmux_remote_shim_attached() == 1);
+  {
+    // preinit in call order, INITIALIZE, then the posts in call order.
+    const std::vector<uint16_t> want = {
+        cmux_remote::kOpSetBackgroundColor, cmux_remote::kOpPageSchemeAdd, cmux_remote::kOpInitialize,
+        cmux_remote::kOpTabAdd,             cmux_remote::kOpTabAdd,        cmux_remote::kOpCreateWindow,
+        cmux_remote::kOpDevtoolsCall,       cmux_remote::kOpSetNewTabPageUrl};
+    const std::vector<Message> got = host.Read(want.size());
+    CHECK(got.size() == want.size());
+    for (size_t i = 0; i < got.size() && i < want.size(); ++i) CHECK(got[i].op == want[i]);
+    if (got.size() == want.size()) {
+      TlvReader color(got[0].fields);
+      CHECK(color.U32() == 0xff102030u && color.ok() && color.AtEnd());
+      TlvReader init(got[2].fields);
+      CHECK(init.Str() == std::optional<std::string>("/fw"));
+      init.Str();
+      init.Str();
+      init.Str();
+      CHECK(!init.Str().has_value());  // log_file NULL stays NULL
+      CHECK(init.I32() == 0);
+      init.Str();
+      CHECK(!init.Str().has_value());
+      CHECK(init.StrList() == std::vector<std::string>({"enable-logging", "v=1"}));
+      CHECK(init.ok() && init.AtEnd());
+      TlvReader tab(got[3].fields);
+      CHECK(tab.I32() == cmux_remote::kFirstMintedBrowserID);  // the minted id goes first
+      TlvReader window(got[5].fields);
+      CHECK(window.I32() == cmux_remote::kFirstMintedBrowserID + 2);
+      CHECK(window.I32() == 5);
+    }
+  }
+  CHECK(!seen.scheduled);
+
+  // A mirror value pushed before its EVENT is what the event's callback reads.
+  const int browser = cmux_remote::kFirstMintedBrowserID;
+  host.Send(Mirror(cmux_remote::kOpTabNavigationState, browser, "{\"index\":1}"));
+  host.Send(Event(CMUX_SHIM_ADDRESS, browser));
+  CHECK(PumpUntil([] { return seen.events == 1; }));
+  CHECK(seen.state_in_event == "{\"index\":1}");
+  CHECK(seen.s2.empty());  // a NULL string reaches the callback as ""
+
+  // go_back marks the navigation state pending under its token until the host's ack.
+  cmux_shim_go_back(browser);
+  CHECK(NavigationState(browser) == "<null>");
+  CHECK(NavigationState(browser + 1) == "<null>");  // never pushed
+  {
+    const std::vector<Message> got = host.Read(1);
+    CHECK(got.size() == 1 && got[0].op == cmux_remote::kOpGoBack && got[0].token != 0);
+    if (!got.empty()) {
+      Message ack;
+      ack.op = cmux_remote::kOpAck;
+      ack.token = got[0].token;
+      host.Send(ack);
+      CHECK(PumpUntil([&] { return NavigationState(browser) == "{\"index\":1}"; }));
+    }
+  }
+
+  // A host that never reads: posts still return at once.
+  const auto start = std::chrono::steady_clock::now();
+  for (int i = 0; i < 20000; ++i) cmux_shim_set_zoom_level(browser, 1.0);
+  CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds(2));
+  cmux_remote_shim_get_stats(&stats);
+  CHECK(stats.pending_messages > 0);
+
+  // A frame the client does not know ends the host.
+  Message bad;
+  bad.op = 0x7777;
+  host.Send(bad);
+  CHECK(PumpUntil([] { return seen.ended >= 0; }));
+  CHECK(seen.ended == CMUX_REMOTE_END_MALFORMED);
+  CHECK(cmux_remote_shim_attached() == 0);
+  CHECK(NavigationState(browser) == "<null>");  // the cache went with the host
+  cmux_remote_shim_get_stats(&stats);
+  const uint64_t unsendable = stats.unsendable;
+  cmux_shim_load_url(browser, "https://d.test/");
+  cmux_remote_shim_get_stats(&stats);
+  CHECK(stats.unsendable == unsendable + 1);
+  ::close(host.fd);
+  PumpUntil([] { return false; }, std::chrono::milliseconds(100));  // the old channel's end, dropped
+
+  // A restarted host gets the preinit ops and INITIALIZE again, then new posts.
+  Host second;
+  CHECK(AttachNew(&second) == 1);
+  cmux_shim_stop(browser);
+  {
+    const std::vector<uint16_t> want = {cmux_remote::kOpSetBackgroundColor, cmux_remote::kOpPageSchemeAdd,
+                                        cmux_remote::kOpInitialize, cmux_remote::kOpStop};
+    const std::vector<Message> got = second.Read(want.size());
+    CHECK(got.size() == want.size());
+    for (size_t i = 0; i < got.size() && i < want.size(); ++i) CHECK(got[i].op == want[i]);
+  }
+  seen.ended = -1;
+  cmux_remote_shim_detach();
+  CHECK(cmux_remote_shim_attached() == 0);
+  PumpUntil([] { return false; }, std::chrono::milliseconds(100));
+  CHECK(seen.ended == -1);  // a detach cmux asked for is not reported back
+  ::close(second.fd);
+
+  if (failures == 0) std::printf("remote shim: ok\n");
+  return failures == 0 ? 0 : 1;
+}
