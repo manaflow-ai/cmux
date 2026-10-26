@@ -17,12 +17,18 @@ every --interval ms. Per switch `debug.tab_switch` reports, in ms since the inte
 plus confirm_ms: the daemon stored the selection (window record write), asynchronous.
 The budget: a warm switch commits in the first frame (late_vsyncs 0) and apply p90 <= 8 ms.
 
+Percentiles (p50, p90, p95, p99) come from scripts/perf-lab/perf_stats.py (linear interpolation). The warm
+switches' raw samples go to --out as cmux-perf-result/v1 through BenchApp.record (story --story), per input
+(ctrl_tab, ctrl_shift_tab, click) and tab kind: tab_switch_stages.<input>.<kind>.{apply,commit,e2e} (e2e = input +
+commit, as tab-switch-matrix.py), and tab_switch_stages.<input>.confirm (the daemon store, async).
+
 Usage: tab-switch-stages.py --tag <tag> --app PATH [--rounds 12] [--interval 0.25] [--out DIR] [--json PATH]
+       [--story tab-switch-stages] [--session light]
 """
-import argparse, glob, json, os, re, signal, socket, statistics, subprocess, sys, tempfile, time
+import argparse, json, os, re, signal, socket, statistics, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench_launch import BenchApp, bundle_id  # noqa: E402
+from bench_launch import BenchApp, PERF_LAB, RecordError, bundle_id, load_by_path  # noqa: E402
 
 # `--matrix`: every tab kind at 2/10/30/60 tabs with CPU and memory (tab-switch-matrix.py), through the
 # same fleet entry (scripts/measure/tab-switch.sh passes its arguments here).
@@ -37,12 +43,16 @@ parser.add_argument("--interval", type=float, default=0.25, help="seconds betwee
 parser.add_argument("--apply-budget-ms", type=float, default=8.0)
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json", help="write the samples here")
+parser.add_argument("--story", default="tab-switch-stages", help="result-v1 story of the recorded series")
+parser.add_argument("--session", choices=["light", "stress"], default="light", help="result-v1 session")
 opts = parser.parse_args()
+perf_stats = load_by_path("perf_stats", os.path.join(PERF_LAB, "perf_stats.py"))
+perf_result = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
+pct = perf_stats.pct
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
-BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
 SCRATCH = tempfile.mkdtemp(prefix=f"tabswitch-{TAG}-")
 open(os.path.join(SCRATCH, "ghostty"), "w").close()
 CONFIG = os.path.join(SCRATCH, "cmux.json")
@@ -51,6 +61,8 @@ ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ
        "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1"}
 STAGES = ["input", "focus", "strip", "withdraw", "content", "reveal", "stripSync", "view", "present", "record", "apply", "commit"]
 ROWS, LAUNCHED = [], []
+RECORDED_STAGES = ("apply", "commit", "e2e")
+ENGINES = {"chromium": "chromium", "webkit": "webkit"}  # every other tab kind draws no browser page
 app = None
 
 
@@ -123,11 +135,6 @@ def strip_tabs(minimum=1):
     return []
 
 
-def pct(values, q):
-    values = sorted(values)
-    return values[min(len(values) - 1, int(len(values) * q))] if values else None
-
-
 def summarize(label, switches):
     print(f"\n== {label}: {len(switches)} switches", flush=True)
     by_kind = {}
@@ -139,12 +146,12 @@ def summarize(label, switches):
         for stage in STAGES:
             values = [r[stage + "_ms"] for r in rows if stage + "_ms" in r]
             if values:
-                line[stage] = {"p50": round(pct(values, 0.5), 2), "p90": round(pct(values, 0.9), 2), "max": round(max(values), 2)}
+                line[stage] = {**{f"p{q}": round(pct(values, q / 100), 2) for q in (50, 90, 95, 99)}, "max": round(max(values), 2)}
         late = [r.get("late_vsyncs", 0) for r in rows]
         line["late_vsyncs"] = {"mean": round(statistics.mean(late), 2), "max": max(late), "late_switches": sum(1 for v in late if v > 0)}
         table[kind] = line
-        cells = " ".join(f"{st}={line[st]['p50']}/{line[st]['p90']}" for st in STAGES if st in line)
-        print(f"  {kind:<10} n={len(rows):<3} p50/p90 ms: {cells}  late={line['late_vsyncs']}", flush=True)
+        cells = " ".join(f"{st}={line[st]['p50']}/{line[st]['p90']}/{line[st]['p99']}" for st in STAGES if st in line)
+        print(f"  {kind:<10} n={len(rows):<3} p50/p90/p99 ms: {cells}  late={line['late_vsyncs']}", flush=True)
     return table
 
 
@@ -163,7 +170,8 @@ def measure(label, step, count):
     confirms = own.get("confirms_ms") or []
     table = summarize(label, switches)
     if confirms:
-        print(f"  daemon confirm (async) p50 {pct(confirms, 0.5):.1f} p90 {pct(confirms, 0.9):.1f} max {max(confirms):.1f} ms "
+        print(f"  daemon confirm (async) p50 {pct(confirms, 0.5):.1f} p90 {pct(confirms, 0.9):.1f} p99 {pct(confirms, 0.99):.1f} "
+              f"max {max(confirms):.1f} ms "
               f"({len(confirms)} switches)", flush=True)
     print(f"  main-thread stalls: count={hangs.get('count')} max={hangs.get('max_ms')}", flush=True)
     for record in (hangs.get("records") or [])[-4:]:
@@ -179,6 +187,38 @@ def measure(label, step, count):
         row(f"{label}: {kind}", f"apply p90 <= {opts.apply_budget_ms} ms, every switch in its first frame",
             f"apply p90 {apply_p90} ms, late {late}", apply_p90 <= opts.apply_budget_ms and late == 0)
     return {"switches": switches, "confirms_ms": confirms, "table": table, "hangs": {k: v for k, v in hangs.items() if k != "records"}}
+
+
+def input_series(input_id, part):
+    """(metric, raw samples, engine) of one measured input: each warm kind's stages, and the daemon confirms."""
+    series = []
+    for kind in sorted({s.get("kind", "?") for s in part["switches"]} - {"cold"}):
+        rows = [s for s in part["switches"] if s.get("kind", "?") == kind]
+        name = re.sub(r"[^A-Za-z0-9._-]+", "_", kind)
+        for stage in RECORDED_STAGES:
+            if stage == "e2e":
+                values = [r["input_ms"] + r["commit_ms"] for r in rows if "input_ms" in r and "commit_ms" in r]
+            else:
+                values = [r[stage + "_ms"] for r in rows if stage + "_ms" in r]
+            series.append((f"tab_switch_stages.{input_id}.{name}.{stage}", values, ENGINES.get(kind, "none")))
+    series.append((f"tab_switch_stages.{input_id}.confirm", part["confirms_ms"], "none"))
+    return series
+
+
+def record(launcher, report):
+    """Writes every measured input's series as result-v1 (BenchApp.record); returns {metric: path or "not recorded: why"}."""
+    written = {}
+    for key, input_id in (("keys_forward", "ctrl_tab"), ("keys_back", "ctrl_shift_tab"), ("clicks", "click")):
+        for metric, samples, engine in input_series(input_id, report[key]):
+            if not samples:
+                written[metric] = "not recorded: no samples"
+                continue
+            try:
+                written[metric] = str(launcher.record(opts.story, metric, "ms", samples, better="lower", engine=engine))
+            except (RecordError, perf_result.ResultError) as error:
+                written[metric] = f"not recorded: {error}"
+            print(f"result-v1 {metric}: {written[metric]}", flush=True)
+    return written
 
 
 def cleanup():
@@ -217,7 +257,8 @@ def main():
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1400,900"}
     # One launch path (bench_launch.py): socket in the state folder, bench env, a clear reason when it does not come up.
-    launcher = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=None, screen=None, teardown=False, env=env)
+    launcher = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=None, screen=None, teardown=False, env=env,
+                        perf_session=opts.session)
     try:
         launcher.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
     finally:
@@ -272,6 +313,7 @@ def main():
     report["clicks"] = measure("click", lambda i: rpc("debug.mouse", {"action": "click", "x": tabs[i % n][1][0], "y": tabs[i % n][1][1]}),
                                n * opts.rounds)
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "tabswitch-final.png")})
+    report["results"] = record(launcher, report)
     if opts.json:
         with open(opts.json, "w") as handle:
             json.dump(report, handle, indent=1)
