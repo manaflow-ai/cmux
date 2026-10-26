@@ -299,8 +299,7 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     }
 
     /// Weak reference to the driver that attempt tasks hold.
-    private struct Owner: @unchecked Sendable {
-        // Written once at init; the referent is Sendable.
+    private struct Owner: Sendable {
         weak var value: TerminalAttachDriver?
         init(_ value: TerminalAttachDriver) { self.value = value }
     }

@@ -2,6 +2,8 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextInput
+import CmuxNextSignposts
 import CmuxNextTabs
 import QuartzCore
 
@@ -34,9 +36,13 @@ extension TabDragSession {
         drag.link?.activate()
     }
 
-    /// One ghost frame; false once the ghost settled.
+    /// One ghost frame; false once the ghost settled. The frame is one `motion.drag_frame` thread slice holding the
+    /// tick's dt in us: the ghost's step, the autoscroll, the drop-target hit test and the render (Chrome's per-frame
+    /// slice, `ProxyMain::BeginMainFrame` in cc/trees/proxy_main.cc).
     func tick(_ current: Drag, elapsed dt: Double) -> Bool { // perf-hot: 2ms drag-frame (every frame of a drag)
         guard current === drag || current === landing else { return false }
+        let frame = motionSignposter.begin(.motionDragFrame, "", arg0: Self.dragFrameMicros(seconds: dt))
+        defer { motionSignposter.end(.motionDragFrame, frame) }
         var moving = current.motion.step(dt)
         if current === drag, autoscroll(current, dt: dt) {
             update(current.point)
@@ -52,6 +58,12 @@ extension TabDragSession {
         guard !moving else { return true }
         if current === landing { finishLanding() }
         return false
+    }
+
+    /// `seconds` in whole microseconds, 0 for a negative or NaN time, saturated at `UInt32.max`.
+    static func dragFrameMicros(seconds: Double) -> UInt64 {
+        guard seconds > 0 else { return 0 }
+        return UInt64(min((seconds * 1_000_000).rounded(), Double(UInt32.max)))
     }
 
     /// Auto-scrolls the columns screen under the pointer. Strips and the
@@ -70,7 +82,7 @@ extension TabDragSession {
     func finish(commit: Bool) {
         guard let drag else { return }
         self.drag = nil
-        removeMonitors(drag)
+        endInput(drag)
         if case .workspaces = drag.source.item { return finishWorkspaces(drag, commit: commit) }
         let outcome = commit ? drag.outcome : .cancel
         if commit { noteCommit(drag) }
@@ -143,15 +155,16 @@ extension TabDragSession {
     }
 
     func end(_ drag: Drag) {
-        removeMonitors(drag)
+        endInput(drag)
         drag.link?.deactivate()
         drag.link = nil
         drag.ghost.close()
     }
 
-    func removeMonitors(_ drag: Drag) {
-        if let monitor = drag.monitor { NSEvent.removeMonitor(monitor) }
-        drag.monitor = nil
+    /// Stops the drag's input: its tap intercept and the app-resign observer.
+    func endInput(_ drag: Drag) {
+        drag.input?.cancel()
+        drag.input = nil
         resignObserver = nil
     }
 

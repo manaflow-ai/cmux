@@ -1,5 +1,6 @@
 import CmuxNextBrowser
 @testable import CmuxNextChromiumWarmup
+import CmuxNextCompat
 import CmuxNextInput
 import CmuxNextInputCore
 import CmuxNextInputCoreTestSupport
@@ -21,10 +22,12 @@ import Testing
     let input = FakeInputTap()
 
     func warmup(engine: any ChromiumWarmupEngine = CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap()),
+                memory: ManualMemoryLevelRegistry = ManualMemoryLevelRegistry(),
                 trackingMenu: @escaping @MainActor () -> Bool = { false }) -> ChromiumWarmup {
         let clock = clock
         // A manual clock nobody advances: no deadline fires, so a test's wait ends only when it says.
-        return ChromiumWarmup(engine: engine, input: input, clock: ManualClock(), now: { clock.now }, isTrackingMenu: trackingMenu)
+        return ChromiumWarmup(engine: engine, input: input, memory: memory, clock: ManualClock(), now: { clock.now },
+                              isTrackingMenu: trackingMenu)
     }
 
     /// The quiet period passed: the waiting step runs (`idleDeadline`, with no clock to advance).
@@ -88,6 +91,78 @@ import Testing
         passIdleMoment(warmup)
         #expect(engine.prepared == [true])
         #expect(engine.droppedPages == 1)
+        warmup.stop()
+    }
+
+    /// p07-memory-047, Chrome's spare rule: a warning holds the spare windows (the untaken one
+    /// stays, p13-webui-047) and no spare step runs, neither when one is asked for nor at the next
+    /// idle moment; critical keeps the hold and closes the untaken one; back at normal the hold lets
+    /// go and the next idle moment, never the level's turn, builds the spare again.
+    @Test func noSpareWindowUnderPressureAndNoRefillUntilNormal() {
+        let engine = FakeWarmupEngine()
+        let memory = ManualMemoryLevelRegistry()
+        let warmup = warmup(engine: engine, memory: memory)
+        #expect(memory.liveCount == 1, "the spare windows register once")
+        #expect(engine.holds.isEmpty, "normal holds nothing")
+        warmup.start(defaultIsChromium: { false })
+        engine.onSpareWindowNeeded?()
+        passIdleMoment(warmup)
+        #expect(engine.prepared == [false])
+
+        memory.send(.warning)
+        #expect(engine.holds == [true], "a warning holds the spares")
+        #expect(engine.closes == 0, "a warning closed the untaken spare")
+        #expect(engine.spareWindowCount == 1)
+        engine.onSpareWindowNeeded?()
+        passIdleMoment(warmup)
+        #expect(engine.prepared == [false], "no refill at warning")
+        #expect(input.liveSubscriptions == 0, "no idle wait is armed for a spare at warning")
+
+        memory.send(.critical)
+        #expect(engine.holds == [true, true], "critical keeps the hold")
+        #expect(engine.closes == 1, "critical closes the untaken spare once")
+        #expect(engine.spareWindowCount == 0)
+        engine.onSpareWindowNeeded?()
+        passIdleMoment(warmup)
+        #expect(engine.prepared == [false], "no refill at critical")
+
+        memory.send(.normal)
+        #expect(engine.holds.last == false, "normal lets the spares go")
+        #expect(engine.prepared == [false], "nothing is built on the level's turn")
+        passIdleMoment(warmup)
+        #expect(engine.prepared == [false, false], "the next idle moment builds the spare again")
+        warmup.stop()
+    }
+
+    /// Pressure that comes while a spare waits for its idle moment ends the wait in the level's turn,
+    /// with its input subscription (no wakeups for a spare that cannot be made), and the moment
+    /// builds nothing.
+    @Test func pressureDuringTheIdleWaitBuildsNoSpare() {
+        let engine = FakeWarmupEngine()
+        let memory = ManualMemoryLevelRegistry()
+        let warmup = warmup(engine: engine, memory: memory)
+        warmup.start(defaultIsChromium: { false })
+        engine.onSpareWindowNeeded?()
+        #expect(input.liveSubscriptions == 1, "the spare's idle wait hears the tap")
+        memory.send(.warning)
+        #expect(input.liveSubscriptions == 0, "a warning ends the spare's idle wait and its subscription")
+        passIdleMoment(warmup)
+        #expect(engine.prepared.isEmpty, "a spare was built at warning")
+        warmup.stop()
+    }
+
+    /// Pressure ends only a spare's idle wait: a wait for `CefInitialize` (`chromiumLikely`) builds no
+    /// spare and goes on.
+    @Test func pressureLeavesAWaitThatIsNotASpares() {
+        let engine = FakeWarmupEngine()
+        let memory = ManualMemoryLevelRegistry()
+        let warmup = warmup(engine: engine, memory: memory)
+        let ran = Flag(false)
+        warmup.waitForIdle { ran.value = true }
+        memory.send(.warning)
+        #expect(input.liveSubscriptions == 1, "a warning ended a wait that builds no spare")
+        passIdleMoment(warmup)
+        #expect(ran.value)
         warmup.stop()
     }
 
@@ -163,6 +238,11 @@ import Testing
     /// The `pages` argument of each `prepareSpareWindow` call.
     private(set) var prepared: [Bool] = []
     private(set) var droppedPages = 0
+    /// The argument of each `holdSpareWindows` call.
+    private(set) var holds: [Bool] = []
+    /// How many times the untaken spares were closed (`closeUntakenSpareWindows`).
+    private(set) var closes = 0
+    private(set) var spareWindowCount = 0
     var onSpareWindowNeeded: (@MainActor () -> Void)?
 
     func usedRecently(within window: TimeInterval) async -> Bool { false }
@@ -172,8 +252,18 @@ import Testing
 
     func prepareSpareWindow(pages: Bool) -> Bool {
         prepared.append(pages)
+        spareWindowCount = 1
         return true
     }
 
     func dropPagesSpareWindow() { droppedPages += 1 }
+
+    func holdSpareWindows(_ held: Bool) {
+        holds.append(held)
+    }
+
+    func closeUntakenSpareWindows() {
+        closes += 1
+        spareWindowCount = 0
+    }
 }

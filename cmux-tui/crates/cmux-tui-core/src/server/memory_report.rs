@@ -1,9 +1,11 @@
 //! `memory-report` (p07-memory-044): where this daemon's memory goes, read
 //! when the request arrives. Per PTY terminal: its scrollback pages, live and
 //! compressed, its alternate screen, its Kitty images and the holder ring the
-//! daemon keeps a copy of; then the memory registry's consumers and level and
-//! the process's own footprint. The daemon keeps no sampler, cache or timer
-//! for it, like Chrome's memory-infra dump (`chrome://tracing` memory-infra,
+//! daemon keeps a copy of, or, for a cold terminal, the bytes its compressed
+//! state holds (the report reads it without restoring it); then the memory
+//! registry's consumers and level and the process's own footprint. The
+//! daemon keeps no sampler, cache or timer for it, like Chrome's memory-infra
+//! dump (`chrome://tracing` memory-infra,
 //! base/trace_event/memory_dump_manager.cc), which asks each provider for its
 //! size only when a dump is requested.
 //!
@@ -16,7 +18,7 @@
 
 use super::*;
 use crate::process_resources::{MemoryFootprint, own_memory_footprint};
-use crate::surface::{PtyHome, SurfaceMemory};
+use crate::surface::{PtyHome, SurfaceMemory, TerminalMemory};
 use cmux_memory::{ConsumerReport, PressureLevel, Retention};
 use ghostty_vt::ScreenMemory;
 
@@ -63,7 +65,7 @@ pub(super) fn report(mux: &Mux) -> Value {
             Some(terminal_json(*id, terminal_id, &memory))
         })
         .collect::<Vec<_>>();
-    let registry = mux.memory_registry();
+    let registry = mux.memory.registry();
     let consumers = registry.report().iter().map(consumer_json).collect::<Vec<_>>();
     json!({
         "schema": MEMORY_REPORT_SCHEMA,
@@ -81,6 +83,8 @@ pub(super) fn report(mux: &Mux) -> Value {
 #[derive(Default)]
 struct Totals {
     terminals: u64,
+    cold_terminals: u64,
+    cold_held_bytes: u64,
     scrollback_live_bytes: u64,
     scrollback_compressed_bytes: u64,
     alternate_screen_bytes: u64,
@@ -91,11 +95,18 @@ struct Totals {
 impl Totals {
     fn add(&mut self, memory: &SurfaceMemory) {
         self.terminals += 1;
-        if let Some(usage) = &memory.terminal {
-            self.scrollback_live_bytes += live_bytes(&usage.primary);
-            self.scrollback_compressed_bytes += usage.primary.compressed_bytes;
-            self.alternate_screen_bytes += usage.alternate.resident_bytes;
-            self.kitty_image_bytes += usage.primary.image_bytes + usage.alternate.image_bytes;
+        match &memory.terminal {
+            Some(TerminalMemory::Hot(usage)) => {
+                self.scrollback_live_bytes += live_bytes(&usage.primary);
+                self.scrollback_compressed_bytes += usage.primary.compressed_bytes;
+                self.alternate_screen_bytes += usage.alternate.resident_bytes;
+                self.kitty_image_bytes += usage.primary.image_bytes + usage.alternate.image_bytes;
+            }
+            Some(TerminalMemory::Cold { held_bytes, .. }) => {
+                self.cold_terminals += 1;
+                self.cold_held_bytes += held_bytes;
+            }
+            None => {}
         }
         if let PtyHome::Holder { ring_bytes: Some(bytes) } = memory.home {
             self.holder_ring_bytes += bytes;
@@ -105,6 +116,8 @@ impl Totals {
     fn json(&self) -> Value {
         json!({
             "terminals": self.terminals,
+            "cold_terminals": self.cold_terminals,
+            "cold_held_bytes": self.cold_held_bytes,
             "scrollback_live_bytes": self.scrollback_live_bytes,
             "scrollback_compressed_bytes": self.scrollback_compressed_bytes,
             "alternate_screen_bytes": self.alternate_screen_bytes,
@@ -120,7 +133,15 @@ fn live_bytes(screen: &ScreenMemory) -> u64 {
 }
 
 fn terminal_json(surface: SurfaceId, terminal_id: Option<&str>, memory: &SurfaceMemory) -> Value {
-    let usage = memory.terminal.as_ref();
+    let (state, usage, cold) = match memory.terminal {
+        Some(TerminalMemory::Hot(usage)) => ("hot", Some(usage), None),
+        Some(TerminalMemory::Cold { held_bytes, snapshot_bytes }) => (
+            "cold",
+            None,
+            Some(json!({ "held_bytes": held_bytes, "snapshot_bytes": snapshot_bytes })),
+        ),
+        None => ("unknown", None, None),
+    };
     let ring_bytes = match memory.home {
         PtyHome::Holder { ring_bytes } => ring_bytes,
         PtyHome::Daemon | PtyHome::Host | PtyHome::Exited => None,
@@ -129,6 +150,8 @@ fn terminal_json(surface: SurfaceId, terminal_id: Option<&str>, memory: &Surface
         "surface": surface,
         "terminal_id": terminal_id,
         "home": memory.home.as_str(),
+        "state": state,
+        "cold": cold,
         "scrollback": usage.map(|usage| json!({
             "live_bytes": live_bytes(&usage.primary),
             "compressed_bytes": usage.primary.compressed_bytes,

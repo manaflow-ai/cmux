@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextFocus
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -77,12 +78,12 @@ struct NewTabHoldFocusTests {
         let file = try #require(AgentPageAppTestRoot.page)
         let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
         model.becomeNewTab(AgentPaneNewTab(kind: .agent))
-        let page = try #require(AgentPaneView(model: model, source: .bundled(file), webUI: .agentTabsTestHost(), gestures: .testing()))
+        let page = try #require(AgentPaneView(model: model, work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentTabsTestHost(), gestures: .testing()))
         page.frame = other.view.bounds
         other.view.addSubview(page)
         services.agentTabs.views[key] = page
         services.agentTabs.newTabPages[key] = (AgentPaneNewTab(kind: .agent),
-                                               NewTabPageHandler(open: { _, _ in }, jump: { _, _ in }, editShortcut: { _ in }))
+                                               NewTabPageHandler(open: { _, _ in }, jump: { _, _, _ in }, editShortcut: { _ in }))
         try #require(page.window === window && !page.isHiddenOrHasHiddenAncestor, "the page is not shown in the window")
 
         // The focus model still names the first pane.
@@ -93,7 +94,7 @@ struct NewTabHoldFocusTests {
         let router = services.keyRouter
         let input = router.newTabInputCoordinator
         input.holdLimit = .seconds(600)
-        input.scheduleDeadline = { _, _ in Task {} }
+        input.scheduleDeadline = { _, _ in DemandTimer(owner: "test.holdLimit") }
         let token = try #require(input.begin(for: other))
         input.didShow(in: window)
         let typed = [try Self.key("h", keyCode: 4, in: window), try Self.key("i", keyCode: 34, in: window)]

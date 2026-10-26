@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextSignposts
 public import QuartzCore
 
 /// One display link per display, shared by every ``FrameScheduler`` on it (Chrome's
@@ -88,9 +89,18 @@ public final class DisplayClock {
         }
     }
     private var displays: [CGDirectDisplayID: Display] = [:]
+    /// Writes each link tick's `frame.tick` and the key flows' `frame.present_estimate` while a
+    /// recording turns the frame category on (p09-observability 037); a flow waiting on a display whose
+    /// link is idle gets one tick of it (``presentNeedsFrame(_:)``).
+    public let presents: FramePresentEstimate
 
     /// Display links made since creation, stall rebuilds included (debug.wakeups).
     public private(set) var linksMade: UInt64 = 0
+
+    /// The display links ``FrameScheduler/app`` and the window schedulers on this clock tick on, and
+    /// their frames: the ``MainWorkScheduler`` waits for none to run before a long idle period, and
+    /// their frames open short ones. The budgeted scheduler does not report here.
+    public let unbudgetedLinks: UnbudgetedFrameLinks
 
     /// Each display's link runs at the highest ``FrameClient/rate`` armed on it (feature
     /// `frameRateClasses`); false: every link runs at ``FrameRate/motion``, whatever its clients ask.
@@ -112,10 +122,13 @@ public final class DisplayClock {
     ///   - ledger: Where stalls and deadlines are recorded.
     ///   - mediaTime: Stands in for `CACurrentMediaTime`, the timebase of frame timestamps.
     ///   - followsClientRates: The links run at their clients' rates (``followsClientRates``).
+    ///   - presents: The frame trace points of its ticks (``presents``); nil: one on the app's trace runtime.
     public init(hub: VSyncHub? = nil, makeLink: LinkFactory? = nil, displayOf: DisplayResolver? = nil,
                 isVisible: VisibilityResolver? = nil, clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
                 mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
-                followsClientRates: Bool = false) {
+                followsClientRates: Bool = false, presents: FramePresentEstimate? = nil) {
+        self.presents = presents ?? FramePresentEstimate()
+        unbudgetedLinks = UnbudgetedFrameLinks()
         self.followsClientRates = followsClientRates
         self.hub = hub
         self.makeLink = makeLink
@@ -124,6 +137,7 @@ public final class DisplayClock {
         self.clock = clock
         self.ledger = ledger
         self.mediaTime = mediaTime
+        self.presents.onNeedsFrame = { [weak self] display in self?.presentNeedsFrame(display) }
     }
 
     /// Links alive now, over every display (0 at idle).
@@ -154,6 +168,26 @@ public final class DisplayClock {
     /// The rate `display`'s link was last asked for; nil while the display has no link.
     public func frameRate(on display: CGDirectDisplayID) -> FrameRate? { displays[display]?.rate }
 
+    /// The last link frame of the key window's display (``newestFrame(for:)`` with no window): the grid an action's
+    /// estimated present and a late motion commit are placed on, as the person acts in and watches the key window.
+    public func newestFrame() -> DisplayFrameSample? { newestFrame(for: nil) }
+
+    /// The last link frame of the display `window` is on (nil: the key window's), with whether that display's link
+    /// runs now: the vsync grid ``DisplayFrameSample`` places a time on, as Chrome's compositor reads the
+    /// `BeginFrameSource` of its own display (ui/display/mac/display_link_mac.h, one link per display). Nil when
+    /// that display had no link frame yet. With no screen at all, the newest frame of any display, never marked
+    /// running (its phase is another display's). Reads only: no link is made or resumed, and a display keeps its
+    /// last frame when its link stops.
+    public func newestFrame(for window: NSWindow?) -> DisplayFrameSample? {
+        if let id = displayOf(window) {
+            guard let display = displays[id], let vsync = display.lastVsync else { return nil }
+            return DisplayFrameSample(timestamp: vsync.timestamp, interval: vsync.interval,
+                                      linkRunning: display.link.map { !$0.isPaused } ?? false)
+        }
+        let newest = displays.values.compactMap { $0.lastVsync }.max { $0.timestamp < $1.timestamp }
+        return newest.flatMap { DisplayFrameSample(timestamp: $0.timestamp, interval: $0.interval, linkRunning: false) }
+    }
+
     // MARK: Subscribers
 
     /// Subscribes `scheduler` to the display of its window (the main display for a screen host;
@@ -169,6 +203,18 @@ public final class DisplayClock {
     /// The display `scheduler` is on now (``noDisplay`` when there is no screen).
     private func resolve(_ scheduler: FrameScheduler) -> CGDirectDisplayID {
         displayOf(scheduler.hostWindow) ?? Self.noDisplay
+    }
+
+    /// The display `window` is on (nil: the main display), by this clock's resolver.
+    public func display(of window: NSWindow?) -> CGDirectDisplayID? { displayOf(window) }
+
+    /// One link tick of `id` for a key flow's present, asked only while recording (``presents``): a paused
+    /// link runs a frame, and an idle display gets a link that its first tick (or the stall deadline) drops.
+    private func presentNeedsFrame(_ id: CGDirectDisplayID) {
+        let display = record(id)
+        guard let link = display.link ?? make(display) else { return }
+        link.isPaused = false
+        if display.subscribers.isEmpty { arm(display) }
     }
 
     private func join(_ scheduler: FrameScheduler, _ display: Display) {
@@ -263,14 +309,6 @@ public final class DisplayClock {
         link.requestFrameRate(Self.linkRange(rate))
     }
 
-    /// The range a link asks for at `rate`: ``FrameRate/range``, never below ``slowestLinkHertz``.
-    static func linkRange(_ rate: FrameRate) -> CAFrameRateRange {
-        let range = rate.range, floor = slowestLinkHertz
-        guard range.minimum < floor else { return range }
-        return CAFrameRateRange(minimum: floor, maximum: max(range.maximum, floor),
-                                preferred: max(range.preferred ?? floor, floor))
-    }
-
     /// A client that needs a faster rate armed while the link ran slower, whose next callback can
     /// still come on the slow cadence (33 ms at 30 Hz, past an input's 10 ms budget): the display
     /// ticks once on the next turn, as for a display with no link, unless its link fires first.
@@ -311,6 +349,7 @@ public final class DisplayClock {
         display.frames &+= 1
         display.lastFrame = now
         display.stalls = 0
+        if let timestamp, let refreshInterval { display.lastVsync = (timestamp, refreshInterval) }
         deliver(display, timestamp: timestamp, refreshInterval: refreshInterval, targetTimestamp: targetTimestamp,
                 hiddenUntil: now - Self.stallSeconds)
         guard !display.subscribers.isEmpty else { return idle(display) }
@@ -329,6 +368,11 @@ public final class DisplayClock {
     ///   this time; nil: every subscriber ticks (the stall deadline).
     private func deliver(_ display: Display, timestamp: CFTimeInterval?, refreshInterval: Double?, // perf-hot: 0.5ms frame-tick (every frame)
                          targetTimestamp: CFTimeInterval? = nil, hiddenUntil: CFTimeInterval?) {
+        // frame.tick and the waiting flows' presents, for link ticks while recording: one load when not.
+        if presents.isRecording, let timestamp {
+            presents.frameDidTick(display: display.id, timestamp: timestamp,
+                                  target: targetTimestamp ?? timestamp + (refreshInterval ?? FrameTick.defaultRefreshInterval))
+        }
         // Schedulers that subscribe during this tick tick next frame; one that leaves during it
         // (its window closed) gets nothing more.
         // A scheduler that just came from another display skips a frame that starts or is shown no
@@ -452,7 +496,9 @@ public final class DisplayClock {
     /// `id`'s stall deadline passed (its timer; tests call it directly). Its subscribers that are on
     /// another display now move there first.
     func stallTimerFired(_ id: CGDirectDisplayID) {
-        guard let display = displays[id], !display.subscribers.isEmpty else { return }
+        guard let display = displays[id] else { return }
+        // A link no subscriber holds (a present's one tick that never came) goes.
+        guard !display.subscribers.isEmpty else { return idle(display) }
         relocate(display)
         guard !display.subscribers.isEmpty else { return }
         let sinceFrame = mediaTime() - display.lastFrame
@@ -485,43 +531,6 @@ public final class DisplayClock {
         arm(display)
     }
 
-    // MARK: System links
-
-    /// A link that rides `hub`'s display thread: each vsync of the display is one main post that ticks the clock.
-    private static func hubLink(_ hub: VSyncHub, _ display: CGDirectDisplayID, _ clock: DisplayClock) -> (any FrameLink)? {
-        hub.mainLink(display: display) { [weak clock] tick in
-            clock?.displayDidFire(display, timestamp: tick.timestamp, refreshInterval: tick.refreshInterval,
-                                  targetTimestamp: tick.targetTimestamp)
-        }
-    }
-
-    private static func systemLink(_ id: CGDirectDisplayID, _ clock: DisplayClock) -> (any FrameLink)? {
-        guard let screen = NSScreen.screens.first(where: { number(of: $0) == id }) else { return nil }
-        let target = LinkTarget(clock: clock, display: id)
-        // The one sanctioned display link: one per display, shared by every scheduler on it.
-        let link = screen.displayLink(target: target, selector: #selector(LinkTarget.tick(_:)))
-        // Springs step every display frame until the clients ask for less (applyRate).
-        link.preferredFrameRateRange = FrameRate.motion.range
-        link.add(to: .main, forMode: .common)
-        return link
-    }
-
-    /// A window can be seen unless it is miniaturized, the app is hidden, or it is on screen with no
-    /// visible part. A window not ordered in (still being built) has no occlusion state yet and counts
-    /// as seen.
-    private static func systemIsVisible(_ window: NSWindow) -> Bool {
-        if window.isMiniaturized || NSApp?.isHidden == true { return false }
-        return !window.isVisible || window.occlusionState.contains(.visible)
-    }
-
-    private static func systemDisplay(_ window: NSWindow?) -> CGDirectDisplayID? {
-        (window?.screen ?? NSScreen.main ?? NSScreen.screens.first).flatMap(number(of:))
-    }
-
-    private static func number(of screen: NSScreen) -> CGDirectDisplayID? {
-        (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
-    }
-
     /// One display's link, its subscribers and its stall deadline.
     @MainActor
     private final class Display {
@@ -542,6 +551,8 @@ public final class DisplayClock {
         var frames: UInt64 = 0
         /// A next-turn tick is queued for a client that raised the rate (``tickOnNextTurn(_:)``).
         var raiseTickQueued = false
+        /// The last link frame's vsync time and refresh period (``DisplayClock/newestFrame(for:)``), kept when the link stops.
+        var lastVsync: (timestamp: CFTimeInterval, interval: Double)?
         /// A next-turn tick is queued for subscribers that came while the display had no link.
         var linklessTickQueued = false
 
@@ -549,6 +560,19 @@ public final class DisplayClock {
             self.id = id
             self.stall = stall
         }
+    }
+
+    // MARK: System links
+
+    private static func systemLink(_ id: CGDirectDisplayID, _ clock: DisplayClock) -> (any FrameLink)? {
+        guard let screen = NSScreen.screens.first(where: { number(of: $0) == id }) else { return nil }
+        let target = LinkTarget(clock: clock, display: id)
+        // The one sanctioned display link: one per display, shared by every scheduler on it.
+        let link = screen.displayLink(target: target, selector: #selector(LinkTarget.tick(_:)))
+        // Springs step every display frame until the clients ask for less (applyRate).
+        link.preferredFrameRateRange = FrameRate.motion.range
+        link.add(to: .main, forMode: .common)
+        return link
     }
 
     /// The link's target: the link retains it, and it holds the clock weakly, so a link never keeps

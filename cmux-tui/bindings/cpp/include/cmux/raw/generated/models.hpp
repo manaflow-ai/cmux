@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "6959f4baf6ad2a1b05d569f62df829cd6e45aeb1877f3552f8257ac497162d86";
+inline constexpr std::string_view kProtocolIrSha256 = "87e9b8e373ca5a50e0b57f549781a75e4c8e38d4e86011638c213050e8d7c034";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -214,7 +214,16 @@ struct Screen;
 struct SendExpectAgent;
 struct ServerStatsConnections;
 struct ServerStatsHistogram;
+struct ServerStatsIpc;
+struct ServerStatsIpcKind;
+struct ServerStatsIpcParse;
+struct ServerStatsIpcParses;
+struct ServerStatsIpcStreams;
+struct ServerStatsIpcWrites;
 struct ServerStatsJournalWriter;
+struct ServerStatsLockClass;
+struct ServerStatsLockClassSet;
+struct ServerStatsLockClasses;
 struct ServerStatsLockHolder;
 struct ServerStatsLockSite;
 struct ServerStatsLockStall;
@@ -6206,6 +6215,52 @@ struct ServerStatsHistogram {
     friend bool operator==(const ServerStatsHistogram&, const ServerStatsHistogram&) = default;
 };
 
+struct ServerStatsIpcKind {
+    std::uint64_t bytes{};
+    std::string kind{};
+    std::uint64_t messages{};
+    friend bool operator==(const ServerStatsIpcKind&, const ServerStatsIpcKind&) = default;
+};
+
+struct ServerStatsIpcParse {
+    std::uint64_t json_parses{};
+    double json_parses_per_request{};
+    std::uint64_t requests{};
+    friend bool operator==(const ServerStatsIpcParse&, const ServerStatsIpcParse&) = default;
+};
+
+struct ServerStatsIpcParses {
+    ServerStatsIpcParse frames{};
+    ServerStatsIpcParse lines{};
+    friend bool operator==(const ServerStatsIpcParses&, const ServerStatsIpcParses&) = default;
+};
+
+struct ServerStatsIpcStreams {
+    std::uint64_t open{};
+    std::uint64_t opened{};
+    std::uint64_t peak{};
+    friend bool operator==(const ServerStatsIpcStreams&, const ServerStatsIpcStreams&) = default;
+};
+
+struct ServerStatsIpcWrites {
+    std::uint64_t messages{};
+    std::uint64_t stalls{};
+    std::uint64_t syscalls{};
+    double syscalls_per_message{};
+    friend bool operator==(const ServerStatsIpcWrites&, const ServerStatsIpcWrites&) = default;
+};
+
+struct ServerStatsIpc {
+    std::uint64_t bad_message{};
+    ServerStatsIpcParses parses{};
+    std::vector<ServerStatsIpcKind> received{};
+    std::vector<ServerStatsIpcKind> sent{};
+    ServerStatsHistogram sequence_depth{};
+    ServerStatsIpcStreams streams{};
+    ServerStatsIpcWrites writes{};
+    friend bool operator==(const ServerStatsIpc&, const ServerStatsIpc&) = default;
+};
+
 enum class ServerStatsWriterPhase {
     idle,
     waiting_lock,
@@ -6227,6 +6282,29 @@ struct ServerStatsJournalWriter {
     std::uint64_t terminal_events{};
     std::uint64_t terminal_queued{};
     friend bool operator==(const ServerStatsJournalWriter&, const ServerStatsJournalWriter&) = default;
+};
+
+struct ServerStatsLockClass {
+    ServerStatsHistogram hold_us{};
+    std::uint64_t wait_p95_us{};
+    ServerStatsHistogram wait_us{};
+    friend bool operator==(const ServerStatsLockClass&, const ServerStatsLockClass&) = default;
+};
+
+struct ServerStatsLockClassSet {
+    ServerStatsLockClass automation{};
+    std::uint64_t automation_due_admissions{};
+    std::uint64_t automation_yields{};
+    ServerStatsLockClass frontend{};
+    ServerStatsLockClass program{};
+    friend bool operator==(const ServerStatsLockClassSet&, const ServerStatsLockClassSet&) = default;
+};
+
+struct ServerStatsLockClasses {
+    ServerStatsLockClassSet registry{};
+    ServerStatsLockClassSet registry_connection{};
+    ServerStatsLockClassSet state{};
+    friend bool operator==(const ServerStatsLockClasses&, const ServerStatsLockClasses&) = default;
 };
 
 struct ServerStatsLockHolder {
@@ -6382,7 +6460,9 @@ struct ServerStatsWritePath {
 struct ServerStatsResult {
     ServerStatsConnections connections{};
     std::optional<ServerStatsHistogram> dispatch_queue_us{};
+    std::optional<ServerStatsIpc> ipc{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
+    std::optional<ServerStatsLockClasses> lock_classes{};
     ServerStatsRegistryLock registry_lock{};
     std::optional<ServerStatsRequestLatency> request_latency_us{};
     std::optional<ServerStatsRequestPathIo> request_path_io{};
@@ -8689,9 +8769,63 @@ struct Codec<ServerStatsHistogram> {
 };
 
 template <>
+struct Codec<ServerStatsIpc> {
+    static Result<Json> encode(const ServerStatsIpc& value);
+    static Result<ServerStatsIpc> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsIpcKind> {
+    static Result<Json> encode(const ServerStatsIpcKind& value);
+    static Result<ServerStatsIpcKind> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsIpcParse> {
+    static Result<Json> encode(const ServerStatsIpcParse& value);
+    static Result<ServerStatsIpcParse> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsIpcParses> {
+    static Result<Json> encode(const ServerStatsIpcParses& value);
+    static Result<ServerStatsIpcParses> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsIpcStreams> {
+    static Result<Json> encode(const ServerStatsIpcStreams& value);
+    static Result<ServerStatsIpcStreams> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsIpcWrites> {
+    static Result<Json> encode(const ServerStatsIpcWrites& value);
+    static Result<ServerStatsIpcWrites> decode(const Json& value);
+};
+
+template <>
 struct Codec<ServerStatsJournalWriter> {
     static Result<Json> encode(const ServerStatsJournalWriter& value);
     static Result<ServerStatsJournalWriter> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsLockClass> {
+    static Result<Json> encode(const ServerStatsLockClass& value);
+    static Result<ServerStatsLockClass> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsLockClassSet> {
+    static Result<Json> encode(const ServerStatsLockClassSet& value);
+    static Result<ServerStatsLockClassSet> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsLockClasses> {
+    static Result<Json> encode(const ServerStatsLockClasses& value);
+    static Result<ServerStatsLockClasses> decode(const Json& value);
 };
 
 template <>

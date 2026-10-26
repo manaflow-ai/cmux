@@ -289,34 +289,7 @@ extension ScreenContentView {
         }
     }
 
-    /// Clicks inside what a docked column covers go to the docked column
-    /// (its panes, dividers, handle) or to this view, never to a strip pane
-    /// under it (an overlay column's glass shows the strip under it).
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        let local = convert(point, from: superview)
-        guard !isHidden, geometry.dock.contains(where: { $0.cover.contains(local) }) else {
-            // A zoom's covered panes have left the layout: a click there goes to this view.
-            let hit = super.hitTest(point)
-            guard !covered.isEmpty, let hit, coveredHost(containing: hit) != nil else { return hit }
-            return self
-        }
-        for view in subviews.reversed() where !view.isHidden && view !== stripContainer {
-            if let host = view as? PaneHostView, geometry.scrolls(pane: host.pane) || covered.contains(host.pane) { continue }
-            if let divider = view as? DividerHandleView, scrolls(divider.kind) { continue }
-            if let hit = view.hitTest(local) { return hit }
-        }
-        return self
-    }
-
-    private func coveredHost(containing view: NSView) -> PaneHostView? {
-        var current: NSView? = view
-        while let candidate = current, candidate !== self {
-            if let host = candidate as? PaneHostView, covered.contains(host.pane) { return host }
-            current = candidate.superview
-        }
-        return nil
-    }
-
+    // memory: fixed computed on each read and kept by no one: one rect per laid-out pane.
     /// Pane frames for directional focus in one logical line: the left
     /// docked column before the strip, the strip in its own space, the right
     /// docked column after the strip's end, so every strip column stays

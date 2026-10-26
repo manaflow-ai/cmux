@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
@@ -7,7 +8,8 @@ import CmuxNextHangReports
 /// Where the main-thread watchdog's findings go (moved out of `AppDelegate`): each hang still
 /// running after 2 s to crash reporting with its stack and to a file per hang; each finished lag
 /// spike of 250 ms and up to crash reporting (rate-limited); and both to opt-in hang reports
-/// (``HangReportsController``), whose sink does nothing while they are off.
+/// (``HangReportsController``), whose sink does nothing while they are off. The blocking detector's
+/// new call sites go to ``BlockingReportSink``.
 @MainActor
 enum WatchdogReporting {
     /// Wires `watchdog` and returns this launch's hang report controller (held by `AppProcessRoot`).
@@ -16,8 +18,13 @@ enum WatchdogReporting {
         let hangReports = HangReportsController.forThisLaunch(
             policy: reporter.policy, folder: SidebarSnapshotFile.buildDirectory(launch: services.environment.launch)
                 .appending(path: "HangReports", directoryHint: .isDirectory),
-            counts: { @MainActor [weak services] in services.map(WatchdogReporting.counts) ?? .unknown })
+            counts: { @MainActor [weak services] in services.map(WatchdogReporting.counts) ?? .unknown },
+            watchdog: watchdog, input: services.inputTap, events: services.appEvents)
         let collector = hangReports.collector
+        // Replays the sites the detector recorded before this point (BlockingDetector.install).
+        services.blocking.install(sink: BlockingReportSink(collector: collector, nonFatal: .init(
+            consented: { reporter.isStarted },
+            send: { reporter.captureNonFatal($0.message, type: $0.type, fingerprint: $0.fingerprint, tags: $0.tags, extra: $0.extra) })))
         watchdog.onHang = { hang in
             reporter.reportHang(duration: hang.duration, addresses: hang.addresses, otherThreads: hang.otherThreads.map { ($0.name, $0.addresses) })
             collector?.noteHang(durationNanos: Self.nanos(hang.duration), addresses: hang.addresses)

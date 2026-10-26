@@ -344,6 +344,44 @@ int main() {
     CHECK(seen.replies == std::vector<uint32_t>({scheme_token}));
   }
 
+  // An async op returns at once; the token read right after it names its REPLY (task 018).
+  {
+    CHECK(cmux_shim_content_setting(cmux_remote::kFirstMintedBrowserID, "https://a.test/", "cookies") == 1);
+    const uint32_t token = cmux_remote_shim_last_reply_token();
+    CHECK(token != 0 && token != scheme_token);
+    cmux_shim_reload(cmux_remote::kFirstMintedBrowserID);  // a post asks no answer: the token stays
+    CHECK(cmux_remote_shim_last_reply_token() == token);
+    const std::vector<Message> got = host.Read(2);
+    CHECK(got.size() == 2 && got[0].op == cmux_remote::kOpContentSetting && got[0].token == token);
+    cmux_host::control::TlvWriter setting;
+    setting.I32(1);
+    Message reply;
+    reply.op = cmux_remote::kOpReply;
+    reply.token = token;
+    reply.fields = setting.Take();
+    host.Send(reply);
+    CHECK(PumpUntil([] { return seen.replies.size() == 2; }));
+    CHECK(seen.replies == std::vector<uint32_t>({scheme_token, token}));
+
+    // cmux_remote_shim_set_reply moves the replies to another sink and its ctx (CEFRemoteShim's).
+    static std::vector<std::pair<void*, uint32_t>> sunk;
+    int sink_ctx = 0;
+    cmux_remote_shim_set_reply(&sink_ctx, [](void* ctx, uint32_t answered, const void*, size_t) {
+      sunk.emplace_back(ctx, answered);
+    });
+    CHECK(cmux_shim_content_setting(cmux_remote::kFirstMintedBrowserID, "https://b.test/", "cookies") == 1);
+    const uint32_t moved = cmux_remote_shim_last_reply_token();
+    CHECK(moved != 0 && moved != token);
+    const std::vector<Message> sent = host.Read(1);
+    CHECK(sent.size() == 1 && sent[0].token == moved);
+    reply.token = moved;
+    host.Send(reply);
+    CHECK(PumpUntil([] { return !sunk.empty(); }));
+    CHECK(sunk.size() == 1 && sunk[0].first == &sink_ctx && sunk[0].second == moved);
+    CHECK(seen.replies.size() == 2);
+    cmux_remote_shim_set_reply(nullptr, &OnReply);
+  }
+
   // A mirror value pushed before its EVENT is what the event's callback reads.
   const int browser = cmux_remote::kFirstMintedBrowserID;
   host.Send(Mirror(cmux_remote::kOpTabNavigationState, browser, "{\"index\":1}"));
@@ -351,6 +389,11 @@ int main() {
   CHECK(PumpUntil([] { return seen.events == 1; }));
   CHECK(seen.state_in_event == "{\"index\":1}");
   CHECK(seen.s2.empty());  // a NULL string reaches the callback as ""
+
+  // A resize fence carries this process's port name, which means nothing in the host: the
+  // client refuses it as a fork without the call would and sends nothing, so the next frame
+  // the host reads is go_back's.
+  CHECK(cmux_shim_browser_set_resize_fence(browser, 0x1103u, 2) == 0);
 
   // go_back marks the navigation state pending under its token until the host's ack.
   cmux_shim_go_back(browser);
@@ -461,30 +504,19 @@ int main() {
   CHECK(seen.ended == -1);
   ::close(third.fd);
 
-  // View tokens: NULL is 0; a view keeps its token.
+  // View tokens: cmux passes the page view's token where the ABI takes a parent NSView*, and it
+  // travels as is (never a pointer the client reads); NULL is 0.
   {
-    cmux_remote::TlvWriter none;
-    none.View(nullptr);
-    CHECK(none.fields().size() == 1 && none.fields()[0].integer == 0);
-  }
-#if defined(__APPLE__)
-  // The token lives on the view, not in a table by address: once the view's associations go,
-  // which freeing it does, the same address gets a new token.
-  {
-    id view = class_createInstance(objc_lookUpClass("NSObject"), 0);
     cmux_remote::TlvWriter w;
-    w.View(view);
-    w.View(view);
-    objc_removeAssociatedObjects(view);
-    w.View(view);
+    w.View(nullptr);
+    w.View(reinterpret_cast<void*>(uintptr_t{7}));
+    w.View(reinterpret_cast<void*>(uintptr_t{7}));
     CHECK(w.fields().size() == 3);
     if (w.fields().size() == 3) {
-      CHECK(w.fields()[0].integer != 0 && w.fields()[0].integer == w.fields()[1].integer);
-      CHECK(w.fields()[2].integer != 0 && w.fields()[2].integer != w.fields()[0].integer);
+      CHECK(w.fields()[0].integer == 0);
+      CHECK(w.fields()[1].integer == 7 && w.fields()[2].integer == 7);
     }
-    object_dispose(view);
   }
-#endif
 
   if (failures == 0) std::printf("remote shim: ok\n");
   return failures == 0 ? 0 : 1;

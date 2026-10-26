@@ -666,6 +666,7 @@ repositories.
 | 122 | Phone Access iroh endpoint only when usable | S | 102 | none |
 | 123 | debug.energy.simulate | S | 007, 022 | none |
 | 124 | Per-tab renderer attribution | M | 007 | fork |
+| 124a | Per-tab renderer attribution with the Chromium Host on | M | 124, p01-process-022 | none |
 | 125 | High-energy tab badge with Discard | M | 124 | none |
 | 126 | Visible ambient indicators step at <= 30 Hz | M | 060, 103 | Q3 |
 | 127 | Watchers driven by other apps pause or stretch | M | 102, 024 | none |
@@ -1147,6 +1148,16 @@ repositories.
 - Test phase: fork build through 136; `swift test --filter CEFPump`; split-spring --suite=cef-idle: earlyPasses 0 and
   pump wakes/s down in tabs-static (numbers in the commit).
 - Size M. Depends: 016. Queue fork.
+- Fork ref: manaflow-ai/cef `cp/p14-energy-046` (18f4828a, on 037's `cp/p14-energy-037`), with no API number (136
+  numbers it). cmux finds `cmux_set_on_schedule_delayed` by symbol (`cmux_shim_set_schedule_delayed` returns 1), so a
+  fork without it keeps the ms path.
+- TimerSlackMac is not tied to this API (046 review): with the handler set, the fork's MessagePumpExternal overrides
+  ScheduleDelayedWork and AdjustDelayedRunTime, so the UI thread arms no base timer and the flag changes only renderer,
+  GPU and utility processes and the browser's non-UI threads (page `setTimeout` may fire up to its leeway late). It is
+  the default-off feature `cefTimerSlack` (process `chromium`) until a run measures those wakes and page timer latency.
+- earlyPasses on the absolute path: a delayed pass is early when it began before the run time it serves, or when
+  Chromium reports that run time or an earlier one during the pass. A later run time is the next task, however close.
+  The 2 ms re-ask rule stays for the ms path only.
 
 #### p14-energy-132 Contingency: explicit onMain DemandTimer migration
 - Files: the Q14 hit files under `Packages/macOS/CmuxNext/Sources/**`, `Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/DemandTimer.swift`.
@@ -1316,7 +1327,11 @@ repositories.
 - Files: `Packages/macOS/CmuxNext/Sources/CmuxNextApp/Hibernation/BrowserHibernation.swift`,
   `Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/WebKit/WebKitEngine.swift`.
 - Change: replace LowPowerMode observation with EnergyPolicySource; in saver neighbor radius 0 and WebKit low render
-  rate. The freeze grace is not shortened (039 does Chrome's CPU rule).
+  rate. The freeze grace is not shortened (039 does Chrome's CPU rule). Until the `energySaver` feature is on by
+  default, the driver publishes macOS Low Power Mode as `EnergyPolicy.lowPowerFallback` while the feature is off,
+  and these consumers read `EnergyPolicy.pageSaver` (saver or fallback), so default builds keep Low Power Mode's
+  near-60 fps WebKit, neighbor radius 0 and short page lifecycle window (p14-energy-021). The resolver holds the
+  thermal reason until nominal or plug-in, so a Mac flapping between fair and serious makes one saver edge.
 - Acceptance: `rg -n 'LowPowerMode' Packages/macOS/CmuxNext/Sources/CmuxNextApp/Hibernation Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/WebKit`
   returns 0; existing hibernation tests pass with a saver case.
 - Test phase: `swift test --filter "Hibernation|WebKitRenderRate"` on the fleet.
@@ -1568,7 +1583,22 @@ repositories.
 - Acceptance: shim test with a fake fork returns the pid; two tabs sharing one renderer both show its usage and the
   record names both.
 - Test phase: fork CI (136); `swift test --filter "ProcessUsage|BusyWatchdog"`; debug.energy on tabs-static.
+- Scope: in process. With the Chromium Host on, the renderers are the host's children: the remote shim answers no
+  pid and no tab lists a renderer until 124a. The busy watchdog reads a tab snapshot the App publishes (a tab's
+  mount and load-phase changes), never the main actor.
 - Size M. Depends: 007. Queue fork.
+
+#### p14-energy-124a Per-tab renderer attribution with the Chromium Host on
+- Files: `plans/cmux-next/chromium-host-ops.json`, `Packages/macOS/CmuxNext/ChromiumHost/client/remote_shim.mm`
+  (generated), `.../CmuxNextBrowser/CEF/CEFTab+Processes.swift`, `.../CmuxNextApp/Control/DebugWakeups.swift`.
+- Change: `cmux_shim_renderer_pid` becomes an async op the host answers with its shim's pid (the reply path of
+  p01-process-022, like `cmux_shim_renderer_client_ids`); `AppProcesses.sample` and `chromiumHelpers` list the
+  Chromium Host's children next to the app's, classified by `ChromiumHelperProcess`.
+- Acceptance: with the host on, two tabs on one renderer both show its usage in debug.energy `tabs` and a busy
+  renderer's record names both.
+- Test phase: `swift test --filter "ProcessUsage|BusyWatchdog|CEFTabRendererPID"`; debug.energy on tabs-static
+  with the host flag on.
+- Size M. Depends: 124, p01-process-022. Queue none.
 
 #### p14-energy-125 High-energy tab badge with Discard
 - Files: `Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabHoverCard+Energy.swift`,
@@ -2014,13 +2044,16 @@ repositories.
 
 #### p14-energy-117 acpmux freezes idle harnesses of hidden sessions
 - Files: `cmux-tui/crates/acpmux/src/hub/freeze.rs`, `cmux-tui/crates/acpmux/src/hub/idle.rs`,
-  `cmux-tui/crates/acpmux/src/config/pool.rs`, `cmux-tui/crates/acpmux/src/server/visibility.rs`.
+  `cmux-tui/crates/acpmux/src/config/pool.rs`, `cmux-tui/crates/acpmux/src/server/visibility.rs`,
+  `scripts/cmux-next/idle-budget.json`.
 - Change: op `_acpmux/visibility {session, visible}`. An attached-but-hidden session with no turn, no pending
   permission, no running background task or terminal tool for freezeAfterSeconds (300, 30 in saver) gets its harness
   process group SIGSTOPped; prompt, show, permission or inbound request does SIGCONT before anything is forwarded. In
   saver, pool.park and no new pool entries on battery. Status shows `frozen`. With PL-acpmux.
 - Acceptance: fake process controller + paused clock: hidden idle 300 s -> 1 stop; prompt -> cont before request bytes;
-  a running background task blocks the freeze; show thaws in the same turn.
+  a running background task blocks the freeze; show thaws in the same turn; idle-budget.json's agent-idle
+  `agent-harness.hidden_wakeups_max` goes from null (reported, IDLE-BUDGET-NOT-JUDGED since 103) to 0, so --gate
+  judges D14's hidden harness.
 - Test phase: `cargo test -p acpmux freeze`; agent-idle: hidden pane harness 0 wakeups.
 - Size M. Depends: 070, 103.
 

@@ -29,7 +29,11 @@
 //! - **Shutdown.** As Chrome's task_tracker.cc: [`Work::shutdown`] drops every item that has not
 //!   started except [`Shutdown::BlockShutdown`] ones, refuses new ones the same way, and returns when
 //!   every block item and every started [`Shutdown::SkipOnShutdown`] item has finished. It never waits
-//!   for a [`Shutdown::ContinueOnShutdown`] item.
+//!   for a [`Shutdown::ContinueOnShutdown`] item. Shutdown waits for block items, so it raises them,
+//!   as Chrome runs BLOCK_SHUTDOWN tasks at a normal thread priority once shutdown starts: a queued
+//!   block item (and one posted later) runs at [`Priority::UserBlocking`] on a foreground worker, and a
+//!   block item running on a BestEffort or Idle worker gets its worker raised to UserInitiated before
+//!   shutdown waits for it (on Linux only when the process may lower nice values; see `work_boost.rs`).
 //!
 //! ```ignore
 //! let work = Work::new(WorkConfig::default())?;
@@ -352,6 +356,10 @@ pub struct LaneStats {
     pub spawn_failures: u64,
     /// Items whose body panicked, [`Work::post`] and [`Work::run`] ones alike.
     pub panics: u64,
+    /// Block items running on a BestEffort or Idle worker whose worker shutdown raised.
+    pub shutdown_raises: u64,
+    /// Such items whose raise the kernel or the Linux nice rule refused.
+    pub shutdown_raise_refusals: u64,
 }
 
 /// Blocking work lanes. Build one per process and pass it by reference; tests build their own.
@@ -363,11 +371,23 @@ impl Work {
     /// Builds the lanes. On Linux it also starts the launcher thread, which keeps the calling thread's
     /// nice value: build the `Work` on a thread at the process's base nice (the composition root).
     pub fn new(config: WorkConfig) -> io::Result<Work> {
+        Work::with_booster(config, boost::Booster::system())
+    }
+
+    /// [`Work::new`] with the seam that raises a running block item's worker at shutdown; tests
+    /// count its raises and ends.
+    fn with_booster(config: WorkConfig, booster: boost::Booster) -> io::Result<Work> {
         let config = Arc::new(config);
         let launcher = Launcher::start(&config)?.map(Arc::new);
         Ok(Work {
-            lanes: Lane::ALL
-                .map(|lane| Arc::new(LaneShared::new(lane, Arc::clone(&config), launcher.clone()))),
+            lanes: Lane::ALL.map(|lane| {
+                Arc::new(LaneShared::new(
+                    lane,
+                    Arc::clone(&config),
+                    launcher.clone(),
+                    booster.clone(),
+                ))
+            }),
         })
     }
 
@@ -571,6 +591,8 @@ struct LaneState {
     wakeups: u64,
     spawn_failures: u64,
     panics: u64,
+    /// Block items running on a BestEffort or Idle worker: the ones shutdown raises.
+    raises: boost::Raises,
 }
 
 struct LaneShared {
@@ -578,6 +600,8 @@ struct LaneShared {
     limits: [usize; 4],
     config: Arc<WorkConfig>,
     launcher: Option<Arc<Launcher>>,
+    /// Raises the worker of a running block item at shutdown.
+    booster: boost::Booster,
     // Lock carve-out: a short critical section over the queues and counters; no I/O, no item body and
     // no thread spawn runs under it.
     state: Mutex<LaneState>,
@@ -586,12 +610,18 @@ struct LaneShared {
 }
 
 impl LaneShared {
-    fn new(lane: Lane, config: Arc<WorkConfig>, launcher: Option<Arc<Launcher>>) -> LaneShared {
+    fn new(
+        lane: Lane,
+        config: Arc<WorkConfig>,
+        launcher: Option<Arc<Launcher>>,
+        booster: boost::Booster,
+    ) -> LaneShared {
         LaneShared {
             lane,
             limits: lane.limits(config.cpu_width),
             config,
             launcher,
+            booster,
             state: Mutex::new(LaneState {
                 pending: Default::default(),
                 ready: Default::default(),
@@ -606,6 +636,7 @@ impl LaneShared {
                 wakeups: 0,
                 spawn_failures: 0,
                 panics: 0,
+                raises: boost::Raises::default(),
             }),
             ready_signal: [Condvar::new(), Condvar::new(), Condvar::new()],
             drained: Condvar::new(),
@@ -617,7 +648,7 @@ impl LaneShared {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn submit(self: &Arc<Self>, job: Job) -> Result<(), Refused> {
+    fn submit(self: &Arc<Self>, mut job: Job) -> Result<(), Refused> {
         let mut state = self.lock();
         if state.closed && job.shutdown != Shutdown::BlockShutdown {
             drop(state);
@@ -626,6 +657,10 @@ impl LaneShared {
         }
         if job.shutdown == Shutdown::BlockShutdown {
             state.awaited += 1;
+            // Shutdown waits for it: it runs on a foreground worker.
+            if state.closed {
+                job.priority = Priority::UserBlocking;
+            }
         }
         state.pending[job.priority.index()].push_back(job);
         let starts = self.admit(&mut state);
@@ -757,11 +792,23 @@ impl LaneShared {
                 if job.shutdown == Shutdown::SkipOnShutdown {
                     state.awaited += 1;
                 }
+                // A block item below the foreground class is tracked, so shutdown can raise this worker.
+                let raisable = (job.shutdown == Shutdown::BlockShutdown
+                    && class != WorkerClass::Foreground)
+                    .then(|| {
+                        let closed = state.closed;
+                        state.raises.track(boost::Target::current(), closed, &self.booster)
+                    });
                 drop(state);
                 CURRENT_LANE.with(|current| *current.borrow_mut() = Some(Arc::clone(&self)));
                 let panicked = catch_unwind(AssertUnwindSafe(job.body)).is_err();
                 CURRENT_LANE.with(|current| current.borrow_mut().take());
                 state = self.lock();
+                if let Some(end) = raisable.and_then(|id| state.raises.untrack(id)) {
+                    drop(state);
+                    end(class.qos());
+                    state = self.lock();
+                }
                 state.panics += u64::from(panicked);
                 state.running -= 1;
                 state.workers[index].idle += 1;
@@ -793,6 +840,7 @@ impl LaneShared {
                     state.workers[index].waiting -= 1;
                     break;
                 };
+                // wakeup-allow: deadline the idle worker's one exit deadline (set at its first idle wait); work ends the wait first
                 state = self.ready_signal[index]
                     .wait_timeout(state, left)
                     .unwrap_or_else(PoisonError::into_inner)
@@ -811,25 +859,45 @@ impl LaneShared {
     }
 
     /// Closes the lane and returns the items shutdown drops; wakes waiting workers so they exit.
+    /// Raises the block items it keeps: queued ones (and admitted ones no BestEffort or Idle worker
+    /// took yet) move to the UserBlocking list, highest priority first and in order within one, and
+    /// each one running on a BestEffort or Idle worker gets that worker raised once.
     fn close(self: &Arc<Self>) -> Vec<Job> {
         let mut state = self.lock();
         state.closed = true;
         let mut dropped = Vec::new();
-        for list in &mut state.pending {
-            let (keep, drop): (VecDeque<Job>, VecDeque<Job>) =
-                list.drain(..).partition(|job| job.shutdown == Shutdown::BlockShutdown);
-            *list = keep;
-            dropped.extend(drop);
-        }
         let mut unadmitted = 0;
-        for list in &mut state.ready {
-            let (keep, drop): (VecDeque<Job>, VecDeque<Job>) =
-                list.drain(..).partition(|job| job.shutdown == Shutdown::BlockShutdown);
-            *list = keep;
-            unadmitted += drop.len();
+        // Items admitted to a BestEffort or Idle worker that has not taken them go back to the front
+        // of their own priority's queue (they were admitted before the queued ones), so the merge
+        // below keeps highest priority first.
+        for class in [WorkerClass::BestEffort, WorkerClass::Idle] {
+            let admitted = std::mem::take(&mut state.ready[class.index()]);
+            unadmitted += admitted.len();
+            for job in admitted.into_iter().rev() {
+                state.pending[job.priority.index()].push_front(job);
+            }
+        }
+        let foreground = WorkerClass::Foreground.index();
+        let (keep, refused): (VecDeque<Job>, VecDeque<Job>) = state.ready[foreground]
+            .drain(..)
+            .partition(|job| job.shutdown == Shutdown::BlockShutdown);
+        state.ready[foreground] = keep;
+        unadmitted += refused.len();
+        dropped.extend(refused);
+        state.running -= unadmitted;
+        let mut raised = VecDeque::new();
+        for priority in Priority::ALL.into_iter().rev() {
+            let (keep, drop): (VecDeque<Job>, VecDeque<Job>) = state.pending[priority.index()]
+                .drain(..)
+                .partition(|job| job.shutdown == Shutdown::BlockShutdown);
+            raised.extend(keep);
             dropped.extend(drop);
         }
-        state.running -= unadmitted;
+        for job in &mut raised {
+            job.priority = Priority::UserBlocking;
+        }
+        state.pending[Priority::UserBlocking.index()] = raised;
+        state.raises.raise_all(&self.booster);
         for signal in &self.ready_signal {
             signal.notify_all();
         }
@@ -852,6 +920,7 @@ impl LaneShared {
                     else {
                         break;
                     };
+                    // wakeup-allow: deadline the caller's one bound on the drain; the last job's end ends the wait first
                     state = self
                         .drained
                         .wait_timeout(state, left)
@@ -885,9 +954,14 @@ impl LaneShared {
             wakeups: state.wakeups,
             spawn_failures: state.spawn_failures,
             panics: state.panics,
+            shutdown_raises: state.raises.raised,
+            shutdown_raise_refusals: state.raises.refused,
         }
     }
 }
+
+#[path = "work_boost.rs"]
+mod boost;
 
 #[cfg(test)]
 #[path = "work_tests.rs"]

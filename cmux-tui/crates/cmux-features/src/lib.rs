@@ -20,18 +20,12 @@
 //! `FeatureList::AddFeaturesToCommandLine` gives a child process only the
 //! overridden features.
 
-/// Defines `pub const HANDLE: Feature` for each `HANDLE = "name"`: the index of
-/// `name` in `table`. A name the table lacks fails the build; every check is a
-/// `const` item, so none of it runs in the daemon.
-#[cfg_attr(
-    not(test),
-    expect(
-        unused_macros,
-        reason = "the generated handles use it; the registry has no daemon feature yet"
-    )
-)]
+/// Defines `pub const HANDLE: Feature` for each `HANDLE = "name"` (with its doc
+/// comment): the index of `name` in `table`. A name the table lacks fails the
+/// build; every check is a `const` item, so none of it runs in the daemon.
 macro_rules! feature_handles {
-    ($table:path; $($handle:ident = $name:literal),* $(,)?) => {$(
+    ($table:path; $($(#[$meta:meta])* $handle:ident = $name:literal),* $(,)?) => {$(
+        $(#[$meta])*
         pub const $handle: $crate::Feature = $crate::Feature($crate::position($table, $name));
         const _: () = assert!(
             $crate::position($table, $name) < $table.len(),

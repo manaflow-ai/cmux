@@ -7,6 +7,7 @@ import CmuxNextHome
 import CmuxNextLayout
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextWakeups
 
 extension AppActions {
     static func bindWorkspaces(_ services: AppServices) {
@@ -51,7 +52,7 @@ extension AppActions {
         // The docked Home's tab (HomeDockTab): the Messages or Channels view (the sidebar's Home or Channels entry).
         services.pages.register(HomeDockTab(services: services))
         #if DEBUG || CMUX_BENCH_HOOKS
-        services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel, mainWork: services.mainWork))
+        services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel, mainWork: services.mainWork, work: services.work))
         #endif
         registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }
         // Home = the home workspace and its left dock (cx-ebm.59.5), in the active window or the one that has it;
@@ -115,8 +116,11 @@ extension AppActions {
     /// also brings that window forward and activates the app
     /// (`NewWorkspaceFocus`).
     private static func newWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
-        SidebarNewRowTimer.shared.pressed() // debug.new_workspace times the row from here
         var spawn = WorkspaceSpawn(invocation)
+        // The press's own key or click (or the stamp a gate carried), so its row's create.workspace reports that age.
+        if invocation.origin == .user {
+            spawn.inputTimestamp = ActionRegistry.inputTimestamp(of: services.registry.dispatchingInputEvent()) ?? invocation.inputTimestamp
+        }
         spawn.followClassicMode(services) // before the key hold below, which waits only for a page
         let focus = NewWorkspaceFocus(invocation)
         let show = focus.shows

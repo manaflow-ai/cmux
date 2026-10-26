@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextCompat
+public import CmuxNextCompat
 public import CmuxNextDesign
 public import CmuxNextPages
 public import CmuxNextSettings
@@ -32,6 +32,9 @@ public final class AgentPaneView: NSView {
     public let source: AgentPaneSource
     public var customization = AgentPaneCustomization() { didSet { if customization != oldValue { applyCustomization() } } }
     public var shortcuts = AgentPaneShortcuts() { didSet { if shortcuts != oldValue { applyShortcuts() } } }
+    /// The app's blocking-work lanes (`AppServices.work`): a file drag reads the file's icon and an image's
+    /// bytes there (``AgentPaneFileDrag``).
+    let work: any MayBlockRunner
     public var previewFeatures = false { didSet { if previewFeatures != oldValue { applyPreviewFeatures() } } }
     /// The `agent.sessionStatus` tunable (Debug Settings), followed live (``AgentPaneSessionStatus``).
     public internal(set) var sessionStatus = AgentPaneTunables.sessionStatus.value { didSet { if sessionStatus != oldValue { AgentPaneSessionStatus.push(to: self) } } }
@@ -113,6 +116,8 @@ public final class AgentPaneView: NSView {
     ///
     /// - Parameters:
     ///   - model: Answers the page's host requests.
+    ///   - work: The app's blocking-work lanes (`AppServices.work`), for the reads of a file drag; tests pass
+    ///     their own `BackgroundWork`.
     ///   - source: The page to load; nil loads ``bundledPage``.
     ///   - renderRate: How fast the page renders. Adaptive starts at the
     ///     display's full rate and caps it while scrolls miss frames, as they
@@ -124,17 +129,21 @@ public final class AgentPaneView: NSView {
     ///   - warmup: The app's agent page WebKit warm-up (`AppServices.agentPageWarmup`), which this page replaces.
     ///   - gestures: The app's gesture router over its input tap: the person's presses in this pane grant
     ///     its page a gesture, and its dictation's hold-to-talk hears the key-up.
-    public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
-                 webUI: WebUIHost, openPanel: MadeAheadOpenPanel? = nil, warmup: AgentPageWarmup? = nil, gestures: AgentPaneGestureRouter) {
+    ///   - chatStores: The app's chat stores (where each chat rested, its unsent chips); the default keeps nothing.
+    public init?(model: AgentPaneModel, work: any MayBlockRunner, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
+                 webUI: WebUIHost, openPanel: MadeAheadOpenPanel? = nil, warmup: AgentPageWarmup? = nil, gestures: AgentPaneGestureRouter,
+                 chatStores: AgentPaneChatStores = .keepsNothing) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         gestureRouter = gestures
         self.openPanel = openPanel
         (self.model, self.source, self.renderRate, self.warmup) = (model, source, renderRate, warmup)
+        self.work = work
         warmup?.agentPageMade()
-        let provider = AgentPageProvider { [weak model] _ in model }
+        let provider = AgentPageProvider(chatStores: chatStores) { [weak model] _ in model }
         // Needs you reads the pane's own acpmux (a Chief chat's is the Chief home's), never another.
         provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
-        guard let page = AgentPanePageHost.makePage(root: source.directory, provider: provider, renderRate: renderRate, webUI: webUI)
+        guard let page = AgentPanePageHost.makePage(root: source.directory, provider: provider, renderRate: renderRate, webUI: webUI,
+                                                    chatOpen: model.chatOpen)
         else { return nil }
         self.page = page
         pageEvents = provider
@@ -149,6 +158,9 @@ public final class AgentPaneView: NSView {
         })
         self.webView = webView
         super.init(frame: .zero)
+        // The page holds its `dictation` keep reason while a session runs (p13-webui-032).
+        let keep = page.keepReasons
+        dictation.onRunning = { running in keep.dictation(running) }
         pageEvents.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }
         openURL = { [weak self] url, modifiers in
             if let self { LinkRouter.shared.open(url, modifiers: modifiers, from: self) } else { Self.routedOpenURL(url, modifiers) }
@@ -235,9 +247,10 @@ public final class AgentPaneView: NSView {
         observeReduceMotion()
     }
 
-    /// Reduce Motion: the system setting, the tests' pin or calm mode.
+    /// Reduce Motion (the system setting, the tests' pin or calm mode) and the other motion
+    /// settings, Energy Saver included: the page's status loops follow them (`statusIndicators`).
     private func observeReduceMotion() {
-        reduceMotionWatch = appearanceSignals.subscribe([.reduceMotion], viewNode: visibilityNode, owner: "AgentPaneView") { [weak self] in
+        reduceMotionWatch = appearanceSignals.subscribe([.reduceMotion, .motion], viewNode: visibilityNode, owner: "AgentPaneView") { [weak self] in
             self?.applyTheme()
         }
     }

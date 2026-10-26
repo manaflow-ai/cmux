@@ -378,6 +378,7 @@ pub struct Terminal {
     /// Stable primary-screen row markers (`terminal.history`).
     history_markers: history::HistoryMarkers,
     empty_kitty_probe_filter: EmptyKittyProbeFilter,
+    raw_settings: cold::RawSettings,
 }
 
 enum PendingSequenceReplay<'a> {
@@ -504,6 +505,7 @@ impl Terminal {
             c1_normalizer: C1Normalizer::default(),
             history_markers: Default::default(),
             empty_kitty_probe_filter: EmptyKittyProbeFilter,
+            raw_settings: Default::default(),
         };
         // SAFETY: `hooks` is heap-pinned for the terminal's lifetime and
         // Drop uninstalls the trampolines before the Box is freed.
@@ -1160,21 +1162,6 @@ impl Terminal {
             inflight_bytes: self.kitty_inflight_storage_limit(),
             images: self.kitty_image_count_limit()?,
             placements: self.kitty_placement_count_limit()?,
-        })
-    }
-
-    /// Names the terminfo entry this terminal's program runs as (its TERM),
-    /// which an XTGETTCAP "TN" query reports, as Ghostty does. An empty name
-    /// leaves the query unanswered; libghostty refuses names over 128 bytes.
-    pub fn set_terminfo_name(&mut self, name: &str) -> Result<()> {
-        let value = sys::GhosttyString { ptr: name.as_ptr(), len: name.len() };
-        // SAFETY: libghostty copies the string before the call returns.
-        check(unsafe {
-            sys::ghostty_terminal_set(
-                self.raw,
-                sys::GHOSTTY_TERMINAL_OPT_TERMINFO_NAME,
-                (&value as *const sys::GhosttyString).cast(),
-            )
         })
     }
 
@@ -3225,3 +3212,9 @@ impl Drop for Terminal {
 #[path = "terminal_history.rs"]
 mod history;
 pub use history::{HistoryPage, HistoryPages, HistorySnapshot, MarkerError};
+
+#[path = "cold_pages.rs"]
+mod cold;
+pub use cold::{
+    ColdPagesError, ColdRefused, ColdTerminal, PageMemory, ScrollbackCompression, ThawFailed,
+};

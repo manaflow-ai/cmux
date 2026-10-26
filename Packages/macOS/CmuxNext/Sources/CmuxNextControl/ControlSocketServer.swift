@@ -315,7 +315,7 @@ public final class ControlSocketServer: Sendable {
     /// ENOMEM) suspends it and resumes after a capped backoff; retrying at
     /// once would spin at 100% CPU until descriptors free up.
     private func acceptPending(listener: Int32) {
-        // wakeup-allow: drains the accept backlog; EAGAIN returns (readiness), other failures pause with Backoff
+        // wakeup-allow: bounded: drains the accept backlog; EAGAIN returns (readiness), other failures pause with Backoff
         while true {
             let client = acceptCall(listener)
             if client < 0 {
@@ -345,13 +345,12 @@ public final class ControlSocketServer: Sendable {
                 defer { state.nextConnection += 1 }
                 return ControlConnectionID(rawValue: state.nextConnection)
             }
-            let connection = ControlConnection(id: id, descriptor: client, limits: limits)
-            state.withLock { $0.connections[id] = connection }
-            connection.onClosed = { [weak self] in
+            let connection = ControlConnection(id: id, descriptor: client, limits: limits, onClosed: { [weak self] in
                 _ = self?.state.withLock { $0.connections.removeValue(forKey: id) }
                 // A request still waiting for this client (a confirmation sheet) ends now.
                 ControlConnectionClosures.shared.closed(id)
-            }
+            })
+            state.withLock { $0.connections[id] = connection }
             let router = self.router
             connection.start { lines in
                 var authorizer = authorizer

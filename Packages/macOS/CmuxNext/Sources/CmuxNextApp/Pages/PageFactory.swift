@@ -196,7 +196,7 @@ struct PageFactory {
                 await services?.viewers.picker.open(.init(choose: .files, types: [.image, .movie]))?.first
             }
         }
-        let museumArt = MuseumArtSession()
+        let museumArt = MuseumArtSession(memory: AppMemoryConsumers(services: services).appCacheRegistry)
         provider.museumArt = museumArt
         provider.workspaceBackgrounds = SettingsWorkspaceBackgrounds(
             title: { [weak services] id in services?.workspace(id: id)?.displayName },
@@ -245,9 +245,10 @@ struct PageFactory {
                                                    dynamicResources: dynamicResources))
         native.anchor = { [weak page] in page }
         // An image or movie dropped on Settings becomes the background (cx-t2x.8).
+        // One short copy and settings write per drop; a failed one changes nothing. The page keeps
+        // its `fileDrop` reason until it returns (PageFileDrop.take).
         page?.fileDrop = PageFileDrop(accepts: { url in BackdropUserImages.isImage(url) }) { [weak provider] url in
-            // task-owner: one short copy and settings write per drop; a failed one changes nothing
-            Task { try? await provider?.useBackdropImage(url) }
+            _ = try? await provider?.useBackdropImage(url)
         }
         return page
     }

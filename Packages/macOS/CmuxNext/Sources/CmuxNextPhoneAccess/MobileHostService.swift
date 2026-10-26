@@ -4,6 +4,7 @@ public import CmuxNextDaemonService
 import CmuxNextKeepAwake
 public import CmuxNextMobile
 public import CmuxNextSettings
+public import CmuxNextWakeups
 import Foundation
 import os
 
@@ -42,8 +43,12 @@ public final class MobileHostService {
     /// Phones can reach this Mac: signed in and allowed (the phone keep-awake reason).
     var isServing: Bool { allowed && account != nil }
 
-    public init(displayName: @escaping @Sendable () async -> String) {
+    /// The app's lanes, for the listener's key files (``MobileIrxHost``).
+    private let work: BackgroundWork
+
+    public init(displayName: @escaping @Sendable () async -> String, work: BackgroundWork) {
         self.displayName = displayName
+        self.work = work
     }
 
     /// The account to serve phones for (sign-in, or a user or team switch). The
@@ -106,7 +111,7 @@ public final class MobileHostService {
                 return
             }
             let readiness = self.readiness
-            let host = MobileIrxHost(configuration: configuration, auth: auth, makeBackend: { @MainActor in
+            let host = MobileIrxHost(configuration: configuration, auth: auth, work: self.work, makeBackend: { @MainActor in
                 let endpoint = try await daemon.endpoint()
                 return try await DaemonCompatBackend.connect(endpointProvider: { endpoint })
             }, access: access, onUsable: { session in

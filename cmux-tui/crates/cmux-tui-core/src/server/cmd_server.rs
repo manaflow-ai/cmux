@@ -370,7 +370,11 @@ pub(super) fn machine_listening_tcp_json() -> anyhow::Result<Value> {
         let mut failures = Vec::new();
         for &(program, arguments) in candidates {
             crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
-            let output = match cmux_process::Command::new(program).args(arguments).output() {
+            let output = match cmux_process::Command::new(program)
+                .args(arguments)
+                .qos_ceiling(cmux_threads::HELPER_CHILD)
+                .output()
+            {
                 Ok(output) => output,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
                 Err(error) => {

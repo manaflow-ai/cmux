@@ -21,7 +21,7 @@ extension Motion {
     /// ring, for its animation and its rest alike.
     static func attentionStyle(_ settings: AttentionSettings) -> AttentionStyle {
         guard settings.style != .none,
-              DesignSettings.shared.statusIndicator.animation == .static || !Motion.indicators.animatesLoops else {
+              DesignSettings.shared.statusIndicator.animation == .static || !Motion.indicators.animatesBlinks else {
             return settings.style
         }
         return .steady
@@ -41,13 +41,18 @@ extension MotionGate {
     public func attentionAnimation(_ settings: AttentionSettings,
                                    look: AttentionHighlightLook = AttentionHighlightLook.tunable.value,
                                    showing: Bool = false) -> CAAnimation? {
+        attentionCurve(settings, look: look, showing: showing).map { MotionActivity.began($0) }
+    }
+
+    private func attentionCurve(_ settings: AttentionSettings, look: AttentionHighlightLook, showing: Bool) -> CAAnimation? {
         guard animatesFades, settings.drawsRing else { return nil }
         // Static status indicators (cx-sya4n): the steady ring, no blink or pulse.
         var settings = settings
         settings.style = Motion.attentionStyle(settings)
         let rest = Motion.attentionRestingOpacity(settings, look: look)
         let peak = look.peakOpacity
-        guard animatesLoops else {
+        // A notification's blink ends on its own: Energy Saver leaves it (animatesBlinks).
+        guard animatesBlinks else {
             // Reduce Motion: the ring shows at once at its rest, no flash (unread rings from
             // classic, 2026-10-20). A ring that rests invisible (the Flash only look, or
             // `persist` off) fades out once, or nothing would show.
@@ -116,7 +121,11 @@ extension MotionGate {
     /// animations off get none: the ring just goes.
     public func attentionDismissAnimation(_ settings: AttentionSettings,
                                           look: AttentionHighlightLook = AttentionHighlightLook.tunable.value) -> CAAnimation? {
-        guard animatesFades, animatesLoops, settings.drawsRing else { return nil }
+        dismissFlash(settings, look: look).map { MotionActivity.began($0) }
+    }
+
+    private func dismissFlash(_ settings: AttentionSettings, look: AttentionHighlightLook) -> CAAnimation? {
+        guard animatesFades, animatesBlinks, settings.drawsRing else { return nil }
         let flash = CAKeyframeAnimation(keyPath: "opacity")
         guard DesignSettings.shared.statusIndicator.animation != .static else {
             flash.values = [Motion.attentionRestingOpacity(settings, look: look), 0]
@@ -149,6 +158,6 @@ extension MotionGate {
         let group = CAAnimationGroup()
         group.animations = [hold("shadowOpacity", Double(opacity)), hold("shadowRadius", Double(radius))]
         group.duration = duration
-        return group
+        return MotionActivity.began(group)
     }
 }

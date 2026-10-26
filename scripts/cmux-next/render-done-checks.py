@@ -401,6 +401,8 @@ CHECKS = (
     REDRAW_POLICY,
     LineCheck("MQ-frame-observers", "queue",
               (q(r"frameDidChangeNotification|boundsDidChangeNotification|postsFrameChangedNotifications"),), 0,
+              # The DEBUG/bench probe counts frame changes of WebKit's own views: AppKit-only, no hook of ours.
+              allowed=("CmuxNextApp/Control/DebugWebInspector.swift",),
               note="baseline 22"),
     LineCheck("MQ-loops", "queue", (q(r"repeatCount = \.infinity"),), 0, near("LoopVisibility"),
               note="not through LoopVisibility; baseline 10"),

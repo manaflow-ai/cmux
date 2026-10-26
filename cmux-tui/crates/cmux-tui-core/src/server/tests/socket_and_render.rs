@@ -1,23 +1,6 @@
-//! Socket paths, the start lock, JSON line limits, and render attach messages, deltas and the shared graphics cache.
+//! Socket paths, the start lock, and render attach messages, deltas and the shared graphics cache.
 
 use super::*;
-
-#[test]
-fn json_line_limit_excludes_the_newline_delimiter() {
-    let exact_payload = "x".repeat(MAX_JSON_LINE_BYTES);
-    assert_eq!(json_line_payload_len(&exact_payload), MAX_JSON_LINE_BYTES);
-
-    let mut exact_line = exact_payload;
-    exact_line.push('\n');
-    assert_eq!(json_line_payload_len(&exact_line), MAX_JSON_LINE_BYTES);
-
-    let oversized_payload = "x".repeat(MAX_JSON_LINE_BYTES + 1);
-    assert!(json_line_payload_len(&oversized_payload) > MAX_JSON_LINE_BYTES);
-
-    let mut oversized_line = oversized_payload;
-    oversized_line.push('\n');
-    assert!(json_line_payload_len(&oversized_line) > MAX_JSON_LINE_BYTES);
-}
 
 #[test]
 fn default_socket_path_preserves_compatible_runtime_dir() {

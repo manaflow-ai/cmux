@@ -2,6 +2,8 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextInput
+import CmuxNextSignposts
 import CmuxNextTabs
 import CmuxNextWakeups
 import CmuxNextCompat
@@ -27,9 +29,14 @@ final class TabDragSession: NSObject {
     /// Ghost of the previous drag still flying home or into its slot.
     var landing: Drag?
     var resignObserver: MainActorObservation?
+    /// Takes one `motion.drag_frame` interval per ghost tick (``tick(_:elapsed:)``).
+    let motionSignposter: Signposter
 
-    init(services: AppServices) {
+    /// - Parameter motionSignposter: The `motion` category's signposter (the app's: ``Signposter/motion``; tests pass
+    ///   one on their own trace runtime).
+    init(services: AppServices, motionSignposter: Signposter = .motion) {
         self.services = services
+        self.motionSignposter = motionSignposter
         super.init()
     }
 
@@ -97,8 +104,13 @@ final class TabDragSession: NSObject {
             Self.endPresentation(item, in: pane)
         })
         let drag = Drag(source: source, lifecycle: lifecycle, ghost: ghost, motion: motion, point: point)
-        drag.monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp, .leftMouseDown, .keyDown]) { [weak self] event in
-            self?.handle(event) ?? event
+        // The drag's events, for the drag only: an intercept in the drag order (after the key router, before
+        // AppKit dispatches), in every window, since the ghost crosses them. Chrome's Mac tab drag does the
+        // same with a local monitor that lives for the move loop and ends it at the release or Escape
+        // (components/remote_cocoa/app_shim/window_move_loop.mm, CocoaWindowMoveLoop::Run); here that
+        // drag-lifetime monitor is routed through the one input tap.
+        drag.input = services.inputTap.subscribe(class: Self.dragInput, phase: .intercept(order: .dragSession)) { [weak self] event in
+            self?.handle(event) ?? .pass
         }
         resignObserver = MainActorObservation(NSApplication.didResignActiveNotification) { [weak self] in
             self?.finish(commit: false)
@@ -154,25 +166,31 @@ final class TabDragSession: NSObject {
 
     // MARK: Events
 
-    func handle(_ event: NSEvent) -> NSEvent? {
+    /// The tap classes a drag hears: its moves, the buttons (the release, and a press after a lost
+    /// release) and keys (Escape). ``handle(_:)`` passes every other event of these classes on.
+    static let dragInput: InputEventClasses = [.drag, .button, .key]
+
+    /// One event of the drag; `.consume` keeps it from every later intercept and responder.
+    func handle(_ event: NSEvent) -> InputEventTap.InterceptResult {
         switch event.type {
         case .leftMouseDragged:
             update(Self.screenPoint(of: event))
-            return nil
+            return .consume
         case .leftMouseUp:
             update(Self.screenPoint(of: event))
             drag?.filesAway = event.modifierFlags.contains(.option)
             finish(commit: true)
-            return nil
+            return .consume
         case .leftMouseDown:
-            // A lost mouse-up (another tracking loop ate it): end safely.
+            // A lost mouse-up (a nested tracking loop dequeued it, so sendEvent and the tap never saw
+            // it): end safely, and the press goes on to what it hit.
             finish(commit: false)
-            return event
+            return .pass
         case .keyDown where event.keyCode == 53:
             finish(commit: false)
-            return nil
+            return .consume
         default:
-            return event
+            return .pass
         }
     }
 

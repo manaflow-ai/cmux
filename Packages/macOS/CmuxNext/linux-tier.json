@@ -156,6 +156,7 @@
       "Packages/Shared/CmuxAuthRuntime",
       "Packages/Shared/CmuxInstallAuthCore",
       "Packages/Shared/CmuxIrxTransport",
+      "Packages/Shared/CmuxSafeConcurrency",
       "Packages/Shared/CmuxTheme",
       "Packages/iOS/CmuxMobileRPC",
       "Packages/iOS/CmuxMobileSSH"

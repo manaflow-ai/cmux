@@ -69,11 +69,14 @@ final class CEFFirstPaintBridge {
     /// The main frame's document painted content (a lifecycle event, or from fork API 29 the
     /// first paint channel, `BrowserFirstPaintScript`).
     func painted() {
+        if let tab { tab.runtime.chatStage(.firstContentfulPaint, pane: tab.host.key.pane.rawValue) }
         #if DEBUG || CMUX_BENCH_HOOKS
         ChatOpenTrace.shared.mark(.firstContentfulPaint, chromiumPane: tab?.host.key.pane.rawValue)
         if let tab { tab.runtime.benchMarks.firstPaint(tab.id.rawValue) }
         #endif
+        if let tab { tab.runtime.firstPagePainted(shown: tab.isShownInVisibleWindow) }
         tab?.documentDidSettle()
+        tab?.firstContentFrame.contentShown()
     }
 
     /// Whether `json` is the first contentful paint of `mainFrame`. A
@@ -90,5 +93,16 @@ final class CEFFirstPaintBridge {
         else { return false }
         guard let mainFrame else { return true }
         return params["frameId"] as? String == mainFrame
+    }
+}
+
+/// A new Chromium tab's first content frame (`create.tab`): the main frame's first contentful paint above, or
+/// its load end with nothing painted (`CEFTab+Events`), the same two ends the page base settles at.
+extension CEFTab: BrowserFirstContentFrameReporting {
+    /// A Chromium tab is always made with an address to load (a blank one opens the New Tab page).
+    public var loadsDocument: Bool { true }
+
+    public func whenFirstContentFrame(_ body: @escaping @MainActor (_ shown: Bool) -> Void) {
+        firstContentFrame.add(body)
     }
 }

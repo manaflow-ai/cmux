@@ -35,12 +35,11 @@ impl Terminal {
     /// Resident bytes of the primary screen's pages (screen and scrollback),
     /// `None` when libghostty-vt cannot report it.
     pub fn primary_resident_bytes(&self) -> Option<u64> {
-        self.memory_usage().map(|usage| usage.primary.resident_bytes)
+        self.memory_usage().ok().map(|usage| usage.primary.resident_bytes)
     }
 
-    /// Pages and images of both screens, `None` when libghostty-vt cannot
-    /// report it.
-    pub fn memory_usage(&self) -> Option<TerminalMemoryUsage> {
+    /// Pages and images of both screens.
+    pub fn memory_usage(&self) -> Result<TerminalMemoryUsage> {
         // SAFETY: an all-zero GhosttyTerminalMemoryUsage is a valid value of
         // the plain C struct; `size` is then set to the struct size the
         // getter requires.
@@ -52,9 +51,8 @@ impl Terminal {
                 sys::GHOSTTY_TERMINAL_DATA_MEMORY_USAGE,
                 (&mut usage as *mut sys::GhosttyTerminalMemoryUsage).cast(),
             )
-        })
-        .ok()?;
-        Some(TerminalMemoryUsage {
+        })?;
+        Ok(TerminalMemoryUsage {
             compression_supported: usage.compression_supported,
             primary: ScreenMemory {
                 pages: usage.primary_pages,

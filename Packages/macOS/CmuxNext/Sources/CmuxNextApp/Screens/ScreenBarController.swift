@@ -6,6 +6,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextTabs
+import CmuxNextWakeups
 import Observation
 
 /// The bottom screen tab bar of one workspace: a `TabStripView` whose tabs
@@ -35,6 +36,7 @@ final class ScreenBarController {
     init(content: WorkspaceContentController) {
         self.content = content
         view = TabStripView(model: model, input: content.services.inputTap)
+        view.hoverFrameInput = content.services.hoverFrameInput  // hover once per frame (`pointerFrameHover`)
         preview = ScreenPreviewSource(content: content)
         view.dragsWindowFromEmptySpace = false
         view.renamesOnDoubleClick = true
@@ -141,7 +143,7 @@ final class ScreenBarController {
         case .dragBegan(let start):
             guard let screen = screen(start.tabID) else { return view.restoreDetachedTab(start.tabID) }
             let session = ScreenDragSession(services: services, screen: screen, daemon: daemon, source: workspace,
-                                            strip: view, tabID: start.tabID)
+                                            strip: view, tabID: start.tabID, appEvents: services.appEvents)
             session.onEnd = { [weak self] in self?.drag = nil }
             drag = session
             session.begin()

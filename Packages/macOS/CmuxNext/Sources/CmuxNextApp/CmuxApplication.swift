@@ -53,6 +53,9 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     /// before AppKit dispatches the event, and its after-dispatch observers see a click once focus
     /// has moved to the clicked pane.
     var inputTap: InputEventTap?
+    /// Set once by `AppServices`: opens an input latency slot for each tracked event and finishes it after its
+    /// dispatch (`InputLatencyDispatch`, Chrome's EventLatency).
+    var inputLatency: InputLatencyDispatch?
     /// Set once by `AppServices`: true when a key-down typed into one cmux window would reach
     /// another, the key window (`CrossWindowInputGuard`): the key is dropped.
     var crossWindowKeyGuard: ((NSEvent, NSWindow?) -> Bool)?
@@ -84,10 +87,6 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     /// Each window's continuous input, coalesced to its frame (`FrameInputCoalescer`). `sendEvent`
     /// flushes it before every discrete event; owners that post get it by injection.
     private(set) lazy var frameInput = FrameInputCoalescers()
-
-    /// The `key.frame` signposts of every key-down, ended by one main run-loop observer it installs once
-    /// (made at the first key-down).
-    private lazy var keyFrames = KeyFrameSignpost()
 
     @objc(setHandlingSendEvent:)
     func setHandlingSendEvent(_ value: Bool) { handlingSendEvent = value }
@@ -129,10 +128,6 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     }
 
     private func route(_ event: NSEvent, dispatchedNanos: UInt64?) {
-        if event.type == .keyDown {
-            let terminal = (keyWindow ?? event.window)?.firstResponder is TerminalSurfaceView
-            keyFrames.begin(target: terminal ? .terminal : .view, eventTimestamp: event.timestamp)
-        }
         let probesKey = event.type == .keyDown && TypingLatencyProbe.isEnabled
         if probesKey { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
         defer { if probesKey { TypingLatencyProbe.shared.mark(.dispatchEnd) } }
@@ -142,16 +137,25 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         if let inputQueueing, let dispatchedNanos, Self.measuresQueueing(event.type, synthetic: currentEventIsSynthetic) {
             inputQueueing.noteInputDispatch(eventTimestamp: event.timestamp, dispatchedNanos: dispatchedNanos)
         }
-        if let inputTap { BenchSpans.measure("app.inputTap.observe") { inputTap.deliverObserve(event) } }
-        // Pending moves and scrolls run before a key or click is handled (Chromium's ShouldFlushQueue).
-        frameInput.willDispatch(event.type)
+        Self.deliverObserveStage(event, tap: inputTap, frameInput: frameInput)
         let previous = handlingSendEvent
         handlingSendEvent = true
         defer { handlingSendEvent = previous }
         // A key typed into one cmux window never reaches another (the key window changed since).
         if event.type == .keyDown, let crossWindowKeyGuard, crossWindowKeyGuard(event, keyWindow) { return }
+        // One latency slot per tracked event that is dispatched (a dropped key has none); it also carries the
+        // key.frame or key.scroll_frame interval (InputLatencyDispatch).
+        let latencySlot = inputLatency?.willDispatch(event, synthetic: currentEventIsSynthetic, keyWindow: keyWindow ?? event.window)
+        defer { if let latencySlot { inputLatency?.didDispatch(latencySlot, layoutTookScroll: inputDispatch?.layoutTookScroll ?? false) } }
         guard let dispatchScope, Self.scopesDispatch(event.type) else { return dispatch(event) }
         dispatchScope(event) { dispatch(event) }
+    }
+
+    /// The observe stage of one event: pending moves and scrolls run before a key, click or gesture,
+    /// and before any tap observer sees it (Chromium's ShouldFlushQueue), then the tap's observers.
+    static func deliverObserveStage(_ event: NSEvent, tap: InputEventTap?, frameInput: FrameInputCoalescers) {
+        frameInput.willDispatch(event.type)
+        if let tap { BenchSpans.measure("app.inputTap.observe") { tap.deliverObserve(event) } }
     }
 
     /// The input events whose queueing is measured: the user's own keys, clicks and wheel (Chromium's
@@ -172,16 +176,10 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     private func dispatch(_ event: NSEvent) {
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
         if event.type == .keyDown, FindPillView.forwardArrowKeyDown(event, in: keyWindow ?? event.window) { return }
-        if inputTap?.deliverIntercepts(event) != .consume {
+        Self.dispatchThroughTap(event, tap: inputTap) { delivered in
             dispatchDelivered = true
-            if event.type == .leftMouseDown || event.type == .leftMouseUp {
-                BenchSpans.measure(event.type == .leftMouseDown ? "app.sendEvent.down" : "app.sendEvent.up") { super.sendEvent(event) }
-            } else {
-                super.sendEvent(event)
-            }
+            super.sendEvent(delivered)
         }
-        let mouseDown = event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown
-        if mouseDown { BenchSpans.measure("app.inputTap.afterDispatch") { inputTap?.deliverAfterDispatch(event) } } else { inputTap?.deliverAfterDispatch(event) }
         // After AppKit handled the move: a browser toolbar under the pointer in a window that is
         // not key sets its cursor last (`ArrowCursorView.pointerDidMove`).
         if event.type == .mouseMoved { ArrowCursorView.pointerDidMove() }
@@ -286,6 +284,30 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
 
     private func logRefused() {
         logger.info("activation refused (CMUX_NEXT_NO_ACTIVATE=1)")
+    }
+}
+
+extension CmuxApplication {
+    /// The tap's stages around AppKit's dispatch of `event`: its intercepts, then `superSend`
+    /// (`-[NSApplication sendEvent:]`, where AppKit's local monitors run) unless an intercept
+    /// consumed the event, then its after-dispatch observers. Intercepts and local monitors run in
+    /// the same `sendEvent`, so they hear the same events: a release a nested tracking loop dequeues
+    /// itself reaches neither (DragTapTrackingLoopTests drives this function).
+    ///
+    /// - Returns: What the intercepts did with the event.
+    @discardableResult
+    static func dispatchThroughTap(_ event: NSEvent, tap: InputEventTap?, superSend: (NSEvent) -> Void) -> InputEventTap.InterceptResult {
+        let result = tap?.deliverIntercepts(event) ?? .pass
+        if result != .consume {
+            if event.type == .leftMouseDown || event.type == .leftMouseUp {
+                BenchSpans.measure(event.type == .leftMouseDown ? "app.sendEvent.down" : "app.sendEvent.up") { superSend(event) }
+            } else {
+                superSend(event)
+            }
+        }
+        let mouseDown = event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown
+        if mouseDown { BenchSpans.measure("app.inputTap.afterDispatch") { tap?.deliverAfterDispatch(event) } } else { tap?.deliverAfterDispatch(event) }
+        return result
     }
 }
 

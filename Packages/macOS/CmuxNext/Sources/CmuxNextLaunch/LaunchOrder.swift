@@ -1,4 +1,5 @@
 public import CmuxNextInputCore
+import CmuxNextSignposts
 public import CmuxNextWakeups
 
 /// The launch's order owners, made once in the app's `main()` and passed by init (p08-startup-012,
@@ -75,6 +76,9 @@ public struct LaunchOrder {
         // One display link per display, shared by the app, window and budgeted frame schedulers.
         let displays = DisplayClock()
         FrameScheduler.install(displays: displays)
+        // One frame.commit per commit, and each key echo's present at its display's vsync (p09-observability 037).
+        displays.presents.pendingCommits = { TypingLatencyProbe.shared.takePresentCommits() }
+        displays.presents.observeCommits()
         // The launch's phases (p06-scheduler-006/007): background work waits for the reveal, idle
         // work for the settle. The marks are queued first, so each shows before the held work it opens.
         let phase = StartupPhase()
@@ -84,6 +88,8 @@ public struct LaunchOrder {
         let pending = SessionInputPending(events: WindowServerInputEvents(input: input))
         let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: pending, signposts: true, starvation: starvation),
                                          displays: displays, startup: phase)
+        // The quiet before a long idle period starts again at each key, click, scroll or drag.
+        pending.onInputDispatched = { [weak idle = mainWork.idle] in idle?.noteInput() }
         starvation.watch(mainWork.frames, FrameScheduler.app)
         self.init(fence: fence, mainWork: mainWork,
                   startup: StartupScheduler(mainWork: mainWork, background: fence.background, clock: ContinuousClock()), mark: mark)

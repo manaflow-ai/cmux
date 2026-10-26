@@ -118,6 +118,7 @@ enum DebugCEF {
             "guard_recent": .array(report.guardRecent.map { .string($0) }),
             "unplaced_tabs": .number(Double(report.unplacedTabs)),
             "fork_api": .number(Double(report.forkAPIVersion)),
+            "process_reuse_per_renderer_devtools": .bool(report.processReusePerRendererDevTools),
             "popup_windows": .array(report.popupWindows.map { .string($0) }),
         ])
     }
@@ -165,6 +166,8 @@ enum DebugCEF {
             "geometry_posts": .number(Double(stats.geometryPosts)),
             "hosted_pages": .number(Double(stats.hostedPages)),
             "hosting_refused": .number(Double(stats.hostingRefused)),
+            "hosting_widget_fallbacks": .number(Double(stats.hostingWidgetFallbacks)),
+            "hosting_without_track_a": .number(Double(stats.hostingWithoutTrackA)),
             "geometry_skips": .number(Double(stats.geometrySkips)),
         ])
     }

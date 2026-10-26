@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Darwin
 public import Foundation
 
@@ -5,10 +6,13 @@ public import Foundation
 /// own descriptor before the first byte is written (cx-fcaq, cx-aocz review P1): the app's
 /// person proof goes only to the acpmux this app runs, never to a listener that took the socket
 /// path after an earlier probe. All state lives on one serial queue; callbacks run there and
-/// callers hop to their own actor.
-public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash-allow: every mutable field is read and written only on `queue` (one serial queue)
+/// callers hop to their own actor. Only whether the peer is checked is also kept under a lock, so
+/// ``personProof(nonce:connection:)`` answers without waiting for the queue.
+public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash-allow: every mutable field except `peerChecked` (a Mutex) is read and written only on `queue` (one serial queue)
     private let queue = DispatchQueue(label: "cmux.acpmux.checked-line", qos: .userInitiated)
     private let environment: AcpmuxEnvironment
+    /// The server peer passed its check and the connection has not closed: set on `queue`.
+    private let peerChecked = Mutex(false)
     private var descriptor: Int32 = -1
     private var source: (any DispatchSourceRead)?
     private var buffer = Data()
@@ -34,6 +38,7 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
             } catch {
                 return finish()
             }
+            peerChecked.withLock { $0 = true }
             let fd = descriptor
             let reader = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
             reader.setEventHandler { [weak self] in self?.readable() }
@@ -49,8 +54,7 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
     /// Nil before the check passed, or when this app holds no key for this daemon. The key itself
     /// never leaves this process.
     public func personProof(nonce: String, connection: String) -> String? {
-        let checked = queue.sync { descriptor >= 0 && !closed }
-        guard checked else { return nil }
+        guard peerChecked.withLock({ $0 }) else { return nil }
         return AcpmuxPersonKey.proof(socketPath: environment.socketPath, transport: .unix, nonce: nonce,
                                      connection: connection)
     }
@@ -98,6 +102,7 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
     private func finish() {
         guard !closed else { return }
         closed = true
+        peerChecked.withLock { $0 = false }
         // The read source closes the descriptor in its cancel handler, after
         // the source let go of it: closing here could close a descriptor
         // number that another connection already reused. Without a source

@@ -95,6 +95,20 @@ if "--suite=config-parity" in sys.argv:
         raise SystemExit("config-parity: the Release build failed")
     suite = os.path.join(here, "bench-config-parity.py")
     os.execv(sys.executable, [sys.executable, suite, "--release", paths[-1], "--bench", bench_app, "--out", out] + passthrough)
+# `--suite=cef-pin-staging`: the staging check of a new CEF pin, scripts/cmux-next/cef-pin-staging.sh (layer hosting
+# verify on and off: window-server images, real CGEvents; the app's fork API against the pin; Chromium internal pages,
+# restore) against this app. `--parts=internal,restore` runs only those parts (a baseline of the current pin).
+if "--suite=cef-pin-staging" in sys.argv:
+    rest = [a for a in sys.argv[1:] if a != "--suite=cef-pin-staging"]
+    named = {k: rest[i + 1] for i, k in enumerate(rest[:-1]) if k in ("--tag", "--app", "--out")}
+    parts = next((a.split("=", 1)[1] for a in rest if a.startswith("--parts=")), "verify,api,internal,restore")
+    env = dict(os.environ, NX_APP=named.get("--app", ""), NX_APP_TAG=named.get("--tag", ""),
+               NX_ARTIFACTS=named.get("--out", "."), STAGING_PARTS=parts)
+    staging = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cef-pin-staging.sh")
+    code = subprocess.run(["bash", staging, "check"], env=env).returncode
+    with open(os.path.join(named.get("--out", "."), "report.json"), "w") as report:
+        json.dump({"suite": "cef-pin-staging", "parts": parts, "exit": code}, report)
+    sys.exit(code)
 if "--suite=pane-perf" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pane-perf-terminal.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=pane-perf"])
@@ -211,13 +225,14 @@ if "--suite=action-budget-bench" in sys.argv:
 # `--suite=gui-tests --tests=SuiteA,SuiteB`: CmuxNext package suites that need a screen (a window zoom, a real
 # display link), run through the same lane script on a measure host, which has the console session and a
 # display the suite runners lack (there such tests are skipped: `.enabled(if: NSScreen.main != nil)`).
+# CMUX_PANE_BENCH=1 enables the render-motion suites that order real windows in (RenderMotionHitTestTests).
 if "--suite=gui-tests" in sys.argv:
     root = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip() or "."
     tests = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--tests=")), "")
     if not tests:
         sys.exit("split-spring --suite=gui-tests needs --tests=SuiteA,SuiteB")
     sys.exit(subprocess.run([os.path.join(root, "scripts/ci/package-test-lane.sh"), "suite", "Packages/macOS/CmuxNext", tests],
-                            cwd=root).returncode)
+                            cwd=root, env=dict(os.environ, CMUX_PANE_BENCH="1")).returncode)
 # `--suite=every-action`: every catalog action through its real entrypoint plus the non-catalog interactions,
 # light and STRESS, scripts/cmux-next/every-action-sweep.py (also artifacts/split-spring/every-action.md).
 if "--suite=every-action" in sys.argv:

@@ -1,0 +1,17 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "memoryImageCaches",
+  "owner": "PL-memory",
+  "description": "Picture caches take sizes from the Mac's memory and follow memory pressure: terminal previews shrink at warning; at critical the caches empty, only the pictures of tabs beside a shown tab stay, and other woken or discarded tabs may show loading first.",
+  "defaults": {
+    "dev": false,
+    "nightly": false,
+    "release": false
+  },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

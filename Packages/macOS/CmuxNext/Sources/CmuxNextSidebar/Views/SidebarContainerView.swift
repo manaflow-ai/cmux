@@ -117,9 +117,10 @@ public final class SidebarContainerView: NSView {
     ///   - model: What the sidebar shows.
     ///   - mainWork: The app's main-thread scheduler: the rows' and headers' Debug Settings looks follow
     ///     through it, once per frame.
-    public init(model: SidebarModel, mainWork: MainWorkScheduler) {
+    ///   - newRows: Told which rows the list draws, so a new workspace's `create.workspace` interval ends there.
+    public init(model: SidebarModel, mainWork: MainWorkScheduler, newRows: SidebarNewRowTimer? = nil) {
         self.model = model
-        sidebarView = SidebarView(model: model)
+        sidebarView = SidebarView(model: model, newRows: newRows)
         handle = SidebarResizeHandle()
         targetWidth = model.displayWidth
         targetCollapseMotion = SidebarTunables.collapseMotion.value

@@ -115,12 +115,25 @@ public final class FrameScheduler: NSObject {
     /// Its display has a link now (a headless one ticks on the stall deadline only); the clock says
     /// when the link comes or goes (``displayLinkDidChange(exists:)``).
     private var ticksOnLink = false {
-        didSet { if oldValue != ticksOnLink { onLinkChange?(ticksOnLink) } }
+        didSet {
+            guard oldValue != ticksOnLink else { return }
+            if reportsUnbudgeted { displayClock.unbudgetedLinks.linkChanged(exists: ticksOnLink) }
+            onLinkChange?(ticksOnLink)
+        }
     }
+    /// ``app`` and the window schedulers report to their clock's ``DisplayClock/unbudgetedLinks``;
+    /// the budgeted one does not.
+    private let reportsUnbudgeted: Bool
     /// Told when the scheduler starts and stops ticking on its display's link (the
     /// ``MainWorkScheduler``: its ticks own the budget's window, and render passes are timed only
     /// while they come).
     var onLinkChange: (@MainActor (_ exists: Bool) -> Void)?
+    /// Told after each of its display-link frames with its timestamp and refresh period (the
+    /// ``MainWorkScheduler``: a short idle period may follow the frame's render pass, until one
+    /// millisecond before the next vsync). Stall-deadline ticks have no vsync and are not reported.
+    var onLinkFrame: (@MainActor (_ timestamp: CFTimeInterval, _ refreshInterval: Double) -> Void)?
+    /// The link frame this scheduler ticks in now, reported when its part of the frame ends.
+    private var linkFrame: (timestamp: CFTimeInterval, refreshInterval: Double)?
     private let ledger: WakeupLedger
     private let clock: any Clock<Duration>
     private var madeInput: FrameInputCoalescer?
@@ -180,12 +193,13 @@ public final class FrameScheduler: NSObject {
         displayClock = displays
         self.ledger = ledger
         self.clock = clock
+        reportsUnbudgeted = budget == nil
         super.init()
     }
 
     /// A scheduler with a fake link on a display clock of its own (tests; budgeted work:
-    /// ``MainWorkScheduler/testing(budget:clock:ledger:makeLink:)``). `clock` runs the stall timer;
-    /// `mediaTime` stands in for `CACurrentMediaTime`, the timebase of frame timestamps.
+    /// ``MainWorkScheduler/testing(budget:clock:ledger:startup:mediaTime:performTurn:idleTimer:otherLinks:makeLink:)``).
+    /// `clock` runs the stall timer; `mediaTime` stands in for `CACurrentMediaTime`, the timebase of frame timestamps.
     public static func testing(clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
                                mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
                                makeLink: @escaping LinkFactory) -> FrameScheduler {
@@ -231,8 +245,8 @@ public final class FrameScheduler: NSObject {
     /// Its display's link exists and runs, and this scheduler ticks on it.
     public var isRunning: Bool { subscribed.map { displayClock.isRunning($0) } ?? false }
 
-    /// This scheduler's continuous input, coalesced to its frames and delivered before its frame
-    /// clients (made on first use; dropped with the scheduler's window).
+    /// This scheduler's continuous input, delivered before its frame clients (made on first use; kept, with
+    /// its work dropped, when its window closes, so a window shown again keeps it). Get it through ``FrameInputCoalescers``.
     public var input: FrameInputCoalescer {
         if let madeInput { return madeInput }
         let made = FrameInputCoalescer(scheduler: self, clock: clock, ledger: ledger)
@@ -259,6 +273,9 @@ public final class FrameScheduler: NSObject {
 
     /// True for the ``MainWorkScheduler``'s scheduler: its budgeted classes tick last on its display.
     var holdsBudget: Bool { budget != nil }
+
+    /// A budgeted client still has work queued: it stays in the round-robin until it goes idle.
+    var hasBudgetedWork: Bool { !budgetedOrder.isEmpty }
 
     // MARK: Clients
 
@@ -361,7 +378,6 @@ public final class FrameScheduler: NSObject {
     /// Drops the subscription and every client (the window closed).
     public func invalidate() {
         madeInput?.invalidate()
-        madeInput = nil
         for client in clients.values { client.detach() }
         clients.removeAll()
         budgetedOrder.removeAll()
@@ -404,6 +420,11 @@ public final class FrameScheduler: NSObject {
         let elapsed = lastTimestamp.map { now - $0 } ?? (1.0 / 60.0)
         lastTimestamp = now
         if let refreshInterval { lastRefreshInterval = refreshInterval }
+        if !offLink, ticksOnLink, let timestamp, let refreshInterval {
+            linkFrame = (timestamp, refreshInterval)
+        } else {
+            linkFrame = nil
+        }
         // Visible motion (not batch work) explains CPU use to the busy watchdog.
         if clients.values.contains(where: { $0.isActive && $0.isAnimation }) {
             ExpectedActivity.shared.note(.animationFrame)
@@ -451,8 +472,15 @@ public final class FrameScheduler: NSObject {
         }
     }
 
-    /// Ends this scheduler's part of a frame: with no client left it leaves the display.
+    /// Ends this scheduler's part of a frame: reports a link frame (``onLinkFrame``, and for ``app``
+    /// and the windows their clock's ``DisplayClock/unbudgetedLinks``), then with no client left it
+    /// leaves the display.
     func endFrame() {
+        if let frame = linkFrame {
+            linkFrame = nil
+            onLinkFrame?(frame.timestamp, frame.refreshInterval)
+            if reportsUnbudgeted { displayClock.unbudgetedLinks.frame(timestamp: frame.timestamp, refreshInterval: frame.refreshInterval) }
+        }
         if clients.isEmpty { pause() }
     }
 

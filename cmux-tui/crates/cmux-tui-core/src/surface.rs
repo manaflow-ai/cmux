@@ -41,7 +41,7 @@ pub use color_overrides::apply_terminal_color_overrides;
 pub(crate) use holder_spawn::{HolderAdoption, HolderSpawn};
 pub(crate) use host_launch::HostLaunch;
 pub use host_state::{TerminalHostConnectionState, TerminalHostFallback};
-pub(crate) use memory_usage::{PtyHome, SurfaceMemory};
+pub(crate) use memory_usage::{PtyHome, SurfaceMemory, TerminalMemory};
 // Hosted (unix) code and the unit tests are the only callers.
 use clear_history::LOCAL_PASTE_WRITE_TIMEOUT;
 pub use clear_history::{
@@ -94,7 +94,7 @@ use render_tap::{RenderHub, RenderTap};
 use spawn::{LocalLaunch, LocalSpawn};
 pub(crate) use stream_progress::{TerminalStreamProgress, TerminalStreamSubscription};
 pub use terminal_runtime::PtyTerminalRuntime;
-pub(crate) use terminal_runtime::TerminalJournalGap;
+pub(crate) use terminal_runtime::{ColdFreeze, ScrollbackMemory, TerminalJournalGap, ThawWake};
 use terminal_runtime::{PtyChildStartupGuard, PtyRuntime, ReaderCompletion, ReaderCompletionGuard};
 #[cfg(test)]
 mod test_pty;
@@ -183,13 +183,12 @@ use crate::terminal_host_protocol::{
     decode_terminal_exit, split_flow_trailer,
 };
 
-/// Default maximum retained scrollback backing storage per terminal, in bytes
-/// (about 15,000 rows at 80 columns). Ghostty's own default is 50 MB, but
-/// the daemon keeps every terminal's scrollback resident, so a busy terminal
-/// costs this much whether or not anyone scrolls it: ten printing terminals
-/// grew the daemon by 500 MB in a 24 h soak (cx-urd.4). `scrollback-limit-bytes`
-/// in the Ghostty config raises it.
-pub const DEFAULT_SCROLLBACK_LIMIT_BYTES: usize = 10_000_000;
+/// Default maximum retained scrollback backing storage per terminal, in bytes:
+/// the per-terminal cap of the daemon's memory budget
+/// ([`cmux_memory::budget::SCROLLBACK_BYTES_PER_TERMINAL`], 10 MB).
+/// `scrollback-limit-bytes` in the Ghostty config raises it.
+pub const DEFAULT_SCROLLBACK_LIMIT_BYTES: usize =
+    cmux_memory::budget::SCROLLBACK_BYTES_PER_TERMINAL;
 
 /// Result of encoding terminal mouse input against a previously observed
 /// pointer snapshot without blocking on terminal parsing.
@@ -779,7 +778,7 @@ impl Surface {
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
-                term: RankedMutex::new(LockRank::Terminal, "pty.term", Box::new(term)),
+                term: terminal_runtime::TerminalCell::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
                 command_tracker: Mutex::new(Default::default()),

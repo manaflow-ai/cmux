@@ -1,6 +1,8 @@
 public import AppKit
 public import CmuxNextRemoteView
+import CmuxNextInputCore
 import CmuxNextCompat
+import CmuxNextWakeups
 
 #if DEBUG || CMUX_BENCH_HOOKS
 /// The popup surfaces of one remote tab (`rb.surface.show/update/hide`,
@@ -12,8 +14,9 @@ import CmuxNextCompat
 /// past the page edge shows in full.
 ///
 /// The panels follow the page: AppKit moves child windows with the window
-/// (drags, Space changes); a page move inside the window (checked each
-/// window update), a window resize or a screen change places them again. While the page is hidden or out of
+/// (drags, Space changes); a page move inside the window (its rect checked
+/// once after each turn's commit while a surface is open), a window resize
+/// or a screen change places them again. While the page is hidden or out of
 /// a window (another tab shows, the window closes) the panels are ordered
 /// out; they come back with the page. They go with the page's session.
 ///
@@ -28,9 +31,17 @@ public final class RemoteBrowserSurfaces {
     private var open: [UInt32: Surface] = [:]
     /// The page shows: surfaces decode only then (a hidden page's popups decode nothing).
     private var visible = true
-    /// The page window's geometry observers, while a surface is open.
+    /// The page window's notices (its `WindowEvents`), while a surface is open.
     private weak var observedWindow: NSWindow?
-    private var windowObservers: [MainActorObservation] = []
+    private var windowObservers: [EventSubscription] = []
+    /// While a surface is open: one check per run-loop turn, after its commit, of the page's rect in its window.
+    private var placementCheck: MainRunLoopObserver?
+    /// The page's rect in its window when the surfaces were last placed (nil: no window).
+    private var placedPageRect: CGRect?
+    /// How many times every surface was placed again (tests).
+    package private(set) var placements = 0
+    /// The per-turn rect check runs (a surface is open; tests).
+    package var isCheckingPlacement: Bool { placementCheck != nil }
 
     /// `source` gives a surface stream's units; `send` sends one rb input
     /// event (`mustDeliver` second).
@@ -57,6 +68,8 @@ public final class RemoteBrowserSurfaces {
             input.view = pane.view
             pane.view.isSurface = true
             pane.view.eventTarget = input
+            // A popup's hovers and drags are frame-aligned like the page's.
+            pane.view.pointerFrames = page.pointerFrames
             pane.view.frame = CGRect(origin: .zero, size: anchor.size)
             let panel = RemoteBrowserSurfacePanel(content: pane.view)
             open[surface] = Surface(pane: pane, input: input, panel: panel, kind: kind, anchor: anchor)
@@ -118,18 +131,51 @@ public final class RemoteBrowserSurfaces {
         send(json, RemoteBrowserInputEncoder.mustDeliver(event))
     }
 
+    /// Sends one frame delivery of merged moves or drags at `point` to `surface` (a popup takes no wheel).
+    func sendPointerFrame(_ input: PointerCoalescedInput, clickCount: Int, at point: CGPoint, surface: UInt32) {
+        guard open[surface] != nil,
+              let json = RemoteBrowserInputEncoder.pointer(input, clickCount: clickCount, at: point, surface: surface) else { return }
+        send(json, false)
+    }
+
     private func remove(_ surface: UInt32) {
         guard let gone = open.removeValue(forKey: surface) else { return }
         gone.pane.stop()
         detach(gone.panel)
         gone.panel.close()
-        if open.isEmpty { observeWindow(nil) }
+        if open.isEmpty {
+            observeWindow(nil)
+            placementCheck = nil
+        }
     }
 
     /// Every open surface at its anchor (the page moved, resized, was
     /// hidden or shown, or changed window).
     private func placeAll() {
+        placements += 1
         for surface in open.keys { place(surface) }
+    }
+
+    /// The page's rect in its window (nil: in no window).
+    private var pageRectInWindow: CGRect? {
+        page.window == nil ? nil : page.convert(page.bounds, to: nil)
+    }
+
+    /// The page moved inside its window with nothing to tell it (an ancestor
+    /// moved: a sidebar or divider drag): its surfaces follow. A turn that
+    /// moved nothing places nothing. Chrome's `NativeViewHost` hears only a
+    /// change of its bounds in the root (`View::RegisterForVisibleBoundsNotification`,
+    /// `VisibleBoundsChanged`, ui/views/view.h), never every event.
+    package func checkPagePlacement() {
+        guard !open.isEmpty, pageRectInWindow != placedPageRect else { return }
+        placeAll()
+    }
+
+    private func startPlacementCheck() {
+        guard placementCheck == nil else { return }
+        placementCheck = MainRunLoopObserver(activities: .beforeWaiting, order: .max) { [weak self] _ in
+            self?.checkPagePlacement()
+        }
     }
 
     /// Shows `surface`'s panel at its anchor over the page, as a child of
@@ -137,6 +183,8 @@ public final class RemoteBrowserSurfaces {
     private func place(_ surface: UInt32) {
         guard let entry = open[surface] else { return }
         let panel = entry.panel
+        placedPageRect = pageRectInWindow
+        startPlacementCheck()
         // Observe the window while it is the page's, also while it is not
         // visible (minimized, ordered out): its return places the panel.
         observeWindow(page.window)
@@ -161,25 +209,26 @@ public final class RemoteBrowserSurfaces {
         panel.orderOut(nil)
     }
 
-    /// Window updates (a page move inside the window), resizes, full screen
-    /// and screen changes move the page inside or with the window; a window
-    /// shown again brings the panels back; a closing window takes them down.
+    /// Resizes, full screen and screen changes move the page inside or with
+    /// the window; a window shown again brings the panels back; a closing
+    /// window takes them down.
     private func observeWindow(_ window: NSWindow?) {
         // Same window and observers that match it: nothing to do. (A window
         // that went away leaves observers with a nil `observedWindow`.)
         guard !(window === observedWindow && (window == nil) == windowObservers.isEmpty) else { return }
+        windowObservers.forEach { $0.cancel() }
         windowObservers.removeAll()
         observedWindow = window
         guard let window else { return }
-        let center = NotificationCenter.default
-        for name in [NSWindow.didUpdateNotification, NSWindow.didResizeNotification, NSWindow.didEnterFullScreenNotification,
+        let events = WindowEvents.of(window)
+        for name in [NSWindow.didResizeNotification, NSWindow.didEnterFullScreenNotification,
                      NSWindow.didExitFullScreenNotification, NSWindow.didChangeScreenNotification,
                      NSWindow.didDeminiaturizeNotification, NSWindow.didChangeOcclusionStateNotification] {
-            windowObservers.append(MainActorObservation(name, object: window, center: center) { [weak self] in
+            windowObservers.append(events.subscribe(name, owner: "RemoteBrowserSurfaces") { [weak self] in
                 self?.placeAll()
             })
         }
-        windowObservers.append(MainActorObservation(NSWindow.willCloseNotification, object: window, center: center) { [weak self] in
+        windowObservers.append(events.subscribe(NSWindow.willCloseNotification, owner: "RemoteBrowserSurfaces") { [weak self] in
             guard let self else { return }
             for entry in self.open.values { self.detach(entry.panel) }
             self.observeWindow(nil)
@@ -225,6 +274,17 @@ private final class SurfaceInput: RemoteBrowserEventTarget {
             location = own.convertPoint(fromScreen: from.convertPoint(toScreen: location))
         }
         owner?.sendPointer(event, at: view.convert(location, from: nil), surface: surface)
+    }
+
+    func handlePointerFrame(_ input: PointerCoalescedInput, clickCount: Int) { // perf-hot: 2us pointer-coalesce (every frame delivery to a popup)
+        guard let view else { return }
+        // As `handlePointer`: a hover from another window of the app comes through the screen.
+        let record = input.latest
+        var location = NSPoint(x: record.location.x, y: record.location.y)
+        if let own = view.window, record.windowNumber != own.windowNumber {
+            location = own.convertPoint(fromScreen: NSPoint(x: record.screenLocation.x, y: record.screenLocation.y))
+        }
+        owner?.sendPointerFrame(input, clickCount: clickCount, at: view.convert(location, from: nil), surface: surface)
     }
 }
 #endif

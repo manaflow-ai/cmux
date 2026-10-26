@@ -151,7 +151,7 @@ nonisolated enum AcpmuxStatusClient {
         var initialized = false
         var buffer = Data()
         // Notifications never satisfy the handshake or the operation.
-        while true {  // wakeup-allow: each pass awaits socket data; EOF, error or the deadline ends it
+        while true {  // wakeup-allow: bounded each pass awaits socket data; EOF, an error or the call's deadline ends it
             guard let chunk = try await transport.receive() else { throw Failure.closed }
             buffer += chunk
             while let newline = buffer.firstIndex(of: 0x0A) {
@@ -239,6 +239,7 @@ nonisolated enum AcpmuxStatusClient {
 }
 
 /// A JSON result handed across the deadline boundary.
+// crash-allow: one `let` holding a JSONSerialization result (immutable Foundation containers, never `.mutableContainers`), only read after it crosses.
 nonisolated struct ResultBox: @unchecked Sendable {
     let value: [String: Any]
     init(_ value: [String: Any]) { self.value = value }

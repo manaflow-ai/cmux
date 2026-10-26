@@ -9,7 +9,7 @@ import CmuxNextPhone
 enum PhoneHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
-        let page = PhonePageTab(phones: services.phones)
+        let page = PhonePageTab(phones: services.phones) { [weak services] in services?.remotePointerFrames }
         services.pages.register(page) // at launch, so a restored tab finds it
         services.phones.feedbackSink = services.phoneFeedback
 
@@ -31,12 +31,9 @@ enum PhoneHandlers {
 
         work("phone.show") { invocation, phones in
             let device = try await device(invocation, phones)
-            if page.view(showing: device.id) == nil { page.nextDevice = device.id }
             // One phone tab per window: an open tab switches to the named phone.
-            let shown = services.pages.show(.phone, in: services.windows.active, focus: invocation.allowsViewChange)
-            page.nextDevice = nil
+            let shown = page.show(device.id) { services.pages.show(.phone, in: services.windows.active, focus: invocation.allowsViewChange) }
             if shown == nil { throw PhoneError.unsupported(mode: device.mode, what: "a phone tab without a window") }
-            page.anyView?.select(device.id)
         }
         work("phone.boot") { invocation, phones in
             try await phones.boot(try await device(invocation, phones).id)

@@ -13,7 +13,7 @@ public import Quartz
 /// ```swift
 /// let model = FileBrowserModel(folder: FileManager.default.homeDirectoryForCurrentUser)
 /// let sidebar = SidebarModel(home: home, defaults: .standard)
-/// let pane = FilesPaneView(model: model, sidebar: sidebar, icons: icons) { url in NSWorkspace.shared.open(url) }
+/// let pane = FilesPaneView(model: model, sidebar: sidebar, icons: icons) { url in NSWorkspace.shared.openInBackground(url) }
 /// ```
 @MainActor
 public final class FilesPaneView: NSView {

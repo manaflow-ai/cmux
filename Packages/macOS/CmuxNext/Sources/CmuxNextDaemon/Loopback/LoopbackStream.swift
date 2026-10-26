@@ -158,7 +158,7 @@ public final class LoopbackStream: Sendable {
     // MARK: Private
 
     private func reserveCredit(upTo wanted: Int) async throws -> Int {
-        // wakeup-allow: each iteration either takes credit or waits for the next credit event or the end of the stream
+        // wakeup-allow: bounded: each iteration either takes credit or waits for the next credit event or the end of the stream
         while true {
             let outcome: Result<Int, LoopbackStreamError>? = state.withLock { state in
                 if let finished = state.finished { return .failure(finished ?? .closedLocally) }

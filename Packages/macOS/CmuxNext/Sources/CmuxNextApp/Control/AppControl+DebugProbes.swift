@@ -37,10 +37,10 @@ extension AppControl {
             // Observations per owner: armed, evaluated, applied, show re-reads, hosting bodies; {"reset": true} zeroes them.
             ObservationsControl(ledger: services.observations).method,
             // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class,
-            // the run loop's turns, and per owner the wait and run percentiles; main only copies, the turns and
-            // owners fold off it.
-            .async("debug.main_budget") { [budget = mainWork.budget, board = mainWork.board] call in
-                await board.mainBudgetReport(budget, reset: call.params["reset"]?.boolValue == true)
+            // the run loop's turns, per owner the wait and run percentiles, and its idle class's periods under
+            // "idle"; main only copies, the turns and owners fold off it.
+            .async("debug.main_budget") { [budget = mainWork.budget, board = mainWork.board, idle = mainWork.idle] call in
+                await board.mainBudgetReport(budget, idle: idle, reset: call.params["reset"]?.boolValue == true)
             },
             // Main-thread CPU per frame against a 120 Hz frame (anim-perf-terminal.py).
             .mainActor("debug.main_cpu") { [probe = mainCPUProbe] call in .value(probe.handle(call.params)) },
@@ -60,12 +60,13 @@ extension AppControl {
             .mainActor("debug.pane_focus") { call in .value(DebugPaneFocus.handle(call.params)) },
             // Each workspace switch's own time: input to shown content, and to its commit (perf-budgets.py).
             .mainActor("debug.workspace_switch") { call in .value(DebugWorkspaceSwitch.timer.handle(call.params, key: "switches")) },
-            // Each new workspace's own time: the press to its sidebar row drawn, and the walks between (perf-gate.py).
-            .mainActor("debug.new_workspace") { call in .value(SidebarNewRowTimer.shared.timer.handle(call.params, key: "creates")) },
+            // Each new workspace's own time: its create (with the press's age) to its sidebar row drawn, and the walks between (perf-gate.py).
+            .mainActor("debug.new_workspace") { call in .value(PendingWorkspaceRows.shared.newRows.timer.handle(call.params, key: "creates")) },
             // Work per layout change: pane snapshots, applies, topology sends (bench_pane_scale.py).
             .mainActor("debug.layout_counters") { [weak services] call in
                 let roots = services?.windows.controllers.flatMap { $0.mountedContents.map(\.layoutView) } ?? []
-                return .value(DebugLayoutCounters.handle(call.params, roots: roots))
+                return .value(DebugLayoutCounters.handle(call.params, roots: roots,
+                                                         hiddenWork: services?.hiddenLayoutWork))
             },
             // A full-screen or Space transition: notifications, resizes, layout passes (fullscreen-transition.py).
             .mainActor("debug.window_transition") { call in .value(DebugWindowTransition.shared.handle(call.params)) },

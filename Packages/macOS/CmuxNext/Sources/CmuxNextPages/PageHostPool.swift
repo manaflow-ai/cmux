@@ -10,8 +10,15 @@ public final class PageHostPool {
     public struct Policy: Sendable {
         public var idleInput: Duration = .milliseconds(750)
         public var maximumHosts = 2
+        /// No spare before a pooled page first showed this session (feature `pageRendererAtFirstShow`):
+        /// Chrome's `PreloadMode::kPreloadOnMakeVisible`, which preloads the next top-chrome WebUI only
+        /// once one was made visible (chrome/browser/ui/webui/top_chrome/webui_contents_preload_manager.cc).
+        /// A session that never opens Settings, History or Cloud then runs no renderer for them.
+        public var preloadOnMakeVisible: Bool
 
-        public init() {}
+        public init(preloadOnMakeVisible: Bool = false) {
+            self.preloadOnMakeVisible = preloadOnMakeVisible
+        }
     }
 
     /// One claim, retained for the claim benchmark and debug socket report.
@@ -34,10 +41,15 @@ public final class PageHostPool {
     var spareReady = false
     var claimed: [ObjectIdentifier: WeakHost] = [:]
     var building = false
+    /// Normal came back while a build was in flight (`refillSpare`): that build lost its spare to the
+    /// pressure, so the pool builds again when it ends.
+    var refillAfterBuild = false
+    /// A pooled page the spare could serve was made visible this session (``Policy/preloadOnMakeVisible``).
+    var madeVisible = false
     var activityMark: UInt64 = 0
-    /// The app's memory pressure events; a warning or critical level drops the spare.
-    let memoryPressure: MemoryPressureEvents
-    var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
+    /// The pool's memory consumer: warning or critical drops the spare, and none is built or parked
+    /// again until normal (Chrome's spare rule, ``SpareMemoryConsumer``).
+    var spareMemory: SpareMemoryConsumer?
     var windowObservers: [any NSObjectProtocol] = []
     public internal(set) var isLikely = false
     public internal(set) weak var target: NSWindow?
@@ -51,19 +63,24 @@ public final class PageHostPool {
         init(_ view: PageWebView) { self.view = view }
     }
 
-    /// - Parameter memoryPressure: the app's one memory pressure service (a test passes events from a
-    ///   source it drives); a warning or critical level drops the parked spare.
-    public init(memoryPressure: MemoryPressureEvents, policy: Policy = Policy(), options: PageEngineOptions = .standard,
+    /// - Parameter memory: the app's memory coordinator (a test passes one over a source it drives);
+    ///   the pool registers its spare with it at once.
+    public init(memory: any MemoryConsumerRegistry, policy: Policy = Policy(), options: PageEngineOptions = .standard,
                 clock: any Clock<Duration> = ContinuousClock(),
                 activity: @escaping () -> UInt64 = { ExpectedActivity.shared.total },
                 isTrackingMenu: @escaping () -> Bool = { RunLoop.main.currentMode == .eventTracking }) {
-        self.memoryPressure = memoryPressure
         self.policy = policy
         self.options = options
         self.activity = activity
         self.isTrackingMenu = isTrackingMenu
         timer = DemandTimer(owner: "PageHostPool.build", clock: clock)
+        spareMemory = SpareMemoryConsumer(
+            name: "page-host-spare", registry: memory, spares: { [weak self] in self?.spare == nil ? 0 : 1 },
+            drop: { [weak self] in self?.dropSpare() }, refill: { [weak self] in self?.refillSpare() })
     }
+
+    /// Whether memory pressure lets the pool keep, build or park a spare now (normal only).
+    var allowsSpare: Bool { spareMemory?.allowsSpares ?? true }
 
     public var isSpareReady: Bool { spare != nil && spareReady }
     /// The spare host while one waits, ready or still loading (`debug.memory` spares).
@@ -87,6 +104,7 @@ public final class PageHostPool {
         // Spares are WebKit views: a page that shows in Chromium is made fresh (PageWebView+Chromium).
         let decision = PageWebView.engineDecision(for: descriptor, options: options)
         guard decision.engine == .webKit else { return nil }
+        madeVisible = true
         isLikely = true
         if target == nil, let window { follow(window) }
         guard let host = spare, spareReady, host.isPooled else {
@@ -117,7 +135,7 @@ public final class PageHostPool {
             host.close()
             return
         }
-        if !host.touched, spare == nil, let content = target?.contentView {
+        if !host.touched, spare == nil, allowsSpare, let content = target?.contentView {
             host.countsTouches = false
             park(host, in: content)
             spare = host

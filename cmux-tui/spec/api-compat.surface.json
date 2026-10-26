@@ -22426,6 +22426,151 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/ipc": {
+        "ty": "object"
+      },
+      "/data/ipc/bad_message": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/parses": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/ipc/parses/frames": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/ipc/parses/frames/json_parses": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/parses/frames/json_parses_per_request": {
+        "ty": "float64",
+        "required": true
+      },
+      "/data/ipc/parses/frames/requests": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/parses/lines": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/ipc/parses/lines/json_parses": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/parses/lines/json_parses_per_request": {
+        "ty": "float64",
+        "required": true
+      },
+      "/data/ipc/parses/lines/requests": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/received": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/ipc/received/*": {
+        "ty": "object"
+      },
+      "/data/ipc/received/*/bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/received/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/ipc/received/*/messages": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/sent": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/ipc/sent/*": {
+        "ty": "object"
+      },
+      "/data/ipc/sent/*/bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/sent/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/ipc/sent/*/messages": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/sequence_depth": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/ipc/sequence_depth/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/sequence_depth/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/sequence_depth/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/sequence_depth/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/sequence_depth/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/sequence_depth/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/streams": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/ipc/streams/open": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/streams/opened": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/streams/peak": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/writes": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/ipc/writes/messages": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/writes/stalls": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/writes/syscalls": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/writes/syscalls_per_message": {
+        "ty": "float64",
+        "required": true
+      },
       "/data/journal_writer": {
         "ty": "object",
         "required": true,
@@ -22581,6 +22726,621 @@
         "required": true
       },
       "/data/journal_writer/terminal_queued": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes": {
+        "ty": "object"
+      },
+      "/data/lock_classes/registry": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/registry/automation": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/registry/automation/hold_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/registry/automation/hold_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/automation/hold_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/automation/hold_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/automation/hold_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/automation/hold_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/automation/hold_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/automation/wait_p95_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/automation/wait_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/registry/automation/wait_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/automation/wait_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/automation/wait_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/automation/wait_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/automation/wait_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/automation/wait_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/automation_due_admissions": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/automation_yields": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/frontend": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/registry/frontend/hold_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/registry/frontend/hold_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/frontend/hold_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/frontend/hold_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/frontend/hold_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/frontend/hold_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/frontend/hold_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/frontend/wait_p95_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/frontend/wait_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/registry/frontend/wait_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/frontend/wait_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/frontend/wait_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/frontend/wait_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/frontend/wait_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/frontend/wait_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/program": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/registry/program/hold_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/registry/program/hold_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/program/hold_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/program/hold_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/program/hold_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/program/hold_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/program/hold_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/program/wait_p95_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/program/wait_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/registry/program/wait_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/program/wait_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/program/wait_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/program/wait_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/program/wait_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry/program/wait_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/automation": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/automation/hold_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/automation/hold_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/automation/hold_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/automation/hold_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/automation/hold_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/automation/hold_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/automation/hold_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/automation/wait_p95_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/automation/wait_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/automation/wait_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/automation/wait_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/automation/wait_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/automation/wait_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/automation/wait_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/automation/wait_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/automation_due_admissions": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/automation_yields": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/frontend": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/frontend/hold_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/frontend/hold_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/frontend/hold_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/frontend/hold_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/frontend/hold_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/frontend/hold_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/frontend/hold_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/frontend/wait_p95_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/frontend/wait_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/frontend/wait_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/frontend/wait_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/frontend/wait_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/frontend/wait_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/frontend/wait_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/frontend/wait_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/program": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/program/hold_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/program/hold_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/program/hold_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/program/hold_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/program/hold_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/program/hold_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/program/hold_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/program/wait_p95_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/program/wait_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/program/wait_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/program/wait_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/program/wait_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/program/wait_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/program/wait_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/registry_connection/program/wait_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/state/automation": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/state/automation/hold_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/state/automation/hold_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/automation/hold_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/automation/hold_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/automation/hold_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/automation/hold_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/automation/hold_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/automation/wait_p95_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/automation/wait_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/state/automation/wait_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/automation/wait_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/automation/wait_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/automation/wait_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/automation/wait_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/automation/wait_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/automation_due_admissions": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/automation_yields": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/frontend": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/state/frontend/hold_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/state/frontend/hold_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/frontend/hold_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/frontend/hold_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/frontend/hold_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/frontend/hold_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/frontend/hold_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/frontend/wait_p95_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/frontend/wait_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/state/frontend/wait_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/frontend/wait_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/frontend/wait_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/frontend/wait_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/frontend/wait_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/frontend/wait_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/program": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/state/program/hold_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/state/program/hold_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/program/hold_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/program/hold_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/program/hold_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/program/hold_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/program/hold_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/program/wait_p95_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/program/wait_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/lock_classes/state/program/wait_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/program/wait_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/program/wait_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/program/wait_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/program/wait_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lock_classes/state/program/wait_us/p99": {
         "ty": "uint64",
         "required": true
       },

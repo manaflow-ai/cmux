@@ -35,8 +35,17 @@ public nonisolated struct LaunchMarkSink: Sendable {
     /// Sends the launch mark `name`, `ms` after process start; the caller sends each name once.
     public func write(name: String, ms: Double) {
         signposts.mark(name, ms: ms)
+        writeLine("\(name) \(String(format: "%.1f", ms))\n")
+    }
+
+    /// Sends the value mark `name` (a count, not a time: bench-startup.py's `VALUE_MARKS`) to the bench's pipe only;
+    /// no signpost, which would read it as milliseconds. The caller sends each name once.
+    public func writeValue(name: String, value: UInt64) {
+        writeLine("\(name) \(value)\n")
+    }
+
+    private func writeLine(_ line: String) {
         guard let fd else { return }
-        let line = "\(name) \(String(format: "%.1f", ms))\n"
         line.utf8CString.withUnsafeBufferPointer { buffer in
             // concurrency-allow: O_NONBLOCK pipe, only when the startup bench passed one; a full pipe drops the line
             _ = Darwin.write(fd, buffer.baseAddress, buffer.count - 1)

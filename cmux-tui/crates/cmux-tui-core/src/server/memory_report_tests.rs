@@ -53,6 +53,7 @@ fn memory_report_counts_each_terminal_and_sums_them() {
     let image = terminal(&data, &image);
     for terminal in [quiet, busy, image] {
         assert_eq!(terminal["home"], "daemon", "{terminal}");
+        assert_eq!(terminal["state"], "hot", "{terminal}");
         assert!(terminal["holder_ring_bytes"].is_null(), "{terminal}");
         assert!(terminal["scrollback"]["live_bytes"].as_u64().unwrap() > 0, "{terminal}");
     }
@@ -103,14 +104,13 @@ fn memory_report_names_no_title_or_path() {
 fn memory_report_lists_the_registry_consumers_and_level() {
     let mux = test_mux();
     let local = mux.control_clients.register(ClientTransport::Unix, writer());
-    let registration = mux.memory_registry().register(MemoryConsumer::new(
+    let registration = mux.memory.registry().register(MemoryConsumer::new(
         "test.cache",
         Retention::Lossy,
         || Some(4096),
         |_| {},
     ));
     let data = report(&mux, local).unwrap();
-    assert_eq!(data["pressure"], "normal", "{data}");
     let consumers = data["consumers"].as_array().unwrap();
     assert!(
         consumers.contains(&json!({"name": "test.cache", "retention": "lossy", "bytes": 4096})),
@@ -126,8 +126,12 @@ fn memory_report_lists_the_registry_consumers_and_level() {
         "{data}"
     );
 
-    mux.memory_registry().set_level(PressureLevel::Critical);
+    // The level is the worst vote, so a critical vote shows whatever the
+    // kernel source says.
+    let voter = mux.memory.registry().voter();
+    voter.set_level(PressureLevel::Critical);
     assert_eq!(report(&mux, local).unwrap()["pressure"], "critical");
+    drop(voter);
     drop(registration);
     let names = report(&mux, local).unwrap()["consumers"].to_string();
     assert!(!names.contains("test.cache"), "an unregistered consumer is gone: {names}");
@@ -173,4 +177,28 @@ fn memory_report_refuses_a_remote_relay_client() {
         remote_relay::gate::check_frame(r#"{"id":1,"cmd":"memory-report"}"#),
         Err(remote_relay::gate::Denial::Command)
     );
+}
+
+#[test]
+fn memory_report_reads_a_cold_terminal_without_restoring_it() {
+    let mux = test_mux();
+    let local = mux.control_clients.register(ClientTransport::Unix, writer());
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let lines: String = (0..3_000).map(|line| format!("line {line} of scrollback\r\n")).collect();
+    surface.with_terminal(|term| term.vt_write(lines.as_bytes())).unwrap();
+    let wake: crate::surface::ThawWake = Arc::new(|| {});
+    let outcome = surface.freeze_cold_terminal(&[], &wake);
+    let Some(crate::surface::ColdFreeze::Frozen { held_bytes }) = outcome else {
+        panic!("not frozen: {outcome:?}");
+    };
+
+    let data = report(&mux, local).unwrap();
+    assert!(surface.terminal_is_cold(), "the report restored the terminal: {data}");
+    let cold = terminal(&data, &surface);
+    assert_eq!(cold["state"], "cold", "{cold}");
+    assert_eq!(cold["cold"]["held_bytes"], held_bytes, "{cold}");
+    assert!(cold["cold"]["snapshot_bytes"].as_u64().unwrap() > 0, "{cold}");
+    assert!(cold["scrollback"].is_null(), "{cold}");
+    assert_eq!(data["totals"]["cold_terminals"], 1, "{data}");
+    assert_eq!(data["totals"]["cold_held_bytes"], held_bytes, "{data}");
 }

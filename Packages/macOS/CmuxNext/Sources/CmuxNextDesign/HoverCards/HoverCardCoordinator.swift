@@ -43,6 +43,10 @@ public final class HoverCardCoordinator {
     /// Pointer moves while a card shows: the card ignores the mouse, so over it no source
     /// sees the pointer leave it; this tap observer sees it at once (no wait for a deadline).
     var cardMoves: InputSubscription?
+    /// Those moves on the card parent's frames (`pointerFrameHover`); nil: each move reaches the card now.
+    var cardMoveFrames: PointerFrameConsumer?
+    /// Card moves checked (debug and tests: at most 2 per frame interval with the parent's frames).
+    var cardMoveChecks = 0
     /// The app's input tap (the App's composition root passes it; a strip's default coordinator,
     /// replaced before it shows a card, and tests that drive the machine directly have none).
     let inputTap: InputEventTap?
@@ -432,19 +436,6 @@ public final class HoverCardCoordinator {
         Int(duration.components.seconds) * 1_000 + Int(duration.components.attoseconds / 1_000_000_000_000_000)
     }
 
-    /// The single-card invariant, checked live in debug builds
-    /// (`debug.desync`): at most one card window exists and shows, and it
-    /// shows what the machine says.
-    public func singleCardViolations() -> [String] {
-        var bad: [String] = []
-        if HoverCardPanel.liveInstances > 1 { bad.append("\(HoverCardPanel.liveInstances) hover card windows exist") }
-        let showing = panel?.isShowingCard == true
-        if showing, machine.shownTarget == nil, owned == nil { bad.append("a card shows while the machine has none") }
-        if owned != nil, machine.shownTarget != nil { bad.append("an owner's card and \(machine.shownTarget?.id.rawValue ?? "-") share the window") }
-        if !showing, let shown = machine.shownTarget, panel?.isVisible != true { bad.append("the machine shows \(shown.id) but no card is on screen") }
-        return bad
-    }
-
     /// State for `debug.hover_cards`.
     public var report: [String: String] {
         [
@@ -456,7 +447,7 @@ public final class HoverCardCoordinator {
             "pending_target": { if case .pending(let target, _) = machine.phase { target.id.rawValue } else { "-" } }(),
             "shown_target": machine.shownTarget?.id.rawValue ?? "-",
             "quiet": "\(machine.quiet)",
-            "card_windows": "\(HoverCardPanel.liveInstances)",
+            "card_windows": "\(HoverCardPanel.liveInstances.load(ordering: .relaxed))",
             "card_showing": "\(panel?.isShowingCard == true)",
             "card_frame": panel.map { NSStringFromRect($0.cardFrame) } ?? "-",
             "anchor_frame": panel.map { NSStringFromRect($0.anchorFrame) } ?? "-",

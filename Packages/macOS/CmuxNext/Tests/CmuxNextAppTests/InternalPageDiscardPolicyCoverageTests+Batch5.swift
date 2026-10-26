@@ -12,6 +12,7 @@ import CmuxNextSettings
 import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// Page policies batch 5 (p07-memory-028): the App Store, CodeRouter, Cloud, Mobile Pairing, Mac
 /// Screen, Phone and Inbox pages each declare when their hidden tab's view may go, and a discard
@@ -250,14 +251,14 @@ import Testing
         #expect(tab.keepReasons(for: key) == [.unsavedEdits], "notes typed for a recording live only in the view")
         view.notesField.stringValue = ""
 
-        tab.nextDevice = PhoneDeviceID("sim:BBBB")
         tab.viewDiscarded(key)
         #expect(tab.route(for: key) == "sim:AAAA", "the tab forgot its phone")
         #expect(tab.keepReasons(for: key).isEmpty)
-        let second = try #require(tab.makeView(for: key, in: nil) as? PhoneTabView)
+        // Rebuilt while a `phone.show` for another phone runs: the tab keeps its own.
+        let rebuilt = tab.opens.during(PhoneDeviceID("sim:BBBB")) { tab.makeView(for: key, in: nil) }
+        let second = try #require(rebuilt as? PhoneTabView)
         #expect(second !== view)
-        #expect(second.route == "sim:AAAA")
-        #expect(tab.nextDevice == PhoneDeviceID("sim:BBBB"), "a rebuilt tab took the phone the next new tab shows")
+        #expect(second.route == "sim:AAAA", "a rebuilt tab took the phone another show asked for")
         tab.tabClosed(key)
     }
 
@@ -266,9 +267,9 @@ import Testing
     @Test func theInboxKeepsItsViewWhileABasketReplyIsTypedOrSent() throws {
         let model = FeedModel(source: MockFeedSource())
         model.replaceReports([FeedReport(id: "r1", sender: "host/alpha", body: "a report", createdAt: Date(timeIntervalSince1970: 1_000))])
-        let host = FeedHostView(model: model)
+        let host = FeedHostView(model: model, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         #expect(!host.hasTypedReply && !host.isSendingReply)
-        let basket = ReportsBasketView(model: model, onReply: { _ in true })
+        let basket = ReportsBasketView(model: model, mainWork: MainWorkScheduler(budget: MainFrameBudget()), onReply: { _ in true })
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

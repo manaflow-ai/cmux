@@ -580,8 +580,19 @@ control-socket admission. Counters accumulate since daemon start. The command
 reads atomics and never touches SQLite or the journal, so it is safe to poll.
 
 Params: `{include?: array<string>|null}`. `include` names optional result
-sections: `resource_projection`, `write_path`, `slow_requests` and `requests`;
-unknown names are ignored.
+sections: `resource_projection`, `write_path`, `request_path_io`,
+`slow_requests`, `requests`, `ipc` and `lock_classes`; unknown names are
+ignored.
+
+`lock_classes` reports wait and hold by class on the three locks that admit by
+class: the workspace registry, the registry connection (first acquisitions) and
+the mux state lock. `frontend` is the verified app's own requests, `automation`
+is agents, scripts, the CLI and pages, and `program` is work no request started
+(terminal output, hooks, the journal writer). An automation caller that holds
+no ranked lock waits while a frontend caller waits, and one is let through at
+least every 4 ms; `automation_yields` counts the automation acquisitions that
+waited so, `automation_due_admissions` those let through while frontends still
+waited.
 An optional section is absent unless requested, because SDK decoders refuse
 unknown result fields.
 
@@ -636,8 +647,28 @@ object{
     query:histogram, browser:histogram, agent:histogram, cloud:histogram,
     other:histogram
   },
-  dispatch_queue_us?:histogram
+  dispatch_queue_us?:histogram,
+  ipc?:object{
+    streams:object{open:uint64,peak:uint64,opened:uint64},
+    sequence_depth:histogram,
+    received:array<kind_count>, sent:array<kind_count>,
+    parses:object{lines:parse_count,frames:parse_count},
+    writes:object{messages:uint64,syscalls:uint64,syscalls_per_message:float64,stalls:uint64},
+    bad_message:uint64
+  },
+  lock_classes?:object{
+    registry:lock_class_set, registry_connection:lock_class_set,
+    state:lock_class_set
+  }
 }
+kind_count = object{kind:string,messages:uint64,bytes:uint64}
+parse_count = object{requests:uint64,json_parses:uint64,json_parses_per_request:float64}
+
+lock_class_set = object{
+  frontend:lock_class, program:lock_class, automation:lock_class,
+  automation_yields:uint64, automation_due_admissions:uint64
+}
+lock_class = object{wait_us:histogram, wait_p95_us:uint64, hold_us:histogram}
 histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
 ```
 
@@ -722,6 +753,29 @@ write is not counted. `dispatch_queue_us` is the time from a request's parse
 to its handler's start: the wait in the connection's request queue (0 for a
 line answered inline).
 
+`ipc` counts the IPC layer since daemon start, over the connections of every
+transport: the local socket, the remote entry and WebSocket. `streams`
+counts each connection's stream 0 (`open` now, `peak`, `opened` in total);
+no connection opens a second stream yet, so `open` is the open connections.
+`sequence_depth` samples the requests in a connection's sequence as each
+`cmd` request arrives at it, itself included, also when the full sequence
+refuses it. `received` and `sent` list messages and bytes by kind, only kinds
+seen at least once: `line` (a JSON line, bytes counting its delimiter, or a
+WebSocket text message) first, then frame kinds by name in wire order (a
+frame's bytes count its header). `sent` counts what was handed to a
+connection writer. `parses.lines` counts every non-blank JSON line or
+WebSocket text message a connection reads, the ones its admission or hello
+gate answers included, and every JSON parse of their bytes where it happens
+(the admission's, the hello gate's, the v2 probe's and each feature route's,
+also a route that then declines the line); `parses.frames` the same for
+admitted REQUEST frames. `json_parses_per_request` is 0 before the first
+request. `writes.syscalls` counts the writers' write calls and
+`writes.stalls` the calls that blocked for at least 1 ms on a full peer
+receive buffer. `bad_message` counts connections closed for a malformed
+message: a JSON line over the size limit or not UTF-8, a bad frame, or a
+WebSocket message that is oversized, not UTF-8, binary or against the
+protocol.
+
 In a trace, each request is the slice `daemon.request`: arg0 is the method
 id (a command's row in the command table, `0x4000` plus a resource
 operation's index, or `0x8000` plus the class of a feature-route line) and
@@ -805,7 +859,8 @@ object{
   switches:map<string,string>,
   terminalAttach:object{attached:uint64,detached:uint64,dead:uint64},
   liveObjects:map<string,uint64>,
-  panicLog:object{path:string|null,bytes:uint64}
+  panicLog:object{path:string|null,bytes:uint64},
+  childExits:object{holder:uint64}
 }
 ```
 
@@ -822,11 +877,19 @@ the same locked state as `session`; `subscriptions` is read just after it.
 `terminalAttach` counts the terminal catalog: `dead`
 terminals have no process, `attached` ones are shown in at least one pane
 tab, `detached` ones are live with no placement. `liveObjects` counts runtime
-objects: `browsers`, `panes`, `screens`, `subscriptions` (live event
-subscriptions), `terminals` (the terminal catalog), `views` (pane tab
-placements) and `workspaces`. `panicLog` is the owner's panic log
-(`owner-panics-<session>.jsonl` at the state root) and its length in bytes;
-`path` is null when there is no state root. Every map has sorted keys.
+objects: `browsers`, `holders` (live terminals hosted out of process),
+`panes`, `screens`, `subscriptions` (live event subscriptions), `terminals`
+(the terminal catalog), `views` (pane tab placements) and `workspaces`.
+`panicLog` is the owner's panic log (`owner-panics-<session>.jsonl` at the
+state root) and its length in bytes; `path` is null when there is no state
+root. `childExits` counts the child exits this owner saw since it started
+(p15-oracle task 188, invariant I17): `holder` is each terminal host of this
+session that was lost or replaced on its running shell, counted where the
+owner logs it to `terminal-losses.jsonl`, so the log's rotation and other
+sessions' lines in the same state root never change it. It starts at 0 with
+each owner. The owner's own end is not here: a crashed owner cannot count
+it, so the app counts drops without `daemon-shutdown`. Every map has sorted
+keys.
 
 Errors: `oracle state requires a trusted local connection`, `bad request: ...`.
 
@@ -920,11 +983,16 @@ the resident bytes of pages that are not compressed, `compressed_bytes` the
 compressed page data), the alternate screen's resident bytes, Kitty image
 bytes of both screens, and for a holder terminal the size of the ring segment
 the daemon keeps a copy of. A field libghostty-vt cannot report is `null`.
-`totals` sums the terminal rows. `consumers` lists the daemon's memory registry
-(cmux-memory) in registration order; `bytes` is `null` when the consumer's
-memory is held in another process. `process` is the daemon's private footprint
-(macOS `phys_footprint`; Linux `RssAnon + VmSwap`) and resident set, `null`
-where the platform does not report it.
+`state` is `cold` for a terminal the cold-scrollback codec compressed whole:
+the report reads its size without restoring it, `cold` gives the bytes it
+holds (`held_bytes`: compressed snapshot and Kitty replay) and the snapshot's
+size before compression, and the libghostty fields are `null`. `unknown` is a
+terminal moving between the two states. `totals` sums the terminal rows.
+`consumers` lists the daemon's memory registry (cmux-memory) in registration
+order; `bytes` is `null` when the consumer's memory is held in another
+process. `process` is the daemon's private footprint (macOS `phys_footprint`;
+Linux `RssAnon + VmSwap`) and resident set, `null` where the platform does not
+report it.
 
 Params: none.
 
@@ -940,6 +1008,8 @@ object{
     surface:SurfaceId,
     terminal_id:string|null,
     home:"daemon"|"holder"|"host"|"exited",
+    state:"hot"|"cold"|"unknown",
+    cold:object{held_bytes:uint64, snapshot_bytes:uint64}|null,
     scrollback:object{live_bytes:uint64, compressed_bytes:uint64,
       virtual_bytes:uint64, pages:uint64, compressed_pages:uint64}|null,
     compression_supported:bool|null,
@@ -947,7 +1017,8 @@ object{
     kitty_image_bytes:uint64|null,
     holder_ring_bytes:uint64|null
   }>,
-  totals:object{terminals:uint64, scrollback_live_bytes:uint64,
+  totals:object{terminals:uint64, cold_terminals:uint64, cold_held_bytes:uint64,
+    scrollback_live_bytes:uint64,
     scrollback_compressed_bytes:uint64, alternate_screen_bytes:uint64,
     kitty_image_bytes:uint64, holder_ring_bytes:uint64},
   consumers:array<object{name:string, retention:"lossless"|"lossy", bytes:uint64|null}>

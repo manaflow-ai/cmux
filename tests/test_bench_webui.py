@@ -42,7 +42,8 @@ class FakeApp:
     """Enough of the control socket: pages open through their actions and land in the `debug.webui` census; a page
     hidden for 10 s freezes (the most recently hidden one stays hidden), one hidden for 300 s with no keep reason is
     discarded; `leak` makes publishing reach frozen pages; `census` False is a build without debug.webui. `verbs` is
-    how `publish` and `pressure` answer: ok, error, or ignored (the census back, as a build without the verb).
+    how `debug.webui publish` and `debug.hibernation.pressure` answer: ok, error (a release build has no pressure
+    override), or ignored (a reply that confirms nothing, as a build without the verb).
     `other_pane` holds the tabs of a second pane; a new chat opens in the first. Cmd-, opens Settings, painted
     `open_delay` s after the key (`cold_delay` when its renderer is new); Cmd-W closes it."""
 
@@ -55,6 +56,7 @@ class FakeApp:
         self.pages = {}  # page id -> {"state", "hidden_at", "pid", "deliveries", "painted_uptime"?}
         self.order = []
         self.calls = []
+        self.override = None  # the memory coordinator's pressure override (`debug.hibernation.pressure`)
         self.next_pid = 500
         self.groups = {}
         self.hides = 0  # the order pages were hidden in: socket calls take no fake time, so several hide at once
@@ -157,22 +159,29 @@ class FakeApp:
             return {"painted": True, "controls": 3, **({"painted_uptime": page["painted_uptime"]} if "painted_uptime" in page else {})}
         if method == "debug.cef":
             return self.cef
+        if method == "debug.hibernation.pressure":
+            if self.verbs == "error":
+                return {"error": {"code": "method_not_found"}}
+            if self.verbs != "ok":
+                return {}
+            level = params.get("level")
+            self.override = None if level == "none" else level
+            if level == "critical":
+                for page in self.pages.values():
+                    if page["state"] in ("hidden", "frozen"):
+                        page["state"] = "discarded"
+            return {"level": self.override or "normal", "override": self.override, "pressure": self.override or "normal"}
         if method == "debug.webui":
             if not self.has_census:
                 return {"error": {"code": "method_not_found"}}
             verb = params.get("action")
-            if verb in ("publish", "pressure") and self.verbs == "error":
+            if verb == "publish" and self.verbs == "error":
                 return {"error": {"code": "invalid_params", "message": f"unknown action {verb}"}}
             if verb == "publish" and self.verbs == "ok":
                 for page in self.pages.values():
                     if page["state"] == "frozen" and self.leak:
                         page["deliveries"] += 3
                 return {"publishing": True}
-            if verb == "pressure" and self.verbs == "ok":
-                for page in self.pages.values():
-                    if page["state"] in ("hidden", "frozen"):
-                        page["state"] = "discarded"
-                return {"pressure": "critical"}
             self.refresh()
             return {"rows": [{"row": "page", "page": p, "state": page["state"], "group": "privileged",
                               "keep_reasons": ["audio"] if p in self.keep else [],
@@ -616,6 +625,10 @@ class CrashPressurePriorityTests(unittest.TestCase):
         self.assertEqual(got["discards_in_importance_order"]["status"], "unscored")
         self.assertIn("browser", app.tabs)  # the ranked pass has a browser tab and a chat to rank
         self.assertIn("conversation", app.tabs)
+        # The pressure goes through the memory coordinator's override (p13-webui-047), cleared at the end.
+        levels = [params["level"] for method, params in app.calls if method == "debug.hibernation.pressure"]
+        self.assertEqual(levels, ["critical", "none"])
+        self.assertIsNone(app.override)
 
     def test_a_pressure_that_fails_or_is_ignored_is_unscored(self):
         for verbs in ("error", "ignored"):

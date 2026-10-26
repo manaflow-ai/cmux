@@ -41,8 +41,8 @@ extension TraceRuntime {
     }
 
     /// The E of a B that ``begin(_:arg0:arg1:)`` wrote, whatever the category flags are now.
-    func endRecorded(_ name: SignpostName, arg0: UInt64) {
-        writeEnd(name: name.rawValue, categoryBit: name.traceCategory.traceBit, phase: .end, arg0: arg0)
+    func endRecorded(_ name: SignpostName, arg0: UInt64, arg1: UInt64 = 0) {
+        writeEnd(name: name.rawValue, categoryBit: name.traceCategory.traceBit, phase: .end, arg0: arg0, arg1: arg1)
     }
 
     /// The AE of an AB that ``asyncBegin(_:id:arg0:)`` wrote, whatever the category flags are now.

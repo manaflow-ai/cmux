@@ -1,10 +1,12 @@
 import CmuxNextCompat
 import CmuxNextCrashReporting
+import CmuxNextWakeups
 import Darwin
 import Foundation
 import os
 
 /// Descriptor the fatal-signal handler writes the signal number into.
+// crash-allow: signal-handler state, an aligned Int32 with a constant initial value (an Atomic would run its lazy initializer in the handler); set on the main thread before installHandlers, then cleared once by the handler or a clean exit.
 nonisolated(unsafe) private var fatalSignalDescriptor: Int32 = -1
 
 /// Writes the signal number ("11\n") with one async-signal-safe write(2),
@@ -115,6 +117,10 @@ final class AppRunMarker {
     }
 
     private func start() {
+        // First, before any crash handler is installed (the uncaught-exception recorder below, the crash deadline,
+        // the fatal-signal handlers) and whether or not the files below open: the crash keys' block, which those
+        // handlers read (CrashKeys).
+        CrashReporter.prepareCrashKeysBlock()
         do {
             // concurrency-allow: once at launch; a stat when the folder exists (every launch after the first).
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -145,8 +151,9 @@ final class AppRunMarker {
         installHandlers()
         let window = LaunchRecovery.quickCrashWindow
         survivalTask = Task { [weak self] in
-            // wakeup-allow: one-shot quick-crash window after launch; fires once
-            do { try await Task.sleep(for: window) } catch { return }
+            // wakeup-allow: deadline the quick-crash window after launch; fires once, cancelled by a clean exit. It is
+            // armed inside AppServices.init, before the app's MainDeadlineScheduler can be read.
+            do { try await Task.sleep(for: window, tolerance: WakeLeeway.window(delay: window).tolerance) } catch { return }
             self?.markSurvived()
         }
     }

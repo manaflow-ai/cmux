@@ -4,6 +4,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -40,7 +41,7 @@ import Testing
         window.orderFrontRegardless()
 
         let page = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent)),
-                                              source: .bundled(file), webUI: .agentTabsTestHost(), gestures: .testing()))
+                                              work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentTabsTestHost(), gestures: .testing()))
         defer { page.close() }
         let probe = WindowProbe()
         page.addSubview(probe)
@@ -49,7 +50,7 @@ import Testing
         try await Task.sleep(for: .milliseconds(300))
 
         // Cmd-T into a browser, then Cmd-W back to the page.
-        let chrome = BrowserChromeView(tab: WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab())
+        let chrome = BrowserChromeView(tab: WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab(), mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         pane.show(chrome)
         pane.layoutSubtreeIfNeeded()
         try await Task.sleep(for: .milliseconds(300)) // any paint hold on the browser ends

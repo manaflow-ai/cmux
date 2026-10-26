@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextInput
 import Foundation
 import os
+import CmuxNextWakeups
 
 /// Faults from shim callbacks that arrive off the CEF UI (main) thread.
 private let callbackLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")
@@ -18,11 +19,11 @@ let cefEventCallback: CEFShimLibrary.EventFn = { context, kind, browser, request
     // future shim path emits elsewhere, hop instead of trapping in
     // assumeIsolated (the strings are already copied into `event`).
     guard Thread.isMainThread else {
-        DispatchQueue.main.async { MainActor.assumeIsolated { CEFRuntime.from(address)?.handle(event) } } // main-proof: a DispatchQueue.main block runs on the main thread
+        DispatchQueue.main.async { MainActor.assumeIsolated { CEFRuntime.from(address)?.receive(event) } } // main-proof: a DispatchQueue.main block runs on the main thread
         return
     }
     MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread above
-        CEFRuntime.from(address)?.handle(event)
+        CEFRuntime.from(address)?.receive(event)
     }
 }
 
@@ -56,7 +57,7 @@ let cefUnhandledKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent 
 }
 
 /// C entry before a DevTools browser sees a key down; `browser` is the
-/// inspected page.
+/// inspected page. In process only (``CEFDevToolsKeyPolicy/preKeyHook``).
 let cefDevToolsKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent in
     guard let context, let nsEvent else { return 0 }
     // Keys arrive on the main thread; off it, the DevTools page keeps the key.
@@ -87,16 +88,16 @@ extension CEFRuntime {
         UnsafeMutableRawPointer(bitPattern: address).map { Unmanaged<CEFRuntime>.fromOpaque($0).takeUnretainedValue().pumpGate }
     }
 
-    func handle(_ event: CEFShimEvent) {
+    func dispatch(_ event: CEFShimEvent) {
         switch event {
         case .contextInitialized:
             logger.info("CEF context initialized")
         case .afterCreated(let browser, let request, let window, let created):
             browserCreated(browser, request: request, window: window, created: created)
         case .popup:
-            // AFTER_CREATED of the popup's tab carries its URL, disposition
-            // and gesture (the shim's pending popups).
+            // AFTER_CREATED of the popup's tab carries its URL, disposition and gesture (the shim's pending popups).
             break
+        case .createFailed(let browser, let request): CEFCreateFailure(browser: browser, request: request).apply(to: self)
         case .chromeCommand(let browser, let command):
             chromeWindowCommandBlocked(command, browser: browser)
         case .beforeClose(let browser):
@@ -196,6 +197,8 @@ extension CEFRuntime {
     // MARK: Browser lifetime
 
     private func browserCreated(_ browser: Int32, request: Int32, window: Int32, created: CEFCreatedBy) {
+        // Host mode's `cef.create_browser` ends at the host's created reply, whoever takes the browser below.
+        if request != 0 { spareWindow.createTrace.created(request: request) }
         if shutdownSequence != nil {
             // Its creation was under way when quit closed every browser (`shutdown`): close it
             // too, or the wait for Chromium's windows runs out and CefShutdown is skipped.
@@ -389,15 +392,15 @@ extension CEFRuntime {
         if shutdownSequence?.phase != .readyToShutdown {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 shutdownWaiter = continuation
-                shutdownTimeout = Task { @MainActor [weak self] in
-                    // wakeup-allow: one-shot shutdown deadline, cancelled when Chromium reports closed
-                    do { try await Task.sleep(for: timeout) } catch { return }
+                shutdownTimeout = waitDeadlines.schedule(owner: "CEFRuntime.shutdown", after: timeout) { [weak self] in
                     self?.resumeShutdownWaiter()
                 }
             }
         }
-        shutdownTimeout?.cancel()
+        if let shutdownTimeout { _ = waitDeadlines.cancel(shutdownTimeout) }
         shutdownTimeout = nil
+        // A create the host never answered before the wait ran out gets no reply now.
+        spareWindow.createTrace.endUnanswered()
         devToolsCalls.failAll(where: { _ in true }, with: BrowserTabError.closed)
         siteReplies.failAll(where: { _ in true }, with: BrowserTabError.closed)
         pump?.stop()
@@ -436,7 +439,7 @@ extension CEFShimEvent {
         case .address(let b, _), .title(let b, _), .favicon(let b, _), .loadingState(let b, _, _, _),
              .loadStart(let b, _, _), .loadEnd(let b, _), .loadError(let b, _, _, _, _), .progress(let b, _),
              .fullscreen(let b, _), .findResult(let b, _, _, _), .closeRequested(let b), .popup(let b, _, _, _),
-             .afterCreated(let b, _, _, _), .beforeClose(let b), .chromeCommand(let b, _), .devToolsResult(let b, _, _, _), .tab(_, let b, _, _),
+             .afterCreated(let b, _, _, _), .beforeClose(let b), .createFailed(let b, _), .chromeCommand(let b, _), .devToolsResult(let b, _, _, _), .tab(_, let b, _, _),
              .reply(let b, _, _, _), .contextMenu(let b, _, _, _, _, _),
              .devToolsWillOpen(let b), .devToolsOpened(let b, _, _), .devToolsClosed(let b, _),
              .renderTerminated(let b, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),

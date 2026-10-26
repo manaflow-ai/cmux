@@ -77,7 +77,7 @@ final class SocketWriter: Sendable {
     // MARK: - Private (serial queue)
 
     private func drain() {
-        // wakeup-allow: drains queued bytes and stops when the queue is empty, closed, or a write fails or makes no progress
+        // wakeup-allow: bounded: drains queued bytes and stops when the queue is empty, closed, or a write fails or makes no progress
         while true {
             let chunk = state.withLock { state -> Data? in
                 guard !state.closed, !state.pending.isEmpty else {
@@ -158,7 +158,8 @@ extension DaemonWireStats.Role {
             // userBlocking: a person waits now for the result of a click, an open or quit.
             .userInitiated
         case .loopbackForward:
-            // userVisible: forwarded page bytes show on screen soon.
+            // Bulk forwarded page bytes: one class below the roles a person waits for, so a large stream never
+            // crowds them out (not the userVisible lane mapping, which is user-initiated; threading-model.md).
             .default
         case .socketProbe:
             // bestEffort: a liveness probe nobody watches.

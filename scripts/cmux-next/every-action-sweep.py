@@ -103,8 +103,22 @@ A STRESS session of another shape (perf-stress-session's StressShapeError at the
 mid-session rebuild or tab restore) is such a failure: another layout is never measured as `stress`. So is an app that
 does not come back after a crash (bench_launch's LaunchError at a relaunch): the session is recorded with its rows and
 the next session runs on a fresh launch.
+
+Blocking sites (p02-threads 300, MQ-10; RUN-1 in plans/cmux-next/chrome-parity/p02-threads.md): --blocking-report=record
+launches with CMUX_BLOCKING_TRAP=0 and CMUX_BLOCKING_TRAP_POOL=0, reads `debug.blocking` (with reset) before each launch
+quits and saves each read to OUT/blocking/<session>-<launch>.json; the report's `blocking` section groups the sites by
+(fileID, kind, context), one task p02-threads-R-every-action-<Module> per module (OUT/blocking-tasks.json, the
+design-result task shape, with each #fileID resolved to its file under Packages/**/Sources/<Module>/). Quit-path sites
+are lifecycle-sweep's (RUN-12, p02-threads 307): a record run cannot read a table that ended with its launch.
+--blocking-report=trap launches with CMUX_BLOCKING_TRAP=1 and CMUX_BLOCKING_TRAP_POOL=1 and is RUN-1: the last launch
+quits before the verdict, and the run exits BLOCKING_EXIT (5) unless every launch was read in trap mode, with 0 traps
+(the detector's fatalError lines in OUT/app.log, or an exit or a quit on SIGTRAP), 0 sites and 0 overflow; each trap is
+filed as a site too. A record run never exits on its sites: they are its output.
+--merge joins the shards' blocking sections and writes blocking-tasks.json next to the merged JSON. On the fleet, add
+--arg=--blocking-report=record (then =trap) to the split-spring.sh command above, with --artifact
+artifacts/split-spring/blocking-tasks.json in a further step.
 """
-import argparse, base64, csv, signal, threading, glob, gzip, hashlib, importlib.util, json, os, platform, re, socket, statistics, subprocess, sys, tempfile, time, traceback
+import argparse, base64, csv, functools, signal, threading, glob, gzip, hashlib, importlib.util, json, os, platform, re, socket, statistics, subprocess, sys, tempfile, time, traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -145,6 +159,8 @@ parser.add_argument("--settle", type=float, default=0.5, help="seconds of frames
 parser.add_argument("--no-interactions", action="store_true")
 parser.add_argument("--write-gaps", action="store_true", help="rewrite every-action-gaps.json from this whole-catalog run")
 parser.add_argument("--keep", action="store_true", help="leave the app running")
+parser.add_argument("--blocking-report", choices=("record", "trap"),
+                    help="read debug.blocking at the end of each launch; trap also turns the detector's traps on (RUN-1)")
 parser.add_argument("--app-env", action="append", default=[], metavar="NAME=VALUE",
                     help="one more variable in the app's environment (repeatable), e.g. a measurement tool's "
                          "DYLD_INSERT_LIBRARIES (scripts/measure/blocking-probe.sh)")
@@ -189,6 +205,22 @@ FAILED_SESSION_EXIT = 3
 # baseline (GAPS): a new action must come with its fixture (zero-latency.md, "Native actions: the budget contract").
 NEW_GAP_EXIT = 4
 GAPS = os.path.join(HERE, "every-action-gaps.json")
+# The exit status of a --blocking-report=trap run (or a --merge of one) that is not RUN-1 clean: a trap, a site, an
+# overflow, a launch whose debug.blocking was not read, or an app that ran the detector in another mode.
+BLOCKING_EXIT = 5
+# The app's environment per --blocking-report mode (BlockingViolationTable reads CMUX_BLOCKING_TRAP once at launch; the
+# pool switch is task 005's). Record says 0 outright, so a Debug default flipped to trap (task 021) still records.
+BLOCKING_ENV = {"record": {"CMUX_BLOCKING_TRAP": "0", "CMUX_BLOCKING_TRAP_POOL": "0"},
+                "trap": {"CMUX_BLOCKING_TRAP": "1", "CMUX_BLOCKING_TRAP_POOL": "1"}}
+# The detector's trap messages (BlockingViolationTable.trap's fatalError, CmuxNextCompat/Threading), as the app's
+# stderr has them in OUT/app.log: "...: Fatal error: blocking <kind> on the main thread at <Module/File.swift>:<line>:
+# move it ..." (recordedSite) and "... on the cooperative pool or a GCD root queue at <Module/File.swift>:<line>: run it
+# ..." (recordedOffMainSite). "Fatal error:" keeps out the record mode's log line of the same words. The words between
+# "on" and "at" name the context.
+BLOCKING_TRAP_LINE = re.compile(r"Fatal error: blocking (?P<kind>[\w-]+) on (?P<where>[^:\n]+?) at (?P<file>[^\s:]+):(?P<line>\d+):")
+# The violation contexts debug.blocking reports (BlockingContext's raw values; lane and dedicated may block). RUN-1
+# (plans/cmux-next/chrome-parity/p02-threads.md section 5) fails on a site of any context or kind.
+BLOCKING_CONTEXTS = ("main", "pool", "cpu-lane")
 # Why a row was skipped (`skip_kind`), set where the skip is decided, never read back from the reason's words:
 #   gap       no fixture: plan() or argument_values() found a context the sweep does not set up, a target kind or
 #             argument it has no value for; or a context the sweep does set up did not hold (the base pane showed no tab of
@@ -334,6 +366,9 @@ class App:
         self.make_bench = make_bench
         self.bench = None
         self.run = None
+        self.session = None  # the session main() runs next on this app; launch_session: the one the running launch is for
+        self.launch_session = None
+        self.launches = 0
 
     def launch(self):
         with open(CONFIG, "w") as f:
@@ -350,12 +385,15 @@ class App:
                "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY, "CMUX_NEXT_CHIEF_ISOLATED": "1",
                "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"), "CMUX_NEXT_TYPING_PROBE": PROBE,
                "CMUX_NEXT_HANG_THRESHOLD_MS": "8", "ACPMUX_AGENT_LAUNCH": "deny"}
+        env.update(BLOCKING_ENV.get(opts.blocking_report, {}))
         for item in opts.app_env:
             name, equals, value = item.partition("=")
             if not equals or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
                 raise SystemExit(f"every-action: --app-env takes NAME=VALUE (got {item!r})")
             env[name] = value
         def started(process):
+            self.launches += 1
+            self.launch_session = self.session
             self.process = process
             self.pids.append(process.pid)
             SIGNPOSTS.pids.add(process.pid)
@@ -376,7 +414,9 @@ class App:
 
     def stop(self):
         try:
+            self.read_blocking()
             self.quit()
+            self.note_quit()
         finally:
             # The tag's headless cmux-tui session and acpmux outlive a quit (keep-on-quit): end them, so the next
             # session starts empty (a relaunch otherwise restores every workspace the last session left).
@@ -411,6 +451,30 @@ class App:
         self.bench.run = self.run = self.run or perf_result.Run.start()
         return self.bench.record(opts.story, metric, unit, samples, better="lower", engine=RESULT_ENGINE,
                                  target_ref=target_ref)
+
+    def read_blocking(self):
+        """--blocking-report: this launch's `debug.blocking` (counts reset after the read), kept in BLOCKING_READS and
+        saved to OUT/blocking/<session>-<launch>.json; once per launch, before it ends (its table dies with it). A launch
+        that already exited is kept as unread, with its exit status."""
+        if not opts.blocking_report or self.process is None or any(r["pid"] == self.process.pid for r in BLOCKING_READS):
+            return
+        code = self.process.poll()
+        reply = rpc("debug.blocking", {"reset": True}, timeout=10) if code is None else {"error": f"the app exited ({code})"}
+        read = {"session": self.launch_session, "launch": self.launches, "pid": self.process.pid, "exit": code, "reply": reply}
+        BLOCKING_READS.append(read)
+        save_blocking_read(read)
+
+    def note_quit(self):
+        """--blocking-report: the ended launch's quit exit status on its read (`quit_exit`), so a trap while it quit
+        (SIGTRAP) counts in RUN-1. A record run cannot read the table after the quit: quit-path sites are
+        lifecycle-sweep's (RUN-12, p02-threads 307); a trap run sees them as traps."""
+        if not opts.blocking_report or self.process is None:
+            return
+        read = next((r for r in BLOCKING_READS if r["pid"] == self.process.pid), None)
+        if read is None or "quit_exit" in read:
+            return
+        read["quit_exit"] = self.process.poll()
+        save_blocking_read(read)
 
     def why_unresponsive(self, since):
         """Why the app stopped answering, before it is relaunched: it exited (code or signal, and the crash
@@ -1854,6 +1918,41 @@ class Sweep:
             return out
         self.interaction("click.pane", click_pane)
 
+        def click_during_motion():
+            """A press while a split springs (p03-rendering-098): the base pane shrinks from its whole cell to its
+            left half, so a point just right of the middle is in the new pane's rest frame but drawn in the base
+            pane until the spring is 90 % of its way. The press must focus the pane drawn there. Only with
+            motion.renderServer on (else the row is skipped): the layout counts a press its intercept handled while
+            render-server springs ran (`presses_mid_spring`), apart from how it was hit tested, so a press that came
+            after the landing is `late`, not a result, and a press mid-spring that focused another pane is `wrong`
+            whatever `presented_hit_reads` (recorded) says."""
+            row = rpc("debug.tunables", {"action": "get", "key": "motion.renderServer"})
+            render_server = row.get("value") if isinstance(row, dict) and not error_of(row) else None
+            if render_server is not True:
+                return skip(f"motion.renderServer is {render_server!r}: the press is hit tested on the frames", "state")
+            base = self.base["pane"]
+            cell = next((p.get("cell") for p in self.pane_chrome(synced=True).get("panes") or [] if p.get("pane") == base), None)
+            if not cell:
+                return {"skipped": "no pane geometry (debug.pane_chrome)"}
+            x, y, w, h = cell
+
+            def counters():
+                reply = rpc("debug.layout_counters") or {}
+                return {key: reply.get(key) or 0 for key in ("presented_hit_reads", "presses_mid_spring")}
+            before = counters()
+
+            def body():
+                act("splitRight", target=f"pane:{base}", focus=True)
+                rpc("debug.mouse", {"action": "click", "x": x + w * 0.55, "y": y + h / 2})
+            out = self.frames_during(body)
+            after = counters()
+            out.update({key: after[key] - before[key] for key in after})
+            out["render_server"] = render_server
+            focused = (topology().get("focus") or {}).get("pane")
+            out["check"] = "ok" if focused == base else ("wrong" if out["presses_mid_spring"] > 0 else "late")
+            return out
+        self.interaction("click.during_motion", click_during_motion)
+
         def click_tab():
             other = self.second_tab()
             window = self.pane_chrome(synced=True)
@@ -2273,6 +2372,14 @@ class SignpostStream:
 # Not .ndjson: the perf lab ingests every *.ndjson in OUT as result-v1 (ingest.py), and one bad file there rejects
 # every run beside it.
 SIGNPOSTS = SignpostStream(os.path.join(OUT, "signposts.log"))
+BLOCKING_READS = []  # App.read_blocking's reads, one per launch, in launch order
+
+
+def save_blocking_read(read):
+    """OUT/blocking/<session>-<launch>.json: one launch's read (and, once it quit, its quit exit status)."""
+    os.makedirs(os.path.join(OUT, "blocking"), exist_ok=True)
+    with open(os.path.join(OUT, "blocking", f"{read['session'] or 'launch'}-{read['launch']}.json"), "w") as f:
+        json.dump(read, f, indent=1, default=str)
 
 
 # ----------------------------------------------------------------------------------------------------------
@@ -2444,6 +2551,7 @@ def markdown(report):
         lines += ["", f"No coverage verdict: {checked['error']}"]
     elif report.get("coverage_skipped"):
         lines += ["", f"No coverage verdict: {report['coverage_skipped']}"]
+    lines += blocking_lines(report.get("blocking"))
     if not report["sessions"]:
         lines += ["", "No session finished."]
     for session in report["sessions"]:
@@ -2597,6 +2705,9 @@ def main():
     if not SIGNPOSTS.live:
         raise SystemExit(f"every-action: no signpost stream ({SIGNPOSTS.error})")
     app = App()
+    app_log = os.path.join(OUT, "app.log")
+    log_start = os.path.getsize(app_log) if os.path.exists(app_log) else 0  # app.log is appended to: this run's part
+    app.session = next((s for s in opts.sessions.split(",") if s), None)
     app.launch()
     identify = rpc("system.identify") or {}
     methods = set(identify.get("methods") or [])
@@ -2633,6 +2744,7 @@ def main():
             failure = None
             try:
                 if index:
+                    app.session = name
                     app.relaunch()  # each session starts from a fresh app: STRESS is exactly perf-stress-session's shape
                 sweep.run(actions)
             # The session failed: the other sessions still run, each from its own fresh launch, and the run exits
@@ -2657,6 +2769,21 @@ def main():
             with open(report_path, "w") as f:
                 json.dump(report, f, indent=1, default=str)
     finally:
+        stopped = False
+        if opts.blocking_report:
+            app.read_blocking()  # the last launch, before the report: its table ends with it
+            last_quit = "the last launch was kept running (--keep)"
+            if not opts.keep:
+                # Quit before the verdict, so a trap on the last quit is in app.log and in that read's quit_exit.
+                stopped = True
+                try:
+                    app.stop()
+                    last_quit = None
+                except Exception as error:  # the report still lands; the verdict names the unchecked quit
+                    last_quit = f"the last quit failed: {error}"
+            report["blocking"] = blocking_section(opts.blocking_report, BLOCKING_READS, blocking_traps(app_log, log_start),
+                                                  partial=bool(env.get("partial") or opts.shard), last_quit=last_quit)
+            write_blocking_tasks(report["blocking"], os.path.join(OUT, "blocking-tasks.json"))
         attach_crash_reports(report)
         with open(report_path, "w") as f:
             json.dump(report, f, indent=1, default=str)
@@ -2678,7 +2805,7 @@ def main():
             json.dump(report, f, indent=1, default=str)
         with open(os.path.join(OUT, "every-action.md"), "w") as f:
             f.write(markdown(report))
-        if not opts.keep:
+        if not opts.keep and not stopped:
             app.stop()
     if not opts.shard:
         report["coverage"] = coverage(report)
@@ -2697,9 +2824,11 @@ def main():
             f.write(markdown(report))
     note(f"every-action: wrote {report_path} and {os.path.join(OUT, 'every-action.md')}")
     if exit_status(report):
-        # Any failing exit (a failed session, a new gap) loses the step's --artifact files: the report goes to the log.
+        # Any failing exit (a failed session, an unclean trap run, a new gap) loses the step's --artifact files: the
+        # report goes to the log.
         report_to_log(report)
     fail_on_failed_sessions(report)
+    fail_on_blocking(report)
     fail_on_new_gaps(report)
 
 
@@ -2743,6 +2872,208 @@ COVERAGE_ORDER = ("gap", "harness", "no-run", "refused", "pattern", "policy", "s
 # The categories that count as a gap (no session measured the action's handler at work): everything but a reviewed
 # exclusion and a policy refusal.
 GAP_CATEGORIES = ("gap", "harness", "no-run", "refused", "state")
+
+
+def blocking_traps(log_path, start=0):
+    """The detector's traps in the app log from byte `start` on: one {kind, context, location} per BLOCKING_TRAP_LINE."""
+    try:
+        with open(log_path, errors="replace") as f:
+            f.seek(start)
+            text = f.read()
+    except OSError:
+        return []
+    return [{"kind": m["kind"], "context": "main" if m["where"].strip() == "the main thread" else
+             ("pool" if "pool" in m["where"] else m["where"].strip()), "location": f"{m['file']}:{m['line']}"}
+            for m in BLOCKING_TRAP_LINE.finditer(text)]
+
+
+def blocking_site_groups(reads, traps=()):
+    """The sites of every read debug.blocking reply, one group per (fileID, kind, context) (MQ-10): its lines, count,
+    and the sessions it was seen in. A site without `context` is main (the detector before task 005 checks only main).
+    A trap from app.log is a site of session "trap": the launch stopped there (or while it quit), so no read has it."""
+    groups = {}
+
+    def add(location, kind, context, count, session, max_ms=None):
+        location = str(location or "?")
+        file_id, _, line = location.rpartition(":")
+        file_id = file_id if line.isdigit() else location
+        key = (file_id, str(kind or "?"), str(context or "main"))
+        group = groups.setdefault(key, {"file_id": key[0], "kind": key[1], "context": key[2],
+                                        "module": key[0].split("/", 1)[0], "lines": set(), "count": 0,
+                                        "sessions": set(), "max_ms": None})
+        if line.isdigit():
+            group["lines"].add(int(line))
+        group["count"] += count
+        group["sessions"].add(session)
+        if isinstance(max_ms, (int, float)):
+            group["max_ms"] = max(group["max_ms"] or 0, max_ms)
+
+    for read in reads:
+        reply = read.get("reply")
+        if blocking_read_problem(reply, None):
+            continue
+        for site in reply.get("sites") or []:
+            add(site.get("location"), site.get("kind"), site.get("context"), int(site.get("count") or 0),
+                str(read.get("session")), site.get("max_ms"))
+    for trap in traps:
+        add(trap.get("location"), trap.get("kind"), trap.get("context"), 1, "trap")
+    return [dict(g, lines=sorted(g["lines"]), sessions=sorted(g["sessions"]))
+            for _, g in sorted(groups.items(), key=lambda kv: (kv[1]["module"], kv[0]))]
+
+
+@functools.lru_cache(maxsize=None)
+def swift_source_index(root=ROOT):
+    """(module folder, file name) -> the repo's paths Packages/**/Sources/<Module>/**/<File>.swift. A site's location
+    is Swift's #fileID, `Module/File.swift`, without the folders inside the module, in any package the detector
+    links (CmuxNext and the Shared packages). From `git ls-files`, or a walk of Packages without git."""
+    try:
+        listed = subprocess.run(["git", "-C", root, "ls-files", "-z", "--", "Packages/*.swift"], capture_output=True,
+                                timeout=60, check=True).stdout.decode(errors="replace").split("\0")
+    except (OSError, subprocess.SubprocessError):
+        listed = []
+        for folder, dirs, names in os.walk(os.path.join(root, "Packages")):
+            dirs[:] = [d for d in dirs if not d.startswith(".")]  # .build and other caches
+            listed += [os.path.relpath(os.path.join(folder, n), root) for n in names if n.endswith(".swift")]
+    index = {}
+    for path in listed:
+        parts = path.split("/")
+        if "Sources" in parts and parts.index("Sources") + 2 < len(parts):
+            index.setdefault((parts[parts.index("Sources") + 1], parts[-1]), []).append(path)
+    return index
+
+
+def blocking_source_paths(file_id, index):
+    """The repo files a #fileID `Module/File.swift` can be: one when it resolves, none or several when it does not."""
+    module, slash, name = file_id.partition("/")
+    return sorted(index.get((module, os.path.basename(name)), [])) if slash else []
+
+
+def blocking_task_id(module, sweep="every-action"):
+    """A site task's id, from its sweep and module only: a rerun after some modules were fixed, and lifecycle-sweep
+    (task 307) filing its own sites, never give a filed id to other work."""
+    return f"p02-threads-R-{sweep}-{module}"
+
+
+def blocking_tasks(groups, index=None, sweep="every-action"):
+    """One task per module of the site groups (MQ-10, blocking_task_id), in the design-result task shape, to fix with
+    the MQ-1 recipe (task 060) and rerun with traps. `files` are the real paths of the sites' #fileIDs
+    (swift_source_index); a fileID with no single match is `unresolved`, with its candidates, and the change says so."""
+    index = swift_source_index() if index is None else index
+    modules = {}
+    for group in groups:
+        modules.setdefault(group["module"], []).append(dict(group, paths=blocking_source_paths(group["file_id"], index)))
+    tasks = []
+    for module, items in sorted(modules.items()):
+        sites = [f"{g['file_id']}:{','.join(map(str, g['lines'])) or '?'} {g['kind']} ({g['context']}, {g['count']}x)"
+                 for g in items]
+        unresolved = {g["file_id"]: g["paths"] for g in items if len(g["paths"]) != 1}
+        change = ("MQ-1 recipe (task 060) for each site: the seam, and the call moved off its context (main, pool or "
+                  "the wrong lane) in the same commit. Sites: " + "; ".join(sites))
+        if unresolved:
+            change += (". Unresolved fileIDs (no single Packages/**/Sources/<Module>/**/<File>): "
+                       + "; ".join(f"{f} ({', '.join(c) if c else 'no file'})" for f, c in sorted(unresolved.items())))
+        tasks.append({"id": blocking_task_id(module, sweep), "title": f"runtime blocking sites in {module} ({len(items)} groups)",
+                      "files": sorted({p for g in items for p in g["paths"]}), "unresolved": unresolved,
+                      "change": change,
+                      "acceptance": "every-action-sweep.py --blocking-report=trap (RUN-1) reports none of these sites "
+                                    "and 0 traps; a red-first test per changed user-reachable path.",
+                      "test_phase": "T1; T2", "size": "S" if len(items) <= 3 else "M", "depends_on": ["p02-threads-300"],
+                      "machine_queue": "MQ-10", "sites": items})
+    return tasks
+
+
+def blocking_read_problem(reply, mode):
+    """Why a debug.blocking reply cannot count as a launch's sites, or None: an error, a build without the detector
+    (a bench build answers compiled_in false with no sites, which is not "no blocking"), or, when `mode` is "trap",
+    a detector whose main or pool mode is not trap (RUN-1 needs both)."""
+    if not isinstance(reply, dict):
+        return f"no reply ({reply!r})"
+    if error_of(reply):
+        return str(error_of(reply))
+    if reply.get("compiled_in") is not True:
+        return "the build has no blocking detector (compiled_in is not true)"
+    if mode == "trap" and (reply.get("mode"), reply.get("pool_mode")) != ("trap", "trap"):
+        return f"the detector ran in mode {reply.get('mode')!r}, pool_mode {reply.get('pool_mode')!r}, not trap"
+    return None
+
+
+def blocking_section(mode, reads, traps, partial=False, last_quit=None, index=None):
+    """The report's `blocking` section: the reads (`unread`: the launches whose reply cannot count), the traps, the
+    site groups and their tasks, and the RUN-1 verdict of a trap run (`run1`: problems, empty when clean). A record
+    run has no verdict (its sites are its output). `last_quit`: why the last launch's quit was not checked, or None."""
+    groups = blocking_site_groups(reads, traps)
+    overflow = sum(int((r.get("reply") or {}).get("overflow") or 0) for r in reads if isinstance(r.get("reply"), dict))
+    unread = [f"{r.get('session')} launch {r.get('launch')}: {why}" for r in reads
+              if (why := blocking_read_problem(r.get("reply"), mode))]
+    section = {"mode": mode, "reads": reads, "unread": unread, "traps": traps, "groups": groups,
+               "tasks": blocking_tasks(groups, index), "sites": sum(len(g["lines"]) or 1 for g in groups),
+               "overflow": overflow, "last_quit": last_quit,
+               "contexts": {c: sum(1 for g in groups if g["context"] == c) for c in
+                            sorted(set(BLOCKING_CONTEXTS) | {g["context"] for g in groups})},
+               "kinds": {k: sum(1 for g in groups if g["kind"] == k) for k in sorted({g["kind"] for g in groups})}}
+    if mode != "trap":
+        return section
+    problems = []
+    if not reads:
+        problems.append("no launch was read")
+    problems += [f"{r.get('session')} launch {r.get('launch')} exited on SIGTRAP" for r in reads
+                 if r.get("exit") == -signal.SIGTRAP]
+    problems += [f"{r.get('session')} launch {r.get('launch')} trapped while it quit (SIGTRAP)" for r in reads
+                 if r.get("quit_exit") == -signal.SIGTRAP and r.get("exit") != -signal.SIGTRAP]
+    if last_quit:
+        problems.append(f"{last_quit}: its quit is not checked")
+    problems += [f"not read: {why}" for why in unread]
+    if traps:
+        problems.append(f"{len(traps)} trap(s): " + ", ".join(f"{t['location']} {t['kind']}" for t in traps[:10]))
+    read_groups = [g for g in groups if g["sessions"] != ["trap"]]
+    if read_groups:
+        problems.append(f"{len(read_groups)} site group(s): "
+                        + ", ".join(f"{g['file_id']} {g['kind']}" for g in read_groups[:10]))
+    if overflow:
+        problems.append(f"overflow {overflow}")
+    section["run1"] = {"clean": not problems, "problems": problems, "whole_catalog": not partial}
+    return section
+
+
+def blocking_lines(section):
+    """every-action.md's blocking section."""
+    if not section:
+        return []
+    lines = ["", f"## Blocking sites ({section['mode']})", ""]
+    run1 = section.get("run1")
+    if run1:
+        verdict = "clean" if run1["clean"] else "NOT clean: " + "; ".join(run1["problems"])
+        lines += [f"RUN-1 ({'whole catalog' if run1['whole_catalog'] else 'partial run, not RUN-1'}): {verdict}", ""]
+    lines.append(f"{len(section['reads'])} launch(es) read, {len(section['groups'])} site group(s), {section['sites']} "
+                 f"site(s), {len(section['traps'])} trap(s), overflow {section['overflow']}; by context: "
+                 + ", ".join(f"{c} {n}" for c, n in section["contexts"].items())
+                 + "; by kind: " + (", ".join(f"{k} {n}" for k, n in section.get("kinds", {}).items()) or "none"))
+    if section["mode"] == "record":
+        lines += ["", "A record run reads each launch before it quits: quit-path sites are lifecycle-sweep's (RUN-12, "
+                      "p02-threads 307); a trap run reports them as traps."]
+    if section.get("unread"):
+        lines += ["", "Launches whose sites do not count:", ""] + [f"- {why}" for why in section["unread"]]
+    if section["groups"]:
+        lines += ["", "| task | module | fileID | lines | kind | context | count | sessions |", "|---|---|---|---|---|---|---|---|"]
+        for task in section["tasks"]:
+            for g in task["sites"]:
+                lines.append(f"| {task['id']} | {g['module']} | {g['file_id']} | {','.join(map(str, g['lines']))} | "
+                             f"{g['kind']} | {g['context']} | {g['count']} | {','.join(g['sessions'])} |")
+    unresolved = [(t["id"], f, c) for t in section["tasks"] for f, c in sorted(t.get("unresolved", {}).items())]
+    if unresolved:
+        lines += ["", "FileIDs with no single source file:", ""] + [
+            f"- {task} {f}: {', '.join(c) if c else 'no file'}" for task, f, c in unresolved]
+    if section["traps"]:
+        lines += ["", "Traps:", ""] + [f"- {t['location']} {t['kind']} ({t['context']})" for t in section["traps"]]
+    return lines
+
+
+def write_blocking_tasks(section, path):
+    """OUT/blocking-tasks.json: the section's tasks, for the orchestrator to file (MQ-10)."""
+    if section:
+        with open(path, "w") as f:
+            json.dump({"mode": section["mode"], "tasks": section["tasks"]}, f, indent=1)
+            f.write("\n")
 
 
 def covered_ids(report):
@@ -2861,9 +3192,12 @@ def write_gaps(report, path=None):
 
 
 def exit_status(report):
-    """The run's exit status: FAILED_SESSION_EXIT for a failed session, NEW_GAP_EXIT for a new gap, else 0."""
+    """The run's exit status: FAILED_SESSION_EXIT for a failed session, BLOCKING_EXIT for a trap run that is not RUN-1
+    clean, NEW_GAP_EXIT for a new gap, else 0."""
     if report.get("failed_sessions"):
         return FAILED_SESSION_EXIT
+    if blocking_unclean(report):
+        return BLOCKING_EXIT
     if (report.get("coverage") or {}).get("new"):
         return NEW_GAP_EXIT
     return 0
@@ -2875,6 +3209,20 @@ def fail_on_new_gaps(report):
     if checked.get("new"):
         note(f"every-action: COVERAGE: {len(checked['new'])} action(s) have no fixture: {', '.join(list(checked['new'])[:20])}")
         raise SystemExit(NEW_GAP_EXIT)
+
+
+def blocking_unclean(report):
+    """The RUN-1 problems of a --blocking-report=trap run, or []."""
+    run1 = (report.get("blocking") or {}).get("run1")
+    return [] if not run1 or run1["clean"] else run1["problems"]
+
+
+def fail_on_blocking(report):
+    """Exits BLOCKING_EXIT when a trap run is not RUN-1 clean (after the report is written)."""
+    problems = blocking_unclean(report)
+    if problems:
+        note(f"every-action: BLOCKING: RUN-1 not clean: {'; '.join(problems)[:2000]}")
+        raise SystemExit(BLOCKING_EXIT)
 
 
 def fail_on_failed_sessions(report):
@@ -2944,12 +3292,25 @@ def merge(out, paths):
     merged["env"]["partial"] = any(r["env"].get("partial") for r in reports) or bool(problem)
     merged["coverage"] = coverage(merged)
     merged["coverage_skipped"] = verdict_blocker(merged)
+    sections = [r["blocking"] for r in reports if r.get("blocking")]
+    if sections:
+        modes = sorted({b["mode"] for b in sections})
+        reads = [read for b in sections for read in b["reads"]]
+        if len(sections) < len(reports) or len(modes) > 1:
+            # A shard without a section, or of another mode, is a launch the trap verdict never read: it names it.
+            reads.append({"session": None, "launch": None, "pid": None, "exit": None,
+                          "reply": {"error": f"{len(reports) - len(sections)} shard(s) without a blocking section, modes {modes}"}})
+        merged["blocking"] = blocking_section("trap" if "trap" in modes else modes[0], reads,
+                                              [t for b in sections for t in b["traps"]], partial=merged["env"]["partial"],
+                                              last_quit="; ".join(b["last_quit"] for b in sections if b.get("last_quit")) or None)
+        write_blocking_tasks(merged["blocking"], os.path.join(os.path.dirname(os.path.abspath(out)), "blocking-tasks.json"))
     with open(out, "w") as f:
         json.dump(merged, f, indent=1, default=str)
     with open(os.path.splitext(out)[0] + ".md", "w") as f:
         f.write(markdown(merged))
     print(f"every-action: merged {len(paths)} shards into {out}")
     fail_on_failed_sessions(merged)
+    fail_on_blocking(merged)
     fail_on_new_gaps(merged)
 
 

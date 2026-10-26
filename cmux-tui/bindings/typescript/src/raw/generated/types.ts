@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6959f4baf6ad2a1b05d569f62df829cd6e45aeb1877f3552f8257ac497162d86. */
+/* cmux-tui mux protocol 12, IR 87e9b8e373ca5a50e0b57f549781a75e4c8e38d4e86011638c213050e8d7c034. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1380,6 +1380,46 @@ export type ServerStatsHistogram = {
   "p99": bigint;
 };
 
+export type ServerStatsIpc = {
+  "bad_message": bigint;
+  "parses": ServerStatsIpcParses;
+  "received": Array<ServerStatsIpcKind>;
+  "sent": Array<ServerStatsIpcKind>;
+  "sequence_depth": ServerStatsHistogram;
+  "streams": ServerStatsIpcStreams;
+  "writes": ServerStatsIpcWrites;
+};
+
+export type ServerStatsIpcKind = {
+  "bytes": bigint;
+  "kind": string;
+  "messages": bigint;
+};
+
+export type ServerStatsIpcParse = {
+  "json_parses": bigint;
+  "json_parses_per_request": number;
+  "requests": bigint;
+};
+
+export type ServerStatsIpcParses = {
+  "frames": ServerStatsIpcParse;
+  "lines": ServerStatsIpcParse;
+};
+
+export type ServerStatsIpcStreams = {
+  "open": bigint;
+  "opened": bigint;
+  "peak": bigint;
+};
+
+export type ServerStatsIpcWrites = {
+  "messages": bigint;
+  "stalls": bigint;
+  "syscalls": bigint;
+  "syscalls_per_message": number;
+};
+
 export type ServerStatsJournalWriter = {
   "batch_size": ServerStatsHistogram;
   "batches": bigint;
@@ -1394,6 +1434,26 @@ export type ServerStatsJournalWriter = {
   "receipt_wait_us": ServerStatsHistogram;
   "terminal_events": bigint;
   "terminal_queued": bigint;
+};
+
+export type ServerStatsLockClass = {
+  "hold_us": ServerStatsHistogram;
+  "wait_p95_us": bigint;
+  "wait_us": ServerStatsHistogram;
+};
+
+export type ServerStatsLockClassSet = {
+  "automation": ServerStatsLockClass;
+  "automation_due_admissions": bigint;
+  "automation_yields": bigint;
+  "frontend": ServerStatsLockClass;
+  "program": ServerStatsLockClass;
+};
+
+export type ServerStatsLockClasses = {
+  "registry": ServerStatsLockClassSet;
+  "registry_connection": ServerStatsLockClassSet;
+  "state": ServerStatsLockClassSet;
 };
 
 export type ServerStatsLockHolder = {
@@ -1494,7 +1554,9 @@ export type ServerStatsResourceProjection = {
 export type ServerStatsResult = {
   "connections": ServerStatsConnections;
   "dispatch_queue_us"?: ServerStatsHistogram;
+  "ipc"?: ServerStatsIpc;
   "journal_writer": (ServerStatsJournalWriter) | null;
+  "lock_classes"?: ServerStatsLockClasses;
   "registry_lock": ServerStatsRegistryLock;
   "request_latency_us"?: ServerStatsRequestLatency;
   "request_path_io"?: ServerStatsRequestPathIo;

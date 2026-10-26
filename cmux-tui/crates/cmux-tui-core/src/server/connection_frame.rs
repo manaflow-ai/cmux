@@ -6,9 +6,9 @@
 pub(super) mod machine_catalog;
 
 use super::*;
-use cmux_threads::work::{Lane, Priority, Shutdown};
 use crate::event_cause::EventCause;
 use crate::request_origin::page_router_table;
+use cmux_threads::work::{Lane, Priority, Shutdown};
 
 /// [`handle_connection_frame_at`] for a line that arrives now (tests).
 #[cfg(test)]
@@ -276,7 +276,7 @@ pub(super) fn handle_request_with_cancellation(
         cmux_panic_log::crash_keys::stable_key(cmd.wire_name()),
     );
     let mut span = RequestSpan::open(mux.request_stats(), &cmd, id.as_ref(), arrival);
-    if let Command::UrlOpen { terminal_id, url } = cmd {
+    if let Command::UrlOpen(terminal_io_wire::UrlOpenParams { terminal_id, url }) = cmd {
         return url_open::start(mux, client, id, terminal_id, url, span.start_async(), writer);
     }
     if let Command::ChiefInspect(params) = cmd {
@@ -302,7 +302,7 @@ pub(super) fn handle_request_with_cancellation(
     {
         return span.reply(|| send_request_error(writer, id, "server lifecycle is not ready"));
     }
-    if let Command::VtState { surface } = &cmd {
+    if let Command::VtState(terminal_io_wire::VtStateParams { surface }) = &cmd {
         let reply = vt_state_command_reply(mux, id.as_ref(), *surface, writer);
         return span.reply(|| {
             match reply.and_then(|text| Ok(writer.send_serialized_control(text)?)) {
@@ -356,7 +356,12 @@ pub(super) fn handle_request_with_cancellation(
 fn sized_browser_attach(mux: &Mux, cmd: &Command) -> bool {
     matches!(
         cmd,
-        Command::AttachSurface { surface: Some(surface), cols: Some(_), rows: Some(_), .. }
+        Command::AttachSurface(terminal_io_wire::AttachSurfaceParams {
+            surface: Some(surface),
+            cols: Some(_),
+            rows: Some(_),
+            ..
+        })
             if mux.surface(*surface).is_some_and(|surface| surface.kind() == SurfaceKind::Browser)
     )
 }
@@ -502,7 +507,7 @@ pub(super) fn write_vt_state_command_json(
 }
 
 pub(super) fn auth_token(message: &str) -> Option<String> {
-    let value: Value = serde_json::from_str(message).ok()?;
+    let value: Value = crate::line_parses::parse(message).ok()?;
     let object = value.as_object()?;
     if object.len() != 1 {
         return None;
@@ -515,7 +520,7 @@ pub(super) fn auth_token(message: &str) -> Option<String> {
 }
 
 pub(super) fn pairing_request(message: &str) -> bool {
-    let Ok(value) = serde_json::from_str::<Value>(message) else { return false };
+    let Ok(value) = crate::line_parses::parse::<Value>(message) else { return false };
     let Some(object) = value.as_object() else { return false };
     if object.len() != 1 {
         return false;

@@ -73,14 +73,24 @@ public final class CEFEngine: BrowserEngine {
     ///     process-wide runtime hears the tap of the engine made last.
     ///   - crashKeys: The app's crash keys: the process-wide runtime names Chromium's state there
     ///     (``CmuxNextWakeups/CrashKeySlots/Key/cefState``); nil (tests) leaves it as it is.
+    ///   - launchMarks: Where Chromium's start goes as launch marks (``CEFLaunchMarkHooks``): every preload,
+    ///     start, spare and paint goes through an engine, so it is given here, before the first mark; nil
+    ///     (tests) leaves the process-wide runtime's as they are.
     ///   - pumpInput: What the in-process pump's input policy reads (feature `cefPumpInputPolicy`); nil:
     ///     the pump never holds for input. Read when Chromium starts, with `input`'s dispatch ends.
+    ///   - pointerFrames: The windows' frame-aligned pointer input (feature `pointerFrameDrags`): the
+    ///     DevTools divider's drag moves at most twice per frame. Nil: each drag event moves it.
+    ///   - chromiumFeatures: The Chromium `base::Feature`s on (features of process `chromium`), read at start.
+    ///   - prefetchWork: The app's lanes, whose startup fence holds a predicted start's framework read (feature
+    ///     `cefPrefetchBehindFence`, ``CEFFrameworkPrefetch``). Nil: a preload reads and maps at once.
     public init(source: CEFRuntimeSource,
                 stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                 lifecycleTrace: BrowserLifecycleTrace = .shared,
                 contextMenus: BrowserContextMenuBuilder = .shared,
                 waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap, crashKeys: CrashKeySlots? = nil,
-                pumpInput: CEFPumpInputSeams? = nil) {
+                launchMarks: CEFLaunchMarkHooks? = nil,
+                pumpInput: CEFPumpInputSeams? = nil, pointerFrames: FrameInputCoalescers? = nil, chromiumFeatures: [String] = [],
+                prefetchWork: BackgroundWork? = nil) {
         runtimeSource = source
         self.stores = stores
         self.signInCallbacks = signInCallbacks
@@ -89,7 +99,11 @@ public final class CEFEngine: BrowserEngine {
         self.waitDeadlines = waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource())
         CEFRuntime.shared.attachInput(input)
         if let crashKeys { CEFRuntime.shared.attachCrashKeys(crashKeys) }
+        if let launchMarks { CEFRuntime.shared.adoptLaunchMarks(launchMarks) }
         CEFRuntime.shared.pumpInput = pumpInput
+        CEFRuntime.shared.pointerFrames = pointerFrames
+        CEFRuntime.shared.chromiumFeatures = chromiumFeatures
+        CEFRuntime.shared.prefetchWork = prefetchWork
     }
 
     public var availability: BrowserEngineAvailability {
@@ -252,7 +266,7 @@ public final class CEFEngine: BrowserEngine {
     /// Returns once the framework load that `preload` started ended (at once
     /// when none runs).
     public func libraryLoadEnded() async {
-        _ = await CEFRuntime.shared.loadTask?.value
+        await CEFRuntime.shared.libraryLoadEnded()
     }
 
     /// Records `name` once in the start marks (the first Chromium page's
@@ -278,7 +292,7 @@ public final class CEFEngine: BrowserEngine {
     /// waits on it); `binary_ms` is the read of the binary before it.
     public var frameworkPrefetchFields: [String: Double]? {
         let ms: (Duration) -> Double = { Double($0.components.attoseconds) / 1e15 + Double($0.components.seconds) * 1000 }
-        return CEFFrameworkPrefetch.last.map {
+        return CEFRuntime.shared.prefetch.last.map {
             ["bytes": Double($0.bytes), "files": Double($0.files), "ms": ms($0.duration), "services_ms": ms($0.services),
              "binary_ms": ms($0.binary), "map_ms": ms($0.map)]
         }
@@ -392,6 +406,13 @@ public final class CEFEngine: BrowserEngine {
     public var chromePolicyID: @MainActor () -> String? {
         get { CEFRuntime.shared.chromePolicyIDSetting }
         set { CEFRuntime.shared.chromePolicyIDSetting = newValue }
+    }
+
+    /// The feature `chromiumSpareAfterFirstTab`: Chromium's spare renderer only for a profile a
+    /// browser tab opened (`CEFSwitches.spareRendererAfterFirstTab`); asked once, when Chromium starts.
+    public var spareAfterFirstTab: @MainActor () -> Bool {
+        get { CEFRuntime.shared.spareAfterFirstTabFeature }
+        set { CEFRuntime.shared.spareAfterFirstTabFeature = newValue }
     }
 
     /// What modified link clicks do (cmux.json `browser.links.*`;
