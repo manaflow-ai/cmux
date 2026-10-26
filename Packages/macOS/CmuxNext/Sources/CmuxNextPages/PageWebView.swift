@@ -99,7 +99,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The page's popup past the window's edge (PageWebView+Popup.swift), made on first use.
     var popupHost: WebPopupHost?
     /// The windows' frame-aligned pointer input for the page's popup (feature `pointerFrameHover`, the
-    /// App's `hoverFrameInput`; ``WebUIHost/open(_:)`` and ``PageHostPool`` claims set it): the popup's
+    /// App's `hoverFrameInput`; ``WebUIHost/open(_:)`` sets it, a preload too): the popup's
     /// rows hover at most twice a frame. Nil: each move.
     public var popupHoverFrameInput: FrameInputCoalescers? {
         didSet { popupHost?.hoverFrameInput = popupHoverFrameInput }

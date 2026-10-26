@@ -207,14 +207,10 @@ extension NewTabPage {
 /// ``NewTabPreload``, which every New Tab page open takes from, on the app's collaborators, and its
 /// pure size and timing helpers.
 extension NewTabPreload {
-    /// The app's adapter (`AppServices.newTabSpares`), on the app's one preload slot: made here with
-    /// the app's deadlines and installed on `webUI`, whose memory pressure subscription drops it, unless
-    /// installed already. Rendered-parked until spike 090 records its park state: no engine freezes a
-    /// slot page yet (p13-webui-028).
+    /// The app's adapter (`AppServices.newTabSpares`), on the app's one preload slot
+    /// (`AppServices.preloadSlot`, installed on `webUI`, whose memory pressure registration drops it).
     static func app(_ services: AppServices) -> NewTabPreload {
-        let slot = services.webUI.preload ?? PagePreloadSlot(parkState: .renderedParked, deadlines: services.mainDeadlines)
-        services.webUI.preload = slot
-        return NewTabPreload(services: services, slot: slot, memory: services.memoryCoordinator, input: services.inputTap,
+        NewTabPreload(services: services, slot: services.preloadSlot, memory: services.memoryCoordinator, input: services.inputTap,
                              deadlines: services.mainDeadlines,
                              preloadOnMakeVisible: services.features.isEnabled(.pageRendererAtFirstShow),
                              parksHidden: services.features.isEnabled(.newTabParksHidden))

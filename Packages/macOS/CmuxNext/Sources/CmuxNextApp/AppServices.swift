@@ -395,14 +395,8 @@ final class AppServices {
         sample: { await AppMemoryModel.processes(webContentPIDs: $0) })
     /// The New Tab page on the app's one preload slot, which it installs on `webUI` (instant open, p13-webui-044).
     private(set) lazy var newTabSpares = NewTabPreload.app(self)
-    /// Settings, History and Cloud through the one preload slot (`webUI.preload`, feature `pagePreload`), parked
-    /// in the active window at its focused pane's tab size.
-    private(set) lazy var pagePreloads = PagePreloads(
-        webUI: webUI, deadlines: mainDeadlines, input: inputTap, isEnabled: { [weak self] in self?.features.isEnabled(.pagePreload) == true },
-        target: { [weak self] in
-            guard let controller = self?.windows.active, let content = controller.window?.contentView else { return nil }
-            return (content, controller.focusedPane.map(NewTabPreload.newTabContentSize(in:)) ?? content.bounds.size)
-        })
+    /// Settings, History and Cloud through the one preload slot (`preloadSlot`, feature `pagePreload`).
+    private(set) lazy var pagePreloads = makePagePreloads()
     /// The one owner of cmux pages (p13-webui.md 3.A): every page view opens and closes through it.
     /// Every page follows `browser.defaultEngine` (Chromium by default) through its one Chromium host.
     /// Its views are listed in `PageRegistry.processWide` while the static forwarders remain (p13-webui-010).

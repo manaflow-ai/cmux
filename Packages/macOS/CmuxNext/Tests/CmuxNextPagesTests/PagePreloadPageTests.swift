@@ -1,7 +1,6 @@
 import AppKit
 import CmuxNextCompat
-import CmuxNextInputCore
-import CmuxNextInputCoreTestSupport
+import CmuxNextMemory
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
 import CmuxNextWakeups
@@ -14,13 +13,15 @@ import WebKit
 /// (Chromium, not a WebKit spare), waits hidden and frozen in a parking in a shown window, and the
 /// claim in the open's turn thaws it, shows it, binds the open's routes and claims its document, and
 /// every later document of the page (a reload) gets the claim again. Memory pressure closes it.
+/// How a document answers the claim: `PagePreloadClaimTests`; the coordinator: `PagePreloadsTests`.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct PagePreloadPageTests {
-    private let root: URL
-    private let descriptor = PageDescriptor(id: "test.preload-page", resource: "preload-page", processGroup: .solo, namespaces: [])
+    let root: URL
+    let descriptor = PageDescriptor(id: "test.preload-page", resource: "preload-page", processGroup: .solo, namespaces: [])
     /// The slot's deadlines on a wake-up queue only the test fires.
-    private let rig = LifecycleDeadlineRig()
-    private let source = ManualMemoryPressureSource()
+    let rig = LifecycleDeadlineRig()
+    /// The app's memory coordinator over a pressure source the test drives; the host registers its slot with it.
+    let memory = PageTestMemory()
     static let key = PagePreloadSlot.Key("page.test")
     static let size = NSSize(width: 800, height: 600)
     static let frameNavigated = #"{"method":"Page.frameNavigated","params":{"frame":{"id":"A","url":"cmux-page://test.preload-page/"}}}"#
@@ -50,14 +51,14 @@ struct PagePreloadPageTests {
     }
 
     /// A host with its preload slot installed, as the composition root does.
-    private func makeHost(_ hosting: FakeChromiumHosting?, lazy: Bool = false) -> WebUIHost {
-        let host = WebUIHost(chromium: hosting, openPanel: nil, memoryPressure: MemoryPressureEvents(source: source),
+    func makeHost(_ hosting: FakeChromiumHosting?, lazy: Bool = false) -> WebUIHost {
+        let host = WebUIHost(chromium: hosting, openPanel: nil, memory: memory.coordinator,
                              clock: PageTestClock.never, startsPagesAtFirstShow: lazy)
         host.preload = PagePreloadSlot(parkState: .frozenHidden, deadlines: rig.scheduler)
         return host
     }
 
-    private func parkedRequest() -> PageOpenRequest {
+    func parkedRequest() -> PageOpenRequest {
         PageOpenRequest(descriptor: descriptor, root: root, routes: [], parked: true)
     }
 
@@ -67,7 +68,7 @@ struct PagePreloadPageTests {
     }
 
     /// Preloads a page of `host` in `parking` and returns it.
-    private func preload(_ host: WebUIHost, in parking: PagePreloadParkingView) throws -> PageWebView {
+    func preload(_ host: WebUIHost, in parking: PagePreloadParkingView) throws -> PageWebView {
         let slot = try #require(host.preload)
         var made: PageWebView?
         let held = slot.preload(Self.key, size: Self.size, in: parking) { _ in
@@ -168,8 +169,8 @@ struct PagePreloadPageTests {
         #expect(view.claimState.pending, "a claimed page's reloaded document was left parked")
     }
 
-    /// The host's one pressure subscription drops the parked page (it closes), and no preload starts
-    /// until pressure is normal again: PageHostPool's spare rule, on the slot.
+    /// The host's memory coordinator registration drops the parked page (it closes), and no preload
+    /// starts until pressure is normal again: PageHostPool's spare rule, on the slot.
     @Test func memoryPressureClosesThePreloadAndHoldsTheNextUntilNormal() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let window = Self.shownWindow()
@@ -183,7 +184,7 @@ struct PagePreloadPageTests {
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
 
-        source.send(.warning)
+        memory.send(.warning)
         #expect(slot.count == 0 && view.superview == nil)
         #expect(page.closed, "the dropped preload kept its renderer")
         var madeUnderPressure = false
@@ -192,7 +193,7 @@ struct PagePreloadPageTests {
             return nil
         }
         #expect(!started && !madeUnderPressure)
-        source.send(.normal)
+        memory.send(.normal)
         #expect(slot.allowsPreload)
     }
 
@@ -225,58 +226,5 @@ struct PagePreloadPageTests {
         #expect(held)
         #expect(view.window === second && view.superview === other)
         #expect(view.webKitView.url == url, "the move reloaded the page")
-    }
-
-    // MARK: PagePreloads
-
-    /// The coordinator: nothing preloads at launch; an open names the page, which preloads once input
-    /// is quiet (a key pushes it back), and the next open takes it in its own turn, bound to that
-    /// open. Off, no open is claimed and no deadline is armed.
-    @Test func theNextOpenOfAPageTakesItsPreloadAfterQuietInput() throws {
-        defer { try? FileManager.default.removeItem(at: root) }
-        let window = Self.shownWindow()
-        defer { window.close() }
-        let content = try #require(window.contentView)
-        let tap = FakeInputTap()
-        let host = makeHost(nil)
-        var enabled = true
-        let preloads = PagePreloads(webUI: host, deadlines: rig.scheduler, input: tap, isEnabled: { enabled },
-                                    target: { (content, Self.size) }) { [root, descriptor] request in
-            // History is a first-party page served only from its bundle: the test's own page stands in.
-            var own = request
-            own.descriptor = descriptor
-            own.root = root
-            return host.open(own)
-        }
-        preloads.start()
-        #expect(rig.queue.count == 0, "a preload was armed before any open")
-
-        // The first open finds nothing and names the page.
-        #expect(preloads.claim(.history, routes: []) == nil)
-        #expect(preloads.next == .history && rig.queue.count == 1)
-        tap.deliver(InputEventRecord(type: .keyDown, timestamp: 1))
-        #expect(rig.queue.count == 1, "a key pushes the one deadline back")
-        rig.fire()
-        let held = try #require(preloads.heldPage)
-        #expect(held.descriptor == descriptor && held.isPooled && held.isParkedSpare && held.window === window)
-        #expect(host.preload?.key == PagePreloads.Page.history.key)
-
-        // Another page's open leaves the History preload alone; History's own open takes it.
-        #expect(preloads.claim(.cloud, routes: []) == nil)
-        #expect(preloads.heldPage === held)
-        let claimed = try #require(preloads.claim(.history, routes: [], route: "/today"))
-        #expect(claimed === held && claimed.isClaimed && claimed.route == "#/today")
-        #expect(host.preload?.count == 0)
-        host.close(claimed)
-
-        // A closing window drops the page waiting in it.
-        rig.fire()
-        #expect(preloads.heldPage != nil)
-        preloads.windowWillClose(window)
-        #expect(preloads.heldPage == nil && host.preload?.count == 0)
-
-        enabled = false
-        #expect(preloads.claim(.history, routes: []) == nil)
-        #expect(preloads.debugReport(action: nil)["enabled"] == .bool(false))
     }
 }

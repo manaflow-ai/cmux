@@ -17,16 +17,20 @@ public import CmuxNextWakeups
 /// - An open of Settings, History or Cloud (``claim(_:routes:route:documentAttributes:surface:dynamicResources:)``)
 ///   names the page to preload next; once input has been quiet for ``idleInput``, the slot loads it
 ///   parked (``PageOpenRequest/parked``), in the page's own engine, in this coordinator's parking in
-///   the target window, at the size of that window's focused pane. Nothing preloads at launch.
+///   the target window, at the size of that window's focused pane, with the document attributes a
+///   cold open gives it. Nothing preloads at launch.
+/// - It preloads only into an empty slot, as `PreloadSelector` (p13-webui-042) decides: a held page
+///   is never replaced, so it never evicts New Tab's preload (p13-webui-044), and New Tab never
+///   evicts it. When the slot empties (a claim or a drop), it arms its next page again.
+/// - No page preloads while its owner keeps a view that the next open shows again (Settings).
 /// - The next open of that page takes it in its own turn and binds its routes to it; the tab content
-///   takes the view from the parking in the same turn.
-/// - The slot drops it at any memory pressure but normal (``WebUIHost``'s subscription), and this
+///   takes the view from the parking in the same turn. An open with other document attributes than
+///   the preload booted with drops it and opens cold: the page read them once, when it started.
+/// - The slot drops it at any memory pressure but normal (``WebUIHost``'s registration), and this
 ///   coordinator drops it when its window closes (``windowWillClose(_:)``).
 ///
-/// Which page waits when New Tab also wants the slot is the selector's choice (p13-webui-042, 044).
-///
 /// ```swift
-/// let preloads = PagePreloads(webUI: webUI, deadlines: mainDeadlines, input: inputTap,
+/// let preloads = PagePreloads(webUI: webUI, slot: slot, deadlines: mainDeadlines, input: inputTap,
 ///                             isEnabled: { features.isEnabled(.pagePreload) }, target: { activeTarget() })
 /// let page = preloads.claim(.settings, routes: routes, route: route) ?? webUI.open(request)
 /// ```
@@ -53,6 +57,12 @@ public final class PagePreloads {
 
         /// The theme surface its open gives it.
         public var surface: SurfaceKind? { self == .settings ? .settings : nil }
+
+        /// The `data-*` attributes of `<html>` its opens give it now, the preload's and a cold open's
+        /// alike: Cloud's machine list layout (webviews/src/pages/cloud/main.tsx reads it once, at mount).
+        public var documentAttributes: [String: String] {
+            self == .cloud ? ["cloud-machines-layout": PageTunables.cloudMachinesLayout.value.rawValue] : [:]
+        }
     }
 
     /// Where a preload waits: the window content its parking goes in, and the size the page will
@@ -64,11 +74,12 @@ public final class PagePreloads {
     /// The input that pushes a waiting preload back: key-downs, clicks and scrolls.
     static let delayingInput: InputEventTypes = [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel]
 
-    private let webUI: WebUIHost
-    private let deadlines: MainDeadlineScheduler
+    private let slot: PagePreloadSlot
     private let input: any InputObserving
     private let isEnabledNow: @MainActor () -> Bool
     private let target: @MainActor () -> Target?
+    private let attributes: @MainActor (Page) -> [String: String]
+    private let keepsView: @MainActor (Page) -> Bool
     private let open: @MainActor (PageOpenRequest) -> PageWebView?
     private let parking = PagePreloadParkingView(frame: .zero)
     /// The quiet-input deadline of the next preload: work nobody sees, so the background class.
@@ -77,45 +88,45 @@ public final class PagePreloads {
     private var started = false
     /// The page opened last: the one that preloads next. Nil until an open.
     public private(set) var next: Page?
+    /// The document attributes the held page booted with.
+    private var heldAttributes: [String: String] = [:]
     /// The page the last claim took (`debug.page_preload`'s claim outcome).
     public private(set) weak var lastClaimed: PageWebView?
 
     /// - Parameters:
-    ///   - webUI: The app's one page owner; its slot is installed here when none is yet.
-    ///   - deadlines: The app's deadline scheduler (the slot's and the quiet-input deadline's).
+    ///   - webUI: The app's one page owner, which opens the preloads.
+    ///   - slot: The app's one preload slot (``WebUIHost/preload``), made in one place by the composition root.
+    ///   - deadlines: The app's deadline scheduler (the quiet-input deadline's).
     ///   - input: The app's input tap: a waiting preload observes its key-downs, clicks and scrolls.
     ///   - isEnabled: Whether pages preload now (feature `pagePreload`).
     ///   - target: The active window's content and its focused pane's content size; nil: no window.
+    ///   - documentAttributes: The attributes a page's open gives it now (default: ``Page/documentAttributes``).
+    ///   - keepsView: Whether the next open of a page shows a view its owner keeps (the Settings page
+    ///     `SettingsWindowService` keeps): a preload of it would wait unclaimed.
     ///   - open: Opens a preload's page (nil: `webUI`'s ``WebUIHost/open(_:)``; a test serves a page of its own).
-    public init(webUI: WebUIHost, deadlines: MainDeadlineScheduler, input: any InputObserving,
+    public init(webUI: WebUIHost, slot: PagePreloadSlot, deadlines: MainDeadlineScheduler, input: any InputObserving,
                 isEnabled: @escaping @MainActor () -> Bool, target: @escaping @MainActor () -> Target?,
+                documentAttributes: @escaping @MainActor (Page) -> [String: String] = { $0.documentAttributes },
+                keepsView: @escaping @MainActor (Page) -> Bool = { _ in false },
                 open: (@MainActor (PageOpenRequest) -> PageWebView?)? = nil) {
-        self.webUI = webUI
-        self.deadlines = deadlines
+        self.slot = slot
         self.input = input
         isEnabledNow = isEnabled
         self.target = target
-        self.open = open ?? { request in webUI.open(request) }
+        attributes = documentAttributes
+        self.keepsView = keepsView
+        self.open = open ?? { [weak webUI] request in webUI?.open(request) }
         deadline = MainDeadline(owner: "webui.preload.page", workClass: .background, scheduler: deadlines)
+        slot.observeEmptied { [weak self] _ in self?.schedule() }
     }
 
     /// Whether pages preload (feature `pagePreload`).
     public var isEnabled: Bool { isEnabledNow() }
 
-    /// The app's one slot, installed on the WebUI host at its first use here (New Tab's preload,
-    /// p13-webui-044, may have installed it first).
-    var slot: PagePreloadSlot {
-        if let slot = webUI.preload { return slot }
-        let slot = PagePreloadSlot(deadlines: deadlines)
-        webUI.preload = slot
-        return slot
-    }
-
     /// The page the slot holds now, when it is one of these pages.
     public var heldPage: PageWebView? {
-        guard parking.superview != nil, let held = webUI.preload, let key = held.key,
-              Page.allCases.contains(where: { $0.key == key }) else { return nil }
-        return held.page as? PageWebView
+        guard parking.superview != nil, let key = slot.key, Page.allCases.contains(where: { $0.key == key }) else { return nil }
+        return slot.page as? PageWebView
     }
 
     /// The launch painted (`AppServices+AfterFirstFrame`): preloads may start from now on, after
@@ -135,7 +146,7 @@ public final class PagePreloads {
     ///   - page: The page the open shows.
     ///   - routes: Its op routes.
     ///   - route: The place it opens at.
-    ///   - documentAttributes: `data-*` attributes of its `<html>`.
+    ///   - documentAttributes: `data-*` attributes of its `<html>`; a preload that booted with others is dropped.
     ///   - surface: Its theme surface.
     ///   - dynamicResources: Answers its dynamic prefixes.
     /// - Returns: The page, bound to the open.
@@ -143,10 +154,14 @@ public final class PagePreloads {
                       surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil) -> PageWebView? {
         guard isEnabled else { return nil }
         defer { noteOpened(page) }
+        guard slot.key == page.key else { return nil }
+        guard heldAttributes == documentAttributes else {
+            slot.drop()
+            return nil
+        }
         // At the size the tab will show it at (the focused pane's): a page parked at another size has no cover.
         let frame = NSRect(origin: .zero, size: target()?.size ?? parking.bounds.size)
-        guard let held = webUI.preload, held.key == page.key,
-              let claim = held.claim(page.key, into: parking, frame: frame) else { return nil }
+        guard let claim = slot.claim(page.key, into: parking, frame: frame) else { return nil }
         guard let view = claim.page as? PageWebView else {
             claim.page.preloadView.removeFromSuperview()
             claim.page.close()
@@ -177,9 +192,16 @@ public final class PagePreloads {
         schedule()
     }
 
+    /// Whether ``next`` may preload now: the slot is empty (another owner's page keeps it) and takes
+    /// pages, and no kept view would show in its place.
+    private var mayPreload: Bool {
+        guard isEnabled, let next else { return false }
+        return slot.count == 0 && slot.allowsPreload && !keepsView(next)
+    }
+
     /// Arms the quiet-input deadline for ``next``; each key, click or scroll pushes it back.
     private func schedule() {
-        guard started, isEnabled, let next, slot.allowsPreload, slot.key != next.key else { return }
+        guard started, mayPreload else { return }
         if inputSubscription == nil {
             inputSubscription = input.observe(types: Self.delayingInput) { [weak self] _ in self?.armDeadline() }
         }
@@ -191,44 +213,46 @@ public final class PagePreloads {
     }
 
     /// Loads ``next`` parked in the target window, at the target size (the window's content size
-    /// when the pane has none).
+    /// when the pane has none), with the attributes its open gives it now.
     public func preloadNow() {
         inputSubscription = nil
-        guard isEnabled, let next, let target = target() else { return }
+        guard mayPreload, let next, let target = target() else { return }
         if parking.superview !== target.content {
             target.content.addSubview(parking, positioned: .below, relativeTo: nil)
         }
         let size = target.size.width > 0 && target.size.height > 0 ? target.size : target.content.bounds.size
-        let request = PageOpenRequest(descriptor: next.descriptor, routes: [], options: next.options, surface: next.surface,
-                                      parked: true)
+        let documentAttributes = attributes(next)
+        let request = PageOpenRequest(descriptor: next.descriptor, routes: [], documentAttributes: documentAttributes,
+                                      options: next.options, surface: next.surface, parked: true)
         let open = open
-        slot.preload(next.key, size: size, in: parking) { _ in open(request) }
+        if slot.preload(next.key, size: size, in: parking, make: { _ in open(request) }) {
+            heldAttributes = documentAttributes
+        }
     }
 
     // MARK: debug.page_preload
 
     /// The `debug.page_preload` report: the slot's held page, its phase and freeze, the last claim
     /// and how its document took the claim. `action`: `drop` drops the held page; `preload` loads
-    /// the next page now, without the quiet wait.
+    /// the next page now, without the quiet wait (into an empty slot only).
     public func debugReport(action: String?) -> JSONValue {
         switch action {
         case "drop": drop()
         case "preload": preloadNow()
         default: break
         }
-        let slot = webUI.preload
         let held = heldPage
         var report: [String: JSONValue] = [
             "enabled": .bool(isEnabled),
             "next": next.map { .string($0.rawValue) } ?? .null,
-            "key": slot?.key.map { .string($0.rawValue) } ?? .null,
-            "phase": slot?.phase.map { .string($0.rawValue) } ?? .null,
-            "frozen": .bool(slot?.isFrozen ?? false),
-            "allows_preload": .bool(slot?.allowsPreload ?? false),
+            "key": slot.key.map { .string($0.rawValue) } ?? .null,
+            "phase": slot.phase.map { .string($0.rawValue) } ?? .null,
+            "frozen": .bool(slot.isFrozen),
+            "allows_preload": .bool(slot.allowsPreload),
             "engine": held.map { .string($0.showsChromium ? "chromium" : "webkit") } ?? .null,
             "window_number": held?.window.map { .number(Double($0.windowNumber)) } ?? .null,
         ]
-        if let claim = slot?.lastClaim {
+        if let claim = slot.lastClaim {
             report["last_claim"] = ["key": .string(claim.key.rawValue), "covered": .bool(claim.covered),
                                     "refit": .bool(claim.refit), "ms": .number(claim.milliseconds)]
         }

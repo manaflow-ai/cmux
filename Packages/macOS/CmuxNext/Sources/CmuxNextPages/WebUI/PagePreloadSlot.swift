@@ -128,11 +128,8 @@ public final class PagePreloadSlot {
     public private(set) var pressure: MemoryPressureLevel = .normal
     /// The last claim (`debug.webui`).
     public private(set) var lastClaim: ClaimRecord?
-    /// Called with the key of the page that left after a claim or a drop emptied the slot, so the
-    /// default preload (New Tab, p13-webui-044) arms its next one when another page leaves, as
-    /// Chrome's preload manager preloads again once its contents are taken
-    /// (webui_contents_preload_manager.cc, `Request`).
-    public var onEmptied: (@MainActor (Key) -> Void)?
+    /// Told the key of the page that left after a claim or a drop emptied the slot (``observeEmptied(_:)``).
+    private var emptiedListeners: [@MainActor (Key) -> Void] = []
     private let trace: @MainActor (Move, UInt64) -> Void
     /// Where the refit's quiet deadline and each cover's limit go (the app's `mainDeadlines`).
     private let deadlines: MainDeadlineScheduler
@@ -175,6 +172,20 @@ public final class PagePreloadSlot {
     public var targetSize: NSSize? { held?.target }
     /// Whether a preload may start now: memory pressure is normal.
     public var allowsPreload: Bool { pressure == .normal }
+
+    /// Calls `listener` with the key of the page that left each time a claim or a drop empties the
+    /// slot, after the listeners added before it. Each preload owner arms its next page there: New
+    /// Tab (p13-webui-044) when another page left, Settings, History and Cloud (`PagePreloads`)
+    /// whenever, as Chrome's preload manager preloads again once its contents are taken
+    /// (webui_contents_preload_manager.cc, `Request`). Owners preload only into an empty slot, so
+    /// the first to fill it keeps it (no owner evicts another's page).
+    public func observeEmptied(_ listener: @escaping @MainActor (Key) -> Void) {
+        emptiedListeners.append(listener)
+    }
+
+    private func emptied(_ key: Key) {
+        for listener in emptiedListeners { listener(key) }
+    }
 
     // MARK: Moves
 
@@ -268,7 +279,7 @@ public final class PagePreloadSlot {
         trace(.claim, page.preloadTraceID)
         let milliseconds = Self.milliseconds(since: start)
         lastClaim = ClaimRecord(key: key, covered: cover != nil, refit: refit, milliseconds: milliseconds)
-        onEmptied?(key)
+        emptied(key)
         return Claim(page: page, covered: cover != nil, refit: refit, milliseconds: milliseconds)
     }
 
@@ -281,7 +292,7 @@ public final class PagePreloadSlot {
         trace(.drop, held.page.preloadTraceID)
         held.page.preloadView.removeFromSuperview()
         held.page.close()
-        onEmptied?(held.key)
+        emptied(held.key)
     }
 
     /// The memory pressure changed (``WebUIHost``'s memory registration): anything but normal drops

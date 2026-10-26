@@ -375,7 +375,7 @@ struct PagePreloadSlotTests {
         }
         let slot = makeSlot()
         let emptied = Tally()
-        slot.onEmptied = { key in
+        slot.observeEmptied { key in
             emptied.count += 1
             emptied.keys.append(key)
         }

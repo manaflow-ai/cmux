@@ -40,6 +40,9 @@ final class SettingsWindowService: InternalPageProvider {
     /// The kept React page (a reopen shows it again with no reload); nil before the first show and
     /// after its tab's view was discarded.
     private var webPage: Page?
+    /// Whether the next Settings open shows the kept page again (``makeView(for:in:)``), so a
+    /// preloaded Settings page would wait unclaimed (`PagePreloads`' `keepsView`).
+    var keepsPage: Bool { webPage != nil }
     /// The page each tab shows (the kept page or a second window's own), by tab key.
     private var tabPages: [String: Page] = [:]
     /// The route each show asked for, for the page view of the tab it opened or selected.

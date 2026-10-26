@@ -33,6 +33,9 @@ final class PageClaimState {
     /// the page's configuration on both engines), so each one gets the claim again when it loads
     /// (``PageWebView/claimLoadedDocument()``).
     var claimed = false
+    /// A claim carried the open's route already. Only the first one does: a later document (a
+    /// reload, a crash reload) keeps the place it loaded at, which the person may have moved to.
+    var routeSent = false
     /// The fallback deadline's clock (tests inject a manual one).
     var clock: any Clock<Duration> = ContinuousClock() {
         didSet { deadline = DemandTimer(owner: "PageWebView.claim", clock: clock) }
@@ -57,7 +60,8 @@ final class PageClaimState {
 /// never reads through its empty router and never shows a failed read. The open that claims it binds
 /// its routes (``bindClaim(routes:route:documentAttributes:surface:dynamicResources:)``), then calls
 /// `cmux.page.claim {route}` on the document: the client shows the route, sends what it held and
-/// acknowledges. Only when the document refuses (it already ran) or does not answer within
+/// acknowledges. Only the first claim carries the route; a later document's claim has none, so a
+/// reload keeps the place the person moved to, as a cold page's reload does. Only when the document refuses (it already ran) or does not answer within
 /// ``claimAcknowledgementBudget`` does the page reload it. Both engines take the same calls: the
 /// parked script reaches a Chromium page with the page's other document scripts.
 extension PageWebView {
@@ -129,7 +133,9 @@ extension PageWebView {
         state.start = .now
         applyTheme(force: true)
         applyLiveDocumentAttributes()
-        let params: JSONValue = route.map { ["route": .string($0)] } ?? .object([:])
+        let claimRoute = state.routeSent ? nil : self.route
+        state.routeSent = true
+        let params: JSONValue = claimRoute.map { ["route": .string($0)] } ?? .object([:])
         let router = router
         // task-owner: one claim reply; ends with the document's answer or the page's close
         Task { @MainActor [weak self] in

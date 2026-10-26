@@ -94,7 +94,7 @@ struct PageFactory {
         let cloud = cloud ?? cloudPageProvider()
         native.forward = { op, params, context in try await cloud.call(op, params: params, context: context) }
         let routes = [PageRoute(prefix: "cmux.cloud.", provider: cloud), PageRoute(prefix: "cmux.app.", provider: native)]
-        let attributes = ["cloud-machines-layout": PageTunables.cloudMachinesLayout.value.rawValue]
+        let attributes = PagePreloads.Page.cloud.documentAttributes  // the Cloud preload boots with the same
         let page = services.pagePreloads.claim(.cloud, routes: routes, route: route, documentAttributes: attributes)
             ?? services.webUI.open(PageOpenRequest(descriptor: .cloud, routes: routes, route: route, documentAttributes: attributes))
         native.anchor = { [weak page] in page }
