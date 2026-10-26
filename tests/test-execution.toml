@@ -1923,3 +1923,8 @@ reason = "Lawrence 2026-10-23: no new CI tests. blocking-probe-report.py is the 
 path = "tests/test_script_storm_bench.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. script-storm-bench.py --hidden N is a fleet measurement, not a gate; run python3 -I tests/test_script_storm_bench.py yourself after changing the bench (about 1 s, no app, no build)."
+
+[[test]]
+path = "tests/test_bench_idle.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. bench_idle.py and bench_launch.py order are fleet benches, not gates; run python3 -I tests/test_bench_idle.py yourself after changing bench_idle.py, the launch order check or DebugLayoutCounters' hidden counters (under 1 s, no app, no build)."
