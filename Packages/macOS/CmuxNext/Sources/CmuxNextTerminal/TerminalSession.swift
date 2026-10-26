@@ -118,6 +118,8 @@ public final class TerminalSession {
     private let secureInput: TerminalSecureInput
     /// Passed to each surface view this session makes: the terminals' one modifier watch.
     private let modifiers: TerminalModifierWatch?
+    /// Passed to each surface view this session makes: the windows' frame-aligned pointer input.
+    private let pointerFrames: FrameInputCoalescers?
     private let input: TerminalInputSink
     private let echoStages: TerminalEchoStages
     private var eventsTask: Task<Void, Never>?
@@ -150,19 +152,24 @@ public final class TerminalSession {
     ///   - secureInput: The process's secure keyboard entry, which its surfaces turn on for Ghostty.
     ///   - modifiers: The terminals' one modifier watch (``TerminalModifierWatch``): Command pressed or
     ///     released over a surface without focus reaches it. The App passes its one; nil reaches none.
+    ///   - pointerFrames: The windows' frame-aligned pointer input (feature `terminalPointerFrames`): its
+    ///     surfaces send moves, drags and mouse-reporting trackpad scrolls to Ghostty on a frame interval's
+    ///     first event and once more at its frame (``TerminalPointerFrames``). Nil: every event at once.
     ///   - mainWork: The app's main-thread scheduler, and `node` the tab's node (`TabContentCache.node(for:)`; nil: no
     ///     tab, as in tests): the host's find bar, scrollbar and TextBox follow their models through them, once per frame while it shows.
     public init(io: any TerminalIO, ownsGeometry: Bool = true,
                 echoStages: TerminalEchoStages = GhosttyRuntime.shared.echoStages,
                 hangWatch: (any HangWatchScoping)? = nil,
                 secureInput: TerminalSecureInput = GhosttyRuntime.shared.secureInput,
-                modifiers: TerminalModifierWatch? = nil, mainWork: MainWorkScheduler, node: VisibilityNode? = nil) {
+                modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil,
+                mainWork: MainWorkScheduler, node: VisibilityNode? = nil) {
         self.io = io
         self.ownsGeometry = ownsGeometry
         self.echoStages = echoStages
         self.hangWatch = hangWatch
         self.secureInput = secureInput
         self.modifiers = modifiers
+        self.pointerFrames = pointerFrames
         ioMode = io.answersTerminalQueries ? GHOSTTY_SURFACE_IO_MANUAL_MIRROR : GHOSTTY_SURFACE_IO_MANUAL
 
         // concurrency-allow: carries only user input and resizes, produced at human rate
@@ -171,7 +178,7 @@ public final class TerminalSession {
 
         view = TerminalHostView(mainWork: mainWork, node: node)
         surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil, echoStages: echoStages, hangWatch: hangWatch,
-                                          secureInput: secureInput, modifiers: modifiers)
+                                          secureInput: secureInput, modifiers: modifiers, pointerFrames: pointerFrames)
         surfaceView.bridge.takeUnretainedValue().installLinkFilter(nil)
         surfaceView.session = self
         surfaceView.ownsGeometry = ownsGeometry
@@ -456,7 +463,7 @@ public final class TerminalSession {
         old.clipboardRequests.cancelPendingWrite()
         let wasFirstResponder = old.isFirstResponder
         let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self, echoStages: echoStages, hangWatch: hangWatch,
-                                        secureInput: secureInput, modifiers: modifiers)
+                                        secureInput: secureInput, modifiers: modifiers, pointerFrames: pointerFrames)
         swappedSurfaces += 1
         #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceSurfaceSwapped(fresh) }
