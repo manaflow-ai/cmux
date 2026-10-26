@@ -75,6 +75,40 @@ fn newtab_agent_identity_retries_a_dropped_capability_hello() {
 }
 
 #[test]
+fn refused_capability_hello_keeps_transport_exit_code() {
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let dir =
+        std::env::temp_dir().join(format!("cmux-refused-hello-{}-{stamp}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let listener = transport::listen(&socket).unwrap();
+    let worker = std::thread::spawn(move || {
+        let mut stream = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone_box().unwrap());
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        let hello: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(hello["cmd"], "set-client-info", "{hello}");
+        writeln!(stream, "{}", json!({"type":"refused","reason":"connection limit"})).unwrap();
+        stream.flush().unwrap();
+    });
+    let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        .args(["--json", "--socket"])
+        .arg(&socket)
+        .args(["tab", "list"])
+        .env("CMUX_CLI_NO_RETRY", "1")
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    worker.join().unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+    assert_eq!(output.status.code(), Some(3), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(output.stdout.is_empty());
+    let error: Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["code"], "session.busy", "{error}");
+}
+
+#[test]
 fn newtab_agent_identity_keeps_old_daemon_reads_after_hello_rejection() {
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let dir = std::env::temp_dir().join(format!("cmux-old-hello-{}-{stamp}", std::process::id()));
