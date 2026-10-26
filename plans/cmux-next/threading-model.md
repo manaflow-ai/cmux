@@ -100,9 +100,12 @@ dispatch_sync onto a serial queue (GCD sync QoS override), awaiting a Task value
 DispatchSemaphore.wait, DispatchGroup.wait, NSCondition.wait, Rust std mpsc/Condvar waits. BackgroundWork has no
 synchronous wait.
 
-Guardrail `task-priority` (pre-push): a new Task.detached names priority:, DispatchQueue.global names qos:,
-DispatchQueue(label:) names qos: or target:. Escape `// qos-allow: <why>`. A plain Task { } is not counted. Rule (c) (a
-blocking call inside a Task) follows PL-blocking's BLOCKING_* list.
+Guardrail `task-priority` (pre-push; the full list is PATTERNS.md P14): only CmuxNextWakeups may use Task.detached
+(with priority:) or DispatchQueue.global (with qos:); other code uses `work.task(priority) { }`, `work.run` or a plain
+Task { }, which is not counted. DispatchQueue(label:) names qos: or target:. A Thread (or Thread subclass) and an
+OperationQueue set `.name` and `.qualityOfService` on their own variable, at a level that is not .userInteractive,
+.background or .default; Thread.detachNewThread and `delegateQueue: nil` are refused. Escape `// qos-allow: <why>`.
+Guardrail `pool-blocking` refuses a blocking call (PL-blocking's BLOCKING_* list) on a shared pool thread.
 
 Daemon: no cmux-tui thread sets a QoS yet. The journal writer stays at the default QoS while request paths wait on its
 durable commit (PL-daemon is removing that wait; then writer = utility, request threads = userInitiated).
