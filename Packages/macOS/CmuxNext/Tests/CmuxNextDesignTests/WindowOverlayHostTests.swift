@@ -98,4 +98,119 @@ import Testing
         events.dispatch(try InputTapTestEvents.tracking(.mouseExited, in: window))
         #expect(host.panel.ignoresMouseEvents, "an exit off the overlay left the panel taking the mouse")
     }
+
+    // MARK: Routing once per frame (feature `pointerFrameHover`, p04-input-036)
+
+    /// A popover's host whose pointer the test moves, counting each routing (one pointer read each).
+    @MainActor final class Routing {
+        static let away = NSPoint(x: -10_000, y: -10_000)
+        let events: InputTapTestEvents
+        let window: NSWindow
+        let frames: PointerFrameTestRig
+        let host: WindowOverlayHost
+        let handle: OverlayHandle
+        let onOverlay: NSPoint
+        var away: NSPoint { Self.away }
+        var pointer = Routing.away
+        var routes = 0
+
+        init(frameInput: Bool = true) throws {
+            let events = InputTapTestEvents()
+            let window = InputTapTestEvents.window()
+            let frames = PointerFrameTestRig()
+            let host = WindowOverlayHostTests.host(events, window: window)
+            if frameInput { host.hoverFrames = frames.coalescers }
+            host.pointerLocation = { Routing.away }
+            let handle = host.present(WindowOverlayHostTests.popover(),
+                                      options: OverlayOptions(kind: .popover, anchor: NSRect(x: 40, y: 40, width: 20, height: 20)))
+            let region = try #require(host.interactiveRegions().first, "the popover has no interactive region")
+            self.events = events
+            self.window = window
+            self.frames = frames
+            self.host = host
+            self.handle = handle
+            onOverlay = host.panel.convertPoint(toScreen: NSPoint(x: region.midX, y: region.midY))
+            host.pointerLocation = { [weak self] in
+                guard let self else { return .zero }
+                routes += 1
+                return pointer
+            }
+        }
+
+        /// A move seen by the tap with the pointer at `point`.
+        func move(to point: NSPoint) throws {
+            pointer = point
+            events.dispatch(try InputTapTestEvents.mouse(.mouseMoved, in: window))
+        }
+
+        func close() {
+            handle.dismiss()
+            host.tearDown()
+            frames.close()
+            window.orderOut(nil)
+        }
+    }
+
+    /// Eight moves in one frame route the mouse twice: the leading move in its own turn, the other
+    /// seven once at the frame, at the pointer then, so the panel takes the mouse over the overlay.
+    @Test func eightMovesInOneFrameRouteTheMouseTwiceAtTheLatestPoint() throws {
+        let routing = try Routing()
+        defer { routing.close() }
+        for step in 0..<8 { try routing.move(to: step.isMultiple(of: 2) ? routing.away : routing.onOverlay) }
+        #expect(routing.routes == 1, "only the leading move routes before the frame")
+        #expect(routing.host.panel.ignoresMouseEvents, "the leading move was away from the overlay")
+        #expect(routing.frames.coalescer.hasPending)
+        routing.frames.frame()
+        #expect(routing.routes == 2, "the frame routed the seven waiting moves once")
+        #expect(!routing.host.panel.ignoresMouseEvents, "the frame did not route at the latest pointer, on the overlay")
+        #expect(routing.host.routingMoves?.maxDeliveriesPerFrame == 2)
+        #expect(!routing.frames.coalescer.hasPending)
+    }
+
+    /// A lone move after an idle frame routes in its own turn: the frame-aligned path adds no wait.
+    @Test func aSingleMoveAfterAnIdleFrameRoutesInTheSameTurn() throws {
+        let routing = try Routing()
+        defer { routing.close() }
+        try routing.move(to: routing.onOverlay)
+        #expect(routing.routes == 1)
+        #expect(!routing.host.panel.ignoresMouseEvents)
+        #expect(!routing.frames.coalescer.hasPending, "nothing waits for the frame")
+    }
+
+    /// A tracking-area edge is discrete: it lands the waiting moves now, once, and the frame after it
+    /// has nothing left to route.
+    @Test func anEdgeLandsTheWaitingMovesOnce() throws {
+        let routing = try Routing()
+        defer { routing.close() }
+        try routing.move(to: routing.away)
+        try routing.move(to: routing.onOverlay)
+        #expect(routing.routes == 1)
+        routing.events.dispatch(try InputTapTestEvents.tracking(.mouseEntered, in: routing.window))
+        #expect(routing.routes == 2, "the enter routed apart from the moves it landed")
+        #expect(!routing.host.panel.ignoresMouseEvents)
+        #expect(!routing.frames.coalescer.hasPending)
+        routing.frames.frame()
+        #expect(routing.routes == 2, "the frame routed moves the enter had landed")
+    }
+
+    /// The tap and the panel's own `sendEvent` both hand over a move on the panel: it routes once.
+    @Test func aMoveOnThePanelRoutesOnceThroughTheTapAndThePanel() throws {
+        let routing = try Routing(frameInput: false)
+        defer { routing.close() }
+        routing.pointer = routing.onOverlay
+        let move = try InputTapTestEvents.mouse(.mouseMoved, in: routing.host.panel)
+        routing.events.dispatch(move)
+        #expect(!routing.host.panelMouseEvent(move), "a move is never the panel's to take")
+        #expect(routing.routes == 1)
+    }
+
+    /// With the feature off every move routes, as before.
+    @Test func withoutFramesEachMoveRoutes() throws {
+        let routing = try Routing(frameInput: false)
+        defer { routing.close() }
+        for step in 0..<8 { try routing.move(to: step.isMultiple(of: 2) ? routing.away : routing.onOverlay) }
+        #expect(routing.routes == 8)
+        #expect(!routing.host.panel.ignoresMouseEvents)
+        #expect(routing.host.routingMoves == nil)
+    }
 }

@@ -396,6 +396,7 @@ private final class HoverRevealProbe: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) { owner?.setPointerInside(true) }
+    // input-coalesce: native (one Bool read per move; it acts once, on the first move inside after a missed enter)
     override func mouseMoved(with event: NSEvent) {
         if owner?.state.pointerInside == false { owner?.setPointerInside(true) }
     }

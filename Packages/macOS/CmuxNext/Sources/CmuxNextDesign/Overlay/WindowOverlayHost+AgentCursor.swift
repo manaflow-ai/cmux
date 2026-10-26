@@ -1,5 +1,7 @@
 public import AppKit
 public import CmuxNextDesignTokens
+import CmuxNextInput
+import CmuxNextWakeups
 
 /// The view that carries a window's agent cursor layer. It takes the mouse
 /// only on a name tag, which is a link to its agent's workspace (user,
@@ -24,6 +26,12 @@ final class AgentCursorCarrierView: NSView {
     /// The tag a mouse down landed on; its mouse up there presses it.
     private var pressing: String?
     private var tracking: NSTrackingArea?
+    /// The tag hover's moves (feature `pointerFrameHover`): the first of a frame interval hovers in its own
+    /// turn, the rest once at the frame, at the latest point. Without frames each move hovers.
+    private(set) lazy var hoverMoves = PointerFrameHover(owner: "AgentCursorCarrierView.hover", view: self) { [weak self] point in
+        guard let self else { return }
+        hover(tag(at: convert(point, from: nil)))
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -74,6 +82,7 @@ final class AgentCursorCarrierView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func mouseDown(with event: NSEvent) {
+        hoverMoves.flush()
         pressing = tag(at: convert(event.locationInWindow, from: nil))?.id
     }
 
@@ -92,11 +101,13 @@ final class AgentCursorCarrierView: NSView {
         tracking = area
     }
 
-    override func mouseMoved(with event: NSEvent) {
-        hover(tag(at: convert(event.locationInWindow, from: nil)))
-    }
+    override func mouseMoved(with event: NSEvent) { hoverMoves.moved(event) }
 
-    override func mouseExited(with event: NSEvent) { hover(nil) }
+    override func mouseExited(with event: NSEvent) {
+        // The pointer left every tag: the waiting moves would only hover one on the way out.
+        hoverMoves.cancel()
+        hover(nil)
+    }
 
     override func cursorUpdate(with event: NSEvent) {
         if hovered != nil { NSCursor.pointingHand.set() } else { super.cursorUpdate(with: event) }
@@ -170,6 +181,7 @@ extension WindowOverlayHost {
         if let agentCursorCarrier { return agentCursorCarrier }
         let carrier = AgentCursorCarrierView(frame: .zero)
         carrier.tags = agentCursorTags
+        carrier.hoverMoves.frames = hoverFrames
         agentCursorCarrier = carrier
         placeAgentCursor()
         return carrier

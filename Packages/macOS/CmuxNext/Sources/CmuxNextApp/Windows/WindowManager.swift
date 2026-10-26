@@ -309,7 +309,12 @@ final class WindowManager {
         }
         let controller = WindowController(state: state, services: services, frame: frame)
         controller.focus.overlayChanges = services.overlayChanges
-        if let window = controller.window { WindowOverlayHost.host(for: window).changes = services.overlayChanges }
+        if let window = controller.window {
+            let host = WindowOverlayHost.host(for: window)
+            host.changes = services.overlayChanges
+            // Its mouse routing, agent cursor tags and thin scrollers hover once per frame (`pointerFrameHover`).
+            host.hoverFrames = services.hoverFrameInput
+        }
         controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
         SidebarTabRowHandoff.install(on: controller, session: services.dragSession)

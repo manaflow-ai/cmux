@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextDesignTokens
 public import CmuxNextInput
+public import CmuxNextWakeups
 
 /// The one place app overlays draw above Chromium pages.
 ///
@@ -38,7 +39,23 @@ public final class WindowOverlayHost {
     var windowObservers: [any NSObjectProtocol] = []
     /// The tap observer of pointer moves and clicks that keeps the panel's mouse routing current,
     /// held while an interactive region or agent cursor tag shows (``updateMouseRouting()``).
-    var mouseRouting: InputSubscription?
+    var mouseRouting: InputSubscription? {
+        didSet { if mouseRouting == nil { stopRoutingMoves() } }
+    }
+    /// The windows' frame-aligned pointer input (feature `pointerFrameHover`, p04-input-036): the panel's mouse
+    /// routing, the agent cursor's tags and the window's thin scrollers hover on it. The App sets it on each main
+    /// window's host when it makes the window; nil (the feature off, any other window) hovers on every move.
+    public var hoverFrames: FrameInputCoalescers? {
+        didSet {
+            guard hoverFrames !== oldValue else { return }
+            stopRoutingMoves()
+            agentCursorCarrier?.hoverMoves.frames = hoverFrames
+        }
+    }
+    /// The routing's consumer on the window's coalescer, made on the first move while ``mouseRouting`` holds.
+    var routingMoves: PointerFrameConsumer?
+    /// The last event the routing took: the tap and the panel's `sendEvent` see the same panel event.
+    weak var lastRoutingEvent: NSEvent?
     /// The key window and first responder to give back when the last modal overlay goes.
     weak var restoreWindow: NSWindow?
     weak var restoreResponder: NSResponder?

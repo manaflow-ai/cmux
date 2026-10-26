@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextInput
+import CmuxNextWakeups
 
 extension WindowOverlayHost {
     // MARK: Mouse
@@ -38,10 +39,52 @@ extension WindowOverlayHost {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
             clickDidLand(in: event.window, at: event.window === panel ? event.locationInWindow : .zero)
         case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .mouseEntered, .mouseExited:
-            routeMouse(at: pointerLocation())
+            routePointerEvent(event)
         default:
             break
         }
+    }
+
+    /// A move, a drag or a tracking-area edge routes the mouse. With ``hoverFrames`` (feature
+    /// `pointerFrameHover`) moves and drags route on the window's frame: the first of a frame interval in
+    /// its own turn, the rest once at the frame, at the pointer then, as Chromium delivers rAF-aligned
+    /// moves (`third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`). An edge is
+    /// discrete: it lands the waiting moves (or routes) now. A press needs nothing here: `sendEvent`
+    /// flushes every window's moves before any press (``FrameInputCoalescers/willDispatch(_:)``).
+    func routePointerEvent(_ event: NSEvent) {
+        // The tap and the panel's own `sendEvent` both hand over a move on the panel: route it once.
+        guard event !== lastRoutingEvent else { return }
+        lastRoutingEvent = event
+        if let moves = routingMoveConsumer(), moves.post(event) { return }
+        routeMouseNow()
+    }
+
+    /// Routes the mouse at the pointer now: the waiting moves land (at the pointer now), or it routes.
+    func routeMouseNow() {
+        if let routingMoves, routingMoves.hasPending {
+            routingMoves.flush()
+        } else {
+            routeMouse(at: pointerLocation())
+        }
+    }
+
+    /// The routing's consumer on the parent window's coalescer while the tap routes the mouse; nil
+    /// without frames, a window or the tap's observer (each move routes then).
+    func routingMoveConsumer() -> PointerFrameConsumer? {
+        if let routingMoves { return routingMoves }
+        guard mouseRouting != nil, let hoverFrames, let window else { return nil }
+        let consumer = hoverFrames.coalescer(for: window).consumer(owner: "WindowOverlayHost.routeMouse") { [weak self] _ in
+            guard let self, mouseRouting != nil else { return }
+            routeMouse(at: pointerLocation())
+        }
+        routingMoves = consumer
+        return consumer
+    }
+
+    /// Drops the routing's waiting moves and its consumer (the routing stopped or its frames changed).
+    func stopRoutingMoves() {
+        routingMoves?.cancel()
+        routingMoves = nil
     }
 
     func routeMouse(at screenPoint: NSPoint) {
@@ -87,7 +130,7 @@ extension WindowOverlayHost {
             return true
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
             guard forwardTarget != nil, Self.button(of: event) == forwardButton else {
-                if forwardTarget == nil { routeMouse(at: pointerLocation()) }
+                if forwardTarget == nil { routePointerEvent(event) }
                 return false
             }
             forward(event)
@@ -98,7 +141,7 @@ extension WindowOverlayHost {
             forwardTarget = nil
             return true
         case .mouseMoved, .mouseEntered, .mouseExited:
-            routeMouse(at: pointerLocation())
+            routePointerEvent(event)
             return false
         default:
             return false

@@ -70,7 +70,7 @@ public final class ThinScroller: NSScroller {
     let notificationCenter: NotificationCenter
     /// The pending fade-out after the last scroll; the next scroll cancels it.
     private(set) var restTask: Task<Void, Never>?
-    private var proximity: ThinScrollerProximity?
+    private(set) var proximity: ThinScrollerProximity?
     private var drawnExpanded = false
 
     override public convenience init(frame frameRect: NSRect) {
