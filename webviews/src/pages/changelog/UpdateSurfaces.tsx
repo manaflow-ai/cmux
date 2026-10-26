@@ -63,6 +63,8 @@ export function cardBuild(data: UpdateHighlights, builds: IndexEntry[] | undefin
   if (!id) return null;
   const line = strings.format("updates.card.build", id);
   if (!listed || !builds) return line;
+  // Newer by version, as the updater picks the newest item: a rerun that republished an older
+  // build moves it up the index without making it newer.
   const newer = builds.filter((b) => compareVersions(b.shortVersion, listed.shortVersion) > 0).length;
   const where =
     newer === 0

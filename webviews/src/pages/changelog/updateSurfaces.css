@@ -47,14 +47,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  /* Design #2 "Readable" (design/whats-new-surfaces-gallery): a hairline sets the version apart. */
+}
+/* Design #2 "Readable" (design/whats-new-surfaces-gallery): a hairline sets the version apart, under
+   the build line when there is one (Leo 2026-10-26). */
+.wn-card-eyebrow:not(:has(+ .wn-card-build)),
+.wn-card-build {
   padding-bottom: 6px;
   border-bottom: 1px solid var(--page-separator);
-}
-/* The build line under the eyebrow (Leo 2026-10-26): the hairline moves below it. */
-.wn-card-eyebrow:has(+ .wn-card-build) {
-  padding-bottom: 0;
-  border-bottom: 0;
 }
 .wn-card-build {
   color: var(--page-text-3);
@@ -64,8 +63,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--page-separator);
 }
 .wn-card-close {
   position: absolute;

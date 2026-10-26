@@ -147,7 +147,9 @@ nonisolated public struct UpdateHighlights: Codable, Equatable, Sendable {
     }
 
     /// "2026-10-26T19:38:52Z"; nil for midnight UTC, which is a day the notes gave
-    /// (``UpdateChangelog/init(notes:version:)``), not a time.
+    /// (``UpdateChangelog/init(notes:version:)``), not a time. A saved record does not say which
+    /// it was, and a day shown as a time would read as the evening before west of UTC; an
+    /// appcast time of exactly 00:00:00 only falls back to its day.
     static func instant(_ date: Date) -> String? {
         let formatter = ISO8601DateFormatter()
         let text = formatter.string(from: date)

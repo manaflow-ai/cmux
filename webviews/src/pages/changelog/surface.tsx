@@ -123,16 +123,25 @@ class SpanNotes {
   private load(key: string, span: UpdateSpan): void {
     this.key = key;
     this.settled = undefined;
+    this.builds = undefined;
     const store = new ChangelogStore(this.client);
     this.store = store;
+    // The index is the store's first answer (`list`): the build line shows its place at once, not
+    // after every note of the span has loaded.
+    const listed = store.subscribe(() => {
+      const { builds } = store.getSnapshot();
+      if (this.store !== store || builds.length === 0) return;
+      listed();
+      this.builds = builds;
+      this.onChange();
+    });
     void store
       .start(span)
       .then(() => store.firstScreen())
       .then(() => {
+        listed();
         if (this.store !== store) return;
         const snapshot = store.getSnapshot();
-        this.builds = snapshot.builds.length ? snapshot.builds : undefined;
-        if (this.builds) this.onChange();
         const notes = snapshot.inSpan.flatMap((build) => snapshot.loaded[build] ?? []);
         if (notes.length === 0) return;
         this.settled = notes.sort((a, b) => compareVersions(b.shortVersion, a.shortVersion));
