@@ -69,7 +69,9 @@ impl Jobs {
     }
     fn take(&mut self) -> Option<String> {
         let key = self.ready.pop_front()?;
-        self.pending.get_mut(&key).unwrap().0 = false;
+        if let Some(pending) = self.pending.get_mut(&key) {
+            pending.0 = false;
+        }
         Some(key)
     }
 }
@@ -252,7 +254,8 @@ fn snapshot(hub: &Hub) -> Vec<Watch> {
 }
 async fn page(hub: &Hub, id: &str, key: &str) -> Result<bool, RpcError> {
     #[cfg(test)]
-    let read_hook = READ_HOOK.get_or_init(Mutex::default).lock().unwrap().clone();
+    let read_hook =
+        READ_HOOK.get_or_init(Mutex::default).lock().unwrap_or_else(|e| e.into_inner()).clone();
     #[cfg(test)]
     if let Some(read) = read_hook {
         return read(key.to_owned()).await;
@@ -335,7 +338,7 @@ async fn remote_worker(hub: Arc<Hub>) {
         drain(&hub, false);
         let failures = {
             let mut jobs = hub.watches.jobs.lock().unwrap_or_else(|e| e.into_inner());
-            let state = jobs.pending.get_mut(&key).unwrap();
+            let state = jobs.pending.entry(key.clone()).or_default();
             state.1 = if failed { (state.1 + 1).min(6) } else { 0 };
             state.1
         };
@@ -346,7 +349,7 @@ async fn remote_worker(hub: Arc<Hub>) {
             }
         }
         let mut jobs = hub.watches.jobs.lock().unwrap_or_else(|e| e.into_inner());
-        if more || failed || jobs.pending[&key].0 {
+        if more || failed || jobs.pending.get(&key).is_some_and(|pending| pending.0) {
             jobs.ready.push_back(key);
             hub.watches.available.notify_one();
         } else {
