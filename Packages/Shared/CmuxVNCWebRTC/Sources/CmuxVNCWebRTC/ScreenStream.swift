@@ -32,14 +32,21 @@ public struct ScreenInput: Codable, Sendable {
     }
 
     /// Where a pointer message points in `display`. A coordinate past 0...1 points at the nearest
-    /// edge, so a viewer's message never points outside the display, and the point converts to an
-    /// integer pixel without overflow (JSON carries any finite double, 1e300 too).
+    /// edge pixel: the last column is `maxX - 1`, since `maxX` is the first column of the display to
+    /// its right. So a viewer's message never points outside the display, and the point converts to
+    /// an integer pixel without overflow (JSON carries any finite double, 1e300 too).
     public func location(in display: CGRect) -> CGPoint {
-        func fraction(_ value: Double?) -> CGFloat {
+        func offset(_ value: Double?, _ length: CGFloat) -> CGFloat {
             guard let value, value.isFinite else { return 0 }
-            return CGFloat(min(max(value, 0), 1))
+            return min(CGFloat(max(value, 0)) * length, max(length - 1, 0))
         }
-        return CGPoint(x: display.minX + fraction(x) * display.width, y: display.minY + fraction(y) * display.height)
+        return CGPoint(x: display.minX + offset(x, display.width), y: display.minY + offset(y, display.height))
+    }
+
+    /// The framebuffer pixel a pointer message points at in `display`, a crop of the framebuffer.
+    public func pixel(in display: CGRect) -> (x: Int, y: Int) {
+        let point = location(in: display)
+        return (Int(point.x), Int(point.y))
     }
 
     /// A scroll message's wheel clicks, clamped to the 32 bits a wheel event takes.
@@ -443,8 +450,10 @@ public final class VNCLoopbackBackend: ScreenBackend, @unchecked Sendable {
     private let inputStream: AsyncStream<ScreenInput>
     private let inputSink: AsyncStream<ScreenInput>.Continuation
 
-    public init(target: VNCEndpoint, credentials: VNCCredentials, log: @escaping @Sendable (String) -> Void) {
-        client = VNCClient(endpoint: target, options: VNCSessionOptions(credentials: credentials))
+    /// `transport` carries the session's bytes; nil for TCP to `target`.
+    public init(target: VNCEndpoint, credentials: VNCCredentials, transport: (any RFBTransport)? = nil,
+                log: @escaping @Sendable (String) -> Void) {
+        client = VNCClient(endpoint: target, options: VNCSessionOptions(credentials: credentials), transport: transport)
         self.log = log
         (inputStream, inputSink) = AsyncStream.makeStream(of: ScreenInput.self)
     }
@@ -526,8 +535,7 @@ public final class VNCLoopbackBackend: ScreenBackend, @unchecked Sendable {
 
     private func apply(_ input: ScreenInput, client: VNCClient) async {
         let display = lock.withLock { displays.indices.contains(current) ? displays[current] : .zero }
-        let point = input.location(in: display)
-        let x = Int(point.x), y = Int(point.y)
+        let (x, y) = input.pixel(in: display)
         switch input.t {
         case "move": await client.pointer(x: x, y: y, buttons: VNCButtons(rawValue: input.b ?? 0))
         case "scroll":

@@ -259,10 +259,8 @@ public final class ScreenSession {
         }
         viewer.onVideo = { [weak self] box in Task { @MainActor in self?.onVideoTrack?(box) } }
         viewer.onDisplays = { [weak self] message in
-            Task { @MainActor in
-                let sizes = (message.displays ?? []).map { CGSize(width: $0.w, height: $0.h) }
-                self?.onStreamDisplays?(sizes, message.current ?? 0)
-            }
+            let displays = Self.streamDisplays(from: message)
+            Task { @MainActor in self?.onStreamDisplays?(displays.sizes, displays.current) }
         }
         viewer.onPath = { [weak self] path in Task { @MainActor in self?.streamPath = path } }
         viewer.onState = { [weak self, weak viewer] message in
@@ -292,6 +290,21 @@ public final class ScreenSession {
                 }
             }
         })
+    }
+
+    /// The largest display side a host may report: the largest framebuffer side (`RFBLimits.maxSide`).
+    nonisolated static let maxDisplaySide = 16384
+
+    /// The display sizes and the streaming display of a host's display frame, which is untrusted.
+    /// A frame with a display that is empty or past `maxDisplaySide` reports no displays: dropping
+    /// only that display would shift the indices the viewer sends back to select one. A current
+    /// display that is not one of them reports as 0.
+    nonisolated static func streamDisplays(from message: ScreenHostMessage) -> (sizes: [CGSize], current: Int) {
+        let displays = message.displays ?? []
+        let sides = 1 ... maxDisplaySide
+        guard displays.allSatisfy({ sides.contains($0.w) && sides.contains($0.h) }) else { return ([], 0) }
+        let current = message.current.flatMap { displays.indices.contains($0) ? $0 : nil } ?? 0
+        return (displays.map { CGSize(width: $0.w, height: $0.h) }, current)
     }
 
     /// The stream ended without the user closing it: reconnect a few times

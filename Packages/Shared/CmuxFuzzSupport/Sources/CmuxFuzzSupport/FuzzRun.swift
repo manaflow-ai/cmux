@@ -72,11 +72,58 @@ public struct FuzzRun: Sendable {
         var iteration = 0
         while continues(after: iteration, deadline: deadline) {
             var rng = generator(for: iteration)
-            let base = inputs.isEmpty || rng.oneIn(8) ? rng.bytes(256) : inputs[rng.below(inputs.count)]
-            let partner = inputs.isEmpty ? nil : inputs[rng.below(inputs.count)]
-            let input = mutator.mutate(base, crossingWith: partner, using: &rng)
+            let input = mutatedInput(inputs, mutator: mutator, using: &rng)
             try note(iteration: iteration, input: input, artifacts: artifacts)
             try attempt(iteration: iteration, input: input, artifacts: artifacts) { try body(input) }
+            iteration += 1
+        }
+        return inputs.count + iteration
+    }
+
+    /// `forEach(_:)` with a body that awaits (an actor, a decoder that reads through an async
+    /// transport): the same iterations, generators, long mode, in-flight files and failure, so a seed
+    /// and an iteration name the same input in both. The body runs in the caller's isolation. A
+    /// libFuzzer target cannot await, so a suite on this run has no libFuzzer wrapper (p10-stability-182).
+    @discardableResult
+    public func forEachAsync(
+        isolation: isolated (any Actor)? = #isolation,
+        _ body: (inout FuzzRNG) async throws -> Void
+    ) async throws(FuzzError) -> Int {
+        let artifacts = try openArtifacts()
+        defer { artifacts?.finish() }
+        let deadline = self.deadline()
+        var iteration = 0
+        while continues(after: iteration, deadline: deadline) {
+            var rng = generator(for: iteration)
+            try note(iteration: iteration, input: nil, artifacts: artifacts)
+            try await attemptAsync(iteration: iteration, input: nil, artifacts: artifacts) { try await body(&rng) }
+            iteration += 1
+        }
+        return iteration
+    }
+
+    /// `forEachInput(_:mutator:_:)` with a body that awaits: the same corpus inputs, then the same
+    /// mutated input per iteration. Returns the number of inputs run.
+    @discardableResult
+    public func forEachInputAsync(
+        _ corpus: FuzzCorpus, mutator: FuzzMutator = FuzzMutator(),
+        isolation: isolated (any Actor)? = #isolation,
+        _ body: (Data) async throws -> Void
+    ) async throws(FuzzError) -> Int {
+        let artifacts = try openArtifacts()
+        defer { artifacts?.finish() }
+        let inputs = corpus.inputs
+        for (index, input) in inputs.enumerated() {
+            try note(iteration: -1 - index, input: input, artifacts: artifacts)
+            try await attemptAsync(iteration: -1 - index, input: input, artifacts: artifacts) { try await body(input) }
+        }
+        let deadline = self.deadline()
+        var iteration = 0
+        while continues(after: iteration, deadline: deadline) {
+            var rng = generator(for: iteration)
+            let input = mutatedInput(inputs, mutator: mutator, using: &rng)
+            try note(iteration: iteration, input: input, artifacts: artifacts)
+            try await attemptAsync(iteration: iteration, input: input, artifacts: artifacts) { try await body(input) }
             iteration += 1
         }
         return inputs.count + iteration
@@ -88,6 +135,14 @@ public struct FuzzRun: Sendable {
     }
 
     // MARK: - Driving
+
+    /// An iteration's input: a corpus input, or random bytes one time in eight and whenever the
+    /// corpus is empty, after a mutation pass that may cross it with another corpus input.
+    private func mutatedInput(_ inputs: [Data], mutator: FuzzMutator, using rng: inout FuzzRNG) -> Data {
+        let base = inputs.isEmpty || rng.oneIn(8) ? rng.bytes(256) : inputs[rng.below(inputs.count)]
+        let partner = inputs.isEmpty ? nil : inputs[rng.below(inputs.count)]
+        return mutator.mutate(base, crossingWith: partner, using: &rng)
+    }
 
     private func deadline() -> ContinuousClock.Instant? {
         guard let budget = environment.longModeBudget(from: Date()) else { return nil }
@@ -117,13 +172,32 @@ public struct FuzzRun: Sendable {
         do {
             try body()
         } catch {
-            var failure = FuzzFailure(
-                name: name, seed: seed, iteration: iteration, input: input,
-                reason: String(describing: error), artifact: nil, corpus: environment.corpus
-            )
-            failure.artifact = try artifacts?.keep(failure)
-            throw FuzzError.failed(failure)
+            throw try failure(iteration: iteration, input: input, error: error, artifacts: artifacts)
         }
+    }
+
+    private func attemptAsync(
+        iteration: Int, input: Data?, artifacts: FuzzArtifacts?,
+        isolation: isolated (any Actor)? = #isolation,
+        _ body: () async throws -> Void
+    ) async throws(FuzzError) {
+        do {
+            try await body()
+        } catch {
+            throw try failure(iteration: iteration, input: input, error: error, artifacts: artifacts)
+        }
+    }
+
+    /// The failure of `iteration`, its input kept under `CMUX_FUZZ_ARTIFACTS`.
+    private func failure(
+        iteration: Int, input: Data?, error: any Error, artifacts: FuzzArtifacts?
+    ) throws(FuzzError) -> FuzzError {
+        var failure = FuzzFailure(
+            name: name, seed: seed, iteration: iteration, input: input,
+            reason: String(describing: error), artifact: nil, corpus: environment.corpus
+        )
+        failure.artifact = try artifacts?.keep(failure)
+        return .failed(failure)
     }
 }
 

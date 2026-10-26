@@ -1,5 +1,5 @@
 import CmuxFuzzSupport
-import CmuxScreenKit
+@testable import CmuxScreenKit
 import CoreGraphics
 import Foundation
 import Observation
@@ -26,16 +26,22 @@ import Testing
     }
 
     /// A session over hostile server bytes ends failed, with a message, and every frame,
-    /// cursor and screen layout it handed out lies inside the limits.
+    /// cursor and screen layout it handed out lies inside a framebuffer the server set.
     static func serverFrames(_ rng: inout FuzzRNG) async throws {
-        var server = HostileFrames.server(&rng)
-        if rng.oneIn(4) { server = [UInt8](FuzzMutator().mutate(Data(server), using: &rng)) }
+        var (server, sizes) = HostileFrames.server(&rng)
+        if rng.oneIn(4) {
+            // Mutated bytes may set any framebuffer: only the limits bound it.
+            server = [UInt8](FuzzMutator().mutate(Data(server), using: &rng))
+            sizes = [CGSize(width: maxSide, height: maxSide)]
+        }
         let chunk = 1 + rng.below(64)
         let localCursor = rng.bool()
-        try await session(over: server, chunk: chunk, localCursor: localCursor)
+        try await session(over: server, chunk: chunk, localCursor: localCursor, framebuffers: sizes)
     }
 
-    static func session(over server: [UInt8], chunk: Int, localCursor: Bool) async throws {
+    /// `framebuffers`: every framebuffer size the server's bytes set (ServerInit, DesktopSize,
+    /// ExtendedDesktopSize).
+    static func session(over server: [UInt8], chunk: Int, localCursor: Bool, framebuffers: [CGSize]) async throws {
         let seen = Seen()
         let session = ScreenSession(title: "Fuzz", endpoint: VNCEndpoint(host: "fuzz.invalid", port: 5900),
                                     preferences: ScreenPreferences(localCursor: localCursor),
@@ -50,14 +56,20 @@ import Testing
             throw FuzzError.property("the session ended \(session.phase), not failed", location: #fileID)
         }
         try FuzzRun.check(!message.isEmpty, "a failure with no message")
-        let limits = CGRect(x: 0, y: 0, width: maxSide, height: maxSide)
-        try FuzzRun.check(seen.frames.allSatisfy { $0.width > 0 && $0.height > 0 && $0.width <= maxSide && $0.height <= maxSide },
-                          "frames \(seen.frames)")
-        try FuzzRun.check(session.frameSize.width <= maxSide && session.frameSize.height <= maxSide, "frame size \(session.frameSize)")
+        func fits(_ size: CGSize) -> Bool {
+            framebuffers.contains { size.width <= $0.width && size.height <= $0.height }
+        }
+        try FuzzRun.check(seen.frames.allSatisfy { $0.width > 0 && $0.height > 0 && fits($0) },
+                          "frames \(seen.frames) larger than the framebuffers \(framebuffers)")
+        try FuzzRun.check(session.frameSize == .zero || fits(session.frameSize), "frame size \(session.frameSize)")
         try FuzzRun.check(seen.cursors.allSatisfy { $0.width <= 256 && $0.height <= 256 && $0.pixels.count == $0.width * $0.height },
                           "a cursor past 256x256")
-        try FuzzRun.check(seen.layouts.allSatisfy { $0.count != 1 && $0.allSatisfy { !$0.isEmpty && limits.contains($0) } },
-                          "layouts \(seen.layouts)")
+        // A layout lies inside one framebuffer the server set: its screens are inside the
+        // ExtendedDesktopSize that carried them.
+        try FuzzRun.check(seen.layouts.allSatisfy { layout in
+            layout.allSatisfy { !$0.isEmpty && $0.minX >= 0 && $0.minY >= 0 }
+                && fits(CGSize(width: layout.map(\.maxX).max() ?? 0, height: layout.map(\.maxY).max() ?? 0))
+        }, "layouts \(seen.layouts) outside the framebuffers \(framebuffers)")
     }
 
     /// A viewer's input frame (JSON on the data channel) points inside the display it is for,
@@ -66,11 +78,14 @@ import Testing
         guard let input = try? JSONDecoder().decode(ScreenInput.self, from: data) else { return }
         let display = CGRect(x: 1920, y: 0, width: 1024, height: 768)
         let point = input.location(in: display)
-        try FuzzRun.check(point.x.isFinite && point.y.isFinite && point.x >= display.minX && point.x <= display.maxX
-            && point.y >= display.minY && point.y <= display.maxY, "\(input) points at \(point), outside \(display)")
-        _ = (Int(point.x), Int(point.y), input.wheel)
+        // The last pixel is maxX - 1: maxX is the first column of the display to the right.
+        try FuzzRun.check(point.x.isFinite && point.y.isFinite && point.x >= display.minX && point.x < display.maxX
+            && point.y >= display.minY && point.y < display.maxY, "\(input) points at \(point), outside \(display)")
+        try FuzzRun.check(input.location(in: .zero) == .zero, "\(input) points outside an empty display")
+        let pixel = input.pixel(in: display)
+        _ = input.wheel
         let client = VNCClient(endpoint: VNCEndpoint(host: "fuzz.invalid", port: 5900), transport: ScriptedServer([], chunk: 1))
-        await client.pointer(x: Int(point.x), y: Int(point.y), buttons: VNCButtons(rawValue: input.b ?? 0))
+        await client.pointer(x: pixel.x, y: pixel.y, buttons: VNCButtons(rawValue: input.b ?? 0))
         await client.scroll(dx: input.dx ?? 0, dy: input.dy ?? 0)
         if let keysym = input.k {
             await client.key(VNCKeysym(rawValue: keysym), down: input.d ?? true)
@@ -79,9 +94,18 @@ import Testing
         if let text = input.s { await client.type(text) }
     }
 
-    /// The host's display frame decodes or is dropped; a pairing link parses into a well-formed pairing or none.
+    /// The host's display frame reports displays the viewer can show and select, or none; a
+    /// pairing link parses into a well-formed pairing or none.
     static func pairingLink(_ data: Data) throws {
-        _ = try? JSONDecoder().decode(ScreenHostMessage.self, from: data)
+        if let message = try? JSONDecoder().decode(ScreenHostMessage.self, from: data) {
+            let displays = ScreenSession.streamDisplays(from: message)
+            let side = CGFloat(ScreenSession.maxDisplaySide)
+            try FuzzRun.check(displays.sizes.allSatisfy { $0.width >= 1 && $0.height >= 1 && $0.width <= side && $0.height <= side },
+                              "display sizes \(displays.sizes)")
+            try FuzzRun.check(displays.sizes.indices.contains(displays.current) || displays.current == 0,
+                              "current display \(displays.current) of \(displays.sizes.count)")
+            _ = displays.current + 1 // the toolbar's "Display N"
+        }
         guard let text = String(data: data, encoding: .utf8), let url = URL(string: text),
               let pairing = VNCPairing(link: url) else { return }
         try FuzzRun.check(pairing.signal.scheme == "https", "signal \(pairing.signal)")
@@ -150,11 +174,27 @@ import Testing
     @Test func inputPastTheDisplayPointsAtItsEdge() throws {
         let display = CGRect(x: 1920, y: 0, width: 1024, height: 768)
         let far = try JSONDecoder().decode(ScreenInput.self, from: Data(#"{"t":"move","x":1e300,"y":-1e300}"#.utf8))
-        #expect(far.location(in: display) == CGPoint(x: display.maxX, y: display.minY))
+        #expect(far.location(in: display) == CGPoint(x: display.maxX - 1, y: display.minY))
         let inside = ScreenInput(t: "move", x: 0.5, y: 0.25)
         #expect(inside.location(in: display) == CGPoint(x: 1920 + 512, y: 192))
         let scroll = ScreenInput(t: "scroll", dx: .min, dy: .max)
         #expect(scroll.wheel.dx == .min && scroll.wheel.dy == .max)
+    }
+
+    /// The trap a host could set off: a current display of Int.max overflowed the toolbar's
+    /// "Display N"; a negative size reached the display menu.
+    @Test func hostDisplayFramesReportOnlyDisplaysTheViewerCanSelect() throws {
+        func displays(_ json: String) throws -> (sizes: [CGSize], current: Int) {
+            try ScreenSession.streamDisplays(from: JSONDecoder().decode(ScreenHostMessage.self, from: Data(json.utf8)))
+        }
+        let two = try displays(#"{"t":"displays","displays":[{"w":1920,"h":1080},{"w":1280,"h":800}],"current":1}"#)
+        #expect(two.sizes == [CGSize(width: 1920, height: 1080), CGSize(width: 1280, height: 800)] && two.current == 1)
+        let far = try displays(#"{"t":"displays","displays":[{"w":1920,"h":1080}],"current":9223372036854775807}"#)
+        #expect(far.sizes.count == 1 && far.current == 0)
+        let negative = try displays(#"{"t":"displays","displays":[{"w":1920,"h":1080},{"w":-1,"h":800}],"current":1}"#)
+        #expect(negative.sizes.isEmpty && negative.current == 0)
+        let huge = try displays(#"{"t":"displays","displays":[{"w":16385,"h":1080}],"current":0}"#)
+        #expect(huge.sizes.isEmpty)
     }
 }
 
@@ -259,8 +299,8 @@ enum HostileFrames {
     }
 
     /// RFB 3.8 with no security, a small framebuffer, then server messages with lengths,
-    /// counts and rectangles at and past their limits.
-    static func server(_ rng: inout FuzzRNG) -> [UInt8] {
+    /// counts and rectangles at and past their limits; with every framebuffer size the bytes set.
+    static func server(_ rng: inout FuzzRNG) -> (bytes: [UInt8], framebuffers: [CGSize]) {
         var out = Wire()
         out.bytes += Array("RFB 003.008\n".utf8)
         out.u8(1); out.u8(1)
@@ -268,6 +308,7 @@ enum HostileFrames {
         let side = 1 + rng.below(32), otherSide = 1 + rng.below(32)
         let width = pick(&rng, [side, side, 0, 16384]), height = pick(&rng, [otherSide, otherSide, 0, 16385])
         out.u16(width); out.u16(height)
+        var framebuffers = [CGSize(width: width, height: height)]
         out.bytes += [32, 24, 0, 1, 0, 255, 0, 255, 0, 255, 16, 8, 0, 0, 0, 0]
         out.u32(4)
         out.bytes += Array("fuzz".utf8)
@@ -277,7 +318,9 @@ enum HostileFrames {
                 out.u8(0); out.u8(0)
                 let count = 1 + rng.below(3)
                 out.u16(count)
-                for _ in 0 ..< count { rectangle(&rng, into: &out, width: width, height: height) }
+                for _ in 0 ..< count {
+                    if let size = rectangle(&rng, into: &out, width: width, height: height) { framebuffers.append(size) }
+                }
             case 2:
                 out.u8(2)
             case 3:
@@ -294,10 +337,11 @@ enum HostileFrames {
                 out.bytes += rng.bytes(count: 6 * count)
             }
         }
-        return out.bytes
+        return (out.bytes, framebuffers)
     }
 
-    static func rectangle(_ rng: inout FuzzRNG, into out: inout Wire, width: Int, height: Int) {
+    /// One rectangle; returns the framebuffer size it sets, for DesktopSize and ExtendedDesktopSize.
+    static func rectangle(_ rng: inout FuzzRNG, into out: inout Wire, width: Int, height: Int) -> CGSize? {
         let encoding = pick(&rng, [0, 1, 2, -223, -224, -239, -308])
         let x = rng.below(width + 2), y = rng.below(height + 2)
         let w = rng.below(width + 2), h = rng.below(height + 2)
@@ -328,6 +372,7 @@ enum HostileFrames {
         default:
             break
         }
+        return encoding == -223 || encoding == -308 ? CGSize(width: w, height: h) : nil
     }
 
     /// Big-endian wire bytes.

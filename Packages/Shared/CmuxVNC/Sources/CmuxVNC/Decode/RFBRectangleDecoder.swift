@@ -25,7 +25,8 @@ enum RFBRectangleEffect: Equatable {
 /// zlib streams of the Zlib and ZRLE encodings.
 ///
 /// A rectangle, a subrectangle, a CopyRect source or a screen that does not lie
-/// inside what encloses it is refused with `RFBError.protocolViolation`, never
+/// inside what encloses it, and a screen layout with no screen or a screen id
+/// listed twice, is refused with `RFBError.protocolViolation`, never
 /// clipped, as TigerVNC refuses it (common/rfb/DecodeManager.cxx "Rect too big",
 /// RREDecoder.cxx, HextileDecoder.cxx, ModifiablePixelBuffer::copyRect,
 /// ScreenSet::validate): the server and this client then never disagree about
@@ -94,7 +95,10 @@ final class RFBRectangleDecoder {
             }
             guard header.y == 0 else { return .drew }
             try RFBLimits.checkFramebuffer(width: header.width, height: header.height)
+            guard !screens.isEmpty else { throw RFBError.protocolViolation("a screen layout with no screen") }
+            var ids = Set<UInt32>()
             for screen in screens {
+                guard ids.insert(screen.id).inserted else { throw RFBError.protocolViolation("screen \(screen.id) listed twice") }
                 let frame = screen.frame
                 guard !frame.isEmpty else { throw RFBError.protocolViolation("screen \(screen.id) is empty") }
                 try Self.require(x: Int(frame.minX), y: Int(frame.minY), width: Int(frame.width), height: Int(frame.height),

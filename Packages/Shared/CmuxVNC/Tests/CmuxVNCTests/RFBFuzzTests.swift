@@ -118,6 +118,8 @@ import Testing
                 let bounds = CGRect(x: 0, y: 0, width: framebuffer.width, height: framebuffer.height)
                 try FuzzRun.check(screens.allSatisfy { !$0.frame.isEmpty && bounds.contains($0.frame) },
                                   "screens \(screens) outside \(bounds)")
+                try FuzzRun.check(!screens.isEmpty && Set(screens.map(\.id)).count == screens.count,
+                                  "screens \(screens) empty or with a repeated id")
             case .drew, .resized, .lastRect:
                 break
             }
@@ -283,6 +285,28 @@ struct RFBRefusalTests {
         body.u32(7)
         body.u16(4); body.u16(0); body.u16(8); body.u16(8) // 4..12 wide in an 8-wide framebuffer
         body.u32(0)
+        await #expect(throws: RFBError.self) {
+            _ = try await decode(RFBRectangleHeader(x: 0, y: 0, width: 8, height: 8, encoding: -308), body: body.data, into: framebuffer)
+        }
+        #expect(framebuffer.width == 4 && framebuffer.height == 4, "a refused layout resized the framebuffer")
+    }
+
+    @Test func aLayoutWithNoScreenIsRefused() async {
+        let framebuffer = Framebuffer(width: 4, height: 4)
+        var body = Bytes()
+        body.u8(0); body.u8(0); body.u8(0); body.u8(0)
+        await #expect(throws: RFBError.self) {
+            _ = try await decode(RFBRectangleHeader(x: 0, y: 0, width: 8, height: 8, encoding: -308), body: body.data, into: framebuffer)
+        }
+        #expect(framebuffer.width == 4 && framebuffer.height == 4, "a refused layout resized the framebuffer")
+    }
+
+    @Test func aScreenListedTwiceIsRefused() async {
+        let framebuffer = Framebuffer(width: 4, height: 4)
+        var body = Bytes()
+        body.u8(2); body.u8(0); body.u8(0); body.u8(0)
+        body.u32(1); body.u16(0); body.u16(0); body.u16(4); body.u16(8); body.u32(0)
+        body.u32(1); body.u16(4); body.u16(0); body.u16(4); body.u16(8); body.u32(0)
         await #expect(throws: RFBError.self) {
             _ = try await decode(RFBRectangleHeader(x: 0, y: 0, width: 8, height: 8, encoding: -308), body: body.data, into: framebuffer)
         }
