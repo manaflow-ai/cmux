@@ -90,7 +90,13 @@ public struct HubLoopbackOpener: LoopbackTunnelOpening {
             return try await withTaskCancellationHandler {
                 guard await connection.ready(on: queue) else { throw LoopbackTunnelFailure.unavailable("Cloud tunnel unavailable") }
                 try await negotiate(connection, token: endpoint.token, address: address, port: port)
-                return CloudProxyLoopbackTunnel(connection: connection, initialData: Data())
+                let tunnel = CloudProxyLoopbackTunnel(connection: connection, initialData: Data())
+                // Opened just as the deadline won: nobody takes this tunnel, so it closes here.
+                if Task.isCancelled {
+                    tunnel.close()
+                    throw CancellationError()
+                }
+                return tunnel
             } onCancel: {
                 connection.cancel()
             }

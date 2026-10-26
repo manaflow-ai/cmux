@@ -2,7 +2,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBrowser
 import CmuxNextRemoteLocalhost
-import CmuxNextRemoteLocalhostService
+@testable import CmuxNextRemoteLocalhostService
 import CmuxNextRemoteView
 import Darwin
 import Foundation
@@ -179,6 +179,46 @@ struct CloudHubLoopbackTests {
         pages.personOpens(url, scope: nil)
         clock = clock.advanced(by: .seconds(16))
         #expect(pages.source(for: "tab-4", url: url, isLocal: true) == .unconfirmed, "too late")
+    }
+
+    /// A desktop address routes over this Mac's tunnel only for a tab of this Mac's daemon: in a
+    /// remote tree's tab (a process on machine A opening machine B's desktop address) it is that
+    /// machine's own loopback, never machine B through this Mac.
+    @Test func onlyThisMacsTabsRouteADesktopAddressOverTheTunnel() throws {
+        let url = try #require(RemoteLocalhostService.cloudDesktopURL(machine: "vm-b"))
+        #expect(RemoteLocalhostService.desktopMachine(url: url, tabIsLocal: true) == "vm-b")
+        #expect(RemoteLocalhostService.desktopMachine(url: url, tabIsLocal: false) == nil)
+    }
+
+    /// Records what a desktop opener lets through.
+    nonisolated final class RecordingOpener: LoopbackTunnelOpening, @unchecked Sendable {
+        private let lock = NSLock()
+        private var calls: [String] = []
+        var opened: [String] { lock.withLock { calls } }
+
+        func openTunnel(host: String, port: UInt16) async throws(LoopbackTunnelFailure) -> any LoopbackTunnel {
+            lock.withLock { calls.append("\(host):\(port)") }
+            throw .refused
+        }
+    }
+
+    /// Open Desktop reaches only its machine's desktop host on the noVNC port: another port (any
+    /// other service on the private address) or another machine's desktop host is refused before
+    /// the tunnel opens.
+    @Test func theDesktopOpenerPassesOnlyItsMachinesNoVNC() async {
+        let base = RecordingOpener()
+        let opener = CloudDesktopOpener(base: base, machine: "VM-B")
+        await #expect(throws: LoopbackTunnelFailure.portNotAllowed) {
+            _ = try await opener.openTunnel(host: "vm-b.cloud-desktop.localhost", port: 22)
+        }
+        await #expect(throws: LoopbackTunnelFailure.self) {
+            _ = try await opener.openTunnel(host: "vm-c.cloud-desktop.localhost", port: 6901)
+        }
+        #expect(base.opened.isEmpty, "nothing refused reaches the tunnel")
+        await #expect(throws: LoopbackTunnelFailure.refused) {
+            _ = try await opener.openTunnel(host: "vm-b.cloud-desktop.localhost", port: 6901)
+        }
+        #expect(base.opened == ["vm-b.cloud-desktop.localhost:6901"])
     }
 
     @Test func onlyTheMachinesLocalhostGoesThroughTheHub() async throws {

@@ -56,10 +56,12 @@ public final class RemoteLocalhostService {
     /// The route of `tab` for `engine`. A page cannot influence it: it
     /// depends only on which daemon holds the tab, the settings and the
     /// daemon's capabilities.
-    /// An Open Desktop page (`url` names its Cloud machine, ``cloudDesktopURL(machine:)``)
-    /// routes to that machine whatever daemon holds the tab, and never to this Mac.
+    /// An Open Desktop page (`url` names its Cloud machine, ``cloudDesktopURL(machine:)``) in a
+    /// tab of this Mac's daemon routes to that machine, never to this Mac. In a remote tree's tab
+    /// the same address is that machine's own loopback: a remote tree never reaches another
+    /// machine through this Mac's tunnel.
     public func route(for tab: TabModel, engine: BrowserEngineKind, url: URL? = nil) -> RemoteLocalhostRoute {
-        if let machine = Self.desktopMachine(url: url) {
+        if let machine = Self.desktopMachine(url: url, tabIsLocal: machines.daemon(forTab: tab).isLocal) {
             let name = machines.cloudMachineBadge(machine: machine) ?? machine
             return engine == .cef ? .machine(name) : .thisMacInstead(name, .webKit)
         }
@@ -117,13 +119,14 @@ public final class RemoteLocalhostService {
         guard case .machine(let name) = route else { return configuration }
         let daemon = machines.daemon(forTab: tab)
         let key: String, opener: any LoopbackTunnelOpening
-        if let machine = Self.desktopMachine(url: url) {
-            // Open Desktop: over the app's WireGuard tunnel, in its own store. No tunnel (signed
-            // out, the machine gone or without an address) is nil: a blank page, never this Mac.
+        if let machine = Self.desktopMachine(url: url, tabIsLocal: daemon.isLocal) {
+            // Open Desktop: over the app's WireGuard tunnel, in its own store, to that machine's
+            // desktop host and noVNC port only. No tunnel (signed out, the machine gone or without
+            // an address) is nil: a blank page, never this Mac.
             guard let socket = cloudTunnelSocket, let address = machines.cloudTunnelAddress(machine: machine),
                   let hub = HubLoopbackOpener(hub: socket, address: address) else { return nil }
             key = Self.machineKey(registryID: "cloud-tunnel:" + machine)
-            opener = hub
+            opener = CloudDesktopOpener(base: hub, machine: machine)
         } else {
             guard let registryID = daemon.isLocal ? debugSocket : daemon.store.registryID else { return nil }
             key = Self.machineKey(registryID: registryID)
@@ -155,6 +158,11 @@ public final class RemoteLocalhostService {
         let label = machine.lowercased()
         guard isLabel(label) else { return nil }
         return URL(string: "http://\(label)\(desktopHostSuffix):6901/vnc.html?autoconnect=1&resize=scale&reconnect=1")
+    }
+
+    /// The Cloud machine an Open Desktop page of a tab names: only for a tab of this Mac's daemon.
+    static func desktopMachine(url: URL?, tabIsLocal: Bool) -> String? {
+        tabIsLocal ? desktopMachine(url: url) : nil
     }
 
     /// The Cloud machine an Open Desktop page names; nil for any other URL.
@@ -319,5 +327,26 @@ public final class RemoteLocalhostService {
         for client in debugClients.values { await client.close() }
         clients.removeAll()
         debugClients.removeAll()
+    }
+}
+
+/// Open Desktop's way into a Cloud machine: only that machine's desktop host
+/// (`<machine>.cloud-desktop.localhost`) and its noVNC port. A page in the desktop store that
+/// asks for another port (any other service on the machine's private address) or another
+/// machine's desktop host (which would show this machine under that one's badge) is refused.
+nonisolated struct CloudDesktopOpener: LoopbackTunnelOpening {
+    static let port: UInt16 = 6901
+    let base: any LoopbackTunnelOpening
+    let host: String
+
+    init(base: any LoopbackTunnelOpening, machine: String) {
+        self.base = base
+        host = machine.lowercased() + BrowserNavigationGuard.cloudDesktopHostSuffix
+    }
+
+    func openTunnel(host: String, port: UInt16) async throws(LoopbackTunnelFailure) -> any LoopbackTunnel {
+        guard port == Self.port else { throw .portNotAllowed }
+        guard host.lowercased() == self.host else { throw .other("Only this machine's desktop goes through the Cloud tunnel") }
+        return try await base.openTunnel(host: host, port: port)
     }
 }

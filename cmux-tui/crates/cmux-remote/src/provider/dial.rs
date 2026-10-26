@@ -89,8 +89,9 @@ impl Dialer for OsTcpDialer {
     }
 }
 
-/// The secret a hub's clients present. The hub makes a fresh one per launch
-/// and reports it only on its own stdout, to the process that started it.
+/// The secret a hub's clients present. The hub's starter (the cmux app) makes
+/// one per launch and hands it to the hub (`wg hub --client-token-stdin`) and to
+/// each sidecar (`remote connect --wireguard-hub-token-stdin`) on stdin.
 #[derive(Clone)]
 pub struct HubClientToken(Zeroizing<String>);
 
@@ -144,8 +145,8 @@ impl SocksDialer {
         Self { path: path.into(), token: None }
     }
 
-    /// Present `token` to a hub started with one (`wg hub` reports it as
-    /// `client_token` in its readiness line).
+    /// Present `token` to a hub started with one (`wg hub --client-token-stdin`; the hub's
+    /// starter, the cmux app, makes the token and hands it to each sidecar on stdin).
     pub fn with_token(mut self, token: HubClientToken) -> Self {
         self.token = Some(token);
         self

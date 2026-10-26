@@ -176,8 +176,9 @@ enum CloudHandlers {
     /// `viewer`: `web` (the default) shows the machine's noVNC page in a Chromium tab; `rd`
     /// shows the remote view pane on the machine's `cmux-rd` host (H.264 over the daemon link);
     /// `native`
-    /// shows the remote view pane, the app's own VNC client over the same Cloud tunnel. Opened by
-    /// a person, it connects at once; by an agent or the CLI, it asks first.
+    /// shows the remote view pane, the app's own VNC client over the same Cloud tunnel. The pane
+    /// viewers connect at once for a person and ask first for an agent or the CLI; the web viewer
+    /// opens for any local caller (who can already run `cloud exec` on the machine).
     @MainActor static func openDesktop(_ session: CloudMachineSession, _ context: AppActionContext, viewer: String? = nil) throws {
         let services = context.services, title = session.machine.title
         guard session.machine.allows(.desktop), session.machine.address?.ipv4 != nil,
