@@ -29,7 +29,9 @@ pub(crate) const LINUX_READ_DENIES: &[&str] = &[
 ];
 
 mod home;
-use home::{denied_paths, denied_paths_pinned, home_view, home_view_pinned};
+#[cfg(test)]
+use home::{denied_paths, home_view};
+use home::{denied_paths_pinned, home_view_pinned};
 
 /// Canonical absolute UTF-8 paths, validated and created by the caller.
 /// `claude_project/memory` must already exist, too.
