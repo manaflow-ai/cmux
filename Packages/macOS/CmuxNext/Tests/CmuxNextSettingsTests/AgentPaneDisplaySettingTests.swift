@@ -90,6 +90,18 @@ struct AgentPaneDisplaySettingTests {
         #expect(page(.string("yes")) == nil)
     }
 
+    @Test(arguments: [true, false])
+    func theOldMinimapToggleAgreesAcrossSettingsAndTheChat(_ on: Bool) throws {
+        let path = ["agentPane", "display", "minimap"]
+        let descriptor = try #require(SettingsSchema.descriptor(for: path))
+        let root: JSONValue = .object(["agentPane": .object(["display": .object(["minimap": .bool(on)])])])
+        let expected: JSONValue = .string(on ? "full" : "compact")
+        // Settings, the palette and the App Store card read this descriptor value.
+        #expect(descriptor.effectiveValue(in: root) == expected)
+        let chat = AgentPaneDisplaySetting(fileRoot: root).values[descriptor.id] ?? descriptor.defaultValue
+        #expect(chat == expected)
+    }
+
     @Test func thePageFollowsMinimalMode() {
         let on: JSONValue = .object(["sidebar": .object(["minimal": .bool(true), "density": .string("compact")])])
         #expect(AgentPaneDisplaySetting(fileRoot: on).values == ["sidebar.minimal": .bool(true)])
