@@ -283,6 +283,8 @@ export function useChatInspector({
   on: boolean;
   button?: ReactNode;
   panel?: ReactNode;
+  // The native command palette shares the header's visibility and uncover behavior.
+  toggle?: () => void;
   // Opens the Inspector with `section` unfolded (the running line's counts: App.tsx).
   reveal?: (section: InspectorSectionId) => void;
 } {
@@ -370,6 +372,7 @@ export function useChatInspector({
     : undefined;
   return {
     on: true,
+    toggle,
     reveal,
     button: <PanelToggle className="acpmux-chat-inspector-toggle" label={label} shown={shown} onToggle={toggle} />,
     panel: (

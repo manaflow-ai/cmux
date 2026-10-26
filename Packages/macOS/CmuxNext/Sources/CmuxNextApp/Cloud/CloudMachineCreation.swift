@@ -27,12 +27,26 @@ final class CloudMachineCreation: Identifiable {
     private(set) var workspaceID: String?
     /// Time from the attempt's start to `ready`.
     private(set) var readyAfter: Duration?
+    /// How the requested bootstrap started (``CloudMachineRequest/script``); nil without one.
+    private(set) var bootstrap: CloudMachineBootstrap.Outcome?
     /// The flow's work for this creation; cancelled on dismiss and retry.
     @ObservationIgnored var task: Task<Void, Never>?
+    /// What `cloud new-machine` asked for (size, idle pause); a Retry asks for the same, with
+    /// the same idempotency key.
+    private(set) var request: CloudMachineRequest
 
-    init(windowID: String?, session: CloudMachineSession? = nil, clock: ContinuousClock = ContinuousClock()) {
+    /// The create went to the server once, to `team`: a Retry may find the machine it made, and
+    /// goes to that same team.
+    func markRequestSent(team: String?) {
+        if !request.wasSent { request.team = team }
+        request.wasSent = true
+    }
+
+    init(windowID: String?, session: CloudMachineSession? = nil, request: CloudMachineRequest = CloudMachineRequest(),
+         clock: ContinuousClock = ContinuousClock()) {
         self.windowID = windowID
         self.session = session
+        self.request = request
         phase = session == nil ? .requesting : .created
         startedAt = clock.now
     }
@@ -62,8 +76,12 @@ final class CloudMachineCreation: Identifiable {
         phase = .created
     }
 
+    func noteBootstrap(_ outcome: CloudMachineBootstrap.Outcome) {
+        bootstrap = outcome
+    }
+
     func fail(_ error: any Error) {
-        phase = .failed(RefusalStrings.describe(error))
+        phase = .failed(CloudStrings.errorText(error))
     }
 
     func markReady(now: ContinuousClock.Instant = ContinuousClock().now) {
@@ -90,8 +108,8 @@ final class CloudCreations {
 
     /// A new creation, listed at once.
     @discardableResult
-    func begin(window: String?, session: CloudMachineSession? = nil) -> CloudMachineCreation {
-        let creation = CloudMachineCreation(windowID: window, session: session)
+    func begin(window: String?, session: CloudMachineSession? = nil, request: CloudMachineRequest = CloudMachineRequest()) -> CloudMachineCreation {
+        let creation = CloudMachineCreation(windowID: window, session: session, request: request)
         all.append(creation)
         return creation
     }
@@ -140,8 +158,8 @@ struct CloudCreationFlow {
     /// Starts a creation and, when a window asked, shows it there at once
     /// (before any await): the click focuses the new work, not the old one.
     @discardableResult
-    func start(in window: WindowState?, existing: CloudMachineSession?) -> CloudMachineCreation {
-        let creation = creations.begin(window: window?.id, session: existing)
+    func start(in window: WindowState?, existing: CloudMachineSession?, request: CloudMachineRequest = CloudMachineRequest()) -> CloudMachineCreation {
+        let creation = creations.begin(window: window?.id, session: existing, request: request)
         if let window {
             window.page = nil
             window.cloudCreation = creation.id

@@ -368,6 +368,11 @@ pub struct SubRecord {
     /// 0 again after a run that ends with a real report.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub resume_attempts: u32,
+    /// Landing follow-ups the host sent it (sub_watch `unlanded`, a676):
+    /// a report that says its work is not landed gets one before the Chief
+    /// hears of it.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub land_followups: u32,
     /// The harness it moves to (its account hit a usage limit) once the
     /// brain takes the move; saved, so a restart still moves it.
     #[serde(default, skip_serializing_if = "Option::is_none")]

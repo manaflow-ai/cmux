@@ -107,6 +107,10 @@ public final class LayoutRootView: NSView {
     /// its spring owns), in that event's dispatch: the App's input dispatch context times it as the layout's
     /// (`key.scroll_frame target=layout`). Never called for an event that goes on to a pane.
     public var onScrollTaken: (() -> Void)?
+    /// Called after every motion frame has placed the panes (a pan, a coast or a spring step), so a
+    /// view drawn over them from a snapshot of their places (the modifier-hold shortcut chips) can
+    /// follow. Runs on the frame's turn: keep it to a flag or a coalesced refresh.
+    public var onFramePlaced: (() -> Void)?
     /// Whether a split or a pane close holds the terminals' grids now (``onTerminalGridHold``).
     public var holdsTerminalGrids: Bool { !context.gridHoldScreens.isEmpty }
 
@@ -424,6 +428,7 @@ public final class LayoutRootView: NSView {
     // MARK: Frames
 
     func advanceFrame(_ dt: Double) -> Bool {
+        defer { onFramePlaced?() }
         // Reduce Motion (or the no-animation switch) turned on mid-flight: the final layout now, no more frames.
         if context.reduceMotion {
             for view in screenViews.values where view.hasMotion { view.settleMotion() }
