@@ -100,6 +100,7 @@ mod surface;
 #[cfg(unix)]
 mod terminal_talk;
 mod topology_help;
+mod tab_capabilities;
 mod wire;
 use surface::MACHINE_CATALOG_HELP;
 pub(super) use surface::{BIN, Surface};

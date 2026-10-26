@@ -1,8 +1,8 @@
 //! New Tab creates an unbound agent tab and binds the session when it starts.
 //! Public clients must retain that canonical identity instead of the browser
 //! compatibility projection intended for clients that cannot render conversations.
-use serde_json::{Value, json};
 use super::*;
+use serde_json::{Value, json};
 
 const SESSION: &str = "sess-newtab-identity";
 
@@ -10,10 +10,16 @@ fn started_newtab(server: &HeadlessServer) -> String {
     json_socket_request(&server.socket, json!({"id":1,"cmd":"new-workspace"}));
     let tree = json_socket_request(&server.socket, json!({"id":2,"cmd":"list-workspaces"}));
     let pane = tree["workspaces"][0]["screens"][0]["panes"][0]["id"].clone();
-    let tab = json_socket_request(&server.socket, json!({"id":3,"cmd":"new-conversation-tab",
-        "pane":pane,"agent_session":{"host":"install:newtab-test","session":null,"harness":"codex"}}));
-    json_socket_request(&server.socket, json!({"id":4,"cmd":"bind-conversation-tab-session",
-        "surface":tab["surface"],"expected_session":null,"session":SESSION}));
+    let tab = json_socket_request(
+        &server.socket,
+        json!({"id":3,"cmd":"new-conversation-tab",
+        "pane":pane,"agent_session":{"host":"install:newtab-test","session":null,"harness":"codex"}}),
+    );
+    json_socket_request(
+        &server.socket,
+        json!({"id":4,"cmd":"bind-conversation-tab-session",
+        "surface":tab["surface"],"expected_session":null,"session":SESSION}),
+    );
     tab["tab_resource_id"].as_str().unwrap().to_owned()
 }
 
@@ -24,7 +30,9 @@ fn assert_agent_tab(value: &Value, tab: &str) {
 }
 
 fn find_tab<'a>(value: &'a Value, tab: &str) -> Option<&'a Value> {
-    if value["id"] == tab && value.get("content_kind").is_some() { return Some(value); }
+    if value["id"] == tab && value.get("content_kind").is_some() {
+        return Some(value);
+    }
     match value {
         Value::Object(fields) => fields.values().find_map(|v| find_tab(v, tab)),
         Value::Array(items) => items.iter().find_map(|v| find_tab(v, tab)),
@@ -41,6 +49,21 @@ fn newtab_agent_identity_cli_preserves_bound_session() {
         assert_success(&output);
         assert_agent_tab(&json_output(&output), &tab);
     }
+    assert_success(&json_cli(&server, &["tab", &tab, "close"]));
+    let closed = json_cli(&server, &["closed", "list"]);
+    assert_success(&closed);
+    fn has_session(value: &Value) -> bool {
+        if value.get("agent_session").is_some_and(|agent| agent["session"] == SESSION) {
+            return true;
+        }
+        match value {
+            Value::Object(fields) => fields.values().any(has_session),
+            Value::Array(items) => items.iter().any(has_session),
+            _ => false,
+        }
+    }
+    let history = json_output(&closed);
+    assert!(has_session(&history), "closed chat lost its agent session: {history}");
 }
 
 #[test]
@@ -49,10 +72,17 @@ fn newtab_agent_identity_mcp_preserves_bound_session_before_prefix_lookup() {
     let tab = started_newtab(&server);
     let config = server.dir.join("next.json");
     fs::write(&config, r#"{"mcp":{"enabled":true}}"#).unwrap();
-    let mut child = Command::new(bin()).args(["--socket"]).arg(&server.socket)
-        .args(["mcp", "serve"]).env("CMUX_NEXT_CONFIG_FILE", config)
-        .env_remove("CMUX_TUI_SOCKET").stdin(Stdio::piped()).stdout(Stdio::piped())
-        .stderr(Stdio::piped()).spawn().unwrap();
+    let mut child = Command::new(bin())
+        .args(["--socket"])
+        .arg(&server.socket)
+        .args(["mcp", "serve"])
+        .env("CMUX_NEXT_CONFIG_FILE", config)
+        .env_remove("CMUX_TUI_SOCKET")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
     let mut input = child.stdin.take().unwrap();
     for message in [
         json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
@@ -60,13 +90,18 @@ fn newtab_agent_identity_mcp_preserves_bound_session_before_prefix_lookup() {
         json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
         json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
             "name":"tab_get","arguments":{"tab":&tab[..12]}}}),
-    ] { writeln!(input, "{message}").unwrap(); }
+    ] {
+        writeln!(input, "{message}").unwrap();
+    }
     drop(input);
     let output = child.wait_with_output().unwrap();
     assert_success(&output);
-    let response = String::from_utf8(output.stdout).unwrap().lines()
+    let response = String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .find(|message| message["id"] == 2).expect("tools/call response");
+        .find(|message| message["id"] == 2)
+        .expect("tools/call response");
     assert_eq!(response["result"]["isError"], false, "{response}");
     assert_agent_tab(&response["result"]["structuredContent"], &tab);
 }

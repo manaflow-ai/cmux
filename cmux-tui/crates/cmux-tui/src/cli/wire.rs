@@ -113,6 +113,21 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
             Err(exit_code) => return exit_code,
         }
     }
+    if let Err(failure) = super::tab_capabilities::negotiate(&mut reader) {
+        let code = match failure {
+            super::resolve::Failure::Resource(mut error) => {
+                if matches!(global.output, OutputMode::Quiet | OutputMode::Human) {
+                    localize_operation_error(&plan, &mut error);
+                }
+                print_operation_error(&error, global.output)
+            }
+            failure => failure.report(global.output),
+        };
+        if tries.sent_before() {
+            key_report.finish(global.output);
+        }
+        return code;
+    }
     // The caller's terminal belongs to the session its environment names; an
     // explicit route targets that session's current workspace.
     let caller_route = global.socket.is_none() && global.session.is_none();

@@ -108,6 +108,13 @@ pub(super) fn resource(
         })?;
     let _ = stream.set_read_timeout(Some(wire::SERVER_PREFLIGHT_TIMEOUT));
     let mut reader = BufReader::new(stream);
+    super::super::tab_capabilities::negotiate(&mut reader).map_err(|failure| match failure {
+        resolve::Failure::Resource(error) => {
+            CallFailure { kind: NotRun, error, idempotency_key: key.clone() }
+        }
+        resolve::Failure::Transport(message) => fail(NotRun, "transport.failed", message),
+        _ => fail(NotRun, "transport.failed", "client capability negotiation failed".into()),
+    })?;
     if !prefixes.is_empty() {
         let params = plan.params.as_object_mut().expect("validated params object");
         let route = ["machine", "session"]
@@ -224,7 +231,15 @@ pub(super) fn session_events(
             let message = format!("cannot connect to session socket {}: {error}", socket.display());
             local("transport.unavailable", message)
         })?;
+    let _ = stream.set_read_timeout(Some(wire::SERVER_PREFLIGHT_TIMEOUT));
     let mut reader = BufReader::new(stream);
+    super::super::tab_capabilities::negotiate(&mut reader).map_err(|failure| match failure {
+        resolve::Failure::Resource(error) => {
+            CallFailure { kind: NotRun, error, idempotency_key: None }
+        }
+        resolve::Failure::Transport(message) => local("transport.failed", message),
+        _ => local("transport.failed", "client capability negotiation failed".into()),
+    })?;
     let encoded = resolve::encode_request_bytes(&request)
         .map_err(|message| local("validation.invalid", message))?;
     resolve::send(&mut reader, &encoded).map_err(|message| local("transport.failed", message))?;
