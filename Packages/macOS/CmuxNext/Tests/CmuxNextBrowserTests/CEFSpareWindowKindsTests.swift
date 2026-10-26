@@ -197,6 +197,44 @@ import Testing
         #expect(runtime.hosts[host.key] === host)
     }
 
+    /// p07-memory-047: memory pressure holds the spares (`CEFEngine.holdSpareWindows`, from the
+    /// warmup's memory consumer): holding closes the untaken ones, no spare is made, a taken spare
+    /// whose tab closed before it joined is not given back, and a window that comes up asks for none.
+    /// Let go, a spare is made again.
+    @Test func heldSparesCloseAndNoneIsMadeOrGivenBackUntilLetGo() throws {
+        let (runtime, root) = try Self.spyRuntime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let spares = runtime.spareWindow
+        spares.pagesProfile = pages
+        spares.setWantsPages(true, runtime: runtime)
+        let asked = Counter()
+        spares.onNeeded = { asked.value += 1 }
+        #expect(spares.prepare(.browser, runtime: runtime))
+        try Self.comeUp(runtime, browser: 10)
+        #expect(spares.prepare(.pages, runtime: runtime))
+        try Self.comeUp(runtime, browser: 11)
+        let browserSpare = try #require(spares.host(of: .browser))
+        let taken = runtime.host(for: pageKey())
+        let page = CEFTab(id: .random(), profile: pages, host: taken, runtime: runtime)
+        taken.add(page)
+        let askedBeforeHold = asked.value
+
+        spares.setHeld(true, runtime: runtime)
+        #expect(spares.untakenCount == 0, "holding closes the untaken spares")
+        #expect(browserSpare.placeholder == nil)
+        #expect(!runtime.hosts.values.contains { $0 === browserSpare })
+        #expect(!spares.prepare(.browser, runtime: runtime), "a spare was made while held")
+        #expect(!spares.prepareNext(runtime: runtime))
+
+        taken.removed(page)
+        #expect(spares.host(of: .pages) == nil, "a held spare was given back")
+        spares.windowCameUp(taken)
+        #expect(asked.value == askedBeforeHold, "a window that came up asked for a spare while held")
+
+        spares.setHeld(false, runtime: runtime)
+        #expect(spares.prepare(.browser, runtime: runtime), "let go, a spare is made again")
+    }
+
     /// Only the engine's own profile: beginning it touches no process-wide Chromium state.
     @Test func theEnginesPagesProfileIsOneOffTheRecordProfile() {
         let stores = BrowserSharedStores.inMemory()

@@ -1,15 +1,13 @@
 import AppKit
-import CmuxNextCompat
 import CmuxNextWakeups
 
 extension PageHostPool {
     var shouldBuild: Bool {
-        isLikely && spare == nil && !building && target != nil && claimedHosts.count < policy.maximumHosts
+        isLikely && allowsSpare && spare == nil && !building && target != nil && claimedHosts.count < policy.maximumHosts
     }
 
     func scheduleBuild() {
         guard shouldBuild else { return }
-        watchMemoryPressure()
         activityMark = activity()
         timer.schedule(after: policy.idleInput) { @MainActor [weak self] in
             self?.idleDeadline()
@@ -41,7 +39,7 @@ extension PageHostPool {
         let host = measure("pool.makeSpare.create") { PageWebView(recipe: recipe) }
         host.countsTouches = false
         await Self.nextTurn()
-        guard isLikely, spare == nil, let content = target?.contentView else {
+        guard isLikely, allowsSpare, spare == nil, let content = target?.contentView else {
             host.close()
             return
         }
@@ -67,12 +65,5 @@ extension PageHostPool {
         if spans.count > Self.maximumRecords { spans.removeFirst(spans.count - Self.maximumRecords) }
         onSpan?(name, milliseconds)
         return value
-    }
-
-    private func watchMemoryPressure() {
-        guard pressureObservation == nil else { return }
-        pressureObservation = memoryPressure.observe { [weak self] level in
-            if level != .normal { self?.dropSpare() }
-        }
     }
 }

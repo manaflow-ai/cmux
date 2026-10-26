@@ -34,6 +34,11 @@ import Foundation
 /// reports `onNeeded`, so the warmup makes the next spare at the next idle
 /// moment (`ChromiumWarmup`).
 ///
+/// Under memory pressure no spare is kept (Chrome's
+/// `content/browser/renderer_host/spare_render_process_host_manager_impl.cc`): the warmup's memory
+/// consumer holds the spares at warning and critical (`holdSpareWindows`), which closes the untaken
+/// ones, and until it lets go at normal none is made, given back or asked for.
+///
 /// A spare is no window request's target (`CEFWindowRequests`): a page
 /// or extension that asks for a tab with no window of its own still opens a
 /// cmux tab. A tab Chromium puts into a spare's window anyway (an
@@ -69,6 +74,8 @@ final class CEFSpareWindow {
     /// `rendererlessSpareWindow` feature, `CEFEngine.setRendererlessSpareWindows`); off, every spare
     /// holds the frozen about:blank page. Read when a spare's window is built.
     var rendererlessPlaceholders = false
+    /// Memory pressure above normal (`setHeld`): no spare is made, given back or asked for.
+    private(set) var isHeld = false
     /// No spare of a wanted kind is ready (a pane took it, or a window came up first): the next
     /// idle moment may make one (`ChromiumWarmup`).
     var onNeeded: (@MainActor () -> Void)?
@@ -83,6 +90,9 @@ final class CEFSpareWindow {
 
     /// The untaken spare of `kind`, nil when none is up.
     func host(of kind: Kind) -> CEFPaneHost? { hosts[kind] }
+
+    /// How many untaken spares are up or being built.
+    var untakenCount: Int { hosts.count }
 
     /// `none`, `creating`, `live`, `taken` or `closed` for the spare of `kind`.
     func state(of kind: Kind) -> State {
@@ -128,13 +138,21 @@ final class CEFSpareWindow {
         return prepare(kind, runtime: runtime)
     }
 
+    /// Holds the spares while memory pressure is above normal: holding closes the untaken ones,
+    /// and until `held` is false again none is made, given back or asked for. Letting go asks for
+    /// nothing itself: the warmup makes the next spare at its next idle moment.
+    func setHeld(_ held: Bool, runtime: CEFRuntime) {
+        isHeld = held
+        if held { drop(runtime: runtime) }
+    }
+
     /// Starts the spare window of `kind`: true when it started. Chromium must
-    /// run, no untaken spare of `kind` may exist, and no other Chromium window
-    /// may be on its way (a window built beside another one raced it,
+    /// run, no spare may be held for memory pressure, no untaken spare of `kind` may exist, and no
+    /// other Chromium window may be on its way (a window built beside another one raced it,
     /// os-smoke 2026-10-18).
     @discardableResult
     func prepare(_ kind: Kind, runtime: CEFRuntime) -> Bool {
-        guard hosts[kind] == nil, let key = spareKey(kind), runtime.state == .ready, runtime.acceptsNewBrowsers,
+        guard !isHeld, hosts[kind] == nil, let key = spareKey(kind), runtime.state == .ready, runtime.acceptsNewBrowsers,
               !runtime.hosts.values.contains(where: \.isCreatingWindow) else { return false }
         made.insert(kind)
         let spare = runtime.host(for: key)
@@ -171,10 +189,10 @@ final class CEFSpareWindow {
     func giveBack(_ taken: CEFPaneHost, runtime: CEFRuntime) {
         guard taken.placeholder != nil, taken.tabs.count == 1, let kind = kind(for: taken.key),
               let spareKey = spareKey(kind) else { return }
-        guard hosts[kind] == nil, wantedKinds.contains(kind) else {
-            // Another spare of its kind was made since the take, or the kind is no longer wanted:
-            // this window has no use left. Closed in a later run-loop callout, never inside the
-            // removal that called here.
+        guard !isHeld, hosts[kind] == nil, wantedKinds.contains(kind) else {
+            // Memory pressure holds the spares, another spare of its kind was made since the take,
+            // or the kind is no longer wanted: this window has no use left. Closed in a later
+            // run-loop callout, never inside the removal that called here.
             MainRunLoopBlock.perform { [weak taken] in
                 guard let taken, let blank = taken.placeholder, taken.tabs.count == 1 else { return }
                 taken.placeholder = nil
@@ -216,7 +234,7 @@ final class CEFSpareWindow {
     /// spare, ask for one, so a Chromium a tab started, not the warm start, gets spares too, and
     /// the next kind's spare follows the one that just came up.
     func windowCameUp(_ live: CEFPaneHost) {
-        if missingKind != nil, !live.isPopupHost { onNeeded?() }
+        if !isHeld, missingKind != nil, !live.isPopupHost { onNeeded?() }
     }
 
     /// Chromium put `browser` into the window of `spare` before a tab took it.
@@ -239,6 +257,17 @@ final class CEFSpareWindow {
         case .pages: return pagesProfile.map { CEFPaneKey(pane: pane, profile: $0, offTheRecord: true) }
         }
     }
+}
+
+extension CEFEngine {
+    /// Memory pressure above normal holds Chromium's spare windows (`ChromiumWarmup`'s memory
+    /// consumer): the untaken ones close now, and none is made or given back until `false`.
+    public func holdSpareWindows(_ held: Bool) {
+        CEFRuntime.shared.spareWindow.setHeld(held, runtime: .shared)
+    }
+
+    /// How many untaken spare Chromium windows are up or being built (the warmup's memory report).
+    public var spareWindowCount: Int { CEFRuntime.shared.spareWindow.untakenCount }
 }
 
 extension CEFPaneHost {
