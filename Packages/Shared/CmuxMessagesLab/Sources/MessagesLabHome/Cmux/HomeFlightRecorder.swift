@@ -1,5 +1,6 @@
 import AppKit
 import ImageIO
+import CmuxSafeConcurrency
 import UniformTypeIdentifiers
 
 /// The app's side of MessagesLab's flight recorder (Vendor/appkit-native/
@@ -15,11 +16,30 @@ import UniformTypeIdentifiers
 public struct HomeFlightRecorder {
     public init() {}
     /// Whether the recorder samples after a send and dumps on a finding. Read live.
-    nonisolated(unsafe) public static var isEnabled: () -> Bool = { false }
+    public static var isEnabled: @Sendable () -> Bool {
+        get { policy.withLock { $0.isEnabled } }
+        set { policy.withLock { $0.isEnabled = newValue } }
+    }
     /// Whether a dump also writes window captures (about 0.5 s of frames). Read live.
-    nonisolated(unsafe) public static var capturesWindow: () -> Bool = { false }
+    public static var capturesWindow: @Sendable () -> Bool {
+        get { policy.withLock { $0.capturesWindow } }
+        set { policy.withLock { $0.capturesWindow = newValue } }
+    }
     /// The folder under ~/Library/Logs the dumps go to (`blink-<time>/`).
-    nonisolated(unsafe) public static var logFolder = "cmux"
+    public static var logFolder: String {
+        get { policy.withLock { $0.logFolder } }
+        set { policy.withLock { $0.logFolder = newValue } }
+    }
+
+    /// The app's policy (p10-stability-055: it was three unchecked globals). The app sets it once
+    /// at launch; the recorder reads it after a send, from main and the dump queue.
+    private struct Policy: Sendable {
+        var isEnabled: @Sendable () -> Bool = { false }
+        var capturesWindow: @Sendable () -> Bool = { false }
+        var logFolder = "cmux"
+    }
+    // Lock carve-out: one launch write and one read per send or dump; no work under the lock.
+    private static let policy = Mutex(Policy())
 
     /// Writes the last ~10 s now ("Save Last 10 Seconds"); the dump folder,
     /// or nil when the recorder is off or no Home transcript is shown.

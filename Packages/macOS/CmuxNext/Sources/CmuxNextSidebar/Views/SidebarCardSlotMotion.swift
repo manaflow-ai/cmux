@@ -33,9 +33,9 @@ final class SidebarCardSlotMotion {
     }
 
     /// The key path the shown edge springs on ``ScrollEdgeFadeView/shownMask``.
-    static let edgeKeyPath = "bounds.size.height"
+    static let edgeKey = RenderSpringKey<CGFloat>.boundsHeight
     /// The key path pushed rows slide on: a translation, which AppKit's frame writes never touch.
-    static let pushKeyPath = "transform.translation.y"
+    static let pushKey = RenderSpringKey<CGFloat>.translationY
 
     /// The slot height the last layout placed, nil before the first.
     private(set) var slotHeight: CGFloat?
@@ -79,17 +79,17 @@ final class SidebarCardSlotMotion {
         shownEdge = shown.maxY
         guard room.changed, let lastEdge else { return shown }
         guard room.springs else {
-            RenderSpring.stop(edge.shownMask, Self.edgeKeyPath)
-            if let layer = document.layer { RenderSpring.stop(layer, Self.pushKeyPath) }
+            RenderSpring.stop(edge.shownMask, Self.edgeKey.path)
+            if let layer = document.layer { RenderSpring.stop(layer, Self.pushKey.path) }
             return shown
         }
         // With nothing to move the call lands at once and a held list lays out at its real height.
         var moves: [RenderSpring.Move] = []
         if lastEdge != shown.maxY {
-            moves.append(RenderSpring.Move(edge.shownMask, Self.edgeKeyPath, from: shown.height + lastEdge - shown.maxY, to: shown.height))
+            moves.append(RenderSpring.Move(edge.shownMask, Self.edgeKey, from: shown.height + lastEdge - shown.maxY, to: shown.height))
         }
         if scrolled != 0, let layer = document.layer {
-            moves.append(RenderSpring.Move(layer, Self.pushKeyPath, from: scrolled, to: CGFloat(0)))
+            moves.append(RenderSpring.Move(layer, Self.pushKey, from: scrolled, to: CGFloat(0)))
         }
         // The sidebar is flipped: a shown edge higher up than before means the room opened.
         gate.renderSpring(shown.maxY < lastEdge ? .appear : .disappear).animateGroup(moves, in: view) { [weak self, weak view] finished in
@@ -102,6 +102,6 @@ final class SidebarCardSlotMotion {
 
     private func animates(in view: NSView) -> Bool {
         view.window != nil && !view.inLiveResize && !view.isHiddenOrHasHiddenAncestor
-            && gate.renderSpring(.appear).animates(Self.edgeKeyPath, in: view)
+            && gate.renderSpring(.appear).animates(Self.edgeKey.path, in: view)
     }
 }

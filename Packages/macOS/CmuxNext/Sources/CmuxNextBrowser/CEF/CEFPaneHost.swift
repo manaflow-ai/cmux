@@ -57,6 +57,8 @@ final class CEFPaneHost {
         self.contextMenus = contextMenus
         hostView.liveResizeWillStart = { [weak self] in self?.visibleTab?.samplePageBackdrop() }
         hostView.fileDrag.target = { [weak self] in self?.visibleTab }
+        // A popup window keeps its own window until its hosting is verified (p03-rendering-056).
+        hostView.layerHosting.widget = isPopupHost ? .popup : .page
     }
 
     /// The viewport of a tab no pane has shown (Playwright's default page
@@ -365,7 +367,7 @@ final class CEFPaneHost {
         // In host mode the page shows in `hostedPageView`, from the context the host gives; the
         // fork's layer hosting of a page window over `hostView` is in process only.
         hostView.layerHosting.pageWindowCreated(
-            browser: browser, fork: isHostMode ? nil : CEFLayerHosting.Fork(shim: runtime.shim, apiVersion: runtime.forkAPIVersion))
+            browser: browser, fork: isHostMode ? nil : CEFLayerHosting.Fork(runtime: runtime))
         if isHostMode { showHostedContext(of: browser) }
         // Tabs shown or created while the window was being built. The window's first tab is its
         // active one until a shown tab joins it as active (`tab_add` with activate).

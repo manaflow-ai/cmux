@@ -166,6 +166,8 @@ enum DebugCEF {
             "geometry_posts": .number(Double(stats.geometryPosts)),
             "hosted_pages": .number(Double(stats.hostedPages)),
             "hosting_refused": .number(Double(stats.hostingRefused)),
+            "hosting_widget_fallbacks": .number(Double(stats.hostingWidgetFallbacks)),
+            "hosting_without_track_a": .number(Double(stats.hostingWithoutTrackA)),
             "geometry_skips": .number(Double(stats.geometrySkips)),
         ])
     }
