@@ -93,7 +93,14 @@ async function mount(
     id: entry.id,
     name: entry.name,
     family: entry.families[0],
-    models: entry.models.map((model) => ({ id: model.id, name: model.name })),
+    models: entry.models.map((model) => ({
+      id: model.id,
+      name: model.name,
+      ...(model.efforts ? { efforts: model.efforts } : {}),
+      ...(model.fast !== undefined ? { fast: model.fast } : {}),
+      ...(model.inlineFast !== undefined ? { inlineFast: model.inlineFast } : {}),
+      ...(model.serviceTiers ? { serviceTiers: model.serviceTiers } : {}),
+    })),
   }));
   const snapshot = noChat([], {
     catalog,
@@ -228,6 +235,18 @@ test("a classic New Tab holds its effort and Fast mode picks on a deferred chat"
   expect(chatCalls()).toEqual([
     { method: "chat.new", params: deferred },
     { method: "chat.effort", params: { configId: "effort", value: "high" } },
+    { method: "chat.new", params: deferred },
+    { method: "chat.effort", params: { configId: "fast-mode", value: "on" } },
+  ]);
+});
+
+test("a fresh New Tab keeps catalog Fast mode in the model menu before a session reports options", async () => {
+  const { chatCalls } = await mount({ noSummary: true });
+  await open();
+  const fast = items().find((entry) => label(entry) === "Fast mode");
+  expect(fast, "Fast mode row from the catalog").toBeDefined();
+  await act(async () => fast!.click());
+  expect(chatCalls()).toEqual([
     { method: "chat.new", params: deferred },
     { method: "chat.effort", params: { configId: "fast-mode", value: "on" } },
   ]);
