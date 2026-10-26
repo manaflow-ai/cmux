@@ -888,7 +888,10 @@ async fn a_lazy_restart_resumes_a_pause_the_person_prompts_from_either_side_in_o
     let hub = deferred_hub_in(&dir);
     let mut person = Client::person(&hub).await;
     person
-        .call("session/prompt", json!({"sessionId": a, "prompt": [{"type": "text", "text": "carry on"}]}))
+        .call(
+            "session/prompt",
+            json!({"sessionId": a, "prompt": [{"type": "text", "text": "carry on"}]}),
+        )
         .await;
     let mut c = Client::open(&hub);
     c.wait_ran(&b, "v2").await;
