@@ -4,8 +4,8 @@ import { bindFile, cloudStub, DAEMON, post, SIZE, signedInWithInstall, vmKey, WG
 /**
  * ACP chat trajectories kept outside the VM (#25584, cloud-trajectory.ts): the machine's VM install
  * appends its acpmux sessions' records and the agents' resume files; the VM (or the creator) reads them
- * back while the machine is paused; a machine restored from a snapshot reads and continues the same
- * chats (one lineage). The log is contiguous, retries are no-ops, a different record is a conflict.
+ * back while the machine is paused; a machine restored from the creator's snapshot reads the source's
+ * chats (read only) to import them. The log is contiguous, retries are no-ops, a different record is a conflict.
  */
 
 const b64u = (b: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
@@ -102,7 +102,7 @@ describe("ACP trajectories outside the VM", { timeout: 60_000 }, () => {
     expect((await worker.fetch(`https://api.test/v1/cloud/machines/${s.machine}/trajectories/list`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status).toBe(401)
   })
 
-  it("a machine restored from a snapshot continues the same chats (one lineage), and so does its own restore", async () => {
+  it("a machine restored from its creator's snapshot reads the source's chats (read only) and keeps its own", async () => {
     const s = await setup("traj-5")
     await traj(s.vm, s.machine, "append", { session: "chat-a", generation: CREATED, meta: meta("chat-a", 3), lines: lines(1, 3) })
     const snap = await op(s.a.session, "cloud.snapshot.create", { machine: s.machine })
@@ -112,20 +112,35 @@ describe("ACP trajectories outside the VM", { timeout: 60_000 }, () => {
     const replacement = restored.body.value.machine.id as string
     expect(replacement).not.toBe(s.machine)
     const vm2 = await bindVm(s.a.team, replacement)
-    expect((await traj(vm2, replacement, "list", {})).body.value.sessions).toEqual([expect.objectContaining({ session: "chat-a", last_seq: 3 })])
-    // The replacement's acpmux imports the chat and keeps writing it.
+    // Its own store starts empty; the source's is readable with from: parent.
+    expect((await traj(vm2, replacement, "list", {})).body.value.sessions).toEqual([])
+    expect((await traj(vm2, replacement, "list", { from: "parent" })).body.value.sessions).toEqual([expect.objectContaining({ session: "chat-a", last_seq: 3 })])
+    expect((await traj(vm2, replacement, "read", { session: "chat-a", from: "parent" })).body.value).toMatchObject({ last_seq: 3, lines: lines(1, 3) })
+    // Read only: the replacement never writes the source's log.
+    const parentWrite = await traj(vm2, replacement, "append", { session: "chat-a", generation: CREATED, lines: lines(4, 4), from: "parent" })
+    expect([parentWrite.status, parentWrite.body.error.code]).toEqual([403, "auth.forbidden"])
+    // The imported chat continues in the replacement's own store; the source keeps its own log untouched.
     expect((await traj(vm2, replacement, "append", { session: "chat-a", generation: CREATED, meta: meta("chat-a", 5), lines: lines(1, 5) })).body).toEqual({ ok: true, value: { last_seq: 5 } })
-    expect((await traj(s.a.session, s.machine, "read", { session: "chat-a", after_seq: 3 })).body.value.lines).toEqual(lines(4, 5))
-    // A snapshot of the replacement keeps the first machine's lineage.
+    expect((await traj(s.vm, s.machine, "append", { session: "chat-a", generation: CREATED, lines: [line(4, "the source went on")] })).body).toEqual({ ok: true, value: { last_seq: 4 } })
+    expect((await traj(s.a.session, replacement, "read", { session: "chat-a", after_seq: 3 })).body.value.lines).toEqual(lines(4, 5))
+    // A restore of the replacement reads the replacement's chats.
     const snap2 = await op(s.a.session, "cloud.snapshot.create", { machine: replacement })
     const third = (await op(s.a.session, "cloud.snapshot.restore", { snapshot: snap2.body.value.snapshot.id })).body.value.machine.id as string
     const vm3 = await bindVm(s.a.team, third)
-    expect((await traj(vm3, third, "read", { session: "chat-a" })).body.value).toMatchObject({ last_seq: 5 })
-    // A fresh machine of the same person starts its own lineage.
+    expect((await traj(vm3, third, "read", { session: "chat-a", from: "parent" })).body.value).toMatchObject({ last_seq: 5 })
+    // A fresh machine has no source: nothing to read there.
     const fresh = (await op(s.a.session, "cloud.machine.create", { size: SIZE })).body.value.machine.id as string
     const vm4 = await bindVm(s.a.team, fresh)
-    expect((await traj(vm4, fresh, "list", {})).body.value.sessions).toEqual([])
-    // The lineage stays private: the public machine shows none.
-    expect(JSON.stringify((await post("/v1/read", s.a.session, { op: "cloud.machine.get", params: { machine: replacement } })).body)).not.toContain("lineage")
+    expect((await traj(vm4, fresh, "list", { from: "parent" })).body.value.sessions).toEqual([])
+    expect((await traj(vm4, fresh, "read", { session: "chat-a", from: "parent" })).status).toBe(404)
+    // A person reads only the machine itself; the source link stays private.
+    expect((await traj(s.a.session, replacement, "list", { from: "parent" })).status).toBe(403)
+    expect(JSON.stringify((await post("/v1/read", s.a.session, { op: "cloud.machine.get", params: { machine: replacement } })).body)).not.toContain("trajectory_parent")
+  })
+
+  it("a record must name its own session and generation", async () => {
+    const s = await setup("traj-6")
+    const wrong = await traj(s.vm, s.machine, "append", { session: "chat-a", generation: CREATED + 1, meta: meta("chat-a", 1), lines: lines(1, 1) })
+    expect([wrong.status, wrong.body.error.code]).toEqual([400, "validation.invalid"])
   })
 })

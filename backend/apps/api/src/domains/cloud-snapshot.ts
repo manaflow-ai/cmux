@@ -28,12 +28,10 @@ export interface SnapshotRow {
   readonly creator?: string
   /** The machine's size when it was taken (a restore asks for it). */
   readonly size: { readonly cpu: number; readonly memory_mb: number; readonly disk_mb: number }
-  /** The machine lineage its source belonged to (cloud-trajectory.ts): a restore joins it, so its chats come along. */
-  readonly lineage?: string
 }
 
 export const publicSnapshot = (r: SnapshotRow): typeof CloudSnapshot.Type => {
-  const { transport: _t, provider_name: _p, size: _s, creator: _c, capture_protocol: _cp, saved_reserved: _sr, lineage: _l, ...view } = r
+  const { transport: _t, provider_name: _p, size: _s, creator: _c, capture_protocol: _cp, saved_reserved: _sr, ...view } = r
   return view
 }
 const counts = (s: SnapshotRow["status"]) => (s === "creating" || s === "ready" ? 1 : 0)
@@ -58,7 +56,7 @@ export const snapshotCreate = (config: CloudConfig, state: CloudState, params: u
   const id = ctx.newId("snap")
   const size = { cpu: m.size.cpu ?? 0, memory_mb: m.size.memory_mb ?? 0, disk_mb: m.size.disk_mb ?? 0 }
   const protocol = m.transport === "vm-api" ? { capture_protocol: 1 as const } : {}
-  const row: SnapshotRow = { ...protocol, transport: m.transport ?? "direct", id, machine: m.id, name: d.value.name ?? null, size_mb: size.disk_mb, status: "creating", created_at: ctx.now, revision: String(rev), provider_name: providerName(config.prefix, id), size, creator: ctx.principal.user!, lineage: m.lineage ?? m.id }
+  const row: SnapshotRow = { ...protocol, transport: m.transport ?? "direct", id, machine: m.id, name: d.value.name ?? null, size_mb: size.disk_mb, status: "creating", created_at: ctx.now, revision: String(rev), provider_name: providerName(config.prefix, id), size, creator: ctx.principal.user! }
   const key = ledgerKey(ctx.principal.identity, ctx.idempotencyKey)
   const ledger: LedgerRow = { ...protocol, transport: m.transport ?? "direct", key, op: "snapshot", machine: m.id, provider_name: m.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now, snapshot: id, snapshot_name: row.provider_name }
   const s = next(state, { saved: state.saved + 1, pending: { ...state.pending, [key]: { machine: m.id, due_at: ctx.now + PENDING_SAFETY_MS } } }, { machine: m.id, removed: false, snapshot: id })

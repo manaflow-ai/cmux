@@ -15,10 +15,12 @@ import { principalForOwner, selectTeam, TEAM_HEADER } from "./team-select.ts"
  *   POST /v1/cloud/machines/{machine}/trajectories/read         {session, after_seq?, limit?}
  *   POST /v1/cloud/machines/{machine}/trajectories/native-read  {session, label, path, offset}
  *
- * Writes: only the VM install bound to the machine (`cloud.vm.*`'s gate, cloud-vm.ts vmGate). Reads:
- * that VM install, or the machine's creator (a session, or one of the creator's own installs with the
- * read class). Every call works on the machine's lineage (domains/cloud.ts MachineRow.lineage), so a
- * machine restored from a snapshot reads and continues the chats of the machine it replaces.
+ * Writes: only the VM install bound to the machine (`cloud.vm.*`'s gate, cloud-vm.ts vmGate), into that
+ * machine's own store (one TrajectoryDO per team and machine, so two machines never write one log).
+ * Reads: that VM install, or the machine's creator (a session, or one of the creator's own installs with
+ * the read class). A read body with `from: "parent"` (the VM install only) reads the store of the machine
+ * this one was restored from, when the same person created both (domains/cloud.ts trajectory_parent):
+ * the replacement imports the chats its snapshot did not have and keeps writing them into its own store.
  *
  * Off unless CLOUD_TRAJECTORIES_ENABLED is "1" (development and tests): answers 404
  * cloud.trajectory.disabled, which the VM's mirror reads as "try again much later".
@@ -31,10 +33,10 @@ export type TrajectoryAction = "append" | "native" | "list" | "read" | "native-r
 const BODY_MAX_BYTES = 8 * 1024 * 1024
 const APPEND_MAX_LINES = 2000
 
-/** CloudDO's answer: the lineage this principal may use, or why not. */
-export type TrajectoryScope = { readonly ok: true; readonly lineage: string } | { readonly ok: false; readonly status: number; readonly code: string; readonly message: string }
+/** CloudDO's answer: the machine whose store this principal may use (null: a restore without a source), or why not. */
+export type TrajectoryScope = { readonly ok: true; readonly store: string | null } | { readonly ok: false; readonly status: number; readonly code: string; readonly message: string }
 
-type CloudStub = { trajectoryScope(entity: string, p: Principal, machine: string, write: boolean): Promise<TrajectoryScope> }
+type CloudStub = { trajectoryScope(entity: string, p: Principal, machine: string, write: boolean, parent: boolean): Promise<TrajectoryScope> }
 type Store = {
   append(session: string, generation: number, meta: unknown, lines: ReadonlyArray<string>): Promise<TrajectoryResult<{ last_seq: number }>>
   appendNative(session: string, generation: number, label: string, path: string, offset: number, data: Uint8Array): Promise<TrajectoryResult<{ size: number }>>
@@ -131,12 +133,13 @@ export const handleCloudTrajectory = async (request: Request, env: Env, machine:
   let scope: TrajectoryScope
   try {
     const cloud = env.CLOUD_DO.get(env.CLOUD_DO.idFromName(principal.team!)) as unknown as CloudStub
-    scope = await cloud.trajectoryScope(principal.team!, principal, machine, write)
+    scope = await cloud.trajectoryScope(principal.team!, principal, machine, write, body.from === "parent")
   } catch {
     return answer(503, "owner.unreachable", "the Cloud service could not be reached; retry")
   }
   if (!scope.ok) return answer(scope.status, scope.code, scope.message)
-  const store = env.TRAJECTORY_DO.get(env.TRAJECTORY_DO.idFromName(`${principal.team!}/${scope.lineage}`)) as unknown as Store
+  if (scope.store === null) return action === "list" ? ok({ sessions: [] }) : answer(404, "cloud.trajectory.not_found", "this machine was not restored from one of yours")
+  const store = env.TRAJECTORY_DO.get(env.TRAJECTORY_DO.idFromName(`${principal.team!}/${scope.store}`)) as unknown as Store
   if (action === "list") return ok({ sessions: await store.list() })
   const session = body.session
   if (!isSessionId(session)) return answer(400, "validation.invalid", "invalid session id")
@@ -144,7 +147,7 @@ export const handleCloudTrajectory = async (request: Request, env: Env, machine:
     case "append": {
       const { generation, meta, lines } = body
       if (!isCount(generation)) return answer(400, "validation.invalid", "invalid generation")
-      if (meta !== undefined && (typeof meta !== "object" || meta === null || Array.isArray(meta) || (meta as { id?: unknown }).id !== session)) return answer(400, "validation.invalid", "the session record must be this session's")
+      if (meta !== undefined && (typeof meta !== "object" || meta === null || Array.isArray(meta) || (meta as { id?: unknown }).id !== session || (meta as { createdAt?: unknown }).createdAt !== generation)) return answer(400, "validation.invalid", "the session record must be this session's, at this generation")
       if (!Array.isArray(lines) || lines.length > APPEND_MAX_LINES || !lines.every((l) => typeof l === "string")) return answer(400, "validation.invalid", "invalid records")
       return reply(await store.append(session, generation, meta, lines as Array<string>))
     }

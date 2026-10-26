@@ -47,7 +47,7 @@ use crate::linux::spawn::lookup_user;
 
 /// The dev-only heartbeat test override (read once at role start).
 pub const HEARTBEAT_ENV: &str = "CMUX_VM_AGENT_HEARTBEAT_MS";
-/// Where a trajectory restore stages its bundles (root 0711; each bundle the work user's, 0700).
+/// Where a trajectory restore stages its bundles (the work user's, 0700).
 pub const TRAJECTORY_STAGING: &str = "/var/lib/cmux-trajectory-restore";
 const MAX_CLIENTS: usize = 16;
 const MAX_LINE: usize = 64 * 1024;
@@ -818,24 +818,35 @@ impl Worker {
 
 /// Where the trajectory mirror finds acpmux: the work user's home when the
 /// image has that user (the session host's layout, `linux/spawn.rs`
-/// `select_layout`), else root's; its own staging folder for restores.
+/// `select_layout`), else root's. Its staging folder for restores is that
+/// user's (0700): the thread writes bundles as that user.
 fn spawn_trajectories(paths: &Paths) -> io::Result<Trajectories<PosterHttp>> {
     let user = lookup_user(WORK_USER)
         .or_else(|| lookup_user("root"))
         .ok_or_else(|| io::Error::other("no work user and no root user"))?;
     let home = if user.uid == 0 { PathBuf::from(ROOT_HOME) } else { PathBuf::from(WORK_HOME) };
     let staging = paths.at(TRAJECTORY_STAGING);
-    fs::create_dir_all(&staging)?;
-    fs::set_permissions(&staging, fs::Permissions::from_mode(0o711))?;
-    let layout = Layout { sessions: home.join(".acpmux/sessions"), home: home.clone(), staging };
+    match fs::symlink_metadata(&staging) {
+        Ok(meta) if !meta.is_dir() => {
+            return Err(io::Error::other(format!("{} is not a folder", staging.display())));
+        }
+        Ok(_) => {}
+        Err(_) => fs::create_dir_all(&staging)?,
+    }
+    std::os::unix::fs::lchown(&staging, Some(user.uid), Some(user.gid))?;
+    fs::set_permissions(&staging, fs::Permissions::from_mode(0o700))?;
+    let acpmux = home.join(".acpmux");
+    let layout = Layout { sessions: acpmux.join("sessions"), home: home.clone(), staging };
     let importer = AcpmuxImporter {
         bin: binary_path(&home),
         user: user.name.clone(),
         uid: user.uid,
         gid: user.gid,
         home,
+        socket: acpmux.join("acpmux.sock"),
     };
-    Trajectories::spawn(layout, Box::new(importer), wall_ms, random_unit, log)
+    let identity = Some((user.uid, user.gid));
+    Trajectories::spawn(layout, Box::new(importer), identity, wall_ms, random_unit, log)
 }
 
 /// The minter's own client for the bound machine: the same install key,

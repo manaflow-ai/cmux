@@ -187,24 +187,26 @@ export class CloudDO extends CloudIdle {
   private readonly vmEvents = new VmEventBuckets()
 
   /**
-   * #25584, RPC from POST /v1/cloud/machines/{machine}/trajectories/* (cloud-trajectory.ts): the machine
-   * lineage whose kept ACP chats this principal may use. Writes: the machine's own VM install only (the
-   * cloud.vm.* gate). Reads: that install, or the machine's creator (a session, or the creator's own
-   * install with the read class). Not an op: nothing is committed.
+   * #25584, RPC from POST /v1/cloud/machines/{machine}/trajectories/* (cloud-trajectory.ts): the machine whose
+   * kept ACP chats this principal may use. Writes: the machine's own VM install only (the cloud.vm.* gate), into
+   * that machine's store. Reads: that install, or the machine's creator (a session, or the creator's own install
+   * with the read class). `parent`: the VM install reads its restore source's store (MachineRow.trajectory_parent),
+   * or none. Not an op: nothing is committed.
    */
-  async trajectoryScope(entity: string, principal: Principal, machine: string, write: boolean): Promise<TrajectoryScope> {
+  async trajectoryScope(entity: string, principal: Principal, machine: string, write: boolean, parent: boolean): Promise<TrajectoryScope> {
     const rows = this.isBound(entity) ? this.bind(entity).rows : undefined
-    const lineageOf = (row: MachineRow) => row.lineage ?? row.id
     if (principal.kind === "install" && principal.install_kind === "vm") {
       const g = vmGate(entity, principal, machine, rows)
-      return g.ok ? { ok: true, lineage: lineageOf(g.row) } : { ok: false, status: g.code === "cloud.machine.not_found" ? 404 : 403, code: g.code, message: g.message }
+      if (!g.ok) return { ok: false, status: g.code === "cloud.machine.not_found" ? 404 : 403, code: g.code, message: g.message }
+      if (!parent) return { ok: true, store: g.row.id }
+      return write ? { ok: false, status: 403, code: "auth.forbidden", message: "a restore source's chats are read only" } : { ok: true, store: g.row.trajectory_parent ?? null }
     }
-    if (write) return { ok: false, status: 403, code: "auth.forbidden", message: "only the machine itself writes its chats" }
+    if (write || parent) return { ok: false, status: 403, code: "auth.forbidden", message: "only the machine itself writes its chats" }
     if (principal.team !== entity || !principal.user) return { ok: false, status: 403, code: "auth.forbidden", message: "not this team's machines" }
     if (principal.kind === "install" && !principal.grant_classes?.includes("read")) return { ok: false, status: 403, code: "auth.forbidden", message: "this install cannot read" }
     const row = rows?.get<MachineRow>(TABLE_MACHINE, machine)?.row
     if (!row || row.creator !== principal.user) return { ok: false, status: 404, code: "cloud.machine.not_found", message: "no such machine of yours in this team" }
-    return { ok: true, lineage: lineageOf(row) }
+    return { ok: true, store: row.id }
   }
 
   async mintLinkToken(entity: string, principal: Principal, params: unknown, request: string = crypto.randomUUID()): Promise<MintReply> {

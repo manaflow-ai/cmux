@@ -82,7 +82,7 @@ export interface Env {
   readonly HAND_RELEASE_COMMIT?: string
   /** Single-use wire tickets for browser sockets, 256 shards (wire-ticket.ts). */
   readonly WIRE_TICKET_DO: DurableObjectNamespace<WireTicketDO>
-  /** ACP chat trajectories kept outside Cloud VMs, one object per team and machine lineage (cloud-trajectory.ts, #25584). */
+  /** ACP chat trajectories kept outside Cloud VMs, one object per team and machine (cloud-trajectory.ts, #25584). */
   readonly TRAJECTORY_DO: DurableObjectNamespace<TrajectoryDO>
   /** "1": the trajectory routes answer (development, tests). Unset: 404 cloud.trajectory.disabled. */
   readonly CLOUD_TRAJECTORIES_ENABLED?: string

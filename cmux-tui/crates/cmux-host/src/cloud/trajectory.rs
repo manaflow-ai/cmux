@@ -1,28 +1,33 @@
 //! ACP chat trajectories outside the VM (#25584): the Cloud role keeps a
-//! copy of every acpmux session of this machine in cmux Cloud, and a new
-//! machine of the same lineage (restored from a snapshot) imports the
-//! chats it does not have, so they survive a pause, a resume and a
-//! replacement VM.
+//! copy of every acpmux session of this machine in cmux Cloud, readable
+//! while the VM is paused or gone, and a machine restored from one of its
+//! creator's snapshots imports the chats its disk lacks from the source
+//! machine's copy, so they survive a pause, a resume and a replacement VM.
 //!
 //! - [`Mirror::sync`] reads acpmux's store as acpmux writes it
 //!   (`sessions/<id>/session.json`, `events/NNNNNN.ndjson`), sends the
-//!   records past the server's `last_seq` verbatim and in order, then the
+//!   records past the server's `last_seq` verbatim and in order, and the
 //!   agent's own resume file (a Claude project `<sid>.jsonl`, a Codex
 //!   rollout) as appended byte ranges cut at a line end. Only complete
-//!   lines are sent: acpmux may be writing the last one.
-//! - [`Mirror::restore`] writes each kept chat this machine lacks as an
+//!   lines are sent: acpmux or the agent may be writing the last one.
+//! - [`Mirror::prime`] reads this machine's copy and, read only, the copy
+//!   of the machine it was restored from (`from: "parent"`); every chat of
+//!   the source that this machine has neither on disk nor in its own copy
+//!   waits for [`Mirror::restore`], which writes it as an
 //!   `acpmux.bundle.v1` (acpmux `hub/transfer.rs`) and hands it to an
-//!   [`Importer`], which runs `acpmux session import` as the work user.
-//!   acpmux puts the agent's resume file back, so the chat continues.
+//!   [`Importer`] (`acp session import` as the work user) once acpmux runs.
+//!   acpmux puts the agent's resume file back, so the chat continues, and
+//!   from then on it is this machine's chat, kept in this machine's copy.
+//!   A chat the snapshot's disk already has continues from the snapshot.
 //!
-//! The server keeps one writer per lineage and a contiguous log
+//! Each machine writes only its own copy, a contiguous log
 //! (`backend/apps/api/src/cloud-trajectory-store.ts`); this side never
 //! skips a record. Sans I/O toward the API (the [`Api`] trait), with the
 //! file system read directly, so tests use a fake server and a temp dir.
 
 use std::collections::HashMap;
 use std::fs;
-use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom};
+use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
 
 use serde_json::{Value, json};
@@ -34,6 +39,8 @@ use crate::json::JsonField;
 pub const BATCH_LINES: usize = 1000;
 /// Bytes of records per append (the server's body limit is 8 MiB).
 pub const BATCH_BYTES: usize = 2 * 1024 * 1024;
+/// The largest record the server keeps (`RECORD_MAX_BYTES`).
+pub const RECORD_MAX: usize = 1024 * 1024;
 /// One native chunk (the server's limit).
 pub const NATIVE_CHUNK: usize = 512 * 1024;
 /// Native bytes sent per session per pass; more waits for the next pass.
@@ -44,6 +51,8 @@ pub const META_EVERY_MS: u64 = 60_000;
 const LOCATE_EVERY_MS: u64 = 60_000;
 /// Read pages of a restore, at most (a chat of 2000 x 2000 records).
 const RESTORE_MAX_PAGES: usize = 2000;
+/// Tries of one chat's import before it is left in the source's copy.
+pub const RESTORE_TRIES: u32 = 3;
 
 /// One trajectory call: `POST /v1/cloud/machines/{machine}/trajectories/{action}`.
 pub trait Api {
@@ -52,6 +61,8 @@ pub trait Api {
 
 /// Imports one bundle into the machine's acpmux.
 pub trait Importer {
+    /// Whether acpmux runs, so an import neither starts it nor waits.
+    fn ready(&self) -> bool;
     fn import(&mut self, bundle: &Path, meta: &Value) -> Result<(), String>;
 }
 
@@ -73,7 +84,7 @@ pub enum Pass {
     More,
     /// This deployment keeps no trajectories (`cloud.trajectory.disabled`).
     Disabled,
-    /// A transport error or an unexpected answer: back off.
+    /// A transport error or a server error: back off.
     Failed(String),
 }
 
@@ -89,7 +100,10 @@ pub struct Remote {
 
 enum Reply {
     Ok(Value),
+    /// A `cloud.trajectory.*` answer about this chat's copy.
     Refused { code: String, details: Value },
+    /// A 4xx about the request itself (a record too large, say): retrying the same request is no use.
+    Invalid(String),
     Failed(String),
 }
 
@@ -100,13 +114,13 @@ fn reply(answer: Answer) -> Reply {
             if status == 200 && *body.field("ok") == true {
                 return Reply::Ok(body.field("value").clone());
             }
-            match body.field("error").field("code").as_str() {
-                Some(code) if code.starts_with("cloud.trajectory.") => Reply::Refused {
-                    code: code.to_owned(),
-                    details: body.field("error").field("details").clone(),
-                },
-                Some(code) => Reply::Failed(format!("HTTP {status} {code}")),
-                None => Reply::Failed(format!("HTTP {status}")),
+            let code = body.field("error").field("code").as_str().unwrap_or("").to_owned();
+            if code.starts_with("cloud.trajectory.") {
+                return Reply::Refused { code, details: body.field("error").field("details").clone() };
+            }
+            match status {
+                400 | 413 => Reply::Invalid(format!("HTTP {status} {code}")),
+                _ => Reply::Failed(format!("HTTP {status} {code}")),
             }
         }
     }
@@ -128,54 +142,67 @@ struct Track {
     located_at: Option<u64>,
     /// A record or answer this side cannot get past: the session is left alone.
     stuck: bool,
+    /// The same for the resume files alone.
+    native_stuck: bool,
 }
 
 pub struct Mirror {
     layout: Layout,
     tracks: HashMap<String, Track>,
+    /// Chats of the restore source waiting for an import, with the tries so far.
+    pending: Vec<(Remote, u32)>,
     log: fn(&str),
+}
+
+fn remotes_of(value: &Value) -> Vec<Remote> {
+    let mut remotes = Vec::new();
+    for s in value.field("sessions").as_array().into_iter().flatten() {
+        let Some(session) = s.field("session").as_str().filter(|id| plain_id(id)) else {
+            continue;
+        };
+        let native = s
+            .field("native")
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|n| {
+                Some((
+                    n.field("label").as_str()?.to_owned(),
+                    n.field("path").as_str()?.to_owned(),
+                    n.field("size").as_u64()?,
+                ))
+            })
+            .collect::<Vec<_>>();
+        remotes.push(Remote {
+            session: session.to_owned(),
+            generation: s.field("generation").as_u64().unwrap_or(0),
+            last_seq: s.field("last_seq").as_u64().unwrap_or(0),
+            meta: s.field("meta").clone(),
+            native,
+        });
+    }
+    remotes
+}
+
+fn list(api: &mut dyn Api, body: &Value) -> Result<Vec<Remote>, Pass> {
+    match reply(api.call("list", body)) {
+        Reply::Ok(v) => Ok(remotes_of(&v)),
+        Reply::Refused { code, .. } if code == "cloud.trajectory.disabled" => Err(Pass::Disabled),
+        Reply::Refused { code, .. } | Reply::Invalid(code) | Reply::Failed(code) => {
+            Err(Pass::Failed(code))
+        }
+    }
 }
 
 impl Mirror {
     pub fn new(layout: Layout, log: fn(&str)) -> Mirror {
-        Mirror { layout, tracks: HashMap::new(), log }
+        Mirror { layout, tracks: HashMap::new(), pending: Vec::new(), log }
     }
 
-    /// Reads what the server keeps for this lineage and starts every
-    /// session's track from it.
-    pub fn prime(&mut self, api: &mut dyn Api) -> Result<Vec<Remote>, Pass> {
-        let value = match reply(api.call("list", &json!({}))) {
-            Reply::Ok(v) => v,
-            Reply::Refused { code, .. } if code == "cloud.trajectory.disabled" => {
-                return Err(Pass::Disabled);
-            }
-            Reply::Refused { code, .. } | Reply::Failed(code) => return Err(Pass::Failed(code)),
-        };
-        let mut remotes = Vec::new();
-        for s in value.field("sessions").as_array().into_iter().flatten() {
-            let Some(session) = s.field("session").as_str().filter(|id| plain_id(id)) else {
-                continue;
-            };
-            let native = s
-                .field("native")
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|n| {
-                    Some((
-                        n.field("label").as_str()?.to_owned(),
-                        n.field("path").as_str()?.to_owned(),
-                        n.field("size").as_u64()?,
-                    ))
-                })
-                .collect::<Vec<_>>();
-            let remote = Remote {
-                session: session.to_owned(),
-                generation: s.field("generation").as_u64().unwrap_or(0),
-                last_seq: s.field("last_seq").as_u64().unwrap_or(0),
-                meta: s.field("meta").clone(),
-                native,
-            };
+    /// Reads this machine's copy (every session's track starts from it) and
+    /// the restore source's (the chats to import). Answers how many wait.
+    pub fn prime(&mut self, api: &mut dyn Api) -> Result<usize, Pass> {
+        for remote in list(api, &json!({}))? {
             self.tracks.insert(
                 remote.session.clone(),
                 Track {
@@ -190,24 +217,12 @@ impl Mirror {
                     ..Track::default()
                 },
             );
-            remotes.push(remote);
         }
-        Ok(remotes)
-    }
-
-    /// Imports every kept chat this machine's acpmux does not have. Answers
-    /// how many were imported. A chat whose agent cannot resume from its own
-    /// files alone (`cmux-harness` keeps a journal acpmux bundles apart) is
-    /// left in the server's copy.
-    pub fn restore(
-        &mut self,
-        api: &mut dyn Api,
-        importer: &mut dyn Importer,
-        remotes: &[Remote],
-    ) -> usize {
-        let mut imported = 0;
-        for remote in remotes {
+        self.pending.clear();
+        for remote in list(api, &json!({ "from": "parent" }))? {
+            // Here already (the snapshot's disk, or imported before and maybe deleted since): never again.
             if remote.last_seq == 0
+                || self.tracks.contains_key(&remote.session)
                 || self.layout.sessions.join(&remote.session).exists()
                 || *remote.meta.field("id") != remote.session.as_str()
             {
@@ -217,10 +232,26 @@ impl Mirror {
                 (self.log)(&format!("trajectory {}: cmux-harness chats are not restored", remote.session));
                 continue;
             }
+            self.pending.push((remote, 0));
+        }
+        Ok(self.pending.len())
+    }
+
+    /// Imports the restore source's chats this machine lacks, once acpmux
+    /// runs. Answers how many were imported. A failed import is tried again
+    /// at the next pass, at most [`RESTORE_TRIES`] times.
+    pub fn restore(&mut self, api: &mut dyn Api, importer: &mut dyn Importer) -> usize {
+        if self.pending.is_empty() || !importer.ready() {
+            return 0;
+        }
+        let mut imported = 0;
+        for (remote, tries) in std::mem::take(&mut self.pending) {
+            if self.layout.sessions.join(&remote.session).exists() {
+                continue;
+            }
             let stage = self.layout.staging.join(&remote.session);
             let _ = fs::remove_dir_all(&stage);
-            let result = self
-                .stage(api, remote, &stage)
+            let result = stage_bundle(api, &remote, &stage)
                 .and_then(|()| importer.import(&stage, &remote.meta));
             let _ = fs::remove_dir_all(&stage);
             match result {
@@ -231,69 +262,19 @@ impl Mirror {
                         remote.session, remote.last_seq
                     ));
                 }
+                Err(e) if tries + 1 < RESTORE_TRIES => {
+                    (self.log)(&format!("trajectory {}: restore failed, will retry: {e}", remote.session));
+                    self.pending.push((remote, tries + 1));
+                }
                 Err(e) => (self.log)(&format!("trajectory {}: restore failed: {e}", remote.session)),
             }
         }
         imported
     }
 
-    /// Writes one kept chat as an acpmux bundle at `stage`.
-    fn stage(&self, api: &mut dyn Api, remote: &Remote, stage: &Path) -> Result<(), String> {
-        let err = |e: io::Error| e.to_string();
-        fs::create_dir_all(stage.join("events")).map_err(err)?;
-        let meta = serde_json::to_vec_pretty(&remote.meta).map_err(|e| e.to_string())?;
-        fs::write(stage.join("session.json"), meta).map_err(err)?;
-        let mut events = String::new();
-        let mut after = 0_u64;
-        for _ in 0..RESTORE_MAX_PAGES {
-            let body = json!({ "session": remote.session, "after_seq": after, "limit": 2000 });
-            let page = match reply(api.call("read", &body)) {
-                Reply::Ok(v) => v,
-                Reply::Refused { code, .. } | Reply::Failed(code) => return Err(code),
-            };
-            for line in page.field("lines").as_array().into_iter().flatten() {
-                let line = line.as_str().ok_or("a kept record is not text")?;
-                let seq = line_seq(line).ok_or("a kept record has no seq")?;
-                if seq != after + 1 {
-                    return Err(format!("kept records jump from {after} to {seq}"));
-                }
-                events.push_str(line);
-                events.push('\n');
-                after = seq;
-            }
-            if *page.field("has_more") != true {
-                break;
-            }
-        }
-        if after < remote.last_seq {
-            return Err(format!("read {after} of {} records", remote.last_seq));
-        }
-        fs::write(stage.join("events").join("000001.ndjson"), events).map_err(err)?;
-        for (label, path, size) in &remote.native {
-            if !native_path(label, path) {
-                continue;
-            }
-            let mut bytes = Vec::new();
-            while (bytes.len() as u64) < *size {
-                let body = json!({ "session": remote.session, "label": label, "path": path, "offset": bytes.len() });
-                let chunk = match reply(api.call("native-read", &body)) {
-                    Reply::Ok(v) => v,
-                    Reply::Refused { code, .. } | Reply::Failed(code) => return Err(code),
-                };
-                let data = decode_base64(chunk.field("data").as_str().unwrap_or(""))
-                    .ok_or("a kept file chunk is not base64")?;
-                if data.is_empty() {
-                    return Err(format!("{path}: kept file ends early"));
-                }
-                bytes.extend_from_slice(&data);
-            }
-            let target = stage.join("native").join(label).join(path);
-            if let Some(parent) = target.parent() {
-                fs::create_dir_all(parent).map_err(err)?;
-            }
-            fs::write(target, bytes).map_err(err)?;
-        }
-        Ok(())
+    /// Chats still waiting for an import.
+    pub fn pending(&self) -> usize {
+        self.pending.len()
     }
 
     /// One pass over every local session. `now` is milliseconds.
@@ -326,6 +307,34 @@ impl Mirror {
         if *meta.field("id") != id {
             return Pass::Idle;
         }
+        let records = self.sync_records(api, id, &dir, &meta, generation, now);
+        if matches!(records, Pass::Disabled | Pass::Failed(_)) {
+            return records;
+        }
+        let native = match self.tracks.get(id) {
+            Some(t) if t.last_seq > 0 && !t.stuck && !t.native_stuck => {
+                self.sync_native(api, id, &meta, now)
+            }
+            _ => Pass::Idle,
+        };
+        match (records, native) {
+            (_, failed @ (Pass::Disabled | Pass::Failed(_))) => failed,
+            (Pass::More, _) | (_, Pass::More) => Pass::More,
+            _ => Pass::Idle,
+        }
+    }
+
+    /// Sends the session's records past the server's copy (and its record when changed).
+    fn sync_records(
+        &mut self,
+        api: &mut dyn Api,
+        id: &str,
+        dir: &Path,
+        meta: &Value,
+        generation: u64,
+        now: u64,
+    ) -> Pass {
+        let log = self.log;
         let track = self.tracks.entry(id.to_owned()).or_default();
         if generation < track.generation || track.stuck {
             return Pass::Idle;
@@ -333,20 +342,24 @@ impl Mirror {
         if generation > track.generation {
             *track = Track { generation, ..Track::default() };
         }
+        let stuck = |track: &mut Track, why: String| {
+            track.stuck = true;
+            log(&format!("trajectory {id}: {why}; this chat is no longer kept"));
+            Pass::Idle
+        };
         let (lines, end, gap) = match read_after(&dir.join("events"), track.pos, track.last_seq) {
             Ok(read) => read,
-            Err(e) => {
-                track.stuck = true;
-                (self.log)(&format!("trajectory {id}: log unreadable: {e}"));
-                return Pass::Idle;
-            }
+            Err(e) => return stuck(track, format!("log unreadable: {e}")),
         };
         if let Some(seq) = gap.filter(|_| lines.is_empty()) {
-            track.stuck = true;
-            (self.log)(&format!("trajectory {id}: the log jumps from {} to {seq}", track.last_seq));
-            return Pass::Idle;
+            let last = track.last_seq;
+            return stuck(track, format!("the log jumps from {last} to {seq}"));
         }
-        let meta_text = serde_json::to_string(&meta).unwrap_or_default();
+        if let Some((line, _)) = lines.iter().find(|(l, _)| l.len() > RECORD_MAX) {
+            let seq = line_seq(line).unwrap_or(0);
+            return stuck(track, format!("record {seq} is larger than {RECORD_MAX} bytes"));
+        }
+        let meta_text = serde_json::to_string(meta).unwrap_or_default();
         let meta_changed = track.meta.as_deref() != Some(meta_text.as_str());
         let send_meta = meta_changed
             && (!lines.is_empty() || track.last_seq == 0 || now >= track.meta_sent_at + META_EVERY_MS);
@@ -373,47 +386,30 @@ impl Mirror {
                     track.meta = Some(meta_text);
                     track.meta_sent_at = now;
                 }
+                if full { Pass::More } else { Pass::Idle }
             }
-            Reply::Refused { code, details } => {
-                return self.refused(id, &code, &details);
-            }
-            Reply::Failed(why) => return Pass::Failed(why),
-        }
-        let sent_lines = !lines.is_empty();
-        let native = if sent_lines { self.sync_native(api, id, &meta, now) } else { Pass::Idle };
-        if full || native == Pass::More {
-            return Pass::More;
-        }
-        native
-    }
-
-    /// A refused append: start the session over from what the server says,
-    /// or leave it alone when nothing this side sends can fix it.
-    fn refused(&mut self, id: &str, code: &str, details: &Value) -> Pass {
-        let Some(track) = self.tracks.get_mut(id) else { return Pass::Idle };
-        match code {
-            "cloud.trajectory.disabled" => Pass::Disabled,
-            "cloud.trajectory.gap" | "cloud.trajectory.not_found" => {
-                let generation = track.generation;
-                *track = Track {
-                    generation,
-                    last_seq: details.field("last_seq").as_u64().unwrap_or(0),
-                    ..Track::default()
-                };
-                Pass::More
-            }
-            "cloud.trajectory.full" => Pass::Failed(code.to_owned()),
-            _ => {
-                track.stuck = true;
-                (self.log)(&format!("trajectory {id}: {code} {details}; this chat is no longer kept"));
-                Pass::Idle
-            }
+            Reply::Refused { code, details } => match code.as_str() {
+                "cloud.trajectory.disabled" => Pass::Disabled,
+                "cloud.trajectory.gap" | "cloud.trajectory.not_found" => {
+                    *track = Track {
+                        generation,
+                        last_seq: details.field("last_seq").as_u64().unwrap_or(0),
+                        ..Track::default()
+                    };
+                    Pass::More
+                }
+                "cloud.trajectory.full" => Pass::Failed(code.clone()),
+                _ => stuck(track, format!("{code} {details}")),
+            },
+            Reply::Invalid(why) => stuck(track, why),
+            Reply::Failed(why) => Pass::Failed(why),
         }
     }
 
     /// Sends what the agent's resume files grew by since the server's copy.
     fn sync_native(&mut self, api: &mut dyn Api, id: &str, meta: &Value, now: u64) -> Pass {
         let home = self.layout.home.clone();
+        let log = self.log;
         let Some(track) = self.tracks.get_mut(id) else { return Pass::Idle };
         if track.located.is_empty()
             && track.located_at.is_none_or(|at| now >= at + LOCATE_EVERY_MS)
@@ -424,8 +420,11 @@ impl Mirror {
         let mut pass = Pass::Idle;
         for (label, rel) in track.located.clone() {
             let file = home.join(&rel);
-            let Ok(size) = fs::metadata(&file).map(|m| m.len()) else { continue };
+            let Ok(size) = fs::symlink_metadata(&file).map(|m| m.len()) else { continue };
             let kept = track.native.get(&(label.clone(), rel.clone())).copied().unwrap_or(0);
+            if size == kept {
+                continue;
+            }
             let mut offset = if size < kept { 0 } else { kept };
             let Ok(bytes) = read_range(&file, offset, size.min(offset + NATIVE_PASS_BYTES)) else {
                 continue;
@@ -451,7 +450,15 @@ impl Mirror {
                         track.native.insert((label.clone(), rel.clone()), size);
                         return Pass::More;
                     }
-                    Reply::Refused { code, .. } | Reply::Failed(code) => return Pass::Failed(code),
+                    Reply::Refused { code, .. } if code == "cloud.trajectory.disabled" => {
+                        return Pass::Disabled;
+                    }
+                    Reply::Refused { code: why, .. } | Reply::Invalid(why) => {
+                        track.native_stuck = true;
+                        log(&format!("trajectory {id}: {rel}: {why}; its resume file is no longer kept"));
+                        return Pass::Idle;
+                    }
+                    Reply::Failed(why) => return Pass::Failed(why),
                 }
             }
             if offset < size {
@@ -460,6 +467,71 @@ impl Mirror {
         }
         pass
     }
+}
+
+/// Writes one of the restore source's chats as an acpmux bundle at `stage`.
+fn stage_bundle(api: &mut dyn Api, remote: &Remote, stage: &Path) -> Result<(), String> {
+    let err = |e: io::Error| e.to_string();
+    let failed = |r: Reply| match r {
+        Reply::Ok(_) => String::new(),
+        Reply::Refused { code, .. } | Reply::Invalid(code) | Reply::Failed(code) => code,
+    };
+    fs::create_dir_all(stage.join("events")).map_err(err)?;
+    let meta = serde_json::to_vec_pretty(&remote.meta).map_err(|e| e.to_string())?;
+    fs::write(stage.join("session.json"), meta).map_err(err)?;
+    let mut events = io::BufWriter::new(
+        fs::File::create(stage.join("events").join("000001.ndjson")).map_err(err)?,
+    );
+    let mut after = 0_u64;
+    for _ in 0..RESTORE_MAX_PAGES {
+        let body = json!({ "session": remote.session, "after_seq": after, "limit": 2000, "from": "parent" });
+        let page = match reply(api.call("read", &body)) {
+            Reply::Ok(v) => v,
+            other => return Err(failed(other)),
+        };
+        for line in page.field("lines").as_array().into_iter().flatten() {
+            let line = line.as_str().ok_or("a kept record is not text")?;
+            let seq = line_seq(line).ok_or("a kept record has no seq")?;
+            if seq != after + 1 {
+                return Err(format!("kept records jump from {after} to {seq}"));
+            }
+            events.write_all(line.as_bytes()).map_err(err)?;
+            events.write_all(b"\n").map_err(err)?;
+            after = seq;
+        }
+        if *page.field("has_more") != true {
+            break;
+        }
+    }
+    events.flush().map_err(err)?;
+    if after < remote.last_seq {
+        return Err(format!("read {after} of {} records", remote.last_seq));
+    }
+    for (label, path, size) in &remote.native {
+        if !native_path(label, path) {
+            continue;
+        }
+        let mut bytes = Vec::new();
+        while (bytes.len() as u64) < *size {
+            let body = json!({ "session": remote.session, "label": label, "path": path, "offset": bytes.len(), "from": "parent" });
+            let chunk = match reply(api.call("native-read", &body)) {
+                Reply::Ok(v) => v,
+                other => return Err(failed(other)),
+            };
+            let data = decode_base64(chunk.field("data").as_str().unwrap_or(""))
+                .ok_or("a kept file chunk is not base64")?;
+            if data.is_empty() {
+                return Err(format!("{path}: kept file ends early"));
+            }
+            bytes.extend_from_slice(&data);
+        }
+        let target = stage.join("native").join(label).join(path);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).map_err(err)?;
+        }
+        fs::write(target, bytes).map_err(err)?;
+    }
+    Ok(())
 }
 
 /// A session id that names one directory: no separator, `.` or `..`.

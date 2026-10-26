@@ -25,11 +25,31 @@ struct Kept {
 
 /// The backend's store, in memory: contiguous logs, byte-identical
 /// retries, generations, native files as appended byte ranges.
+/// One copy per machine; `machine` is the caller, `parent` its restore source.
 #[derive(Default)]
 struct FakeServer {
-    sessions: BTreeMap<String, Kept>,
+    stores: BTreeMap<String, BTreeMap<String, Kept>>,
+    machine: String,
+    parent: Option<String>,
     calls: Vec<(String, Value)>,
     disabled: bool,
+}
+
+impl FakeServer {
+    fn at(machine: &str) -> FakeServer {
+        FakeServer { machine: machine.to_owned(), ..FakeServer::at("m1") }
+    }
+
+    /// Calls as `machine`, restored from `parent`.
+    fn as_machine(&mut self, machine: &str, parent: Option<&str>) {
+        self.machine = machine.to_owned();
+        self.parent = parent.map(str::to_owned);
+    }
+
+    fn sessions(&self) -> &BTreeMap<String, Kept> {
+        static EMPTY: BTreeMap<String, Kept> = BTreeMap::new();
+        self.stores.get(&self.machine).unwrap_or(&EMPTY)
+    }
 }
 
 fn ok(value: Value) -> Answer {
@@ -50,8 +70,20 @@ impl Api for FakeServer {
             return refuse(404, "cloud.trajectory.disabled", Value::Null);
         }
         let session = body["session"].as_str().unwrap_or("").to_owned();
+        let from_parent = body["from"] == "parent";
+        if from_parent && matches!(action, "append" | "native") {
+            return refuse(403, "auth.forbidden", Value::Null);
+        }
+        let store = if from_parent { self.parent.clone() } else { Some(self.machine.clone()) };
+        let Some(store) = store else {
+            return match action {
+                "list" => ok(json!({ "sessions": [] })),
+                _ => refuse(404, "cloud.trajectory.not_found", Value::Null),
+            };
+        };
+        let sessions = self.stores.entry(store).or_default();
         match action {
-            "list" => ok(json!({ "sessions": self.sessions.iter().map(|(id, k)| json!({
+            "list" => ok(json!({ "sessions": sessions.iter().map(|(id, k)| json!({
                 "session": id,
                 "generation": k.generation,
                 "last_seq": k.lines.len(),
@@ -60,19 +92,19 @@ impl Api for FakeServer {
             })).collect::<Vec<_>>() })),
             "append" => {
                 let generation = body["generation"].as_u64().unwrap();
-                if self.sessions.get(&session).is_some_and(|k| generation < k.generation) {
+                if sessions.get(&session).is_some_and(|k| generation < k.generation) {
                     return refuse(409, "cloud.trajectory.stale_generation", json!({}));
                 }
-                if self.sessions.get(&session).is_some_and(|k| generation > k.generation) {
-                    self.sessions.remove(&session);
+                if sessions.get(&session).is_some_and(|k| generation > k.generation) {
+                    sessions.remove(&session);
                 }
-                if !self.sessions.contains_key(&session) {
+                if !sessions.contains_key(&session) {
                     if body.get("meta").is_none() {
                         return refuse(404, "cloud.trajectory.not_found", Value::Null);
                     }
-                    self.sessions.insert(session.clone(), Kept { generation, ..Kept::default() });
+                    sessions.insert(session.clone(), Kept { generation, ..Kept::default() });
                 }
-                let kept = self.sessions.get_mut(&session).unwrap();
+                let kept = sessions.get_mut(&session).unwrap();
                 if let Some(meta) = body.get("meta") {
                     kept.meta = meta.clone();
                 }
@@ -92,7 +124,7 @@ impl Api for FakeServer {
                 ok(json!({ "last_seq": kept.lines.len() }))
             }
             "native" => {
-                let Some(kept) = self.sessions.get_mut(&session) else {
+                let Some(kept) = sessions.get_mut(&session) else {
                     return refuse(404, "cloud.trajectory.not_found", Value::Null);
                 };
                 let key = (body["label"].as_str().unwrap().to_owned(), body["path"].as_str().unwrap().to_owned());
@@ -108,7 +140,7 @@ impl Api for FakeServer {
                 ok(json!({ "size": file.len() }))
             }
             "read" => {
-                let kept = &self.sessions[&session];
+                let kept = &sessions[&session];
                 let after = body["after_seq"].as_u64().unwrap() as usize;
                 // Small pages, so a restore reads more than one.
                 let lines: Vec<&String> = kept.lines.iter().skip(after).take(2).collect();
@@ -120,7 +152,7 @@ impl Api for FakeServer {
                 }))
             }
             "native-read" => {
-                let kept = &self.sessions[&session];
+                let kept = &sessions[&session];
                 let key = (body["label"].as_str().unwrap().to_owned(), body["path"].as_str().unwrap().to_owned());
                 let file = &kept.native[&key];
                 let offset = body["offset"].as_u64().unwrap() as usize;
@@ -202,7 +234,7 @@ fn lines(from: u64, to: u64) -> String {
 }
 
 fn kept_lines(server: &FakeServer, id: &str) -> Vec<String> {
-    server.sessions[id].lines.clone()
+    server.sessions()[id].lines.clone()
 }
 
 #[test]
@@ -213,12 +245,12 @@ fn sends_complete_records_verbatim_in_order_across_segments_and_only_once() {
     m.append("chat-a", 2, &lines(3, 3));
     // acpmux is writing record 4: half a line.
     m.append("chat-a", 2, &line(4)[..10]);
-    let mut server = FakeServer::default();
+    let mut server = FakeServer::at("m1");
     let mut mirror = m.mirror();
-    assert!(mirror.prime(&mut server).unwrap().is_empty());
+    assert_eq!(mirror.prime(&mut server).unwrap(), 0);
     assert_eq!(mirror.sync(&mut server, 0), Pass::Idle);
     assert_eq!(kept_lines(&server, "chat-a"), (1..=3).map(line).collect::<Vec<_>>());
-    assert_eq!(server.sessions["chat-a"].meta["lastSeq"], 3);
+    assert_eq!(server.sessions()["chat-a"].meta["lastSeq"], 3);
     // Nothing new: no call.
     let calls = server.calls.len();
     assert_eq!(mirror.sync(&mut server, 1), Pass::Idle);
@@ -237,7 +269,7 @@ fn a_restarted_agent_continues_from_the_server_without_sending_again() {
     let m = Machine::new();
     m.write_meta("chat-a", 2, CREATED);
     m.append("chat-a", 1, &lines(1, 2));
-    let mut server = FakeServer::default();
+    let mut server = FakeServer::at("m1");
     let mut first = m.mirror();
     first.prime(&mut server).unwrap();
     first.sync(&mut server, 0);
@@ -256,11 +288,11 @@ fn a_server_that_lost_the_chat_gets_it_again_from_the_first_record() {
     let m = Machine::new();
     m.write_meta("chat-a", 3, CREATED);
     m.append("chat-a", 1, &lines(1, 3));
-    let mut server = FakeServer::default();
+    let mut server = FakeServer::at("m1");
     let mut mirror = m.mirror();
     mirror.prime(&mut server).unwrap();
     mirror.sync(&mut server, 0);
-    server.sessions.clear();
+    server.stores.clear();
     m.append("chat-a", 1, &lines(4, 4));
     // not_found: start over (with the record), then everything again.
     assert_eq!(mirror.sync(&mut server, 1), Pass::More);
@@ -273,7 +305,7 @@ fn a_recreated_session_replaces_the_copy_and_disabled_stops_the_pass() {
     let m = Machine::new();
     m.write_meta("chat-a", 2, CREATED);
     m.append("chat-a", 1, &lines(1, 2));
-    let mut server = FakeServer::default();
+    let mut server = FakeServer::at("m1");
     let mut mirror = m.mirror();
     mirror.prime(&mut server).unwrap();
     mirror.sync(&mut server, 0);
@@ -281,7 +313,7 @@ fn a_recreated_session_replaces_the_copy_and_disabled_stops_the_pass() {
     m.write_meta("chat-a", 1, CREATED + 5);
     m.append("chat-a", 1, &lines(1, 1));
     assert_eq!(mirror.sync(&mut server, 1), Pass::Idle);
-    assert_eq!(server.sessions["chat-a"].generation, CREATED + 5);
+    assert_eq!(server.sessions()["chat-a"].generation, CREATED + 5);
     assert_eq!(kept_lines(&server, "chat-a"), vec![line(1)]);
     server.disabled = true;
     m.append("chat-a", 1, &lines(2, 2));
@@ -296,35 +328,45 @@ fn the_agents_resume_file_goes_as_whole_lines_and_again_from_zero_when_rewritten
     m.append("chat-a", 1, &lines(1, 1));
     fs::create_dir_all(m.claude_file().parent().unwrap()).unwrap();
     fs::write(m.claude_file(), "{\"a\":1}\n{\"b\":").unwrap();
-    let mut server = FakeServer::default();
+    let mut server = FakeServer::at("m1");
     let mut mirror = m.mirror();
     mirror.prime(&mut server).unwrap();
     mirror.sync(&mut server, 0);
     let key = ("claude-project".to_owned(), format!(".claude/projects/-work/{SID}.jsonl"));
-    assert_eq!(server.sessions["chat-a"].native[&key], b"{\"a\":1}\n");
+    assert_eq!(server.sessions()["chat-a"].native[&key], b"{\"a\":1}\n");
     fs::write(m.claude_file(), "{\"a\":1}\n{\"b\":2}\n").unwrap();
     m.append("chat-a", 1, &lines(2, 2));
     mirror.sync(&mut server, 1);
-    assert_eq!(server.sessions["chat-a"].native[&key], b"{\"a\":1}\n{\"b\":2}\n");
+    assert_eq!(server.sessions()["chat-a"].native[&key], b"{\"a\":1}\n{\"b\":2}\n");
     let (_, last) = server.calls.last().unwrap();
     assert_eq!(last["offset"], 8);
     // Compacted by the agent: smaller than kept, sent again from 0.
     fs::write(m.claude_file(), "{\"c\":3}\n").unwrap();
     m.append("chat-a", 1, &lines(3, 3));
     mirror.sync(&mut server, 2);
-    assert_eq!(server.sessions["chat-a"].native[&key], b"{\"c\":3}\n");
+    assert_eq!(server.sessions()["chat-a"].native[&key], b"{\"c\":3}\n");
 }
 
 /// Imports a bundle the way acpmux `import_into` does: the record, the log
 /// verbatim, the agent file into the home, then acpmux's own `imported`
-/// record.
+/// record. `running` is whether acpmux runs; `fail` fails that many imports.
 struct FakeAcpmux {
     layout: Layout,
+    running: bool,
+    fail: u32,
     imported: Vec<String>,
 }
 
 impl Importer for FakeAcpmux {
+    fn ready(&self) -> bool {
+        self.running
+    }
+
     fn import(&mut self, bundle: &Path, meta: &Value) -> Result<(), String> {
+        if self.fail > 0 {
+            self.fail -= 1;
+            return Err("acpmux refused".to_owned());
+        }
         let id = meta["id"].as_str().unwrap();
         assert_eq!(bundle, self.layout.staging.join(id));
         let dir = self.layout.sessions.join(id);
@@ -343,50 +385,127 @@ impl Importer for FakeAcpmux {
     }
 }
 
-#[test]
-fn a_replacement_machine_restores_the_chat_and_the_chat_continues() {
-    // The first machine keeps a chat mid-way, with its Claude resume file.
+/// The first machine (`m1`) keeps a chat mid-way with its Claude resume
+/// file, and a cmux-harness chat.
+fn first_machine(server: &mut FakeServer) -> Machine {
     let first = Machine::new();
     first.write_meta("chat-a", 5, CREATED);
     first.append("chat-a", 1, &lines(1, 5));
     fs::create_dir_all(first.claude_file().parent().unwrap()).unwrap();
     fs::write(first.claude_file(), "{\"turn\":1}\n{\"turn\":2}\n").unwrap();
-    // A cmux-harness chat is not restored (its journal is not bundled).
     first.write_meta("chat-h", 1, CREATED);
     let mut h = meta("chat-h", 1, CREATED, &first.layout.home);
     h["harness"] = json!("cmux-harness");
     fs::write(first.session_dir("chat-h").join("session.json"), h.to_string()).unwrap();
     first.append("chat-h", 1, &lines(1, 1));
-    let mut server = FakeServer::default();
+    server.as_machine("m1", None);
     let mut mirror = first.mirror();
-    mirror.prime(&mut server).unwrap();
-    assert_eq!(mirror.sync(&mut server, 0), Pass::Idle);
+    mirror.prime(server).unwrap();
+    assert_eq!(mirror.sync(server, 0), Pass::Idle);
+    first
+}
 
-    // The replacement: same lineage, empty acpmux, plus a chat of its own.
+#[test]
+fn a_replacement_machine_restores_the_chat_and_the_chat_continues() {
+    let mut server = FakeServer::at("m1");
+    let _first = first_machine(&mut server);
+    // The replacement (`m2`, restored from m1): empty acpmux, plus a chat of its own.
     let second = Machine::new();
     second.write_meta("chat-own", 1, CREATED);
     second.append("chat-own", 1, &lines(1, 1));
-    let mut acpmux = FakeAcpmux { layout: second.layout.clone(), imported: vec![] };
+    server.as_machine("m2", Some("m1"));
+    let mut acpmux = FakeAcpmux { layout: second.layout.clone(), running: false, fail: 0, imported: vec![] };
     let mut replacement = second.mirror();
-    let remotes = replacement.prime(&mut server).unwrap();
-    assert_eq!(replacement.restore(&mut server, &mut acpmux, &remotes), 1);
+    // chat-a waits; the cmux-harness chat is not restored (its journal is not bundled).
+    assert_eq!(replacement.prime(&mut server).unwrap(), 1);
+    // acpmux is not running yet: nothing is imported, nothing is started.
+    assert_eq!(replacement.restore(&mut server, &mut acpmux), 0);
+    assert_eq!(replacement.pending(), 1);
+    acpmux.running = true;
+    assert_eq!(replacement.restore(&mut server, &mut acpmux), 1);
     assert_eq!(acpmux.imported, vec!["chat-a"]);
     assert!(!second.layout.staging.join("chat-a").exists(), "the stage is removed");
     assert_eq!(fs::read(second.claude_file()).unwrap(), b"{\"turn\":1}\n{\"turn\":2}\n");
     let restored = fs::read_to_string(second.session_dir("chat-a").join("events/000001.ndjson")).unwrap();
     assert!(restored.starts_with(&lines(1, 5)), "the history is intact, verbatim");
 
-    // The chat continues on the replacement: acpmux's import record and a new turn.
+    // The chat continues on the replacement, into the replacement's own copy.
     second.append("chat-a", 1, &lines(7, 7));
     fs::write(second.claude_file(), "{\"turn\":1}\n{\"turn\":2}\n{\"turn\":3}\n").unwrap();
     assert_eq!(replacement.sync(&mut server, 10), Pass::Idle);
     assert_eq!(kept_lines(&server, "chat-a"), (1..=7).map(line).collect::<Vec<_>>());
     let key = ("claude-project".to_owned(), format!(".claude/projects/-work/{SID}.jsonl"));
-    assert_eq!(server.sessions["chat-a"].native[&key], b"{\"turn\":1}\n{\"turn\":2}\n{\"turn\":3}\n");
+    assert_eq!(server.sessions()["chat-a"].native[&key], b"{\"turn\":1}\n{\"turn\":2}\n{\"turn\":3}\n");
     assert_eq!(kept_lines(&server, "chat-own"), vec![line(1)]);
-    // A second restore pass finds nothing to import.
-    let remotes = replacement.prime(&mut server).unwrap();
-    assert_eq!(replacement.restore(&mut server, &mut acpmux, &remotes), 0);
+    // The source's copy is untouched.
+    assert_eq!(server.stores["m1"]["chat-a"].lines.len(), 5);
+    // Once imported it is this machine's chat: deleted here, it is not brought back.
+    fs::remove_dir_all(second.session_dir("chat-a")).unwrap();
+    let mut restarted = second.mirror();
+    assert_eq!(restarted.prime(&mut server).unwrap(), 0);
+}
+
+#[test]
+fn a_failed_import_is_tried_again_and_a_chat_on_the_snapshot_disk_is_not_imported() {
+    let mut server = FakeServer::at("m1");
+    let _first = first_machine(&mut server);
+    let second = Machine::new();
+    server.as_machine("m2", Some("m1"));
+    let mut acpmux = FakeAcpmux { layout: second.layout.clone(), running: true, fail: 1, imported: vec![] };
+    let mut replacement = second.mirror();
+    assert_eq!(replacement.prime(&mut server).unwrap(), 1);
+    assert_eq!(replacement.restore(&mut server, &mut acpmux), 0);
+    assert_eq!(replacement.pending(), 1);
+    assert_eq!(replacement.restore(&mut server, &mut acpmux), 1);
+    // A machine whose disk has the chat already (the snapshot's point) continues from there.
+    let third = Machine::new();
+    third.write_meta("chat-a", 3, CREATED);
+    third.append("chat-a", 1, &lines(1, 3));
+    server.as_machine("m3", Some("m1"));
+    let mut mirror = third.mirror();
+    assert_eq!(mirror.prime(&mut server).unwrap(), 0);
+    assert_eq!(mirror.sync(&mut server, 0), Pass::Idle);
+    assert_eq!(kept_lines(&server, "chat-a"), (1..=3).map(line).collect::<Vec<_>>());
+}
+
+#[test]
+fn a_record_too_large_stops_only_its_own_chat() {
+    let m = Machine::new();
+    m.write_meta("chat-a", 1, CREATED);
+    m.append("chat-a", 1, &format!("{}\n", json!({ "seq": 1, "msg": "x".repeat(RECORD_MAX) })));
+    m.write_meta("chat-b", 1, CREATED);
+    m.append("chat-b", 1, &lines(1, 1));
+    let mut server = FakeServer::at("m1");
+    let mut mirror = m.mirror();
+    mirror.prime(&mut server).unwrap();
+    assert_eq!(mirror.sync(&mut server, 0), Pass::Idle);
+    assert!(!server.sessions().contains_key("chat-a"));
+    assert_eq!(kept_lines(&server, "chat-b"), vec![line(1)]);
+}
+
+#[test]
+fn a_resume_file_larger_than_one_pass_is_sent_over_passes_without_new_records() {
+    let m = Machine::new();
+    m.write_meta("chat-a", 1, CREATED);
+    m.append("chat-a", 1, &lines(1, 1));
+    fs::create_dir_all(m.claude_file().parent().unwrap()).unwrap();
+    let row = format!("{}\n", "y".repeat(1023));
+    let big = row.repeat(9 * 1024); // 9 MiB of whole lines, over one pass's 4 MiB
+    fs::write(m.claude_file(), &big).unwrap();
+    let mut server = FakeServer::at("m1");
+    let mut mirror = m.mirror();
+    mirror.prime(&mut server).unwrap();
+    let mut passes = 0;
+    while mirror.sync(&mut server, passes) == Pass::More {
+        passes += 1;
+        assert!(passes < 10);
+    }
+    let key = ("claude-project".to_owned(), format!(".claude/projects/-work/{SID}.jsonl"));
+    assert_eq!(server.sessions()["chat-a"].native[&key].len(), big.len());
+    // Written later, with no new record: sent at the next pass.
+    fs::write(m.claude_file(), format!("{big}{row}")).unwrap();
+    assert_eq!(mirror.sync(&mut server, 100), Pass::Idle);
+    assert_eq!(server.sessions()["chat-a"].native[&key].len(), big.len() + row.len());
 }
 
 #[test]

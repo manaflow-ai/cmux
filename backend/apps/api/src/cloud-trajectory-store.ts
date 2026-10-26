@@ -3,16 +3,15 @@ import type { Env } from "./env.ts"
 
 /**
  * ACP chat trajectories kept outside the Cloud VM (#25584). One TrajectoryDO per team and machine
- * lineage (`<team>/<lineage>`, cloud-trajectory.ts): the lineage is the first machine's id, and a
- * machine restored from one of its snapshots keeps it, so a pause, a resume or a replacement VM
- * finds the same chats.
+ * (`<team>/<machine>`, cloud-trajectory.ts): it outlives the VM's pause and the machine itself, so a
+ * replacement restored from one of its snapshots reads it (read only) and imports what it lacks.
  *
  * What is kept per acpmux session: its record (`session.json`, as acpmux wrote it), its event log
  * as the exact ndjson lines acpmux wrote (`events/NNNNNN.ndjson`), and the agent's own resume files
  * (a Claude project `<sid>.jsonl`, a Codex rollout) as append-only byte ranges. Together they are an
  * `acpmux.bundle.v1`, which the VM's acpmux imports to continue the chat.
  *
- * One writer: only the VM install of a machine of the lineage writes (the route checks it). The log
+ * One writer: only the machine's own VM install writes (the route checks it). The log
  * is contiguous: a batch must start at most one past the kept `last_seq`; a record already kept must
  * be byte-identical (a different one is a conflict, never last-write-wins). A session's generation is
  * its `createdAt`: a newer one (the session recreated under the same id) replaces the old copy, an
@@ -46,8 +45,8 @@ export interface SessionSummary {
   readonly updated_at: number
 }
 
-/** The most one lineage keeps (events, records and native files). */
-export const LINEAGE_MAX_BYTES = 2 * 1024 ** 3
+/** The most one machine keeps (events, records and native files). */
+export const MACHINE_MAX_BYTES = 2 * 1024 ** 3
 /** One stored value stays well under the 2 MB SQLite row limit. */
 export const RECORD_MAX_BYTES = 1024 * 1024
 export const NATIVE_CHUNK_MAX_BYTES = 512 * 1024
@@ -142,7 +141,11 @@ export class TrajectoryStore {
     // From here on, one synchronous turn: no other request runs in between.
     let row = this.row(session)
     if (row && generation < row.generation) return { ok: false, refusal: { code: "cloud.trajectory.stale_generation", generation: row.generation } }
-    if (row && generation > row.generation) {
+    // A recreated session replaces the old copy: that copy's bytes are freed first, unless the new one does not fit.
+    const replacing = row !== undefined && generation > row.generation
+    const freed = replacing ? row!.bytes : 0
+    if (replacing && this.totalBytes() - freed + lines.reduce((n, l) => n + bytesOf(l), 0) + (metaText ? bytesOf(metaText) : 0) > MACHINE_MAX_BYTES) return { ok: false, refusal: { code: "cloud.trajectory.full", bytes: this.totalBytes() } }
+    if (replacing) {
       this.dropSession(session)
       row = undefined
     }
@@ -166,7 +169,7 @@ export class TrajectoryStore {
     }
     const metaBytes = metaText === undefined ? 0 : bytesOf(metaText) - (row ? bytesOf(row.meta) : 0)
     const total = this.totalBytes()
-    if (added + metaBytes > 0 && total + added + metaBytes > LINEAGE_MAX_BYTES) return { ok: false, refusal: { code: "cloud.trajectory.full", bytes: total } }
+    if (added + metaBytes > 0 && total + added + metaBytes > MACHINE_MAX_BYTES) return { ok: false, refusal: { code: "cloud.trajectory.full", bytes: total } }
     for (const [seq, hash, line] of fresh) this.sql.exec(`INSERT INTO traj_event (session, seq, hash, line) VALUES (?, ?, ?, ?)`, session, seq, hash, line)
     const bytes = (row?.bytes ?? 0) + added + metaBytes
     this.sql.exec(
@@ -190,7 +193,7 @@ export class TrajectoryStore {
     if (offset !== size && offset !== 0) return { ok: false, refusal: { code: "cloud.trajectory.offset", size } }
     const freed = offset === 0 ? size : 0
     const total = this.totalBytes()
-    if (data.byteLength > freed && total + data.byteLength - freed > LINEAGE_MAX_BYTES) return { ok: false, refusal: { code: "cloud.trajectory.full", bytes: total } }
+    if (data.byteLength > freed && total + data.byteLength - freed > MACHINE_MAX_BYTES) return { ok: false, refusal: { code: "cloud.trajectory.full", bytes: total } }
     if (offset === 0) this.sql.exec(`DELETE FROM traj_native_chunk WHERE session = ? AND label = ? AND path = ?`, session, label, path)
     if (data.byteLength > 0) this.sql.exec(`INSERT INTO traj_native_chunk (session, label, path, offset, data) VALUES (?, ?, ?, ?, ?)`, session, label, path, offset, data.slice().buffer)
     const next = offset + data.byteLength
