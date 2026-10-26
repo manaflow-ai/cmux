@@ -69,6 +69,7 @@ export function ComposerContext({
   offloads = NO_OFFLOADS,
   saved,
   onRefreshMachines,
+  folderNote,
 }: {
   summary?: Summary;
   sessions?: Session[];
@@ -111,6 +112,9 @@ export function ComposerContext({
   saved?: SavedEnvironmentRows;
   /// The environment picker opened: read the machines and their status again.
   onRefreshMachines?(): void;
+  /// A quiet line in the folder menu: where a new chat starts while it has no folder (its
+  /// workspace's private folder).
+  folderNote?: string;
 }) {
   const computers = useMemo(
     // The peers' transports and status draw only in the environment picker: the plain menu stays
@@ -260,6 +264,7 @@ export function ComposerContext({
               }
               localName={localName}
               peers={peers}
+              {...(folderNote && !currentFolder ? { note: folderNote } : {})}
             />
           ) : (
             <LocationPicker
