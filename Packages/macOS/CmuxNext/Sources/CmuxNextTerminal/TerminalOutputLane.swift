@@ -50,8 +50,8 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     private let probe: TypingLatencyProbe
     /// Watches each output chunk's parse on the lane, never the lane's queue wait; nil watches nothing.
     private let hangWatched: HangWatchedLane?
-    /// How long one chunk's `ghostty_surface_process_output` may take before the hang watcher reports
-    /// it: a 256 KiB chunk parses in about a millisecond, so 100 ms means the lane is stuck.
+    /// One chunk's `ghostty_surface_process_output` budget (a jank past it, a hang dump 2 s later):
+    /// a 256 KiB chunk parses in about a millisecond, so 100 ms means the lane is stuck.
     static let feedHangDeadline: Duration = .milliseconds(100)
     /// Parses one output chunk into the surface: `ghostty_surface_process_output`, or a test's recorder.
     typealias Parse = @Sendable (ghostty_surface_t, Data) -> Void
