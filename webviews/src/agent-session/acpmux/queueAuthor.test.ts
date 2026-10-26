@@ -177,7 +177,8 @@ test("a delivery change rebuilds a waiting prompt's row and keeps its author", a
   // acpmux never answers the prompt, so its delivery stays `sending` until the slow mark.
   const hooks = socket as unknown as { answer: (method: string, params: unknown) => unknown };
   const answer = hooks.answer.bind(socket);
-  hooks.answer = (method, params) => (method === "session/prompt" ? new Promise(() => undefined) : answer(method, params));
+  hooks.answer = (method, params) =>
+    method === "session/prompt" ? new Promise(() => undefined) : answer(method, params);
   try {
     daemon.emit(id, { mux: "turn_started", msg: {} });
     // The turn runs before the send, so the prompt waits in the queue.
