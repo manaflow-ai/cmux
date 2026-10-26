@@ -305,6 +305,23 @@ class PowerWindowTests(unittest.TestCase):
         self.assertIn("app/main", [e["owner"] for e in got["owners"]])
         self.assertIn("cef-renderer/main", [e["owner"] for e in got["owners"]])
 
+    def test_the_owners_take_the_rows_classifier(self):
+        """idle-budget's measure names power owners with the window's WindowKinds, as its rows: a WebContent of a
+        cmux page is webkit-app-page in both, not the command-only webkit-webcontent."""
+        fake = FakeCounters()
+        webcontent = "/System/x/com.apple.WebKit.WebContent"
+        window = pa.PowerWindow(1, lambda: {1: APP, 2: RENDERER, 3: webcontent}, ib.kind, reader=fake.reader)
+        window.prepare()
+        window.begin()
+        fake.now = 10.0
+        window.end()
+        raw = window.finish()
+        classify = ib.WindowKinds([(1, 0, APP), (2, 1, RENDERER), (3, 0, webcontent)],
+                                  {"pages": [{"page": "cmux.home", "state": "visible", "webkit_pid": 3}]})
+        kinds = {p["pid"]: p["kind"] for p in pa.attribute({**raw, "classify": classify})["processes"]}
+        self.assertEqual(kinds[3], "webkit-app-page")
+        self.assertEqual(kinds[3], classify(webcontent, 3))
+
     def test_without_root_windowserver_is_null(self):
         fake = FakeCounters()
         reader = pa.Reader(**{**fake.reader.__dict__, "root_usage": lambda pid: None})
@@ -391,7 +408,7 @@ class IdleBudgetSessionTests(unittest.TestCase):
             events.append("window" if seconds == 60 else "quiet")
 
         patches = [mock.patch.object(ib.power_attribution, "PowerWindow", Window), mock.patch.object(ib, "snapshot", snapshot),
-                   mock.patch.object(ib, "process_set", lambda instance: {}), mock.patch.object(ib, "window_end", lambda *a: {}),
+                   mock.patch.object(ib, "process_set", lambda instance: ib.ProcessSet({}, [])), mock.patch.object(ib, "window_end", lambda *a: {}),
                    mock.patch.object(ib, "read_rpc", lambda *a: {}), mock.patch.object(ib, "app_counters", lambda app: {}),
                    mock.patch.object(ib.time, "sleep", sleep), mock.patch.object(ib.procs, "gpu_ns_by_pid", lambda: None),
                    mock.patch.object(ib.procs, "coalition_of", lambda pid: None)]
