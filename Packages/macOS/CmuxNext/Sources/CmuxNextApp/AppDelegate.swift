@@ -44,8 +44,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let launchCleanup: LaunchCleanup
     /// The app's blocking-work lanes and the last quit's pages and composers, read on them since `main`.
     private let launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake)
+    /// cmux-next.json and the managed layers, read on the files lane since `main` (p08-startup 025).
+    private let settingsRead: SettingsController.PendingLaunchRead
     /// Set in applicationDidFinishLaunching; nil before it (no IUO).
     private var services: AppServices?
+    /// URLs macOS handed over before the services existed (the settings read still in flight).
+    private var openedBeforeServices: [URL] = []
     /// A second quit signal's exit (`QuitSignal`): the Home cache's last write, bounded, then the end.
     private lazy var forcedQuitExit = ForcedQuitExit(prepare: { [weak self] in
         self?.services?.crashRecovery.applicationWillTerminate()
@@ -75,9 +79,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, wireStats: DaemonWireStats?,
-         startupTrace: StartupTrace? = nil, order: LaunchOrder, inputTap: InputEventTap,
+         startupTrace: StartupTrace? = nil, order: LaunchOrder, inputTap: InputEventTap, settingsRead: SettingsController.PendingLaunchRead,
          launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake), launchCleanup: LaunchCleanup = LaunchCleanup()) {
-        (self.environment, self.launchReads) = (environment, launchReads)
+        (self.environment, self.launchReads, self.settingsRead) = (environment, launchReads, settingsRead)
         (self.daemonPrestart, self.startupTrace) = (daemonPrestart, startupTrace)
         self.wireStats = wireStats
         self.launchCleanup = launchCleanup
@@ -130,10 +134,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            let cli = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux").path {
             Task.detached(priority: .utility) { LastAppCLIPointer().publish(cliPath: cli) }
         }
-        // cmux.json's appearance goes on the Ghostty overrides before the
-        // runtime's first config load, so the first frame needs no reload.
-        let settingsRead = SettingsController.readAtLaunch(fileURL: settingsFileURL())
-        TerminalThemeSetting.prime(settingsRead.snapshot)
+        // The rest runs with main()'s settings read, now or when it lands: no wait, no frame in the defaults (p08-startup 025).
+        settingsRead.whenRead(on: mainWork) { [self] read in finishLaunching(settings: read) }
+    }
+
+    /// The launch steps that need the settings, run with the settings launch read (`applicationDidFinishLaunching`).
+    private func finishLaunching(settings settingsRead: SettingsController.LaunchRead) {
+        // cmux.json's appearance goes on the Ghostty overrides before the runtime's first config load, so the first frame needs no reload.
+        order.startup.post(.critical, "Settings.takeLaunchRead", on: .main) { [logger] in
+            if let failure = settingsRead.bootstrapFailure { logger.error("cmux-next config bootstrap failed: \(failure, privacy: .public)") }
+            TerminalThemeSetting.prime(settingsRead.snapshot)
+        }
         DebugTimings.markLaunch("dfl.settings_read")
         // Chrome colors derive from the Ghostty theme; load it before any window.
         ThemeBridge.start(store: ThemeScope.app.store)
@@ -215,11 +226,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let window = services?.windows.active?.window, let drafts = services?.recoveryDrafts {
                 Task { @MainActor in await RecoveryNotice.show(store: drafts, in: window) }
             }
-            CATransaction.setCompletionBlock { [weak self] in
-                MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
-                    DebugTimings.markLaunch("first_window_frame_committed")
-                    self?.order.startup.firstFrameCommitted()
-                }
+            CATransaction.setMainCompletion { [weak self] in
+                DebugTimings.markLaunch("first_window_frame_committed")
+                self?.order.startup.firstFrameCommitted()
             }
         }
         // Once startup completes (the visible page loaded, the launch images went), one idle frame each: the palette's
@@ -279,20 +288,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
         services.windows.onContentDidAppear = { [weak services] in services?.externalOpen.flush(); services?.pageHostPool.windowDidAppear($0.window) }
         NSApp.servicesProvider = CmuxServicesProvider(open: services.externalOpen)
+        for url in openedBeforeServices { routeOpenedURL(url) }  // services exist now: nothing is added while this runs
+        openedBeforeServices = []
         // The registered launch work ends the implicit ref. The first window is made in this turn
         // (`restoreWhenLoaded`), so its commit ends the first-frame ref; a launch that shows none
         // completes at the scheduler's failsafe, with reason `failsafe`.
         order.startup.finishRegistration()
-    }
-
-    /// cmux.json, created on first launch.
-    private func settingsFileURL() -> URL {
-        do {
-            return try CmuxConfigFile.prepareDefaultURL()
-        } catch {
-            logger.error("cmux-next config bootstrap failed: \(String(describing: error), privacy: .public)")
-            return CmuxConfigFile.defaultURL()
-        }
     }
 
     /// cmux-next.json settings and the tagged control socket (`action.list/describe/run`) over the same registry.
@@ -307,7 +308,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloudAuth).start()
         self.settings = settings
         services.settings = settings
-        UserOnlySettingConfirmation.install(settings, services: services)
+        // No socket write asks for a confirmation before the first frame: the control socket starts after it.
+        order.startup.post(.afterFirstFrame, "UserOnlySettingConfirmation.install", on: .main) { [weak settings, weak services] in
+            if let settings, let services { UserOnlySettingConfirmation.install(settings, services: services) }
+        }
+        // macOS posts no notification when an MDM profile changes: activation is the backstop next to the managed-file watchers.
+        order.startup.post(.afterFirstFrame, "Settings.followActivation", on: .main) { [weak settings, events = services.appEvents] in
+            settings?.followActivation(on: events)
+        }
         // Every palette-exposed schema setting in the palette (R93).
         services.palette.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog) { [weak services] in
             services?.windows.active.map { SettingsPaletteSource.themeColors($0.themeScope.tokens) } ?? []
@@ -317,15 +325,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let shortcutEditor = PaletteShortcutEditor(services: services, settings: settings)
         services.paletteShortcutEditor = shortcutEditor
         services.palette.shortcutRecorder.editor = shortcutEditor
-        // Managed-settings status for MDM tooling (osquery, Fleet, Jamf), plans/cmux-next/enterprise.md.
+        // Managed-settings status for MDM tooling (osquery, Fleet, Jamf), plans/cmux-next/enterprise.md: written on the files lane after startup.
         let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
-        settings.writeManagedStatus(
-            to: ManagedStatusReport.defaultURL(bundleID: bundleID),
-            context: ManagedStatusReport.Context(
-                appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0",
-                bundleID: bundleID
-            )
-        )
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+        settings.writeManagedStatus(to: ManagedStatusReport.defaultURL(bundleID: bundleID),
+                                    context: ManagedStatusReport.Context(appVersion: version, bundleID: bundleID)) { [startup = order.startup] write in
+            startup.post(.afterStartup, "Settings.writeManagedStatus", on: .lane(.files, .bestEffort), write)
+        }
         settings.start(announcingDiagnostics: true)
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, firstWindow: { [startup = order.startup] in await startup.afterFirstFrame() })
         // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings.
@@ -349,13 +355,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             await settings.waitForLoad(atLeast: 1)
             for await github in ObservationStream({ settings.snapshot.feedGitHub }) {
                 services?.configureFeedGitHub(enabled: github.enabled, pollIntervalSeconds: github.pollIntervalSeconds)  // builds no feed
-            }
-        }
-        // macOS posts no notification when an MDM profile changes; activation
-        // is the event-driven backstop next to the managed-file watchers.
-        Task { [weak settings] in
-            for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
-                settings?.managedPreferencesMayHaveChanged()
             }
         }
         services.configActions.start(settings: settings)
@@ -498,7 +497,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// sign-in callback to Cloud auth first, in every form auth accepts,
     /// then `ExternalOpenRouter`.
     private func routeOpenedURL(_ url: URL) {
-        guard let services else { return }
+        guard let services else { return openedBeforeServices.append(url) }  // routed when the launch builds them
         let auth = services.cloudAuth
         let destination = OpenedURLRouting.route(url, isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) })
         guard destination == .auth else { return }

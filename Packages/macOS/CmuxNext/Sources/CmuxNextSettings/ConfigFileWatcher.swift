@@ -49,6 +49,18 @@ public final class ConfigFileWatcher: @unchecked Sendable {
         }
     }
 
+    /// ``start()`` without waiting: the watch is armed on the watcher's queue, so its opens and
+    /// stats never run on the caller's thread (the main thread at launch), and then one change is
+    /// reported there, so the consumer reads the file after the watch exists and no save is lost.
+    /// A ``stop()`` called after it still ends the watch: the queue runs the two in order.
+    public func startWithoutWaiting() {
+        queue.async { [self] in
+            isStopped = false
+            rearm()
+            onChange()
+        }
+    }
+
     public func stop() {
         queue.sync {
             isStopped = true

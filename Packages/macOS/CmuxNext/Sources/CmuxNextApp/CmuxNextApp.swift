@@ -9,6 +9,7 @@ import CmuxNextInput
 import CmuxNextLaunch
 import CmuxNextMallocZone
 import CmuxNextRemoteFetch
+import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextCompat
@@ -67,6 +68,9 @@ public struct CmuxNextApp {
         let fence = LaunchOrder.BestEffortFence(raisingOn: work)
         startupTrace?.start(writingOn: work) // its file is written on work's files lane, never here
         startupTrace?.whenClosed { work.stopReportingRuns() } // a closed trace costs the lanes nothing
+        // cmux-next.json (made on first launch) read and merged with the managed layers on the files lane, first:
+        // the launch steps that need it run when it lands, never waiting for it on main (p08-startup 025).
+        let settingsRead = SettingsController.startLaunchRead(on: work)
         let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: state)
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
         TerminalLaunchFrames.beside(state).prefetch(on: work) { DebugTimings.markLaunch($0) }
@@ -97,7 +101,7 @@ public struct CmuxNextApp {
         TooltipPresenter.shared.inputTap = inputTap
         let order = LaunchOrder(fence: fence, input: inputTap) { DebugTimings.markLaunch($0) }
         let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats,
-                                   startupTrace: startupTrace, order: order, inputTap: inputTap,
+                                   startupTrace: startupTrace, order: order, inputTap: inputTap, settingsRead: settingsRead,
                                    launchReads: (work, launchImages, relaunchWake))
         // Every main run-loop turn is timed and split on the main-thread scheduler's meter (MainTurnMeter).
         (app as? CmuxApplication)?.meterTurns(delegate.turnMeter)
