@@ -13,12 +13,9 @@ import Testing
 /// Labs flags): every card is one existing cmux-next.json key, Get writes its on value, Remove
 /// puts it back to off, and a card follows a write made anywhere else.
 @MainActor @Suite(.serialized) struct AppStoreFeaturesTests {
-    /// Keys whose PR has not landed: the tab hides their cards until the schema lists them
-    /// (tabs.newTabWidgets.*, #22674 and #22775).
-    static let pendingKeys: Set<String> = [
-        "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats",
-        "tabs.newTabWidgets.weather", "tabs.newTabWidgets.machines",
-    ]
+    /// Keys whose PR has not landed: the tab hides their cards until the schema lists them. None
+    /// now: the New Tab widgets landed with #22674 and #22775.
+    static let pendingKeys: Set<String> = []
 
     static func make(_ json: String = "{}", recommended: [String: JSONValue] = [:]) async throws -> (SettingsController, URL) {
         let home = FileManager.default.temporaryDirectory.appending(path: "cn-store-features-\(UUID().uuidString)")
@@ -253,9 +250,9 @@ import Testing
     }
 
     /// Leo (2026-10-21): view toggles such as Expanded need no palette. Each density is a card
-    /// whose Get picks it and whose Remove goes back to Compact, and a workspace row's ⋮ menu
-    /// offers the densities that are not in effect.
-    @Test func theSidebarDensityCardsPickADensityAndTheRowMenuOffersThem() async throws {
+    /// whose Get picks it and whose Remove goes back to Compact, and the sidebar's own menu
+    /// offers the densities that are not in effect (the row's ⋮ menu is trimmed, Leo 2026-10-23).
+    @Test func theSidebarDensityCardsPickADensityAndTheSidebarMenuOffersThem() async throws {
         let (settings, home) = try await Self.make()
         defer { try? FileManager.default.removeItem(at: home) }
         let bridge = SettingsAppFeatures(settings: { settings })
@@ -272,9 +269,9 @@ import Testing
         #expect(settings.fileRoot.value(at: comfortable.path) == nil)
 
         let catalog = ContextMenuCatalog.shared
-        let ids = Set(catalog.referencedIDs(catalog.entries(for: .workspaceRow)).map(\.rawValue))
+        let ids = Set(catalog.referencedIDs(catalog.entries(for: .sidebarBackground)).map(\.rawValue))
         #expect(ids.isSuperset(of: ["sidebar.density.compact", "sidebar.density.comfortable", "sidebar.density.expanded"]),
-                "a workspace row's ⋮ menu offers the sidebar densities")
+                "the sidebar's menu offers the sidebar densities")
     }
 
     /// Every sidebar item the tab lists is one the sidebar's side offers (the list comes from the

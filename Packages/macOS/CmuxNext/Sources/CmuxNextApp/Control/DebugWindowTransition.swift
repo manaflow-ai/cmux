@@ -5,8 +5,9 @@ import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextCompat
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// `debug.window_transition` (DEBUG builds): what a window does while it
 /// enters or leaves full screen, or moves to another Space
 /// (scripts/cmux-next/fullscreen-transition.py).
@@ -24,7 +25,7 @@ final class DebugWindowTransition {
     private var start: CFTimeInterval = 0
     private var events: [JSONValue] = []
     private var layoutDurations: [Double] = []
-    private var observers: [NSObjectProtocol] = []
+    private var observers: [MainActorObservation] = []
     private var baseRootLayouts: UInt64 = 0
     private var baseResizeSends: UInt64 = 0
     private var baseGridReports: UInt64 = 0
@@ -79,18 +80,13 @@ final class DebugWindowTransition {
             (NSWindow.didChangeOcclusionStateNotification, "occlusion"),
         ]
         for (name, label) in names {
-            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
-                let window = note.object as? NSWindow
-                MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                    guard let window, window is ShellWindow else { return }
-                    self?.record(label, window)
-                }
+            observers.append(MainActorObservation(name, center: center, read: { $0.object as? NSWindow }) { [weak self] window in
+                guard let window, window is ShellWindow else { return }
+                self?.record(label, window)
             })
         }
-        observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification,
-                                                                           object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                self?.events.append(["t": .number(self?.now ?? 0), "e": "space"]) }
+        observers.append(MainActorObservation(NSWorkspace.activeSpaceDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
+            self?.events.append(["t": .number(self?.now ?? 0), "e": "space"])
         })
     }
 
@@ -101,10 +97,6 @@ final class DebugWindowTransition {
     }
 
     private func end() {
-        for observer in observers {
-            NotificationCenter.default.removeObserver(observer)
-            NSWorkspace.shared.notificationCenter.removeObserver(observer)
-        }
         observers.removeAll()
         isActive = false
     }

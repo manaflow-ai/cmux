@@ -15,6 +15,7 @@ enum OnboardingHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         registry.bind("importFromBrowser", run: { _ in services.onboarding.show(step: .importData) })
+        BrowserImportGate(host: services).install(into: registry) { BrowserImportOfferStrings.turnedOff }
         registry.bind("browserProfile.removeImportedData", run: { invocation in
             let record = try context.browserProfile(invocation), sync = services.onboarding.historySync
             Task {  // task-owner: one removal the person asked for; the toast reports it, or that it failed
@@ -54,7 +55,7 @@ enum OnboardingHandlers {
             track: { registry.track($0) },
             destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) }))
         registry.bind("browser.importCookies", run: { invocation in try cookieImports.run(invocation) })
-        // Import suggestion cards (Home, New Tab, Settings › Import): the same import run as the window's.
+        // Import suggestion cards (Settings › Import only): the same import run as the window's.
         ImportSuggestionsCenter.shared.bind(into: registry, host: importCardsHost(services))
         // Every entrypoint previews the exact snapshot and waits for the
         // person's answer before any browser, SSH host or agent is restored.

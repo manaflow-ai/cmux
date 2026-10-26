@@ -29,11 +29,13 @@ use page::{SCREENSHOT_TIMEOUT, parse_page, save_screenshot, takes_caller};
 pub(super) use run::{action_run_params, insert_run_key, request_with_retry, safe_to_resend};
 
 mod agent_open;
+mod batch;
 mod call;
 mod classic;
 mod events;
 mod keybinding;
 mod open;
+mod open_link;
 mod page;
 mod right;
 mod run;
@@ -54,6 +56,7 @@ pub(super) const APP_SCOPES: &[&str] = &[
     "bookmark",
     "accounts",
     "open",
+    "cloud",
     "keybinding",
     "ghostty",
     "errors",
@@ -188,6 +191,26 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         pick: None,
     };
     let command = match (scope.as_str(), rest.first().map(String::as_str)) {
+        ("cloud", Some("exec")) => {
+            let has_command = rest.iter().enumerate().any(|(index, argument)| {
+                argument.starts_with("--command=")
+                    || argument.strip_prefix("--arg=").is_some_and(|value| {
+                        value.starts_with("command=") && value.len() > "command=".len()
+                    })
+                    || (argument == "--command"
+                        && rest.get(index + 1).is_some_and(|value| !value.starts_with('-')))
+                    || (argument == "--arg"
+                        && rest.get(index + 1).is_some_and(|value| {
+                            value.starts_with("command=") && value.len() > "command=".len()
+                        }))
+            });
+            if rest.iter().any(|argument| argument == "--") || !has_command {
+                return Err(UsageError::new(
+                    "usage: cmux cloud exec --target machine:MACHINE_ID --command COMMAND",
+                ));
+            }
+            run_action("cloud exec", &rest[1..], ActionName::Cli)?
+        }
         ("open", _) => parse_open(rest)?,
         ("keybinding", _) => keybinding::parse(rest)?,
         ("app", Some("call")) => call::parse(rest)?,
@@ -214,14 +237,24 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             call("action.list", Value::Object(params))
         }
         ("action", Some("describe")) => {
-            let [id] = positional::<1>(&rest[1..], messages.action_describe_usage)?;
-            call("action.describe", json!({ "action": id }))
+            // CLI names contain spaces (for example `cloud exec`), so the
+            // shell's natural unquoted spelling remains one action name.
+            let words = &rest[1..];
+            if words.is_empty() || words.iter().any(|word| word.starts_with('-')) {
+                return Err(UsageError::new(messages.action_describe_usage));
+            }
+            call("action.describe", json!({ "action": words.join(" ") }))
         }
         ("action", Some("run")) => {
             let Some((id, tail)) = rest[1..].split_first() else {
                 return Err(UsageError::new(messages.action_run_usage));
             };
-            run_action(id, tail, ActionName::Any)?
+            // `-`: the actions on stdin, as one `action.batch` transaction.
+            if id == "-" {
+                batch::parse_batch(tail, &mut std::io::stdin().lock(), action_origin())?
+            } else {
+                run_action(id, tail, ActionName::Any)?
+            }
         }
         ("settings" | "config", Some(verb)) if settings::VERBS.contains(&verb) => {
             settings::parse(rest)?
@@ -484,7 +517,9 @@ pub(super) fn run_action(
             }
             _ => {
                 let key = argument_name(&name);
-                let value = if key == "path" || key == "out" { caller_path(value) } else { value };
+                // A file of the caller's working directory, for an app that runs elsewhere.
+                let file = matches!(key.as_str(), "path" | "out" | "bootstrapScript");
+                let value = if file { caller_path(value) } else { value };
                 arguments.insert(key, value);
             }
         }
@@ -667,6 +702,13 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {
+                if request.method == "browser.open_link" {
+                    status = status.max(open_link::run(global, stream, request));
+                    if stop_on_failure && status != 0 {
+                        break;
+                    }
+                    continue;
+                }
                 let timeout = Some(request.timeout());
                 if let Ran::Done(code) = call(
                     global,
@@ -692,8 +734,13 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
     }
     let cli_name = params.get("cli") == Some(&Value::Bool(true));
     // Runs that may create or close something carry a key, so a retry is not a second run.
-    let keyed =
-        ["action.run", "browser.page.new_tab", "browser.page.select_tab", "browser.page.close"];
+    let keyed = [
+        "action.run",
+        "action.batch",
+        "browser.page.new_tab",
+        "browser.page.select_tab",
+        "browser.page.close",
+    ];
     let key = if keyed.contains(&method) {
         match insert_run_key(&mut params, global.idempotency_key.as_deref()) {
             Ok(key) => Some(key),
@@ -1106,10 +1153,6 @@ pub(super) fn failure(code: &str, message: &str, output: OutputMode, exit_code: 
         output,
         exit_code,
     )
-}
-
-fn positional<const N: usize>(args: &[String], usage: &str) -> Result<[String; N], UsageError> {
-    <[String; N]>::try_from(args.to_vec()).map_err(|_| UsageError::new(usage))
 }
 
 /// `--key value` / `--key=value` options (repeatable) and boolean flags.

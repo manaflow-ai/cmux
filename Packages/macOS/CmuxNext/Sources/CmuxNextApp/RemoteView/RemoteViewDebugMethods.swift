@@ -1,6 +1,7 @@
 import CmuxNextControl
 import CmuxNextSettings
 import CmuxNextRemoteView
+import CmuxNextRemoteViewSessions
 import Foundation
 
 /// `debug.remote_view` (development builds): the live `remote_view` tabs and

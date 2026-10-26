@@ -3,6 +3,7 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import QuartzCore
 import Testing
 
 /// Lawrence 2026-10-20 (calm-sidebar-movement): "my sidebar is moving too much and it shows me the
@@ -45,13 +46,20 @@ struct SidebarBackgroundChangeCalmTests {
         return (sidebar, window)
     }
 
-    /// The workspace rows not yet at their slots: a row on a spring (`NSAnimationContext`
-    /// drives `frame` each display frame) is still at its old frame right after the change.
+    /// The workspace rows still moving right after the change: a row on the render server's spring
+    /// (`RowMotion.animate`) has its frame at the slot and an additive position spring on its layer; a
+    /// row a frame write left off its slot, or still fading in, moves too.
     private static func rowMotion(in list: SidebarListView) -> [String] {
         list.displayed.rows.compactMap { row -> String? in
             guard case .workspace = row.key, let view = list.rowViews[row.key] else { return nil }
             let target = list.frame(for: row)
-            return abs(view.frame.minY - target.minY) > 0.5 || view.alphaValue < 0.99 ? "\(row.key) at \(view.frame.minY), slot \(target.minY)" : nil
+            let springs = view.layer.map { layer in
+                (layer.animationKeys() ?? []).contains { key in
+                    (layer.animation(forKey: key) as? CASpringAnimation).map { $0.isAdditive && $0.keyPath == "position" } ?? false
+                }
+            } ?? false
+            return springs || abs(view.frame.minY - target.minY) > 0.5 || view.alphaValue < 0.99
+                ? "\(row.key) at \(view.frame.minY), slot \(target.minY)\(springs ? ", springing" : "")" : nil
         }
     }
 

@@ -60,9 +60,12 @@ struct DeepLinkAgentTests {
     }
 
     @Test func aTooLongSessionOrHarnessIsRefused() {
-        #expect(parse("cmux://agent/claude/" + String(repeating: "a", count: 201)) == nil)
+        #expect(parse("cmux://agent/claude/" + String(repeating: "a", count: 257)) == nil)
+        #expect(parse("cmux://agent/claude/" + String(repeating: "a", count: 256)) != nil)
+        #expect(parse("cmux://agent/claude/session:with:colon") != nil)
         #expect(parse("cmux://agent/" + String(repeating: "a", count: 65) + "/s1") == nil)
-        #expect(DeepLink(.agent(harness: "claude", session: String(repeating: "a", count: 201))).url(scheme: "cmux") == nil)
+        #expect(DeepLink(.agent(harness: "claude", session: String(repeating: "a", count: 256))).url(scheme: "cmux") != nil)
+        #expect(DeepLink(.agent(harness: "claude", session: String(repeating: "a", count: 257))).url(scheme: "cmux") == nil)
         #expect(DeepLink(.agent(harness: "Claude", session: "s1")).url(scheme: "cmux") == nil)
         #expect(DeepLink(.agent(harness: "claude", session: "...")).url(scheme: "cmux") == nil)
     }

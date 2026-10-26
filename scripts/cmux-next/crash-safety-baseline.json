@@ -18,12 +18,12 @@
    "cmux-remote": 44,
    "cmux-terminal-client": 1,
    "cmux-tui": 76,
-   "cmux-tui-core": 191,
+   "cmux-tui-core": 190,
    "cmux-tui-hooks": 11,
    "cmux-tui-platform": 1,
    "cmux-tui-remote-access": 1,
    "cmux-tui-util": 1,
-   "cmux-wg": 15
+   "cmux-wg": 3
   },
   "panic_macro": {
    "acpmux": 2,
@@ -33,12 +33,12 @@
    "cmux-tui-core": 26
   },
   "unwrap": {
-   "acpmux": 140,
+   "acpmux": 139,
    "chatmux-relay": 7,
    "cmux-remote": 4,
    "cmux-terminal-client": 30,
-   "cmux-tui": 435,
-   "cmux-tui-core": 1162,
+   "cmux-tui": 429,
+   "cmux-tui-core": 1149,
    "cmux-tui-image-paste": 22,
    "cmux-tui-platform": 17,
    "cmux-tui-remote-access": 5,
@@ -51,7 +51,7 @@
    "CmuxAuthRuntime": 7,
    "CmuxInstallAuthCore": 1,
    "CmuxIrohTransport": 4,
-   "CmuxNextApp": 5,
+   "CmuxNextApp": 4,
    "CmuxNextBrowserHost": 1,
    "CmuxNextDaemon": 1,
    "CmuxNextPalette": 1
@@ -60,7 +60,7 @@
    "CmuxNextAgentActivity": 2,
    "CmuxNextAgentCursor": 1,
    "CmuxNextAgentPane": 2,
-   "CmuxNextApp": 3,
+   "CmuxNextApp": 1,
    "CmuxNextBrowser": 12,
    "CmuxNextBrowserAutomation": 17,
    "CmuxNextDesign": 14,
@@ -86,7 +86,7 @@
    "CmuxMobileSupport": 4,
    "CmuxMobileTunnel": 4,
    "CmuxNextAgentPane": 2,
-   "CmuxNextApp": 4,
+   "CmuxNextApp": 3,
    "CmuxNextApps": 1,
    "CmuxNextBridge": 1,
    "CmuxNextBrowser": 4,
@@ -105,6 +105,82 @@
    "CmuxUpdater": 1,
    "MessagesLabHome": 14,
    "MessagesLabSidebar": 2
+  }
+ },
+ "waived": {
+  "rust": {
+   "exit": {
+    "acpmux": 4,
+    "cmux-browser-host": 4,
+    "cmux-tui-core": 3
+   },
+   "expect": {
+    "acpmux": 14,
+    "cmux-config": 2,
+    "cmux-layout-reducer": 4,
+    "cmux-local-auth": 2,
+    "cmux-terminal-sizing": 6,
+    "cmux-tui-core": 11,
+    "cmux-unix-socket": 1
+   },
+   "panic_macro": {
+    "acpmux": 2,
+    "cmux-pane-protocol": 1,
+    "cmux-server": 1,
+    "cmux-tui": 1,
+    "cmux-tui-core": 3
+   },
+   "unwrap": {
+    "acpmux": 7
+   }
+  },
+  "swift": {
+   "dynamic_dispatch": {
+    "CmuxNextAgentPane": 2,
+    "CmuxNextBrowser": 11,
+    "CmuxNextBrowserAutomation": 5,
+    "CmuxNextDesign": 1,
+    "CmuxNextPages": 1,
+    "CmuxNextPhone": 1,
+    "CmuxNextPopups": 2,
+    "CmuxNextResources": 2,
+    "CmuxVNCWebRTC": 1,
+    "MessagesLabHome": 1
+   },
+   "render_font": {
+    "MessagesLabHome": 16,
+    "MessagesLabSidebar": 5
+   },
+   "unchecked": {
+    "CMUXMobileCore": 1,
+    "CmuxAppAttest": 1,
+    "CmuxNextAgentActivity": 1,
+    "CmuxNextAgentPane": 5,
+    "CmuxNextApp": 5,
+    "CmuxNextChromiumRuntime": 1,
+    "CmuxNextCloud": 1,
+    "CmuxNextCompat": 10,
+    "CmuxNextCrashReporting": 11,
+    "CmuxNextDesign": 2,
+    "CmuxNextFiles": 2,
+    "CmuxNextHome": 1,
+    "CmuxNextPages": 1,
+    "CmuxNextPalette": 3,
+    "CmuxNextPhone": 1,
+    "CmuxNextPopups": 1,
+    "CmuxNextRemoteFetch": 1,
+    "CmuxNextRemoteView": 1,
+    "CmuxNextRemoteViewSessions": 1,
+    "CmuxNextSidebar": 2,
+    "CmuxNextSignposts": 1,
+    "CmuxNextTabs": 1,
+    "CmuxNextTasks": 1,
+    "CmuxNextVSCodeServer": 2,
+    "CmuxVNC": 2,
+    "CmuxVNCDemoServer": 3,
+    "CmuxVNCWebRTC": 19,
+    "MessagesLabHome": 1
+   }
   }
  }
 }
