@@ -119,7 +119,7 @@ struct CloudNewMachineTests {
 
     // MARK: The bootstrap
 
-    final class FakeMachine: @unchecked Sendable {
+    nonisolated final class FakeMachine: @unchecked Sendable {
         var writes: [(String, Data, Int)] = []
         var commands: [String] = []
         var startAnswer = CloudExecResult(exitCode: 0, stdout: "started\n", stderr: "")
