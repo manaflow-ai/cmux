@@ -56,8 +56,13 @@ Inputs (paths relative to --root, the repository by default):
          header does not declare yet (with a `fork_api`); they take op ids after the header's, and
          the host calls them through ctx.OptionalExport. `optional_events` are event kinds
          CEFShimEvent.swift decodes that cmux_shim_event_kind_t does not list yet.
-         `host_mode_rewrites` are Swift sites the remote shim cannot keep as they are;
-         --check-return-use and --check-pre-attach accept a listed site's calls of its exports.
+         `host_mode_rewrites` are Swift sites the remote shim cannot keep as they are, and the
+         sites that stay as written (needs `kept`, `change` says why: in-process-only code, a
+         local the remote answers the same way); --check-return-use and --check-pre-attach accept
+         a listed site's calls of its exports. --swift-sites drops a site that is done: one listed
+         with needs after_attach, host_exit or kept, and an async or mint call in the token form,
+         inside a closure handed to CEFRuntime's sendAsync, siteCall or profileWrite
+         (CEFRuntime+HostReplies.swift), which await the answer the same way in both backends.
 
 Outputs (written by a run without a check flag; --check fails when one is stale):
 
@@ -181,7 +186,15 @@ OPTIONAL_EXPORT_FIELDS = EXPORT_FIELDS | {"fork_api"}  # fork_api: the fork API 
 DOCUMENTED_FIELDS = EXPORT_FIELDS | set(TOP_LISTS)  # what `fields` in the ops JSON explains
 EVENT_FIELDS = {"kind", "value", "refreshes", "reason"}
 REWRITE_FIELDS = {"site", "exports", "needs", "change", "task"}
-REWRITE_NEEDS = ("after_attach", "reply", "pending_tab", "host_exit")
+REWRITE_NEEDS = ("after_attach", "reply", "pending_tab", "host_exit", "kept")
+# A listed site with one of these needs is done as the entry says; a `reply` site is done only in the
+# token form (TOKEN_FORM_CALLS), and a `pending_tab` one by its task's code.
+SETTLED_NEEDS = ("after_attach", "host_exit", "kept")
+# CEFRuntime functions that send an async op and await its answer the same way in both backends
+# (CEFRuntime+HostReplies.swift, task p01-process-021): a call in a closure handed to one is in the
+# token form, and --swift-sites no longer lists it.
+TOKEN_FORM_CALLS = ("sendAsync", "siteCall", "profileWrite")
+TOKEN_FORM_CLASSES = ("async", "mint")
 MINT_RETURNS = ("id", "sent")  # the minted id at once, or 1 when sent (the id arrives in reply_event)
 REPLY_WIRE = "wire:REPLY"  # the control channel's REPLY frame answers the call
 ARG_PREFIX = "arg_"  # every C argument in generated code; generator locals never start with it
@@ -1755,6 +1768,7 @@ class Site:
     owner: str = ""  # the innermost type declaration around the call ("" at file scope)
     function: str = ""  # the innermost func, init or computed var around the call
     offset: int = 0  # in the file's text
+    token_form: bool = False  # in a closure handed to one of TOKEN_FORM_CALLS
 
 
 def shim_properties(root: Path) -> dict[str, str]:
@@ -2009,8 +2023,54 @@ def swift_sites(root: Path) -> list[Site]:
             start = expression_start(masked, begin)
             owner, function = context_at(scopes, begin)
             sites.append(Site(rel, masked.count("\n", 0, begin) + 1, export, prop,
-                              result_used(masked, start, close + 1), owner, function, begin))
+                              result_used(masked, start, close + 1), owner, function, begin,
+                              in_token_form(masked, scopes, begin)))
     return sites
+
+
+def closure_callee(masked: str, brace: int) -> str:
+    """The function a closure that opens at `brace` is handed to: `f(...) {`, `f {` or `f(x, label: {`;
+    "" when the brace opens no argument closure."""
+    left = masked[:brace].rstrip()
+    if left.endswith(")"):  # a trailing closure after the call's parentheses
+        left = masked[:matching_open(masked, len(left) - 1, "(", ")")].rstrip()
+    elif left.endswith(("(", ",", ":")):  # an argument: the call is the unclosed `(` before it
+        depth = 0
+        for i in range(brace - 1, -1, -1):
+            if masked[i] in ")]}":
+                depth += 1
+            elif masked[i] in "([{":
+                if depth == 0:
+                    if masked[i] != "(":
+                        return ""
+                    left = masked[:i].rstrip()
+                    break
+                depth -= 1
+        else:
+            return ""
+    m = re.search(r"\b([A-Za-z_]\w*)$", left)
+    return m.group(1) if m else ""
+
+
+def in_token_form(masked: str, scopes: list[Scope], index: int) -> bool:
+    """Whether the call at `index` is inside a closure handed to one of TOKEN_FORM_CALLS, within the
+    innermost function around it."""
+    floor = max((s.open for s in scopes if s.kind == "func" and s.open < index < s.close), default=-1)
+    brace = enclosing_brace(masked, index)
+    while brace > floor:
+        if closure_callee(masked, brace) in TOKEN_FORM_CALLS:
+            return True
+        brace = enclosing_brace(masked, brace)
+    return False
+
+
+def site_settled(model: Model, site: Site, op: Op) -> bool:
+    """Whether a call site already meets host mode, so --swift-sites no longer lists it: an async or
+    mint call in the token form, or a site a host_mode_rewrites entry settles (SETTLED_NEEDS)."""
+    if site.token_form and op.cls in TOKEN_FORM_CLASSES:
+        return True
+    rewrite = rewrite_for(model, site)
+    return rewrite is not None and rewrite.needs in SETTLED_NEEDS
 
 
 def swift_files(root: Path) -> list[tuple[str, str, list[Scope]]]:
@@ -2294,7 +2354,7 @@ def report_sites(model: Model, root: Path, args: argparse.Namespace) -> int:
     rows = []
     for site in swift_sites(root):
         op = model.ops.get(site.export)
-        if op is None:
+        if op is None or site_settled(model, site, op):
             continue
         reasons = site_reasons(model, op, site)
         if reasons:

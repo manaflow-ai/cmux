@@ -106,6 +106,8 @@ final class CEFPaneHost {
     private var hostVisibilityPending = false
     /// Tabs shown before their browser existed, created once the frame committed (`createAfterCommit`).
     private(set) var deferredCreations: [WeakCEFTab] = []
+    /// Host mode: tabs whose window waits for the host's verdict on their profile's proxy (`createAfterProfileProxy`).
+    private var profileProxyWaits: Set<ObjectIdentifier> = []
 
     /// The host view's visibility is derived: hidden unless the shown tab is
     /// not concealed. A conceal queues one pass for the end of this run-loop
@@ -237,9 +239,16 @@ final class CEFPaneHost {
             }
             // A browser profile's own proxy (#24432), also before the first
             // request: a page the shim cannot proxy never opens (fail closed).
-            if tab.machineStore == nil, !key.offTheRecord, key.machineKey == nil, !runtime.applyProfileProxy(key.profile) {
-                tab.creationFailed()
-                return false
+            if tab.machineStore == nil, !key.offTheRecord, key.machineKey == nil {
+                switch runtime.applyProfileProxy(key.profile) {
+                case .open: break
+                case .refused:
+                    tab.creationFailed()
+                    return false
+                case .waiting:
+                    createAfterProfileProxy(tab)
+                    return false
+                }
             }
             tab.isCreationPending = true
             windowTab = tab
@@ -369,6 +378,22 @@ final class CEFPaneHost {
         let waiting = tabs.filter { $0.browserID == nil && $0.isCreationPending }
         for tab in waiting { tab.isCreationPending = false }
         endOfTurn { [weak self] in self?.recreateWindow(for: waiting) }
+    }
+
+    /// Host mode: asks for `tab`'s window once the host applied its profile's proxy, or fails the tab
+    /// when the host refused it (fail closed, as `ensureCreated` does in process).
+    private func createAfterProfileProxy(_ tab: CEFTab) {
+        let id = ObjectIdentifier(tab)
+        guard profileProxyWaits.insert(id).inserted else { return }
+        runtime.whenProfileProxyApplied(key.profile) { [weak self, weak tab] applied in
+            // Out of the REPLY's delivery, as recreateWindow runs out of OnAfterCreated.
+            self?.endOfTurn { [weak self, weak tab] in
+                self?.profileProxyWaits.remove(id)
+                guard let self, let tab, !tab.isClosed, tabs.contains(where: { $0 === tab }) else { return }
+                guard applied else { return tab.creationFailed() }
+                if ensureCreated(tab), visibleTab === tab, !tab.awaitsWindowMove { showBrowser(of: tab, activate: false) }
+            }
+        }
     }
 
     private func recreateWindow(for waiting: [CEFTab]) {

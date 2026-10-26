@@ -502,6 +502,58 @@ expect 1 "CEFReads.swift:7:" "only the head of a site names functions" -- --root
 edit_ops "$rewrite" 'd["host_mode_rewrites"][0]["site"] = "CmuxNextBrowser/CEF/CEFReads.swift: moves() and other()"'
 expect 0 "0 stand-in results read" "a site that names two functions" -- --root "$rewrite" --check-return-use
 
+# --swift-sites drops a site that is done (task p01-process-021): an async or mint call in the token
+# form (inside a closure handed to sendAsync, siteCall or profileWrite) and a site listed with needs
+# kept. A `reply` entry alone does not settle a site: its call must take the token form.
+settled="$work/settled"
+fixture "$settled"
+cat >"$settled/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFAsync.swift" <<'EOF'
+extension CEFRuntime {
+    func cookies() async throws -> CEFSiteReply {
+        let reply = try await siteCall(1, what: "visit") { shim, id in shim.visitCookies(1, id) }
+        return reply
+    }
+
+    func sent() -> Int32 {
+        let answer = sendAsync { shim in
+            "x".withCString { _ in shim.visitCookies(1, 2) }
+        }
+        return 0
+    }
+
+    func direct(_ shim: CEFShimLibrary) -> Bool {
+        shim.visitCookies(1, 3) == 1
+    }
+
+    func window(_ shim: CEFShimLibrary) -> Int32 {
+        shim.createWindow(1, nil, 1, 1, nil)
+    }
+
+    func later(_ shim: CEFShimLibrary) {
+        let answer = sendAsync { _ in 0 }
+        _ = shim.visitCookies(1, 4)
+    }
+}
+EOF
+sites="$(python3 "$gen" --root "$settled" --swift-sites)"
+for line in 3 9; do
+  grep -q "CEFAsync.swift:$line"$'\t' <<<"$sites" && fail "a call in the token form is listed (line $line): $sites"
+done
+for line in 15 19 24; do
+  grep -q "CEFAsync.swift:$line"$'\t' <<<"$sites" || fail "a site not in the token form is not listed (line $line): $sites"
+done
+edit_ops "$settled" 'd["host_mode_rewrites"] = [
+  {"site": "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.window(_:)", "exports": ["cmux_shim_create_window"],
+   "needs": "kept", "change": "returns the minted id", "task": "p01-process-021"},
+  {"site": "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.direct(_:)", "exports": ["cmux_shim_visit_cookies"],
+   "needs": "reply", "change": "awaits the reply", "task": "p01-process-021"}]'
+expect 0 "" "kept and reply entries are valid" -- --root "$settled" --check-ops
+sites="$(python3 "$gen" --root "$settled" --swift-sites)"
+grep -q $'CEFAsync.swift:19\t' <<<"$sites" && fail "a kept site is listed: $sites"
+grep -q $'CEFAsync.swift:15\t' <<<"$sites" || fail "a reply entry settled a call not in the token form: $sites"
+edit_ops "$settled" 'd["host_mode_rewrites"][0]["needs"] = "later"'
+expect 1 "needs 'later' is not one of" "an unknown needs" -- --root "$settled" --check-ops
+
 # --check-pre-attach: a mirror read on the startup path (CEFRuntime.initialize and what it hands the
 # shim to) needs a host_mode_rewrites entry with needs after_attach.
 attach="$work/pre-attach"
