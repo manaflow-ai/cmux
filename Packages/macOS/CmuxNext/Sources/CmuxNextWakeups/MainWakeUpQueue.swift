@@ -14,10 +14,12 @@ import Foundation
 /// - Fire dates snapped up to a grid of `CLOCK_UPTIME_RAW` nanoseconds and clamped to the latest time
 ///   (`MessagePump::AdjustDelayedRunTime` under `kAlignWakeUps`, base/message_loop/message_pump.cc);
 ///   precise entries are never snapped. The grid and leeway of each entry are ``WakeLeeway``'s.
-/// - The sub-second grid is the injected ``EnergyPolicySource``'s `wakeAlignment`: 8 ms, 32 ms under
-///   Energy Saver (`SetBatterySaverMode` -> `MessagePump::OverrideAlignWakeUpsState(true, 32 ms)`,
-///   content/child/child_thread_impl.cc). A switch moves every pending flexible sub-second entry made
-///   with a delay onto the new grid; precise entries, whole-second entries and explicit windows keep theirs.
+/// - The sub-second grid and leeway are the injected ``EnergyPolicySource``'s `wakeAlignment`: 8 ms,
+///   32 ms under Energy Saver (`SetBatterySaverMode` -> `MessagePump::OverrideAlignWakeUpsState(true, 32 ms)`,
+///   content/child/child_thread_impl.cc). As in Chrome, an entry's leeway is fixed when it is inserted
+///   (`PendingTask::latest_delayed_run_time`, base/pending_task.cc) and the grid is applied at wake time
+///   (`AdjustDelayedRunTime`): a switch snaps every pending flexible sub-second entry to the new grid,
+///   never past the latest time it was inserted with. Precise and whole-second entries keep theirs.
 ///
 /// ``insert(owner:after:policy:_:)`` and ``cancel(_:)`` work from any thread. An insert re-arms the
 /// timer only when it makes the fire date earlier; otherwise it costs no wake. A fire runs every due
@@ -49,17 +51,21 @@ public final class MainWakeUpQueue: Sendable {
         /// True while ``fire()`` runs: it arms the timer once at its end, so inserts made meanwhile do not.
         var firing = false
         var timer: (any MainWakeUpTimer)?
-        /// The sub-second grid and leeway now (the energy policy's `wakeAlignment`).
+        /// A re-arm moved the fire date later (or parked the timer) since the last fire, so a fire may
+        /// still come for the old date: ``fire()`` judges it at the uptime, not at ``armed``.
+        var movedLater = false
+        /// The sub-second leeway of new entries (the energy policy's `wakeAlignment`; the heap holds the grid).
         var alignment: Duration
-        /// The pending entries whose window follows ``alignment``: their deadline and window.
-        var followers: [UInt64: (deadline: UInt64, window: WakeLeeway)] = [:]
         var energyObservation: EnergyPolicyObservation?
     }
 
     /// The timer is armed with the lock held, so two inserts on different threads can not arm in the
     /// opposite order of their dates (a late arm would delay the earlier deadline). CFRunLoop calls a
-    /// timer out with none of its own locks held, so the two locks are always taken in the same order.
+    /// timer out with none of its own locks held, and the energy source's lock is a leaf (``realign()``
+    /// reads it inside this one; the source calls observers outside its lock), so locks are always taken
+    /// in the same order.
     private let state: Mutex<State>
+    private let energy: EnergyPolicySource
     private let ledger: WakeupLedger
     private let uptime: @Sendable () -> UInt64
 
@@ -67,11 +73,12 @@ public final class MainWakeUpQueue: Sendable {
     ///
     /// - Parameters:
     ///   - energy: The policy whose `wakeAlignment` is the sub-second grid and leeway of flexible entries
-    ///     (``WakeLeeway/defaultAlignment``; ``WakeLeeway/saverAlignment`` under Energy Saver).
+    ///     (``WakeLeeway/defaultAlignment``; ``WakeLeeway/saverAlignment`` under Energy Saver): the
+    ///     composition root's one source. It has no default, so no queue misses the saver silently.
     ///   - ledger: Where each fire and each entry that runs are counted (`debug.wakeups`).
     ///   - uptime: Monotonic nanoseconds, `CLOCK_UPTIME_RAW` (tests inject a fake).
     public convenience init(
-        energy: EnergyPolicySource = .normal,
+        energy: EnergyPolicySource,
         ledger: WakeupLedger = .shared,
         uptime: @escaping @Sendable () -> UInt64 = WakeupLedger.systemUptime
     ) {
@@ -87,23 +94,22 @@ public final class MainWakeUpQueue: Sendable {
         uptime: @escaping @Sendable () -> UInt64,
         makeTimer: @Sendable (@escaping Action) -> any MainWakeUpTimer
     ) {
-        state = Mutex(State(alignment: energy.policy.wakeAlignment))
+        state = Mutex(State(alignment: WakeLeeway.defaultAlignment))
+        self.energy = energy
         self.ledger = ledger
         self.uptime = uptime
         let fire: Action = { [weak self] in self?.fire() }
         state.withLock { $0.timer = makeTimer(fire) }
-        let observation = energy.observe { [weak self] policy in self?.realign(to: policy.wakeAlignment) }
+        let observation = energy.observe { [weak self] _ in self?.realign() }
         state.withLock { $0.energyObservation = observation }
-        // A switch between the first read and the observation would be missed.
-        realign(to: energy.policy.wakeAlignment)
+        realign()
     }
 
     /// Entries waiting to run.
     public var count: Int { state.withLock { $0.heap.count } }
 
     /// Runs `action` on the main thread `delay` from now, in the window ``WakeLeeway`` gives `delay` and
-    /// `policy` at the energy policy's alignment; a flexible sub-second entry moves to the new grid when
-    /// the policy switches. Callable from any thread.
+    /// `policy` at the energy policy's alignment. Callable from any thread.
     @discardableResult
     public func insert(
         owner: String, after delay: Duration, policy: DelayPolicy = .flexibleNoSooner, _ action: @escaping Action
@@ -112,9 +118,7 @@ public final class MainWakeUpQueue: Sendable {
         let deadline = overflow ? .max : sum
         return state.withLock { state in
             let window = WakeLeeway.window(delay: delay, policy: policy, alignment: state.alignment)
-            let token = add(&state, owner: owner, deadline: deadline, window: window, action)
-            if Self.followsAlignment(window) { state.followers[token.id] = (deadline, window) }
-            return token
+            return add(&state, owner: owner, deadline: deadline, window: window, action)
         }
     }
 
@@ -122,7 +126,8 @@ public final class MainWakeUpQueue: Sendable {
     /// (`PendingTask::earliest_delayed_run_time` / `latest_delayed_run_time`, base/pending_task.cc):
     /// `.precise` exactly at `deadline`; `.flexibleNoSooner` up to the leeway after it;
     /// `.flexiblePreferEarly` up to the leeway before it. A `deadline` that has passed runs on the next
-    /// fire. The window stays as given when the energy policy switches. Callable from any thread.
+    /// fire. A flexible sub-second window snaps to the energy policy's grid at wake time, inside its own
+    /// earliest and latest times. Callable from any thread.
     @discardableResult
     public func insert(owner: String, at deadline: UInt64, window: WakeLeeway, _ action: @escaping Action) -> Token {
         state.withLock { add(&$0, owner: owner, deadline: deadline, window: window, action) }
@@ -136,19 +141,16 @@ public final class MainWakeUpQueue: Sendable {
         return Token(id: id)
     }
 
-    /// Puts every follower onto `alignment` (grid and leeway) and re-arms, also to a later date: the
-    /// saver's 32 ms grid may fire a pending entry later than the 8 ms one did, never after its new latest.
-    /// Called on the energy source's writer thread.
-    func realign(to alignment: Duration) {
+    /// Takes the energy policy's alignment as the leeway of new entries and the grid of pending ones, and
+    /// re-arms, also to a later date (never past the top's latest time). The policy is read inside the
+    /// queue's lock, so of two racing calls the later one sees the newer policy (the source updates its
+    /// value before it calls observers). Called on the energy source's writer thread.
+    private func realign() {
         state.withLock { state in
+            let alignment = energy.policy.wakeAlignment
             guard state.alignment != alignment else { return }
             state.alignment = alignment
-            for (id, follower) in state.followers {
-                guard let old = state.heap.remove(id: id) else { continue }
-                let window = WakeLeeway.window(delay: follower.window.delay, policy: follower.window.policy, alignment: alignment)
-                state.heap.insert(Self.entry(id: id, owner: old.owner, deadline: follower.deadline, window: window, old.payload))
-                state.followers[id] = (follower.deadline, window)
-            }
+            state.heap.alignment = alignment.nanosecondCount
             rearm(&state, onlyIfEarlier: false)
         }
     }
@@ -156,7 +158,8 @@ public final class MainWakeUpQueue: Sendable {
     private static func entry(id: UInt64, owner: String, deadline: UInt64, window: WakeLeeway, _ action: @escaping Action)
         -> MainWakeUpHeap<Action>.Entry {
         .init(id: id, earliest: window.earliest(deadline: deadline), latest: window.latest(deadline: deadline),
-              grid: window.policy == .precise ? 0 : window.grid.nanosecondCount, owner: owner, payload: action)
+              grid: window.policy == .precise ? 0 : window.grid.nanosecondCount, followsAlignment: followsAlignment(window),
+              owner: owner, payload: action)
     }
 
     /// Only a flexible window below one second sits on the alignment grid (``WakeLeeway``'s table).
@@ -170,7 +173,6 @@ public final class MainWakeUpQueue: Sendable {
     public func cancel(_ token: Token) -> Bool {
         state.withLock { state in
             guard state.heap.remove(id: token.id) != nil else { return false }
-            state.followers[token.id] = nil
             rearm(&state, onlyIfEarlier: false)
             return true
         }
@@ -181,20 +183,24 @@ public final class MainWakeUpQueue: Sendable {
     /// An entry inserted while it runs (by an entry or by another thread) that is already due runs in the
     /// same pass. "Due" is judged at the armed date when the fire comes before it: the uptime to
     /// `CFAbsoluteTime` conversion can land a fire microseconds early, and a fire that ran nothing would
-    /// cost a second wake. After ``sliceBudget`` the fire stops and arms the timer for the next due entry,
-    /// a date that has passed, so the run loop handles input first and then fires again at once.
+    /// cost a second wake. After a re-arm to a later date the fire may be for the old date, so it is
+    /// judged at the uptime: no entry runs before its earliest time. After ``sliceBudget`` the fire stops
+    /// and arms the timer for the next due entry, a date that has passed, so the run loop handles input
+    /// first and then fires again at once.
     @MainActor
     func fire() {
         let now = state.withLock { state in
-            let time = max(uptime(), state.armed ?? 0)
+            let up = uptime()
+            let time = state.movedLater ? up : max(up, state.armed ?? 0)
             // CFRunLoop parks a repeating timer after its callout unless the callout arms it again.
             state.armed = nil
+            state.movedLater = false
             state.firing = true
             return time
         }
         ledger.record(Self.ledgerOwner, reason: "fire")
         let start = uptime()
-        while withinSlice(since: start), let entry = state.withLock({ Self.popDue(&$0, now: now) }) {
+        while withinSlice(since: start), let entry = state.withLock({ $0.heap.popDue(now: now) }) {
             ledger.record(entry.owner, reason: "deadline")
             entry.payload()
         }
@@ -202,12 +208,6 @@ public final class MainWakeUpQueue: Sendable {
             state.firing = false
             rearm(&state, onlyIfEarlier: false)
         }
-    }
-
-    private static func popDue(_ state: inout State, now: UInt64) -> MainWakeUpHeap<Action>.Entry? {
-        let entry = state.heap.popDue(now: now)
-        if let entry { state.followers[entry.id] = nil }
-        return entry
     }
 
     /// True until ``sliceBudget`` has passed since `start`; a clock that went back counts as no time.
@@ -224,10 +224,14 @@ public final class MainWakeUpQueue: Sendable {
             if state.armed != nil {
                 timer.park()
                 state.armed = nil
+                state.movedLater = true
             }
             return
         }
-        if let armed = state.armed, wakeUp.date == armed || (onlyIfEarlier && wakeUp.date > armed) { return }
+        if let armed = state.armed {
+            if wakeUp.date == armed || (onlyIfEarlier && wakeUp.date > armed) { return }
+            if wakeUp.date > armed { state.movedLater = true }
+        }
         timer.arm(at: wakeUp.date, tolerance: wakeUp.tolerance, now: uptime())
         state.armed = wakeUp.date
     }

@@ -32,7 +32,8 @@ struct MainWakeUpQueueTests {
 
     @Test("Aligned fire dates are exact multiples of the grid in uptime ns", arguments: [WakeLeeway.defaultAlignment, WakeLeeway.saverAlignment])
     func gridMultiples(alignment: Duration) throws {
-        let rig = Rig()
+        let saver = alignment == WakeLeeway.saverAlignment
+        let rig = Rig(energy: EnergyPolicySource(EnergyPolicy(saverReason: saver ? .setting : nil)))
         let grid = alignment.nanosecondCount
         var deadline: UInt64 = 900 * Self.ms + 123_457
         for step in 0..<40 {
@@ -152,6 +153,31 @@ struct MainWakeUpQueueTests {
         #expect(rig.fires == 2 && rig.queue.count == 0)
     }
 
+    @Test("A fire for a date that a cancel moved later runs nothing before its earliest time")
+    func staleFireAfterLaterRearm() {
+        let rig = Rig()
+        let log = RunLog()
+        let first = rig.queue.insert(owner: "a", at: 100 * Self.ms, window: .window(delay: .milliseconds(100))) { log.ran.append(100) }
+        rig.queue.insert(owner: "b", at: 120 * Self.ms, window: .window(delay: .milliseconds(100))) { log.ran.append(120) }
+        #expect(rig.timer.armedDate == 104 * Self.ms)
+        rig.queue.cancel(first)
+        #expect(rig.timer.armedDate == 120 * Self.ms)
+
+        rig.uptime.now = 104 * Self.ms
+        rig.timer.fired()
+        rig.queue.fire()
+
+        #expect(log.ran.isEmpty, "the 120 ms entry does not run 16 ms early")
+        #expect(rig.timer.armedDate == 120 * Self.ms)
+        rig.fire()
+        #expect(log.ran == [120])
+        rig.queue.insert(owner: "c", at: 200 * Self.ms, window: .window(delay: .milliseconds(100))) { log.ran.append(200) }
+        rig.uptime.now = 200 * Self.ms - 3_000
+        rig.timer.fired()
+        rig.queue.fire()
+        #expect(log.ran == [120, 200], "with no later re-arm since the last fire, a fire just before the armed date runs it")
+    }
+
     @Test("A fire a little before the armed date still runs what that date is for")
     func earlyFireRunsArmedEntries() {
         let rig = Rig()
@@ -183,7 +209,7 @@ struct MainWakeUpQueueTests {
 
     // MARK: Energy Saver (p14-energy-023)
 
-    @Test("Energy Saver moves pending flexible entries onto the 32 ms grid and leaves precise ones")
+    @Test("Energy Saver snaps pending flexible entries to the 32 ms grid inside the latest they were inserted with")
     func saverRealignsFlexibleEntries() {
         let energy = EnergyPolicySource()
         let rig = Rig(energy: energy)
@@ -200,40 +226,51 @@ struct MainWakeUpQueueTests {
         #expect(rig.timer.arms.count == armsBefore, "the precise entry still fires first, at the same date: no re-arm")
         rig.fire()
         #expect(log.ran == [30])
-        #expect(rig.timer.arms.last == FakeTimer.Arm(date: 128 * Self.ms, tolerance: 4 * Self.ms),
-                "100 ms on the 32 ms grid (not 104 ms), inside its new 132 ms latest")
+        #expect(rig.timer.arms.last == FakeTimer.Arm(date: 108 * Self.ms, tolerance: 0),
+                "the 32 ms grid would say 128 ms; the entry keeps its 108 ms latest (AdjustDelayedRunTime)")
+        rig.queue.insert(owner: "posted", after: .milliseconds(100)) { log.ran.append(130) }
         rig.fire()
-        #expect(rig.timer.arms.last == FakeTimer.Arm(date: 480 * Self.ms, tolerance: 2 * Self.ms))
+        #expect(log.ran == [30, 100])
+        #expect(rig.timer.arms.last == FakeTimer.Arm(date: 160 * Self.ms, tolerance: 2 * Self.ms),
+                "inserted under the saver at 30 ms: 32 ms leeway, 130 ms on the 32 ms grid")
+        rig.fire()
+        #expect(rig.timer.arms.last == FakeTimer.Arm(date: 458 * Self.ms, tolerance: 0), "480 ms clamped to its 458 ms latest")
         rig.fire()
         #expect(rig.timer.arms.last == FakeTimer.Arm(date: 5_000 * Self.ms, tolerance: 500 * Self.ms),
                 "a whole-second entry keeps its grid and its 10% leeway")
         rig.fire()
-        #expect(log.ran == [30, 100, 450, 5_000])
+        #expect(log.ran == [30, 100, 130, 450, 5_000])
     }
 
-    @Test("Inserts use the alignment now; a switch back returns entries to 8 ms; cancel finds a moved entry")
+    @Test("Inserts under the saver take its 32 ms leeway; a switch back snaps them to the 8 ms grid at once")
     func switchBackAndCancel() {
         let energy = EnergyPolicySource(EnergyPolicy(saverReason: .setting))
         let rig = Rig(energy: energy)
-        let moved = rig.queue.insert(owner: "a", after: .milliseconds(100)) {}
+        let first = rig.queue.insert(owner: "a", after: .milliseconds(100)) {}
         rig.queue.insert(owner: "b", after: .milliseconds(200)) {}
         #expect(rig.timer.armedDate == 128 * Self.ms, "made under the saver: on the 32 ms grid")
 
         energy.update(.normal)
 
         #expect(rig.timer.armedDate == 104 * Self.ms, "back on the 8 ms grid: an earlier re-arm")
-        #expect(rig.queue.cancel(moved))
+        #expect(rig.queue.cancel(first))
         #expect(rig.timer.armedDate == 200 * Self.ms)
     }
 
-    @Test("An explicit window keeps its grid; a change that keeps the alignment re-arms nothing")
-    func explicitWindowKeepsItsGrid() {
+    @Test("An explicit sub-second window follows the grid too; whole-second ones and unchanged alignments do not")
+    func explicitWindowFollowsTheGrid() {
         let energy = EnergyPolicySource()
         let rig = Rig(energy: energy)
         rig.queue.insert(owner: "explicit", at: 100 * Self.ms, window: .window(delay: .milliseconds(100))) {}
+        rig.queue.insert(owner: "seconds", at: 2_000 * Self.ms, window: .window(delay: .seconds(2))) {}
         energy.update(EnergyPolicy(onBattery: true))
+        #expect(rig.timer.arms.map(\.date) == [104 * Self.ms], "the alignment did not change: no re-arm")
+
         energy.update(EnergyPolicy(saverReason: .battery, onBattery: true))
-        #expect(rig.timer.arms.map(\.date) == [104 * Self.ms])
+
+        #expect(rig.timer.arms.map(\.date) == [104 * Self.ms, 108 * Self.ms], "128 ms clamped to the 108 ms latest")
+        rig.fire()
+        #expect(rig.timer.arms.last == FakeTimer.Arm(date: 2_000 * Self.ms, tolerance: 200 * Self.ms))
     }
 
     @Test("A released queue stops observing the energy policy")

@@ -17,9 +17,28 @@ struct MainWakeUpHeap<Payload> {
         let latest: UInt64
         /// The boundary its fire date snaps up to, in ns; 0 for an exact (precise) entry.
         let grid: UInt64
+        /// It snaps to the heap's ``MainWakeUpHeap/alignment`` at wake time instead of `grid` (a flexible
+        /// sub-second entry).
+        let followsAlignment: Bool
         let owner: String
         let payload: Payload
+
+        init(id: UInt64, earliest: UInt64, latest: UInt64, grid: UInt64, followsAlignment: Bool = false,
+             owner: String, payload: Payload) {
+            self.id = id
+            self.earliest = earliest
+            self.latest = latest
+            self.grid = grid
+            self.followsAlignment = followsAlignment
+            self.owner = owner
+            self.payload = payload
+        }
     }
+
+    /// The grid of entries that follow the alignment, in ns (> 0): 8 ms, 32 ms under Energy Saver. It is
+    /// read at wake time, as `MessagePump::AdjustDelayedRunTime` reads the current leeway, so a change
+    /// moves no entry: each keeps the latest time it was posted with.
+    var alignment: UInt64 = WakeLeeway.defaultAlignment.nanosecondCount
 
     private var entries: [Entry] = []
     private var positions: [UInt64: Int] = [:]
@@ -53,14 +72,16 @@ struct MainWakeUpHeap<Payload> {
     /// system may add to share the wake with other processes; nil when empty.
     ///
     /// `MessagePump::AdjustDelayedRunTime` (base/message_loop/message_pump.cc) under `kAlignWakeUps`:
-    /// the top's earliest time snapped up to the next multiple of its grid (counted from uptime zero, so
+    /// the top's earliest time snapped up to the next multiple of its grid (``alignment`` for an entry that
+    /// follows it; counted from uptime zero, so
     /// every queue in the process lands on the same ticks), clamped to its latest time. The top has the
     /// smallest latest time, so the fire is never after any entry's latest, and the tolerance runs to
     /// that latest time. An exact top fires at its own time with no tolerance.
     func wakeUp() -> (date: UInt64, tolerance: UInt64)? {
         guard let top = entries.first else { return nil }
-        guard top.grid > 0 else { return (top.earliest, 0) }
-        let date = min(Self.alignUp(top.earliest, grid: top.grid), top.latest)
+        let grid = top.followsAlignment ? max(alignment, 1) : top.grid
+        guard grid > 0 else { return (top.earliest, 0) }
+        let date = min(Self.alignUp(top.earliest, grid: grid), top.latest)
         return (date, top.latest - date)
     }
 

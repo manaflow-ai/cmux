@@ -7,15 +7,10 @@ import CmuxNextCompat
 /// It never repeats. ``schedule(after:_:)`` replaces a pending deadline
 /// (reset); ``cancel()`` drops it. The clock is injected so tests do not
 /// wait. Each fire records one wakeup in the ledger under `owner`.
-///
-/// A deadline may fire late by its ``WakeLeeway`` (8 ms below 1 s, 32 ms
-/// under Energy Saver, the energy policy's `wakeAlignment`), never early, so
-/// the system coalesces nearby wakes.
 public final class DemandTimer: Sendable {
     public let owner: String
     private let clock: any Clock<Duration>
     private let ledger: WakeupLedger
-    private let energy: EnergyPolicySource
     private let state = Mutex<State>(State())
 
     private struct State {
@@ -23,12 +18,10 @@ public final class DemandTimer: Sendable {
         var task: Task<Void, Never>?
     }
 
-    public init(owner: String, clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
-                energy: EnergyPolicySource = .normal) {
+    public init(owner: String, clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared) {
         self.owner = owner
         self.clock = clock
         self.ledger = ledger
-        self.energy = energy
     }
 
     deinit {
@@ -41,13 +34,12 @@ public final class DemandTimer: Sendable {
     /// Runs `action` once after `delay`, replacing any pending deadline.
     public func schedule(after delay: Duration, _ action: @escaping @isolated(any) @Sendable () async -> Void) {
         let clock = clock
-        let window = WakeLeeway.window(delay: delay, alignment: energy.policy.wakeAlignment)
         state.withLock { state in
             state.task?.cancel()
             state.generation &+= 1
             let generation = state.generation
             state.task = Task { [weak self] in
-                do { try await clock.sleep(for: window.sleepDelay, tolerance: window.tolerance) } catch { return }
+                do { try await clock.sleep(for: delay) } catch { return }
                 guard let self, self.take(generation) else { return }
                 self.ledger.record(self.owner, reason: "deadline")
                 await action()

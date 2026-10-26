@@ -97,10 +97,6 @@ public final class EnergyPolicySource: Sendable {
         state = Mutex(State(policy: policy))
     }
 
-    /// A new source fixed at ``EnergyPolicy/normal`` until someone updates it (a consumer's default
-    /// when nothing injects the app's source: tests and window-less helpers).
-    public static var normal: EnergyPolicySource { EnergyPolicySource() }
-
     /// The policy now.
     public var policy: EnergyPolicy { state.withLock { $0.policy } }
 
@@ -127,6 +123,7 @@ public final class EnergyPolicySource: Sendable {
     /// Observers registered now (debug.energy and tests).
     public var observerCount: Int { state.withLock { $0.observers.count } }
 
+    /// Drops observer `id`; idempotent (ids are never reused), so a cancel and a release may both call it.
     private func removeObserver(_ id: UInt64) {
         state.withLock { _ = $0.observers.removeValue(forKey: id) }
     }
@@ -134,20 +131,15 @@ public final class EnergyPolicySource: Sendable {
 
 /// One ``EnergyPolicySource/observe(_:)`` registration: cancelled by ``cancel()`` or on release.
 public final class EnergyPolicyObservation: Sendable {
-    private let onCancel: Mutex<(@Sendable () -> Void)?>
+    /// Removes the observer from its source (held weakly); calling it again does nothing.
+    private let remove: @Sendable () -> Void
 
-    init(onCancel: @escaping @Sendable () -> Void) {
-        self.onCancel = Mutex(onCancel)
+    init(remove: @escaping @Sendable () -> Void) {
+        self.remove = remove
     }
 
-    deinit { cancel() }
+    deinit { remove() }
 
     /// Stops the observer; later calls do nothing.
-    public func cancel() {
-        let remove = onCancel.withLock { slot in
-            defer { slot = nil }
-            return slot
-        }
-        remove?()
-    }
+    public func cancel() { remove() }
 }
