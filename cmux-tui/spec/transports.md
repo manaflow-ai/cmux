@@ -391,6 +391,29 @@ unions and recursive types have no binary layout.
 `bindings/codegen/validate.py` (through `ipc_meta.py`) enforces these rules
 whenever the SDK generator loads the schema.
 
+### Assigning method ids
+
+`sdk-schema.json` declares `families`, so every command has `method_id` and
+`priority` and every event has `event_id` and `priority` (queue Q6 of
+`scripts/cmux-next/ipc-census.py` is empty). `cmux-tui/scripts/assign-ipc-method-ids.py`
+writes them. Run it after adding a command or event; run it with `--check`
+to see that nothing is missing. It only adds what is missing and never
+changes an existing id, family or attribute, so a second run gives no diff.
+With p05-ipc-012, `api-compat-check` also refuses a reused or renumbered id.
+
+| Attribute | Rule |
+| --- | --- |
+| family | Each wire name matches exactly one family in the script's table. A name that matches none or two stops the script. |
+| ordinal | Next after the highest ordinal in the family, in file order. The first command of a family has ordinal 0. |
+| `priority` | Commands: `input` for `send`, `browser-key*`, `browser-mouse*`, `browser-wheel*`, `browser-insert-text`, `resize-attached-view` and `scroll-surface`. `bulk` for journal and history reads, attachment and image bytes and icon assets. `background` for stats (`server-stats`, `machine-usage`, `terminal-resources`). All other commands are `control`. Events: `input` for `output`, `render-delta`, `render-state` and `frame`, which draw the terminal. `bulk` for `surface-output`. `background` for usage and inventory refreshes. All other events are `control`. |
+| `ordering` | `independent` only for four stats reads that do not see this connection's earlier requests: `server-stats`, `machine-usage`, `machine-listening-tcp` and `cloud-selfhost-info`. |
+| `durability` | `read_only` for reads, `memory` for state that the journal never records (input, streams, leases, presence, subscriptions), and `reply_after_journal` for `journal-frontend-event`, whose reply reports the commit. All other commands are `reply_before_journal` (F10). |
+| `stream_scoped` | Set on every command that names a surface, terminal or view, unless the script gives a `crosses_stream_ok` reason. Reasons exist for these command groups: commands that create a terminal by `terminal_id`, commands that open a stream, process-state reads, and list filters. |
+| `spawns_terminal` | The Swift request types that conform to `TerminalSpawningRequest`. |
+| `clients` | `sdk` for every command. `macos` for the Swift wire names (census Q1). `cli` for the names that the Rust CLI builds by hand (census Q14). |
+
+`snapshot-request` is `stream_scoped`: it is ordered on its surface's stream.
+
 ## HTTP
 
 | Field | Value |
