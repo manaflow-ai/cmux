@@ -1,0 +1,71 @@
+import AppKit
+@testable import CmuxNextBrowser
+import CmuxNextWakeups
+import Testing
+
+/// p03-rendering-097: a hosted page whose window is occluded (its ``WindowOcclusionFamily``: AppKit's
+/// state or an opaque cmux window covering it) gets the fork's embedder visibility `occluded`, after the
+/// commit like a show or hide, and `visible` once the window is seen again. Without Chromium: a fake fork,
+/// and the commit runs when the test says.
+@MainActor
+@Suite struct CEFLayerHostingOcclusionTests {
+    let fake = CEFSwitchCommitTests.FakeFork()
+    let turn = CEFLayerHostingTests.Turn()
+    let commit = CEFLayerHostingTests.Turn()
+    let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+    let window: NSWindow
+
+    init() {
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless,
+                          backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        window.contentView?.addSubview(view)
+    }
+
+    /// A hosted page window for browser 3, made visible by its first pass, its calls cleared.
+    func makeHostedPage() -> CEFLayerHosting {
+        let turn = turn, commit = commit
+        let hosting = CEFLayerHosting(isEnabled: { true }, schedule: { turn.add($0) },
+                                      makePage: { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow, makeLayerHost: { _ in CALayer() }) },
+                                      resizeDeadlineMs: { 8 }, refreshIntervals: { [] },
+                                      afterCommit: { commit.add($0) })
+        hosting.view = view
+        hosting.pageWindowCreated(browser: 3, fork: fake.fork)
+        turn.end()
+        commit.end()
+        fake.clear()
+        return hosting
+    }
+
+    @Test func anOccludedWindowsPageIsToldOccludedAfterTheCommit() {
+        let hosting = makeHostedPage()
+        #expect(hosting.switchCommit.applied == .visible)
+        let family = WindowOcclusionFamily.of(window)
+        #expect(family.subscribers == ["CEFLayerHosting"], "the page follows its window's family")
+
+        family.set(occluded: true)
+        #expect(fake.calls.isEmpty, "no fork call in the flip's turn")
+        commit.end()
+        #expect(fake.calls == ["visibility 3 occluded"])
+        #expect(hosting.pageVisibility == .occluded)
+
+        fake.clear()
+        family.set(occluded: false)
+        commit.end()
+        #expect(fake.calls == ["visibility 3 visible"])
+    }
+
+    /// A hidden page stays hidden whatever its window does: hidden wins over occluded.
+    @Test func aHiddenPageStaysHiddenInAnOccludedWindow() {
+        let hosting = makeHostedPage()
+        view.isHidden = true
+        hosting.visibilityMayHaveChanged()
+        commit.end()
+        fake.clear()
+        WindowOcclusionFamily.of(window).set(occluded: true)
+        commit.end()
+        #expect(!fake.calls.contains { $0.hasPrefix("visibility") })
+        #expect(hosting.pageVisibility == .hidden)
+    }
+}

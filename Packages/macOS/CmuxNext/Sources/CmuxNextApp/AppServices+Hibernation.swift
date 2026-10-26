@@ -79,12 +79,14 @@ extension AppServices {
 
     /// The hibernation's measurements, after startup (p08-startup-029): the hourly footprint samples and,
     /// with `occludedWindowDiscard`, the occluded-window checker (its first pass reports the windows
-    /// already off screen).
+    /// already off screen). With `windowOcclusionFamily` (p03-rendering-097) a checker feeds every window's
+    /// occlusion family, so covered windows stop their frames, terminals and pages.
     func startHibernationMeasurements() {
         memoryFootprints.start()
         if features.isEnabled(.occludedWindowDiscard), let hibernation = cache.hibernation {
             hibernation.follow(WindowOcclusionChecker(windows: { [weak self] in self?.windows.controllers.compactMap(\.window) ?? [] }))
         }
+        if features.isEnabled(.windowOcclusionFamily) { lifetimeFollowers.append(WindowOcclusionChecker.feedingFamilies()) }
     }
 
     /// Tab `key` and every tab script can reach from it through `window.opener`
