@@ -47,9 +47,13 @@ def report(core: dict) -> str:
 
 def file_issue(repo: str, token: str, text: str, run_url: str, now: datetime | None = None) -> str:
     now = now or datetime.now(timezone.utc)
-    # Closed ones too: a person who closes the alert must not get a new issue on every low sweep.
-    found = json.loads(gh(["issue", "list", "-R", repo, "--state", "all", "--search", f'in:title "{TITLE}"',
-                           "--json", "number,title,state,updatedAt", "--limit", "10"], token))
+    # The open alerts, and separately the most recently updated ones of any state: a person who
+    # closes the alert must not get a new issue on every low sweep within the hour.
+    def listed(state: str, search: str) -> list[dict]:
+        return json.loads(gh(["issue", "list", "-R", repo, "--state", state, "--search", search,
+                              "--json", "number,title,state,updatedAt", "--limit", "20"], token))
+    found = (listed("all", f'in:title "{TITLE}" sort:updated-desc')
+             + listed("open", f'in:title "{TITLE}"'))
     body = (f"{text}\n\nSeen by {run_url}. Every workflow shares this budget; when it runs out, "
             "publish and release steps fail with \"API rate limit exceeded for installation\". "
             "Look for a new polling loop or per-run fan-out on github.token "
