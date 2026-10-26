@@ -72,12 +72,16 @@ struct RapidWorkspaceCreateTests {
                         _ = try await seed.state.createWorkspace(name: name, ephemeral: false, terminal: true, focus: false)
                     }
                 } catch {
+                    if let identity = seed.identity {
+                        _ = try? await seed.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
+                                                    timeout: .seconds(10))
+                    }
                     seed.close()
                     throw error
                 }
                 seed.close()
             } catch {
-                try? FileManager.default.removeItem(at: root)
+                // A failed handshake may leave the owned daemon alive; retain its state for recovery.
                 throw error
             }
         }
