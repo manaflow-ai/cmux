@@ -13,8 +13,8 @@ import Testing
             case begin(id: UInt64, origin: UInt64)
             case end(id: UInt64, outcome: UInt64)
 
-            static func begin(_ id: UInt64, _ origin: SidebarNewRowTimer.Origin) -> Point { .begin(id: id, origin: origin.rawValue) }
-            static func end(_ id: UInt64, _ outcome: SidebarNewRowTimer.Outcome) -> Point { .end(id: id, outcome: outcome.rawValue) }
+            static func began(_ id: UInt64, _ origin: SidebarNewRowTimer.Origin) -> Point { .begin(id: id, origin: origin.rawValue) }
+            static func ended(_ id: UInt64, _ outcome: SidebarNewRowTimer.Outcome) -> Point { .end(id: id, outcome: outcome.rawValue) }
         }
 
         var isEnabled = true
@@ -50,9 +50,9 @@ import Testing
         timer.pressed()
         timer.began("w1")
         timer.drew(Self.sections("w0", "w1"), in: nil)
-        #expect(recorder.points == [.begin(1, .press)])
+        #expect(recorder.points == [.began(1, .press)])
         recorder.commit()
-        #expect(recorder.points == [.begin(1, .press), .end(1, .drawn)])
+        #expect(recorder.points == [.began(1, .press), .ended(1, .drawn)])
         // A later draw of the same row ends nothing again.
         timer.drew(Self.sections("w1"), in: nil)
         recorder.commit()
@@ -62,10 +62,10 @@ import Testing
     @Test func aCreateWithNoPressBeginsAtTheCreate() {
         let recorder = Recorder(), timer = recorder.timer()
         timer.began("w1")
-        #expect(recorder.points == [.begin(1, .create)])
+        #expect(recorder.points == [.began(1, .create)])
         timer.drew(Self.sections("w1"), in: nil)
         recorder.commit()
-        #expect(recorder.ends == [.end(1, .drawn)])
+        #expect(recorder.ends == [.ended(1, .drawn)])
     }
 
     @Test func twoPressesInOneTurnPairWithTheirCreatesInOrder() {
@@ -77,17 +77,17 @@ import Testing
         timer.drew(Self.sections("b"), in: nil)
         timer.drew(Self.sections("a", "b"), in: nil)
         recorder.commit()
-        #expect(recorder.ends == [.end(2, .drawn), .end(1, .drawn)])
+        #expect(recorder.ends == [.ended(2, .drawn), .ended(1, .drawn)])
     }
 
     @Test func aPressWithNoCreateEndsWithNoRowAtItsTurnsCommit() {
         let recorder = Recorder(), timer = recorder.timer()
         timer.pressed()
         recorder.commit()
-        #expect(recorder.points == [.begin(1, .press), .end(1, .noRow)])
+        #expect(recorder.points == [.began(1, .press), .ended(1, .noRow)])
         // The next create is not paired with that press.
         timer.began("w1")
-        #expect(recorder.points.last == .begin(2, .create))
+        #expect(recorder.points.last == .began(2, .create))
     }
 
     @Test func aRemovedCreateEndsOnceAndItsRowNeverEndsIt() {
@@ -98,7 +98,7 @@ import Testing
         timer.removed("w1")
         timer.drew(Self.sections("w1"), in: nil)
         recorder.commit()
-        #expect(recorder.ends == [.end(1, .removed)])
+        #expect(recorder.ends == [.ended(1, .removed)])
     }
 
     @Test func aMissedCommitEndsMissed() {
@@ -106,13 +106,13 @@ import Testing
         timer.began("w1")
         timer.drew(Self.sections("w1"), in: nil)
         recorder.commit(.missed)
-        #expect(recorder.ends == [.end(1, .missed)])
+        #expect(recorder.ends == [.ended(1, .missed)])
     }
 
     @Test func createsPastTheLimitEndTheOldest() {
         let recorder = Recorder(), timer = recorder.timer()
         for index in 0...SidebarNewRowTimer.openLimit { timer.began("w\(index)") }
-        #expect(recorder.ends == [.end(1, .dropped)])
+        #expect(recorder.ends == [.ended(1, .dropped)])
     }
 
     @Test func withTheCategoryOffNothingIsWrittenOrAskedFor() {
