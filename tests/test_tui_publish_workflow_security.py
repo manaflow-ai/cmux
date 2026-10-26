@@ -275,14 +275,14 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
 
 
 def test_same_repo_branch_pushes_publish_their_trees() -> None:
-    # A pull request head's tree is published by its branch push, so its
-    # same-tree checks need no hand-pushed cmux-tui-pin-* ref.
+    # Trusted branch pushes publish their trees; synthetic merge refs are
+    # refused before preflight and never reach a credentialed publisher.
     artifacts = workflow("cmux-tui-artifacts.yml")
-    trusted = ("github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || "
-               "startsWith(github.ref, 'refs/heads/cmux-tui-pin-')")
+    trusted = "github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next'"
     for job in ("publish", "publish-tree", "notify-unpublished-tree"):
         body = workflow_job(artifacts, job)
-        assert f"github.event_name == 'push' || {trusted})" in body, job
+        assert trusted in body, job
+        assert "!startsWith(github.ref, 'refs/heads/cmux-tui-pin-')" in body, job
     # A dispatch from another branch stays build-only.
     notice = workflow_job(artifacts, "publish-ref-notice")
     assert f"!(github.event_name == 'push' || {trusted})" in notice
@@ -290,6 +290,21 @@ def test_same_repo_branch_pushes_publish_their_trees() -> None:
     tree = workflow_job(artifacts, "publish-tree")
     assert '"family": "trunk" if os.environ["GITHUB_REF"] in ("refs/heads/main", "refs/heads/feat-cmux-next") else "branch"' in tree
     assert '"ref": os.environ["GITHUB_REF"]' in tree
+
+
+def test_pin_refs_are_refused_before_claim_or_build() -> None:
+    artifacts = workflow("cmux-tui-artifacts.yml")
+    guard = workflow_job(artifacts, "reject-untrusted-pin-ref")
+    assert "startsWith(github.ref, 'refs/heads/cmux-tui-pin-')" in guard
+    assert "permissions: {}" in guard
+    assert "cmux-ci build cmux --ref" in guard
+    preflight = workflow_job(artifacts, "tree-preflight")
+    assert "!startsWith(github.ref, 'refs/heads/cmux-tui-pin-')" in preflight
+    pin = (ROOT / "scripts/cmux-next/pin-cmux-tui.sh").read_text()
+    assert "pin_tree_ref" not in pin
+    assert "refs/heads/cmux-tui-pin-" not in pin
+    request = workflow("cmux-tui-tree-request.yml")
+    assert "startsWith(\"cmux-tui-pin-\")" not in request
 
 
 def test_ci_never_suggests_pushing_a_pr_merge_commit_to_a_pin_branch() -> None:
@@ -312,7 +327,7 @@ def test_ci_never_suggests_pushing_a_pr_merge_commit_to_a_pin_branch() -> None:
     tree_request = workflow("cmux-tui-tree-request.yml")
     pin = (ROOT / "scripts/cmux-next/pin-cmux-tui.sh").read_text()
     assert "This tree has no artifact yet; re-run after" in artifacts
-    assert "This tree has no artifact yet; re-run after" in tree_request
+    assert "cmux-ci build cmux --ref $COMMIT" in tree_request
     assert "This tree has no artifact yet; re-run after" in pin
 
 

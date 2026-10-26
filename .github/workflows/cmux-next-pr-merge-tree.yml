@@ -19,5 +19,5 @@ jobs:
     steps:
       - name: Refuse the unsafe merge-tree publication path
         run: |
-          echo "::error title=cmux-tui merge tree publisher disabled::A secure replacement must build without credentials and publish from trusted default-branch controls."
+          echo "::error title=cmux-tui merge tree publisher disabled::Pin refs are refused. Publish a missing tree with the trusted fleet: cmux-ci build cmux --ref <merge SHA> --tag <tree tag> --workspace <PR URL>."
           exit 1
