@@ -1,8 +1,9 @@
 //! A prompt's files by reference (`src/prompt_uploads.rs`): uploaded first in chunks
 //! (`_acpmux/file_put_begin`/`_chunk`/`_finish`), then named in a prompt of a few hundred bytes,
-//! so 20 screenshots reach a busy chat with no frame over one MiB (claude-sr2, 2026-10-26: Leo's
-//! 8 screenshots in one frame never reached acpmux). The references, their caps, a peer's chat
-//! and a peer that cannot read them are checked.
+//! so 50 screenshots reach a busy chat with no frame over one MiB (claude-sr2, 2026-10-26: Leo's
+//! 8 screenshots in one frame never reached acpmux), with no size or count cap. What the agent
+//! gets (inline images within the model's room, every other file by path), a peer's chat and a
+//! peer that cannot read them are checked. A 2 GB file: `prompt_uploads_large.rs`.
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -170,24 +171,38 @@ fn v7() -> String {
     uuid::Uuid::now_v7().to_string()
 }
 
-/// Leo's case: 20 screenshot-sized images to a chat whose turn runs. No frame is over one MiB, the
-/// prompt is taken (queued) in under a second, and the agent gets every image when its turn comes.
+/// The resource links in the agent's echo: `(name, path)`.
+fn links(text: &str) -> Vec<(String, PathBuf)> {
+    text.split_whitespace()
+        .filter_map(|word| word.strip_prefix("resource_link:"))
+        .filter_map(|link| {
+            let (name, rest) = link.split_once(':')?;
+            let uri = rest.split_once(':')?.1;
+            let path = reqwest::Url::parse(uri).ok()?.to_file_path().ok()?;
+            Some((name.to_owned(), path))
+        })
+        .collect()
+}
+
+/// Leo's case: 50 screenshot-sized images to a chat whose turn runs. No frame is over one MiB, the
+/// prompt is taken (queued) in under a second, and when its turn comes the agent gets every one,
+/// bytes intact: inline while they fit the prompt's room, the rest by the path of their file.
 #[tokio::test]
-async fn twenty_uploaded_screenshots_reach_a_busy_chat_by_reference() {
+async fn fifty_uploaded_screenshots_reach_a_busy_chat_by_reference() {
     let hub = hub();
     let mut c = client(&hub, Origin::Local);
     let session = c.new_session("uploads-busy").await;
-    c.post(method::SESSION_PROMPT, prompt(&session, "busy", "until-cancel", vec![])).await;
-    c.until(|v| v.pointer("/params/update/content/text").is_some()).await;
-
     let started = Instant::now();
-    let shots: Vec<Vec<u8>> = (0..20).map(|n| png(800 << 10, n)).collect();
+    let shots: Vec<Vec<u8>> = (0..50).map(|n| png(800 << 10, n)).collect();
     let mut refs = Vec::new();
     for (n, shot) in shots.iter().enumerate() {
         let name = format!("shot-{n}.png");
         let id = c.upload(&session, &name, shot).await;
         refs.push(image_ref(&id, &name));
     }
+    // A turn runs (the stand-in's `until-cancel` lasts 30 s at most): the prompt waits behind it.
+    c.post(method::SESSION_PROMPT, prompt(&session, "busy", "until-cancel", vec![])).await;
+    c.until(|v| v.pointer("/params/update/content/text").is_some()).await;
     let id = v7();
     let sent = Instant::now();
     let asked = c.post(method::SESSION_PROMPT, prompt(&session, &id, "look", refs)).await;
@@ -201,29 +216,62 @@ async fn twenty_uploaded_screenshots_reach_a_busy_chat_by_reference() {
     assert_eq!(accepted["params"]["queued"], true, "{accepted}");
     assert!(took < Duration::from_secs(1), "accepted after {took:?}");
     assert!(c.largest < 1 << 20, "a frame of {} bytes", c.largest);
-    eprintln!("20 screenshots: uploaded and accepted in {:?}, accept {took:?}", started.elapsed());
+    eprintln!("50 screenshots: uploaded and accepted in {:?}, accept {took:?}", started.elapsed());
 
     c.post(method::SESSION_CANCEL, json!({"sessionId": session})).await;
     let reply = c.until(|v| v.get("id") == Some(&json!(asked))).await;
     assert!(reply.get("error").is_none(), "{reply}");
-    for shot in &shots {
-        assert!(c.text.contains(&format!("image:{}", sha(shot))), "missing an image");
+    let linked = links(&c.text);
+    let mut inline = 0;
+    for (n, shot) in shots.iter().enumerate() {
+        if c.text.contains(&format!("image:{}", sha(shot))) {
+            inline += 1;
+            continue;
+        }
+        let name = format!("shot-{n}.png");
+        let (_, path) = linked.iter().find(|(linked, _)| *linked == name).expect(&name);
+        assert_eq!(sha(&std::fs::read(path).unwrap()), sha(shot), "{name}");
     }
+    // 12 of 800 KiB fit the prompt's 10 MiB of inline room; the agent reads the other 38.
+    assert_eq!(inline, 12, "{}", c.text);
     let messages = c.user_messages(&session).await;
     let last = messages.last().unwrap();
-    assert_eq!(last["images"].as_array().map(Vec::len), Some(20), "{last}");
-    assert_eq!(last["images"][3]["id"], sha(&shots[3]));
+    assert_eq!(last["images"].as_array().map(Vec::len), Some(12), "{last}");
+    assert_eq!(last["text"], "look", "the note of paths stays out of the transcript: {last}");
 }
 
-/// Only a finished upload of the chat's own, of the block's kind, within the caps; never from a
-/// remote web client, and never in an edit of a queued prompt. Nothing refused is recorded.
+/// An image too large for the model and a file of any other type go by path, never as base64.
+#[tokio::test]
+async fn a_large_image_and_any_other_file_go_by_path() {
+    let hub = hub();
+    let mut c = client(&hub, Origin::Local);
+    let session = c.new_session("uploads-path").await;
+    let (big, data) = (png(6 << 20, 3), b"\x00\x01 not any known type".to_vec());
+    let big_id = c.upload(&session, "big.png", &big).await;
+    let data_id = c.upload(&session, "blob.bin", &data).await;
+    let blob = json!({"type": "resource", "resource": {"uri": "attachment://blob.bin"},
+        "_meta": {"acpmux": {"upload": {"uploadId": data_id, "fileName": "blob.bin"}}}});
+    let p = prompt(&session, &v7(), "see", vec![image_ref(&big_id, "big.png"), blob]);
+    let reply = c.call(method::SESSION_PROMPT, p).await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    assert!(!c.text.contains("image:"), "{}", c.text);
+    let linked = links(&c.text);
+    assert_eq!(linked.len(), 2, "{}", c.text);
+    for ((name, path), bytes) in linked.iter().zip([&big, &data]) {
+        assert_eq!(sha(&std::fs::read(path).unwrap()), sha(bytes), "{name}");
+    }
+    assert!(c.text.contains("resource_link:big.png:image/png:"), "{}", c.text);
+    assert!(c.text.contains("resource_link:blob.bin:application/octet-stream:"), "{}", c.text);
+}
+
+/// Only a finished upload of the chat's own; never from a remote web client, and never in an edit
+/// of a queued prompt. Nothing refused is recorded.
 #[tokio::test]
 async fn a_reference_outside_the_chats_finished_uploads_is_refused() {
     let hub = hub();
     let mut c = client(&hub, Origin::Local);
     let (session, other) = (c.new_session("uploads-own").await, c.new_session("uploads-x").await);
     let theirs = c.upload(&other, "theirs.png", &png(64, 1)).await;
-    let text = c.upload(&session, "notes.txt", b"plain words").await;
     let begun = json!({"sessionId": session, "fileName": "half.png", "size": 64});
     let half = c.call(method::MUX_FILE_PUT_BEGIN, begun).await;
     let half = half["result"]["uploadId"].as_str().unwrap().to_owned();
@@ -233,10 +281,8 @@ async fn a_reference_outside_the_chats_finished_uploads_is_refused() {
         (image_ref(&half, "half.png"), "upload.missing"),
         (image_ref(&mine, "../mine.png"), "upload.missing"),
         (image_ref("not-an-id", "mine.png"), "upload.missing"),
-        (image_ref(&text, "notes.txt"), "upload.notImage"),
         (
-            json!({"type": "text", "text": "x", "_meta": {"acpmux": {"upload": {"uploadId": mine,
-            "fileName": "mine.png"}}}}),
+            json!({"type": "image", "_meta": {"acpmux": {"upload": {"uploadId": mine}}}}),
             "upload.invalid",
         ),
     ];
@@ -244,13 +290,10 @@ async fn a_reference_outside_the_chats_finished_uploads_is_refused() {
         let reply = c.call(method::SESSION_PROMPT, prompt(&session, &v7(), "x", vec![block])).await;
         assert_eq!(reply["error"]["data"]["reason"], reason, "{reply}");
     }
-    let many = (0..33).map(|_| image_ref(&mine, "mine.png")).collect();
-    let reply = c.call(method::SESSION_PROMPT, prompt(&session, &v7(), "x", many)).await;
-    assert_eq!(reply["error"]["data"]["reason"], "upload.tooMany", "{reply}");
     let mut web = client(&hub, Origin::Web);
     let p = prompt(&session, &v7(), "x", vec![image_ref(&mine, "mine.png")]);
     let reply = web.call(method::SESSION_PROMPT, p).await;
-    assert!(reply.get("error").is_some(), "{reply}");
+    assert_eq!(reply["error"]["data"]["reason"], "upload.remote", "{reply}");
     let edit = json!({"sessionId": session, "promptId": "p", "op": "update",
         "prompt": [{"type": "text", "text": "x"}, image_ref(&mine, "mine.png")]});
     let reply = c.call(method::MUX_QUEUE_EDIT, edit).await;
@@ -274,38 +317,6 @@ async fn a_reference_outside_the_chats_finished_uploads_is_refused() {
         assert!(reply.get("error").is_none(), "{reply}");
     }
     assert_eq!(c.user_messages(&session).await.len(), 1);
-}
-
-/// One file over 8 MiB, or more than 32 MiB together, is refused; 8 MiB goes.
-#[tokio::test]
-async fn a_reference_over_a_cap_is_refused() {
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
-    let hub = hub();
-    let mut c = client(&hub, Origin::Local);
-    let session = c.new_session("uploads-cap").await;
-    // A finished upload as `file_put_finish` leaves it, written here to keep the test fast.
-    let put = |name: &str, bytes: &[u8]| {
-        let id = v7();
-        let dir = home().join("uploads").join(&session).join(&id);
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).unwrap();
-        let mut file = std::fs::OpenOptions::new();
-        file.write(true).create_new(true).mode(0o600);
-        std::io::Write::write_all(&mut file.open(dir.join(name)).unwrap(), bytes).unwrap();
-        image_ref(&id, name)
-    };
-    let big = put("big.png", &png((8 << 20) + 1, 1));
-    let reply = c.call(method::SESSION_PROMPT, prompt(&session, &v7(), "x", vec![big])).await;
-    assert_eq!(reply["error"]["data"]["reason"], "upload.tooLarge", "{reply}");
-    assert!(reply["error"]["message"].as_str().unwrap().contains("8 MiB"), "{reply}");
-    let five = (0..5).map(|n| put(&format!("p{n}.png"), &png(7 << 20, n))).collect();
-    let reply = c.call(method::SESSION_PROMPT, prompt(&session, &v7(), "x", five)).await;
-    assert_eq!(reply["error"]["data"]["reason"], "upload.tooLarge", "{reply}");
-    assert!(reply["error"]["message"].as_str().unwrap().contains("32 MiB"), "{reply}");
-    assert!(c.user_messages(&session).await.is_empty());
-    let max = put("max.png", &png(8 << 20, 7));
-    let reply = c.call(method::SESSION_PROMPT, prompt(&session, &v7(), "x", vec![max])).await;
-    assert!(reply.get("error").is_none(), "{reply}");
-    assert!(c.text.contains(&format!("image:{}", sha(&png(8 << 20, 7)))));
 }
 
 /// A chat on a peer: the chunks go over the link to the peer, and the peer resolves the prompt

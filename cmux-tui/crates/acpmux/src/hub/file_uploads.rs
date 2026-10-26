@@ -9,7 +9,8 @@
 //!
 //! The old one-shot request is bounded to [`LEGACY_MAX_BYTES`] because it crosses the peer link as
 //! one WebSocket frame. New clients use the resumable methods below, whose chunks are bounded by
-//! [`CHUNK_BYTES`], and may send a larger file up to [`MAX_BYTES`].
+//! [`CHUNK_BYTES`]: a file sent that way has no size cap (Leo, 2026-10-26: "I ALREADY SAID WE NEED
+//! ARBITARRILY LARGE FILES OF ANY TYPE"), only the disk it is written to.
 //!
 //! A chat's files go when the chat is deleted (`_acpmux/kill` with purge, [`remove_session`]; not
 //! when Bring Back replaces its closed copy under the same id, `transfer_in.rs`), and
@@ -28,8 +29,6 @@ use std::time::Duration;
 pub const FEATURE: &str = "filePut";
 /// The resumable upload feature advertised by current daemons.
 pub const CHUNKS_FEATURE: &str = "filePutChunks";
-/// The largest file a local or peer upload may hold.
-pub const MAX_BYTES: usize = 1 << 30;
 /// The largest one-shot request accepted for compatibility with older peers.
 pub const LEGACY_MAX_BYTES: usize = 10 << 20;
 /// The largest decoded chunk. Its base64 form stays below one MiB on the wire.
@@ -166,9 +165,19 @@ fn windows_device_name(name: &str) -> bool {
         )
 }
 
+/// A one-shot `_acpmux/file_put` past [`LEGACY_MAX_BYTES`]: the resumable methods take it.
 fn too_large() -> RpcError {
-    RpcError::invalid_params(format!("a file is at most {} MiB", MAX_BYTES >> 20))
-        .with_data(json!({"reason": "filePut.tooLarge", "maxBytes": MAX_BYTES}))
+    RpcError::invalid_params(format!(
+        "a one-shot file_put is at most {} MiB: send a larger file with file_put_begin",
+        LEGACY_MAX_BYTES >> 20
+    ))
+    .with_data(json!({"reason": "filePut.tooLarge", "maxBytes": LEGACY_MAX_BYTES}))
+}
+
+/// A chunk past the size its upload began with.
+fn past_declared(size: u64) -> RpcError {
+    RpcError::invalid_params(format!("the upload began as {size} bytes"))
+        .with_data(json!({"reason": "filePut.pastSize", "size": size}))
 }
 
 fn upload_id(id: &str) -> Option<String> {
@@ -203,9 +212,6 @@ fn begin(session: &str, params: &Value) -> Result<Value, RpcError> {
         .get("size")
         .and_then(Value::as_u64)
         .ok_or_else(|| RpcError::invalid_params("size is required"))?;
-    if size > MAX_BYTES as u64 {
-        return Err(too_large());
-    }
     let id = uuid::Uuid::now_v7().to_string();
     let path = part_path(session, &id).ok_or_else(|| RpcError::invalid_params("no such chat"))?;
     let parent = path.parent().ok_or_else(|| RpcError::internal("upload path has no parent"))?;
@@ -267,8 +273,8 @@ fn chunk(params: &Value) -> Result<Value, RpcError> {
         return Err(RpcError::invalid_params(format!("upload offset is {current}, got {offset}")));
     }
     let next = current.saturating_add(bytes.len() as u64);
-    if next > declared_size || next > MAX_BYTES as u64 {
-        return Err(too_large());
+    if next > declared_size {
+        return Err(past_declared(declared_size));
     }
     file.seek(SeekFrom::End(0)).map_err(|e| RpcError::internal(e.to_string()))?;
     file.write_all(&bytes).map_err(|e| RpcError::internal(format!("cannot append upload: {e}")))?;
@@ -290,9 +296,6 @@ fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
         .get("size")
         .and_then(Value::as_u64)
         .ok_or_else(|| RpcError::invalid_params("size is required"))?;
-    if size > MAX_BYTES as u64 {
-        return Err(too_large());
-    }
     let part =
         part_path(session, upload).ok_or_else(|| RpcError::invalid_params("invalid uploadId"))?;
     let meta =
@@ -361,7 +364,7 @@ pub fn check_chunk(params: &Value) -> Result<(), RpcError> {
 }
 
 /// The bytes padded base64 `data` decodes to, read from its length and padding with no decode,
-/// so a file one byte past [`MAX_BYTES`] is refused here and never sent on.
+/// so a one-shot file one byte past [`LEGACY_MAX_BYTES`] is refused here and never sent on.
 fn decoded_len(data: &str) -> usize {
     let pad = data.bytes().rev().take(2).take_while(|&b| b == b'=').count();
     (data.len() / 4 * 3).saturating_sub(pad)
@@ -457,9 +460,6 @@ pub fn put(id: &str, params: &Value) -> Result<Value, RpcError> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data)
         .map_err(|e| RpcError::invalid_params(format!("data is not base64: {e}")))?;
-    if bytes.len() > MAX_BYTES {
-        return Err(too_large());
-    }
     let dir = session_dir(id).ok_or_else(|| RpcError::invalid_params("no such chat"))?;
     let failed = |e: anyhow::Error| RpcError::internal(format!("cannot save the file: {e}"));
     crate::config::private_state_dir(&dir).map_err(failed)?;
