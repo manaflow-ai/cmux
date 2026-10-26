@@ -4,9 +4,8 @@ package import CmuxNextWakeups
 
 /// A cmux-tui helper process (`wg hub`, `remote connect`) whose stdout is a
 /// stream of JSON lines. The spawn runs on a ``ProcessLauncher`` queue, never
-/// the caller's actor, and the child at its priority's `processQoS`
-/// (as Chromium's content/browser/child_process_launcher_helper.cc launches on
-/// its process launcher task runner, never the UI thread).
+/// the caller's actor (as Chromium's content/browser/child_process_launcher_helper.cc
+/// launches on its process launcher task runner, never the UI thread).
 /// Reading happens on Foundation's pipe threads, never the main actor. Stdout
 /// lines are bounded (drop-oldest past 256 pending); stderr keeps a 4 KB tail
 /// for error messages. The child runs with `--exit-with-parent`, so a crash
@@ -27,15 +26,15 @@ package final class ChildProcess: Sendable {
     private let environment: [String: String]
     private let launcher: ProcessLauncher
 
-    /// - Parameter priority: how much a person waits for this helper; the spawn's queue and the
-    ///   child run at it. Default ``WorkPriority/userVisible``: the link and hub carry the sessions
-    ///   on screen.
+    /// - Parameter launcher: spawns the child; nil is one at ``WorkPriority/userVisible`` for the queue and
+    ///   the child: the link and hub carry the sessions on screen.
     package init(executable: URL, arguments: [String], environment: [String: String] = ProcessInfo.processInfo.environment,
-                 priority: WorkPriority = .userVisible) {
+                 launcher: ProcessLauncher? = nil) {
         self.executable = executable
         self.arguments = arguments
         self.environment = environment
-        launcher = ProcessLauncher(label: "com.cmuxterm.next.child.\(executable.lastPathComponent)", priority: priority)
+        self.launcher = launcher
+            ?? ProcessLauncher(label: "com.cmuxterm.next.child.\(executable.lastPathComponent)", priority: .userVisible)
         (lines, continuation) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .bufferingNewest(256))
     }
 
@@ -85,8 +84,6 @@ package final class ChildProcess: Sendable {
     }
 
     package var pid: Int32? { state.withLock { $0.process?.processIdentifier } }
-    /// The child's quality of service, once it started.
-    package var qualityOfService: QualityOfService? { state.withLock { $0.process?.qualityOfService } }
     package var isRunning: Bool { state.withLock { $0.process != nil && $0.exitStatus == nil } }
 
     package var stderrText: String {

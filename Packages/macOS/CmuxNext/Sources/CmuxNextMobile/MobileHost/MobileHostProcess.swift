@@ -12,6 +12,8 @@ public final class MobileHostProcess: Sendable {
         var process: Process?
         var input: FileHandle?
         var exitStatus: Int32?
+        /// stop() ran; a launch that finishes after it ends hostd at once.
+        var stopped = false
         var exitWaiters: [CheckedContinuation<Int32, Never>] = []
     }
 
@@ -21,10 +23,10 @@ public final class MobileHostProcess: Sendable {
     private let state = Mutex(State())
     private let launcher: ProcessLauncher
 
-    /// - Parameter priority: the spawn's and the child's priority. Default ``WorkPriority/userVisible``:
+    /// - Parameter launcher: spawns and stops hostd. The default runs both at ``WorkPriority/userVisible``:
     ///   hostd serves the person's phone now.
-    public init(priority: WorkPriority = .userVisible) {
-        launcher = ProcessLauncher(label: "com.cmuxterm.next.mobile-host", priority: priority)
+    public init(launcher: ProcessLauncher = ProcessLauncher(label: "com.cmuxterm.next.mobile-host", priority: .userVisible)) {
+        self.launcher = launcher
         (lines, continuation) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .bufferingNewest(256))
     }
 
@@ -64,15 +66,20 @@ public final class MobileHostProcess: Sendable {
             } ?? []
             for waiter in waiters { waiter.resume(returning: status) }
         }
-        state.withLock {
-            $0.process = process
-            $0.input = input.fileHandleForWriting
-        }
         try await launcher.launched(process)
+        // Stored only once hostd runs, so pid and send() never describe a child that did not start. A
+        // stop() during the launch found nothing to end; hostd is ended here instead.
+        let stoppedDuringLaunch = state.withLock { state -> Bool in
+            state.process = process
+            guard !state.stopped, state.exitStatus == nil else { return true }
+            state.input = input.fileHandleForWriting
+            return false
+        }
+        if stoppedDuringLaunch {
+            try? input.fileHandleForWriting.close()
+            launcher.terminate(process)
+        }
     }
-
-    /// The child's quality of service, once it started.
-    public var qualityOfService: QualityOfService? { state.withLock { $0.process?.qualityOfService } }
 
     /// Writes one control line; false when hostd is gone.
     @discardableResult
@@ -101,14 +108,15 @@ public final class MobileHostProcess: Sendable {
         }
     }
 
-    /// Closes stdin (hostd exits on its own) and sends SIGTERM.
+    /// Closes stdin (hostd exits on its own) and sends SIGTERM, on the launcher's queue after the launch.
     public func stop() {
         let process = state.withLock { state -> Process? in
+            state.stopped = true
             try? state.input?.close()
             state.input = nil
             return state.exitStatus == nil ? state.process : nil
         }
-        process?.terminate()
+        if let process { launcher.terminate(process) }
     }
 
     /// The log file opened for appending, created with mode 0600 and

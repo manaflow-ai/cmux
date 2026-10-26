@@ -14,11 +14,12 @@ public struct VSCodeServeWebProcessLauncher: VSCodeServeWebLaunching {
     /// - Parameters:
     ///   - startupTimeout: How long a server may take to print its URL. A first run
     ///     downloads the server, so the default is a minute (classic cmux's deadline).
-    ///   - priority: The spawn's and the server's priority. Default ``WorkPriority/userVisible``:
-    ///     the editor tab that waits for it is on screen.
-    public init(startupTimeout: Duration = .seconds(60), priority: WorkPriority = .userVisible) {
+    ///   - launcher: Spawns the server. The default runs the spawn and the server at
+    ///     ``WorkPriority/userVisible``: the editor tab that waits for it is on screen.
+    public init(startupTimeout: Duration = .seconds(60),
+                launcher: ProcessLauncher = ProcessLauncher(label: "com.cmuxterm.next.vscode-serve-web", priority: .userVisible)) {
         self.startupTimeout = startupTimeout
-        launcher = ProcessLauncher(label: "com.cmuxterm.next.vscode-serve-web", priority: priority)
+        self.launcher = launcher
     }
 
     /// Starts `launch`; see ``VSCodeServeWebLaunching/start(_:)``.

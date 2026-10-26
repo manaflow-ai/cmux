@@ -1,6 +1,6 @@
 import CmuxNextCloud
 import CmuxNextCompat
-import CmuxNextWakeups
+public import CmuxNextWakeups
 public import Foundation
 
 /// Why a run ended without its report line.
@@ -25,10 +25,14 @@ public struct HostCLIStop: LocalizedError, Equatable, Sendable {
 public struct HostCLI: Sendable {
     public let binary: URL
     public let environment: @Sendable () async -> [String: String]
+    private let launcher: ProcessLauncher?
 
-    public init(binary: URL, environment: @escaping @Sendable () async -> [String: String]) {
+    /// - Parameter launcher: spawns the ``lines(_:)`` runs; nil spawns each on its own queue at the
+    ///   caller's priority, the child at ``WorkPriority/userVisible`` for its whole life.
+    public init(binary: URL, environment: @escaping @Sendable () async -> [String: String], launcher: ProcessLauncher? = nil) {
         self.binary = binary
         self.environment = environment
+        self.launcher = launcher
     }
 
     /// `host candidates --json [--probe]`: the Tailscale peers' JSON, nil when there is no Tailscale,
@@ -56,20 +60,25 @@ public struct HostCLI: Sendable {
     /// exits non-zero ends the stream with ``HostCLIStop``; a run whose report says not ok exits
     /// non-zero too, after its report line.
     public func lines(_ arguments: [String]) -> AsyncThrowingStream<String, any Error> {
-        let binary = binary, environment = environment
+        let binary = binary, environment = environment, launcher = launcher
         // A run writes a line per step and a report; the cap only bounds a runaway writer.
         return AsyncThrowingStream(bufferingPolicy: .bufferingOldest(1024)) { continuation in
             let process = Process(), gate = RunGate()
             // task-owner: ends when the process starts, or with the stream's cancel
             let start = Task {
                 let env = await Self.grouped(environment())
-                await Self.run(process, gate: gate, binary: binary, arguments: arguments, environment: env, into: continuation)
+                let spawner = launcher ?? ProcessLauncher(label: "com.cmuxterm.next.host-cli", priority: WorkPriority(Task.currentPriority),
+                                                          childPriority: .userVisible)
+                await Self.run(process, gate: gate, spawner: spawner, binary: binary, arguments: arguments, environment: env,
+                               into: continuation)
             }
-            continuation.onTermination = { _ in
+            continuation.onTermination = { termination in
                 start.cancel()
-                // Before the launch finished: the run sees the gate closed and stops the child itself.
-                // After it: stopped here.
-                if gate.close(), process.isRunning { Self.stop(process) }
+                var cancelled = false
+                if case .cancelled = termination { cancelled = true }
+                // A cancel during the launch: the run stops the child itself. After it: stopped here. A
+                // normal finish stops nothing (the child has exited, and its pid may be reused).
+                if gate.close(cancelled: cancelled), process.isRunning { Self.stop(process) }
             }
         }
     }
@@ -88,10 +97,10 @@ public struct HostCLI: Sendable {
         kill(getpgid(pid) == pid ? -pid : pid, SIGTERM)
     }
 
-    /// Configures and launches the run. The spawn runs on a ``ProcessLauncher`` queue at the caller's
-    /// priority (never the caller's thread, never under the gate's lock), the child at its `processQoS`.
-    private static func run(_ process: Process, gate: RunGate, binary: URL, arguments: [String], environment: [String: String],
-                            into continuation: AsyncThrowingStream<String, any Error>.Continuation) async {
+    /// Configures and launches the run. The spawn runs on `spawner`'s queue (never the caller's thread,
+    /// never under the gate's lock).
+    private static func run(_ process: Process, gate: RunGate, spawner: ProcessLauncher, binary: URL, arguments: [String],
+                            environment: [String: String], into continuation: AsyncThrowingStream<String, any Error>.Continuation) async {
         guard gate.isOpen else { return continuation.finish(throwing: CancellationError()) }
         process.executableURL = binary
         process.arguments = arguments
@@ -134,40 +143,40 @@ public struct HostCLI: Sendable {
             }
         }
         do {
-            try await ProcessLauncher(label: "com.cmuxterm.next.host-cli", priority: WorkPriority(Task.currentPriority))
-                .launched(process)
+            try await spawner.launched(process)
         } catch {
             return continuation.finish(throwing: HostCLIStop(status: nil, message: error.localizedDescription))
         }
-        // The stream may have ended (Cancel) while the child started: then ``RunGate/close()`` found
-        // nothing to stop, and the child is stopped here.
-        if !gate.started() { stop(process) }
+        // The stream may have been cancelled while the child started: then ``RunGate/close(cancelled:)``
+        // found nothing to stop, and the child is stopped here.
+        if gate.launched(), process.isRunning { stop(process) }
     }
 }
 
-/// Orders a run's launch against its stream's end without holding a lock across the spawn: exactly
-/// one of ``started()`` (the stream closed during the launch) and ``close()`` (it closed after) says
-/// to stop the child, so a cancel always reaches a child that started and never stops one twice.
+/// Orders a run's launch against its stream's end without holding a lock across the spawn: for a
+/// cancel, exactly one of ``launched()`` (it came during the launch) and ``close(cancelled:)`` (it came
+/// after) says to stop the child, so a cancel always reaches a child that started and never stops one
+/// twice. A normal finish (the child exited) stops nothing.
 final class RunGate: Sendable {
-    private let state = Mutex((closed: false, started: false))
+    private let state = Mutex((closed: false, cancelled: false, launched: false))
 
     /// Whether the stream is still open; a closed one launches nothing.
     var isOpen: Bool { state.withLock { !$0.closed } }
 
-    /// Records the launch; false when the stream closed meanwhile (the caller then stops the child).
-    func started() -> Bool {
+    /// Records the launch; true when the stream was cancelled during it (the caller then stops the child).
+    func launched() -> Bool {
         state.withLock { state in
-            guard !state.closed else { return false }
-            state.started = true
-            return true
+            state.launched = true
+            return state.cancelled
         }
     }
 
-    /// Closes the gate; whether the launch already happened (the caller stops the process).
-    func close() -> Bool {
+    /// Closes the gate; true when this is a cancel after the launch (the caller then stops the child).
+    func close(cancelled: Bool) -> Bool {
         state.withLock { state in
             state.closed = true
-            return state.started
+            if cancelled { state.cancelled = true }
+            return cancelled && state.launched
         }
     }
 }

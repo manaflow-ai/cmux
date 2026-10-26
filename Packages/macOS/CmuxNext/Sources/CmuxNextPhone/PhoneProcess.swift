@@ -3,10 +3,10 @@ import CmuxNextWakeups
 import Foundation
 
 /// One child process: `xcrun <arguments>`, or `arguments[0]` itself when
-/// the runner has no launcher (the Android SDK's `adb` and `emulator`). ``launch(launcher:arguments:stdin:stdoutFile:captureStdout:)``
-/// spawns it on a ``ProcessLauncher`` queue at the caller's priority, never the caller's actor, and the child
-/// runs at that priority's `processQoS`. Exit is observed with the termination handler (no polling); a
-/// one-shot `DemandTimer` kills it at its deadline.
+/// the runner has no launcher (the Android SDK's `adb` and `emulator`).
+/// ``launch(launcher:arguments:stdin:stdoutFile:captureStdout:spawner:)`` spawns it on a ``ProcessLauncher``
+/// queue, never the caller's actor. Exit is observed with the termination handler (no polling); a one-shot
+/// `DemandTimer` kills it at its deadline.
 final class PhoneProcess: PhoneRunningCommand, Sendable {
     private struct State {
         var status: Int32?
@@ -24,25 +24,42 @@ final class PhoneProcess: PhoneRunningCommand, Sendable {
     private let state = Mutex(State())
     private let killTimer = DemandTimer(owner: "phone.process.deadline")
 
-    /// Starts one child and returns once it runs, with `stdin` written and closed.
+    /// Starts one child through `spawner` and returns once it runs; `stdin` is then written without
+    /// blocking and closed.
+    ///
+    /// `@concurrent`: the setup (the stdout file's create and open) never runs on the caller's actor.
     /// - Throws: the launch error, or ``PhoneError/commandFailed(command:status:stderr:)`` for no arguments.
-    static func launch(launcher: URL?, arguments: [String], stdin: Data?, stdoutFile: URL?,
-                       captureStdout: Bool) async throws -> PhoneProcess {
+    @concurrent static func launch(launcher: URL?, arguments: [String], stdin: Data?, stdoutFile: URL?,
+                                   captureStdout: Bool, spawner: ProcessLauncher) async throws -> PhoneProcess {
         let command = try PhoneProcess(launcher: launcher, arguments: arguments, stdin: stdin != nil,
                                        stdoutFile: stdoutFile, captureStdout: captureStdout)
-        try await ProcessLauncher(label: "com.cmuxterm.next.phone-process", priority: WorkPriority(Task.currentPriority))
-            .launched(command.process)
+        try await spawner.launched(command.process)
         if let stdin, let input = command.process.standardInput as? Pipe {
-            input.fileHandleForWriting.write(stdin)
-            try? input.fileHandleForWriting.close()
+            Self.feed(stdin, to: input, on: DispatchQueue(label: "com.cmuxterm.next.phone-process.stdin",
+                                                          qos: WorkPriority(Task.currentPriority).qos))
         }
         return command
     }
 
-    /// The child's quality of service.
-    var qualityOfService: QualityOfService { process.qualityOfService }
+    /// Writes `bytes` to the child's standard input on a dispatch channel whose completions run on `queue`,
+    /// then closes it: a payload past the pipe's buffer (a large `simctl pbcopy`) never holds a thread until
+    /// the child reads it, and a child that exits without reading gets a failed write, not SIGPIPE.
+    private static func feed(_ bytes: Data, to input: Pipe, on queue: DispatchQueue) {
+        let fd = dup(input.fileHandleForWriting.fileDescriptor)
+        try? input.fileHandleForWriting.close()
+        guard fd >= 0 else { return }
+        _ = fcntl(fd, F_SETNOSIGPIPE, 1)
+        let channel = DispatchIO(type: .stream, fileDescriptor: fd, queue: queue) { _ in close(fd) }
+        let data = bytes.withUnsafeBytes { DispatchData(bytes: $0) }
+        channel.write(offset: 0, data: data, queue: queue) { done, _, _ in
+            if done { channel.close() }
+        }
+    }
 
-    /// Configures the child; ``launch(launcher:arguments:stdin:stdoutFile:captureStdout:)`` starts it.
+    /// Whether the child still runs.
+    var isRunning: Bool { state.withLock { $0.status == nil } }
+
+    /// Configures the child; ``launch(launcher:arguments:stdin:stdoutFile:captureStdout:spawner:)`` starts it.
     private init(launcher: URL?, arguments: [String], stdin: Bool, stdoutFile: URL?, captureStdout: Bool) throws {
         let process = Process()
         if let launcher {
