@@ -38,7 +38,8 @@
       "args": {
         "method": "project.update",
         "params": {
-          "path": 7
+          "path": 7,
+          "rename": "oracle"
         },
         "idempotencyKey": "project-update-error.call"
       },

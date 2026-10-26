@@ -38,7 +38,8 @@
       "args": {
         "method": "workspace_group.update",
         "params": {
-          "workspace_group": ""
+          "workspace_group": "",
+          "name": "oracle"
         },
         "idempotencyKey": "workspace-group-update-error.call"
       },

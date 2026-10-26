@@ -38,7 +38,8 @@
       "args": {
         "method": "chief.profile.update",
         "params": {
-          "chief": ""
+          "chief": "",
+          "display_name": "oracle"
         },
         "idempotencyKey": "chief-profile-update-error.call"
       },

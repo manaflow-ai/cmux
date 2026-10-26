@@ -37,7 +37,9 @@
       },
       "args": {
         "method": "closed.delete",
-        "params": {},
+        "params": {
+          "all": true
+        },
         "idempotencyKey": "closed-delete-ok.call"
       },
       "expect": {

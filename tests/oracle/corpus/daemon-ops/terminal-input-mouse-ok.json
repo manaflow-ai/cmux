@@ -61,7 +61,8 @@
         "params": {
           "kind": "down",
           "row": 1,
-          "column": 1
+          "column": 1,
+          "button": "left"
         },
         "idempotencyKey": "terminal-input-mouse-ok.call"
       },

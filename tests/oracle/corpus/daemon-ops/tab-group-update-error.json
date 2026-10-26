@@ -38,7 +38,8 @@
       "args": {
         "method": "tab_group.update",
         "params": {
-          "tab_group": ""
+          "tab_group": "",
+          "name": "oracle"
         },
         "idempotencyKey": "tab-group-update-error.call"
       },

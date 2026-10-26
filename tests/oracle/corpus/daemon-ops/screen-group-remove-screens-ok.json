@@ -49,6 +49,28 @@
       }
     },
     {
+      "id": "fx-screen-group",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "screen_group.create",
+        "params": {
+          "screens": [
+            "$step:fx-workspace#/value/screen_id"
+          ],
+          "name": "oracle"
+        },
+        "idempotencyKey": "screen-group-remove-screens-ok.fx-screen-group"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -59,7 +81,7 @@
         "method": "screen_group.remove_screens",
         "params": {
           "screens": [
-            "$step:fx-workspace#/value/screen_id"
+            "$step:fx-screen-group#/value/screen_ids/0"
           ]
         },
         "idempotencyKey": "screen-group-remove-screens-ok.call"

@@ -57,7 +57,8 @@
       "args": {
         "method": "chief.profile.update",
         "params": {
-          "chief": "$step:fx-chief#/value/id"
+          "chief": "$step:fx-chief#/value/id",
+          "display_name": "oracle"
         },
         "idempotencyKey": "chief-profile-update-ok.call"
       },

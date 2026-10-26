@@ -120,7 +120,7 @@
       "success": {
         "requires": ["chromium"],
         "before": [{"id": "wait-live", "waitFor": {"pointer": "/daemon/session/browsers/0/status", "equals": "live", "maxMs": 15000}}],
-        "params": {"kind": "move"},
+        "params": {"kind": "move", "button": null},
         "untested": ["params.pointer_frame_seq must be the token of the browser.attach frame the coordinates came from; the case has no stream step to read one (streams are p15-oracle-204), so the daemon refuses the fixed token until the case reads it from a frame"],
         "note": "a pointer move on the live page"
       },

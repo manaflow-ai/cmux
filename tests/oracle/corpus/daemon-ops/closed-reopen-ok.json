@@ -57,5 +57,8 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
+  ],
+  "untested": [
+    "a fresh daemon has no closed group to reopen; the family task closes one first; tab/_tuning.json tunes it"
   ]
 }
