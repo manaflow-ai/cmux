@@ -15,13 +15,19 @@ private final class ScriptedTokenEndpoint: URLProtocol, @unchecked Sendable {
 
     private static let lock = NSLock()
     nonisolated(unsafe) private static var answers: [String: Answer] = [:]
+    nonisolated(unsafe) private static var counts: [String: Int] = [:]
+
+    static func requestCount(host: String) -> Int {
+        lock.lock(); defer { lock.unlock() }
+        return counts[host] ?? 0
+    }
 
     static func script(_ answer: Answer, host: String) {
         lock.lock(); answers[host] = answer; lock.unlock()
     }
 
     static func remove(host: String) {
-        lock.lock(); answers[host] = nil; lock.unlock()
+        lock.lock(); answers[host] = nil; counts[host] = nil; lock.unlock()
     }
 
     private static func answer(host: String?) -> Answer? {
@@ -34,6 +40,9 @@ private final class ScriptedTokenEndpoint: URLProtocol, @unchecked Sendable {
     }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
+        if let host = request.url?.host {
+            Self.lock.lock(); Self.counts[host, default: 0] += 1; Self.lock.unlock()
+        }
         guard let answer = Self.answer(host: request.url?.host),
               let response = HTTPURLResponse(
                   url: request.url!, statusCode: answer.status, httpVersion: nil, headerFields: answer.headers
@@ -61,9 +70,13 @@ private final class ScriptedTokenEndpoint: URLProtocol, @unchecked Sendable {
         return "eyJhbGciOiJIUzI1NiJ9.\(claims).synthetic"
     }()
 
-    /// Runs one refresh against `answer` and returns the refresh token the
-    /// store still holds afterwards.
-    private func refreshTokenAfterRefresh(answering answer: ScriptedTokenEndpoint.Answer) async -> String? {
+    /// Runs `refreshes` refreshes against `answer` and returns the refresh
+    /// token the store still holds afterwards, and how many exchanges reached
+    /// the server.
+    private func refresh(
+        answering answer: ScriptedTokenEndpoint.Answer,
+        refreshes: Int = 1
+    ) async -> (refreshToken: String?, exchanges: Int) {
         let host = UUID().uuidString.lowercased() + ".invalid"
         ScriptedTokenEndpoint.script(answer, host: host)
         defer { ScriptedTokenEndpoint.remove(host: host) }
@@ -77,8 +90,14 @@ private final class ScriptedTokenEndpoint: URLProtocol, @unchecked Sendable {
             baseUrl: "https://" + host, projectId: "fixture", publishableClientKey: "synthetic",
             tokenStore: store, session: session
         )
-        _ = await client.getOrFetchLikelyValidTokens()
-        return await store.getStoredRefreshToken()
+        for _ in 0..<refreshes {
+            _ = await client.getOrFetchLikelyValidTokens()
+        }
+        return (await store.getStoredRefreshToken(), ScriptedTokenEndpoint.requestCount(host: host))
+    }
+
+    private func refreshTokenAfterRefresh(answering answer: ScriptedTokenEndpoint.Answer) async -> String? {
+        await refresh(answering: answer).refreshToken
     }
 
     @Test func rejectedPublishableKeyKeepsTheSession() async {
@@ -112,6 +131,25 @@ private final class ScriptedTokenEndpoint: URLProtocol, @unchecked Sendable {
             status: 400, body: #"{"error":"invalid_request","error_description":"Missing parameter"}"#
         ))
         #expect(kept == "session")
+    }
+
+    @Test func nonStackPageKeepsTheSession() async {
+        let kept = await refreshTokenAfterRefresh(answering: .init(
+            status: 401,
+            headers: ["Content-Type": "text/html"],
+            body: "<html><body>Sign in to the network</body></html>"
+        ))
+        #expect(kept == "session")
+    }
+
+    @Test func rejectedRequestIsNotRetriedDuringCooldown() async {
+        let result = await refresh(answering: .init(
+            status: 401,
+            headers: ["x-hexclave-known-error": "INVALID_PUBLISHABLE_CLIENT_KEY"],
+            body: #"{"code":"INVALID_PUBLISHABLE_CLIENT_KEY","error":"The publishable key is not valid."}"#
+        ), refreshes: 3)
+        #expect(result.refreshToken == "session")
+        #expect(result.exchanges == 1)
     }
 
     @Test func expiredRefreshTokenClearsTheSession() async {
