@@ -41,6 +41,12 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// which is main-actor isolated; this value is read where the switches are worked out, off it).
     static let resizeSyncForkAPI: Int32 = 27
 
+    /// The fork's switch that keeps main-frame process reuse's DevTools check per renderer
+    /// (`CEFForkFeatures.rendererPathsForkAPI`, fork API 29): Chromium's
+    /// content/browser/renderer_host/render_frame_host_manager.cc asks
+    /// `DevToolsAgentHost::WasEverAttachedToAnyFrame` for the whole browser instead.
+    static let processReusePerRendererDevTools = "cmux-process-reuse-per-renderer-devtools"
+
     var arguments: [String] {
         var result: [String] = []
         if forkAPIVersion >= 1 {
@@ -145,9 +151,6 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// client in this build, so DICE is off), the outdated-build bubble
     /// (Google Chrome builds only) and the Privacy Sandbox ad privacy notice
     /// (removed in Chromium 154, kPrivacySandboxAdPrivacyUxDeprecation).
-    /// The fork's switch for per-renderer DevTools checks in main-frame process reuse (fork API 29).
-    static let processReusePerRendererDevTools = "cmux-process-reuse-per-renderer-devtools"
-
     static let chromePromptOffSwitches = [
         "no-first-run",
         "no-default-browser-check",
