@@ -69,6 +69,10 @@ test("initials take whole graphemes", () => {
   expect(initials("Ana Ruiz")).toBe("AR");
   expect(initials("mei")).toBe("ME");
   expect(initials("Élodie Ünal")).toBe("ÉÜ");
+  // One letter for a small face is a whole grapheme, never half a surrogate pair.
+  expect(initials("𠮷田", 1)).toBe("𠮷");
+  expect(initials("😀 Tester", 1)).toBe("😀");
+  expect(initials("👩‍💻 Dev", 1)).toBe("👩‍💻");
 });
 
 test("a name loses hidden characters and is bounded; an id is kept whole", () => {
