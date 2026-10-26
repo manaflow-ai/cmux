@@ -313,7 +313,7 @@ pub enum Command {
         rotate_token: bool,
     },
     /// Remote daemons: add, ls, rm.
-    #[command(subcommand, alias = "hosts")]
+    #[command(subcommand, aliases = ["hosts", "peer"])]
     Host(PeerCmd),
     /// Bring your own harness: list, add, doctor and reload harness profile
     /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
@@ -471,8 +471,6 @@ pub enum Command {
     },
     #[command(hide = true)]
     Config,
-    #[command(subcommand, hide = true)]
-    Peer(PeerCmd),
     #[command(hide = true)]
     DaemonRun {
         /// Also serve WebSocket clients, e.g. 127.0.0.1:47811
@@ -1186,7 +1184,7 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Schema => Command::Schema,
             DaemonCmd::Models { refresh } => Command::Models { refresh },
         },
-        Command::Host(pc) => Command::Peer(pc),
+        Command::Host(pc) => Command::Host(pc),
         Command::Router(RouterCmd::Serve) => Command::Router(RouterCmd::Serve),
         other => other,
     }

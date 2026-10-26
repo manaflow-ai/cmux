@@ -64,7 +64,9 @@ mod remote_cli_docs {
             }
             words
                 .into_iter()
-                .map(|word| word.trim_matches(|character| "`[]()<>.,:".contains(character)).to_owned())
+                .map(|word| {
+                    word.trim_matches(|character| "`[]()<>.,:".contains(character)).to_owned()
+                })
                 .collect()
         }
 
