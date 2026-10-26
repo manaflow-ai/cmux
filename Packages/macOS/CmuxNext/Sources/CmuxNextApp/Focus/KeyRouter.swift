@@ -187,6 +187,9 @@ final class KeyRouter: BrowserKeyRouting {
     /// Key-downs this dispatcher decided: the window hook, the Chromium
     /// hook and the menu gate run nothing for them.
     let decided = DecidedKeyEvents()
+    /// The decided keys whose extension shortcuts are settled (``runExtensionShortcut(_:focus:)``): Chromium's pre-key
+    /// hook looks up the profile's shortcuts for every other decided key (``decidedKey(_:)``).
+    let extensionShortcutsLookedUp = DecidedKeyEvents()
 
     /// The inputs a window's key facts were built from (``keyFactsStamp(in:controller:)``).
     typealias FactsStamp = KeyFactsStamp<FocusState, TopPageRoute>
