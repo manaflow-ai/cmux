@@ -160,7 +160,8 @@ nonisolated enum SidebarDocWire {
             return SidebarDocItem(id: id, section: section, parent: parent, body: body, showsLabel: showsLabel ?? true, span: span,
                                   label: label ?? self.body.string("label"), iconURL: self.body.string("icon_url") ?? (extra?.value as? [String: Any])?["icon_url"] as? String,
                                   pinnedInGroup: (extra?.value as? [String: Any])?["pinned"] as? Bool == true,
-                                  archived: (extra?.value as? [String: Any])?["archived"] as? Bool == true)
+                                  archived: (extra?.value as? [String: Any])?["archived"] as? Bool == true,
+                                  autoArchive: SidebarDocAutoArchiveRule(wire: (extra?.value as? [String: Any])?["auto_archive"]))
         }
     }
 

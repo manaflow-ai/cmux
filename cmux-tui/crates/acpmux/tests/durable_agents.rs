@@ -8,10 +8,21 @@
 mod daemon_env;
 #[path = "durable_agents/queue_restore.rs"]
 mod queue_restore;
+#[path = "durable_agents/restart_reattach.rs"]
+mod restart_reattach;
 #[path = "durable_agents/stalled_turn.rs"]
 mod stalled_turn;
-// This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+// This process runs stand-in agents (the fake agents under tests/). The restart harness's sizes
+// and budget (`restart_reattach.rs`) are test-runner knobs that hold no credential.
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
+    "ACPMUX_REATTACH_LIVE",
+    "ACPMUX_REATTACH_IDLE",
+    "ACPMUX_REATTACH_CLOSED",
+    "ACPMUX_REATTACH_RECORDS",
+    "ACPMUX_REATTACH_SCAN_DELAY_MS",
+    "ACPMUX_REATTACH_BUDGET_MS",
+    "ACPMUX_REATTACH_OPEN_BUDGET_MS",
+]);
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
@@ -1556,6 +1567,8 @@ async fn queue_survives_restart(daemon: &mut Daemon, stop: fn(&mut Daemon), held
         assert_eq!(queue, ["q-1", "q-2"], "the queue did not survive the restart: {attached:#}");
         assert_eq!(attached["session"]["queued"], 2, "{attached:#}");
     } else {
+        // The lost turn's continuation goes first (`restart_resume.rs`), then the queue.
+        let queue: Vec<&str> = queue.into_iter().skip_while(|id| id.contains("~resume-")).collect();
         assert!(["q-1", "q-2"].ends_with(&queue), "the queue came back out of order: {attached:#}");
     }
 
@@ -1942,8 +1955,9 @@ async fn a_narrower_policy_reaches_an_agent_whose_host_is_not_adopted_yet() {
 /// `_acpmux/info` with `waitLogs: false` answers while a restarted daemon still reads the chat
 /// logs, and says so (`logsLoading`). The app daemon's callers give info 2 s (cmux-tui-core
 /// `agent_message_acpmux.rs`, `agent_session_link.rs`) and read only what the session list
-/// holds; a large log store takes longer to read. Without the flag info still waits for the logs
-/// (#22916). `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the second daemon's log load.
+/// holds; a large log store takes longer to read. Without the flag info still waits for the
+/// chat's log (#22916), which it reads itself instead of waiting for every other chat's
+/// (`hub/log_load.rs`). `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the second daemon's log load.
 #[tokio::test]
 async fn info_answers_while_the_chat_logs_load() {
     const HOLD: Duration = Duration::from_secs(6);
@@ -1965,6 +1979,6 @@ async fn info_answers_while_the_chat_logs_load() {
     assert_eq!(early["logsLoading"], true, "info did not say the logs are loading: {early:#}");
 
     let waited = rpc.call("_acpmux/info", json!({"sessionId": session})).await;
-    assert!(started.elapsed() >= HOLD, "info answered before the logs were read: {waited:#}");
-    assert_eq!(waited["logsLoading"], false, "{waited:#}");
+    assert!(started.elapsed() < HOLD, "info waited for the whole log load: {waited:#}");
+    assert_eq!(waited["logsLoading"], false, "info answered before its log was read: {waited:#}");
 }

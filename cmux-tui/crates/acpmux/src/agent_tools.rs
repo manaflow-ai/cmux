@@ -544,6 +544,14 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
             args: acpmux.args_lossy(&["forum-mcp"]),
             env: vec![],
         });
+        // send, ls, last and info (`acpmux_mcp.rs`): messages another session as this one,
+        // instead of `acpmux send` in a shell.
+        servers.push(McpServer {
+            name: crate::acpmux_mcp::SERVER_NAME.into(),
+            command: acpmux.exe.clone(),
+            args: acpmux.args_lossy(&["acpmux-mcp"]),
+            env: vec![],
+        });
     }
     if let Some(cmux) = executable("cmux")
         && !inputs.cmux_json.as_deref().is_some_and(mcp_disabled)
@@ -667,6 +675,7 @@ impl AgentTools {
             // Code config with it is a 0600 file (`claude_args`).
             if server.name == crate::subsession_mcp::SERVER_NAME
                 || server.name == crate::forum_mcp::SERVER_NAME
+                || server.name == crate::acpmux_mcp::SERVER_NAME
             {
                 let socket = crate::config::socket_path().to_string_lossy().into_owned();
                 server.env = vec![
