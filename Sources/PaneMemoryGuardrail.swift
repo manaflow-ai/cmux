@@ -78,8 +78,6 @@ final class PaneMemoryGuardrail {
     // MARK: Tick
 
     private func tick() async {
-        guard !isScanning else { return }
-        isScanning = true
         // Read authoritative preferences off main on each tick. A notification
         // cache misses writes by other processes, and preferences can block.
         let settings = await Task.detached(priority: .utility) {
@@ -89,6 +87,8 @@ final class PaneMemoryGuardrail {
             clearAll()
             return
         }
+        guard !isScanning else { return }
+        isScanning = true
         guard let paneProvider else {
             isScanning = false
             return
