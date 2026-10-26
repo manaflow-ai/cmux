@@ -1,5 +1,6 @@
-// A subset of generated/host_dispatch.inc for host_dispatch_test.cpp: the
-// ops host_dispatch.mm names, cut from gen-chromium-host-wire.py's output
+// A subset of generated/host_dispatch.inc for host_dispatch_test.cpp and
+// host_mirror_test.cpp: the ops host_dispatch.mm and host_mirror.mm name, and
+// their refresh rows, cut from gen-chromium-host-wire.py's output
 // for the current header (same ids, same case bodies), so the dispatcher's
 // ordering, id maps and bounds are tested without CEF or the generator.
 
@@ -11,12 +12,17 @@ enum Op : uint16_t {
   kOpCreateWindow = 28,
   kOpTabAdd = 29,
   kOpTabDuplicate = 30,
+  kOpTabNavigationEntries = 32,
+  kOpTabWindowId = 34,
   kOpLoadUrl = 35,
   kOpSetFocus = 40,
   kOpSetFocusRequestHandler = 41,
   kOpDevtoolsCall = 51,
   kOpTabNavigationState = 65,
+  kOpNavigationRestoreSupported = 67,
+  kOpForeignBrowserCount = 91,
   kOpLiveBrowserCount = 97,
+  kOpWindowCount = 98,
   kOpShutdown = 99,
 };
 inline constexpr uint16_t kOpEvent = 0x8001;
@@ -120,6 +126,29 @@ inline bool ProduceMirror(HostContext& ctx, uint16_t op, TlvReader& r) {
       ctx.PushMirror(kOpForkApiVersion, key, value);
       return true;
     }
+    case kOpTabNavigationEntries: {
+      const auto browser_id = r.I32();
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto result = cmux_shim_tab_navigation_entries(ctx.Browser(browser_id));
+      TlvWriter key;
+      key.I32(browser_id);
+      TlvWriter value;
+      value.Str(result);
+      if (result != nullptr) cmux_shim_free(result);
+      ctx.PushMirror(kOpTabNavigationEntries, key, value);
+      return true;
+    }
+    case kOpTabWindowId: {
+      const auto browser_id = r.I32();
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto result = cmux_shim_tab_window_id(ctx.Browser(browser_id));
+      TlvWriter key;
+      key.I32(browser_id);
+      TlvWriter value;
+      value.I32(result);
+      ctx.PushMirror(kOpTabWindowId, key, value);
+      return true;
+    }
     case kOpTabNavigationState: {
       const auto browser_id = r.I32();
       if (!r.ok() || !r.AtEnd()) return false;
@@ -132,6 +161,24 @@ inline bool ProduceMirror(HostContext& ctx, uint16_t op, TlvReader& r) {
       ctx.PushMirror(kOpTabNavigationState, key, value);
       return true;
     }
+    case kOpNavigationRestoreSupported: {
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto result = cmux_shim_navigation_restore_supported();
+      TlvWriter key;
+      TlvWriter value;
+      value.I32(result);
+      ctx.PushMirror(kOpNavigationRestoreSupported, key, value);
+      return true;
+    }
+    case kOpForeignBrowserCount: {
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto result = cmux_shim_foreign_browser_count();
+      TlvWriter key;
+      TlvWriter value;
+      value.I32(result);
+      ctx.PushMirror(kOpForeignBrowserCount, key, value);
+      return true;
+    }
     case kOpLiveBrowserCount: {
       if (!r.ok() || !r.AtEnd()) return false;
       const auto result = cmux_shim_live_browser_count();
@@ -139,6 +186,15 @@ inline bool ProduceMirror(HostContext& ctx, uint16_t op, TlvReader& r) {
       TlvWriter value;
       value.I32(result);
       ctx.PushMirror(kOpLiveBrowserCount, key, value);
+      return true;
+    }
+    case kOpWindowCount: {
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto result = cmux_shim_window_count();
+      TlvWriter key;
+      TlvWriter value;
+      value.I32(result);
+      ctx.PushMirror(kOpWindowCount, key, value);
       return true;
     }
     default:
@@ -154,12 +210,36 @@ struct MirrorRefresh {
 inline constexpr int kEventAttach = 0;  // pseudo event
 inline constexpr MirrorRefresh kMirrorRefreshes[] = {
     {0, -1, kOpForkApiVersion},  // attach
+    {2, -1, kOpTabNavigationEntries},  // CMUX_SHIM_AFTER_CREATED
+    {4, -1, kOpTabNavigationEntries},  // CMUX_SHIM_ADDRESS
+    {5, -1, kOpTabNavigationEntries},  // CMUX_SHIM_TITLE
+    {8, -1, kOpTabNavigationEntries},  // CMUX_SHIM_LOAD_START
+    {7, -1, kOpTabNavigationEntries},  // CMUX_SHIM_LOADING_STATE
+    {3, -1, kOpTabNavigationEntries},  // CMUX_SHIM_BEFORE_CLOSE
+    {2, -1, kOpTabWindowId},  // CMUX_SHIM_AFTER_CREATED
+    {16, 0, kOpTabWindowId},  // CMUX_SHIM_TAB_EVENT:0
+    {16, 2, kOpTabWindowId},  // CMUX_SHIM_TAB_EVENT:2
+    {16, 3, kOpTabWindowId},  // CMUX_SHIM_TAB_EVENT:3
+    {3, -1, kOpTabWindowId},  // CMUX_SHIM_BEFORE_CLOSE
     {2, -1, kOpTabNavigationState},  // CMUX_SHIM_AFTER_CREATED
+    {4, -1, kOpTabNavigationState},  // CMUX_SHIM_ADDRESS
     {8, -1, kOpTabNavigationState},  // CMUX_SHIM_LOAD_START
+    {9, -1, kOpTabNavigationState},  // CMUX_SHIM_LOAD_END
+    {7, -1, kOpTabNavigationState},  // CMUX_SHIM_LOADING_STATE
     {3, -1, kOpTabNavigationState},  // CMUX_SHIM_BEFORE_CLOSE
+    {0, -1, kOpNavigationRestoreSupported},  // attach
+    {0, -1, kOpForeignBrowserCount},  // attach
+    {16, 9, kOpForeignBrowserCount},  // CMUX_SHIM_TAB_EVENT:9
+    {16, 6, kOpForeignBrowserCount},  // CMUX_SHIM_TAB_EVENT:6
     {0, -1, kOpLiveBrowserCount},  // attach
     {2, -1, kOpLiveBrowserCount},  // CMUX_SHIM_AFTER_CREATED
     {3, -1, kOpLiveBrowserCount},  // CMUX_SHIM_BEFORE_CLOSE
+    {0, -1, kOpWindowCount},  // attach
+    {2, -1, kOpWindowCount},  // CMUX_SHIM_AFTER_CREATED
+    {16, 6, kOpWindowCount},  // CMUX_SHIM_TAB_EVENT:6
+    {16, 9, kOpWindowCount},  // CMUX_SHIM_TAB_EVENT:9
+    {16, 10, kOpWindowCount},  // CMUX_SHIM_TAB_EVENT:10
+    {3, -1, kOpWindowCount},  // CMUX_SHIM_BEFORE_CLOSE
 };
 
 template <typename F>

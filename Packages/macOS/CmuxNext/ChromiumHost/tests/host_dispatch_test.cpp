@@ -92,6 +92,12 @@ char* cmux_shim_tab_navigation_state(int browser_id) {
 }
 void cmux_shim_free(char* s) { std::free(s); }
 int cmux_shim_live_browser_count(void) { return shim.live; }
+// The other mirrors of the fixture (host_mirror_test.cpp checks their values).
+char* cmux_shim_tab_navigation_entries(int) { return nullptr; }
+int cmux_shim_tab_window_id(int) { return 0; }
+int cmux_shim_navigation_restore_supported(void) { return 1; }
+int cmux_shim_foreign_browser_count(void) { return 0; }
+int cmux_shim_window_count(void) { return 0; }
 }
 
 namespace {
@@ -194,7 +200,7 @@ void Expect(const std::vector<std::string>& got, const std::vector<std::string>&
 void HelloFirst() {
   Fixture f;
   f.host.Attach(30, 1234);
-  Expect(f.Sent(), {"mirror 3", "event 0 0 0"}, "attach-only mirrors, then the hello");
+  Expect(f.Sent(), {"mirror 3", "mirror 67", "event 0 0 0"}, "attach-only mirrors, then the hello");
   Check(f.delegate.calls.empty(), "no initialize before INITIALIZE");
 }
 
@@ -231,7 +237,7 @@ void PreinitBeforeInitialize() {
   f.host.Resume();
   Expect(shim.calls, {"ntp cmux-page://home/", "nav_state 5", "load 5 https://a/", "load 5 https://a/"},
          "after initialize, the waiting messages in cmux's order");
-  Expect(f.Sent(), {"ack 11", "mirror 97", "mirror 65 5", "ack 12", "ack 13"},
+  Expect(f.Sent(), {"ack 11", "mirror 91", "mirror 97", "mirror 98", "mirror 65 5", "ack 12", "ack 13"},
          "initialize acked, then the counts that refresh on attach too, then the rest");
   Check(shim.focus != nullptr && shim.window != nullptr, "the host's policies are installed after initialize");
 }
@@ -248,9 +254,13 @@ void MintedWindow() {
   create.Str("https://b/");
   create.Str(nullptr);
   f.host.OnMessages({Op(kOpCreateWindow, 20, create)});
-  Expect(shim.calls, {"create 42 https://b/ view"}, "create_window with the host's view");
+  Expect(shim.calls, {"create 42 https://b/ view", "nav_state 3"},
+         "create_window with the host's view; the new tab's navigation state is read at AFTER_CREATED");
   Expect(f.views.calls, {"open 9"}, "the page view token opens a view");
-  Expect(f.Sent(), {"mirror 97", "event 2 " + std::to_string(kMinted) + " 42", "ack 20"},
+  const std::string minted = std::to_string(kMinted);
+  Expect(f.Sent(),
+         {"mirror 32 " + minted, "mirror 34 " + minted, "mirror 65 " + minted, "mirror 97", "mirror 98",
+          "event 2 " + minted + " 42", "ack 20"},
          "AFTER_CREATED carries the minted id; its mirrors first, the ack last");
 
   Writer watch;
@@ -259,16 +269,18 @@ void MintedWindow() {
   load.I32(kMinted);
   load.Str("https://c/");
   f.host.OnMessages({Op(kOpTabNavigationState, 0, watch), Op(kOpLoadUrl, 21, load)});
-  Expect(shim.calls, {"create 42 https://b/ view", "nav_state 3", "load 3 https://c/"},
+  Expect(shim.calls, {"create 42 https://b/ view", "nav_state 3", "nav_state 3", "load 3 https://c/"},
          "the minted id reaches the shim as Chromium's");
   f.Sent();
   Emit(CMUX_SHIM_LOAD_START, 3, 0, "https://c/");
-  Expect(f.Sent(), {"mirror 65 " + std::to_string(kMinted), "event 8 " + std::to_string(kMinted) + " 0"},
-         "the watched mirror goes out before the event that refreshes it");
+  Expect(f.Sent(), {"mirror 32 " + minted, "mirror 65 " + minted, "event 8 " + minted + " 0"},
+         "the tab's mirrors go out before the event that refreshes them");
 
   shim.live = 0;
   Emit(CMUX_SHIM_BEFORE_CLOSE, 3, 0);
-  Expect(f.Sent(), {"mirror 65 " + std::to_string(kMinted), "mirror 97", "event 3 " + std::to_string(kMinted) + " 0"},
+  Expect(f.Sent(),
+         {"mirror 32 " + minted, "mirror 34 " + minted, "mirror 65 " + minted, "mirror 97", "mirror 98",
+          "event 3 " + minted + " 0"},
          "BEFORE_CLOSE: last mirrors, then the event");
   Expect(f.views.calls, {"open 9", "close 9"}, "the browser's page view closes with it");
   Expect(f.delegate.calls, {"initialize /root", "closed"}, "the delegate hears of the close");
@@ -286,7 +298,10 @@ void MintedTab() {
   add.I32(-1);
   add.I32(1);
   f.host.OnMessages({Op(kOpTabAdd, 30, add)});
-  Expect(f.Sent(), {"mirror 97", "event 2 " + std::to_string(kMinted + 1) + " 0", "ack 30"},
+  const std::string minted = std::to_string(kMinted + 1);
+  Expect(f.Sent(),
+         {"mirror 32 " + minted, "mirror 34 " + minted, "mirror 65 " + minted, "mirror 97", "mirror 98",
+          "event 2 " + minted + " 0", "ack 30"},
          "an AFTER_CREATED inside tab_add already carries the minted id");
 }
 

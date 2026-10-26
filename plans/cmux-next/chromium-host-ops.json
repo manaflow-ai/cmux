@@ -843,7 +843,7 @@
       ],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Back/Forward menu JSON, pushed before the event that changes it."
+      "reason": "Back/Forward menu JSON. host_mirror.mm pushes it for every open tab, with no watch, before each refresh event; BEFORE_CLOSE pushes no value (forget)."
     },
     {
       "name": "cmux_shim_tab_go_to_entry",
@@ -896,7 +896,7 @@
       ],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "AFTER_CREATED and TAB_EVENT carry the window id already (a = window id)."
+      "reason": "host_mirror.mm pushes the event's window (a) at AFTER_CREATED and TAB_EVENT inserted (0) and moved (2), the fork's at removed (3), for every open tab; BEFORE_CLOSE pushes no value (forget)."
     },
     {
       "name": "cmux_shim_load_url",
@@ -1602,7 +1602,7 @@
       ],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "History with page state for hibernation and restore; PageState refresh on hide is task 093."
+      "reason": "History with page state for hibernation and restore. host_mirror.mm pushes it for every open tab, with no watch, before each refresh event, so a read in LOAD_START's turn has the new entry; BEFORE_CLOSE pushes no value (forget). PageState refresh on hide is task 093."
     },
     {
       "name": "cmux_shim_tab_restore_navigation",
@@ -1645,7 +1645,7 @@
       ],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "A fork capability, fixed for the host's life. Feature detection is mirror, never post (task 017)."
+      "reason": "A fork capability, fixed for the host's life: pushed once in the hello (host_mirror.mm owns it). Feature detection is mirror, never post (task 017)."
     },
     {
       "name": "cmux_shim_ext_list",
@@ -2278,7 +2278,7 @@
       ],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "TAB_EVENT 9 reports each foreign Browser the fork blocks."
+      "reason": "TAB_EVENT 9 reports each foreign Browser the fork blocks, 6 a destroyed one; host_mirror.mm reads the fork's count."
     },
     {
       "name": "cmux_shim_download_url",
@@ -2395,7 +2395,7 @@
       ],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Counts AFTER_CREATED minus BEFORE_CLOSE in the host."
+      "reason": "The shim's browser map, read by host_mirror.mm after AFTER_CREATED adds and BEFORE_CLOSE removes a browser."
     },
     {
       "name": "cmux_shim_window_count",
@@ -2410,11 +2410,13 @@
         "attach",
         "CMUX_SHIM_AFTER_CREATED",
         "CMUX_SHIM_TAB_EVENT:6",
+        "CMUX_SHIM_TAB_EVENT:9",
+        "CMUX_SHIM_TAB_EVENT:10",
         "CMUX_SHIM_BEFORE_CLOSE"
       ],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "TAB_EVENT 6 (window destroyed) carries the remaining count."
+      "reason": "host_mirror.mm pushes the remaining count TAB_EVENT 6 (window destroyed) carries in b, since the fork still counts that window; other refreshes read the fork. A blocked foreign Browser (9) and a hidden popup window (10) are windows too."
     },
     {
       "name": "cmux_shim_shutdown",

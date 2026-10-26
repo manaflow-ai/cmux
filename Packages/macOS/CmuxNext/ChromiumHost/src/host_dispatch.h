@@ -17,6 +17,9 @@
 //                                              arguments); the host pushes the value
 //                                              now and before every event that
 //                                              refreshes it, until the browser closes
+//                                              (the navigation, window and count
+//                                              mirrors go out with no watch for every
+//                                              open tab: host_mirror.h)
 //   kOpInitialize                               cmux_shim_initialize's arguments
 //                                              without the function pointers, in
 //                                              header order (switches as a str list)
@@ -47,6 +50,7 @@
 
 #include "chromium_host_control.h"
 #include "chromium_host_tlv.h"
+#include "host_mirror.h"
 
 namespace cmux_host {
 
@@ -165,7 +169,7 @@ class HostContext {
   bool HandleInitialize(const control::Message& message);
   void Watch(uint16_t op, const std::vector<control::Field>& key);
   void ForwardEvent(int kind, int browser_id, int request, int64_t a, int64_t b, const char* s1, const char* s2);
-  void Refresh(int kind, int request, int32_t client_id);
+  void Refresh(const MirrorEvent& event);
   bool Produce(uint16_t op, const std::vector<control::Field>& key);
   void ProduceAttach(bool only_attach);
   void Bad(const std::string& what);
@@ -199,6 +203,8 @@ class HostContext {
   // DevTools message ids: (Chromium browser << 32 | the shim's id) -> the minted id.
   std::unordered_map<uint64_t, int32_t> devtools_ids_;
 
+  // The navigation, window and count mirrors, pushed for every open tab (task 016).
+  HostMirrors mirrors_;
   // Watched mirror keys by op; a key is the export's arguments.
   std::unordered_map<uint16_t, std::vector<std::vector<control::Field>>> watched_;
   size_t watched_count_ = 0;

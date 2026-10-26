@@ -208,8 +208,10 @@ bool HostContext::Produce(uint16_t op, const std::vector<control::Field>& key) {
   return ProduceMirror(*this, op, r);
 }
 
-void HostContext::Refresh(int kind, int request, int32_t client_id) {
-  ForEachMirrorRefreshedBy(kind, request, [&](uint16_t op) {
+void HostContext::Refresh(const MirrorEvent& event) {
+  mirrors_.EventArrived(event);
+  ForEachMirrorRefreshedBy(event.kind, event.request, [&](uint16_t op) {
+    if (mirrors_.Produce(*this, op, event)) return;
     auto found = watched_.find(op);
     if (found == watched_.end() || found->second.empty()) {
       // A mirror with no arguments needs no watch: produce it from its first refresh on.
@@ -220,9 +222,10 @@ void HostContext::Refresh(int kind, int request, int32_t client_id) {
       return;
     }
     for (const std::vector<control::Field>& key : found->second) {
-      if (key.empty() || KeyNames(key, client_id)) Produce(op, key);
+      if (key.empty() || KeyNames(key, event.browser)) Produce(op, key);
     }
   });
+  mirrors_.EventSent(event);
 }
 
 void HostContext::OnShimEvent(void* ctx, int kind, int browser_id, int request, int64_t a, int64_t b, const char* s1,
@@ -254,7 +257,7 @@ void HostContext::ForwardEvent(int kind, int browser_id, int request, int64_t a,
       devtools_ids_.erase(minted);
     }
   }
-  Refresh(kind, request, client);
+  Refresh(MirrorEvent{kind, request, client, a, b});
   TlvWriter event;
   EncodeEvent(event, kind, client, out_request, a, b, s1, s2);
   Post(MessageOf(kOpEvent, false, 0, event.Take()));
