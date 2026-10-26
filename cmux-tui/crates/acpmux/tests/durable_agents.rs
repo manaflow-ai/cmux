@@ -2382,9 +2382,9 @@ async fn a_full_access_host_whose_end_failed_is_never_reached_under_mdm_off() {
 
 /// A daemon whose person is proven (`hub/person.rs`), with `fake` as its harness: only the person
 /// sets a mode that does not ask.
-async fn proven_daemon(tag: &str, fake: Value) -> (Daemon, Rpc) {
+async fn proven_daemon(tag: &str, fake: Value, env: &[(&str, &str)]) -> (Daemon, Rpc) {
     const KEY: &str = "7a0e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6";
-    let mut daemon = Daemon::new(tag, "ask");
+    let mut daemon = Daemon::with_env(tag, "ask", env);
     daemon.sigterm();
     daemon.key = Some(KEY.to_owned());
     let config =
@@ -2415,7 +2415,7 @@ async fn a_full_access_option_answered_without_options_ends_under_mdm_off() {
                       "FAKE_MODE_OPTION": "1", "FAKE_BARE_OPTION_ANSWER": "1"}});
     for restart in [false, true] {
         let tag = if restart { "mdmbarerestart" } else { "mdmbarelive" };
-        let (mut daemon, mut rpc) = proven_daemon(tag, fake.clone()).await;
+        let (mut daemon, mut rpc) = proven_daemon(tag, fake.clone(), &[]).await;
         let session = new_session(&daemon).await;
         let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
         rpc.call("session/prompt", prompt).await;
@@ -2444,11 +2444,14 @@ async fn a_full_access_option_answered_without_options_ends_under_mdm_off() {
 
 /// Review 60 of #23322: a host a restart left changed its mode to full access while no daemon
 /// was attached; its host kept the update for the next daemon, which first reads it when the
-/// host replays. Under MDM's off, the prompt that adopts that host is never answered by it.
+/// host replays. Under MDM's off, a prompt is never answered by that agent, also while the
+/// inbound loop has not applied the replayed update yet (the debug seam
+/// `ACPMUX_TEST_UPDATE_DELAY_MS`).
 #[tokio::test]
 async fn a_mode_a_left_host_replays_is_judged_before_its_agent_is_reached_under_mdm_off() {
     let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
-    let (mut daemon, mut rpc) = proven_daemon("mdmreplay", fake).await;
+    let delay = [("ACPMUX_TEST_UPDATE_DELAY_MS", "1500")];
+    let (mut daemon, mut rpc) = proven_daemon("mdmreplay", fake, &delay).await;
     let session = new_session(&daemon).await;
     let first = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
     rpc.call("session/prompt", first).await;
