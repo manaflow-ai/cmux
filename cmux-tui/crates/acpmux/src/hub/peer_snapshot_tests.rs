@@ -1,6 +1,7 @@
 //! `peer_snapshot.rs`: the store's bounds, a full disk, refused removals, a restart, and a
-//! directory that does not read (the files: `disk_tests.rs`). The tests drive the store's thread
-//! body directly; `keep` stands for what starts or grows a copy, which comes next.
+//! directory that does not read; then which copy may grow: generations, joins, links, lags
+//! (the files: `disk_tests.rs`). The tests drive the store's thread body directly; `keep` puts a
+//! copy in place for the tests of what is done with it.
 
 use super::*;
 
@@ -320,4 +321,297 @@ fn a_head_past_its_bound_is_not_written_and_a_flush_waits_in_the_queue_once() {
     }
     assert!(snaps.queued.load(Ordering::Acquire) <= OP_BYTES, "one flush of a peer waits at most");
     snaps.flush_now();
+}
+
+fn recs(range: std::ops::RangeInclusive<u64>) -> Vec<Value> {
+    range.map(|s| rec("m1", s)).collect()
+}
+
+fn list(store: &mut Store, rows: &[(&str, u64)]) {
+    let rows = rows.iter().map(|(m, g)| ((*m).to_owned(), Some(*g))).collect();
+    store.take(Op::Listed { peer: PEER.into(), rows, full: true });
+}
+
+/// An attach page of generation `g` on `link`: the newest records, `more` before them.
+fn attach(g: u64, link: u64, more: bool, records: Vec<Value>) -> Page {
+    let last = records.iter().filter_map(seq_of).max();
+    Page {
+        link: (1, link),
+        asked: Some(g),
+        generation: Some(g),
+        has_more: more,
+        host_last_seq: last,
+        records,
+        ..Page::default()
+    }
+}
+
+/// An events page after `after`, asked while the row named `g`.
+fn events(g: u64, link: u64, after: u64, records: Vec<Value>) -> Page {
+    let last = records.iter().filter_map(seq_of).max();
+    Page {
+        link: (1, link),
+        asked: Some(g),
+        after: Some(after),
+        host_last_seq: last,
+        records,
+        ..Page::default()
+    }
+}
+
+/// `record` as one of session `mux`'s.
+fn of(mux: &str, mut record: Value) -> Value {
+    record["sessionId"] = json!(mux);
+    record
+}
+
+fn put(store: &mut Store, mux: &str, mut page: Page) {
+    page.records = page.records.into_iter().map(|r| of(mux, r)).collect();
+    store.take(Op::Page { key: key(mux), page });
+}
+
+fn live(store: &mut Store, mux: &str, link: u64, seq: u64) {
+    store.take(Op::Record { key: key(mux), link: (1, link), record: rec(mux, seq) });
+}
+
+fn whole(store: &Store, mux: &str) -> bool {
+    store.copies[&key(mux)].head.from_start
+}
+
+#[test]
+fn only_the_listed_generation_starts_or_grows_a_copy() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    // Not listed: nothing is kept.
+    put(&mut store, "m1", attach(7, 1, false, recs(1..=3)));
+    assert!(seqs(&mut store, "m1").is_empty());
+    list(&mut store, &[("m1", 7)]);
+    // A page naming no generation (events) never starts a copy, nor does one asked of another.
+    put(&mut store, "m1", events(7, 1, 0, recs(1..=3)));
+    let mut stale = attach(7, 1, false, recs(1..=3));
+    stale.asked = Some(6);
+    put(&mut store, "m1", stale);
+    assert!(seqs(&mut store, "m1").is_empty());
+    put(&mut store, "m1", attach(7, 1, false, recs(1..=3)));
+    assert_eq!(seqs(&mut store, "m1"), vec![1, 2, 3]);
+
+    // The session is recreated (generation 8): the list drops the copy, and a slow page of
+    // generation 7, or an events page asked while 7 was listed, never lands in 8's place.
+    list(&mut store, &[("m1", 8)]);
+    assert!(seqs(&mut store, "m1").is_empty());
+    put(&mut store, "m1", attach(7, 1, false, recs(1..=5)));
+    put(&mut store, "m1", events(7, 1, 3, recs(4..=5)));
+    assert!(seqs(&mut store, "m1").is_empty());
+    put(&mut store, "m1", attach(8, 1, false, recs(1..=2)));
+    put(&mut store, "m1", events(7, 1, 2, recs(3..=4)));
+    assert_eq!(seqs(&mut store, "m1"), vec![1, 2]);
+    // A list read before 8 was named, taken late, takes nothing back: 8 stays listed and kept,
+    // and a page asked on its row is not kept.
+    list(&mut store, &[("m1", 7)]);
+    assert_eq!(store.current(&key("m1")), Some(8));
+    put(&mut store, "m1", attach(7, 1, false, recs(1..=5)));
+    assert_eq!(seqs(&mut store, "m1"), vec![1, 2]);
+    // A row with no generation keeps no copy.
+    store.take(Op::Listed { peer: PEER.into(), rows: vec![("m1".into(), None)], full: false });
+    assert!(seqs(&mut store, "m1").is_empty());
+}
+
+#[test]
+fn a_page_continues_a_copy_only_where_it_joins_it() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 7)]);
+    put(&mut store, "m1", attach(7, 1, true, recs(5..=8)));
+    // An attach page whose oldest record leaves a gap after the copy replaces it.
+    put(&mut store, "m1", attach(7, 1, true, recs(12..=14)));
+    assert_eq!(seqs(&mut store, "m1"), vec![12, 13, 14]);
+    // An events page after a seq the copy has not reached drops it (it cannot start one).
+    put(&mut store, "m1", events(7, 1, 20, recs(21..=22)));
+    assert!(seqs(&mut store, "m1").is_empty());
+    put(&mut store, "m1", attach(7, 1, true, recs(5..=8)));
+    put(&mut store, "m1", events(7, 1, 8, recs(9..=10)));
+    put(&mut store, "m1", attach(7, 1, true, recs(9..=11)));
+    assert_eq!(seqs(&mut store, "m1"), (5..=11).collect::<Vec<_>>());
+    // On another link, a peer behind the copy (an older disk) replaces it; on the link that
+    // paged it, a page that raced a live record does not.
+    live(&mut store, "m1", 1, 12);
+    let mut raced = attach(7, 1, true, recs(9..=11));
+    raced.host_last_seq = Some(11);
+    put(&mut store, "m1", raced);
+    assert_eq!(seqs(&mut store, "m1"), (5..=12).collect::<Vec<_>>());
+    put(&mut store, "m1", attach(7, 2, true, recs(8..=9)));
+    assert_eq!(seqs(&mut store, "m1"), vec![8, 9]);
+}
+
+#[test]
+fn a_live_record_needs_a_page_on_its_link_and_none_is_taken_after_a_lag() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 7)]);
+    live(&mut store, "m1", 1, 1);
+    assert!(seqs(&mut store, "m1").is_empty(), "no copy, no record");
+    put(&mut store, "m1", attach(7, 1, false, recs(1..=2)));
+    live(&mut store, "m1", 1, 3);
+    // One past a seq the copy never saw would leave a hole.
+    live(&mut store, "m1", 1, 5);
+    // A record of a link no page joined the copy on; after it, the old link is too late.
+    live(&mut store, "m1", 2, 4);
+    live(&mut store, "m1", 1, 4);
+    assert_eq!(seqs(&mut store, "m1"), vec![1, 2, 3]);
+    put(&mut store, "m1", attach(7, 2, true, recs(3..=6)));
+    live(&mut store, "m1", 2, 7);
+    assert_eq!(seqs(&mut store, "m1"), (1..=7).collect::<Vec<_>>());
+    // A lag of an older link, taken late, leaves the copy on the newer one.
+    store.take(Op::Lagged { peer: PEER.into(), link: (1, 1) });
+    live(&mut store, "m1", 2, 8);
+    store.take(Op::Lagged { peer: PEER.into(), link: (1, 2) });
+    live(&mut store, "m1", 2, 9);
+    assert_eq!(seqs(&mut store, "m1").last(), Some(&8), "none after a lag until a page");
+    // A page of the old link, taken late, does not come back either.
+    put(&mut store, "m1", attach(7, 1, false, recs(1..=10)));
+    assert_eq!(seqs(&mut store, "m1").last(), Some(&8));
+}
+
+#[test]
+fn a_peer_behind_what_the_copy_saw_replaces_it_and_older_history_is_left_out() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 7)]);
+    // A forward page holds 1..=5 of a peer at 1000.
+    let mut first = events(7, 1, 0, recs(1..=5));
+    (first.has_more, first.host_last_seq) = (true, Some(1000));
+    // ...which an attach has to start: an events page alone never does.
+    put(&mut store, "m1", attach(7, 1, true, recs(3..=5)));
+    put(&mut store, "m1", first);
+    assert_eq!(seqs(&mut store, "m1"), (1..=5).collect::<Vec<_>>());
+    // The VM came back on an older disk (at 200) on a new link: not this copy's journal.
+    let mut after = events(7, 2, 5, recs(6..=8));
+    after.host_last_seq = Some(200);
+    put(&mut store, "m1", after);
+    assert!(seqs(&mut store, "m1").is_empty());
+    // Older history that does not reach the copy is left out, never joined across the gap.
+    put(&mut store, "m1", attach(7, 2, true, recs(901..=910)));
+    put(&mut store, "m1", events(7, 2, 0, recs(1..=5)));
+    assert_eq!(seqs(&mut store, "m1"), (901..=910).collect::<Vec<_>>());
+    assert!(!store.copies[&key("m1")].head.from_start);
+}
+
+#[test]
+fn an_empty_page_from_a_peer_gone_back_drops_the_copy() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 7)]);
+    put(&mut store, "m1", attach(7, 1, false, recs(1..=3)));
+    // A VM resumed from before its first record: an empty attach on a new link, `lastSeq` 0.
+    let mut empty = attach(7, 2, false, vec![]);
+    empty.host_last_seq = Some(0);
+    put(&mut store, "m1", empty);
+    assert!(seqs(&mut store, "m1").is_empty());
+    // Its new journal never joins the old one.
+    put(&mut store, "m1", attach(7, 2, true, recs(4..=5)));
+    assert_eq!(seqs(&mut store, "m1"), vec![4, 5]);
+}
+
+#[test]
+fn a_page_covers_past_its_last_record_only_as_far_as_the_peer_says_it_holds() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 7), ("m2", 7)]);
+    // A peer that does not say (an older daemon reads its `lastSeq` after the page, so seq 3 may
+    // have come between them): the page covers its own records, and 3 is never claimed.
+    let mut page = attach(7, 1, false, recs(1..=2));
+    page.host_last_seq = Some(3);
+    put(&mut store, "m1", page);
+    assert_eq!(store.copies[&key("m1")].head.last_seq, 2);
+    live(&mut store, "m1", 1, 4);
+    assert_eq!(seqs(&mut store, "m1"), vec![1, 2], "4 does not join past 3");
+    live(&mut store, "m1", 1, 3);
+    live(&mut store, "m1", 1, 4);
+    assert_eq!(seqs(&mut store, "m1"), vec![1, 2, 3, 4]);
+    // One that says (`pageThrough`, its `lastSeq` read before the page) covers to it: what it
+    // left out up to there is of kinds not asked for, and the next live record joins.
+    let mut page = attach(7, 1, false, vec![rec("m2", 1), rec("m2", 2)]);
+    page.through = Some(5);
+    put(&mut store, "m2", page);
+    live(&mut store, "m2", 1, 6);
+    assert_eq!(seqs(&mut store, "m2"), vec![1, 2, 6]);
+    assert_eq!(store.copies[&key("m2")].head.last_seq, 6);
+    // A watermark past what a seq can be is not a page.
+    let mut odd = events(7, 1, 6, vec![rec("m2", 7)]);
+    odd.through = Some(u64::MAX);
+    put(&mut store, "m2", odd);
+    assert_eq!(store.copies[&key("m2")].head.last_seq, 6);
+    // A forward page cut by its limit covers only its records, whatever the peer says.
+    let mut cut = events(7, 1, 6, vec![rec("m2", 7)]);
+    (cut.has_more, cut.through) = (true, Some(9));
+    put(&mut store, "m2", cut);
+    assert_eq!(store.copies[&key("m2")].head.last_seq, 7);
+    // But the peer was seen that far: a page from it back below 9 is a peer gone back.
+    assert_eq!(store.copies[&key("m2")].head.host_last_seq, 9);
+}
+
+#[test]
+fn a_record_of_another_session_is_never_kept_as_this_ones() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 7)]);
+    let mut page = attach(7, 1, false, recs(1..=3));
+    page.records[1] = of("m2", rec("m1", 2));
+    store.take(Op::Page { key: key("m1"), page });
+    assert!(seqs(&mut store, "m1").is_empty(), "a page holding another session's record");
+    put(&mut store, "m1", attach(7, 1, false, recs(1..=3)));
+    store.take(Op::Record { key: key("m1"), link: (1, 1), record: of("m2", rec("m1", 4)) });
+    assert_eq!(seqs(&mut store, "m1"), vec![1, 2, 3]);
+}
+
+#[test]
+fn what_was_unlisted_before_the_disk_read_is_applied_to_it() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m2", 7), ("m3", 7)]);
+    for m in ["m2", "m3"] {
+        put(&mut store, m, attach(7, 1, false, recs(1..=2)));
+    }
+    store.write_due(None, When::Last);
+    // The next run cannot read the disk at first; meanwhile m2 is recreated and a full list
+    // leaves m3 out.
+    let mut again = Store::new(disk::root(dir.path()), Arc::default(), Arc::default());
+    list(&mut again, &[("m2", 8)]);
+    assert!(again.scan());
+    assert!(again.copies.is_empty(), "{:?}", again.copies.keys().collect::<Vec<_>>());
+    assert!(!file(dir.path(), "m2").exists() && !file(dir.path(), "m3").exists());
+}
+
+#[test]
+fn an_empty_journal_starts_an_empty_copy_and_a_page_out_of_bounds_is_not_one() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 7)]);
+    // A session with nothing in it yet: its first live record joins.
+    let mut empty = attach(7, 1, false, vec![]);
+    (empty.through, empty.host_last_seq) = (Some(0), Some(0));
+    put(&mut store, "m1", empty);
+    assert!(store.copies.contains_key(&key("m1")));
+    live(&mut store, "m1", 1, 1);
+    assert_eq!(seqs(&mut store, "m1"), vec![1]);
+    // A record whose seq is out of bounds makes the page not one.
+    let odd = json!({"sessionId": "m1", "seq": u64::MAX, "kind": "k"});
+    put(&mut store, "m1", events(7, 1, 1, vec![rec("m1", 2), odd]));
+    assert_eq!(seqs(&mut store, "m1"), vec![1]);
+    // A row past what a head holds is not kept, nor the copy it came with.
+    let mut big = events(7, 1, 1, recs(2..=2));
+    big.row = Some(json!({"sessionId": "m1", "title": "x".repeat(HEAD_BYTES as usize)}));
+    put(&mut store, "m1", big);
+    assert!(!store.copies.contains_key(&key("m1")));
+}
+
+#[test]
+fn a_name_too_long_for_a_file_is_never_kept() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    // An id with no file name is never kept: it could not be written.
+    let long = "x".repeat(200);
+    list(&mut store, &[(long.as_str(), 7)]);
+    put(&mut store, &long, attach(7, 1, false, recs(1..=2)));
+    assert!(!store.copies.contains_key(&key(&long)));
 }
