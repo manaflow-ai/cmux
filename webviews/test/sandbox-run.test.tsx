@@ -175,6 +175,46 @@ test("Sandboxed is offered only once a read said what the host holds for the tab
   expect(tab.checked).toBe(true);
 });
 
+test("a read that fails after a lost answer keeps the tab's send spent", async () => {
+  const { SandboxTab } = await import("../src/agent-session/acpmux/sandboxRun");
+  const tab = new SandboxTab(
+    (method) => Promise.reject({ code: method === "sandbox.run" ? "timeout" : "native.not_connected" }),
+    () => undefined,
+  );
+  tab.setMode("sandboxed");
+  tab.send("first", "claude");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(tab.host).toEqual({ kind: "unknown" });
+  expect(tab.spent()).toBe(true);
+  expect(tab.send("second", "claude")).toBe(false);
+});
+
+test("a send out holds a reload until its own answer, even once a read found the tab's receipt", async () => {
+  const { SandboxTab } = await import("../src/agent-session/acpmux/sandboxRun");
+  const restored: string[] = [];
+  let refuse: (error: unknown) => void = () => undefined;
+  const tab = new SandboxTab(
+    (method) =>
+      method === "sandbox.run"
+        ? new Promise((_, reject) => (refuse = reject))
+        : Promise.resolve({
+            task: "first",
+            key: "earlier",
+            reply: { ok: true, value: { receipt: { status: "succeeded" } } },
+          }),
+    (text) => restored.push(text),
+  );
+  tab.setMode("sandboxed");
+  tab.send("second", "claude");
+  await tab.read();
+  expect(tab.busy()).toBe(true);
+  refuse({ code: "sandbox_spent" });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(tab.busy()).toBe(false);
+  expect(restored).toEqual(["second"]);
+});
+
 test("a bridge error or a malformed answer is unknown, with Check again", async () => {
   const { SandboxTab } = await import("../src/agent-session/acpmux/sandboxRun");
   const failing = (answer: () => Promise<unknown>) => new SandboxTab(answer, () => undefined);

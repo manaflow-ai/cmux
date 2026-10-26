@@ -146,6 +146,10 @@ export class SandboxTab {
   /// A read answered (none, running or ended): the page knows what the host holds for this tab, so
   /// Sandboxed can be offered.
   checked = false;
+  /// The attempt the host said reached Cloud (running, or ended other than by a refusal before any
+  /// Run). It stays until that attempt's own refusal before any Run: a later read that fails can't
+  /// make the tab's one paid send available again.
+  private held?: string;
   private listeners = new Set<() => void>();
   private version = 0;
   /// The newest read: an older read's answer is dropped.
@@ -176,12 +180,14 @@ export class SandboxTab {
   /// The tab's one paid send is out or used (the host refuses another): no new Sandboxed send.
   spent(): boolean {
     const view = this.view();
-    return view !== undefined && !sandboxRetryable(view);
+    return this.held !== undefined || (view !== undefined && !sandboxRetryable(view));
   }
 
-  /// A send runs: a web update's reload waits (bounded by the send's and the read's deadlines).
+  /// A send runs: a web update's reload waits (bounded by the send's and the read's deadlines). This
+  /// page's own send holds it until its answer, even once a read found the tab's receipt: a refused
+  /// send's prompt comes back only with that answer.
   busy(): boolean {
-    return this.receipt === undefined && (this.mine !== undefined || this.host.kind === "running");
+    return this.mine !== undefined || (this.receipt === undefined && this.host.kind === "running");
   }
 
   setMode(mode: RunMode) {
@@ -253,6 +259,8 @@ export class SandboxTab {
       this.refusal = undefined;
     }
     if (answer.kind !== "unknown") this.checked = true;
+    if (answer.kind === "running" || (answer.kind === "ended" && !sandboxRetryable(answer.run))) this.held = answer.key;
+    else if (answer.kind === "ended" && answer.key === this.held) this.held = undefined;
     if (!this.receipt) this.host = answer;
     this.emit();
   }
