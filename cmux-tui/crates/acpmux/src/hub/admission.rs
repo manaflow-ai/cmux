@@ -185,8 +185,9 @@ fn user_home() -> Option<PathBuf> {
 }
 
 /// Where this host's fleet registry is (module docs): `FLEET_REGISTRY`, else
-/// the first of the two usual copies that exists. True when `FLEET_REGISTRY`
-/// names it: that file is meant to be there.
+/// the first of the two usual copies that exists. True when the file is meant
+/// to be there: `FLEET_REGISTRY` names it, or the lookup could not tell (a folder
+/// that cannot be searched). Only a clean "not found" moves on to the next copy.
 fn registry_path() -> Option<(PathBuf, bool)> {
     if let Some(path) = std::env::var_os("FLEET_REGISTRY").filter(|p| !p.is_empty()) {
         return Some((path.into(), true));
@@ -195,8 +196,11 @@ fn registry_path() -> Option<(PathBuf, bool)> {
     [".ssh/config.d/fleet-registry.json", "Projects/leo-workspace/machines/fleet-registry.json"]
         .iter()
         .map(|rel| home.join(rel))
-        .find(|p| p.exists())
-        .map(|p| (p, false))
+        .find_map(|p| match p.try_exists() {
+            Ok(true) => Some((p, false)),
+            Ok(false) => None,
+            Err(_) => Some((p, true)),
+        })
 }
 
 /// The registry at `source`, and whether it is there but unreadable. One that
