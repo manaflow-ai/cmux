@@ -58,7 +58,7 @@ final class TerminalFrameHold {
         show(frame, over: fresh, like: fresh.layer, in: host)
         awaitingContent = true
         let generation = generation
-        deadline.schedule(after: Self.contentLimit) { @MainActor [weak self] in
+        deadline.scheduleOnMain(after: Self.contentLimit) { [weak self] in
             guard let self, self.generation == generation, self.awaitingContent else { return }
             self.end()
         }
@@ -84,7 +84,7 @@ final class TerminalFrameHold {
         guard let lane = surface?.lane else { return end() }
         let generation = generation
         frames.activate()
-        deadline.schedule(after: Self.limit) { @MainActor [weak self] in
+        deadline.scheduleOnMain(after: Self.limit) { [weak self] in
             guard let self, self.generation == generation else { return }
             self.end()
         }
