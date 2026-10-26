@@ -719,14 +719,23 @@ jobs:
           # attempt, so no run replaces bytes a feed already signed. Until the
           # feed names them, they are this attempt's alone: a run that ends
           # without writing the feed removes them (cmux_binaries_prune.py leaves
-          # this prefix alone).
+          # this prefix alone). A write whose answer was lost may still have
+          # landed, so they go only once a fresh read of the feed shows it does
+          # not name this attempt's archive; a failed read keeps them.
           uploaded=() written=false
           cleanup() {
             local status=$?  # the step's own status, kept: the trap never turns a failure green
-            if [[ "$written" != true ]]; then
-              for object in ${uploaded[@]+"${uploaded[@]}"}; do
-                python3 scripts/ci/r2_cas.py delete --key "$object" || echo "::warning::could not remove $object"
-              done
+            if [[ "$written" != true && ${#uploaded[@]} -gt 0 ]]; then
+              local held
+              if ! held="$(python3 scripts/ci/r2_cas.py get --key "$key" --out tip-live-final.xml)"; then
+                echo "::warning::could not read the tip feed back; keeping this attempt's uploads"
+              elif [[ "$held" != absent ]] && grep -qF "cmux-NEXT-DEV-$TIP_BUILD-$TIP_RUN_TAG.dmg" tip-live-final.xml; then
+                echo "::warning::the tip feed names this attempt's archive, so its write landed; keeping the uploads"
+              else
+                for object in "${uploaded[@]}"; do
+                  python3 scripts/ci/r2_cas.py delete --key "$object" || echo "::warning::could not remove $object"
+                done
+              fi
             fi
             exit "$status"
           }

@@ -302,12 +302,16 @@ if [[ "$1" == scripts/ci/r2_cas.py ]]; then
       n=$(( $(cat "$STUB_DIR/gets" 2>/dev/null || echo 0) + 1 )); echo $n > "$STUB_DIR/gets"
       src="$STUB_DIR/live$n.xml"; [[ -f "$src" ]] || src="$STUB_DIR/live.xml"
       out="${@: -1}"
+      [[ -f "$STUB_DIR/getfail$n" ]] && exit 1
       if [[ -f "$src" ]]; then cp "$src" "$out"; echo "\"etag$n\""; else : > "$out"; echo absent; fi; exit 0 ;;
     put)
       n=$(( $(cat "$STUB_DIR/puts" 2>/dev/null || echo 0) + 1 )); echo $n > "$STUB_DIR/puts"
       file=""; prev=""; for a in "$@"; do [[ "$prev" == --file ]] && file="$a"; prev="$a"; done
       cp "$file" "$STUB_DIR/written$n.xml"
-      [[ -f "$STUB_DIR/conflict$n" ]] && exit 3; exit 0 ;;
+      [[ -f "$STUB_DIR/conflict$n" ]] && exit 3
+      # The write lands, but its answer is lost.
+      [[ -f "$STUB_DIR/lost$n" ]] && { rm -f "$STUB_DIR"/live[0-9]*.xml; cp "$file" "$STUB_DIR/live.xml"; exit 1; }
+      exit 0 ;;
     delete) exit 0 ;;
   esac
 fi
@@ -317,7 +321,7 @@ if [[ "$1" == scripts/ci/upload-r2-object.py ]]; then
 fi
 exec "$REAL_PY" "$@"
 """
-def run_tip(lives, conflicts=(), fail_upload=""):
+def run_tip(lives, conflicts=(), fail_upload="", lost=(), get_fails=()):
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         (tmp / "bin").mkdir()
@@ -328,12 +332,13 @@ def run_tip(lives, conflicts=(), fail_upload=""):
         (tmp / "tip-new").mkdir(); (tmp / "tip-out").mkdir()
         (tmp / "tip-new" / "cmux-NEXT-DEV-102-r7-1.dmg").write_text("dmg")
         (tmp / "tip-out" / "cmux-NEXT-DEV-tip-7-1-102-100.delta").write_text("delta")
-        (tmp / "tip-out" / "appcast-arm64.xml").write_text(appcast(102, 100, 99))
+        (tmp / "tip-out" / "appcast-arm64.xml").write_text(appcast(102, 100, 99).replace("DEV-102.dmg", "DEV-102-r7-1.dmg"))
         for n, builds in enumerate(lives, 1):
             if builds is not None:
                 (tmp / f"live{n}.xml").write_text(appcast(*builds))
-        for n in conflicts:
-            (tmp / f"conflict{n}").write_text("")
+        for name, ns in (("conflict", conflicts), ("lost", lost), ("getfail", get_fails)):
+            for n in ns:
+                (tmp / f"{name}{n}").write_text("")
         env = {"PATH": f"{tmp / 'bin'}:/usr/bin:/bin", "STUB_LOG": str(tmp / "log"), "STUB_DIR": str(tmp),
                "REAL_PY": sys.executable, "TIP_R2_PREFIX": "nightly-next/tip", "TIP_APPCAST": "appcast-arm64.xml",
                "TIP_BUILD": "102", "TIP_RUN_TAG": "r7-1", "TIP_KEEP": "3", "SOURCE_SHA": "a" * 40,
@@ -355,6 +360,12 @@ check(rc == 0 and last == [102] and "r2 delete" not in log, f"the first feed is 
 rc, log, last, err = run_tip([(100, 99)], fail_upload=".delta")
 check(rc != 0 and last is None and log.count("r2 delete") == 2,
       f"a failed upload fails the step, writes no feed and removes what it uploaded ({rc} {log!r})")
+rc, log, last, err = run_tip([(100, 99)], lost=(1,))
+check(rc != 0 and last == [102, 100, 99] and "r2 delete" not in log,
+      f"a feed write whose answer was lost but which landed keeps the files the feed now names ({rc} {log!r})")
+rc, log, last, err = run_tip([(100, 99)], fail_upload=".delta", get_fails=(2,))
+check(rc != 0 and last is None and "r2 delete" not in log,
+      f"when the feed cannot be read back, the uploads stay ({rc} {log!r})")
 
 if failures:
     for failure in failures:
