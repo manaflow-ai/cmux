@@ -44,6 +44,8 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     /// The surface's key-to-echo stage: each parsed output chunk may be a waiting key's echo. Nil
     /// while the app tracks no input latency.
     let echoStage: TerminalEchoStage?
+    /// The key presses open on this lane's surface (``TypingLatencyProbe``); nil marks none.
+    let keyFlows: TypingLatencyProbe.SurfaceFlows?
     /// Watches each output chunk's parse on the lane, never the lane's queue wait; nil watches nothing.
     private let hangWatched: HangWatchedLane?
     /// How long one chunk's `ghostty_surface_process_output` may take before the hang watcher reports
@@ -54,10 +56,12 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     private let parse: Parse
 
     init(surface: ghostty_surface_t, label: String, highWater: Int = 2 << 20, echoStage: TerminalEchoStage? = nil,
-         hangs: (any HangWatchScoping)? = nil, parse: @escaping Parse = { TerminalOutputLane.processOutput($0, $1) }) {
+         keyFlows: TypingLatencyProbe.SurfaceFlows? = nil, hangs: (any HangWatchScoping)? = nil,
+         parse: @escaping Parse = { TerminalOutputLane.processOutput($0, $1) }) {
         self.surface = surface
         self.highWater = highWater
         self.echoStage = echoStage
+        self.keyFlows = keyFlows
         self.parse = parse
         hangWatched = hangs.map { HangWatchedLane("terminal.feed", deadline: Self.feedHangDeadline, on: $0) }
         self.queue = DispatchQueue(label: label, qos: .userInteractive)
@@ -65,6 +69,12 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
 
     deinit {
         hangWatched?.unregister()
+    }
+
+    /// The session took an output chunk for this lane: the `app.output.received` hop of the presses
+    /// open on its surface whose echo was decoded (``TypingLatencyProbe``).
+    func outputReceived() {
+        if let keyFlows { TypingLatencyProbe.shared.mark(.outputReceived, surface: keyFlows) }
     }
 
     /// Bytes queued but not parsed yet.
@@ -80,7 +90,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
             guard let surface, !closing.load(ordering: .relaxed) else { return }
             feed(surface, data)
             echoStage?.outputParsed(armedBefore: armedBefore)
-            TypingLatencyProbe.shared.mark(.outputParsed)
+            if let keyFlows { TypingLatencyProbe.shared.mark(.outputParsed, surface: keyFlows) }
             #if DEBUG || CMUX_BENCH_HOOKS
             if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.parsed(lane: ObjectIdentifier(self), data) }
             #endif

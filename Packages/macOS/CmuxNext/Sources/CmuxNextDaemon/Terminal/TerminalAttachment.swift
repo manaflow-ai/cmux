@@ -165,7 +165,7 @@ public actor TerminalAttachment: TerminalByteChannel {
                 if case .closed = event {
                     queue.finish(event)
                 } else {
-                    if case .output = event { TypingLatencyProbe.shared.mark(.outputDecoded) }
+                    if case .output = event { TypingLatencyProbe.shared.mark(.outputDecoded, flow: decoded.flow) }
                     queue.push(event)
                 }
             },
