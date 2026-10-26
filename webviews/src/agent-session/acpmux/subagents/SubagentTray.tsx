@@ -45,7 +45,7 @@
 // a new message does, leaves on a kept snapshot, its list opens and folds on the shared fold
 // (conversation/fold.ts), a line that joins it rises in, and its header's words tick. What runs
 // turns the shared spinner, never a breathing dot.
-import { memo, useId, useState } from "react";
+import { memo, useId, useRef, useState } from "react";
 import { useArrivals } from "../../../ui/presence";
 import { experimentArm } from "../../../experiments/experiment";
 import { foldMotion, useFold } from "../conversation/fold";
@@ -140,15 +140,23 @@ export const SubagentTray = memo(function SubagentTray({
   // The list opens and folds on the shared fold, its height only (no fade in), from the header's
   // chevron or the list growing past TRAY_OPEN_MAX.
   const fold = useFold(open, always, false);
-  const keys = [
+  // Every line the tray has, drawn or not, and the ones drawn now.
+  const keys = [...items.map(itemKey), ...finished.map(itemKey)];
+  const drawnKeys = [
     ...items.map(itemKey),
     ...finished.slice(0, showFinished ? finished.length : TRAY_OPEN_MAX).map(itemKey),
   ];
   // A line that joins the open list rises in (ui/popupSurface.css `data-enter`); the lines it was
-  // drawn with, and lines a fold or View all brings back, are simply there.
-  // With no motion (Reduce Motion, the host's switch) nothing arrives: it is there. A line that
-  // arrives on a hidden page is finished when the page shows (shared/pageReveal.ts), which settles it.
-  const arrivals = useArrivals(keys, open && !isAgentMotionOff() && !foldMotion.reducedMotion() ? keys : NO_KEYS);
+  // drawn with, and lines a fold or View all brings back, are simply there. With no motion (Reduce
+  // Motion, the host's switch) nothing arrives. A burst (more than ARRIVALS_PER_UPDATE at once, a
+  // reconnect's catch-up) is simply there too, as the transcript's live rows are, so the arrivals
+  // set stays a handful and settling one is O(1) in the tray's size. A line that arrives on a hidden
+  // page is finished when the page shows (shared/pageReveal.ts), which settles it.
+  const lastCount = useRef(keys.length);
+  const burst = keys.length - lastCount.current > ARRIVALS_PER_UPDATE;
+  lastCount.current = keys.length;
+  const moves = open && !burst && !isAgentMotionOff() && !foldMotion.reducedMotion();
+  const arrivals = useArrivals(keys, moves ? drawnKeys : NO_KEYS);
   if (items.length === 0 && finished.length === 0) return null;
   // Its subagents and the chats it started are one word: subagents.
   const subagents = items.filter((item) => item.kind !== "command").length;
@@ -240,7 +248,7 @@ export const SubagentTray = memo(function SubagentTray({
           type="button"
           className="acpmux-summary-row acpmux-summary-link acpmux-running-tray__head"
           aria-expanded={open}
-          aria-controls={fold.present ? listId : undefined}
+          aria-controls={open ? listId : undefined}
           onClick={() => setOpened(!open)}
         >
           <span className="acpmux-lineage__icon" data-state={runs ? "running" : "done"}>
@@ -256,7 +264,13 @@ export const SubagentTray = memo(function SubagentTray({
         </button>
       )}
       {fold.present && (
-        <div ref={fold.ref} className="acpmux-running-tray__fold">
+        // While it folds away its lines are out of reach: no focus, no reading.
+        <div
+          ref={fold.ref}
+          className="acpmux-running-tray__fold"
+          inert={!open || undefined}
+          aria-hidden={!open || undefined}
+        >
           <ul id={listId} className="acpmux-running-tray__list">
             {cards}
           </ul>
@@ -371,6 +385,8 @@ export const SubagentTray = memo(function SubagentTray({
 
 const NO_ITEMS: readonly TrayItem[] = [];
 const NO_KEYS: readonly string[] = [];
+/// The most lines that rise in from one update; a bigger burst is simply there.
+const ARRIVALS_PER_UPDATE = 3;
 const always = () => true;
 
 /// What a line says it does now is only for what still runs: an ended one never reads "Running …".
