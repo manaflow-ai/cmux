@@ -702,6 +702,9 @@ const editQueued = (promptId: string, edit: QueueEdit) =>
 /// The width the header's tools take in the pane's tab row, so the App narrows the tabs (header/tabRow.ts).
 const reportTabRowTools = (width: number) => void callNative("pane.tabRowTools", { width }).catch(() => undefined);
 /// Hands the host a new chat's typed text, kept with its tab across a relaunch (cx-z5vd).
+/// The composer's text changed: the chat tells acpmux this pane types (never the text itself).
+const postTyping = (text: string, sessionId?: string) =>
+  void window.cmuxAcpmuxActions?.["chat.typing"]?.({ text, sessionId }).catch(() => undefined);
 const postUnsentDraft = (text: string) => void callNative("chat.unsentDraft", { text }).catch(() => undefined);
 /// Each chat's unsent chips, kept by the host so reopening or restoring the chat brings them back
 /// (AgentPaneDraftAttachments.swift). A host without the store (the gallery, an older app) keeps none.
@@ -8864,6 +8867,7 @@ function AcpmuxPane() {
             onOpenContext={inspector.reveal ? () => inspector.reveal?.("context") : undefined}
             draft={draft}
             onUnsentDraft={quick ? undefined : postUnsentDraft}
+            onTyping={quick ? undefined : postTyping}
             keptAttachments={quick ? undefined : keptAttachments}
             onCmuxCommand={(command, args) => {
               if (command.action === "status") {

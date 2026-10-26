@@ -479,8 +479,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         let hub = hub.clone();
         tokio::spawn(async move {
             // Debug builds only: `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the chat-log
-            // load, as a large log store does, so integration tests can ask in that
-            // window. Bounded; release builds have no seam.
+            // load and adoption, as a large log store did, so integration tests can ask in
+            // that window. Bounded; release builds have no seam.
             #[cfg(debug_assertions)]
             if let Some(ms) = std::env::var("ACPMUX_TEST_DELAY_LOAD_LOGS_MS")
                 .ok()
@@ -488,10 +488,19 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             {
                 tokio::time::sleep(Duration::from_millis(ms.min(10_000))).await;
             }
-            // The chat logs (tails, cut-off turns, queues), before adoption as before.
-            hub.load_logs_async().await;
-            // Agents that outlived the previous daemon come back first.
-            hub.adopt_agent_hosts().await;
+            // Agents that outlived the previous daemon come back first: their chats' logs
+            // (tails, queues), then adoption. Every other chat's log is read in the background
+            // after it, or first by a request for that chat (`hub/log_load.rs`).
+            {
+                let _adopted = crate::hub::AdoptionReady(&hub.adoption_ready);
+                hub.load_live_logs_async().await;
+                hub.adopt_agent_hosts().await;
+                hub.settle_unadopted().await;
+            }
+            {
+                let hub = hub.clone();
+                tokio::spawn(async move { hub.load_logs_async().await });
+            }
             // A chat a machine's Full-access setting moved out of its policy's mode goes back:
             // a revoke the previous daemon saved may not have reached it (`crate::pairing`).
             hub.hold_policies_again().await;

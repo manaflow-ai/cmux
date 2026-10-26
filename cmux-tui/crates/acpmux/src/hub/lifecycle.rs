@@ -876,11 +876,13 @@ impl Hub {
             // first turn. Prime it then; fresh and resumed ids are known already.
             let known = child.claude_state().await.and_then(|state| state.session_id);
             if known.is_none() {
+                let hold = ReplayHold::start(session, &child);
                 session.loading.store(true, Ordering::SeqCst);
                 let primed = child
                     .request(method::SESSION_PROMPT, json!({"sessionId": session.id, "prompt": [{"type": "text", "text": "This session was just forked. Reply with exactly: ready"}]}))
                     .await;
                 session.loading.store(false, Ordering::SeqCst);
+                hold.end().await;
                 if let Err(e) = primed {
                     let e = Self::explain_start_failure(session, e).await;
                     return Err(RpcError::internal(format!("claude did not start: {}", e.message)));
@@ -931,6 +933,7 @@ impl Hub {
         let saved = session.meta();
         let loaded = match existing {
             Some(sid) if supports_load => {
+                let hold = ReplayHold::start(session, &child);
                 session.loading.store(true, Ordering::SeqCst);
                 let res = child
                     .request(
@@ -939,6 +942,7 @@ impl Hub {
                     )
                     .await;
                 session.loading.store(false, Ordering::SeqCst);
+                hold.end().await;
                 match res {
                     Ok(v) => {
                         self.absorb_session_response(session, &v);
@@ -1345,3 +1349,32 @@ fn stopped_while_starting() -> RpcError {
 #[cfg(test)]
 #[path = "stop_fence_tests.rs"]
 mod stop_fence_tests;
+
+/// The agent messages of a `session/load` (or a Claude fork's prime) never reach the session's
+/// preview, so its `lastMessage` stays the chat's own newest reply, as `wait --print` reads it
+/// from the log. ACP answers a load once its history is sent, and every reader (direct, Codex
+/// bridge, agent host, a pooled agent's hold) queues an agent's notifications in order before
+/// it resolves the answer, so the `ReplayDone` that `end` queues lands behind the whole replay,
+/// and before the next prompt is even written. The hold names the agent's generation: another
+/// agent's updates and markers never touch it. A start abandoned mid-load never ends it, so
+/// what that agent still had queued stays out of the preview as well, beside the next agent's
+/// own hold (`Session::replaying` keeps both).
+struct ReplayHold<'a> {
+    session: &'a Session,
+    agent: &'a crate::agent::ChildAgent,
+}
+
+impl<'a> ReplayHold<'a> {
+    fn start(session: &'a Session, agent: &'a crate::agent::ChildAgent) -> Self {
+        session.replaying.lock().unwrap_or_else(|e| e.into_inner()).push(agent.generation);
+        Self { session, agent }
+    }
+
+    /// Lifts the hold once the inbound loop reaches what the agent sent so far; at once when
+    /// its queue is closed (nothing more can arrive).
+    async fn end(self) {
+        if !self.agent.queue_replay_done().await {
+            self.session.end_replay(self.agent.generation);
+        }
+    }
+}
