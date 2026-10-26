@@ -182,14 +182,16 @@ public final class ChiefPetSettingsRows: NSObject {
     }
 
     /// Upload Your Own…: the file picker over the Home window (the popover closes when it takes the keys).
+    /// The upload goes to the Chief the popover showed when the picker opened, whatever it shows after.
     @objc func chooseUpload() {
+        let key = uploadKey, mascot = pickedMascot
         let panel = NSOpenPanel()
         panel.allowedContentTypes = ChiefAvatarUploads.types
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         let use = { [weak self] (response: NSApplication.ModalResponse) in
             guard response == .OK, let file = panel.url else { return }
-            self?.upload(file)
+            self?.upload(file, for: key, over: mascot)
         }
         if let window = host?.window { panel.beginSheetModal(for: window, completionHandler: use) } else { use(panel.runModal()) }
     }
@@ -200,8 +202,12 @@ public final class ChiefPetSettingsRows: NSObject {
 
     /// Makes `file` the popover's Chief's upload and wears it; a refused one beeps and says why.
     func upload(_ file: URL) {
+        upload(file, for: uploadKey, over: pickedMascot)
+    }
+
+    /// Makes `file` upload `key`'s, worn over `mascot`.
+    private func upload(_ file: URL, for key: String, over mascot: String) {
         guard let uploads else { return }
-        let key = uploadKey, mascot = pickedMascot
         // task-owner: one upload (read, drawn down and written off the main actor); ends with it
         Task { [weak self] in
             do throws(ChiefAvatarUploads.Refusal) {
