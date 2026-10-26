@@ -114,8 +114,18 @@ fn nested_rm_and_new_groups_pass_through_unmapped() {
         args(&["domain", "verify-create", "example.com"])
     );
     assert_eq!(
-        planned(&["vm", "tls", "create", "--host", "a.example.com", "--vm", "vm_1", "--port", "80"])
-            .unwrap(),
+        planned(&[
+            "vm",
+            "tls",
+            "create",
+            "--host",
+            "a.example.com",
+            "--vm",
+            "vm_1",
+            "--port",
+            "80"
+        ])
+        .unwrap(),
         args(&["tls", "create", "--host", "a.example.com", "--vm", "vm_1", "--port", "80"])
     );
     assert_eq!(
