@@ -2,10 +2,15 @@ import CmuxNextCompat
 import Darwin
 
 /// Deletes the black-box ring files of processes that ended, as plans/cmux-next/trace.md ("Sizes by role")
-/// specifies: a black box whose process is dead and that is older than ``maxAge`` goes; then the oldest dead
-/// ones go until the dead processes' black boxes take at most ``deadByteCap``. A live process's ring is never
+/// specifies: a black box whose process has been dead for more than ``maxAge`` goes; then the longest-dead ones
+/// go until the dead processes' black boxes take at most ``deadByteCap``. A live process's ring is never
 /// deleted, and recording rings are not touched (they are under the `trace.start` cap). Rust's
 /// `cmux_trace::cleanup` (task 095) follows the same rule for the daemon's directory.
+///
+/// The age counts from the first cleanup that found the process dead, not from the ring's start or its file's
+/// mtime: records go through a `MAP_SHARED` mapping, which does not reliably move the mtime, so the black box of
+/// a session that ran for days and then crashed must not read as days old at the next launch. That cleanup
+/// creates `<ring>.dead` (``deadMarkSuffix``) with its own wall clock as the mtime.
 ///
 /// A process is live when `kill(pid, 0)` finds it and its kernel start time is the one in the ring's header
 /// (`process_start_unix_us`), so a reused pid does not keep an old ring. Chrome cleans its metrics directory the
@@ -18,7 +23,7 @@ import Darwin
 /// let report = TraceRingCleanup(directory: path).run()
 /// ```
 public struct TraceRingCleanup: Sendable {
-    /// A dead process's black box older than this is deleted.
+    /// A black box whose process has been dead for longer than this is deleted.
     public static let maxAge: Duration = .seconds(3 * 24 * 3600)
     /// The most bytes the dead processes' black boxes keep after the age rule.
     public static let deadByteCap = 16 * 1024 * 1024
@@ -26,6 +31,8 @@ public struct TraceRingCleanup: Sendable {
     static let blackBoxSuffix = ".blackbox.cmxtrace"
     /// The suffix of a spare file still being built (``TraceRingFile/prepareSpare(directory:role:sizes:)``).
     static let buildingSuffix = ".tmp"
+    /// The suffix of the marker whose mtime is when a cleanup first found a black box's process dead.
+    static let deadMarkSuffix = ".dead"
 
     /// The folder of the ring files.
     public let directory: String
@@ -43,9 +50,9 @@ public struct TraceRingCleanup: Sendable {
     public struct Report: Sendable, Equatable {
         /// Black boxes of live processes.
         public var live: [String] = []
-        /// Black boxes of dead processes that stayed (young enough and under the cap).
+        /// Black boxes of dead processes that stayed (dead for less than ``TraceRingCleanup/maxAge``, under the cap).
         public var keptDead: [String] = []
-        /// Files deleted: old or over-cap dead black boxes and abandoned spare builds.
+        /// Files deleted: long-dead or over-cap black boxes and abandoned spare builds (not their markers).
         public var deleted: [String] = []
     }
 
@@ -57,26 +64,35 @@ public struct TraceRingCleanup: Sendable {
         var report = Report()
         let now = nowUnixNanos()
         let maxAgeNanos = UInt64(Self.maxAge.components.seconds) * 1_000_000_000
+        let names = fileNames()
         var dead: [Ring] = []
-        for name in fileNames() {
+        for name in names {
             if name.hasSuffix(Self.buildingSuffix) {
                 if let pid = Self.builderPID(name), !isAlive(pid, 0), remove(name) { report.deleted.append(name) }
                 continue
             }
-            guard name.hasSuffix(Self.blackBoxSuffix), let ring = read(name) else { continue }
+            guard name.hasSuffix(Self.blackBoxSuffix), var ring = read(name) else { continue }
             if isAlive(ring.pid, ring.startMicros) {
                 report.live.append(name)
-            } else if now > ring.writtenUnixNanos, now - ring.writtenUnixNanos > maxAgeNanos {
-                if remove(name) { report.deleted.append(name) }
+                continue
+            }
+            ring.deadSinceUnixNanos = deadSince(name, now: now)
+            if now > ring.deadSinceUnixNanos, now - ring.deadSinceUnixNanos > maxAgeNanos {
+                if delete(name) { report.deleted.append(name) }
             } else {
                 dead.append(ring)
             }
         }
-        // The cap: the oldest dead rings go first.
-        dead.sort { ($0.writtenUnixNanos, $0.name) < ($1.writtenUnixNanos, $1.name) }
+        // A marker whose ring is gone (deleted above, or by hand).
+        let rings = Set(names.filter { $0.hasSuffix(Self.blackBoxSuffix) })
+        for marker in names where marker.hasSuffix(Self.blackBoxSuffix + Self.deadMarkSuffix) {
+            if !rings.contains(String(marker.dropLast(Self.deadMarkSuffix.count))) { _ = remove(marker) }
+        }
+        // The cap: the longest-dead rings go first.
+        dead.sort { ($0.deadSinceUnixNanos, $0.startUnixNanos, $0.name) < ($1.deadSinceUnixNanos, $1.startUnixNanos, $1.name) }
         var bytes = dead.reduce(0) { $0 + $1.bytes }
         for ring in dead {
-            if bytes > Self.deadByteCap, remove(ring.name) {
+            if bytes > Self.deadByteCap, delete(ring.name) {
                 bytes -= ring.bytes
                 report.deleted.append(ring.name)
             } else {
@@ -86,16 +102,44 @@ public struct TraceRingCleanup: Sendable {
         return report
     }
 
+    /// When a cleanup first found the process of black box `name` dead: its marker's mtime, or `now` once this
+    /// call made the marker with that mtime. When no marker can be made the answer is `now`, so the ring stays
+    /// until a later cleanup marks it.
+    private func deadSince(_ name: String, now: UInt64) -> UInt64 {
+        let marker = directory + "/" + name + Self.deadMarkSuffix
+        var info = stat()
+        if lstat(marker, &info) == 0, info.st_mode & S_IFMT == S_IFREG {
+            return UInt64(max(0, info.st_mtimespec.tv_sec)) * 1_000_000_000 + UInt64(max(0, info.st_mtimespec.tv_nsec))
+        }
+        let descriptor = open(marker, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0o600)
+        guard descriptor >= 0 else { return now }
+        defer { close(descriptor) }
+        let stamp = timespec(tv_sec: Int(now / 1_000_000_000), tv_nsec: Int(now % 1_000_000_000))
+        var times = [stamp, stamp]
+        _ = futimens(descriptor, &times)
+        return now
+    }
+
+    /// Deletes black box `name` and its dead marker; true when the ring went.
+    private func delete(_ name: String) -> Bool {
+        guard remove(name) else { return false }
+        _ = remove(name + Self.deadMarkSuffix)
+        return true
+    }
+
     // MARK: - Files
 
-    /// A black-box file: its process (from the header, else the name), its age and its size.
+    /// A black-box file: its process (from the header, else the name), its start and its size.
     private struct Ring {
         var name: String
         var pid: Int32
         var startMicros: UInt64
-        /// The later of the ring's start (header `start_unix_ns`) and the file's modification time.
-        var writtenUnixNanos: UInt64
+        /// The ring's start (header `start_unix_ns`; the file's mtime for a file that is not a v1 ring): the
+        /// cap's tie-break only, never its age.
+        var startUnixNanos: UInt64
         var bytes: Int
+        /// When a cleanup first found its process dead (``deadSince(_:now:)``).
+        var deadSinceUnixNanos: UInt64 = 0
     }
 
     private func fileNames() -> [String] {
@@ -121,7 +165,7 @@ public struct TraceRingCleanup: Sendable {
     private static let nameLengthOffset = MemoryLayout<dirent>.offset(of: \dirent.d_namlen) ?? 18
 
     /// The ring's header fields, read with one `pread`; a file that is not a v1 ring takes its pid from its name
-    /// and its age from the file system.
+    /// and its start from the file system.
     private func read(_ name: String) -> Ring? {
         let path = directory + "/" + name
         let descriptor = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
@@ -137,12 +181,10 @@ public struct TraceRingCleanup: Sendable {
         }
         if read == TraceRing.headerBytes, word(0) == TraceRing.magic {
             let pid = Int32(bitPattern: UInt32(truncatingIfNeeded: word(16)))
-            let started = word(32)
-            return Ring(name: name, pid: pid, startMicros: word(40), writtenUnixNanos: max(started, modified),
-                        bytes: Int(info.st_size))
+            return Ring(name: name, pid: pid, startMicros: word(40), startUnixNanos: word(32), bytes: Int(info.st_size))
         }
         guard let pid = Self.namePID(name) else { return nil }
-        return Ring(name: name, pid: pid, startMicros: 0, writtenUnixNanos: modified, bytes: Int(info.st_size))
+        return Ring(name: name, pid: pid, startMicros: 0, startUnixNanos: modified, bytes: Int(info.st_size))
     }
 
     private func remove(_ name: String) -> Bool {

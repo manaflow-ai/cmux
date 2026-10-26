@@ -1,8 +1,10 @@
+public import CmuxNextCompat
 public import CmuxNextTrace
 public import Foundation
 
 /// Runs a process's black-box file steps (plans/cmux-next/chrome-parity/p09-observability.md section 3A,
-/// task 005) on BackgroundWork `.files`, none of them on the caller's thread:
+/// task 005) on the `.files` lane of a ``MayBlockRunner`` (the app's BackgroundWork), none of them on the
+/// caller's thread:
 ///
 /// - At once: adopt the ring file (``TraceBlackBox/adoptFile()``), so a crash after launch leaves a ring.
 /// - At once, best effort: delete the black boxes of dead processes (``TraceBlackBox/cleanUp(now:)``).
@@ -18,7 +20,7 @@ public import Foundation
 public final class TraceBlackBoxFileSteps: Sendable {
     /// The process's ring and its file steps.
     public let blackBox: TraceBlackBox
-    private let work: BackgroundWork
+    private let work: any MayBlockRunner
     /// The one deadline that makes the spare file.
     private let spare: DemandTimer
 
@@ -26,9 +28,9 @@ public final class TraceBlackBoxFileSteps: Sendable {
     ///
     /// - Parameters:
     ///   - blackBox: The process's black box (its heap ring already records).
-    ///   - work: The lanes the steps run on.
+    ///   - work: The runner whose `.files` lane runs the steps (the app's BackgroundWork).
     ///   - clock: The clock of the spare file's deadline.
-    public init(blackBox: TraceBlackBox, work: BackgroundWork, clock: any Clock<Duration> = ContinuousClock()) {
+    public init(blackBox: TraceBlackBox, work: any MayBlockRunner, clock: any Clock<Duration> = ContinuousClock()) {
         self.blackBox = blackBox
         self.work = work
         spare = DemandTimer(owner: "trace.blackbox.spare", clock: clock)
@@ -37,25 +39,32 @@ public final class TraceBlackBoxFileSteps: Sendable {
     /// Posts the adoption and the cleanup to `.files` and arms the spare deadline. Returns at once.
     public func start() {
         let (blackBox, work) = (blackBox, work)
-        work.post(.userVisible, mayBlock: .files) { _ = blackBox.adoptFile() }
-        work.post(.bestEffort, mayBlock: .files) { _ = blackBox.cleanUp() }
+        work.postFiles(.userVisible, shutdown: .skipOnShutdown) { _ = blackBox.adoptFile() }
+        work.postFiles(.bestEffort, shutdown: .skipOnShutdown) { _ = blackBox.cleanUp() }
         spare.schedule(after: TraceBlackBox.spareDelay) {
-            work.post(.idle, mayBlock: .files) { _ = blackBox.prepareSpare() }
+            work.postFiles(.idle, shutdown: .skipOnShutdown) { _ = blackBox.prepareSpare() }
         }
     }
 
-    /// Starts the app process's black box: the heap ring and the black-box categories of `runtime` now,
-    /// then ``start()``.
+    /// Starts the app process's black box: the heap ring, installed into `runtime` with the black-box
+    /// categories on, now; then ``start()``.
     ///
     /// - Parameters:
     ///   - bundleID: The app's bundle id; it names the folder (``appDirectory(bundleID:home:)``).
     ///   - work: The app's blocking-work lanes.
     ///   - runtime: The process's trace runtime.
+    ///   - catalog: The fixed name-table entries of the ring (task 004's `SignpostName.traceCatalog`).
+    ///   - clock: The clock of the spare file's deadline.
+    ///   - home: The home folder the black-box folder is under.
     /// - Returns: The started steps; the owner keeps them so the spare deadline lives.
-    public static func startApp(bundleID: String?, work: BackgroundWork, runtime: TraceRuntime = .shared) -> TraceBlackBoxFileSteps {
-        let blackBox = TraceBlackBox(role: .app, directory: appDirectory(bundleID: bundleID).path, runtime: runtime,
-                                     buildVersion: buildVersion(of: .main))
-        let steps = TraceBlackBoxFileSteps(blackBox: blackBox, work: work)
+    public static func startApp(bundleID: String?, work: any MayBlockRunner, runtime: TraceRuntime = .shared,
+                                catalog: [TraceRing.CatalogName] = [],
+                                clock: any Clock<Duration> = ContinuousClock(),
+                                home: URL = FileManager.default.homeDirectoryForCurrentUser) -> TraceBlackBoxFileSteps {
+        let directory = appDirectory(bundleID: bundleID, home: home).path
+        let blackBox = TraceBlackBox(role: .app, directory: directory, runtime: runtime,
+                                     buildVersion: buildVersion(of: .main), catalog: catalog)
+        let steps = TraceBlackBoxFileSteps(blackBox: blackBox, work: work, clock: clock)
         steps.start()
         return steps
     }

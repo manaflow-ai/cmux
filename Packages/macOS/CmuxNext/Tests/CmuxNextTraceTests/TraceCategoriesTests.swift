@@ -111,16 +111,71 @@ struct TraceCategoriesTests {
         #expect(access(directory + "/" + TraceRingFile.spareName(role: .terminalHost), F_OK) == 0)
     }
 
+    /// The runtime owns the black box's ring: a write under a black-box category lands in it, a frame write does
+    /// not, the stub counter stays untouched, and the record is still there once the ring moved into its file.
+    @Test func theRuntimeWritesIntoItsBlackBoxRing() throws {
+        let folder = Self.temporaryFolder()
+        defer { Self.remove(folder) }
+        let runtime = TraceRuntime(role: .terminalHost)
+        let blackBox = TraceBlackBox(role: .terminalHost, directory: folder + "/trace", runtime: runtime, process: Self.facts)
+        #expect(runtime.blackBox === blackBox.ring)
+
+        runtime.write(name: 1, categoryBit: 0, phase: .instant, arg0: 7)
+        runtime.write(name: 2, categoryBit: 10, phase: .instant, arg0: 99)
+        let onHeap = blackBox.ring.records()
+        #expect(onHeap.map(\.arg0) == [7])
+        #expect(onHeap.first?.name == 1)
+        #expect(onHeap.first?.phase == .instant)
+        #expect(runtime.stubRecordCount.load(ordering: .relaxed) == 0)
+
+        #expect(blackBox.adoptFile() != nil)
+        runtime.write(name: 3, categoryBit: 1, phase: .begin, arg0: 8)
+        #expect(blackBox.ring.records().map(\.arg0) == [7, 8])
+        #expect(TraceRingFile.records(atPath: blackBox.filePath)?.map(\.arg0) == [7, 8])
+    }
+
+    /// The header's `categories` word follows every change of the runtime's categories, on the heap and in the
+    /// file (trace.md "Header": mirrored on each change).
+    @Test func theRingHeaderMirrorsTheCategories() throws {
+        let folder = Self.temporaryFolder()
+        defer { Self.remove(folder) }
+        let runtime = TraceRuntime(role: .terminalHost)
+        let blackBox = TraceBlackBox(role: .terminalHost, directory: folder, runtime: runtime, process: Self.facts)
+        #expect(Self.headerCategories(blackBox.ring.image()) == TraceCategories.blackBox.rawValue)
+        runtime.setCategories(.all)
+        #expect(Self.headerCategories(blackBox.ring.image()) == TraceCategories.all.rawValue)
+
+        #expect(blackBox.adoptFile() != nil)
+        #expect(Self.headerCategories(blackBox.ring.image()) == TraceCategories.all.rawValue)
+        runtime.setCategories(.blackBox)
+        let file = try #require(FileManager.default.contents(atPath: blackBox.filePath))
+        #expect(Self.headerCategories(Array(file)) == TraceCategories.blackBox.rawValue)
+    }
+
+    /// A runtime keeps its first black box: a second one shares that ring.
+    @Test func aRuntimeKeepsItsFirstBlackBox() {
+        let folder = Self.temporaryFolder()
+        defer { Self.remove(folder) }
+        let runtime = TraceRuntime(role: .terminalHost)
+        let first = TraceBlackBox(role: .terminalHost, directory: folder, runtime: runtime, process: Self.facts)
+        let second = TraceBlackBox(role: .terminalHost, directory: folder, runtime: runtime, process: Self.facts)
+        #expect(second.ring === first.ring)
+        #expect(runtime.blackBox === first.ring)
+    }
+
     // MARK: cleanup
 
-    /// A live process's black box stays at any age; a dead one older than 3 days goes; a young dead one stays.
-    @Test func cleanupKeepsLivePidFilesAndDeletesOldDeadOnes() throws {
+    /// A live process's black box stays at any age; one whose process was first seen dead more than 3 days ago
+    /// goes with its marker; a ring seen dead for the first time stays and gets its marker; a lone marker goes.
+    @Test func cleanupKeepsLivePidFilesAndDeletesLongDeadOnes() throws {
         let folder = Self.temporaryFolder()
         defer { Self.remove(folder) }
         let now = Self.wallClock()
         try Self.write(folder, "app-100.blackbox.cmxtrace", bytes: 4096, age: Self.days(5), now: now)
         try Self.write(folder, "daemon-200.blackbox.cmxtrace", bytes: 4096, age: Self.days(5), now: now)
-        try Self.write(folder, "holder-300.blackbox.cmxtrace", bytes: 4096, age: Self.days(1), now: now)
+        try Self.write(folder, "daemon-200.blackbox.cmxtrace.dead", bytes: 0, age: Self.days(4), now: now)
+        try Self.write(folder, "holder-300.blackbox.cmxtrace", bytes: 4096, age: Self.days(5), now: now)
+        try Self.write(folder, "app-9.blackbox.cmxtrace.dead", bytes: 0, age: Self.days(1), now: now)
         try Self.write(folder, "app-400.recording.cmxtrace", bytes: 4096, age: Self.days(5), now: now)
         try Self.write(folder, "app.spare.cmxtrace.500.tmp", bytes: 0, age: 0, now: now)
         try Self.write(folder, "app.spare.cmxtrace.100.tmp", bytes: 0, age: 0, now: now)
@@ -134,20 +189,45 @@ struct TraceCategoriesTests {
         #expect(report.keptDead == ["holder-300.blackbox.cmxtrace"])
         #expect(Set(report.deleted) == ["daemon-200.blackbox.cmxtrace", "app.spare.cmxtrace.500.tmp"])
         #expect(Set(Self.names(folder)) == [
-            "app-100.blackbox.cmxtrace", "holder-300.blackbox.cmxtrace", "app-400.recording.cmxtrace",
-            "app.spare.cmxtrace.100.tmp",
+            "app-100.blackbox.cmxtrace", "holder-300.blackbox.cmxtrace", "holder-300.blackbox.cmxtrace.dead",
+            "app-400.recording.cmxtrace", "app.spare.cmxtrace.100.tmp",
         ])
+        #expect(Self.modified(folder + "/holder-300.blackbox.cmxtrace.dead") / 1_000_000_000 == now / 1_000_000_000)
     }
 
-    /// Past 16 MiB of dead black boxes the oldest go first; a live process's ring never counts or goes.
-    @Test func cleanupCapsDeadBlackBoxesOldestFirst() throws {
+    /// The crash ring of a session that ran for days: its start and mtime are 4 days old, but its process is
+    /// seen dead for the first time now, so it stays, and it goes only 3 days after that.
+    @Test func aLongSessionsCrashRingStaysForThreeDaysAfterItIsFoundDead() throws {
+        let folder = Self.temporaryFolder()
+        defer { Self.remove(folder) }
+        let now = Self.wallClock()
+        let name = "app-77.blackbox.cmxtrace"
+        try Self.write(folder, name, bytes: 4096, age: Self.days(4), now: now)
+
+        func clean(at time: UInt64) -> TraceRingCleanup.Report {
+            var cleanup = TraceRingCleanup(directory: folder)
+            cleanup.isAlive = { _, _ in false }
+            cleanup.nowUnixNanos = { time }
+            return cleanup.run()
+        }
+        #expect(clean(at: now).keptDead == [name])
+        #expect(clean(at: now + Self.days(2)).keptDead == [name])
+        #expect(clean(at: now + Self.days(3) + Self.hours(1)).deleted == [name])
+        #expect(Self.names(folder).isEmpty)
+    }
+
+    /// Past 16 MiB of dead black boxes the longest-dead go first, whatever their files' ages: a ring found dead
+    /// now stays though its file is the oldest. A live process's ring never counts or goes.
+    @Test func cleanupCapsDeadBlackBoxesLongestDeadFirst() throws {
         let folder = Self.temporaryFolder()
         defer { Self.remove(folder) }
         let now = Self.wallClock()
         let six = 6 * 1024 * 1024
         try Self.write(folder, "app-1.blackbox.cmxtrace", bytes: six, age: Self.days(2), now: now)
+        try Self.write(folder, "app-1.blackbox.cmxtrace.dead", bytes: 0, age: Self.days(2), now: now)
         try Self.write(folder, "app-2.blackbox.cmxtrace", bytes: six, age: Self.days(1), now: now)
-        try Self.write(folder, "app-3.blackbox.cmxtrace", bytes: six, age: Self.hours(1), now: now)
+        try Self.write(folder, "app-2.blackbox.cmxtrace.dead", bytes: 0, age: Self.days(1), now: now)
+        try Self.write(folder, "app-3.blackbox.cmxtrace", bytes: six, age: Self.days(2) + Self.hours(23), now: now)
         try Self.write(folder, "app-4.blackbox.cmxtrace", bytes: 4 * six, age: Self.days(2), now: now)
 
         var cleanup = TraceRingCleanup(directory: folder)
@@ -158,6 +238,27 @@ struct TraceCategoriesTests {
         #expect(report.live == ["app-4.blackbox.cmxtrace"])
         #expect(report.deleted == ["app-1.blackbox.cmxtrace"])
         #expect(report.keptDead == ["app-2.blackbox.cmxtrace", "app-3.blackbox.cmxtrace"])
+    }
+
+    /// Real ring headers with this process's pid: the one whose `process_start_unix_us` is this process's start
+    /// is live; the one with another start is a reused pid's ring, dead.
+    @Test func cleanupTellsAReusedPidByTheHeaderStartTime() throws {
+        let folder = Self.temporaryFolder()
+        defer { Self.remove(folder) }
+        let pid = getpid()
+        let start = TraceRingCleanup.processStartUnixMicros(pid: pid)
+        try #require(start != 0)
+        let mine = TraceBlackBox.ProcessFacts(pid: UInt32(bitPattern: pid), processStartUnixMicros: start)
+        let reused = TraceBlackBox.ProcessFacts(pid: UInt32(bitPattern: pid), processStartUnixMicros: start &- 1_000_000)
+        let live = TraceBlackBox(role: .terminalHost, directory: folder, runtime: TraceRuntime(role: .terminalHost), process: mine)
+        let old = TraceBlackBox(role: .holder, directory: folder, runtime: TraceRuntime(role: .holder), process: reused)
+        try #require(live.adoptFile() != nil)
+        try #require(old.adoptFile() != nil)
+
+        let report = TraceRingCleanup(directory: folder).run()
+        #expect(report.live == [TraceRingFile.fileName(role: .terminalHost, pid: mine.pid)])
+        #expect(report.keptDead == [TraceRingFile.fileName(role: .holder, pid: reused.pid)])
+        #expect(access(old.filePath + ".dead", F_OK) == 0)
     }
 
     /// The real process check: this process is alive, with its own start time, and not with another one.
@@ -187,6 +288,20 @@ struct TraceCategoriesTests {
 
     private static func remove(_ folder: String) {
         try? FileManager.default.removeItem(atPath: folder)
+    }
+
+    /// The header's `categories` word of a ring image or file.
+    private static func headerCategories(_ bytes: [UInt8]) -> UInt64 {
+        let offset = TraceRingOffsets.categories
+        guard bytes.count >= offset + 8 else { return 0 }
+        return (0 ..< 8).reduce(UInt64(0)) { $0 | UInt64(bytes[offset + $1]) << (8 * UInt64($1)) }
+    }
+
+    /// The file's mtime in nanoseconds since 1970.
+    private static func modified(_ path: String) -> UInt64 {
+        var info = stat()
+        guard stat(path, &info) == 0 else { return 0 }
+        return UInt64(info.st_mtimespec.tv_sec) * 1_000_000_000 + UInt64(info.st_mtimespec.tv_nsec)
     }
 
     private static func names(_ folder: String) -> [String] {

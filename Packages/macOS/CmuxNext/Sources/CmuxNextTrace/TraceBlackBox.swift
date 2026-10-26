@@ -5,9 +5,10 @@ import MachO
 /// One process's black box: its trace ring from launch, sized by role, with the black-box categories on
 /// (plans/cmux-next/chrome-parity/p09-observability.md section 3A, trace.md "One write path").
 ///
-/// Making it touches memory only: the ring starts on the heap at once, so trace points record from the
-/// first frame, and nothing opens, truncates or maps a file on the caller's thread. The three file steps are
-/// separate blocking calls that the owner runs on BackgroundWork `.files`:
+/// Making it touches memory only: the ring starts on the heap at once and is installed into the runtime
+/// (``TraceRuntime/installBlackBox(_:)``), which owns it from then on, so every `runtime.write` of the process
+/// records into it from the first frame; nothing opens, truncates or maps a file on the caller's thread. The
+/// three file steps are separate blocking calls that the owner runs on BackgroundWork `.files`:
 ///
 /// 1. ``adoptFile()``: moves the ring into `<directory>/<role>-<pid>.blackbox.cmxtrace` (``TraceRingFile``),
 ///    renaming the role's spare file when one is ready.
@@ -34,20 +35,25 @@ public final class TraceBlackBox: Sendable {
     public let directory: String
     /// The ring's tables and chunks (trace.md "Sizes by role").
     public let sizes: TraceRing.Sizes
-    /// The ring every trace point of the process writes to: the heap, then the file.
+    /// The runtime's black-box ring, which every write of ``runtime`` lands in: the heap, then the file.
     public let ring: TraceRing
+    /// The runtime that owns ``ring``.
+    public let runtime: TraceRuntime
     /// The pid in the file names.
     public let pid: UInt32
 
-    /// Starts the black box on the heap and turns on the black-box categories of `runtime`. No file work.
+    /// Starts the black box on the heap, installs it into `runtime` and turns on the black-box categories. No
+    /// file work. When `runtime` already has a black box, ``ring`` is that one (a runtime keeps its first).
     ///
     /// - Parameters:
     ///   - role: The process kind; it picks the sizes.
     ///   - directory: The folder of the ring files.
-    ///   - runtime: The runtime whose category flags the black box sets (``TraceCategories/blackBox``).
+    ///   - runtime: The runtime that owns the ring and whose category flags the black box sets
+    ///     (``TraceCategories/blackBox``).
     ///   - process: The header's process fields; the calling process by default.
     ///   - buildVersion: The header's build version (version and build number, at most 32 ASCII bytes).
-    ///   - catalog: The fixed names written into the ring's name table before any record.
+    ///   - catalog: The fixed names written into the ring's name table before any record (task 004's
+    ///     `SignpostName.traceCatalog`).
     ///   - clock: The trace clock that stamps the ring's start.
     public init(role: TraceRuntime.Role, directory: String, runtime: TraceRuntime,
                 process: ProcessFacts = .current(), buildVersion: String = "",
@@ -65,7 +71,8 @@ public final class TraceBlackBox: Sendable {
             processStartUnixMicros: process.processStartUnixMicros,
             bootSessionUUID: process.bootSessionUUID, buildUUID: process.buildUUID,
             buildVersion: buildVersion, categories: categories.rawValue)
-        ring = TraceRing(sizes: sizes, identity: identity, catalog: catalog)
+        self.runtime = runtime
+        ring = runtime.blackBox ?? runtime.installBlackBox(TraceRing(sizes: sizes, identity: identity, catalog: catalog))
         runtime.setCategories(categories)
     }
 
@@ -83,7 +90,10 @@ public final class TraceBlackBox: Sendable {
     public func adoptFile() -> TraceRingFile? {
         assertBlockingAllowed(.fileIO)
         guard Self.makeDirectory(directory) else { return nil }
-        return TraceRingFile.adopt(ring, directory: directory)
+        let file = TraceRingFile.adopt(ring, directory: directory)
+        // The copied header holds the categories of the copy; a change during the copy went to the heap.
+        if file != nil { ring.mirrorCategories(runtime.categoryMask) }
+        return file
     }
 
     /// Makes the role's spare file for the next launch (``TraceRingFile/prepareSpare(directory:role:sizes:)``).
@@ -120,6 +130,14 @@ public final class TraceBlackBox: Sendable {
             if mkdir(prefix, 0o700) != 0, errno != EEXIST { return false }
         }
         return stat(path, &info) == 0 && info.st_mode & S_IFMT == S_IFDIR
+    }
+}
+
+extension TraceRing {
+    /// Stores `mask` into the active ring's header `categories` word (trace.md "Header": mirrored on each
+    /// change), so a reader of the file knows what the ring recorded.
+    func mirrorCategories(_ mask: UInt64) {
+        activeRing?.pointee.storage.word(TraceRingOffsets.categories).store(mask, ordering: .relaxed)
     }
 }
 

@@ -14,9 +14,10 @@ public import CmuxNextCompat
 /// single reviewed exception to the no-singleton rule (plans/cmux-next/arch-ratchet.json, 2026-10-25).
 /// Code that can take an injected runtime does (``init(role:)``; tests make their own).
 ///
-/// Stub (task 000): the API is frozen here; the methods record nothing until tasks 003 (ring), 004
-/// (names and threads), 020 (recording) and 078 (crash keys) fill them. The category defaults are
-/// ``TraceCategories`` (task 005); ``TraceBlackBox`` turns them on at launch.
+/// The runtime owns the process's black-box ring: ``TraceBlackBox`` makes it at launch and installs it
+/// here (``installBlackBox(_:)``), and from then on every ``write(name:categoryBit:phase:flags:arg0:arg1:)``
+/// of the process lands in it, on the heap and then in its file. The category defaults are
+/// ``TraceCategories`` (task 005). Still stubs: interned names (task 004), recording (020) and crash keys (078).
 ///
 /// ```swift
 /// TraceRuntime.shared.write(name: 46, categoryBit: 10, phase: .instant)
@@ -34,8 +35,11 @@ public final class TraceRuntime: Sendable {
     /// One bit per category (`SignpostCategory.traceBit`, ``TraceCategories``); a trace point records only
     /// while its bit is set. Usable from inline code so a trace point in another module inlines the check.
     @usableFromInline let categoryFlags = Atomic<UInt64>(0)
-    /// Stub until task 003 adds the ring: the records the `write` methods let through their category
-    /// gate, so tests can see the gate.
+    /// The installed black-box ``TraceRing``: its retained address, 0 until ``installBlackBox(_:)``. Set once
+    /// and never cleared, so a writer that loaded it may use it for the rest of the process.
+    private let blackBoxCell = Atomic<UInt64>(0)
+    /// A runtime with no ring (tests): the records the `write` methods let through their category gate, so
+    /// tests can see the gate. Never touched once a ring is installed.
     let stubRecordCount = Atomic<UInt64>(0)
     /// The clock of every record's `t_ns` (plans/cmux-next/trace.md "Release trace ring v1").
     let clock: TraceClock
@@ -62,9 +66,47 @@ public final class TraceRuntime: Sendable {
     @inlinable
     public var categoryMask: UInt64 { categoryFlags.load(ordering: .relaxed) }
 
-    /// Replaces the category flags (launch defaults, `trace.start`, `trace.stop`, the secure-input gate).
+    /// Replaces the category flags (launch defaults, `trace.start`, `trace.stop`, the secure-input gate) and
+    /// mirrors them into the active ring's header `categories` (trace.md "Header").
     public func setCategoryMask(_ mask: UInt64) {
         categoryFlags.store(mask, ordering: .relaxed)
+        withBlackBox { $0.mirrorCategories(mask) }
+    }
+
+    // MARK: black box
+
+    /// Makes `ring` the process's black box: every later record goes to it. The first ring installed stays
+    /// for the life of the process (a writer may hold it at any time), so a later call keeps the first.
+    ///
+    /// - Returns: The installed ring: `ring`, or the one an earlier call installed.
+    @discardableResult
+    public func installBlackBox(_ ring: TraceRing) -> TraceRing {
+        let retained = Unmanaged.passRetained(ring)
+        let bits = UInt64(UInt(bitPattern: retained.toOpaque()))
+        let (installed, original) = blackBoxCell.compareExchange(expected: 0, desired: bits, ordering: .acquiringAndReleasing)
+        if installed {
+            ring.mirrorCategories(categoryMask)
+            return ring
+        }
+        retained.release()
+        return Self.ring(at: original)?.takeUnretainedValue() ?? ring
+    }
+
+    /// The installed black-box ring, nil before ``installBlackBox(_:)``.
+    public var blackBox: TraceRing? {
+        Self.ring(at: blackBoxCell.load(ordering: .acquiring))?.takeUnretainedValue()
+    }
+
+    /// Runs `body` with the installed ring and no reference count change (the cell's retain keeps the ring
+    /// alive for the process), so trace points on many threads never write the ring object's count.
+    @inline(__always)
+    private func withBlackBox(_ body: (TraceRing) -> Void) {
+        guard let ring = Self.ring(at: blackBoxCell.load(ordering: .acquiring)) else { return }
+        ring._withUnsafeGuaranteedRef(body)
+    }
+
+    private static func ring(at bits: UInt64) -> Unmanaged<TraceRing>? {
+        UnsafeRawPointer(bitPattern: UInt(bits)).map { Unmanaged<TraceRing>.fromOpaque($0) }
     }
 
     /// Whether category bit `bit` records: one relaxed load and one branch, the cost of a trace point
@@ -107,8 +149,16 @@ public final class TraceRuntime: Sendable {
         publish(name: name, categoryBit: categoryBit, phase: phase, flags: flags, arg0: arg0, arg1: arg1)
     }
 
-    /// Task 003: claim a slot in this thread's chunk and publish the record.
+    /// Publishes the record into the black-box ring (one slot of this thread's chunk), or hands it to the
+    /// stub counter and recorder when no ring is installed (tests).
     private func publish(name: UInt16, categoryBit: UInt8, phase: Phase, flags: RecordFlags, arg0: UInt64, arg1: UInt64) {
+        if let ring = Self.ring(at: blackBoxCell.load(ordering: .acquiring)) {
+            let timestamp = clock.nowNanos()
+            ring._withUnsafeGuaranteedRef {
+                $0.write(name: name, phase: phase.recordPhase, flags: flags.rawValue, timestamp: timestamp, arg0: arg0, arg1: arg1)
+            }
+            return
+        }
         stubRecordCount.add(1, ordering: .relaxed)
         if let stubRecorder {
             stubRecorder(StubRecord(tNanos: clock.nowNanos(), name: name, categoryBit: categoryBit, phase: phase,
@@ -122,7 +172,10 @@ public final class TraceRuntime: Sendable {
     /// ring's `name_cursor`); past the ring's `name_capacity` the record has no name.
     public func write(_ name: InternedName, phase: Phase, flags: RecordFlags = [], arg0: UInt64 = 0, arg1: UInt64 = 0) {
         guard isEnabled(categoryBit: name.categoryBit) else { return }
-        stubRecordCount.add(1, ordering: .relaxed) // Tasks 003 and 004: intern in the active ring, then publish.
+        // Task 004 interns the name in the installed ring (`TraceRing.write(_:phase:...)`); until then a
+        // ring-backed runtime drops it.
+        guard blackBoxCell.load(ordering: .relaxed) == 0 else { return }
+        stubRecordCount.add(1, ordering: .relaxed)
     }
 
     // MARK: recording
@@ -198,6 +251,21 @@ extension TraceRuntime {
         case flowIn = 0x66
         /// `C`: a counter value (arg0; arg1 a track id with ``RecordFlags/asyncID``).
         case counter = 0x43
+
+        /// The same phase as the ring's record spells it (the same byte).
+        @inline(__always)
+        var recordPhase: TraceRecord.Phase {
+            switch self {
+            case .begin: .begin
+            case .end: .end
+            case .instant: .instant
+            case .asyncBegin: .asyncBegin
+            case .asyncEnd: .asyncEnd
+            case .flowOut: .flowOut
+            case .flowIn: .flowIn
+            case .counter: .counter
+            }
+        }
     }
 
     /// A trace point named at run time, outside the catalog: a `static let` at its site. It keeps its
