@@ -99,37 +99,35 @@ function quickSections(
   model: string | undefined,
   usable: (choice: ModelChoice) => boolean = () => true,
 ): { shown: ModelChoice[]; more: ModelChoice[] } {
-  const { latest, older } = sectionsFor(entry);
+  const { latest, older } = sectionsFor(entry, true);
   const latestIds = new Set(latest.map((choice) => choice.id));
-  const groups = groupVariants([...latest, ...older], model);
-  const all = groups
-    .map(({ model: choice, name, tag, offers, count }): ModelChoice | undefined => {
-      // Establish owner identities from the complete catalog before hiding unavailable offers. This
-      // keeps an available bare owner row from joining a different model when its peer is offline.
-      const visible = offers.filter((offer) => usable(offer.model));
-      if (visible.length === 0) return undefined;
-      // Keep the running provider when present; otherwise land the first available provider.
-      const landing = (
-        visible.find((offer) => offer.model.id === model) ??
-        visible.find((offer) => offer.model.id === choice.id && !offer.model.unavailable) ??
-        visible.find((offer) => !offer.model.unavailable) ??
-        visible.find((offer) => offer.model.id === choice.id) ??
-        visible[0]!
-      ).model;
-      const provider = visible.find((offer) => offer.model === landing)?.provider;
-      return {
-        ...landing,
-        name,
-        ...(tag ? { tag } : {}),
-        ...(provider ? { provider } : {}),
-        ...(count > offers.length ? { searchRows: count } : {}),
-        ...(offers.some((offer) => latestIds.has(offer.model.id)) ? { curated: true } : {}),
-        ...(visible.length > 1
-          ? { offers: visible.map((offer) => ({ ...offer.model, provider: offer.provider })) }
-          : {}),
-      };
-    })
-    .filter((choice): choice is ModelChoice => choice !== undefined);
+  const mapped = groupVariants([...latest, ...older], model).flatMap((group) => {
+    const { model: choice, name, tag, offers, count } = group;
+    // Establish owner identities from the complete catalog before hiding unavailable offers. This
+    // keeps an available bare owner row from joining a different model when its peer is offline.
+    const visible = offers.filter((offer) => usable(offer.model));
+    if (visible.length === 0) return [];
+    // Keep the running provider when present; otherwise land the first available provider.
+    const landing = (
+      visible.find((offer) => offer.model.id === model) ??
+      visible.find((offer) => offer.model.id === choice.id && !offer.model.unavailable) ??
+      visible.find((offer) => !offer.model.unavailable) ??
+      visible.find((offer) => offer.model.id === choice.id) ??
+      visible[0]!
+    ).model;
+    const provider = visible.find((offer) => offer.model === landing)?.provider;
+    const mappedChoice: ModelChoice = {
+      ...landing,
+      name,
+      ...(tag ? { tag } : {}),
+      ...(provider ? { provider } : {}),
+      ...(count > offers.length ? { searchRows: count } : {}),
+      ...(offers.some((offer) => latestIds.has(offer.model.id)) ? { curated: true } : {}),
+      ...(visible.length > 1 ? { offers: visible.map((offer) => ({ ...offer.model, provider: offer.provider })) } : {}),
+    };
+    return [{ choice: mappedChoice, group }];
+  });
+  const all = mapped.map(({ choice }) => choice);
   // A model is a top one when any provider's row of it is.
   const top = all.filter(
     (choice) => choice.curated || (choice.offers ?? [choice]).some((offer) => latestIds.has(offer.id)),
@@ -137,7 +135,7 @@ function quickSections(
   const picks = [...top.filter((choice) => !isVariant(choice)), ...top.filter(isVariant)].slice(0, QUICK_ROWS);
   // The landing row may be an available sibling when the running provider is unavailable;
   // keep that logical group in the compact picks by matching the complete offer list.
-  const runs = all.find((choice, index) => groups[index]?.offers.some((offer) => offer.model.id === model));
+  const runs = mapped.find(({ group }) => group.offers.some((offer) => offer.model.id === model))?.choice;
   const chosen = new Set(runs && !picks.includes(runs) ? [...picks.slice(0, QUICK_ROWS - 1), runs] : picks);
   return { shown: all.filter((choice) => chosen.has(choice)), more: all.filter((choice) => !chosen.has(choice)) };
 }
@@ -148,10 +146,15 @@ function quickSections(
 /// itself by its short name under its harness ("Opus 5.5"). Choices are memoized per harness
 /// entry, so the owner map keys stay the same objects between renders.
 const choiceCache = new WeakMap<HarnessChoice, { latest: ModelChoice[]; older: ModelChoice[] }>();
-function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[]; older: ModelChoice[] } {
+function sectionsFor(
+  entry: HarnessChoice | undefined,
+  preserveDuplicates = false,
+): { latest: ModelChoice[]; older: ModelChoice[] } {
   if (!entry) return { latest: [], older: [] };
-  const cached = choiceCache.get(entry);
-  if (cached) return cached;
+  if (!preserveDuplicates) {
+    const cached = choiceCache.get(entry);
+    if (cached) return cached;
+  }
   const choices = entry.models.flatMap((model): ModelChoice[] => {
     if (isDefaultChoice(model)) return [];
     return [
@@ -166,9 +169,10 @@ function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[];
       },
     ];
   });
-  // Keep duplicate catalog rows until groupVariants can choose an available/current offer.
-  const sections = curatedSections(modelSections(choices, entry.name, false), entry.top);
-  choiceCache.set(entry, sections);
+  // Compact provider grouping keeps duplicate rows so groupVariants can choose an available/current
+  // offer. The full picker retains the historical one-row-per-id sections.
+  const sections = curatedSections(modelSections(choices, entry.name, preserveDuplicates ? false : true), entry.top);
+  if (!preserveDuplicates) choiceCache.set(entry, sections);
   return sections;
 }
 
@@ -203,11 +207,23 @@ function searchModels(
   entries: readonly HarnessChoice[],
   query: ParsedQuery,
 ): { model: ModelChoice; entry: HarnessChoice }[] {
-  return entries.flatMap((entry) =>
-    choicesFor(entry)
-      .filter((model) => fitsQuery(model, entry.name, query))
-      .map((model) => ({ model, entry })),
-  );
+  return entries.flatMap((entry) => {
+    const { latest, older } = sectionsFor(entry, true);
+    return groupVariants([...latest, ...older]).flatMap((group) => {
+      const matching = group.offers.filter((offer) => fitsQuery(offer.model, entry.name, query));
+      if (matching.length === 0) return [];
+      const landing = matching.find((offer) => !offer.model.unavailable) ?? matching[0]!;
+      const model: ModelChoice = {
+        ...landing.model,
+        name: group.name,
+        ...(landing.provider ? { provider: landing.provider } : {}),
+        ...(matching.length > 1
+          ? { offers: matching.map((offer) => ({ ...offer.model, provider: offer.provider })) }
+          : {}),
+      };
+      return [{ model, entry }];
+    });
+  });
 }
 
 function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] {
@@ -728,10 +744,7 @@ export function ModelPicker(props: ModelPickerProps) {
         .filter(Boolean)
         .join(" · ");
       return {
-        id: model.id,
-        name: model.name,
-        family: entry.id,
-        ...(model.unavailable ? { disabled: true } : {}),
+        ...quickRow(entry.id, model),
         ...(hint ? { hint } : {}),
         ...(effort ? { effort } : {}),
         ...(typed.fast ? { fast: true } : {}),

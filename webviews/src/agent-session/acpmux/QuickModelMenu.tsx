@@ -463,23 +463,24 @@ export function QuickModelMenu({
     // A typed filter: up to FILTER_ROWS matches from every searched tab (or its one note row), no
     // separators. It can be taller than any one tab's list.
     {
-      rows: Math.max(
-        1,
-        Math.min(
-          FILTER_ROWS,
-          (families?.list ?? [])
-            .filter((family) => !family.starred && !family.note)
-            .reduce(
-              (count, family) =>
-                count +
-                [...family.models, ...family.more].reduce(
-                  (rows, model) => rows + (model.searchRows ?? model.offers?.length ?? 1),
-                  0,
-                ),
-              0,
-            ),
-        ),
-      ),
+      rows:
+        Math.max(
+          1,
+          Math.min(
+            FILTER_ROWS,
+            (families?.list ?? [])
+              .filter((family) => !family.starred && !family.note)
+              .reduce(
+                (count, family) =>
+                  count +
+                  [...family.models, ...family.more].reduce(
+                    (rows, model) => rows + (model.searchRows ?? model.offers?.length ?? 1),
+                    0,
+                  ),
+                0,
+              ),
+          ),
+        ) + (query ? 1 : 0),
       separators: 0,
     },
   );
