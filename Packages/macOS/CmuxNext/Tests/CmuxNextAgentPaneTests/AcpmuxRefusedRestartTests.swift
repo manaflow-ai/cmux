@@ -83,9 +83,11 @@ struct AcpmuxRefusedRestartTests {
     @Test func restartAcpmuxNeverStopsADaemonOnAnotherSocket() async throws {
         try await withFakeDaemon { environment, daemon in
             let owner = AcpmuxSocketOwner(path: ownPath, socketPath: environment.socketPath + ".chief")
-            #expect(await AcpmuxSocketOwner.takeOver(environment: environment, owner: owner,
-                                                     bootOut: { _, _ in false }, exited: { _ in true }) == false)
-            #expect(await AcpmuxHost(environment: environment).restartAcpmux(owner: owner) == false)
+            let stopped = await AcpmuxSocketOwner.takeOver(environment: environment, owner: owner,
+                                                           bootOut: { _, _ in false }, exited: { _ in true })
+            #expect(!stopped)
+            let restarted = await AcpmuxHost(environment: environment).restartAcpmux(owner: owner)
+            #expect(!restarted)
             #expect(daemon.calls.allSatisfy(\.isEmpty), "a daemon on another socket was asked: \(daemon.calls)")
         }
     }
@@ -96,8 +98,9 @@ struct AcpmuxRefusedRestartTests {
     @Test func restartAcpmuxStopsTheNamedDaemonOnItsOwnSocket() async throws {
         try await withFakeDaemon { environment, daemon in
             let owner = AcpmuxSocketOwner(path: ownPath, socketPath: environment.socketPath)
-            #expect(await AcpmuxSocketOwner.takeOver(environment: environment, owner: owner,
-                                                     bootOut: { _, _ in false }, exited: { _ in true }))
+            let stopped = await AcpmuxSocketOwner.takeOver(environment: environment, owner: owner,
+                                                           bootOut: { _, _ in false }, exited: { _ in true })
+            #expect(stopped)
             #expect(daemon.calls.contains(["initialize", "_acpmux/status", "_acpmux/shutdown"]), "\(daemon.calls)")
         }
     }
