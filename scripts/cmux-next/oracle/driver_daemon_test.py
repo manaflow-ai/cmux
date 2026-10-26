@@ -32,6 +32,8 @@ sys.path.insert(0, str(HERE))
 import driver_daemon as d  # noqa: E402
 
 BINARY = os.environ.get("CMUX_ORACLE_DAEMON_BINARY", "")
+# netns (unshare -rn, the default) or none on a host that refuses unprivileged user namespaces.
+ISOLATION = os.environ.get("CMUX_ORACLE_ISOLATION", "netns")
 # Until normalize.py loads the default schema (SchemaTests), the live tests can name one it loads.
 SNAPSHOT_SCHEMA = os.environ.get("CMUX_ORACLE_SNAPSHOT_SCHEMA", "")
 EXAMPLE = HERE.parents[2] / "schemas" / "oracle" / "fixtures" / "case-example-daemon.json"
@@ -77,13 +79,37 @@ class PathTests(unittest.TestCase):
 
     def test_environment_is_built_from_nothing(self):
         paths = d.CasePaths(Path("/tmp/o/aaaaaa/bbbbbb"))
-        env = d.case_environment(paths, "seed-1")
+        env = d.case_environment(paths, "seed-1", d.hermetic_env.NO_ISOLATION_REQUESTED).env
         self.assertEqual(env[d.MARKER_ENV], "/tmp/o/aaaaaa/bbbbbb")
         self.assertEqual(env["CMUX_TUI_SOCKET"], "/tmp/o/aaaaaa/bbbbbb/s.sock")
         self.assertTrue(all(value.startswith("/tmp/o/aaaaaa/bbbbbb") for key, value in env.items()
                             if key in ("HOME", "TMPDIR", "XDG_RUNTIME_DIR", "CMUX_TUI_STATE_DIR")))
         self.assertNotIn("SSH_AUTH_SOCK", env)
         self.assertEqual(env["TZ"], "UTC")
+        self.assertEqual(env["CMUX_TUI_OFFLINE"], "1")
+
+    def test_session_isolation_takes_the_run_description_without_a_probe(self):
+        netns = d.hermetic_env.Isolation("netns", ("/usr/bin/unshare", "-rn"), "resolved by oracle.py", 1001, 1002)
+        self.assertEqual(d.session_isolation(netns.describe()), netns)
+        self.assertEqual(d.session_isolation("none"), d.hermetic_env.NO_ISOLATION_REQUESTED)
+        with self.assertRaises(d.hermetic_env.HermeticError):
+            d.session_isolation({"kind": "chroot"})
+
+    def test_socket_paths_reads_each_process_namespace_table(self):
+        """A listening socket of this process is found through /proc/<pid>/net/unix, not the driver's
+        /proc/net/unix (a case under the netns prefix has its own table)."""
+        if not sys.platform.startswith("linux"):
+            self.skipTest("Linux /proc")
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            path = os.path.join(tmp, "l.sock")
+            listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.addCleanup(listener.close)
+            listener.bind(path)
+            listener.listen(1)
+            me = d.CaseProcess(os.getpid(), os.getppid(), "0", ("python3",))
+            self.assertIn(path, d.socket_paths([me]))
+            gone = d.CaseProcess(2**22 + 7, 1, "0", ("gone",))
+            self.assertIn(path, d.socket_paths([gone, me]))
 
 
 class PointerTests(unittest.TestCase):
@@ -362,7 +388,7 @@ class LiveTests(unittest.TestCase):
     def setUpClass(cls):
         cls.run_id = f"driver-test-{os.getpid()}-{time.time_ns()}"
         extra = {"snapshot_schema": SNAPSHOT_SCHEMA} if SNAPSHOT_SCHEMA else {}
-        cls.session = d.open_session({"binary": BINARY, "run_id": cls.run_id, **extra})
+        cls.session = d.open_session({"binary": BINARY, "run_id": cls.run_id, "isolation": ISOLATION, **extra})
         cls.count = 0
 
     @classmethod
@@ -377,6 +403,29 @@ class LiveTests(unittest.TestCase):
         self.assertFalse(root.exists(), "the case left its state root")
         self.assertFalse(d.CasePaths(root).install_dir.exists(), "the case left its install directory")
         return result
+
+    def test_case_runs_in_the_session_isolation_and_its_sockets_are_accounted(self):
+        """The readiness pipe and the socket round trips work under the isolation prefix, the case runs as
+        the caller's uid, and the terminal host's socket (bound in the case's install directory, from inside
+        the case's network namespace) is in the worker's `sockets`, so I6 checks it."""
+        case = example_case()
+        case["steps"] = [s for s in case["steps"] if s["id"] == "create-ws"]
+        type(self).count += 1
+        paths = d.CasePaths(d.DEFAULT_STATE_BASE / d.short_token(self.run_id) / f"{self.count:06d}")
+        paths.check()
+        paths.create()
+        result, finished = self.session.run_worker(case, {"case_id": "t/isolation", "state_root": str(paths.root)},
+                                                   1.0)
+        proof = d.prove_clean(paths, result.get("sockets", ()), finished, self.session.scan, d.EXIT_S)
+        self.assertEqual(result["status"], "Pass", result["message"])
+        self.assertEqual(proof.problems, [])
+        isolation = result["environment"]["isolation"]
+        if ISOLATION == "netns":
+            self.assertEqual(isolation["kind"], "netns")
+        self.assertEqual((isolation["uid"], isolation["gid"]), (os.getuid(), os.getgid()))
+        install = f"{paths.install_dir}/"
+        self.assertTrue(any(path.startswith(install) for path in result["sockets"]), result["sockets"])
+        self.assertFalse(paths.install_dir.exists())
 
     def test_example_case_passes_without_the_virtual_clock_step(self):
         case = example_case()
@@ -421,7 +470,8 @@ class LiveTests(unittest.TestCase):
     def test_terminal_hosts_bind_in_the_case_install_directory(self):
         paths = d.CasePaths(d.DEFAULT_STATE_BASE / d.short_token(self.run_id) / "hosts0")
         paths.create()
-        daemon = d.Daemon(BINARY, paths, d.case_environment(paths, "hosts"), 1.0)
+        case_env = d.case_environment(paths, "hosts", self.session.isolation).prepare()
+        daemon = d.Daemon(BINARY, paths, case_env, 1.0)
         try:
             daemon.start("hosts")
             daemon.request("workspace.create", {**d.SELECTORS, "name": "w", "initial_content": "terminal"},
