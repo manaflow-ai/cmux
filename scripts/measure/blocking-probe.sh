@@ -10,7 +10,10 @@
 # never linked into or shipped with cmux, and it runs only on the fleet (a logged-in console host).
 #   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/blocking-probe.sh \
 #     --ref <sha> --key <key> --artifact artifacts/blocking-probe.tar.gz [--arg=--config=bench] [--arg=--sessions=light]
-#   nx-remote --needs gui -- scripts/measure/blocking-probe.sh [--config=bench] [sweep arguments]
+#   nx-remote --needs gui -- scripts/measure/blocking-probe.sh [--config=bench] [--until-mark NAME] [sweep arguments]
+# --until-mark NAME (or --until-mark=NAME) adds the launch section, listed first: each launch's main-thread calls
+# made before the app sent the launch mark NAME (startup_complete, first_window_frame_committed: the names
+# scripts/cmux-next/bench-startup.py waits on), the raw list of plans/cmux-next/chrome-parity/p08-startup.md Q5.
 # Every other argument goes to scripts/cmux-next/every-action-sweep.py.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -51,16 +54,41 @@ out="$root/artifacts/blocking-probe"
 rm -rf "$out"
 mkdir -p "$out/dumps"
 report="$root/scripts/measure/blocking-probe-report.py"
-reload_config=() sweep_args=()
-for arg in "$@"; do
+reload_config=() sweep_args=() until_mark=""
+while (( $# > 0 )); do
+  arg="$1"
+  shift
   case "$arg" in
     --config=*) reload_config=(--config "${arg#--config=}") ;;
+    --until-mark=*) until_mark="${arg#--until-mark=}" ;;
+    --until-mark)
+      if (( $# == 0 )); then
+        echo "blocking-probe: --until-mark takes a launch mark name" >&2
+        exit 2
+      fi
+      until_mark="$1"
+      shift ;;
     --keep|--app-env|--app-env=*)
       echo "blocking-probe: $arg is not allowed here (the probe owns the app's environment and quits the app)" >&2
       exit 2 ;;
     *) sweep_args+=("$arg") ;;
   esac
 done
+# A launch mark's name as LaunchMarkSink writes it (`<name> <ms>`): lowercase words, digits, `_` and `.`.
+if [[ -n "$until_mark" && ! "$until_mark" =~ ^[a-z][a-z0-9_.]*$ ]]; then
+  echo "blocking-probe: --until-mark $until_mark is not a launch mark name (lowercase, digits, _ and .)" >&2
+  exit 2
+fi
+# With a launch window, the probe copies the main thread's entries when the app writes that mark's line
+# (probe.c, CMUX_BLOCKING_PROBE_UNTIL_MARK) and writes the copy to <dump>.window; the preflight checks it with a
+# mark of its own (empty: no window).
+preflight_mark="" preflight_window=() app_window_env=() report_window=()
+if [[ -n "$until_mark" ]]; then
+  preflight_mark=preflight_mark
+  preflight_window=(--until-mark "$preflight_mark")
+  app_window_env=(--app-env "CMUX_BLOCKING_PROBE_UNTIL_MARK=$until_mark")
+  report_window=(--until-mark "$until_mark")
+fi
 # Ends every daemon of the tag's bundle (the session owner, the Chief owner, acpmux, their hosts; by bundle path,
 # never by name): an owner outlives its app and would keep the probe loaded, and the next run's `server ensure`
 # would reuse it instead of starting one that loads this run's probe.
@@ -102,10 +130,13 @@ fi
 # two wanted arguments only, so the probe stays inert there and passes itself on. That spawns "preflight work
 # --probe-owner --probe-session", the session owner's role, with two threads: probe-test-1-host (watched by the
 # pattern probe-test-*-host) stats a file and reads a pipe (an input wait), probe-test-1-wait (not watched) checks
-# access to a file. Each waits for its child; a timer then exits.
+# access to a file. Each waits for its child. With a launch window, the app then does what LaunchMarkSink does on
+# CMUX_NEXT_LAUNCH_MARKS_FD (the probe's /dev/null): its fcntls, an earlier mark's line, then the launch mark's
+# line, and checks access to a file, a call after the mark. A timer then exits.
 cat >"$out/preflight.c" <<'C'
 #include <CoreFoundation/CoreFoundation.h>
 #include <crt_externs.h>
+#include <fcntl.h>
 #include <pthread.h>
 #include <spawn.h>
 #include <stdlib.h>
@@ -141,6 +172,16 @@ static void *waiter(void *unused) {
     (void)access("/", F_OK);
     return NULL;
 }
+// LaunchMarkSink's calls on the probe's mark descriptor, which the probe never records.
+static int send_marks(int fd) {
+    static const char early[] = "preflight_early 0.5\n", line[] = "preflight_mark 1.0\n";
+    if (fcntl(fd, F_GETFD) == -1 || fcntl(fd, F_SETFD, FD_CLOEXEC) == -1
+        || fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK) == -1) {
+        return 1;
+    }
+    if (write(fd, early, sizeof early - 1) != (ssize_t)(sizeof early - 1)) return 1;
+    return write(fd, line, sizeof line - 1) == (ssize_t)(sizeof line - 1) ? 0 : 1;
+}
 static int join(void *(*body)(void *)) {
     pthread_t thread;
     return pthread_create(&thread, NULL, body, NULL) == 0 && pthread_join(thread, NULL) == 0 ? 0 : 1;
@@ -155,6 +196,11 @@ int main(int argc, char **argv) {
     } else {
         char *next[] = {argv[0], "hop", "--probe-session", NULL};
         if (run(next) != 0) return 1;
+        const char *marks = getenv("CMUX_NEXT_LAUNCH_MARKS_FD");
+        if (marks != NULL) {
+            if (send_marks(atoi(marks)) != 0) return 1;
+            (void)access("/", F_OK);
+        }
     }
     CFRunLoopTimerRef timer = CFRunLoopTimerCreate(NULL, CFAbsoluteTimeGetCurrent() + 0.5, 0, 0, 0, done, NULL);
     CFRunLoopAddTimer(CFRunLoopGetMain(), timer, kCFRunLoopCommonModes);
@@ -164,8 +210,8 @@ int main(int argc, char **argv) {
 C
 clang -O0 -framework CoreFoundation -o "$out/preflight" "$out/preflight.c"
 mkdir -p "$out/preflight-dumps"
-if ! DYLD_PRINT_INTERPOSING=1 DYLD_INSERT_LIBRARIES="$out/blocking-probe.dylib" \
-     CMUX_BLOCKING_PROBE_OUT="$out/preflight-dumps/probe-%p.tsv" \
+if ! CMUX_BLOCKING_PROBE_UNTIL_MARK="$preflight_mark" DYLD_PRINT_INTERPOSING=1 \
+     DYLD_INSERT_LIBRARIES="$out/blocking-probe.dylib" CMUX_BLOCKING_PROBE_OUT="$out/preflight-dumps/probe-%p.tsv" \
      CMUX_BLOCKING_PROBE_CHILD="preflight:--probe-owner,--probe-session:probe-test-*-host" "$out/preflight" \
      >>"$out/preflight.txt" 2>&1; then
   echo "blocking-probe: the probe does not load on this host (dyld refused it); see $out/preflight.txt" >&2
@@ -174,8 +220,13 @@ if ! DYLD_PRINT_INTERPOSING=1 DYLD_INSERT_LIBRARIES="$out/blocking-probe.dylib" 
 fi
 # The report script checks the dumps (tests/test_blocking_probe_report.py checks its rules): the app's main-thread
 # self-test at exit, none from the inert hop, the owner's self-test, its watched thread's stat and input wait,
-# nothing from its unwatched thread.
-if ! python3 "$report" --preflight "$out"/preflight-dumps/probe-*.tsv; then
+# nothing from its unwatched thread; with a launch window, the app's window: its spawn, not its access after the
+# mark, no write or fcntl on the probe's mark descriptor (a missing window file fails the check).
+preflight_dumps=("$out"/preflight-dumps/probe-*.tsv)
+for window in "$out"/preflight-dumps/probe-*.tsv.window; do
+  if [[ -e "$window" ]]; then preflight_dumps+=("$window"); fi
+done
+if ! python3 "$report" --preflight ${preflight_window[@]+"${preflight_window[@]}"} "${preflight_dumps[@]}"; then
   echo "blocking-probe: see $out/preflight.txt and $out/preflight-dumps" >&2
   exit 1
 fi
@@ -252,7 +303,7 @@ python3 scripts/cmux-next/every-action-sweep.py --tag "$tag" --app "$app" --out 
   --app-env "DYLD_INSERT_LIBRARIES=$out/blocking-probe.dylib" \
   --app-env "CMUX_BLOCKING_PROBE_OUT=$out/dumps/probe-$run_id-%p.tsv" \
   --app-env "CMUX_BLOCKING_PROBE_CHILD=cmux-tui:$daemon_args:$daemon_threads" \
-  ${sweep_args[@]+"${sweep_args[@]}"} >"$out/sweep/sweep.log" 2>&1 &
+  ${app_window_env[@]+"${app_window_env[@]}"} ${sweep_args[@]+"${sweep_args[@]}"} >"$out/sweep/sweep.log" 2>&1 &
 sweep_pid=$!
 tail -n +1 -f "$out/sweep/sweep.log" &
 tail_pid=$!
@@ -270,5 +321,12 @@ if [[ ! -e "${dumps[0]}" ]]; then
   exit 1
 fi
 launches="$(grep -c 'every-action: launched pid' "$out/sweep/sweep.log" || true)"
-python3 "$report" --app "$app" --launches "$launches" --out "$out" "${dumps[@]}"
+if [[ -n "$until_mark" ]]; then
+  # One launch window per app launch that sent the mark; the report counts each launch without one as missing.
+  for window in "$out"/dumps/probe-"$run_id"-*.tsv.window; do
+    if [[ -e "$window" ]]; then dumps+=("$window"); fi
+  done
+fi
+python3 "$report" --app "$app" --launches "$launches" ${report_window[@]+"${report_window[@]}"} --out "$out" \
+  "${dumps[@]}"
 echo "blocking-probe: sweep exited $status; report $out/blocking-probe.md"

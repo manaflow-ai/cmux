@@ -114,8 +114,8 @@ public actor TerminalAttachment: TerminalByteChannel {
         #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachStart, surface: target.surface.rawValue) }
         #endif
-        let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge, role: .terminalAttach,
-                                          stats: endpoint.wireStats, hangs: hangs)
+        let transport = try await LineTransport.open(path: endpoint.socketPath, bridge: endpoint.bridge, role: .terminalAttach,
+                                                     stats: endpoint.wireStats, hangs: hangs)
         let attachment = TerminalAttachment(transport: transport, surface: target.surface)
         do {
             try await attachment.open(target: target, size: size, claimGeometry: claimGeometry,

@@ -342,6 +342,25 @@ import Testing
         #expect(launcher.count == 1)
     }
 
+    /// The host launches off the main thread (task 037), so a close and a second open can come before it
+    /// connects: the host still loads the last URL, then quits, and no second host starts.
+    @Test func aCloseDuringTheLaunchQuitsTheHostOnceItConnects() async throws {
+        let launcher = FakeLauncher()
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now })
+        session.open("https://a.example/")
+        session.open("https://b.example/")
+        session.close()
+        #expect(session.phase == .starting)
+        #expect(launcher.count == 0)
+        let host = try await nextLaunch(launcher)
+        let navigate = try await firstFrame(of: host)
+        #expect(navigate.text == "https://b.example/")
+        #expect(await frame(.quit, in: host.wire.frames) != nil)
+        launcher.end(host, ChromiumHostExit(signal: nil, status: 0))
+        try await until("idle") { session.phase == .idle }
+        #expect(launcher.count == 1)
+    }
+
     /// Reads the host's frames until one of `kind`; nil when the wire ends first.
     /// A local iterator, as ``nextLaunch(_:)`` does: a stream is read by one iterator at a time, so
     /// sequential calls continue where the last one stopped.

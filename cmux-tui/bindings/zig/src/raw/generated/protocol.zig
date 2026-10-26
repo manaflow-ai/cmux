@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "78ae2f1f797111b944b41b9cb30dabe9d2dbcd01a0d47808dd602101a5037c55";
+pub const ir_sha256 = "10db015791ceaa255896dc9d4d23a3130e79ac68fe8fc6297f20d8fae16e6169";
 
 pub const AccessRequestKind = enum {
     file,
@@ -2651,6 +2651,26 @@ pub const ServerStatsJournalWriter = struct {
     terminal_queued: u64,
 };
 
+pub const ServerStatsLockClass = struct {
+    hold_us: ServerStatsHistogram,
+    wait_p95_us: u64,
+    wait_us: ServerStatsHistogram,
+};
+
+pub const ServerStatsLockClassSet = struct {
+    automation: ServerStatsLockClass,
+    automation_due_admissions: u64,
+    automation_yields: u64,
+    frontend: ServerStatsLockClass,
+    program: ServerStatsLockClass,
+};
+
+pub const ServerStatsLockClasses = struct {
+    registry: ServerStatsLockClassSet,
+    registry_connection: ServerStatsLockClassSet,
+    state: ServerStatsLockClassSet,
+};
+
 pub const ServerStatsLockHolder = struct {
     held_for_us: u64,
     site: []const u8,
@@ -2760,6 +2780,7 @@ pub const ServerStatsResult = struct {
     dispatch_queue_us: ?ServerStatsHistogram = null,
     ipc: ?ServerStatsIpc = null,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
+    lock_classes: ?ServerStatsLockClasses = null,
     registry_lock: ServerStatsRegistryLock,
     request_latency_us: ?ServerStatsRequestLatency = null,
     request_path_io: ?ServerStatsRequestPathIo = null,
@@ -2772,6 +2793,7 @@ pub const ServerStatsResult = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "dispatch_queue_us",
         "ipc",
+        "lock_classes",
         "request_latency_us",
         "request_path_io",
         "resource_projection",

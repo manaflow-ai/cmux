@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+public import CmuxNextWakeups
 
 /// The browser toolbar's omnibar row for a surface that is not a browser page: the New Tab page
 /// shows it on top (cx-e2aa), so Cmd-L there types an address in the same omnibar a browser tab
@@ -34,8 +35,9 @@ public final class OmnibarToolbarView: ArrowCursorView {
     public static let forwardIdentifier = "omnibar.toolbar.forward"
     public static let reloadIdentifier = "omnibar.toolbar.reload"
 
-    public init(suggestionEngine: OmniboxSuggestionEngine, navigation: Bool = false) {
-        addressBar = AddressBarView(suggestionEngine: suggestionEngine)
+    /// `mainWork` is the app's one main-thread scheduler (the bar's setting follows apply on it).
+    public init(suggestionEngine: OmniboxSuggestionEngine, navigation: Bool = false, mainWork: MainWorkScheduler) {
+        addressBar = AddressBarView(suggestionEngine: suggestionEngine, mainWork: mainWork)
         // The browser toolbar's buttons: Chromium's plain arrows, no tooltip that repeats the name.
         back = navigation ? ChromeIconButton(icon: .browserToolbarBack, label: Strings.back, action: nil, target: nil, toolbar: true, toolTip: false) : nil
         forward = navigation ? ChromeIconButton(icon: .browserToolbarForward, label: Strings.forward, action: nil, target: nil, toolbar: true, toolTip: false) : nil

@@ -176,7 +176,7 @@ import Testing
 
     /// Chromium runs, so a New Tab page is made in the pane's turn (`ChromiumNewTabNow`) once nothing holds it.
     private static func cache() -> TabContentCache {
-        let cache = TabContentCache(daemon: DaemonService(), chromium: ChromiumEngineSlot(CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap())), fileInput: NoFileInput())
+        let cache = TabContentCache(daemon: DaemonService(), chromium: ChromiumEngineSlot(CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap())), fileInput: NoFileInput(), mainWork: linklessMainWork())
         cache.browserTabs.cefUnavailable = { nil }
         cache.chromiumNow.runs = { true }
         cache.chromiumNow.make = { MockBrowserEngine(kind: .cef, completesNavigationsImmediately: false).makeMockTab($0) }

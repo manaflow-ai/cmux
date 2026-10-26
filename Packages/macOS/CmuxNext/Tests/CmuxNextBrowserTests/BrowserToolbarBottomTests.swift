@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
 import Testing
+import CmuxNextWakeups
 
 /// `browser.toolbarPosition` bottom (user, 2026-10-20: "move my OmniBar tabs to the bottom side"):
 /// the toolbar rows sit under the page, the band for the pane's tab strip sits between the page and
@@ -18,7 +19,7 @@ import Testing
                               backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
-            chrome = BrowserChromeView(tab: page)
+            chrome = BrowserChromeView(tab: page, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
             chrome.frame = window.contentLayoutRect
             window.contentView = chrome
             window.orderFrontRegardless()
