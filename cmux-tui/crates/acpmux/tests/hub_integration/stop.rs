@@ -229,7 +229,9 @@ async fn answers(c: &mut TestClient, ids: &[i64]) -> Result<(), Vec<Value>> {
         let Ok(line) = tokio::time::timeout(Duration::from_secs(20), c.rx.recv()).await else {
             return Err(left);
         };
-        if let Message::Response { id, .. } = Message::parse(&line.expect("connection closed")).unwrap() {
+        if let Message::Response { id, .. } =
+            Message::parse(&line.expect("connection closed")).unwrap()
+        {
             left.retain(|l| *l != id);
         }
     }
