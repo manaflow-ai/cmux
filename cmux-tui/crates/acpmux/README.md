@@ -191,6 +191,14 @@ and the subscribe. `done` means a turn ended while no client was attached. `send
 `prompt_stalled` (exit 1) when the agent produces nothing for 30 s (`--stall 0` disables); the
 turn keeps running. `run --retries N` retries only agent-internal errors that produced nothing.
 
+The daemon supports durable wake subscriptions through the local socket methods
+`_acpmux/watch_add`, `_acpmux/watch_ls`, and `_acpmux/watch_rm` (`durable-watches-v1`).
+Add takes `to`, explicit nonempty `sessions` (including `HOST/name`), `until`, optional
+`match`, and `once` (default true). It delivers batched ordinary messages with reply excerpts
+and inspection commands. Watches and undelivered messages survive restart; an offline peer
+produces one notice without resolving. Failed deliveries remain visible in the list and retry
+on a relevant session/peer change or restart. See the acpmux wire schema for the contract.
+
 Agents spawned by acpmux get `ACPMUX_ENV=1`, `ACPMUX_SESSION_ID`, `ACPMUX_SESSION_NAME` and
 `ACPMUX_SOCKET`, and `@` names that session (`acpmux last @`), so an agent can drive its own
 session and siblings. The event log carries `turn_started` and `turn_result`

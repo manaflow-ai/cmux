@@ -146,6 +146,8 @@ mod turn_usage;
 mod turns;
 pub(crate) mod views;
 mod warm;
+mod watch_events;
+pub(crate) mod watches;
 mod web_control;
 mod web_token;
 pub(crate) mod worktree_care;
@@ -449,6 +451,7 @@ pub struct Hub {
     /// Messages `send --no-wait` handed over, and forwarded prompts waiting for a peer's
     /// acceptance (`outbox.rs`).
     pub(crate) outbox: outbox::Outbox,
+    pub(crate) watches: watches::Watches,
     pub(crate) peer_accepts: outbox::PeerAccepts,
     /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
     pub(super) agent_pairs: agent_pairs::AgentPairs,
@@ -546,6 +549,7 @@ impl Hub {
             secrets: Default::default(),
             trust_waits: Default::default(),
             outbox: Default::default(),
+            watches: Default::default(),
             peer_accepts: Default::default(),
             agent_pairs: Default::default(),
             pairing: Default::default(),

@@ -87,6 +87,14 @@ installation and `host add` steps above instead.
 
 ## Work with a remote session
 
+The daemon supports durable wake subscriptions through the local socket methods
+`_acpmux/watch_add`, `_acpmux/watch_ls`, and `_acpmux/watch_rm` (`durable-watches-v1`).
+Add takes `to`, explicit nonempty `sessions` (including `HOST/name`), `until`, optional
+`match`, and `once` (default true). It delivers batched ordinary messages with reply excerpts
+and inspection commands. Watches and undelivered messages survive restart; an offline peer
+produces one notice without resolving. Failed deliveries remain visible in the list and retry
+on a relevant session/peer change or restart. See the acpmux wire schema for the contract.
+
 Choose an existing project on the remote host. Its path must be a known local
 session cwd or within the daemon's permitted remote project roots (`webRoots`).
 For a fresh host, merge `"webRoots": ["/home/me/project"]` into the existing
