@@ -45,15 +45,15 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
     case rendererPid = 153, setContextProxy = 154, setContextProxyServer = 155, contextProxyState = 156
     case releaseContext = 157, setNavigationGuard = 158, setAuthCallback = 159, prefGet = 160, prefSetBool = 161
     case prefWatch = 162, bookmarksSync = 163, pageSchemeAdd = 164, pageSchemeAddFirstParty = 165
-    case pageSchemeAddFirstPartyDynamic = 166, pageResourceRespond = 167, setCursorEvents = 168
-    case addDocumentScript = 169, addPageChannel = 170, tabEvaluate = 171, tabSetFrozen = 172, tabSendClick = 173
-    case tabSetColorScheme = 174, pageSchemeSetGroup = 175, tabDiscard = 176, widgetSetGeometry = 177
-    case widgetDismiss = 178, widgetSendInput = 179
+    case pageSchemeAddFirstPartyDynamic = 166, pageResourceRespond = 167, memoryPressureVote = 168
+    case setCursorEvents = 169, addDocumentScript = 170, addPageChannel = 171, tabEvaluate = 172, tabSetFrozen = 173
+    case tabSendClick = 174, tabSetColorScheme = 175, pageSchemeSetGroup = 176, tabDiscard = 177
+    case widgetSetGeometry = 178, widgetDismiss = 179, widgetSendInput = 180
 
     /// The SHA-256 of the cmux_cef_shim.h this table was generated from (`CEFShimABI`).
-    static let abiIdentity = "04fcbd7e8dba41db508e174c1b562d05fc32db82400578d5cb31039799aad8b4"
+    static let abiIdentity = "81bf245c93a55693f030934eaf207a3c9f565fbe9ac595b664cc4a95e5918a2c"
     /// This generation's op ids, classes and wire types; both HELLOs carry it.
-    static let wireIdentity = "96d6173d68969807c46a967b14b4549a2a44a5601ae872e2572c769c0f7393e6"
+    static let wireIdentity = "b1c9bccd37ac5fa0bd72bf37512c3eee22aab45601fb889615e4a5bbdd75fcf7"
     /// Ops of fork API symbols the header does not declare yet (`r.optional` in CEFShimLibrary).
     static let optionalOps: Set<ChromiumHostOp> = [
         .addDocumentScript, .addPageChannel, .tabEvaluate, .tabSetFrozen, .tabSendClick, .tabSetColorScheme,
@@ -359,6 +359,7 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.preinit, [.string, .string, .string], [.int32]),
         Row(.preinit, [.string, .string, .string, .string, .string], [.int32]),
         Row(.post, [.int32, .int32, .string, .bytes], [.int32]),
+        Row(.post, [.int32], [.int32]),
         Row(.local, [], []),
         Row(.preinit, [.string, .string, .int32, .int32], [.int32]),
         Row(.preinit, [.string, .string], [.int32]),

@@ -1086,6 +1086,20 @@ CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add_first_party_dynamic(const char* i
 // Returns 1 when the request was waiting, 0 when it ended or was answered.
 CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond(int token, int status, const char* mime, const void* body,
                                                      size_t length);
+// cmux's vote in Chromium's memory pressure aggregator (fork
+// cmux_memory_pressure_vote, p07-memory-051): one voter next to Chromium's
+// own platform voter (content/browser/browser_main_loop.cc
+// CreateMemoryPressureMonitor); Chromium's listeners get the highest vote.
+// level: 0 none (withdraws cmux's vote), 1 moderate, 2 critical. The fork
+// calls MemoryPressureVoter::SetVote(level, /*notify_listeners=*/false), so
+// Chromium's listeners run only when the aggregate level changes, and a
+// kernel event that the platform voter also reports does not run them twice.
+// Inside the call run only the sync listeners (async ones are posted tasks
+// that run in later cmux_shim_do_work calls); in host library mode the call
+// is one post to the Chromium Host. Main thread, after cmux_shim_initialize.
+// Returns 1 when the fork took the vote, 0 when the fork lacks the call,
+// for a level out of range, or once quit began (nothing changes).
+CMUX_SHIM_EXPORT int cmux_shim_memory_pressure_vote(int level);
 // 1: page cursors come to the host as CMUX_SHIM_CURSOR and Chromium sets no
 // NSCursor of its own (the Chromium Host, whose page windows never show: the
 // page view in cmux shows the cursor). 0 (the default): Chromium sets the
