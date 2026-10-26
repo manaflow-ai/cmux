@@ -119,9 +119,11 @@ final class ServerMenuBarController: NSObject, NSPopoverDelegate {
         }
     }
 
-    /// NSPopover documents no thread for its delegate: inline on main, a hop from anywhere else.
-    nonisolated func popoverDidClose(_ notification: Notification) {
-        MainDelivery().run { self.popover = nil }
+    /// AppKit calls it on the main actor (NSPopoverDelegate is `NS_SWIFT_UI_ACTOR`), in the close's own turn. Only
+    /// the popover that closed is forgotten: a transient popover's animated close can end after `open` made the next.
+    func popoverDidClose(_ notification: Notification) {
+        guard (notification.object as AnyObject?) === popover else { return }
+        popover = nil
     }
 
     private func currentModel() -> ServerModel? {
