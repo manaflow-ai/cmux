@@ -670,3 +670,65 @@ for (const providers of ["row", "submenu", "expanded"] as const) {
     expect(modelRows(popup).length).toBeLessThanOrEqual(held);
   });
 }
+
+for (const unavailable of [undefined, "offline"]) {
+  test(`Starred preserves a deduplicated favorite (${unavailable ?? "available"})`, async () => {
+    dom.window.localStorage.setItem("cmux.model-picker.favorites", JSON.stringify(["openrouter/qwen/Coder-3"]));
+    const catalog = [
+      {
+        id: "opencode",
+        name: "OpenCode",
+        models: [
+          { id: "openrouter/qwen/coder-3", name: "Coder 3" },
+          { id: "openrouter/qwen/Coder-3", name: "Coder 3", unavailable },
+          { id: "together/qwen/coder-3", name: "Coder 3" },
+        ],
+      },
+    ];
+    const { landed } = await mount("other", true, catalog);
+    const starred = menus()[0]!.querySelector<HTMLElement>('[aria-label="Starred"]');
+    expect(starred).not.toBeNull();
+    await act(async () => starred!.click());
+    const rows = modelRows(menus()[0]!);
+    expect(rows).toHaveLength(1);
+    await act(async () => rows[0]!.click());
+    expect(landed).toEqual([unavailable ? "openrouter/qwen/coder-3" : "openrouter/qwen/Coder-3"]);
+  });
+}
+
+test("expanded width probes include singleton provider-search rows and effort hints", async () => {
+  const name = "Coder Professional Enterprise";
+  const catalog = [
+    {
+      id: "opencode",
+      name: "OpenCode",
+      models: [
+        { id: "openrouter/qwen/coder-3", name, efforts: ["high"], fast: true },
+        { id: "together/qwen/coder-3", name, efforts: ["HIGH"], fast: true },
+      ],
+    },
+  ];
+  await mount("other", false, catalog, "expanded");
+  const probes = () => [...menus()[0]!.querySelectorAll<HTMLElement>(".acpmux-quick-probe > .acpmux-quick-item")];
+  const reserved = probes().map((row) => ({
+    name: nameOf(row),
+    value: detailOf(row),
+    marker: !!row.querySelector(".ui-menu-check"),
+  }));
+  await typeSearch("openrouter");
+  const singleton = modelRows(menus()[0]!)[0]!;
+  expect(modelRows(menus()[0]!)).toHaveLength(1);
+  expect(reserved).toContainEqual({ name: nameOf(singleton), value: detailOf(singleton), marker: true });
+  await typeSearch("openrouter high fast");
+  const hinted = modelRows(menus()[0]!)[0]!;
+  expect(detailOf(hinted)).toContain("high");
+  expect(reserved).toContainEqual({ name: nameOf(hinted), value: detailOf(hinted), marker: true });
+});
+
+test("fixed-harness filtering resets the popup's actual scroll offset", async () => {
+  await mount(undefined, false, openCode, "expanded");
+  const popup = menus()[0]!;
+  popup.scrollTop = 140;
+  await typeSearch("DeepSeek V4 Pro");
+  expect(popup.scrollTop).toBe(0);
+});
