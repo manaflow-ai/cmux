@@ -336,3 +336,7 @@ impl Mux {
         if poisoned { Err(PoisonError::new(pinned)) } else { Ok(pinned) }
     }
 }
+
+#[cfg(test)]
+#[path = "lock_qos_tests.rs"]
+mod lock_qos_tests;

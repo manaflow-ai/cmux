@@ -23,6 +23,7 @@
 //! `CanLowerNiceTo` test passes (base/threading/platform_thread_internal_posix.cc:
 //! root, or a target inside RLIMIT_NICE); otherwise it is refused and counted.
 
+use std::marker::PhantomData;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::registry;
@@ -172,25 +173,58 @@ pub fn current() -> LiveQos {
 }
 
 /// Runs `f` at `qos` and restores the calling thread's QoS after, also when
-/// `f` panics.
-///
-/// A change the thread could not undo is not made: `f` runs at the current
-/// QoS and the refusal is counted. On Linux that is a demotion (raising nice
-/// above a value it may not lower back to); on macOS a thread whose class is
-/// outside the table (QOS_CLASS_MAINTENANCE), which the kernel takes no
-/// request for. A macOS thread with no class (QOS_CLASS_UNSPECIFIED) comes
-/// back at [`ThreadQos::Default`], the class with the same base priority
-/// (31), and its registry row records Default as its effective QoS.
+/// `f` panics. [`QosScope`] is the same rule as a guard.
 pub fn with_qos<R>(qos: ThreadQos, f: impl FnOnce() -> R) -> R {
-    let saved = sys::save();
-    let effective = registry::with_current(registry::Row::effective);
-    if !sys::can_restore(qos, &saved) {
-        record_refusal();
-        return f();
-    }
-    let _restore = Restore { saved, effective };
-    set_current(qos);
+    let _scope = QosScope::enter(qos);
     f()
+}
+
+/// The calling thread runs at a QoS until the scope drops, then gets back
+/// the QoS it had (Chromium's `ScopedBoostPriority`,
+/// base/threading/scoped_thread_priority.h). Scopes nest; it is not `Send`,
+/// so it ends on the thread it began.
+///
+/// A change the thread could not undo is not made: the thread stays at its
+/// current QoS and the refusal is counted. On Linux that is a demotion
+/// (raising nice above a value it may not lower back to); on macOS a thread
+/// whose class is outside the table (QOS_CLASS_MAINTENANCE), which the
+/// kernel takes no request for. A macOS thread with no class
+/// (QOS_CLASS_UNSPECIFIED) comes back at [`ThreadQos::Default`], the class
+/// with the same base priority (31), and its registry row records Default
+/// as its effective QoS.
+#[must_use = "the QoS holds only while the scope lives"]
+pub struct QosScope {
+    /// Dropped with the scope: puts the saved QoS back.
+    _restore: Option<Restore>,
+    applied: bool,
+    _not_send: PhantomData<*const ()>,
+}
+
+impl QosScope {
+    /// Runs the calling thread at `qos` until the scope drops.
+    pub fn enter(qos: ThreadQos) -> Self {
+        let saved = sys::save();
+        let effective = registry::with_current(registry::Row::effective);
+        if !sys::can_restore(qos, &saved) {
+            record_refusal();
+            return Self { _restore: None, applied: false, _not_send: PhantomData };
+        }
+        let restore = Restore { saved, effective };
+        let applied = set_current(qos) == QosChange::Applied;
+        Self { _restore: Some(restore), applied, _not_send: PhantomData }
+    }
+
+    /// True when the thread runs at the scope's QoS; false when the change
+    /// was refused (counted) or the platform has none.
+    pub fn applied(&self) -> bool {
+        self.applied
+    }
+}
+
+impl std::fmt::Debug for QosScope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("QosScope").field("applied", &self.applied).finish()
+    }
 }
 
 struct Restore {

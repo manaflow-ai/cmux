@@ -105,11 +105,23 @@ mod held {
     }
 }
 
-/// One rank this thread holds; dropping it releases the rank. A zero-sized
-/// no-op in release builds.
+impl LockRank {
+    /// The state and registry locks: a thread lowered to UTILITY for an
+    /// automation request is raised while it holds one (p06-scheduler-035,
+    /// `cmux_tui_platform::qos::LockBoost`), so a frontend request never
+    /// waits behind a UTILITY holder. The journal writer rank is not a lock.
+    const fn raises_holder(self) -> bool {
+        matches!(self, Self::WorkspaceRegistry | Self::RegistryConnection | Self::MuxState)
+    }
+}
+
+/// One rank this thread holds; dropping it releases the rank. In release
+/// builds only the holder's QoS boost is kept.
 pub(crate) struct HeldRank {
     #[cfg(debug_assertions)]
     id: u64,
+    /// Dropped with the rank, after the lock the guard releases first.
+    _boost: cmux_tui_platform::qos::LockBoost,
 }
 
 impl HeldRank {
@@ -126,14 +138,19 @@ impl HeldRank {
     /// Record that this thread now holds `rank`.
     #[inline]
     pub(crate) fn record(rank: LockRank, name: &'static str) -> Self {
+        let _boost = if rank.raises_holder() {
+            cmux_tui_platform::qos::LockBoost::hold()
+        } else {
+            cmux_tui_platform::qos::LockBoost::none()
+        };
         #[cfg(debug_assertions)]
         {
-            Self { id: held::push(rank, name) }
+            Self { id: held::push(rank, name), _boost }
         }
         #[cfg(not(debug_assertions))]
         {
-            let _ = (rank, name);
-            Self {}
+            let _ = name;
+            Self { _boost }
         }
     }
 }

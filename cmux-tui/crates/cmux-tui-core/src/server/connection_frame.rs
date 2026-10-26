@@ -60,6 +60,9 @@ pub(super) fn handle_connection_frame_at(
     // to, carries the connection's cause (crate::event_cause).
     let (remote, cause) = mux.frame_client(client);
     let _cause = EventCauseScope::enter(cause);
+    // The frame runs at its cause's class: an automation frame at UTILITY,
+    // raised while it holds a state or registry lock (crate::lock_rank).
+    let _qos = connection_scheduler::request_qos_scope(cause);
     if matches!(transport, ClientTransport::Remote) || remote {
         return remote_relay::handle_watched_frame(
             mux,

@@ -388,6 +388,13 @@ impl Drop for ConnectionDispatcherGuard {
     }
 }
 
+/// The class a request with `cause` runs at on this thread, until the scope
+/// drops: the reader (`connection_frame`), the dispatcher, a clear-history
+/// worker and a creation commit on the terminal work pool all enter it.
+pub(super) fn request_qos_scope(cause: EventCause) -> Option<cmux_tui_platform::qos::WorkQos> {
+    cause.request_qos().map(cmux_tui_platform::qos::WorkQos::enter)
+}
+
 pub(super) fn run_pending_request(
     scheduler: &ConnectionSurfaceScheduler,
     mux: &Arc<Mux>,
@@ -397,6 +404,9 @@ pub(super) fn run_pending_request(
 ) -> bool {
     let PendingSurfaceRequest { request, arrival, cause, _bytes_permit, .. } = pending;
     let _cause = EventCauseScope::enter(cause);
+    // The request runs at its cause's class; a state or registry lock
+    // raises an automation holder (cmux_tui_platform::qos).
+    let _qos = request_qos_scope(cause);
     // The dispatcher, a clear-history worker or a creation commit runs the
     // request: a request path like the reader's (`crate::request_path`).
     let _request_path = crate::request_path::RequestPathScope::enter(mux.request_path_stats());
