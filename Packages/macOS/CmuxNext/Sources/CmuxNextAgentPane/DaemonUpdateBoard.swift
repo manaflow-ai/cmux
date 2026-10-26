@@ -15,12 +15,11 @@ public final class DaemonUpdateBoard {
     /// The latest event per target id.
     public private(set) var targets: [String: DaemonUpdateEvent] = [:]
 
-    /// Shows a notice's text; the front window's toast unless replaced (tests).
-    @ObservationIgnored var showNotice: @MainActor (String) -> Void = { message in
+    /// Shows a notice's toast in the front window, unless replaced (tests).
+    @ObservationIgnored var showNotice: @MainActor (CmuxToast) -> Void = { toast in
         guard let window = DaemonUpdateBoard.noticeWindow(key: NSApp.keyWindow, main: NSApp.mainWindow, ordered: NSApp.orderedWindows,
                                                           visible: { $0.isVisible || $0.isMiniaturized }) else { return }
-        _ = CmuxToastCenter.shared.show(CmuxToast(id: "daemon-update.\(message.hashValue)", message: message,
-                                                  duration: CmuxToast.untilClosed), in: window)
+        _ = CmuxToastCenter.shared.show(toast, in: window)
     }
 
     public init() {}
@@ -38,7 +37,7 @@ public final class DaemonUpdateBoard {
             return
         }
         targets[event.id] = event
-        if event.notify, let message = Self.notice(event) { showNotice(message) }
+        if event.notify, let toast = Self.noticeToast(event) { showNotice(toast) }
     }
 
     /// The tooltip line of target `id`, nil when it has no update state.
@@ -76,7 +75,15 @@ public final class DaemonUpdateBoard {
         }
     }
 
-    /// The toast of a failed or rolled-back update; nil for any other state.
+    /// The toast of a failed or rolled-back update, nil for any other state. Its id names the
+    /// target and the build the update was to, so a later build's failure, or another machine
+    /// with the same name and reason, is a toast of its own, never one the center replaces or
+    /// keeps quiet. The same event again (one target, one build) replaces it in place.
+    nonisolated static func noticeToast(_ event: DaemonUpdateEvent) -> CmuxToast? {
+        notice(event).map { CmuxToast(id: "daemon-update.\(event.id).\(event.build ?? "")", message: $0, duration: CmuxToast.untilClosed) }
+    }
+
+    /// The text of a failed or rolled-back update's toast; nil for any other state.
     nonisolated static func notice(_ event: DaemonUpdateEvent) -> String? {
         switch event.state {
         case .failed(let reason, false):

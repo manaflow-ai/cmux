@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -93,7 +94,7 @@ import Testing
     @Test @MainActor func aFailureTheBoardIsAskedToNoticeShowsOneToast() {
         let board = DaemonUpdateBoard()
         var shown: [String] = []
-        board.showNotice = { shown.append($0) }
+        board.showNotice = { shown.append($0.message) }
         board.apply(DaemonUpdateEvent(id: "acpmux-peer:cmux16", displayName: "cmux16", sshHost: "cmux16", state: .updating, notify: true))
         board.apply(DaemonUpdateEvent(id: "acpmux-peer:cmux16", displayName: "cmux16", sshHost: "cmux16",
                                       state: .failed(reason: "disk full", rolledBack: false)))
@@ -105,6 +106,27 @@ import Testing
         #expect(shown.count == 2)
         #expect(shown.first?.contains("cmux16") == true && shown.first?.contains("disk full") == true)
         #expect(shown.last?.contains("huge-blue") == true && shown.last?.contains("0123456ff") == true)
+    }
+
+    /// Each failed target and build is a toast of its own: the toast center replaces a same-id toast
+    /// and keeps a closed one quiet, so a later build's failure, or another machine of the same name
+    /// failing for the same reason, must not share an id with an earlier one. The same event again
+    /// keeps its id, and replaces its toast in place.
+    @Test @MainActor func eachFailedTargetAndBuildIsAToastOfItsOwn() throws {
+        func failed(_ id: String, build: String?) -> DaemonUpdateEvent {
+            DaemonUpdateEvent(id: id, displayName: "cmux16", sshHost: "cmux16", state: .failed(reason: "disk full", rolledBack: false),
+                              notify: true, build: build)
+        }
+        let first = try #require(DaemonUpdateBoard.noticeToast(failed("acpmux-peer:cmux16", build: "abc123def")))
+        let laterBuild = try #require(DaemonUpdateBoard.noticeToast(failed("acpmux-peer:cmux16", build: "fedcba987")))
+        let otherMachine = try #require(DaemonUpdateBoard.noticeToast(failed("cloud:cmux16", build: "abc123def")))
+        #expect(first.message == laterBuild.message && first.message == otherMachine.message)
+        #expect(first.id != laterBuild.id, "a later build's failure")
+        #expect(first.id != otherMachine.id, "another machine of the same name and reason")
+        #expect(DaemonUpdateBoard.noticeToast(failed("acpmux-peer:cmux16", build: "abc123def"))?.id == first.id, "the same event again")
+        #expect(first.duration == CmuxToast.untilClosed)
+        #expect(DaemonUpdateBoard.noticeToast(DaemonUpdateEvent(id: "acpmux-peer:cmux16", displayName: "cmux16", state: .updating,
+                                                                notify: true)) == nil)
     }
 
     /// An update fails in the background, while the app is not active: AppKit then has no key and
