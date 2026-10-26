@@ -898,10 +898,7 @@ async fn dispatch_request(
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             let provenance = crate::hub::Hub::prompt_provenance(&params, conn.origin)?;
             // A person's prompt (`author.rs`): the hub stamps who sent it, also for a peer's.
-            let author = crate::author::author(&params)?;
-            if author.is_some() && provenance.is_some() {
-                return Err(crate::author::with_provenance());
-            }
+            let author = crate::author::of_prompt(&params)?;
             let provenance = provenance.or_else(|| author.as_ref().map(|a| a.provenance()));
             let person_message = crate::author::of_provenance(provenance.as_ref()).is_some();
             // Sent from inside another session (its proven caller token) with none of its own:

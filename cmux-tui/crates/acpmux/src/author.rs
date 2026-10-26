@@ -77,10 +77,18 @@ pub fn origin_refused() -> RpcError {
     )
 }
 
-/// The refusal of a prompt that names both a person and another sender's provenance: it is one
-/// or the other.
-pub fn with_provenance() -> RpcError {
-    refusal("author.value_refused", "a prompt names its author or a provenance, never both".into())
+/// The author of a `session/prompt`, checked before it runs here or goes to a peer
+/// (`server/peer_forward.rs`, where `mark_forwarded` drops the provenance): a prompt is a
+/// person's or another sender's (`_meta.acpmux.provenance`), never both.
+pub fn of_prompt(params: &Value) -> Result<Option<Author>, RpcError> {
+    let author = author(params)?;
+    if author.is_some() && crate::prompt_provenance::present(params.pointer("/_meta/acpmux")) {
+        return Err(refusal(
+            "author.value_refused",
+            "a prompt names its author or a provenance, never both".into(),
+        ));
+    }
+    Ok(author)
 }
 
 /// The author of a request: `None` when absent or null (the owner's). Fields acpmux does not

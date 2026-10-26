@@ -302,7 +302,7 @@ async fn a_persons_prompt_through_a_peer_is_recorded_as_theirs_on_the_owning_dae
     let mut ca = client(a.clone()).await;
     let ana = json!({"id": "tailnet:ana@example.com", "name": "Ana", "node": "ana-mbp"});
     let sent = json!({"sessionId": "b/shared", "prompt": [{"type": "text", "text": "hi"}],
-                      "_meta": {"acpmux": {"promptId": "from-ana", "author": ana}}});
+                      "_meta": {"acpmux": {"promptId": "from-ana", "author": ana.clone()}}});
     ca.call(method::SESSION_PROMPT, sent).await.unwrap();
 
     let page = cb
@@ -317,6 +317,12 @@ async fn a_persons_prompt_through_a_peer_is_recorded_as_theirs_on_the_owning_dae
         .find(|m| m["promptId"] == "from-ana")
         .expect("her prompt ran on B")
         .clone();
+    // One that also names an agent's provenance is refused here, before the forward drops it.
+    let agent = json!({"kind": "agent_message", "from": "acp:x", "to": "acp:y", "msgId": "m-1", "threadId": "t-1"});
+    let both = json!({"sessionId": "b/shared", "prompt": [{"type": "text", "text": "hi"}],
+                      "_meta": {"acpmux": {"promptId": "from-both", "author": ana, "provenance": agent}}});
+    let refused = ca.call(method::SESSION_PROMPT, both).await.unwrap_err();
+    assert!(refused.contains("never both"), "{refused}");
     let stamped = json!({"kind": "person_message", "from": "tailnet:ana@example.com", "fromName": "Ana", "node": "ana-mbp"});
     assert_eq!(message.pointer("/_meta/provenance"), Some(&stamped), "{message}");
 }
