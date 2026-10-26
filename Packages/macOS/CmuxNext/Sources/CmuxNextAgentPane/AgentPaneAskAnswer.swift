@@ -7,15 +7,19 @@ public import Foundation
 ///
 /// It answers only when every rule holds, else it answers nothing:
 /// - The person's own click or permission shortcut is fresh in this pane
-///   (``AgentPaneUserGestures/hasFreshAnswerGesture``), and the answer spends that gesture's grant
-///   (``AgentPaneUserGestures/consume()``): one click answers one ask, and a script's post answers none.
+///   (``AgentPaneUserGestures/hasFreshAnswerGesture``), and the answer spends that click
+///   (``AgentPaneUserGestures/consumeAnswerClick()``): one click answers one ask, typing after it
+///   does not renew it, a refusal does not spend it, and a script's post answers none.
 /// - The chat is another chat on this pane's own acpmux on this Mac (``AgentPaneModel/pendingAsksSocket``,
 ///   a bare or `local/` id, ``AgentPanePendingAsks/localSession(_:)``), never the pane's own chat
 ///   (its card answers it) and never a chat another computer's daemon holds: both the read and the
 ///   answer name it `local/<id>`, which acpmux never forwards to a peer.
-/// - The ask is still pending there as a tool permission (no question), and `optionId` is the
-///   option its allow once or its deny once maps to (``AcpmuxPermissionPrompt/option(allow:offered:)``);
-///   an allow that lasts is the chat's card's to give, where its scope is spelled out.
+/// - The ask is still pending there as a tool permission (no question) of a chat that daemon holds
+///   itself (`_acpmux/info` names no `peer`), and `optionId` is its `allow_once` or `reject_once`
+///   option (``AcpmuxPermissionPrompt/onceOption(allow:offered:)``); an answer that lasts is the
+///   chat's card's to give, where its scope is spelled out.
+/// - acpmux binds a person connection's answer to the permissionId, not the prompt's
+///   `decisionNonce` (that binds relayed decisions only), as the approval banners' answers.
 /// - The answer counts only while that same request is pending unchanged (its digest), and an allow
 ///   only on a connection acpmux took as the person.
 ///
@@ -47,9 +51,10 @@ public nonisolated struct AgentPaneAskAnswer: Sendable, Equatable {
         let unsupported = AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.asks.answer")
         guard let socket = model.pendingAsksSocket, let local = AgentPanePendingAsks.localSession(session),
               model.sessionId.flatMap(AgentPanePendingAsks.localSession) != local else { return unsupported }
-        // The gesture first, before any read: a post with no fresh click answers nothing.
+        // A fresh click before any read: a post with no click reads and answers nothing. The click
+        // is spent only by the answer it makes, so a refusal leaves it to the chat's own card.
         let gestures = model.transport.gestures
-        guard gestures.hasFreshAnswerGesture, gestures.consume() else { return Self.refused("no fresh gesture") }
+        guard gestures.hasFreshAnswerGesture else { return Self.refused("no fresh gesture") }
         guard let environment = await model.host.answerEnvironment(socket: socket) else { return unsupported }
         let answerer = make(environment)
         guard let pending = await answerer.pendingAsk(session: local, permission: permission) else {
@@ -57,7 +62,8 @@ public nonisolated struct AgentPaneAskAnswer: Sendable, Equatable {
         }
         let allow = option == pending.allowOnce
         guard allow || option == pending.denyOnce else { return Self.refused("not a one-click option") }
-        guard await answerer.answer(pending.approval, allow: allow) else { return Self.refused("not answered") }
+        guard gestures.consumeAnswerClick() else { return Self.refused("no fresh gesture") }
+        guard await answerer.answerOnce(pending.approval, allow: allow) else { return Self.refused("not answered") }
         return AgentPaneReply.success()
     }
 
@@ -80,10 +86,11 @@ public nonisolated struct AgentPendingAsk: Sendable, Equatable {
 
 /// Reads one ask of a chat and answers it, as ``AgentApprovalAnswering`` does for a banner.
 @MainActor public protocol AgentAskAnswering: AnyObject {
-    /// `permission` of `session` (a `local/<id>`) while it is pending as a tool permission; nil
-    /// otherwise (answered, withdrawn, a question, no acpmux to ask).
+    /// `permission` of `session` (a `local/<id>`) while it is pending as a tool permission of a
+    /// chat the daemon holds itself; nil otherwise (answered, withdrawn, a question, a peer's chat,
+    /// no acpmux to ask).
     func pendingAsk(session: String, permission: String) async -> AgentPendingAsk?
-    /// Answers `approval` (allow once, else deny) while it is still pending unchanged; false when
-    /// nothing was answered.
-    func answer(_ approval: AgentApproval, allow: Bool) async -> Bool
+    /// Answers `approval` with its allow once or reject once while it is still pending unchanged
+    /// in a chat the daemon holds itself; false when nothing was answered.
+    func answerOnce(_ approval: AgentApproval, allow: Bool) async -> Bool
 }

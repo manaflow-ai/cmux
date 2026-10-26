@@ -36,7 +36,7 @@ struct AgentPaneAskAnswerTests {
             return pending["\(session) \(permission)"]
         }
 
-        func answer(_ approval: AgentApproval, allow: Bool) async -> Bool {
+        func answerOnce(_ approval: AgentApproval, allow: Bool) async -> Bool {
             guard pending.removeValue(forKey: "\(approval.session) \(approval.permission)") != nil else { return false }
             answers.append((approval.session, approval.permission, allow))
             return true
@@ -105,6 +105,40 @@ struct AgentPaneAskAnswerTests {
         #expect(Self.code(await Self.send(Self.ask(option: "allow_once"), model, answerer)) == nil)
         #expect(Self.code(await Self.send(Self.ask("tests", "p2", option: "allow_once"), model, answerer)) == "refused", "the same click")
         #expect(answerer.answers.count == 1)
+    }
+
+    /// Typing after a click records a new grant, but not a new click: the click that answered
+    /// one ask answers no other.
+    @Test func typingAfterTheClickDoesNotLetItAnswerAgain() async {
+        let (model, answerer, _) = Self.home()
+        answerer.pending["local/tests p2"] = AgentPendingAsk(
+            approval: AgentApproval(session: "local/tests", permission: "p2", digest: "d2", summary: "Delete the cache"),
+            allowOnce: "allow_once", denyOnce: "reject_once")
+        model.transport.gestures.record(click: true)
+        #expect(Self.code(await Self.send(Self.ask(option: "allow_once"), model, answerer)) == nil)
+        model.transport.gestures.record()
+        #expect(Self.code(await Self.send(Self.ask("tests", "p2", option: "allow_once"), model, answerer)) == "refused")
+        #expect(answerer.answers.count == 1)
+    }
+
+    /// A refusal (an ask no longer pending, an option it does not offer) leaves the click, so the
+    /// row or the chat's card can still answer with it.
+    @Test func aRefusalDoesNotSpendTheClick() async {
+        let (model, answerer, _) = Self.home()
+        model.transport.gestures.record(click: true)
+        #expect(Self.code(await Self.send(Self.ask("tests", "gone", option: "allow_once"), model, answerer)) == "refused")
+        #expect(Self.code(await Self.send(Self.ask(option: "allow_always"), model, answerer)) == "refused")
+        #expect(Self.code(await Self.send(Self.ask(option: "reject_once"), model, answerer)) == nil)
+        #expect(answerer.answers.map { "\($0.permission) \($0.allow)" } == ["p1 false"])
+    }
+
+    /// A deny is the ask's reject once only: an ask that offers only Always deny has no deny
+    /// here (``AcpmuxPermissionPrompt/onceOption(allow:offered:)``), so its chat's card answers it.
+    @Test func aDenyIsRejectOnceNeverRejectAlways() {
+        let options: [[String: Any]] = [["optionId": "yes", "kind": "allow_once"], ["optionId": "never", "kind": "reject_always"]]
+        #expect(AcpmuxPermissionPrompt.onceOption(allow: true, offered: options) == "yes")
+        #expect(AcpmuxPermissionPrompt.onceOption(allow: false, offered: options) == nil)
+        #expect(AcpmuxPermissionPrompt.option(allow: false, offered: options) == "never", "the banner's mapping, unchanged")
     }
 
     /// An option that is not the ask's allow once or deny once (Always allow, another option, an
