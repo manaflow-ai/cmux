@@ -1,36 +1,78 @@
+import CmuxNextCompat
 import Foundation
 import Testing
 @testable import CmuxNextBrowser
 
-/// The New Tab and every agent chat are one origin (`cmux-page://cmux.agent`). Chrome puts at most 2 main
-/// frames of a site in one renderer (ProcessPerSiteMainFrameThreshold, content_features.cc), so 5 chats took
-/// 3 renderers. The cmux-page entry of the fork's per-site sharing table raises that site's cap to 8 and
-/// leaves web tabs at Chrome's 2. Only a fork with the renderer paths (API 29) has the switch, and only
-/// there does no page hold a DevTools session that would end the sharing.
+/// The New Tab and every agent chat are one site (`cmux-page://cmux.agent`). Chrome puts at most 2 main frames
+/// of a site in one renderer (ProcessPerSiteMainFrameThreshold, content_features.cc), so 5 chats took 3
+/// renderers. With the default-off feature `agentPageRendererSharing`, the agent site's entry in PL-memory's
+/// page-scheme switch raises that site's cap. Only a fork whose switch reads the cap table gets it, and only
+/// with the renderer paths, where no page holds a DevTools session that would end the sharing.
 @Suite struct CEFSwitchesTests {
-    private func arguments(forkAPI: Int32) -> [String] {
-        let features = CEFForkFeatures(forkAPIVersion: forkAPI, shimHasRendererPaths: true)
+    private func arguments(forkAPI: Int32, rendererPaths: Bool = true, cap: Int? = 8) -> [String] {
+        let features = CEFForkFeatures(forkAPIVersion: forkAPI, shimHasRendererPaths: rendererPaths)
         return CEFSwitches.current(forkAPIVersion: forkAPI, rendererPaths: features.rendererPaths,
-                                   bundleIdentifier: "com.cmuxterm.app.next", environment: [:]).arguments
+                                   bundleIdentifier: "com.cmuxterm.app.next", environment: [:],
+                                   agentPageMainFrameCap: cap).arguments
     }
 
-    @Test func aForkWithTheRendererPathsCapsTheCmuxPageSiteAtEightMainFrames() {
-        #expect(arguments(forkAPI: 29).contains("cmux-process-per-site-main-frame-thresholds=cmux-page:8"))
+    private func pageSchemeArguments(_ arguments: [String]) -> [String] {
+        arguments.filter { $0 == CEFSwitches.pageSchemeProcessPerSite || $0.hasPrefix(CEFSwitches.pageSchemeProcessPerSite + "=") }
     }
 
-    @Test func aForkWithoutTheRendererPathsGetsNoPerSiteTable() {
-        #expect(!arguments(forkAPI: 28).contains { $0.hasPrefix(CEFSwitches.processPerSiteMainFrameThresholdsSwitch) })
+    @Test func theForkWithTheCapTableGetsTheAgentSiteEntry() {
+        #expect(pageSchemeArguments(arguments(forkAPI: CEFSwitches.pageSiteSharingForkAPI))
+                == ["cmux-page-scheme-process-per-site=cmux.agent:8"])
     }
 
-    @Test func aShimWithoutTheRendererPathsGetsNoPerSiteTable() {
-        let switches = CEFSwitches.current(forkAPIVersion: 29, rendererPaths: false,
-                                           bundleIdentifier: "com.cmuxterm.app.next", environment: [:]).arguments
-        #expect(!switches.contains { $0.hasPrefix(CEFSwitches.processPerSiteMainFrameThresholdsSwitch) })
+    /// API 29 and 30 have the renderer paths but no cap table: the switch would be unknown there.
+    @Test(arguments: [Int32(28), 29, CEFSwitches.pageSiteSharingForkAPI - 1])
+    func aForkBeforeTheCapTableGetsNoEntry(forkAPI: Int32) {
+        #expect(pageSchemeArguments(arguments(forkAPI: forkAPI)).isEmpty)
     }
 
-    /// One table, one entry: web tabs keep Chrome's own cap, and the switch is passed once.
-    @Test func webTabsKeepChromesCapOfTwo() {
-        #expect(CEFSwitches.processPerSiteMainFrameThresholds == [.init(scheme: "cmux-page", mainFrames: 8)])
-        #expect(arguments(forkAPI: 29).filter { $0.hasPrefix(CEFSwitches.processPerSiteMainFrameThresholdsSwitch) }.count == 1)
+    @Test func aShimWithoutTheRendererPathsGetsNoEntry() {
+        #expect(pageSchemeArguments(arguments(forkAPI: CEFSwitches.pageSiteSharingForkAPI, rendererPaths: false)).isEmpty)
+    }
+
+    @Test func theFeatureOffGetsNoEntry() {
+        #expect(pageSchemeArguments(arguments(forkAPI: CEFSwitches.pageSiteSharingForkAPI, cap: nil)).isEmpty)
+    }
+
+    /// The feature's `mainFrames` param sets the cap; nothing else in the switches changes with it.
+    @Test func theFeatureParamSetsTheCap() {
+        let four = arguments(forkAPI: CEFSwitches.pageSiteSharingForkAPI, cap: 4)
+        #expect(pageSchemeArguments(four) == ["cmux-page-scheme-process-per-site=cmux.agent:4"])
+        #expect(four.filter { !$0.hasPrefix(CEFSwitches.pageSchemeProcessPerSite) }
+                == arguments(forkAPI: CEFSwitches.pageSiteSharingForkAPI, cap: nil))
+    }
+
+    /// The entry names the agent site, not the whole scheme: settings, viewers and passwords keep their own
+    /// process reuse. The value parses as `<site>:<mainFrames>`, comma-joined, the format the fork reads.
+    @Test func theValueListsOnlyTheAgentSite() throws {
+        let argument = try #require(pageSchemeArguments(arguments(forkAPI: CEFSwitches.pageSiteSharingForkAPI)).first)
+        let caps = try #require(Self.parse(value: String(argument.dropFirst(CEFSwitches.pageSchemeProcessPerSite.count + 1))))
+        #expect(caps == [CEFSwitches.PageSiteCap(site: "cmux.agent", mainFrames: 8)])
+        #expect(caps.allSatisfy { FirstPartyPages.ids.contains($0.site) })
+    }
+
+    @Test func severalSitesJoinWithCommas() {
+        let caps = [CEFSwitches.PageSiteCap(site: "cmux.agent", mainFrames: 8), .init(site: "settings.privileged", mainFrames: 8)]
+        let argument = CEFSwitches.pageSchemeProcessPerSiteArgument(caps)
+        #expect(argument == "cmux-page-scheme-process-per-site=cmux.agent:8,settings.privileged:8")
+        #expect(Self.parse(value: String(argument.dropFirst(CEFSwitches.pageSchemeProcessPerSite.count + 1))) == caps)
+    }
+
+    /// The value grammar: one or more `<site>:<mainFrames>` joined by `,`; a site is a non-empty host with no
+    /// `:`, `,` or `/`; a cap is a whole number of at least 1. Nil for anything else.
+    private static func parse(value: String) -> [CEFSwitches.PageSiteCap]? {
+        var caps: [CEFSwitches.PageSiteCap] = []
+        for entry in value.split(separator: ",", omittingEmptySubsequences: false) {
+            let parts = entry.split(separator: ":", omittingEmptySubsequences: false)
+            guard parts.count == 2, !parts[0].isEmpty, !parts[0].contains("/"),
+                  let frames = Int(parts[1]), frames >= 1 else { return nil }
+            caps.append(.init(site: String(parts[0]), mainFrames: frames))
+        }
+        return caps.isEmpty ? nil : caps
     }
 }

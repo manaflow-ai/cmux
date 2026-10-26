@@ -2,6 +2,31 @@
 // edit the feature's JSON file and rerun the script.
 
 nonisolated extension Feature {
+    /// The New Tab and agent chats share one Chromium renderer for up to mainFrames pages, on a fork whose page-scheme switch reads the per-site cap.
+    public static let agentPageRendererSharing = Feature(
+        index: 0,
+        name: "agentPageRendererSharing",
+        owner: "PL-memory",
+        description: "The New Tab and agent chats share one Chromium renderer for up to mainFrames pages, on a fork whose page-scheme switch reads the per-site cap.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [
+            FeatureParamSpec(
+                name: "mainFrames",
+                description: "Most agent-site main frames one renderer takes; Chrome's ProcessPerSiteMainFrameThreshold is 2.",
+                value: .int(default: 8, min: 2, max: 32)
+            ),
+        ],
+        stories: ["agent-swarm"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Every feature, by index: `registered[feature.index] == feature`.
-    public static let registered: [Feature] = []
+    public static let registered: [Feature] = [
+        .agentPageRendererSharing,
+    ]
 }

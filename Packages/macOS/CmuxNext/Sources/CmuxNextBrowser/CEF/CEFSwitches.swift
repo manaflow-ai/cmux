@@ -22,6 +22,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Extra Chromium switches for diagnosis (development bundles only), for
     /// example `show-browser-frame-regions` or `enable-ui-devtools=9223`.
     var extraSwitches: [String] = []
+    /// The agent site's main-frame cap from the default-off feature `agentPageRendererSharing` (its
+    /// `mainFrames` param); nil while the feature is off.
+    var agentPageMainFrameCap: Int?
 
     /// The longest one Chromium pump pass runs before it returns to the main run loop: a quarter
     /// of a 120 Hz frame, so the app's own frame work and the display link fit beside a pass.
@@ -73,9 +76,11 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // WasEverAttachedToAnyFrame), which an agent's CDP session does. The fork's switch keeps
         // the check per renderer only (a renderer with a DevTools agent is never shared), so one
         // agent does not end sharing everywhere (fork API 29; tab-lifecycle.md "Renderer sharing").
-        if rendererPaths {
-            result.append(Self.processReusePerRendererDevTools)
-            result.append(Self.processPerSiteMainFrameThresholdsArgument)
+        if rendererPaths { result.append(Self.processReusePerRendererDevTools) }
+        // The agent site shares past Chrome's 2 main frames only on a fork whose page-scheme switch reads
+        // the cap table, and only with the renderer paths (a DevTools agent still ends sharing otherwise).
+        if rendererPaths, forkAPIVersion >= Self.pageSiteSharingForkAPI, let cap = agentPageMainFrameCap {
+            result.append(Self.pageSchemeProcessPerSiteArgument([PageSiteCap(site: Self.agentPageSite, mainFrames: cap)]))
         }
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it
@@ -102,28 +107,32 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         return result
     }
 
-    /// One site's cap in the per-site main-frame sharing table.
-    struct MainFrameThreshold: Equatable, Sendable {
-        var scheme: String
+    /// The first fork API whose `cmux-page-scheme-process-per-site` reads a per-site cap table: the
+    /// cross-program fork train (p01-process 178, joined by p07-memory 074 and p13-webui 086). API 29 has only
+    /// `cmux-process-reuse-per-renderer-devtools`.
+    static let pageSiteSharingForkAPI: Int32 = 31
+
+    /// PL-memory's switch for the cmux page scheme (p07-memory 049: ShouldUseProcessPerSite in the fork).
+    /// Its value lists the cmux-page sites that share a renderer, each with the most main frames one
+    /// renderer takes; a cmux-page site with no entry keeps Chrome's process reuse.
+    static let pageSchemeProcessPerSite = "cmux-page-scheme-process-per-site"
+
+    /// The New Tab and every agent chat are this one site (`cmux-page://cmux.agent`), shared the way Chrome
+    /// shares one process for every NTP (ChromeContentBrowserClient::ShouldUseProcessPerSite).
+    static let agentPageSite = "cmux.agent"
+
+    /// One cmux-page site and its main-frame cap. Chrome has one cap for every site, the
+    /// ProcessPerSiteMainFrameThreshold param (2) of kProcessPerSiteUpToMainFrameThreshold
+    /// (content/public/common/content_features.cc); the agent site's 8 bounds how many pages one renderer
+    /// crash or one streaming chat reaches (plans/cmux-next/chrome-parity/p13-webui.md, risk 4).
+    struct PageSiteCap: Equatable, Sendable {
+        var site: String
         var mainFrames: Int
     }
 
-    /// The fork's per-site sharing switch (fork API 29). Chrome's kProcessPerSiteUpToMainFrameThreshold
-    /// has one cap for every site, its ProcessPerSiteMainFrameThreshold parameter (2,
-    /// content/public/common/content_features.cc); the fork reads a cap per scheme from this table, and a
-    /// scheme with no entry keeps Chrome's 2 (web tabs).
-    static let processPerSiteMainFrameThresholdsSwitch = "cmux-process-per-site-main-frame-thresholds"
-
-    /// The New Tab and every agent chat are one origin (`cmux-page://cmux.agent`), shared the way Chrome
-    /// shares one process for every NTP (ChromeContentBrowserClient::ShouldUseProcessPerSite). 8 main
-    /// frames bound how many pages one renderer crash or one streaming chat reaches
-    /// (plans/cmux-next/chrome-parity/p13-webui.md, risk 4).
-    static let processPerSiteMainFrameThresholds = [MainFrameThreshold(scheme: "cmux-page", mainFrames: 8)]
-
-    /// `cmux-process-per-site-main-frame-thresholds=cmux-page:8`.
-    static var processPerSiteMainFrameThresholdsArgument: String {
-        processPerSiteMainFrameThresholdsSwitch + "="
-            + processPerSiteMainFrameThresholds.map { "\($0.scheme):\($0.mainFrames)" }.joined(separator: ",")
+    /// `cmux-page-scheme-process-per-site=<site>:<mainFrames>[,<site>:<mainFrames>...]`.
+    static func pageSchemeProcessPerSiteArgument(_ caps: [PageSiteCap]) -> String {
+        pageSchemeProcessPerSite + "=" + caps.map { "\($0.site):\($0.mainFrames)" }.joined(separator: ",")
     }
 
     /// Chrome's own promotions, tips and first-run prompts are for Google
@@ -183,7 +192,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         bundleIdentifier: String?,
         environment: [String: String],
         builtInExtensions: [String] = [],
-        keepsUnpackedEnabled: Bool = false
+        keepsUnpackedEnabled: Bool = false,
+        agentPageMainFrameCap: Int? = nil
     ) -> CEFSwitches {
         let bundle = bundleIdentifier ?? ""
         let dev = bundle.contains(".debug") || bundle.hasSuffix(".dev") || environment["CMUX_MOCK_KEYCHAIN"] == "1"
@@ -203,7 +213,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             loadExtensions: extensions,
             builtInExtensions: builtInExtensions,
             keepsUnpackedEnabled: keepsUnpackedEnabled,
-            extraSwitches: extra
+            extraSwitches: extra,
+            agentPageMainFrameCap: agentPageMainFrameCap
         )
     }
 
