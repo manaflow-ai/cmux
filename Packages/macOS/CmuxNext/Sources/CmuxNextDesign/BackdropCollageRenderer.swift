@@ -1,5 +1,6 @@
 public import CoreGraphics
 public import Foundation
+import CmuxNextCompat
 import ImageIO
 
 /// Draws a collage from an explicit snapshot of still pictures the caller has authorized.
@@ -22,6 +23,7 @@ public nonisolated struct BackdropCollageRenderer: Sendable {
         for layer in collage.layers where sources[layer.source] == nil {
             throw BackdropCollage.Failure.sourceNotAllowed(layer.source)
         }
+        assertBlockingAllowed(.fileIO)
         guard let fill = UInt32(collage.fill.dropFirst(), radix: 16),
               let space = CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(data: nil, width: 3200, height: 2000, bitsPerComponent: 8, bytesPerRow: 0,

@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 import ImageIO
 import UniformTypeIdentifiers
 
@@ -21,6 +22,7 @@ public actor BackdropCollageStore {
     /// A failed save removes its own partial files. The PNG is published last, so a listed
     /// drawing always has its record. No existing collage is replaced or removed.
     public func save(_ collage: BackdropCollage, sources: [String: URL]) throws -> String {
+        assertBlockingAllowed(.fileIO)
         let image = try BackdropCollageRenderer(sources: sources).render(collage)
         let record = try JSONEncoder().encode(collage)
         let id = "c-" + UUID().uuidString.lowercased()
@@ -34,7 +36,7 @@ public actor BackdropCollageStore {
             }
             CGImageDestinationAddImage(destination, image, nil)
             guard CGImageDestinationFinalize(destination) else { throw BackdropCollage.Failure.renderingFailed }
-            try record.write(to: json, options: .atomic)
+            try record.blockingWrite(to: json, options: .atomic)
             try fileManager.moveItem(at: partial, to: png)
         } catch {
             try? fileManager.removeItem(at: json)
@@ -45,15 +47,17 @@ public actor BackdropCollageStore {
 
     /// Reads a complete, valid record; incomplete pairs and symbolic links are refused.
     public func load(_ id: String) throws -> BackdropCollage {
+        assertBlockingAllowed(.fileIO)
         let json = try recordURL(id), png = try imageURL(id)
         guard isPlainFile(json), isPlainFile(png) else { throw BackdropCollage.Failure.invalid }
-        let collage = try JSONDecoder().decode(BackdropCollage.self, from: Data(contentsOf: json))
+        let collage = try JSONDecoder().decode(BackdropCollage.self, from: Data(blockingContentsOf: json))
         try collage.validate()
         return collage
     }
 
     /// Lists complete, valid records in stable id order, ignoring partial or corrupt records.
     public func list() throws -> [String] {
+        assertBlockingAllowed(.fileIO)
         guard fileManager.fileExists(atPath: folder.path) else { return [] }
         let files = try fileManager.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
         return files.filter { $0.pathExtension == "json" }.compactMap { url in
@@ -70,6 +74,7 @@ public actor BackdropCollageStore {
 
     /// Removes only this id's files. The caller must establish that no surface still references it.
     public func delete(_ id: String) throws {
+        assertBlockingAllowed(.fileIO)
         let png = try imageURL(id), json = try recordURL(id)
         try fileManager.removeItem(at: png)
         try fileManager.removeItem(at: json)
@@ -81,7 +86,7 @@ public actor BackdropCollageStore {
     }
 
     private func isPlainFile(_ url: URL) -> Bool {
-        let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        let values = try? url.blockingResourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
         return values?.isRegularFile == true && values?.isSymbolicLink != true
     }
 
