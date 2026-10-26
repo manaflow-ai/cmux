@@ -108,8 +108,9 @@ Use (fleet only, a host with a GUI console session; never on a laptop in use):
     scripts/measure/split-spring.sh --suite=idle-budget --vdisplay=120 -- --sessions tabs-static,energy-saver
 
 Output: one `IDLE-BUDGET-MACHINE {json}` line, one `IDLE-BUDGET-ROW {json}` line per session and process
-kind, IDLE-BUDGET-UNCLASSIFIED <pid> other:<exe>: <command> for each process no kind names (also an IDLE-BUDGET-OVER
-`kind other != classified`), IDLE-BUDGET-ENERGY / -STATE / -ASSERTION / -ANIM / -CHROME lines, IDLE-BUDGET-REFUSED for a saver mismatch, an
+kind, IDLE-BUDGET-UNCLASSIFIED <session> pid <pid> other:<exe>: <command> for each process no kind names (also an IDLE-BUDGET-OVER
+`kind other != classified`), IDLE-BUDGET-GOAL for a number the plan names a goal (reported, never an over),
+IDLE-BUDGET-ENERGY / -STATE / -ASSERTION / -ANIM / -CHROME lines, IDLE-BUDGET-REFUSED for a saver mismatch, an
 unread rAF rate or a failed or unequal chrome-static, IDLE-BUDGET-THERMAL for a marked session, IDLE-BUDGET-FRAME-CLIENTS
 when the build has debug.wakeups, POWER-BREAKDOWN / -OWNER / -UNNAMED / -WINDOWSERVER for the power sessions and
 POWER-OVER <owner> <mW>, a Markdown table, and --json with every sample.
@@ -141,18 +142,43 @@ UTILITY_KINDS = {"network.mojom.NetworkService": "cef-network", "storage.mojom.S
                  "audio.mojom.AudioService": "cef-audio"}
 
 
+# The app's own one-shot tools (GitHubCLIClient's `gh`, AgentPaneGitProcess's and the file pages' `git`, RipgrepSearch's
+# `rg`, DiffSidecarLauncher's bundled `cmux-diff-sidecar`) and what they run: `app-tool`.
+APP_TOOLS = ("gh", "git", "rg", "cmux-diff-sidecar")
+# The Now Playing stream (MediaRemoteAdapterProcess): `/bin/sh -c <parentWatch> /usr/bin/perl .../mediaremote-adapter.pl
+# ... stream`, its `{ while read }` subshell (the same argv) and the perl adapter: `now-playing`.
+NOW_PLAYING_SCRIPT = "/mediaremote-adapter.pl"
+
+
+def executable(cmd):
+    """The executable path of a `ps` command line: its first word, or through a bundle whose name has a space
+    (`/Applications/cmux DEV.app/Contents/Resources/bin/cmux-diff-sidecar rpc ...`) the word after its `.app/`."""
+    head = cmd.split(" --", 1)[0].strip()
+    first = head.split(" ", 1)[0]
+    if ".app/" in head and first.startswith("/") and ".app/" not in first:
+        bundle, rest = head.rsplit(".app/", 1)
+        if " -" not in bundle and rest.strip():
+            return bundle + ".app/" + rest.split(" ", 1)[0]
+    return first
+
+
+def app_tool(cmd):
+    return os.path.basename(executable(cmd)) in APP_TOOLS
+
+
 def kind(cmd, pid=None, window=None):
     """The budget kind of a process of the app's set. With `pid` and `window` (WindowKinds: the window's process
-    tree and WebKit census) also what the command line alone cannot tell: a terminal's job, an agent's harness, and
-    whether a WebContent process runs cmux's own pages. `other:<executable>` is a process no rule names: an over
-    in every judged session (over_budget)."""
-    if window is not None and pid is not None:
-        for _parent, command in window.tree.ancestors(pid):
-            if "__terminal-host" in command:
-                return "terminal-job"  # the person's shell and what it runs, not cmux's work
-            if "__agent-host" in command:
-                return "agent-harness"
-    if "__holder" in cmd:
+    tree and WebKit census) also what the command line alone cannot tell: a terminal's job (under a terminal host
+    or a holder), an agent's harness, what the app's tools and its Now Playing stream run, and whether a WebContent
+    process runs cmux's own pages. `other:<executable>` is a process no rule names: an over in every judged session
+    (over_budget)."""
+    ancestors = [command for _parent, command in window.tree.ancestors(pid)] if window is not None and pid is not None else []
+    for command in ancestors:
+        if "__terminal-host" in command or procs.is_holder(command):
+            return "terminal-job"  # the person's shell and what it runs, not cmux's work
+        if "__agent-host" in command:
+            return "agent-harness"
+    if procs.is_holder(cmd):
         return "holder"
     if "__terminal-host" in cmd:
         return "terminal-host"
@@ -164,6 +190,10 @@ def kind(cmd, pid=None, window=None):
         return "crashpad"
     if procs.CRASH_WATCHER.search(cmd):
         return "crash-watcher"
+    if NOW_PLAYING_SCRIPT in cmd or any(NOW_PLAYING_SCRIPT in command for command in ancestors):
+        return "now-playing"
+    if app_tool(cmd) or any(app_tool(command) for command in ancestors):
+        return "app-tool"
     chromium = tab_pages.chromium_kind(cmd)
     if chromium == "cef-utility":
         service = re.search(r"--utility-sub-type=(\S+)", cmd)
@@ -180,20 +210,46 @@ def kind(cmd, pid=None, window=None):
         return "cua-helper"
     if exe.count(".app/") == 1 and "/Contents/MacOS/" in exe:
         return "app"
-    return "other:" + os.path.basename(exe.split()[0])[:32]
+    return "other:" + os.path.basename(executable(cmd))[:32]
 
 
 class WindowKinds:
-    """`kind` of one window's processes, with what their command lines cannot tell: the process tree of the app's
-    set (`ps` rows [(pid, ppid, command)] of its processes only) for terminal jobs and agent harnesses, and `app_pages`, the WebContent pids of
-    cmux's own pages (webkit_app_pages), None when the build has no census (a WebContent stays webkit-webcontent)."""
+    """`kind` of one window's processes, with what their command lines cannot tell, from the window's end: the
+    process tree of the app's set (`rows`: its [(pid, ppid, command)], the same `ps` read as the set, ProcessSet)
+    and the debug.webui census (`census`, {} for a build without one; see webkit_app_pages and hidden_pids).
+    `shown_tab` is a tab session's shown browser tab (build_tabs), None in a session without one. `hidden(pid,
+    kind)` is whether the process runs only hidden pages; a WebContent of a build with no census stays
+    webkit-webcontent and is never hidden."""
 
-    def __init__(self, table, app_pages):
-        self.tree = procs.ProcessTree(table)
-        self.app_pages = app_pages
+    def __init__(self, rows, census=None, shown_tab=None):
+        census = census if isinstance(census, dict) else {}
+        self.tree = procs.ProcessTree(rows)
+        self.app_pages = webkit_app_pages(census)
+        self.hidden_pids = hidden_pids(census, shown_tab)
+        # The shown tab is a Chromium one, so every WebKit browser tab is hidden behind it.
+        self.webkit_tabs_hidden = bool(shown_tab) and shown_tab.get("engine") == "chromium"
 
     def __call__(self, cmd, pid=None):
         return kind(cmd, pid, self)
+
+    def hidden(self, pid, name):
+        if name == "webkit-browser-tab":
+            return self.webkit_tabs_hidden
+        return pid in self.hidden_pids
+
+
+def census_pid(value):
+    return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value == int(value) else None
+
+
+def host_pids(row):
+    """The content processes of one debug.webui row: its WebContent pid and its Chromium renderer pids."""
+    values = [row.get("webkit_pid")] + list(row.get("renderer_pids") if isinstance(row.get("renderer_pids"), list) else [])
+    return {pid for pid in map(census_pid, values) if pid is not None}
+
+
+def census_rows(census, key):
+    return [row for row in census.get(key) or [] if isinstance(row, dict)] if isinstance(census.get(key), list) else []
 
 
 def webkit_app_pages(census):
@@ -202,14 +258,41 @@ def webkit_app_pages(census):
     browser tab's: WebKit browser tabs are the only other WKWebViews the app makes."""
     if not isinstance(census.get("pages"), list):
         return None
-    rows = census["pages"] + (census.get("spares") if isinstance(census.get("spares"), list) else [])
-    return {row["webkit_pid"] for row in rows if isinstance(row, dict) and isinstance(row.get("webkit_pid"), int)}
+    pids = (census_pid(row.get("webkit_pid")) for row in census_rows(census, "pages") + census_rows(census, "spares"))
+    return {pid for pid in pids if pid is not None}
+
+
+def hidden_pids(census, shown_tab=None):
+    """The content processes (WebContent and Chromium renderer pids) that run only hidden pages, from a debug.webui
+    reply: a page whose `state` is hidden, every spare (Chrome counts no spare renderer as visible), and with
+    `shown_tab` ({engine, tabs: the shown browser tabs' census names}) every other Chromium browser tab. A process
+    that also runs a visible page or the shown tab is not hidden. Browser tabs have no state in the census, so
+    without `shown_tab` none is counted either way."""
+    visible, hidden = set(), set()
+    for page in census_rows(census, "pages"):
+        (hidden if page.get("state") == "hidden" else visible).update(host_pids(page))
+    for spare in census_rows(census, "spares"):
+        hidden.update(host_pids(spare))
+    shown = (shown_tab or {}).get("tabs")
+    if shown:
+        for tab in census_rows(census, "browser_tabs"):
+            (visible if tab.get("tab") in shown else hidden).update(host_pids(tab))
+    return hidden - visible
+
+
+class ProcessSet(dict):
+    """{pid: command} of the app's set, with `rows`: the [(pid, ppid, command)] of its processes from the same `ps`
+    read, so the kinds' process tree (WindowKinds) and the set are one instant."""
+
+    def __init__(self, commands, rows):
+        super().__init__(commands)
+        self.rows = rows
 
 
 def process_set(instance):
-    """{pid: command} of the app's processes plus their descendants (the terminals' jobs: `terminal-job`)."""
-    found = dict(instance.pids())
+    """The app's processes plus their descendants (the terminals' jobs: `terminal-job`), from one `ps` read."""
     table = procs.process_table()
+    found = dict(instance.pids(table))
     children = {}
     commands = {}
     for pid, ppid, cmd in table:
@@ -222,7 +305,8 @@ def process_set(instance):
             if child not in found and child in commands:
                 found[child] = commands[child]
                 stack.append(child)
-    return found
+    # The tree of the set alone: a bench started from a cmux terminal must not make the app a terminal's job.
+    return ProcessSet(found, [row for row in table if row[0] in found])
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -261,11 +345,13 @@ def saver_state(reply):
     return saver, policy.get("reason") or inputs.get("reason")
 
 
-def measure(app, instance, seconds, read_anim=None, attribute=False):
-    """Counters of every process of the app over `seconds` with no input. The window's end reads (window_end) sit
-    outside every counter bracket, the app's own counters included, so the bench's reads are never counted. With
-    `attribute`, `power` has the window's power owners: power_attribution.PowerWindow's subprocesses (ps, sudo)
-    run before `first` and after `last`, outside this bracket and its own; only its libproc reads sit inside."""
+def measure(app, instance, seconds, read_anim=None, attribute=False, shown_tab=None):
+    """Counters of every process of the app over `seconds` with no input. The window's end reads (window_end and
+    the debug.webui census the kinds need) sit outside every counter bracket, the app's own counters included, so
+    the bench's reads are never counted. Each row's kind and `hidden` come from one WindowKinds (the `last` set's
+    own `ps` rows, the census and `shown_tab`, build_tabs's), which also names the power owners. With `attribute`,
+    `power` has the window's power owners: power_attribution.PowerWindow's subprocesses (ps, sudo) run before
+    `first` and after `last`, outside this bracket and its own; only its libproc reads sit inside."""
     pids = process_set(instance)
     start = window_end(app, pids, read_anim)
     window = power_attribution.PowerWindow(instance.pid, lambda: process_set(instance), kind) if attribute else None
@@ -291,15 +377,16 @@ def measure(app, instance, seconds, read_anim=None, attribute=False):
     last_pids = process_set(instance)
     last = snapshot(last_pids)
     power = window.finish() if window else None
-    # The tree of the set alone: a bench started from a cmux terminal must not make the app a terminal's job.
-    classify = WindowKinds([entry for entry in procs.process_table() if entry[0] in last_pids],
-                           webkit_app_pages(read_rpc(app, "debug.webui")))
     hangs1 = read_rpc(app, "debug.hangs", {"limit": 0})
     ledger1 = read_rpc(app, "debug.wakeups", {"run_loop": True})
     sources1 = frame_sources(app) if attribute else None
     counters1 = app_counters(app)
+    # debug.webui runs on the app's main actor: read after every counter, with the window's other end reads.
+    classify = WindowKinds(last_pids.rows, read_rpc(app, "debug.webui"), shown_tab)
     end = window_end(app, last_pids, read_anim)
     rows = process_rows(first, last, elapsed, gpu0, gpu1, classify)
+    for row in rows:
+        row["hidden"] = classify.hidden(row["pid"], row["kind"])
     result = {"seconds": round(elapsed, 1), "processes": rows, "ends": {"start": start, "end": end},
               "coalition": procs.coalition_rates(coalition0, coalition1, elapsed)}
     if "main_wakes" in hangs0 and "main_wakes" in hangs1:
@@ -311,7 +398,7 @@ def measure(app, instance, seconds, read_anim=None, attribute=False):
         result["frame_clients"] = power_attribution.frame_clients(ledger0, ledger1, elapsed,
                                                                   (sources0, sources1) if attribute else None)
     if power is not None:
-        result["power"] = power_attribution.attribute(power)
+        result["power"] = power_attribution.attribute({**power, "classify": classify})
     rates = {key: round((counters1[key] - counters0[key]) / elapsed, 3) for key in counters1
              if key in counters0 and counters1[key] != counters0[key]}
     if rates:
@@ -573,7 +660,22 @@ def summarize(session, result, budget):
         return entry
     entry["over"] = [list(o) for o in over_budget(session, kinds, budget, window_facts(entry))]
     entry["not_judged"] = sum_notes(session, kinds, budget)
+    entry["goals"] = goal_rows(budget, session, kinds)
     return entry
+
+
+def goal_rows(budget, session, kinds):
+    """The session's `goals` rows (an absolute number the plan names a goal, not a check: D4's cef-gpu 1.0/s), each
+    with its value and whether it is met (None: the selector did not run or its value is unknown). Reported in
+    IDLE-BUDGET-GOAL lines, never an over."""
+    rows = []
+    for goal in budget.get("goals") or []:
+        if goal.get("session") != session:
+            continue
+        value = selector_value(kinds, goal["of"], goal["field"])
+        rows.append({"of": goal["of"], "field": goal["field"], "max": goal["max"], "value": value,
+                     "met": None if value is None else value <= goal["max"]})
+    return rows
 
 
 def window_facts(entry):
@@ -878,7 +980,7 @@ def load_budget(path):
     budget.setdefault("version", 1)
     for key in ("kinds", "sessions", "all_kinds"):
         budget.setdefault(key, {})
-    for key in ("ratio_to_chrome", "xbench", "allowed_periodic", "assertions_allowed_when"):
+    for key in ("ratio_to_chrome", "goals", "xbench", "allowed_periodic", "assertions_allowed_when"):
         budget.setdefault(key, [])
     return budget
 
@@ -1225,14 +1327,25 @@ def tab_plan(pages, tabs):
 
 def build_tabs(app, pages, tabs):
     """Opens the session's tabs (tab_plan) in the launch pane; a new tab is selected, so every earlier one is hidden
-    behind the last. Waits for each page to load. Returns {engine: count} of the opened tabs."""
-    opened = {}
-    for engine, url, key in tab_plan(pages, tabs):
+    behind the last. Waits for each page to load. Returns ({engine: count} of the opened tabs, the shown tab:
+    {engine, tabs: the debug.webui `browser_tabs` names the last open added, empty for a WebKit tab or a build with
+    no census}), so the window's kinds tell hidden tabs' processes from the shown one's (WindowKinds)."""
+    opened, shown = {}, None
+    plan = tab_plan(pages, tabs)
+    for index, (engine, url, key) in enumerate(plan):
+        before = browser_tab_names(app) if index == len(plan) - 1 else None
         run_action(app, f"openBrowser.{engine}", {"url": url}, focus=True, timeout=90)
         if not pages.wait_loaded(key, 90):
             raise SessionShapeError(f"{engine} tab {url} did not load in 90 s")
         opened[engine] = opened.get(engine, 0) + 1
-    return opened
+        if before is not None:
+            shown = {"engine": engine, "tabs": sorted(browser_tab_names(app) - before)}
+    return opened, shown
+
+
+def browser_tab_names(app):
+    """The census names of the app's Chromium browser tabs now (debug.webui `browser_tabs`)."""
+    return {tab.get("tab") for tab in census_rows(read_rpc(app, "debug.webui"), "browser_tabs")}
 
 
 def anim_rate(start, end):
@@ -1761,8 +1874,10 @@ def main(argv=None):
             app.launch()
             if spec.get("stress"):
                 entry["stress"] = build_stress(app, static=spec.get("static", False))
+            shown_tab = None
             if spec.get("tabs"):
-                entry["tabs"] = build_tabs(app, pages, spec["tabs"])
+                entry["tabs"], shown_tab = build_tabs(app, pages, spec["tabs"])
+                entry["shown_tab"] = shown_tab
             activation = app.activate()  # once, before the settle (and before a hide or minimize): users run an active app
             if not activation["activated"]:
                 print(f"IDLE-BUDGET-NOT-ACTIVATED {session}: {activation['error']}", flush=True)
@@ -1784,7 +1899,7 @@ def main(argv=None):
                 print(f"IDLE-BUDGET-DRAW-MISMATCH {session}: {mismatch}", flush=True)
             window_before = window_state(app)
             result = measure(app, instance, opts.measure, pages.read_anim if spec.get("anim") else None,
-                             attribute=spec.get("power", False))
+                             attribute=spec.get("power", False), shown_tab=shown_tab)
             result["window_state"] = {"start": window_before, "end": window_state(app)}
             print(f"IDLE-BUDGET-WINDOW {session} " + json.dumps(result["window_state"]), flush=True)
             app_sample = os.path.join(out, session, "sample-app.txt")
@@ -1806,6 +1921,8 @@ def main(argv=None):
             for name, values in kinds.items():
                 print("IDLE-BUDGET-ROW " + json.dumps({"session": session, "kind": name, **values}), flush=True)
             print(f"IDLE-BUDGET-ENERGY {session} " + json.dumps(entry["energy_mw"]), flush=True)
+            for goal in entry.get("goals") or []:
+                print(f"IDLE-BUDGET-GOAL {session} " + json.dumps(goal), flush=True)
             print(f"IDLE-BUDGET-STATE {session} " + json.dumps({"saver": entry["saver"], "thermal": entry["thermal"]}), flush=True)
             for item in entry["assertions"]:
                 print(f"IDLE-BUDGET-ASSERTION {session} {item['line']}", flush=True)

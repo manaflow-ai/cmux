@@ -339,6 +339,14 @@ def main_pid(bundle: str) -> int | None:
 CUA_HELPER_APP = "/cmux Computer Use.app/Contents/MacOS/"
 # The crash watcher (CrashWatcher.swift): `zsh -f -c <script> cmux-crash-watcher <pid> <sample file> <seconds>`.
 CRASH_WATCHER = re.compile(r"^/bin/zsh -f -c .* cmux-crash-watcher \d+ ", re.S)
+# The standalone terminal holder's argv[0] (cmux-tui-platform host_exe.rs HOLDER_NAME); the built-in one runs as
+# `<host executable> __holder`.
+HOLDER_NAME = "cmux-holder"
+
+
+def is_holder(cmd: str) -> bool:
+    """Whether `cmd` is a terminal holder: the built-in (`__holder`) or the standalone `cmux-holder`."""
+    return "__holder" in cmd or os.path.basename(cmd.split(" --", 1)[0].strip()) == HOLDER_NAME
 
 
 class ProcessTree:
@@ -430,8 +438,9 @@ class Instance:
         self.roots = _roots(bundle)
         self.seen: set[int] = set()
 
-    def pids(self) -> dict[int, str]:
-        table = process_table()
+    def pids(self, table: list[tuple[int, int, str]] | None = None) -> dict[int, str]:
+        """{pid: command} of the instance in `table` (process_table rows; read now when None)."""
+        table = process_table() if table is None else table
         children: dict[int, list[int]] = {}
         commands = {}
         for pid, ppid, cmd in table:
@@ -450,10 +459,11 @@ class Instance:
                 found.add(pid)
             elif responsible is not None and pid != self.pid and responsible(pid) == self.pid:
                 found.add(pid)
-        # Terminal hosts name their daemon (`--owner ...@<pid>`) and run from outside the bundle; the Computer Use
-        # helper names the app (`--owner-pid <pid>`), disclaims its responsibility and may run from another cmux.
+        # Terminal hosts and holders name their daemon (`--owner ...@<pid>`) and run from outside the bundle; the
+        # Computer Use helper names the app (`--owner-pid <pid>`), disclaims its responsibility and may run from
+        # another cmux.
         for pid, cmd in commands.items():
-            owner = re.search(r"--owner \S+@(\d+)", cmd) if "__terminal-host" in cmd else None
+            owner = re.search(r"--owner \S+@(\d+)", cmd) if "__terminal-host" in cmd or is_holder(cmd) else None
             if owner and int(owner.group(1)) in found:
                 found.add(pid)
             if CUA_HELPER_APP in cmd and re.search(rf"--owner-pid {self.pid}(\s|$)", cmd):
