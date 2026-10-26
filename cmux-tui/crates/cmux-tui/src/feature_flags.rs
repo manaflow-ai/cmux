@@ -240,6 +240,23 @@ mod tests {
         assert!(!verify(data, b"not base64!", &key));
     }
 
+    /// The shared vector: scripts/features/publish-flags.py signs it with the perf
+    /// lab's committed test key (schemas/features/bench-test-signing-key.json)
+    /// through openssl; the app's FeatureRemoteTests verify the same bytes.
+    #[test]
+    fn the_publish_tools_vector_verifies_with_the_bench_key() {
+        const BENCH_TEST_PUBLIC_KEY: &str = "tOVR4m5KjnfoL+4rA/GqbLNDSgK8cJV8G0noc8Atvww=";
+        const VECTOR_DOCUMENT: &str =
+            r#"{"version": 1, "default": {"Features": {"killThing": "off"}, "FeaturesSerial": 1}}"#;
+        const VECTOR_SIGNATURE: &str = "awi7tNpxH9yQKKOTIR0rnhqC9NTbcMynkyHu64U9D1th0EHUG131NFw6LDGVN7gA+hhBDgJJA3xWZUMOv5eDBw==";
+        let signature = format!("{VECTOR_SIGNATURE}\n");
+        assert!(verify(VECTOR_DOCUMENT.as_bytes(), signature.as_bytes(), BENCH_TEST_PUBLIC_KEY));
+        let tampered = format!("{VECTOR_DOCUMENT} ");
+        assert!(!verify(tampered.as_bytes(), signature.as_bytes(), BENCH_TEST_PUBLIC_KEY));
+        // The daemon trusts only the content-signing key: the test key's signature is refused there.
+        assert!(!verify(VECTOR_DOCUMENT.as_bytes(), signature.as_bytes(), PUBLIC_KEY));
+    }
+
     #[test]
     fn a_cohort_replaces_the_default_keys() {
         let document = serde_json::json!({
