@@ -23,9 +23,6 @@ BASELINE = {"_doc": "d", "excluded": {"quit": "ends or restarts the app"},
             "gaps": {"a.one": "needs context x", "a.two": "needs context x", "b.one": "needs a y argument",
                      "c.one": "unavailable here"}}
 CATALOG = frozenset({"quit", "a.one", "a.two", "b.one", "c.one"})
-# The gap-closures record of each gap fixture task, p15-oracle-082..087, and those not in the tree yet.
-GAP_FAMILIES = ("files", "canvas", "browserProfile", "agentPane", "session", "misc")
-PENDING = [family for family in GAP_FAMILIES if not (gc.CLOSURES / f"{family}.json").exists()]
 
 
 def record(family, closed=None, reasoned=None):
@@ -90,10 +87,9 @@ class CheckedInTests(unittest.TestCase):
             self.assertEqual(gc.main(["--check"]), 0)
         self.assertEqual(gc.dump(json.loads(gc.GAPS.read_text())), gc.GAPS.read_text())
 
-    @unittest.skipUnless(not PENDING, f"gap fixture records not landed yet: {PENDING}")
     def test_at_most_20_gaps_remain_each_with_a_reason(self):
-        # p15-oracle-087's acceptance once every gap fixture task (082-086) has landed and been applied: <= 20 gaps,
-        # each with its reason.
+        # p15-oracle-087's acceptance with every gap-closures record in the tree applied: <= 20 gaps, each with its
+        # reason. A record that lands later can only close or reason gaps, so this stays on.
         gaps = json.loads(gc.GAPS.read_text())["gaps"]
         self.assertLessEqual(len(gaps), 20, sorted(gaps))
         self.assertEqual([i for i, why in gaps.items() if not why.strip()], [])

@@ -6,7 +6,7 @@
   "catalog_kind": "action-surfaces",
   "contexts": "unknown: no case is runnable (the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate)",
   "gaps": "scripts/cmux-next/every-action-gaps.json",
-  "gaps_sha256": "210d791efff984be8ed2aeba99484a4acbc650207fc7b37503a4af9221d4ee84",
+  "gaps_sha256": "c8bb85c93d72b0dea263525739a6082d3755e514adb5ca1fbde7b5b53e72fa80",
   "total": 984,
   "covered": 0,
   "verdicts": "not run",
@@ -31,27 +31,27 @@
     "agentChat.view": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "agentHistory.show": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "agentPane.addProjectFiles": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
-    "agentPane.archiveChat": "blocked: unavailable here: Needs agentPaneFocused in the focused window, or pass --target agent-chat:<id>. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "agentPane.archiveChat": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "agentPane.continueIn": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "agentPane.copyLastCodeBlock": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
-    "agentPane.createCheckpoint": "blocked: needs context the sweep does not set up: checkpointCaptureAvailable (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "agentPane.createCheckpoint": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "agentPane.editInstructions": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
-    "agentPane.git.commit": "blocked: unavailable here: Needs agentPaneFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "agentPane.git.commit": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "agentPane.git.push": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "agentPane.markUnread": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "agentPane.moveToFloatingChat": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "agentPane.nextBookmarkedPrompt": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "agentPane.nextTurn": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "agentPane.openCwdInTerminal": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
-    "agentPane.permission.allowChat": "blocked: unavailable here: Needs agentPaneFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "agentPane.permission.allowChat": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "agentPane.permission.allowOnce": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "agentPane.permission.deny": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "agentPane.permission.expand": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
-    "agentPane.permission.refresh": "blocked: unavailable here: Needs agentPaneFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "agentPane.permission.refresh": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "agentPane.permission.retry": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "agentPane.permission.revoke": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "agentPane.previousBookmarkedPrompt": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
-    "agentPane.previousTurn": "blocked: unavailable here: Needs agentPaneFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "agentPane.previousTurn": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "agentPane.replayConversation": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "agentPane.searchChats": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "agentPane.searchFiles": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
@@ -325,37 +325,37 @@
     "devtools.toggleReducedMotion": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "devtools.viewPageSource": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "diagnostics.viewHangReport": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
-    "diffViewerGoToBottom": "blocked: needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "diffViewerGoToTop": "blocked: needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "diffViewerHalfPageDown": "blocked: needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "diffViewerHalfPageUp": "blocked: needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "diffViewerNextFile": "blocked: needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "diffViewerNextHunk": "blocked: needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "diffViewerNextLine": "blocked: needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "diffViewerPreviousFile": "blocked: needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "diffViewerPreviousHunk": "blocked: needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "diffViewerPreviousLine": "blocked: needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "diffViewerSearch": "blocked: needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "diffViewerGoToBottom": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "diffViewerGoToTop": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "diffViewerHalfPageDown": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "diffViewerHalfPageUp": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "diffViewerNextFile": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "diffViewerNextHunk": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "diffViewerNextLine": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "diffViewerPreviousFile": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "diffViewerPreviousHunk": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "diffViewerPreviousLine": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "diffViewerSearch": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "disconnectWorkspace": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "duplicateTab": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "editWorkspaceDescription": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "equalizeSplits": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "feed.show": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "file.open": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
-    "fileEditorAction": "blocked: needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "fileEditorGotoLine": "blocked: needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "fileEditorReplace": "blocked: needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "fileEditorZoomIn": "blocked: needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "fileEditorZoomOut": "blocked: needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "fileEditorZoomReset": "blocked: needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "fileExplorerCopyPath": "blocked: needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "fileExplorerCopyRelativePath": "blocked: needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "fileExplorerMoveToTrash": "blocked: needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "fileExplorerNewFile": "blocked: needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "fileExplorerNewFolder": "blocked: needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "fileExplorerOpenAsText": "blocked: needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "fileExplorerOpenSelection": "blocked: needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "fileExplorerRename": "blocked: needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "fileEditorAction": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "fileEditorGotoLine": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "fileEditorReplace": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "fileEditorZoomIn": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "fileEditorZoomOut": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "fileEditorZoomReset": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "fileExplorerCopyPath": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "fileExplorerCopyRelativePath": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "fileExplorerMoveToTrash": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "fileExplorerNewFile": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "fileExplorerNewFolder": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "fileExplorerOpenAsText": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "fileExplorerOpenSelection": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "fileExplorerRename": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "files.open": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "find": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "findInDirectory": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
@@ -453,16 +453,16 @@
     "markAllNotificationsRead": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "markOldestUnreadAndJumpNext": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "markWorkspaceDone": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
-    "markdownBack": "blocked: needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "markdownForward": "blocked: needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "markdownGoToTop": "blocked: needs context the sweep does not set up: markdownReadOnlyFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "markdownLink": "blocked: needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "markdownReload": "blocked: needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "markdownResetTableWidths": "blocked: needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "markdownSave": "blocked: needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "markdownZoomIn": "blocked: needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "markdownZoomOut": "blocked: needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-    "markdownZoomReset": "blocked: needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "markdownBack": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "markdownForward": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "markdownGoToTop": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "markdownLink": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "markdownReload": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "markdownResetTableWidths": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "markdownSave": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "markdownZoomIn": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "markdownZoomOut": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+    "markdownZoomReset": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "minimizeWindow": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "moveSurfaceLeft": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "moveSurfaceRight": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
@@ -645,7 +645,7 @@
     "resumeCommandClear": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "resumeCommandEdit": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "resumeCommandSet": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
-    "saveFilePreview": "blocked: needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "saveFilePreview": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "saveLayoutTemplate": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "screen.clearColor": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "screen.clearIcon": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
@@ -896,7 +896,7 @@
     "toggleBrowserFocusMode": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "toggleCanvasLayout": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "toggleChecklistItemComplete": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
-    "toggleFileEditorWordWrap": "blocked: needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "toggleFileEditorWordWrap": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "toggleFocusedWorkspaceGroupCollapsed": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "toggleFullScreen": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
     "toggleReactGrab": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
@@ -997,8 +997,8 @@
     "zoomWindow": "blocked: the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate"
   },
   "blocked_by": {
-    "gap": 61,
-    "no-live-catalog": 923,
+    "gap": 18,
+    "no-live-catalog": 966,
     "flag": 0,
     "state": 0,
     "expected-refusal": 0,
@@ -1178,8 +1178,8 @@
     "agentPane.archiveChat": {
       "family": "agents",
       "case": "actions/agent-pane-archive-chat",
-      "blocked": "unavailable here: Needs agentPaneFocused in the focused window, or pass --target agent-chat:<id>. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "agentPane.continueIn": {
       "family": "agents",
@@ -1196,8 +1196,8 @@
     "agentPane.createCheckpoint": {
       "family": "agents",
       "case": "actions/agent-pane-create-checkpoint",
-      "blocked": "needs context the sweep does not set up: checkpointCaptureAvailable (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "agentPane.editInstructions": {
       "family": "agents",
@@ -1208,8 +1208,8 @@
     "agentPane.git.commit": {
       "family": "agents",
       "case": "actions/agent-pane-git-commit",
-      "blocked": "unavailable here: Needs agentPaneFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "agentPane.git.push": {
       "family": "agents",
@@ -1250,8 +1250,8 @@
     "agentPane.permission.allowChat": {
       "family": "agents",
       "case": "actions/agent-pane-permission-allow-chat",
-      "blocked": "unavailable here: Needs agentPaneFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "agentPane.permission.allowOnce": {
       "family": "agents",
@@ -1274,8 +1274,8 @@
     "agentPane.permission.refresh": {
       "family": "agents",
       "case": "actions/agent-pane-permission-refresh",
-      "blocked": "unavailable here: Needs agentPaneFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "agentPane.permission.retry": {
       "family": "agents",
@@ -1298,8 +1298,8 @@
     "agentPane.previousTurn": {
       "family": "agents",
       "case": "actions/agent-pane-previous-turn",
-      "blocked": "unavailable here: Needs agentPaneFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "agentPane.replayConversation": {
       "family": "agents",
@@ -2942,68 +2942,68 @@
     "diffViewerGoToBottom": {
       "family": "misc",
       "case": "actions/diff-viewer-go-to-bottom",
-      "blocked": "needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "diffViewerGoToTop": {
       "family": "misc",
       "case": "actions/diff-viewer-go-to-top",
-      "blocked": "needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "diffViewerHalfPageDown": {
       "family": "misc",
       "case": "actions/diff-viewer-half-page-down",
-      "blocked": "needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "diffViewerHalfPageUp": {
       "family": "misc",
       "case": "actions/diff-viewer-half-page-up",
-      "blocked": "needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "diffViewerNextFile": {
       "family": "misc",
       "case": "actions/diff-viewer-next-file",
-      "blocked": "needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "diffViewerNextHunk": {
       "family": "misc",
       "case": "actions/diff-viewer-next-hunk",
-      "blocked": "needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "diffViewerNextLine": {
       "family": "misc",
       "case": "actions/diff-viewer-next-line",
-      "blocked": "needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "diffViewerPreviousFile": {
       "family": "misc",
       "case": "actions/diff-viewer-previous-file",
-      "blocked": "needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "diffViewerPreviousHunk": {
       "family": "misc",
       "case": "actions/diff-viewer-previous-hunk",
-      "blocked": "needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "diffViewerPreviousLine": {
       "family": "misc",
       "case": "actions/diff-viewer-previous-line",
-      "blocked": "needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "diffViewerSearch": {
       "family": "misc",
       "case": "actions/diff-viewer-search",
-      "blocked": "needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "disconnectWorkspace": {
       "family": "misc",
@@ -3044,86 +3044,86 @@
     "fileEditorAction": {
       "family": "misc",
       "case": "actions/file-editor-action",
-      "blocked": "needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "fileEditorGotoLine": {
       "family": "misc",
       "case": "actions/file-editor-goto-line",
-      "blocked": "needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "fileEditorReplace": {
       "family": "misc",
       "case": "actions/file-editor-replace",
-      "blocked": "needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "fileEditorZoomIn": {
       "family": "misc",
       "case": "actions/file-editor-zoom-in",
-      "blocked": "needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "fileEditorZoomOut": {
       "family": "misc",
       "case": "actions/file-editor-zoom-out",
-      "blocked": "needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "fileEditorZoomReset": {
       "family": "misc",
       "case": "actions/file-editor-zoom-reset",
-      "blocked": "needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "fileExplorerCopyPath": {
       "family": "misc",
       "case": "actions/file-explorer-copy-path",
-      "blocked": "needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "fileExplorerCopyRelativePath": {
       "family": "misc",
       "case": "actions/file-explorer-copy-relative-path",
-      "blocked": "needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "fileExplorerMoveToTrash": {
       "family": "misc",
       "case": "actions/file-explorer-move-to-trash",
-      "blocked": "needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "fileExplorerNewFile": {
       "family": "misc",
       "case": "actions/file-explorer-new-file",
-      "blocked": "needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "fileExplorerNewFolder": {
       "family": "misc",
       "case": "actions/file-explorer-new-folder",
-      "blocked": "needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "fileExplorerOpenAsText": {
       "family": "misc",
       "case": "actions/file-explorer-open-as-text",
-      "blocked": "needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "fileExplorerOpenSelection": {
       "family": "misc",
       "case": "actions/file-explorer-open-selection",
-      "blocked": "needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "fileExplorerRename": {
       "family": "misc",
       "case": "actions/file-explorer-rename",
-      "blocked": "needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "files.open": {
       "family": "misc",
@@ -3710,62 +3710,62 @@
     "markdownBack": {
       "family": "misc",
       "case": "actions/markdown-back",
-      "blocked": "needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "markdownForward": {
       "family": "misc",
       "case": "actions/markdown-forward",
-      "blocked": "needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "markdownGoToTop": {
       "family": "misc",
       "case": "actions/markdown-go-to-top",
-      "blocked": "needs context the sweep does not set up: markdownReadOnlyFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "markdownLink": {
       "family": "misc",
       "case": "actions/markdown-link",
-      "blocked": "needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "markdownReload": {
       "family": "misc",
       "case": "actions/markdown-reload",
-      "blocked": "needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "markdownResetTableWidths": {
       "family": "misc",
       "case": "actions/markdown-reset-table-widths",
-      "blocked": "needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "markdownSave": {
       "family": "misc",
       "case": "actions/markdown-save",
-      "blocked": "needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "markdownZoomIn": {
       "family": "misc",
       "case": "actions/markdown-zoom-in",
-      "blocked": "needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "markdownZoomOut": {
       "family": "misc",
       "case": "actions/markdown-zoom-out",
-      "blocked": "needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "markdownZoomReset": {
       "family": "misc",
       "case": "actions/markdown-zoom-reset",
-      "blocked": "needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "minimizeWindow": {
       "family": "misc",
@@ -4862,8 +4862,8 @@
     "saveFilePreview": {
       "family": "misc",
       "case": "actions/save-file-preview",
-      "blocked": "needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "saveLayoutTemplate": {
       "family": "misc",
@@ -6368,8 +6368,8 @@
     "toggleFileEditorWordWrap": {
       "family": "appearance",
       "case": "actions/toggle-file-editor-word-wrap",
-      "blocked": "needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
-      "blocked_by": "gap"
+      "blocked": "the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json and regenerate",
+      "blocked_by": "no-live-catalog"
     },
     "toggleFocusedWorkspaceGroupCollapsed": {
       "family": "appearance",
