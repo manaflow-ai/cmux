@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "build": "4033137171002",
+  "notes": "notes/4033137171002.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 25458,
+      "title": "ci(cmux-next): DEV handoff dispatches with the glaeda-route App token; GITHUB_TOKEN fallback waits through a rate limit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25361,
+      "title": "vms: reserve the sandbox Run key namespace; a sandbox machine can only be destroyed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23891,
+      "title": "Agent chat: dialogs over the chat stay readable with window transparency",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25440,
+      "title": "agent pane: a question answered in the pane for a chat on another machine carries the person's proof (re-cut of #23869, pane side)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25440/eb3e66e7/next-agent-pane-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "eb3e66e7",
+      "tour": "agent-pane"
+    },
+    {
+      "pr": 25427,
+      "title": "feat(next): the session tree's needs-you tray (re-cut of #21945)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25427/8367e75d/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "8367e75d",
+      "tour": "core"
+    },
+    {
+      "pr": 25469,
+      "title": "ci(cmux-tui): read lane branch heads over git, not the REST API",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25357,
+      "title": "cmux NEXT chat: a teammate's queued prompt names them and is theirs to change",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25185,
+      "title": "Agent chat: the VS Code Minimap, frozen while a reply streams (3/4)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25216,
+      "title": "cloud: a create may set the machine's idle pause (POST /api/vm idlePauseMinutes)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25389,
+      "title": "cmux NEXT daemon update: ssh peers follow the app's build after launch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25465,
+      "title": "acpmux: the sandbox init test builds on musl",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
