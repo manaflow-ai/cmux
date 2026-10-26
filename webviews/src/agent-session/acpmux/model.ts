@@ -142,6 +142,9 @@ export type QueuedPrompt = {
   /// Another agent's message waiting here (direct.ts `queuedMessage`): it draws in the transcript
   /// as the message's received card (conversation/queuedMessages.ts), never as a queue row.
   message?: IncomingMessage;
+  /// A teammate's prompt in a shared chat (its `person_message` provenance): its row names them,
+  /// and only they may change it (acpmux refuses another author's edit with `queue.not_author`).
+  author?: Participant;
 };
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
 /// A prompt's image as acpmux names it; `width`/`height` are its natural size when the record

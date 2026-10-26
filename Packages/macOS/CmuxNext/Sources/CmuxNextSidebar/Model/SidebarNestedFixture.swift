@@ -31,12 +31,22 @@ public nonisolated struct SidebarNestedFixture: Sendable {
         /// A tall group (ten members) among short groups and loose rows, for group drag captures
         /// (`debug.sidebar_group_drag`; Lawrence 2026-10-23, "groups that are too tall").
         case tallGroup
+        /// The session tree's needs-you tray (`SidebarNeedsYou`): sessions started by other sessions,
+        /// some blocked on you (a question, a permission, a sign-in), one failed, two finished unread.
+        case needsYou
     }
 
     /// The state this fixture captures.
     public let scenario: Scenario
     /// The sidebar rows: one local machine section holding the scenario's group tree.
     public let sections: [SidebarSection]
+
+    /// Who started whom (the session tree's `parents`), for ``Scenario/needsYou``; empty for the others.
+    public var parents: [WorkspaceID: WorkspaceID] {
+        guard scenario == .needsYou else { return [:] }
+        let links = ["settings": "release", "shrink": "settings", "notes": "release", "changelog": "notes"]
+        return Dictionary(uniqueKeysWithValues: links.map { (WorkspaceID("w-\($0.key)"), WorkspaceID("w-\($0.value)")) })
+    }
 
     /// The sidebar width the scenario is captured at.
     public var width: Double { scenario == .narrow ? 196 : 288 }
@@ -85,13 +95,25 @@ public nonisolated struct SidebarNestedFixture: Sendable {
             nodes = Self.sixLevels(folded: ["g-builders", "g-sidebar"])
         case .tallGroup:
             nodes = Self.tallGroup
+        case .needsYou:
+            nodes = Self.needsYouRows.map(SidebarNode.workspace)
         }
         sections = [SidebarSection(kind: .machine(machine), nodes: nodes)]
     }
 
-    private static func ws(_ id: String, _ title: String, unread: UnreadState = .none, busy: Bool = false) -> SidebarWorkspace {
-        SidebarWorkspace(id: WorkspaceID("w-\(id)"), title: title, unread: unread, activity: busy ? .busy(progress: nil) : .idle)
+    private static func ws(_ id: String, _ title: String, unread: UnreadState = .none, busy: Bool = false,
+                           activity: StatusIndicatorState? = nil) -> SidebarWorkspace {
+        SidebarWorkspace(id: WorkspaceID("w-\(id)"), title: title, unread: unread, activity: activity ?? (busy ? .busy(progress: nil) : .idle))
     }
+
+    /// ``Scenario/needsYou``'s rows, in model order (``parents`` nests them).
+    private static let needsYouRows: [SidebarWorkspace] = [
+        ws("release", "Release week"), ws("settings", "Settings pass"),
+        ws("shrink", "Shrink large files", activity: .waiting(kind: .question)),
+        ws("notes", "Release notes", activity: .working), ws("changelog", "Changelog", activity: .waiting(kind: .permission)),
+        ws("flaky", "Flaky test hunt", activity: .error), ws("login", "Cloud sign-in", activity: .waiting(kind: .auth)),
+        ws("docs", "Docs sweep", unread: .dot), ws("icons", "Icon pass", unread: .count(2)), ws("api", "API cleanup", busy: true),
+    ]
 
     private static func group(_ id: String, _ name: String, _ color: GroupColor, parent: String? = nil, folded: Bool = false,
                               _ members: [SidebarWorkspace]) -> SidebarNode {
