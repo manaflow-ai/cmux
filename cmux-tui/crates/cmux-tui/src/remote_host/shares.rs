@@ -83,11 +83,11 @@ pub(super) fn run(verb: &str, args: &[String]) -> anyhow::Result<()> {
     // Applied to the config as it is now, under its lock: a grant revoked or a share changed
     // while the prompt waited is kept, and only this one share changes.
     let lock = config::lock()?;
-    let before = config::load()?;
-    let now = if verb == "share" { self::chat(&before, surface)? } else { Chat::default() };
-    let config = applied(verb, before.clone(), surface, &login, role, &chat, &now)?;
+    let config = config::load()?;
+    let now = if verb == "share" { self::chat(&config, surface)? } else { Chat::default() };
+    let config = applied(verb, config, surface, &login, role, &chat, &now)?;
     // Replacements restart too: a member may have become a guest.
-    config::commit(&before, &config, &lock, config::Listener::RestartIfChanged)?;
+    config::commit(&config, &lock, config::Listener::Restart)?;
     audit::append(&json!({"decision": verb, "surface": surface, "session": chat.session,
         "login": login, "role": role}));
     println!("{}", json!({"shares": config.shares}));

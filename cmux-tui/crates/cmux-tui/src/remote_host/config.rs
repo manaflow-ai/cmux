@@ -87,7 +87,7 @@ pub(crate) fn dir() -> anyhow::Result<PathBuf> {
         .ok_or_else(|| anyhow!("cannot find the home directory"))
 }
 
-pub(crate) fn path() -> anyhow::Result<PathBuf> {
+fn path() -> anyhow::Result<PathBuf> {
     Ok(dir()?.join("remote.json"))
 }
 
@@ -107,36 +107,41 @@ pub(crate) fn load_from(path: &Path) -> anyhow::Result<Config> {
 /// Who restarts the running listener after a [`commit`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Listener {
-    /// The commit restarts a running listener whenever the config changed: every connection
-    /// open was admitted under the config before, and keeps what it was admitted with until the
-    /// listener closes it (a `shell` splice, an `agents` proxy, an `allow` login).
-    RestartIfChanged,
+    /// The commit restarts a running listener: every connection open was admitted under the
+    /// config before, and keeps what it was admitted with until the listener closes it (a
+    /// `shell` splice, an `agents` proxy, an `allow` login).
+    Restart,
     /// The verb replaces or stops the listener itself right after (`enable` restarts it on
     /// every run, `disable` stops it); only those two pass this.
     Caller,
 }
 
-/// The one way to change `remote.json`: `after` is written under `held` (taken before `before`
-/// was loaded), and with [`Listener::RestartIfChanged`] a running listener restarts when `after`
-/// differs from `before`, so no open connection outlives the config it was admitted under. Returns
-/// the restart's note.
+/// The one way to change `remote.json`: `config` is written under `held` (taken before it was
+/// loaded), and with [`Listener::Restart`] a running listener restarts, so no open connection
+/// outlives the config it was admitted under. It restarts even when nothing changed: a retry after
+/// a failed restart must still close what the first try left open. Returns the restart's note; an
+/// error when the old listener did not stop (the config is saved, its connections are not closed).
 pub(crate) fn commit(
-    before: &Config,
-    after: &Config,
+    config: &Config,
     held: &ConfigLock,
     listener: Listener,
 ) -> anyhow::Result<Option<String>> {
-    save(after, held)?;
-    if !restarts(before, after, listener) || super::service::running_pid().is_none() {
+    save(config, held)?;
+    if listener == Listener::Caller || super::service::running_pid().is_none() {
         return Ok(None);
     }
     super::service::restart(&super::self_exe()?, super::service::installed()).map(Some)
 }
 
-/// Whether [`commit`] restarts a running listener: any change at all, unless the verb replaces or
-/// stops the listener itself.
-pub(crate) fn restarts(before: &Config, after: &Config, listener: Listener) -> bool {
-    listener == Listener::RestartIfChanged && before != after
+/// Whether `remote.json` exists (an error when its directory cannot be found), for readers that
+/// skip a machine that never enabled hosting.
+pub(crate) fn exists() -> anyhow::Result<bool> {
+    Ok(path()?.exists())
+}
+
+/// Where `remote.json` is, for `status` to show; never for writing it (only [`commit`] writes).
+pub(crate) fn shown_path() -> Option<String> {
+    path().ok().map(|p| p.display().to_string())
 }
 
 /// Writes the file atomically (temp file + rename), owner-only. Private: every writer goes

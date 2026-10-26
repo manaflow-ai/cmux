@@ -52,7 +52,7 @@ impl Scope {
     }
 }
 
-/// One teammate grant in `remote.json`.
+/// One teammate grant in the host config.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Grant {
     pub login: String,
