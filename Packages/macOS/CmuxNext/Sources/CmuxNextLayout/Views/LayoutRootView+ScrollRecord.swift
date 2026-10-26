@@ -17,10 +17,18 @@ public nonisolated struct LayoutScreenScroll: Hashable, Sendable {
 }
 
 extension LayoutRootView {
-    /// Where every screen's scrolls settle now; a screen not built yet at what it was given.
+    /// Where every screen's scrolls settle now, for the screens the layout has; a screen not built
+    /// yet at what it was given. A screen with no offset has no entry.
     public func scrollRecords() -> [ScreenID: LayoutScreenScroll] {
-        var records = pendingScreenScrolls
-        for (id, view) in screenViews { records[id] = view.scrollRecord() }
+        var records: [ScreenID: LayoutScreenScroll] = [:]
+        if !pendingScreenScrolls.isEmpty {
+            let live = Set(model.screens.map(\.id))
+            for (id, record) in pendingScreenScrolls where live.contains(id) { records[id] = record }
+        }
+        for (id, view) in screenViews {
+            let record = view.scrollRecord()
+            if record != LayoutScreenScroll() { records[id] = record }
+        }
         return records
     }
 
@@ -35,11 +43,19 @@ extension LayoutRootView {
 }
 
 extension ScreenContentView {
+    /// The frames were computed at a real size, so the scroll targets are where the person saw
+    /// them. A screen built while its root was zero-sized and hidden since (another screen shows)
+    /// has none: its reducers placed the camera against a zero viewport.
+    var hasSizedGeometry: Bool { baseGeometry.viewport.width > 0 && baseGeometry.viewport.height > 0 }
+
+    /// Where each scroll settles. A screen that never laid out at a size records only what a
+    /// restore gave it, so it mounts again with the first placement its mode gives, as a fresh mount.
     func scrollRecord() -> LayoutScreenScroll {
+        let sized = hasSizedGeometry
         var record = pendingScroll
-        if geometry.isColumns { record.strip = scrollState.pendingRestore ?? scroll.target }
-        for (id, row) in rowScrolls { record.rows[id] = row.state.pendingRestore ?? row.state.spring.target }
-        for (id, area) in areaScrolls { record.areas[id] = area.state.pendingRestore ?? area.state.spring.target }
+        if geometry.isColumns { record.strip = scrollState.pendingRestore ?? (sized ? scroll.target : nil) }
+        for (id, row) in rowScrolls { record.rows[id] = row.state.pendingRestore ?? (sized ? row.state.spring.target : nil) }
+        for (id, area) in areaScrolls { record.areas[id] = area.state.pendingRestore ?? (sized ? area.state.spring.target : nil) }
         return record
     }
 
@@ -57,14 +73,14 @@ extension ScreenContentView {
             pendingScroll.areas[id] = nil
         }
         // Already laid out at its size: rest there now. Otherwise its first sized layout does.
-        guard reconciledScale != nil, bounds.width > 0, bounds.height > 0, !needsReconcileOnShow else { return }
+        guard hasSizedGeometry, !needsReconcileOnShow else { return }
         motionTurn { syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: false) }
     }
 
     /// The saved row and area offsets go once the screen synced at a real size: a scroll built
     /// later (a column that starts to overflow) is new, not the one that was saved.
     func dropPendingScrollIfSized() {
-        guard bounds.width > 0, bounds.height > 0, pendingScroll != LayoutScreenScroll() else { return }
+        guard hasSizedGeometry, pendingScroll != LayoutScreenScroll() else { return }
         pendingScroll = LayoutScreenScroll()
     }
 }

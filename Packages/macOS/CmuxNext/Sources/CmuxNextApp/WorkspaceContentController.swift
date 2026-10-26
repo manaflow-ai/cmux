@@ -128,8 +128,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     }
 
     /// `parked`: mounted beside the shown workspace (`sidebar.multiView`), so its first apply sends the window no topology.
-    /// `record`: what the workspace showed when its window last unmounted it (`viewRecord()`), in place before the
-    /// first frame commits.
+    /// `record`: the offsets the workspace showed when its window last unmounted it (`viewRecord()`), in place before
+    /// the first frame commits.
     init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState, parked: Bool = false,
          restoring record: WorkspaceViewRecord? = nil) {
         self.workspace = workspace
@@ -169,8 +169,6 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         }
         contentView.showsBar = screenBar.isVisible
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
-        // The selections first: each pane resolves its tab as it mounts in the first apply.
-        if let record { restoreSelection(record) }
         // Observation applies the first snapshot synchronously, including the empty-state view.
         observe()
         if let record { restoreScroll(record) }
@@ -178,49 +176,30 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
 
     // MARK: View record (p07-memory-033)
 
-    /// What this content's views show that the daemon does not keep, for a remount after `teardown`.
-    /// Read where each scroll settles; a pane or screen not mounted yet keeps what its record gave it.
+    /// The offsets this content's views show that nothing else keeps, for a remount after `teardown`:
+    /// where each scroll settles; a pane or screen not mounted yet keeps what its record gave it while
+    /// the layout still has it. The selected tabs and the focused pane stay in the window's memory.
     func viewRecord() -> WorkspaceViewRecord {
-        var record = WorkspaceViewRecord()
-        for (id, scroll) in layoutView.scrollRecords() { record.screens[id.rawValue] = WorkspaceViewRecord.Screen(scroll) }
-        // The window's selection memory is the truth; a parked pane's strip may not show it yet (`PaneController.suspend`).
-        for (id, offset) in pendingTabStrips {
-            record.panes[id.rawValue] = WorkspaceViewRecord.Pane(tab: state.selection.selection(in: id.rawValue), strip: WorkspaceViewRecord.stripOffset(offset))
+        var record = WorkspaceViewRecord(screens: layoutView.scrollRecords())
+        if !pendingTabStrips.isEmpty {
+            let live = Set(layoutModel.screens.flatMap(\.layout.panes))
+            for (id, offset) in pendingTabStrips where live.contains(id) { record.tabStrips[id] = offset }
         }
         for (id, controller) in panes {
-            record.panes[id.rawValue] = WorkspaceViewRecord.Pane(tab: state.selection.selection(in: id.rawValue) ?? controller.stripModel.selectedID?.rawValue,
-                                                                 strip: WorkspaceViewRecord.stripOffset(controller.view.stripView.restorableScrollOffset))
-        }
-        if let pane = focus.state.pane, panes[LayoutPaneID(pane)] != nil {
-            record.focusedPane = pane
-        } else {
-            record.focusedPane = focus.rememberedPanes()[workspace.id]
+            if let offset = WorkspaceViewRecord.stripOffset(controller.view.stripView.restorableScrollOffset) { record.tabStrips[id] = offset }
         }
         record.screenBar = WorkspaceViewRecord.stripOffset(screenBar.view.restorableScrollOffset)
         return record
     }
 
-    /// The tab selections and focused pane go to the window's memory only where it has none: what
-    /// changed there while the workspace was unmounted (a script's selection) is newer.
-    private func restoreSelection(_ record: WorkspaceViewRecord) {
-        for (pane, saved) in record.panes {
-            guard let tab = saved.tab, state.selection.selection(in: pane) == nil else { continue }
-            state.selection.select(tab, in: pane)
-        }
-        // The coordinator keeps a pane the workspace focused since, or the one it focuses now.
-        if let pane = record.focusedPane { focus.send(.restoredPane(pane, workspace: workspace.id)) }
-    }
-
     /// The scrolls rest where the record says from the first layout at the window's size, which
     /// runs before the first frame commits; a pane mounted later takes its strip's when it mounts.
     private func restoreScroll(_ record: WorkspaceViewRecord) {
-        layoutView.restoreScroll(Dictionary(uniqueKeysWithValues: record.screens.map { (LayoutScreenID($0.key), $0.value.layoutScroll) }))
-        for (key, saved) in record.panes {
-            guard let offset = saved.strip else { continue }
-            let id = LayoutPaneID(key)
-            if let controller = panes[id] { controller.view.stripView.restoreScrollOffset(CGFloat(offset)) } else { pendingTabStrips[id] = CGFloat(offset) }
+        layoutView.restoreScroll(record.screens)
+        for (id, offset) in record.tabStrips {
+            if let controller = panes[id] { controller.view.stripView.restoreScrollOffset(offset) } else { pendingTabStrips[id] = offset }
         }
-        if let offset = record.screenBar { screenBar.view.restoreScrollOffset(CGFloat(offset)) }
+        if let offset = record.screenBar { screenBar.view.restoreScrollOffset(offset) }
     }
 
     func teardown() {

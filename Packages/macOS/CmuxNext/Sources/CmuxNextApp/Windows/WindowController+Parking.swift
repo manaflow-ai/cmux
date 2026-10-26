@@ -10,8 +10,9 @@ extension WindowController {
 
     /// Critical memory pressure: the parked workspaces leave (views, panes, observations; their
     /// terminal surfaces already left the warm set) and mount again when shown, as they were: each
-    /// leaves its `WorkspaceViewRecord` (scrolls, tab selections, focused pane), which the mount
-    /// applies before its first frame. The one under a top page stays: it is this window's
+    /// leaves its `WorkspaceViewRecord` (strip, row, area, tab strip and screen bar scrolls), which
+    /// the mount applies before its first frame; its tab selections and focused pane stay in this
+    /// window's memory. The one under a top page stays: it is this window's
     /// workspace. So do the ones on screen beside the shown one (`sidebar.multiView`).
     func releaseParked() {
         for (id, controller) in parked where (content != nil || id != state.workspaceID) && state.viewSet?.contains(id) != true {
