@@ -2,7 +2,9 @@ import AppKit
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextLaunch
 import CmuxNextTerminal
+import CmuxNextWakeups
 import Observation
 
 /// Remote-terminal tabs (plans/cmux-next/data-model.md 1.2b, 1.4, 1.5): a
@@ -35,6 +37,26 @@ final class RemoteTerminalService {
 
     init(services: AppServices) {
         self.services = services
+    }
+
+    /// The app's remote-terminal service (`AppServices.remoteTerminals`, made on first use), following
+    /// every session's connection from now on.
+    static func started(services: AppServices) -> RemoteTerminalService {
+        let service = RemoteTerminalService(services: services)
+        service.start()
+        return service
+    }
+
+    /// Makes the app's service after the first frame when the launch's restore shows a remote-terminal
+    /// tab, so its terminal reconnects (`LaunchServicePosts.restoredRemoteTerminals`).
+    static func postRestored(_ services: AppServices, on startup: StartupScheduler) {
+        services.windows.whenRestored { [weak services] in
+            guard let services else { return }
+            let shown = services.windows.controllers.contains { controller in
+                controller.content?.panes.values.contains { pane in pane.selectedTab?.kind == .remoteTerminal } == true
+            }
+            LaunchServicePosts.restoredRemoteTerminals(shown: shown) { [weak services] in _ = services?.remoteTerminals }.post(on: startup)
+        }
     }
 
     static func key(_ ref: RemoteTerminalRef) -> String { "\(ref.sessionID)#\(ref.terminalID.rawValue)" }

@@ -1,8 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
-import CmuxNextBrowser
-@testable import CmuxNextDaemon
+import CmuxNextDaemon
 import Foundation
 import Testing
 
@@ -18,8 +17,7 @@ struct RemoteServicesLazyTests {
         #expect(services.madeSSH == nil, "init or binding made SSH")
         #expect(services.madeRemoteLocalhost == nil, "init or binding made the remote localhost")
         #expect(services.madeRemoteTerminals == nil, "init or binding made the remote-terminal service")
-        #expect(services.localhostBadge(for: TabModel(TabSnapshot(surface: SurfaceID(rawValue: 7), kind: .browser)),
-                                        url: URL(string: "https://example.com"), engine: .webkit) == nil)
+        #expect(services.browserMachineBadge(key: "no-such-tab", url: URL(string: "https://example.com")) == nil)
         #expect(services.madeRemoteLocalhost == nil, "a page that is not loopback made the remote localhost")
     }
 

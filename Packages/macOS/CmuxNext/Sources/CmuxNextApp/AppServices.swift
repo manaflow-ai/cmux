@@ -101,8 +101,16 @@ final class AppServices {
     /// The wide Inbox page, backed by `feed.model`.
     private(set) lazy var feedPage = FeedPageService(services: self)
     /// SSH machines (Connect to Machine…); `serverReach`: paired servers' Chief sessions in the sidebar.
-    /// Made on first use (`AppServices+RemoteServices`), the launch's `SSH.start` post at the latest.
-    var ssh: SSHService { madeSSH ?? makeSSH() }
+    // The remote services (ssh, remoteLocalhost, remoteTerminals) are made on first use, never in init
+    // (p08-startup-021), as Chrome makes a keyed service on its first GetServiceForBrowserContext
+    // (components/keyed_service/content/browser_context_keyed_service_factory.cc).
+    /// Made on first use, the launch's `SSH.start` post at the latest.
+    var ssh: SSHService {
+        if let madeSSH { return madeSSH }
+        let made = SSHService.app(self)
+        madeSSH = made
+        return made
+    }
     /// `ssh` once made: the quit and the policy reach it without making it.
     var madeSSH: SSHService?
     private(set) lazy var serverReach = ServerReachService.app(services: self)
@@ -407,7 +415,12 @@ final class AppServices {
     }
     private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))  // first read in init (no IUO)
     /// Browser tabs of remote machines reach that machine's localhost. Made on first use (a browser tab's route).
-    var remoteLocalhost: RemoteLocalhostService { madeRemoteLocalhost ?? makeRemoteLocalhost() }
+    var remoteLocalhost: RemoteLocalhostService {
+        if let madeRemoteLocalhost { return madeRemoteLocalhost }
+        let made = machines.makeRemoteLocalhost(following: settings)
+        madeRemoteLocalhost = made
+        return made
+    }
     /// `remoteLocalhost` once made: a removed machine and a settings change reach it without making it.
     var madeRemoteLocalhost: RemoteLocalhostService?
     /// Which machines run browser tabs there, and their runtimes (cx-2cob slice 2).
@@ -489,7 +502,12 @@ final class AppServices {
     private(set) var browserHost: AppBrowserHost?
     /// Remote-terminal tabs: mount, placeholder, snapshot, moves. Made on first use (a remote-terminal tab
     /// shown, closed or moved), or by the launch post when the restore shows one.
-    var remoteTerminals: RemoteTerminalService { madeRemoteTerminals ?? makeRemoteTerminals() }
+    var remoteTerminals: RemoteTerminalService {
+        if let madeRemoteTerminals { return madeRemoteTerminals }
+        let made = RemoteTerminalService.started(services: self)
+        madeRemoteTerminals = made
+        return made
+    }
     /// `remoteTerminals` once made: the quit, a stash and a pane's existing content ask it without making it.
     var madeRemoteTerminals: RemoteTerminalService?
     /// Cross-build session discovery and acknowledge-then-close handoff.

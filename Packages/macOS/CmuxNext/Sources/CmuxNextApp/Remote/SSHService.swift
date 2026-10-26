@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
@@ -50,6 +51,18 @@ final class SSHService {
         paths = SSHPaths.standard(bundleID: bundleID)
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         installer = RemoteInstaller(paths: paths)
+    }
+
+    /// The app's SSH machines (`AppServices.ssh`, made on first use): the install offer and the
+    /// organization's current remote-hosts policy are set before any reader gets it.
+    static func app(_ services: AppServices) -> SSHService {
+        let ssh = SSHService(machines: services.machines, bundleID: services.environment.launch.bundleID, mainWork: services.mainWork)
+        ssh.offerInstall = { [weak registry = services.registry] session in
+            // Asks through the registry's confirmation sheet (remote.install is destructive).
+            _ = registry?.perform("remote.install", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: session.machineID)))
+        }
+        ssh.applyPolicy(disabled: services.registry.disabledFeatures.contains(.remoteHosts))
+        return ssh
     }
 
     /// Why SSH machines cannot connect in this build, or nil.

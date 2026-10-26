@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextRemoteLocalhostService
+import CmuxNextSettings
 
 /// Set Workspace Localhost (`ActionRegistry.setWorkspaceLocalhost`): the App resolves the
 /// workspace and shows the approval sheet.
@@ -23,9 +24,12 @@ enum RemoteLocalhostHandlers {
 }
 
 extension MachineRegistry: RemoteLocalhostMachines {
-    /// The remote localhost service of these machines (`AppServices.remoteLocalhost`).
-    func makeRemoteLocalhost() -> RemoteLocalhostService {
-        RemoteLocalhostService(machines: self)
+    /// The remote localhost service of these machines (`AppServices.remoteLocalhost`), following
+    /// `browser.remoteLocalhost*` when the settings exist (`AppServices.settings` follows a later one).
+    func makeRemoteLocalhost(following settings: SettingsController?) -> RemoteLocalhostService {
+        let service = RemoteLocalhostService(machines: self)
+        if let settings { service.follow(settings) }
+        return service
     }
 
     func personalAddress(ofWorkspace id: String) -> (session: String, key: String)? {
