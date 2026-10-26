@@ -108,6 +108,41 @@ async fn adopts_at_the_cap() {
     an_adopt_whose_holder_ends_before_the_create_is_admitted_like_a_new_session().await;
     a_refused_adopt_whose_holder_ended_makes_no_worktree().await;
     an_adopt_whose_worktree_names_another_family_is_refused_and_leaves_no_worktree().await;
+    adopts_waiting_on_one_that_fails_before_its_session_are_admitted_again().await;
+}
+
+async fn adopts_waiting_on_one_that_fails_before_its_session_are_admitted_again() {
+    let root = std::env::temp_dir().join(format!("acpmux-admfail-{}", uuid::Uuid::now_v7()));
+    at_the_cap_of_one(&root);
+    let project = root.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    git(&project, &["init", "-q"]);
+    git(&project, &["commit", "-q", "--allow-empty", "-m", "first"]);
+    // Its worktree's folder is taken by something else: every create fails there,
+    // after its admission and before it makes a session.
+    std::fs::create_dir_all(root.join("home/.cmux/worktrees/project/taken")).unwrap();
+    let chat = uuid::Uuid::now_v7().to_string();
+    codex_rollout(&root, &chat, &project);
+    let hub = hub();
+    hub.set_harness_homes(HarnessHomes { claude: root.join("claude"), codex: root.join("codex") });
+    let mut adopt = adopt_of("fakecodex", &chat);
+    adopt["cwd"] = json!(project);
+    adopt["_meta"]["acpmux"]["worktree"] = json!({"name": "taken"});
+    // One adopt holds the one lane and fails; those that waited on it find the
+    // lane free again, and fail as it did, never refused for room.
+    let replies = futures::future::join_all(
+        (0..8).map(|_| tokio::spawn(new_session_owned(hub.clone(), adopt.clone()))),
+    )
+    .await;
+    let replies: Vec<Value> = replies.into_iter().map(Result::unwrap).collect();
+    for r in &replies {
+        assert_ne!(r["error"]["data"]["reason"], "admission_refused", "{replies:#?}");
+        let message = r["error"]["message"].as_str().unwrap_or_default();
+        assert!(message.contains("not a worktree of this repository"), "{replies:#?}");
+    }
+    assert!(hub.sessions().is_empty(), "{replies:#?}");
+
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 async fn concurrent_adopts_of_one_conversation_at_the_cap_get_the_one_session() {
