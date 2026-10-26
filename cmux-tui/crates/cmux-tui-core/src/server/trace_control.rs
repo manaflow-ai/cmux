@@ -8,12 +8,17 @@
 //! Like Chrome's tracing service (`services/tracing/perfetto/consumer_host.cc`
 //! starting every producer, and `TraceConfig`'s buffer size), the caller names
 //! categories only: no parameter is a path or a command, and each process
-//! records into its own directory (the daemon's under its state root). Owner
-//! only: a WebSocket or remote relay client is refused before anything runs.
+//! records into its own directory (the daemon's under its state root; a
+//! session without one, `--ephemeral`, refuses a start instead of recording
+//! into a shared temporary directory). Owner only: a WebSocket or remote relay
+//! client is refused before anything runs. As the tracing service changes one
+//! session at a time, one call runs at a time ([`TraceControlGate`]), and a
+//! terminal host answers its calls in the order they arrive.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use cmux_trace::{ControlOp, Role, category};
@@ -59,20 +64,35 @@ pub(super) enum HostSent {
     Failed(String),
 }
 
-/// What forwarding one call to the holder did.
-#[derive(Debug, PartialEq, Eq)]
+/// What forwarding one call to the holder did: task 096's `HolderTrace`,
+/// plus the cap.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum HolderSent {
-    Untraced,
+    /// The holder granted TRACE_CONTROL: the start or the stop went out. A
+    /// status sends nothing (the holder protocol has no status frame).
     Traced,
-    Failed(String),
+    /// The holder refused its last TRACE_START or TRACE_STOP: its message.
+    Refused(String),
+    /// It did not (an older holder): no frame.
+    Untraced,
+    /// No holder link is open: a holder that links while the recording runs
+    /// gets the start then.
+    NotLinked,
+    /// Not asked: the total cap was reached.
+    OverCap,
 }
+
+/// acpmux, connected: the call to make once every host request is out.
+pub(super) type AcpmuxCall<'a> =
+    Box<dyn FnOnce(ControlOp, Duration) -> Result<TraceReport, String> + 'a>;
 
 /// The processes one control call reaches; the server's is [`LiveTargets`].
 pub(super) trait TraceTargets {
     /// Runs `op` in the daemon itself.
     fn daemon(&self, op: ControlOp) -> TraceReport;
-    /// Forwards `op` to the holder; `None` when no holder runs.
-    fn holder(&self, op: ControlOp) -> Option<HolderSent>;
+    /// Forwards `op` to the holder; `None` when no holder runs. A start asks
+    /// `admit` first and sends nothing (`OverCap`) when it says no.
+    fn holder(&self, op: ControlOp, admit: &mut dyn FnMut() -> bool) -> Option<HolderSent>;
     /// Sends `op` to every live terminal host without waiting. For each host
     /// that takes trace control it asks `admit` first, and leaves the host
     /// out (`OverCap`) when `admit` says no.
@@ -82,8 +102,96 @@ pub(super) trait TraceTargets {
         deadline: Instant,
         admit: &mut dyn FnMut() -> bool,
     ) -> Vec<HostCall>;
-    /// Calls acpmux; `None` when it does not run (it is never started).
-    fn acpmux(&self, op: ControlOp, timeout: Duration) -> Option<Result<TraceReport, String>>;
+    /// Connects to acpmux; `None` when it does not run (it is never started).
+    fn connect_acpmux(&self) -> Option<AcpmuxCall<'_>>;
+}
+
+/// Why a trace control call was refused before it ran.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum TraceControlRefused {
+    /// A WebSocket or remote relay client asked.
+    NotLocal,
+    /// Another trace control call is running.
+    Busy,
+    /// A start in a session without a state root (`--ephemeral`): its only
+    /// directory would be a shared temporary one.
+    NoStateRoot,
+}
+
+impl std::fmt::Display for TraceControlRefused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            TraceControlRefused::NotLocal => "trace control requires a trusted local connection",
+            TraceControlRefused::Busy => "another trace control call is running",
+            TraceControlRefused::NoStateRoot => {
+                "this session has no state root to record into (it is ephemeral)"
+            }
+        })
+    }
+}
+
+impl std::error::Error for TraceControlRefused {}
+
+/// Lets one trace control call run at a time in a daemon (`Mux::trace_control`).
+/// Each process's tracer is one session, so a stop must never pass a start
+/// that is still reaching the children.
+#[derive(Debug, Default)]
+pub(crate) struct TraceControlGate {
+    running: AtomicBool,
+}
+
+/// The running call's turn; it ends on drop.
+pub(crate) struct TraceControlTurn<'a> {
+    gate: &'a TraceControlGate,
+}
+
+impl TraceControlGate {
+    /// The turn, or [`TraceControlRefused::Busy`] while another call runs.
+    pub(crate) fn begin(&self) -> Result<TraceControlTurn<'_>, TraceControlRefused> {
+        self.running
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map(|_| TraceControlTurn { gate: self })
+            .map_err(|_| TraceControlRefused::Busy)
+    }
+}
+
+impl Drop for TraceControlTurn<'_> {
+    fn drop(&mut self) {
+        self.gate.running.store(false, Ordering::Release);
+    }
+}
+
+/// The ring bytes one start may map, shared by every process it reaches.
+struct Budget {
+    /// Only a start maps rings: a stop or a status admits every process.
+    start: bool,
+    used: u64,
+}
+
+impl Budget {
+    fn new(call: Call) -> Self {
+        Self { start: matches!(call, Call::Start { .. }), used: Role::Daemon.recording_bytes() }
+    }
+
+    /// Takes `role`'s ring from the budget; false, taking nothing, when it
+    /// does not fit.
+    fn admit(&mut self, role: Role) -> bool {
+        if !self.start {
+            return true;
+        }
+        let fits = self.used + role.recording_bytes() <= TOTAL_CAP_BYTES;
+        if fits {
+            self.used += role.recording_bytes();
+        }
+        fits
+    }
+
+    /// Gives back a ring [`Self::admit`] took that will not be mapped.
+    fn release(&mut self, role: Role) {
+        if self.start {
+            self.used -= role.recording_bytes();
+        }
+    }
 }
 
 /// Which call, with its categories.
@@ -136,10 +244,24 @@ pub(super) fn start_call(params: &StartParams) -> anyhow::Result<Call> {
     Ok(Call::Start { categories, keys: params.keys })
 }
 
-/// Runs `call` in this daemon and its live children. The caller checked the
-/// client is the owner (`cmd_server::trace_control`).
-pub(super) fn run_live(mux: &Arc<Mux>, call: Call) -> Value {
-    run(call, &LiveTargets { mux })
+/// Runs `call` in this daemon and its live children, one call at a time.
+/// The caller checked the client is the owner (`cmd_server::trace_control`).
+pub(super) fn run_live(mux: &Arc<Mux>, call: Call) -> Result<Value, TraceControlRefused> {
+    let _turn = mux.trace_control.begin()?;
+    let daemon_dir = daemon_dir(mux.session_state_directory(), call)?;
+    Ok(run(call, &LiveTargets { mux, daemon_dir }))
+}
+
+/// `<state root>/trace`. Only a start opens a ring, so only a start needs it.
+fn daemon_dir(
+    state_root: Option<PathBuf>,
+    call: Call,
+) -> Result<Option<PathBuf>, TraceControlRefused> {
+    match state_root {
+        Some(root) => Ok(Some(root.join("trace"))),
+        None if matches!(call, Call::Start { .. }) => Err(TraceControlRefused::NoStateRoot),
+        None => Ok(None),
+    }
 }
 
 /// Runs `call` in the daemon, then in every child `targets` reaches.
@@ -148,33 +270,38 @@ pub(super) fn run(call: Call, targets: &dyn TraceTargets) -> Value {
     let mut processes = Vec::new();
     let daemon = targets.daemon(op);
     let daemon_failed_start = matches!(call, Call::Start { .. }) && daemon.state.is_err();
-    let mut used = Role::Daemon.recording_bytes();
     processes.push(report_json(Role::Daemon, &daemon));
     // A start the daemon refused (one runs already) goes nowhere else, so no
     // child is started twice.
     if !daemon_failed_start {
-        let mut admit = |role: Role| {
-            let fits = !matches!(call, Call::Start { .. })
-                || used + role.recording_bytes() <= TOTAL_CAP_BYTES;
-            if fits {
-                used += role.recording_bytes();
-            }
-            fits
-        };
+        let mut budget = Budget::new(call);
         let deadline = Instant::now() + CHILD_DEADLINE;
-        if let Some(holder) = targets.holder(op) {
-            processes.push(holder_json(holder, &mut admit));
-        }
-        // acpmux's share is taken before the hosts', and it is called after
-        // every host request is on the wire, so its wait overlaps theirs.
-        let acpmux_admitted = admit(Role::Acpmux);
-        let hosts = targets.begin_hosts(op, deadline, &mut || admit(Role::TerminalHost));
-        if acpmux_admitted {
-            match targets.acpmux(op, CHILD_DEADLINE) {
-                Some(Ok(report)) => processes.push(report_json(Role::Acpmux, &report)),
-                Some(Err(error)) => processes.push(failed_json(Role::Acpmux, None, &error)),
-                None => {}
+        let mut holder_admitted = false;
+        let holder = targets.holder(op, &mut || {
+            holder_admitted = budget.admit(Role::Holder);
+            holder_admitted
+        });
+        if let Some(holder) = holder {
+            // A holder sent no start maps no ring: its share goes to the hosts.
+            if holder != HolderSent::Traced && holder_admitted {
+                budget.release(Role::Holder);
             }
+            processes.push(holder_json(call, holder));
+        }
+        // acpmux's share is taken only once its socket answers, and it is
+        // called after every host request is on the wire, so its wait
+        // overlaps theirs.
+        let acpmux = targets.connect_acpmux().map(|acpmux| (budget.admit(Role::Acpmux), acpmux));
+        let hosts = targets.begin_hosts(op, deadline, &mut || budget.admit(Role::TerminalHost));
+        match acpmux {
+            Some((true, acpmux)) => processes.push(match acpmux(op, CHILD_DEADLINE) {
+                Ok(report) => report_json(Role::Acpmux, &report),
+                Err(error) => failed_json(Role::Acpmux, None, &error),
+            }),
+            Some((false, _)) => {
+                processes.push(untraced_json(Role::Acpmux, None, "over_total_cap"));
+            }
+            None => {}
         }
         for host in hosts {
             processes.push(host_json(host));
@@ -227,18 +354,32 @@ fn untraced_json(role: Role, pid: Option<u32>, reason: &str) -> Value {
     json!({"role": role.as_str(), "pid": pid, "state": "untraced", "reason": reason})
 }
 
-fn holder_json(holder: HolderSent, admit: &mut dyn FnMut(Role) -> bool) -> Value {
-    match holder {
-        HolderSent::Untraced => untraced_json(Role::Holder, None, "holder_untraced"),
-        // The holder sends no answer: its ring is its role's size, in its
-        // holder-lifetime directory.
-        HolderSent::Traced if admit(Role::Holder) => json!({
-            "role": Role::Holder.as_str(),
-            "state": "forwarded",
+/// The holder sends no answer, so its entry says what was sent. Only a
+/// start it was sent counts a ring (its role's size, in its holder-lifetime
+/// directory).
+fn holder_json(call: Call, holder: HolderSent) -> Value {
+    let role = Role::Holder.as_str();
+    match (holder, call) {
+        (HolderSent::Traced, Call::Start { .. }) => json!({
+            "role": role,
+            "state": "recording",
             "recording_bytes": Role::Holder.recording_bytes(),
         }),
-        HolderSent::Traced => untraced_json(Role::Holder, None, "over_total_cap"),
-        HolderSent::Failed(error) => failed_json(Role::Holder, None, &error),
+        (HolderSent::Traced, Call::Stop) => json!({"role": role, "state": "idle"}),
+        (HolderSent::Traced, Call::Status) => {
+            json!({"role": role, "state": "traced", "reason": "holder_traced"})
+        }
+        (HolderSent::Refused(error), _) => json!({
+            "role": role,
+            "state": "error",
+            "reason": "holder_trace_failed",
+            "error": error,
+        }),
+        (HolderSent::Untraced, _) => untraced_json(Role::Holder, None, "holder_untraced"),
+        (HolderSent::NotLinked, _) => {
+            json!({"role": role, "state": "not_linked", "reason": "holder_not_linked"})
+        }
+        (HolderSent::OverCap, _) => untraced_json(Role::Holder, None, "over_total_cap"),
     }
 }
 
@@ -258,42 +399,33 @@ fn host_json(host: HostCall) -> Value {
 /// The daemon's own process and its live children.
 struct LiveTargets<'a> {
     mux: &'a Arc<Mux>,
-}
-
-impl LiveTargets<'_> {
-    /// `<state root>/trace`; the system temporary directory for an in-memory
-    /// session, which has no state root.
-    fn daemon_dir(&self) -> PathBuf {
-        self.mux.session_state_directory().unwrap_or_else(std::env::temp_dir).join("trace")
-    }
+    /// [`daemon_dir`]: `None` only for a stop or a status.
+    daemon_dir: Option<PathBuf>,
 }
 
 impl TraceTargets for LiveTargets<'_> {
     fn daemon(&self, op: ControlOp) -> TraceReport {
-        TraceReport::of_this_process(cmux_trace::apply_control(
-            op,
-            &self.daemon_dir(),
-            Role::Daemon,
-        ))
+        // A stop or a status never opens a ring, so it reads no directory.
+        let dir = self.daemon_dir.clone().unwrap_or_default();
+        TraceReport::of_this_process(cmux_trace::apply_control(op, &dir, Role::Daemon))
     }
 
+    /// Through the holder service (task 096): only a holder that granted
+    /// TRACE_CONTROL gets a frame, and a holder that links while the
+    /// recording runs gets the start then. Never connects or starts one.
     #[cfg(unix)]
-    fn holder(&self, op: ControlOp) -> Option<HolderSent> {
-        use crate::holder_runtime::{HolderService, HolderTrace};
+    fn holder(&self, op: ControlOp, admit: &mut dyn FnMut() -> bool) -> Option<HolderSent> {
+        use crate::holder_runtime::HolderService;
         let root = self.mux.surface_options.lock().unwrap().terminal_host_root.clone()?;
         if !HolderService::may_run(&root) {
             return None;
         }
-        let link = HolderService::for_root(&root).ok()?.trace_link()?;
-        Some(match HolderTrace::forward(&*link, op) {
-            HolderTrace::Untraced => HolderSent::Untraced,
-            HolderTrace::Traced => HolderSent::Traced,
-            HolderTrace::Failed(error) => HolderSent::Failed(error),
-        })
+        let service = HolderService::for_root(&root).ok()?;
+        Some(forward_to_holder(&*service, op, admit))
     }
 
     #[cfg(not(unix))]
-    fn holder(&self, _: ControlOp) -> Option<HolderSent> {
+    fn holder(&self, _: ControlOp, _: &mut dyn FnMut() -> bool) -> Option<HolderSent> {
         None
     }
 
@@ -328,15 +460,71 @@ impl TraceTargets for LiveTargets<'_> {
         Vec::new()
     }
 
-    fn acpmux(&self, op: ControlOp, timeout: Duration) -> Option<Result<TraceReport, String>> {
+    fn connect_acpmux(&self) -> Option<AcpmuxCall<'_>> {
         use super::agent_session_attach::agent_session_link::AcpmuxLink;
         let socket = self.mux.control_clients.agent_sessions.socket()?;
         let link = AcpmuxLink::connect(&socket, |_| {}).ok()?;
-        let reply = link.call(ACPMUX_TRACE_METHOD, acpmux_params(op), timeout);
-        Some(reply.map_err(|error| format!("{error:?}")).and_then(|value| {
-            TraceReport::from_json(&value)
-                .ok_or_else(|| "acpmux sent a malformed trace answer".to_owned())
+        Some(Box::new(move |op, timeout| {
+            let reply = link.call(ACPMUX_TRACE_METHOD, acpmux_params(op), timeout);
+            reply.map_err(|error| format!("{error:?}")).and_then(|value| {
+                TraceReport::from_json(&value)
+                    .ok_or_else(|| "acpmux sent a malformed trace answer".to_owned())
+            })
         }))
+    }
+}
+
+/// The holder service's trace control (task 096), the seam a test fakes.
+#[cfg(unix)]
+pub(super) trait HolderTraceControl {
+    fn trace_start(&self, categories: u64, budget_bytes: u64)
+    -> crate::holder_runtime::HolderTrace;
+    fn trace_stop(&self) -> crate::holder_runtime::HolderTrace;
+    fn trace_state(&self) -> crate::holder_runtime::HolderTrace;
+}
+
+#[cfg(unix)]
+impl HolderTraceControl for crate::holder_runtime::HolderService {
+    fn trace_start(
+        &self,
+        categories: u64,
+        budget_bytes: u64,
+    ) -> crate::holder_runtime::HolderTrace {
+        Self::trace_start(self, categories, budget_bytes)
+    }
+
+    fn trace_stop(&self) -> crate::holder_runtime::HolderTrace {
+        Self::trace_stop(self)
+    }
+
+    fn trace_state(&self) -> crate::holder_runtime::HolderTrace {
+        Self::trace_state(self)
+    }
+}
+
+/// Forwards `op` to `service`'s holder. A start asks `admit` first and sends
+/// nothing when it says no; its budget is the holder ring `admit` counted,
+/// so a holder whose ring is larger refuses it.
+#[cfg(unix)]
+pub(super) fn forward_to_holder(
+    service: &dyn HolderTraceControl,
+    op: ControlOp,
+    admit: &mut dyn FnMut() -> bool,
+) -> HolderSent {
+    use crate::holder_runtime::HolderTrace;
+    let trace = match op {
+        ControlOp::Start { .. } if !admit() => return HolderSent::OverCap,
+        ControlOp::Start { categories } => {
+            service.trace_start(categories, Role::Holder.recording_bytes())
+        }
+        ControlOp::Stop => service.trace_stop(),
+        ControlOp::Status => service.trace_state(),
+    };
+    match trace {
+        HolderTrace::Traced => HolderSent::Traced,
+        HolderTrace::Refused(error) => HolderSent::Refused(error),
+        HolderTrace::Untraced => HolderSent::Untraced,
+        HolderTrace::NotLinked => HolderSent::NotLinked,
     }
 }
 
@@ -351,6 +539,7 @@ fn acpmux_params(op: ControlOp) -> Value {
     }
 }
 
-#[cfg(test)]
+// The fakes stand in for the holder service, which runs on unix only.
+#[cfg(all(test, unix))]
 #[path = "trace_control_tests.rs"]
 mod tests;

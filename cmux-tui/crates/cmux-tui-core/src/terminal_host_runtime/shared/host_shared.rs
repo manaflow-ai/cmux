@@ -89,6 +89,9 @@ pub(crate) struct HostShared {
     pub(crate) session_cleanup: unix::session_cleanup::SessionCleanup,
     /// Session of an adopted, non-child process (`adopted_child.rs`).
     pub(crate) adopted_session: Option<sys::SessionId>,
+    /// Answers the daemon's `TraceControl` frames one at a time, in the
+    /// order they arrive (`host_trace.rs`).
+    pub(crate) trace_control: super::host_trace::HostTraceQueue,
     #[cfg(test)]
     pub(crate) fail_next_resize_publication: AtomicBool,
 }

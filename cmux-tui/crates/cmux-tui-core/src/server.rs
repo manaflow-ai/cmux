@@ -228,7 +228,7 @@ mod split_respawn;
 mod tab_column;
 mod tab_park;
 mod tab_restart;
-mod trace_control;
+pub(crate) mod trace_control;
 mod websocket_listener;
 #[cfg(test)]
 use cmd_subscribe::subscribed_event_json;

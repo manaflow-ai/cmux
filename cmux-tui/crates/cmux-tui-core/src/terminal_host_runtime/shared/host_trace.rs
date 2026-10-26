@@ -10,10 +10,11 @@
 //! (`supports_trace_control`); the daemon never sends it to one that does not.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::mpsc::{SyncSender, sync_channel};
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
-use cmux_trace::{ControlOp, Role, TraceError};
+use cmux_trace::{ControlOp, Role, Status, TraceError};
 
 use super::super::*;
 use super::attachment::{HostAttachment, PendingControlResponse};
@@ -115,9 +116,79 @@ pub(crate) fn host_trace_dir(record_path: &Path) -> PathBuf {
     record_path.parent().unwrap_or(record_path).join("trace")
 }
 
-/// Answers one `TraceControl` on its own thread, since the first start maps
-/// the recording file and the client-input thread carries keystrokes. False
-/// when the thread could not start (the connection ends).
+/// Runs one process-wide trace control call: `cmux_trace::apply_control`,
+/// or a test's fake tracer.
+pub(crate) type ApplyControl = fn(ControlOp, &Path, Role) -> Result<Status, TraceError>;
+
+/// The reply step of one queued call, run on the trace thread.
+type TraceReply = Box<dyn FnOnce(TraceReport) + Send>;
+
+/// One `TraceControl` waiting for the host's trace thread.
+struct TraceJob {
+    op: ControlOp,
+    dir: PathBuf,
+    reply: TraceReply,
+}
+
+/// The host's trace thread: it answers `TraceControl` frames one at a time,
+/// in the order they arrived, off the client-input thread (the first start
+/// maps the recording file; that thread carries keystrokes). A start and a
+/// stop sent back to back never swap, which would leave the host recording
+/// with no owner. The thread starts at the first frame.
+pub(crate) struct HostTraceQueue {
+    apply: ApplyControl,
+    jobs: OnceLock<SyncSender<TraceJob>>,
+}
+
+/// The daemon sends one call at a time (`server/trace_control.rs`); a peer
+/// that queues more than this loses its connection.
+const TRACE_QUEUE_CAPACITY: usize = 8;
+
+impl Default for HostTraceQueue {
+    fn default() -> Self {
+        Self::new(cmux_trace::apply_control)
+    }
+}
+
+impl HostTraceQueue {
+    pub(crate) fn new(apply: ApplyControl) -> Self {
+        Self { apply, jobs: OnceLock::new() }
+    }
+
+    /// Queues `op` behind every earlier call; `reply` gets the outcome on the
+    /// trace thread. False when the thread could not start or the queue is
+    /// full (the connection ends).
+    fn submit(&self, op: ControlOp, dir: PathBuf, reply: TraceReply) -> bool {
+        let Some(jobs) = self.jobs() else { return false };
+        jobs.try_send(TraceJob { op, dir, reply }).is_ok()
+    }
+
+    fn jobs(&self) -> Option<&SyncSender<TraceJob>> {
+        if let Some(jobs) = self.jobs.get() {
+            return Some(jobs);
+        }
+        let (sender, receiver) = sync_channel::<TraceJob>(TRACE_QUEUE_CAPACITY);
+        let apply = self.apply;
+        std::thread::Builder::new()
+            .name("cmux-host-trace".into())
+            .spawn(move || {
+                // Ends when the host drops its queue.
+                for job in receiver {
+                    let outcome = apply(job.op, &job.dir, Role::TerminalHost);
+                    (job.reply)(TraceReport::of_this_process(outcome));
+                }
+            })
+            .ok()?;
+        // Two connections that race here both use the winner's thread; the
+        // loser's ends with its sender.
+        let _ = self.jobs.set(sender);
+        self.jobs.get()
+    }
+}
+
+/// Queues the answer to one `TraceControl` on the host's trace thread
+/// ([`HostTraceQueue`]). False when it could not be queued (the connection
+/// ends).
 pub(crate) fn answer(
     host: Arc<HostShared>,
     sender: HostTap,
@@ -126,22 +197,17 @@ pub(crate) fn answer(
     version: u16,
 ) -> bool {
     let dir = host_trace_dir(&host.exit_record_path);
-    std::thread::Builder::new()
-        .name("cmux-host-trace".into())
-        .spawn(move || {
-            let outcome = cmux_trace::apply_control(op, &dir, Role::TerminalHost);
-            let mut response = Frame::new(
-                MessageKind::TraceControlAck,
-                encode_ack(&TraceReport::of_this_process(outcome)),
-            );
-            response.version = version;
-            response.request_id = request_id;
-            // Targeted responses share the writer with live frames: keep an
-            // atomic Output/Colors pair whole, as MintCapability does.
-            let _broadcast = host.broadcast_lock.lock().recover_poison();
-            sender.try_send(response);
-        })
-        .is_ok()
+    let replier = host.clone();
+    let reply: TraceReply = Box::new(move |report| {
+        let mut response = Frame::new(MessageKind::TraceControlAck, encode_ack(&report));
+        response.version = version;
+        response.request_id = request_id;
+        // Targeted responses share the writer with live frames: keep an
+        // atomic Output/Colors pair whole, as MintCapability does.
+        let _broadcast = replier.broadcast_lock.lock().recover_poison();
+        sender.try_send(response);
+    });
+    host.trace_control.submit(op, dir, reply)
 }
 
 /// A `TraceControl` on the wire whose ack has not been read yet.
@@ -236,6 +302,66 @@ mod tests {
         bad_flag[0] = OUTCOME_TRACED;
         bad_flag[1] = 2;
         assert_eq!(decode_ack(&bad_flag), None);
+    }
+
+    /// The fake process tracer's one recording (one test uses it).
+    static FAKE_RECORDING: std::sync::atomic::AtomicBool =
+        std::sync::atomic::AtomicBool::new(false);
+
+    /// Like `cmux_trace`: one recording at a time, and a slow first start
+    /// (it maps the recording file).
+    fn fake_apply(op: ControlOp, _: &Path, role: Role) -> Result<Status, TraceError> {
+        use std::sync::atomic::Ordering;
+        match op {
+            ControlOp::Start { .. } => {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                if FAKE_RECORDING.swap(true, Ordering::SeqCst) {
+                    return Err(TraceError::AlreadyRecording);
+                }
+            }
+            ControlOp::Stop => {
+                if !FAKE_RECORDING.swap(false, Ordering::SeqCst) {
+                    return Err(TraceError::NotRecording);
+                }
+            }
+            ControlOp::Status => {}
+        }
+        Ok(Status {
+            role,
+            categories: 0,
+            recording: FAKE_RECORDING.load(Ordering::SeqCst),
+            blackbox_path: None,
+            recording_path: None,
+            recording_bytes: 0,
+            recording_file_backed: false,
+            chunks_overwritten: 0,
+            chunks_skipped: 0,
+            records_dropped: 0,
+            heap_chunks_lost: 0,
+            map_failures: 0,
+        })
+    }
+
+    #[test]
+    fn trace_control_start_then_stop_back_to_back_leaves_the_host_idle() {
+        use std::sync::atomic::Ordering;
+        let queue = HostTraceQueue::new(fake_apply);
+        let (replies, answered) = std::sync::mpsc::channel();
+        for (name, op) in [("start", ControlOp::Start { categories: 1 }), ("stop", ControlOp::Stop)]
+        {
+            let replies = replies.clone();
+            let reply: TraceReply = Box::new(move |report| {
+                let recording = report.state.map(|traced| traced.recording);
+                replies.send((name, recording)).unwrap();
+            });
+            assert!(queue.submit(op, PathBuf::from("/unused"), reply));
+        }
+        let timeout = std::time::Duration::from_secs(20);
+        // A stop that passed the slow start would say NotRecording and leave
+        // the host recording.
+        assert_eq!(answered.recv_timeout(timeout).unwrap(), ("start", Ok(true)));
+        assert_eq!(answered.recv_timeout(timeout).unwrap(), ("stop", Ok(false)));
+        assert!(!FAKE_RECORDING.load(Ordering::SeqCst), "the host was left recording");
     }
 
     #[test]

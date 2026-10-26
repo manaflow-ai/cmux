@@ -41,10 +41,11 @@ pub(super) fn trace_control(
     client: u64,
     call: impl FnOnce() -> anyhow::Result<super::trace_control::Call>,
 ) -> anyhow::Result<Value> {
+    use super::trace_control::{TraceControlRefused, run_live};
     if !mux.control_clients.is_unix(client) {
-        anyhow::bail!("trace control requires a trusted local connection");
+        return Err(TraceControlRefused::NotLocal.into());
     }
-    Ok(super::trace_control::run_live(mux, call()?))
+    Ok(run_live(mux, call()?)?)
 }
 
 pub(super) fn identify(

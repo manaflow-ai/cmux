@@ -164,6 +164,8 @@ indexes are fatal.
 
 `TraceControl` (the daemon's `trace-start`, `trace-stop` and `trace-status`)
 needs a nonzero request id and is answered by `TraceControlAck`. The host
+answers its `TraceControl` frames one at a time, in the order they arrive, on
+one trace thread (never on the client-input thread). The host
 records into `trace/` beside its discovery record. Hosts that predate it end
 the connection on the unknown kind, so the daemon sends it only when the host
 record advertises `supports_trace_control`, which records before version 4

@@ -689,15 +689,31 @@ link granted `TRACE_CONTROL`, every live terminal host whose record advertises
 `supports_trace_control` (terminal-host.md, `TraceControl`), and acpmux when it
 runs (`_acpmux/trace`; acpmux is never started for a trace). Owner only: any
 client that is not on the trusted local socket gets `trace control requires a
-trusted local connection` before a parameter is read.
+trusted local connection` before a parameter is read. One call runs at a time:
+a second call while one runs gets `another trace control call is running`, so a
+stop never passes a start that is still reaching the children.
 
 Params of `trace-start`: `{categories?: array<string>|null, keys?: bool}`.
 `categories` are category names (`frame`, `daemon`, ...); omitted, every
 recording category. `key` records per-key records and needs `keys: true`.
 No parameter is a path or a command: the daemon records into `trace/` under its
-state root, a terminal host into `trace/` beside its discovery record, acpmux
-into `$ACPMUX_HOME/trace`. A start the daemon refuses (one runs) is not
-forwarded. Hosts past the 128 MiB total cap of recording rings are not asked.
+state root, a terminal host into `trace/` beside its discovery record, the
+holder into a holder-lifetime directory beside its socket in this user's
+private holder socket directory, acpmux into `$ACPMUX_HOME/trace`. A session
+with no state root (`--ephemeral`) refuses a start: it never records into a
+shared temporary directory. Every ring directory is the user's own (0700) and a
+ring file is created new, never through a symlink. A start the daemon refuses
+(one runs) is not forwarded. Children past the 128 MiB total cap of recording
+rings are not asked; the cap counts a ring only for a process that maps one
+(acpmux only when it runs, the holder only when it was sent the start).
+
+The holder sends no answer, so its entry says what was sent: `recording` (with
+its ring's `recording_bytes`) after a start, `idle` after a stop, and for a
+status `traced` (`reason: "holder_traced"`). A holder that refused its last
+start or stop is `error` with `reason: "holder_trace_failed"` and its message;
+one without the capability is `untraced` (`holder_untraced`); with no holder
+link open it is `not_linked` (`holder_not_linked`), and a holder that links
+while the recording runs gets the start then.
 
 Result:
 
@@ -709,9 +725,10 @@ object{
   processes:array<object{
     role:"daemon"|"holder"|"terminal-host"|"acpmux",
     pid:uint32|null,
-    state:"recording"|"idle"|"forwarded"|"untraced"|"unanswered"|"error",
+    state:"recording"|"idle"|"traced"|"not_linked"|"untraced"|"unanswered"|"error",
     recording_path?:string|null, recording_bytes?:uint64, records_dropped?:uint64,
-    reason?:"holder_untraced"|"host_untraced"|"over_total_cap",
+    reason?:"holder_traced"|"holder_trace_failed"|"holder_untraced"|"holder_not_linked"
+      |"host_untraced"|"over_total_cap",
     error?:string
   }>,
   bytes_by_role:object<string,uint64>,
@@ -720,9 +737,10 @@ object{
 }
 ```
 
-Errors: `trace control requires a trusted local connection`, `unknown trace
-category ...`, `the key category records per-key records: ask for it with keys:
-true`.
+Errors: `trace control requires a trusted local connection`, `another trace
+control call is running`, `this session has no state root to record into (it is
+ephemeral)`, `unknown trace category ...`, `the key category records per-key
+records: ask for it with keys: true`.
 
 ### browser-host-provider
 

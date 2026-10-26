@@ -18,6 +18,7 @@ use super::{HolderSink, HolderTerminal};
 
 mod trace;
 use crate::panic_free::RecoverPoison;
+pub(crate) use trace::HolderTrace;
 
 /// The current link and the CLOSEs waiting for one. Held only for a
 /// moment: never while connecting, launching or re-adopting.
@@ -126,12 +127,6 @@ impl HolderService {
     /// connect: safe under any surface lock.
     fn open_link(&self) -> Option<Arc<HolderLink>> {
         self.link.lock().recover_poison().link.clone().filter(|link| link.is_open())
-    }
-
-    /// The open link, for trace control (`server/trace_control.rs`): a
-    /// holder that does not run is not started for a trace.
-    pub(crate) fn trace_link(&self) -> Option<Arc<HolderLink>> {
-        self.open_link()
     }
 
     /// [`Self::link`]; with `launch` false a holder that does not run is not
