@@ -22,8 +22,10 @@ for each operation with class `mutation`,
 
 Each success case of an operation the catalog marks `idempotency: required` ends with step `retry`: the call
 again, same method, target, params and idempotency key, after the `after` steps settle the state the call left.
-invariants.py I10 holds it to the first call's reply, the same journal head and the same facets; a handler that
-runs again on a replay (a double create) breaks all three. coverage.json names each retry step.
+invariants.py I10 holds it to the first call's reply (replayed true on the retry), the same journal head and the
+same facets; a handler that runs again on a replay (a double create) breaks all three. coverage.json names each
+retry step. An operation whose success ends the daemon (UNRETRIED, for example session.shutdown) gets no retry:
+no daemon is left to answer it. coverage.json `unretried` names each one with its reason.
 
 The standard fixture is FIXTURE: named objects (a terminal workspace, a split, a browser tab, a tab group, ...),
 each made by one catalog mutation and read from its result by a JSON pointer that the generator resolves in the
@@ -145,6 +147,12 @@ REPO_CAPABILITY = "git_repo"
 # p15-oracle-206: the success case's same-key retry of its call, checked by invariants.py I10.
 CALL_STEP = "call"
 RETRY_STEP = "retry"
+# Operations whose success ends the daemon process, so no daemon is left to answer a same-key retry.
+UNRETRIED = {
+    "session.shutdown": "its success ends the daemon: the reply is sent, then complete_daemon_shutdown_after_ack "
+                        "(cmux-tui-core/src/server/disconnect.rs) disconnects every client and exits, so no daemon "
+                        "answers a retry",
+}
 # case-v1 $defs/stepRef: a value from an earlier step's reply.
 STEP_REF = re.compile(r"^\$step:([a-z0-9][a-z0-9-]{0,63})#((?:/(?:[^~/]|~[01])*)*)$")
 
@@ -963,8 +971,9 @@ def case_doc(case_id: str, operation: str, family: str, kind: str, request: Requ
 
 
 def retried(catalog: Catalog, operation: str) -> bool:
-    """The success case of an operation that requires an idempotency key retries its call (I10)."""
-    return catalog.operations[operation].get("idempotency") == "required"
+    """The success case of an operation that requires an idempotency key retries its call (I10), unless its success
+    ends the daemon (UNRETRIED)."""
+    return catalog.operations[operation].get("idempotency") == "required" and operation not in UNRETRIED
 
 
 def retry_step(call: Mapping[str, Any]) -> Dict[str, Any]:
@@ -1301,6 +1310,7 @@ def generate(catalog: Catalog, tuning: Mapping[str, Mapping[str, Any]]) -> Dict[
     operations: Dict[str, Any] = {}
     families: Dict[str, int] = {family: 0 for family in FAMILIES}
     excluded: Dict[str, str] = {}
+    unretried: Dict[str, str] = {}
     seen: Dict[str, str] = {}
     for operation in catalog.mutations():
         family = family_of(operation)
@@ -1360,6 +1370,8 @@ def generate(catalog: Catalog, tuning: Mapping[str, Mapping[str, Any]]) -> Dict[
         }
         if retried(catalog, operation):
             entry["retry"] = f"{SUITE}/{ok_id}/{RETRY_STEP}"
+        elif operation in UNRETRIED:
+            unretried[operation] = UNRETRIED[operation]
         if gap:
             entry["gap"] = gap
         if tuned:
@@ -1384,8 +1396,10 @@ def generate(catalog: Catalog, tuning: Mapping[str, Mapping[str, Any]]) -> Dict[
         # yet: driver_daemon.py on the VM gives the first one.
         "covered": total - len(excluded),
         "verdicts": "not run",
-        # Success cases with a same-key retry step (I10): every operation with `idempotency: required`.
+        # Success cases with a same-key retry step (I10): every operation with `idempotency: required` but those
+        # in `unretried`, whose success ends the daemon.
         "retries": sum(1 for entry in operations.values() if "retry" in entry),
+        "unretried": unretried,
         "excluded": excluded,
         "missing": [],
         "families": families,
@@ -2446,11 +2460,19 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
         and found as a retry by invariants.py I10."""
         invariants = _sibling_module("invariants")
         coverage = self.files[COVERAGE]
-        required = [name for name in self.catalog.mutations() if retried(self.catalog, name)]
+        required = [name for name in self.catalog.mutations()
+                    if self.catalog.operations[name].get("idempotency") == "required"]
         self.assertEqual(len(required), 201)
-        self.assertEqual(coverage["retries"], len(required))
+        self.assertEqual(coverage["unretried"], UNRETRIED)
+        self.assertEqual(coverage["retries"], len(required) - len(UNRETRIED))
         for operation in self.catalog.mutations():
             entry = coverage["operations"][operation]
+            if operation in UNRETRIED:
+                self.assertIn(operation, required, "an unretried operation requires a key: else it needs no entry")
+                self.assertNotIn("retry", entry, operation)
+                ok = self.files[entry["cases"]["success"].split("/", 1)[1] + ".json"]
+                self.assertEqual(ok["steps"][-1]["id"], CALL_STEP, operation)
+                continue
             ok = self.files[entry["cases"]["success"].split("/", 1)[1] + ".json"]
             bad = self.files[entry["cases"]["error"].split("/", 1)[1] + ".json"]
             self.assertNotIn(RETRY_STEP, [step["id"] for step in bad["steps"]], operation)

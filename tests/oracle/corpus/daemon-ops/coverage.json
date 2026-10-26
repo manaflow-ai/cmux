@@ -6,7 +6,10 @@
   "total": 201,
   "covered": 167,
   "verdicts": "not run",
-  "retries": 201,
+  "retries": 200,
+  "unretried": {
+    "session.shutdown": "its success ends the daemon: the reply is sent, then complete_daemon_shutdown_after_ack (cmux-tui-core/src/server/disconnect.rs) disconnects every client and exits, so no daemon answers a retry"
+  },
   "excluded": {
     "agent.message.release": "no product runs it yet: only the person in the verified cmux app (the frontend actor) releases a held delivery, and a delivery is held only when an agent (a terminal actor) sends into another workspace; the case connection is a plain local client. p15-oracle-240 gives driver_daemon.py 237's user connection for the release and a fixture-terminal sender for the held delivery",
     "agent.message.unsend": "no product runs it yet: only the message's verified sender or the person in the verified cmux app takes a message back, and the case connection is a plain local client. p15-oracle-240 gives driver_daemon.py 237's user connection for it",
@@ -2419,8 +2422,7 @@
         "field": "force",
         "rule": "value must be a boolean"
       },
-      "placeholders": [],
-      "retry": "daemon-ops/session-shutdown-ok/retry"
+      "placeholders": []
     },
     "session.terminal_defaults.update": {
       "family": "session",
