@@ -558,7 +558,10 @@ to see that the schema is current. It never changes an existing id, family,
 advances each family's `next_ordinal` and never lowers it, so an id is never
 given twice, even after its command is removed. `clients` and
 `spawns_terminal` follow their sources on every run, so `--check` fails when
-a source changed and the schema did not.
+a source changed and the schema did not. The `ios` source is the iOS client's
+command table, `CmuxTUICommand` in `Packages/iOS/CmuxMobileSSH`; the Mac's phone
+lane generator (`scripts/cmux-next/gen-phone-lane-fields.py`) refuses a
+`clients: ios` command that `DaemonLanePolicy.allowedCommands` does not allow.
 
 `api-compat-check` (cmux-api-compat, `src/wire.rs`) compares the ids of
 `sdk-schema.json` and `resource-operations-v2.json` with the append-only

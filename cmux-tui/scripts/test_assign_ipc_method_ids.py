@@ -20,7 +20,7 @@ ASSIGN = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = ASSIGN  # dataclasses resolve the module by name
 SPEC.loader.exec_module(ASSIGN)
 
-NO_SOURCES = ASSIGN.Sources(macos=set, cli=set, swift_spawning=set)
+NO_SOURCES = ASSIGN.Sources(macos=set, cli=set, ios=set, swift_spawning=set)
 CORE = ASSIGN.ROOT / "cmux-tui/crates/cmux-tui-core/src"
 
 
@@ -293,12 +293,21 @@ class AssignmentTests(unittest.TestCase):
         document = live()
         document["commands"]["ping"]["clients"] = ["cli", "sdk"]
         document["commands"]["identify"]["clients"] = ["ios", "sdk"]
-        sources = ASSIGN.Sources(macos=lambda: {"ping"}, cli=lambda: {"ping"}, swift_spawning=set)
+        sources = ASSIGN.Sources(
+            macos=lambda: {"ping"}, cli=lambda: {"ping"}, ios=lambda: {"ping", "send"}, swift_spawning=set
+        )
         assigner = ASSIGN.Assigner(document, sources)
         result = assigner.run()["commands"]
-        self.assertEqual(result["ping"]["clients"], ["macos", "cli", "sdk"])
-        self.assertEqual(result["identify"]["clients"], ["ios", "sdk"])
-        self.assertIn('commands.ping.clients: ["macos", "cli", "sdk"]', assigner.changes)
+        self.assertEqual(result["ping"]["clients"], ["macos", "ios", "cli", "sdk"])
+        self.assertEqual(result["send"]["clients"], ["ios", "sdk"])
+        # `ios` follows the iOS client's table too: a hand-set one the table does not list goes.
+        self.assertEqual(result["identify"]["clients"], ["sdk"])
+        self.assertIn('commands.ping.clients: ["macos", "ios", "cli", "sdk"]', assigner.changes)
+
+    def test_ios_table_name_missing_from_the_schema_is_refused(self) -> None:
+        sources = ASSIGN.Sources(macos=set, cli=set, ios=lambda: {"ping", "phone-only"}, swift_spawning=set)
+        with self.assertRaisesRegex(ASSIGN.AssignError, "names phone-only, which sdk-schema.json does not declare"):
+            ASSIGN.Assigner(live(), sources).run()
 
     def test_spawns_terminal_follows_the_reviewed_list(self) -> None:
         document = live()
@@ -315,6 +324,23 @@ class AssignmentTests(unittest.TestCase):
 
 
 class SwiftSourceTests(unittest.TestCase):
+    def test_ios_command_table_is_the_schema_ios_set(self) -> None:
+        names = ASSIGN.ios_command_names()
+        self.assertTrue({"identify", "send", "split", "browser-back", "set-terminal-idle-policy"} <= names)
+        marked = {name for name, command in live()["commands"].items() if "ios" in command.get("clients", [])}
+        self.assertEqual(names, marked)
+
+    def test_ios_command_table_line_that_is_not_one_case_is_refused(self) -> None:
+        table = "enum CmuxTUICommand: String {\n    case send\n    case back, forward\n}\n"
+        with unittest.mock.patch.object(Path, "read_text", return_value=table):
+            with self.assertRaisesRegex(ASSIGN.AssignError, r"one simple case per line: \['case back, forward'\]"):
+                ASSIGN.ios_command_names()
+
+    def test_ios_case_without_a_raw_value_is_its_name(self) -> None:
+        table = 'enum CmuxTUICommand: String {\n    case send\n    case newTab = "new-tab"\n}\n'
+        with unittest.mock.patch.object(Path, "read_text", return_value=table):
+            self.assertEqual(ASSIGN.ios_command_names(), {"send", "new-tab"})
+
     def test_agent_session_call_sites_are_macos_names(self) -> None:
         names = ASSIGN.swift_call_site_names()
         commands = {name for name in live()["commands"] if name.startswith("agent-session-")}

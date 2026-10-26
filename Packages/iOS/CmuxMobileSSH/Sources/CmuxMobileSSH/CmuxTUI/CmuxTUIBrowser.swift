@@ -91,6 +91,15 @@ public enum CmuxTUIBrowserNavigation: String, Sendable {
     case back = "browser-back"
     case forward = "browser-forward"
     case reload = "browser-reload"
+
+    /// The command this navigation sends.
+    var command: CmuxTUICommand {
+        switch self {
+        case .back: .browserBack
+        case .forward: .browserForward
+        case .reload: .browserReload
+        }
+    }
 }
 
 /// Mouse phases for `browser-mouse-guarded`.

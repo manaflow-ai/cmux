@@ -13156,6 +13156,7 @@
    "durability": "read_only",
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -13366,6 +13367,7 @@
    "durability": "memory",
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -13513,6 +13515,7 @@
    "stream_scoped": true,
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -13700,6 +13703,7 @@
    "durability": "read_only",
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -14109,6 +14113,7 @@
    "stream_scoped": true,
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -15131,6 +15136,7 @@
    "durability": "reply_before_journal",
    "stream_scoped": true,
    "clients": [
+    "ios",
     "sdk"
    ]
   },
@@ -15388,6 +15394,7 @@
    "spawns_terminal": true,
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -15608,6 +15615,7 @@
    "durability": "reply_before_journal",
    "clients": [
     "macos",
+    "ios",
     "sdk"
    ]
   },
@@ -15825,6 +15833,7 @@
    "spawns_terminal": true,
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -15993,6 +16002,7 @@
    "spawns_terminal": true,
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -17247,6 +17257,7 @@
    "spawns_terminal": true,
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -17793,6 +17804,7 @@
    "crosses_stream_ok": "Reads process state of the terminal host, which changes independently of queued stream items.",
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -18504,6 +18516,7 @@
    "durability": "reply_before_journal",
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -18783,6 +18796,7 @@
    "durability": "reply_before_journal",
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -18845,6 +18859,7 @@
    "stream_scoped": true,
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -18945,6 +18960,7 @@
    "stream_scoped": true,
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -19039,6 +19055,7 @@
    "stream_scoped": true,
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -19099,6 +19116,7 @@
    "stream_scoped": true,
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -19536,6 +19554,7 @@
    "priority": "control",
    "durability": "read_only",
    "clients": [
+    "ios",
     "cli",
     "sdk"
    ]
@@ -19686,6 +19705,7 @@
    "durability": "memory",
    "stream_scoped": true,
    "clients": [
+    "ios",
     "cli",
     "sdk"
    ]
@@ -19867,6 +19887,7 @@
    "durability": "memory",
    "stream_scoped": true,
    "clients": [
+    "ios",
     "cli",
     "sdk"
    ]
@@ -20004,6 +20025,7 @@
    "durability": "memory",
    "stream_scoped": true,
    "clients": [
+    "ios",
     "cli",
     "sdk"
    ]
@@ -20169,6 +20191,7 @@
    "durability": "memory",
    "stream_scoped": true,
    "clients": [
+    "ios",
     "cli",
     "sdk"
    ]
@@ -20213,6 +20236,7 @@
    "durability": "memory",
    "stream_scoped": true,
    "clients": [
+    "ios",
     "cli",
     "sdk"
    ]
@@ -20257,6 +20281,7 @@
    "durability": "reply_before_journal",
    "stream_scoped": true,
    "clients": [
+    "ios",
     "cli",
     "sdk"
    ]
@@ -20292,6 +20317,7 @@
    "durability": "reply_before_journal",
    "stream_scoped": true,
    "clients": [
+    "ios",
     "sdk"
    ]
   },
@@ -20326,6 +20352,7 @@
    "durability": "reply_before_journal",
    "stream_scoped": true,
    "clients": [
+    "ios",
     "sdk"
    ]
   },
@@ -20360,6 +20387,7 @@
    "durability": "reply_before_journal",
    "stream_scoped": true,
    "clients": [
+    "ios",
     "sdk"
    ]
   },
@@ -20510,6 +20538,7 @@
    "crosses_stream_ok": "Opens an event stream; surface only filters the events it carries.",
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -20699,6 +20728,7 @@
    "crosses_stream_ok": "Opens a new stream that starts from its own snapshot; items queued on an older stream of the surface do not change it.",
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]

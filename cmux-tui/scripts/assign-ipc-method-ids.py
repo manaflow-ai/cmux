@@ -28,8 +28,8 @@ Rules, each a table below:
   clients      sdk for every command; macos for the ipc-census Q1 names and
                the MACOS_CALL_SITES names and the raw `"cmd": "<name>"`
                lines the Swift app writes, cli for the Q14 names and
-               CLI_CALL_HELPER_SENDS; ios is
-               kept when set by hand
+               CLI_CALL_HELPER_SENDS, ios for the cases of the
+               iOS client's command table (IOS_COMMAND_TABLE)
 
 Stdlib only, plus the schema validator in cmux-tui/bindings/codegen.
 """
@@ -51,6 +51,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = ROOT / "cmux-tui/spec/sdk-schema.json"
 CENSUS = ROOT / "scripts/cmux-next/ipc-census.py"
 SWIFT_SOURCES = "Packages/macOS/CmuxNext/Sources"
+# The iOS cmux-tui client names every command it sends in this enum (p05-ipc-048).
+IOS_COMMAND_TABLE = "Packages/iOS/CmuxMobileSSH/Sources/CmuxMobileSSH/CmuxTUI/CmuxTUICommand.swift"
 
 sys.path.insert(0, str(ROOT / "cmux-tui/bindings"))
 from codegen.ipc_meta import STREAM_TARGET_FIELDS, IpcMetaValidator, family_kind  # noqa: E402
@@ -553,9 +555,32 @@ def swift_line_commands() -> set[str]:
     }
 
 
+_IOS_CASE = re.compile(r'^\s*case\s+(\w+)(?:\s*=\s*"([^"]*)")?\s*$', re.MULTILINE)
+
+
+def ios_command_names() -> set[str]:
+    """The wire names of IOS_COMMAND_TABLE's cases: a case's raw value, else its name.
+
+    The table holds one case per line, so a line that starts with `case` and is not one
+    simple case (a list, an associated value) is refused rather than misread.
+    """
+
+    try:
+        text = (ROOT / IOS_COMMAND_TABLE).read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise AssignError(f"IOS_COMMAND_TABLE: cannot read {IOS_COMMAND_TABLE}: {error}") from error
+    lines = [line for line in text.splitlines() if line.strip().startswith("case ")]
+    found = [_IOS_CASE.match(line) for line in lines]
+    if not found or not all(found):
+        bad = [line.strip() for line, match in zip(lines, found) if not match]
+        raise AssignError(f"IOS_COMMAND_TABLE: {IOS_COMMAND_TABLE} must list one simple case per line: {bad}")
+    return {match.group(2) or match.group(1) for match in found if match}
+
+
 _SPAWNING = re.compile(r"\b(?:struct|extension)\s+(\w+)\s*:[^{]*\bTerminalSpawningRequest\b")
 _STRUCT = re.compile(r"\bstruct\s+(\w+)\b[^{]*\{")
-_COMMAND = re.compile(r'static\s+(?:let|var)\s+command(?:\s*:\s*String)?\s*=\s*"([^"]+)"')
+# `static let commandName: DaemonCommandName = "..."`, or the older `static let command = "..."`.
+_COMMAND = re.compile(r'static\s+(?:let|var)\s+command(?:Name)?(?:\s*:\s*\w+)?\s*=\s*"([^"]+)"')
 
 
 def swift_spawning_commands() -> set[str]:
@@ -592,6 +617,7 @@ class Sources:
         lambda: census_names("Q1") | swift_call_site_names() | swift_line_commands()
     )
     cli: Callable[[], set[str]] = lambda: census_names("Q14") | cli_call_helper_names()
+    ios: Callable[[], set[str]] = ios_command_names
     swift_spawning: Callable[[], set[str]] = swift_spawning_commands
 
 
@@ -600,17 +626,26 @@ class Assigner:
         self.document = document
         self.changes: list[str] = []
         self.sources = sources or Sources()
-        self._clients: tuple[set[str], set[str]] | None = None
+        self._clients: tuple[set[str], set[str], set[str]] | None = None
 
-    def clients_of(self, name: str, current: Any) -> list[str]:
-        """The census clients of a command, plus `ios` when the schema already lists it."""
+    def clients_of(self, name: str) -> list[str]:
+        """The clients whose sources send the command, and `sdk` for every command."""
 
-        if self._clients is None:
-            self._clients = (self.sources.macos(), self.sources.cli())
-        macos, cli = self._clients
-        ios = isinstance(current, list) and "ios" in current
-        members = (("macos", name in macos), ("ios", ios), ("cli", name in cli), ("sdk", True))
+        macos, ios, cli = self.client_sources()
+        members = (("macos", name in macos), ("ios", name in ios), ("cli", name in cli), ("sdk", True))
         return [client for client, member in members if member]
+
+    def client_sources(self) -> tuple[set[str], set[str], set[str]]:
+        if self._clients is None:
+            self._clients = (self.sources.macos(), self.sources.ios(), self.sources.cli())
+        return self._clients
+
+    def check_ios(self) -> None:
+        """Every name in the iOS client's command table is a schema command."""
+
+        unknown = sorted(self.client_sources()[1] - set(self.document["commands"]))
+        if unknown:
+            raise AssignError(f"{IOS_COMMAND_TABLE} names {', '.join(unknown)}, which sdk-schema.json does not declare")
 
     def check_spawning(self) -> None:
         """SPAWNS_TERMINAL holds every command the Swift client gives the spawn timeout."""
@@ -698,7 +733,7 @@ class Assigner:
             else:
                 self.set_missing("commands", name, entry, "stream_scoped", True)
         self.follow("commands", name, entry, "spawns_terminal", True if name in SPAWNS_TERMINAL else None)
-        self.follow("commands", name, entry, "clients", self.clients_of(name, entry.get("clients")))
+        self.follow("commands", name, entry, "clients", self.clients_of(name))
 
     def follow(self, section: str, name: str, entry: dict[str, Any], key: str, value: Any) -> None:
         """Set an attribute that follows a source outside the schema; None removes it."""
@@ -715,6 +750,7 @@ class Assigner:
     def run(self) -> dict[str, Any]:
         self.check_tables()
         self.check_spawning()
+        self.check_ios()
         table = self.families()
         self.wire_ids("commands", "method_id", table, FAMILIES)
         self.wire_ids("events", "event_id", table, EVENT_FAMILIES)
