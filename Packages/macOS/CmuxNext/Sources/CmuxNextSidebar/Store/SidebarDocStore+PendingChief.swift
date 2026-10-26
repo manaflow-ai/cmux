@@ -11,16 +11,20 @@ extension SidebarLayoutDocument {
     public static let chiefItemID = LayoutItemID("itm_chief")
 }
 
-/// One intent's add of the Chief, not echoed yet: the item it adds and the section it makes for it (Add to Top with no
-/// top section yet), or an undo's restore of them, as the document will hold them.
+/// One intent's add of the Chief, not echoed yet: the item it adds, the section it makes for it (Add to Top with no
+/// top section yet) and the groups it puts back around it (an undo of a drag out that took an emptied group too), as
+/// the document will hold them.
 struct SidebarPendingChief: Hashable {
     var item: SidebarDocItem
     var section: SidebarDocSection?
+    /// The Chief's parent groups the same change adds, innermost first.
+    var ancestors: [SidebarDocItem] = []
 
     /// The Chief's add in `ops` (an intent's ops, JSON); nil when they add no Chief.
     init?(ops: Data) {
         guard let list = try? JSONSerialization.jsonObject(with: ops) as? [[String: Any]] else { return nil }
-        var item: SidebarDocItem?
+        // Each added item's wire record, by id; only the Chief's and its parents' are decoded.
+        var items: [String: [String: Any]] = [:]
         var sections: [String: SidebarDocSection] = [:]
         for op in list {
             switch op["op"] as? String {
@@ -28,16 +32,24 @@ struct SidebarPendingChief: Hashable {
             case "section.add", "section.put":
                 if let record = Self.decode(SidebarDocWire.Section.self, op["section"])?.record { sections[record.id] = record }
             case "item.add", "item.put":
-                guard var wire = op["item"] as? [String: Any], wire["id"] as? String == SidebarLayoutDocument.chiefItemID.rawValue else { continue }
-                if let section = (op["to"] as? [String: Any])?["section"] as? String { wire["section"] = section }
-                item = Self.decode(SidebarDocWire.Item.self, wire)?.record
+                guard var wire = op["item"] as? [String: Any], let id = wire["id"] as? String else { continue }
+                let to = op["to"] as? [String: Any]
+                if let section = to?["section"] as? String { wire["section"] = section }
+                if let parent = to?["parent"] as? String { wire["parent"] = parent }
+                items[id] = wire
             default:
                 continue
             }
         }
-        guard let item else { return nil }
+        let record = { (id: String) in items.removeValue(forKey: id).flatMap { Self.decode(SidebarDocWire.Item.self, $0)?.record } }
+        guard let item = record(SidebarLayoutDocument.chiefItemID.rawValue) else { return nil }
         self.item = item
         section = sections[item.section]
+        var parent = item.parent
+        while let id = parent, let group = record(id) {
+            ancestors.append(group)
+            parent = group.parent
+        }
     }
 
     private static func decode<Value: Decodable>(_ type: Value.Type, _ object: Any?) -> Value? {
@@ -49,13 +61,16 @@ struct SidebarPendingChief: Hashable {
 extension SidebarDocRecords {
     /// These records with the Chief where the rows draw it (`chiefItemID`): the newest unechoed add's fields
     /// (`pending`, oldest first) over any confirmed record, else the confirmed one, else a plain Chief; and each
-    /// section such an add makes that the records lack yet.
+    /// section and parent group such an add makes that the records lack yet.
     func addingPendingChief(drawnIn rows: [SidebarDocRow], pending: [SidebarPendingChief]) -> SidebarDocRecords {
         let id = SidebarLayoutDocument.chiefItemID.rawValue
         guard pending.isEmpty == false || items[id] == nil, let row = rows.first(where: { $0.item == id }) else { return self }
         var drawn = self
         for section in pending.compactMap(\.section) where drawn.sections[section.id] == nil {
             drawn.sections[section.id] = section
+        }
+        for group in pending.flatMap(\.ancestors) where drawn.items[group.id] == nil {
+            drawn.items[group.id] = group
         }
         var item = pending.last?.item ?? items[id] ?? SidebarDocItem(id: id, section: row.section, body: .builtin(SidebarBuiltIn.chief.rawValue))
         (item.section, item.parent) = (row.section, row.parent)
