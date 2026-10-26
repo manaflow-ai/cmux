@@ -1029,6 +1029,12 @@
       "runnable": 0
     }
   },
+  "tasks": {
+    "p15-oracle-047": {
+      "actions": 0,
+      "entrypoints": 0
+    }
+  },
   "cases": 0,
   "actions": {
     "about": {

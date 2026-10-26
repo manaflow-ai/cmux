@@ -29,13 +29,16 @@ plans/cmux-next/OWNERSHIP-PRINCIPLES.md "Clients are projections"); the cli and 
 is comparable with a key press.
 
 `palette`, `main-menu` and `context-menu` are listed but have no case: case-v1 has no step that picks a palette row,
-clicks a menu bar item or opens a context menu (NO_STEP). An entrypoint is also blocked when its step cannot carry
-the run (a key has no arguments; the CLI sends only strings and bare flags; an argument named like a control flag;
-a live-only value; no tool name). An action is excluded with its reason when the actions suite blocks it or tunes it
-to a refusal (each entrypoint words a refusal its own way), and when fewer than two of its entrypoints run or no two
-of them are expected to do the same (the sweep's EXPECT_BY_ENTRY: `palette.newAgentChat` docks a chat by key and
-opens a tab by action.run). From action-surfaces.json (no live action.list) the actions suite blocks every action,
-so every listed action is excluded `no-live-catalog` and no case is written.
+clicks a menu bar item or opens a context menu (NO_STEP; p15-oracle-047 adds them). An entrypoint is also blocked
+when its step cannot carry the run (a key has no arguments; the CLI sends only strings and bare flags; an argument
+named like a control flag; a live-only value; no tool name). An action the actions suite tunes to a refusal gets a
+case per entrypoint with that entrypoint's own refusal code (REFUSAL_CODES: cli.failed, mcp.tool_error), so a pair
+shows one entrypoint running what another refuses; its key has none yet (KEY_REFUSAL). An action is excluded with
+its reason when the actions suite blocks it, `no-step` when it has two runnable entrypoints only once p15-oracle-047
+lands, `one-entrypoint` when fewer than two can carry the run otherwise, and `expect-differs` when no two are
+expected to do the same (the sweep's EXPECT_BY_ENTRY: `palette.newAgentChat` docks a chat by key and opens a tab by
+action.run). From action-surfaces.json (no live action.list) the actions suite blocks every action, so every listed
+action is excluded `no-live-catalog` and no case is written.
 
 coverage.json lists each action with its entrypoints, the case of each runnable one, why each other one is blocked,
 and the `pairs` the comparison checks: the runnable entrypoints with the same sweep expectation.
@@ -44,7 +47,8 @@ and the `pairs` the comparison checks: the runnable entrypoints with the same sw
 each pair of each action in coverage.json, compares the settled checkpoints of the two cases from the `action` step
 on. Each pair that differs is reported as (action, A, B, pointer) with the step, both values and the count of
 differing leaves at that checkpoint; `/meta` (the case id, time) and `/facets/cli` (the CLI step's own receipt) are
-not compared. A pair where one case failed is a difference at `/result`; both failed or not run are listed apart.
+not compared. A pair where exactly one of two real verdicts passes is a difference at `/result`; both failed, either
+not run (absent or result None), Flaky (oracle.py classify leaves it out, as diff.py does) or Skip are listed apart.
 Exit 0 no difference, 1 differences, 2 bad input.
 
 Usage:
@@ -83,12 +87,28 @@ COVERAGE = "coverage.json"
 REPORT_SCHEMA = "oracle-entrypoint-parity-v1"
 # The catalog surfaces, in the order a pair names them (the first is A).
 ENTRYPOINTS = ("shortcut", "cli", "mcp", "palette", "main-menu", "context-menu")
+# The task that adds the case-v1 ops and driver_app.py steps an entrypoint below waits for.
+NO_STEP_TASK = "p15-oracle-047"
 # Why an entrypoint has no case: no case-v1 op drives it.
 NO_STEP = {
     "palette": "case-v1 has no step that picks a palette row: a key step opens the palette but cannot choose this "
-               "action's row by id, and action.run cannot claim the palette's origin (driver_app.py SOCKET_ORIGINS)",
-    "main-menu": "case-v1 has no step that clicks a menu bar item; a key equivalent is the shortcut case",
-    "context-menu": "case-v1 has no step that opens an object's context menu and picks its item",
+               "action's row by id, and action.run cannot claim the palette's origin (driver_app.py SOCKET_ORIGINS); "
+               f"{NO_STEP_TASK} adds the palette step",
+    "main-menu": "case-v1 has no step that clicks a menu bar item (a key equivalent is the shortcut case); "
+                 f"{NO_STEP_TASK} adds the menu step over debug.menu_item",
+    "context-menu": "case-v1 has no step that opens an object's context menu and picks its item; "
+                    f"{NO_STEP_TASK} adds the context-menu step",
+}
+# The typed code driver_app.py gives each entrypoint's refusal, whatever the app's own code: op_cli reads only the
+# exit (the CLI writes its error to stderr, cli/wire.rs print_local_error, so stdout has no code) and op_mcp reads
+# only isError.
+REFUSAL_CODES = {"cli": "cli.failed", "mcp": "mcp.tool_error"}
+KEY_REFUSAL = ("a refused key run is no debug.key error: DebugKey.swift reports `action: null, refused_action: <id>`, "
+               "which driver_app.py op_key reads as ok (key.refused is debug.key's own error), so no expect states the "
+               f"refusal; {NO_STEP_TASK} reads refused_action")
+REFUSAL_UNTESTED = {
+    "cli": "which refusal: driver_app.py op_cli reads every nonzero exit as cli.failed, not the app's {code}",
+    "mcp": "which refusal: driver_app.py op_mcp reads isError as mcp.tool_error, not the app's {code}",
 }
 # The sweep plan's entry whose expectation (EXPECT_WAITS) an entrypoint's step checks.
 PLAN_ENTRY = {"shortcut": "key", "cli": "action", "mcp": "action"}
@@ -206,9 +226,13 @@ def case_id(ident: str, entry: str) -> str:
 
 def main_step(entry: str, ident: str, raw: Mapping[str, Any], row: Mapping[str, Any], params: Mapping[str, Any],
               spec: Mapping[str, Any], tools: Mapping[str, List[str]]) -> Tuple[Optional[Dict[str, Any]], str]:
-    """The `action` step of one entrypoint's case, or (None, why it cannot carry this run)."""
+    """The `action` step of one entrypoint's case, or (None, why it cannot carry this run). A tuned refusal
+    (`error` in spec) expects the entrypoint's own refusal code (REFUSAL_CODES)."""
     target = {"window": "current"}
+    refused = "error" in spec
     if entry == "shortcut":
+        if refused:
+            return None, KEY_REFUSAL
         key = row.get("key")
         stroke = gen_actions.keystroke(key) if key else None
         if not stroke:
@@ -223,7 +247,8 @@ def main_step(entry: str, ident: str, raw: Mapping[str, Any], row: Mapping[str, 
     cli_name = raw.get("cli_name")
     if not cli_name:
         return None, "the catalog gives no cli_name"
-    socket_expect = {"outcome": "ok", "noReceiptReason": SOCKET_NO_RECEIPT.format(entry=entry)}
+    socket_expect = ({"outcome": "error", "error": REFUSAL_CODES[entry]} if refused
+                     else {"outcome": "ok", "noReceiptReason": SOCKET_NO_RECEIPT.format(entry=entry)})
     if entry == "cli":
         flags, why = cli_flags(params)
         if why:
@@ -255,9 +280,10 @@ def variant(base: Mapping[str, Any], step: Mapping[str, Any], entry: str, ident:
     main = copy.deepcopy(dict(step))
     plan_entry = PLAN_ENTRY[entry]
     expected = (row.get("expect") or {}).get(plan_entry)
+    refused = "error" in spec
     if "waitFor" in spec:
         main["waitFor"] = copy.deepcopy(spec["waitFor"])
-    elif expected:
+    elif expected and not refused:
         main["waitFor"] = {"pointer": gen_actions.EXPECT_WAITS[expected], "predicate": "changed",
                            "maxMs": gen_actions.EXPECT_WAIT_MS}
     for key in ("settleMaxMs", "note"):
@@ -284,7 +310,10 @@ def variant(base: Mapping[str, Any], step: Mapping[str, Any], entry: str, ident:
     invariants = [f"generated by {GENERATOR} from {catalog.label} entry {ident} with gen_actions.py's setup: the "
                   f"settled checkpoints from the action step on equal those of {', '.join(case_id(ident, o) for o in others)} "
                   f"(gen_entrypoints.py --compare)"]
-    if expected and "waitFor" not in spec:
+    if refused:
+        invariants.append(f"the action is refused ({spec['error']}, {gen_actions.family_of(ident)}/"
+                          f"{gen_actions.TUNING}) and changes nothing, whichever way it came in")
+    elif expected and "waitFor" not in spec:
         invariants.append(f"{gen_actions.EXPECT_WORDS[expected]} (the action step's waitFor checks that "
                           f"{gen_actions.EXPECT_WAITS[expected]} changed)")
     if entry in ("cli", "mcp"):
@@ -292,6 +321,8 @@ def variant(base: Mapping[str, Any], step: Mapping[str, Any], entry: str, ident:
     invariants.extend(spec.get("invariants") or ())
     case["invariants"] = invariants
     untested = list(spec.get("untested") or ())
+    if refused:
+        untested.append(REFUSAL_UNTESTED[entry].format(code=spec["error"]))
     if entry == "shortcut":
         untested.append("which action the key ran: the turn checkpoint fails a key no action took, but driver_app.py "
                         "does not compare the debug.key reply's `action` with this action (p15-oracle-047)")
@@ -324,9 +355,12 @@ def generate(catalog: gen_actions.Catalog, gaps: gen_actions.Gaps, tuning: Mappi
     excluded: Dict[str, str] = {}
     counts = {name: {"listed": 0, "runnable": 0} for name in ENTRYPOINTS}
     excluded_by: Dict[str, int] = {}
+    waiting = {"actions": 0, "entrypoints": 0}
 
-    def exclude(ident: str, doc: Dict[str, Any], kind: str, reason: str) -> None:
+    def exclude(ident: str, doc: Dict[str, Any], kind: str, reason: str, task: Optional[str] = None) -> None:
         doc["blocked"], doc["blocked_by"] = reason, kind
+        if task:
+            doc["task"] = task
         excluded[ident] = f"blocked: {reason}"
         excluded_by[kind] = excluded_by.get(kind, 0) + 1
         actions[ident] = doc
@@ -348,12 +382,6 @@ def generate(catalog: gen_actions.Catalog, gaps: gen_actions.Gaps, tuning: Mappi
                     f"the actions suite blocks it ({actions_entry['blocked_by']}): {actions_entry['blocked']}")
             continue
         spec = tuning.get(ident) or {}
-        if "error" in spec:
-            exclude(ident, doc, "refusal",
-                    f"the actions suite expects the refusal {spec['error']} ({gen_actions.family_of(ident)}/"
-                    f"{gen_actions.TUNING}); a key refuses quietly, the CLI by its exit and MCP by isError, which no "
-                    f"one case-v1 expectation states")
-            continue
         row = planner.plan(action)
         base, _ = gen_actions.build_case(action, row, planner, catalog, {**spec, "entry": "action"}, None)
         base_main = next(s for s in base["steps"] if s["id"] == "action")
@@ -374,6 +402,11 @@ def generate(catalog: gen_actions.Catalog, gaps: gen_actions.Gaps, tuning: Mappi
                 continue
             steps[name] = step
         runnable = [name for name in listed if name in steps]
+        no_step = [name for name in listed if name in NO_STEP]
+        waits = no_step + [name for name in listed if blocked.get(name) == KEY_REFUSAL]
+        if waits:
+            waiting["actions"] += 1
+            waiting["entrypoints"] += len(waits)
         pairs = groups(runnable, row)
         compared = sorted({name for pair in pairs for name in pair}, key=ENTRYPOINTS.index)
         for name in runnable if len(runnable) > 1 else ():
@@ -384,10 +417,18 @@ def generate(catalog: gen_actions.Catalog, gaps: gen_actions.Gaps, tuning: Mappi
         if blocked:
             doc["blocked_entrypoints"] = {name: blocked[name] for name in listed if name in blocked}
         if not pairs:
-            reason = (f"fewer than two of its entrypoints run a case: {len(runnable)} of {', '.join(listed)}"
-                      if len(runnable) < 2 else "no two of its runnable entrypoints are expected to do the same")
             doc.pop("cases")
-            exclude(ident, doc, "one-entrypoint", reason)
+            if len(runnable) >= 2:
+                exclude(ident, doc, "expect-differs", "no two of its runnable entrypoints are expected to do the same")
+            elif len(runnable) + len(waits) >= 2:
+                exclude(ident, doc, "no-step",
+                        f"{len(runnable)} of its entrypoints {', '.join(listed)} run a case; case-v1 and driver_app.py "
+                        f"have no step for {', '.join(waits)} yet ({NO_STEP_TASK} adds it, blocked_entrypoints)",
+                        NO_STEP_TASK)
+            else:
+                exclude(ident, doc, "one-entrypoint",
+                        f"fewer than two of its entrypoints run a case: {len(runnable)} of {', '.join(listed)}, the "
+                        f"others cannot carry this run (blocked_entrypoints)")
             continue
         doc["pairs"] = pairs
         for name in compared:
@@ -414,6 +455,7 @@ def generate(catalog: gen_actions.Catalog, gaps: gen_actions.Gaps, tuning: Mappi
         "blocked_by": dict(sorted(excluded_by.items())),
         "missing": [],
         "entrypoints": counts,
+        "tasks": {NO_STEP_TASK: waiting},
         "cases": sum(1 for name in files if name != COVERAGE),
         "actions": actions,
     }
@@ -495,17 +537,34 @@ def settled_from_action(points: Sequence[Any]) -> Optional[Dict[int, Any]]:
     return {p.index: p for p in points if p.index >= start and p.checkpoint == "settled"}
 
 
+def verdict_of(run: Any, case: str) -> str:
+    """How a case's result enters a comparison: "not-run" (absent, or result None: no launch ran it), "flaky"
+    (oracle.py classify: left out of every comparison, as diff.compare_case does), "skipped" (an Expectations skip),
+    else "pass" or "fail"."""
+    result = run.results.get(case)
+    if result is None:
+        return "not-run"
+    if result == "Flaky":
+        return "flaky"
+    if result == "Skip":
+        return "skipped"
+    return "pass" if result in PASSING else "fail"
+
+
 def compare_pair(run: Any, ident: str, a: str, b: str) -> Tuple[str, Optional[Dict[str, Any]]]:
-    """("compared" | "not-run" | "failed", the difference or None) of one pair of one action's cases."""
+    """("compared" | "not-run" | "flaky" | "skipped" | "failed", the difference or None) of one pair of one action's
+    cases. Only two real verdicts are compared: a difference at /result when exactly one of them passes."""
     ca, cb = f"{SUITE}/{case_id(ident, a)}", f"{SUITE}/{case_id(ident, b)}"
     found = {"action": ident, "a": a, "b": b, "cases": [ca, cb]}
-    if ca not in run.results or cb not in run.results:
-        return "not-run", None
-    ra, rb = run.results[ca], run.results[cb]
-    if ra not in PASSING and rb not in PASSING:
+    verdicts = (verdict_of(run, ca), verdict_of(run, cb))
+    for status in ("not-run", "flaky", "skipped"):
+        if status in verdicts:
+            return status, None
+    if verdicts == ("fail", "fail"):
         return "failed", None
-    if (ra in PASSING) != (rb in PASSING):
-        return "compared", {**found, "step": None, "pointer": "/result", "a_value": ra, "b_value": rb, "differences": 1}
+    if "fail" in verdicts:
+        return "compared", {**found, "step": None, "pointer": "/result", "a_value": run.results[ca],
+                            "b_value": run.results[cb], "differences": 1}
     sa = settled_from_action(run.checkpoints.get(ca, ()))
     sb = settled_from_action(run.checkpoints.get(cb, ()))
     if sa is None or sb is None:
@@ -548,25 +607,23 @@ def compare(run_dir: Path, coverage: Mapping[str, Any]) -> Dict[str, Any]:
     except diff.InputError as error:
         raise GenError(str(error)) from None
     differences: List[Dict[str, Any]] = []
-    not_run: List[List[str]] = []
-    failed: List[List[str]] = []
+    apart: Dict[str, List[List[str]]] = {"not-run": [], "flaky": [], "skipped": [], "failed": []}
     compared = 0
     for ident, entry in sorted(coverage["actions"].items()):
         if len(entry.get("entrypoints") or ()) < 2:
             raise GenError(f"coverage.json lists {ident} with fewer than two entrypoints")
         for a, b in entry.get("pairs") or ():
             status, found = compare_pair(run, ident, a, b)
-            if status == "not-run":
-                not_run.append([ident, a, b])
-            elif status == "failed":
-                failed.append([ident, a, b])
+            if status in apart:
+                apart[status].append([ident, a, b])
             else:
                 compared += 1
                 if found:
                     differences.append(found)
     return {"schema": REPORT_SCHEMA, "run": str(run_dir), "sha": run.sha, "host": run.host,
             "verdict": "divergent" if differences else "pass", "compared": compared, "differences": differences,
-            "not_run": not_run, "failed": failed}
+            "not_run": apart["not-run"], "flaky": apart["flaky"], "skipped": apart["skipped"],
+            "failed": apart["failed"]}
 
 
 # --------------------------------------------------------------------------------------------- self test
@@ -694,12 +751,33 @@ class GenEntrypointsSelfTest(unittest.TestCase):
     def test_palette_and_menus_are_listed_with_why_they_have_no_case(self) -> None:
         settings = self.coverage["actions"]["openSettings"]
         self.assertEqual(settings["entrypoints"], ["shortcut", "palette", "main-menu"])
-        self.assertEqual(settings["blocked_by"], "one-entrypoint")
+        self.assertEqual((settings["blocked_by"], settings["task"]), ("no-step", NO_STEP_TASK))
         self.assertEqual(settings["blocked_entrypoints"]["palette"], NO_STEP["palette"])
         self.assertFalse(any(name.startswith("open-settings--") for name in self.files))
         for name in ("palette", "main-menu", "context-menu"):
             self.assertEqual(self.coverage["entrypoints"][name]["runnable"], 0)
             self.assertGreater(self.coverage["entrypoints"][name]["listed"], 0)
+            self.assertIn(NO_STEP_TASK, NO_STEP[name])
+
+    def test_one_entrypoint_is_only_for_actions_no_step_would_not_unblock(self) -> None:
+        """An action whose second runnable entrypoint waits for a palette, menu or context-menu step is `no-step`
+        with the task that adds it, never `one-entrypoint`."""
+        waiting = 0
+        for ident, entry in self.coverage["actions"].items():
+            kind = entry.get("blocked_by")
+            if kind not in ("no-step", "one-entrypoint"):
+                continue
+            blocked = entry.get("blocked_entrypoints") or {}
+            runnable = [n for n in entry["entrypoints"] if n not in blocked]
+            waits = [n for n in entry["entrypoints"] if n in NO_STEP or blocked.get(n) == KEY_REFUSAL]
+            self.assertLess(len(runnable), 2, ident)
+            self.assertEqual(kind == "no-step", len(runnable) + len(waits) >= 2, ident)
+            if kind == "no-step":
+                waiting += 1
+                self.assertEqual(entry["task"], NO_STEP_TASK, ident)
+        self.assertGreater(waiting, 100)
+        self.assertEqual(self.coverage["blocked_by"]["no-step"], waiting)
+        self.assertGreaterEqual(self.coverage["tasks"][NO_STEP_TASK]["actions"], waiting)
 
     def test_entrypoints_expected_to_differ_are_not_paired(self) -> None:
         """palette.newAgentChat docks a chat by key and opens a tab by action.run (the sweep's EXPECT_BY_ENTRY)."""
@@ -709,11 +787,27 @@ class GenEntrypointsSelfTest(unittest.TestCase):
         if "shortcut" in entry["entrypoints"]:
             self.assertIn("EXPECT_BY_ENTRY", entry["blocked_entrypoints"]["shortcut"])
 
-    def test_refusals_and_blocked_actions_are_excluded_with_their_reason(self) -> None:
-        files = generate(self.catalog, self.gaps, {"workspace.newInNewGroup": {"error": "control.refused"}})
-        entry = files[COVERAGE]["actions"]["workspace.newInNewGroup"]
-        self.assertEqual(entry["blocked_by"], "refusal")
-        self.assertNotIn("workspace-new-in-new-group--cli.json", files)
+    def test_a_tuned_refusal_expects_each_entrypoints_own_refusal_and_pairs_them(self) -> None:
+        ident = "workspace.newInNewGroup"
+        files = generate(self.catalog, self.gaps, {ident: {"error": "control.unavailable"}})
+        entry = files[COVERAGE]["actions"][ident]
+        self.assertNotIn("blocked", entry)
+        self.assertIn(["cli", "mcp"], entry["pairs"])
+        for name, code in REFUSAL_CODES.items():
+            case = files[f"{case_id(ident, name)}.json"]
+            main = next(s for s in case["steps"] if s["id"] == "action")
+            self.assertEqual(main["expect"], {"outcome": "error", "error": code}, name)
+            self.assertEqual(main["checkpoint"], ["before", "settled"], name)
+            self.assertNotIn("waitFor", main, name)
+            self.assertFalse(any(s["id"].startswith("restore-") for s in case["steps"]), name)
+            self.assertTrue(any("control.unavailable" in u for u in case["untested"]), name)
+            self.assertEqual(gen_actions.CaseCheck().problems(case), [], name)
+        raw = {"id": "closeTab", "cli_name": "tab close", "shortcut_config": "cmd+w"}
+        step, why = main_step("shortcut", "closeTab", raw, {"key": ["w", ["cmd"]]}, {}, {"error": "control.refused"}, {})
+        self.assertIsNone(step)
+        self.assertEqual(why, KEY_REFUSAL)
+
+    def test_blocked_actions_are_excluded_with_their_reason(self) -> None:
         flagged = self.coverage["actions"]["tabGroup.close"]
         self.assertEqual(flagged["blocked_by"], "flag")
         for ident, reason in self.coverage["excluded"].items():
@@ -796,6 +890,25 @@ class GenEntrypointsSelfTest(unittest.TestCase):
             self.assertEqual(compare(run, coverage)["not_run"], [[ident, "cli", "mcp"]])
         with self.assertRaises(GenError):
             compare(Path("/nonexistent-oracle-run"), coverage)
+
+    def test_compare_leaves_flaky_skipped_and_not_run_cases_out(self) -> None:
+        """oracle.py classify: Flaky is left out of every comparison, Skip is an Expectations skip and result None
+        is a case no launch ran; none of them paired with a pass is a parity difference."""
+        ident = "workspace.newInNewGroup"
+        a, b = (f"{SUITE}/{case_id(ident, n)}" for n in ("cli", "mcp"))
+        coverage = {"suite": SUITE, "actions": {ident: {"entrypoints": ["cli", "mcp"], "pairs": [["cli", "mcp"]]}}}
+        points = {a: [("action", "settled", snap(a, topology={"x": 1}))],
+                  b: [("action", "settled", snap(b, topology={"x": 2}))]}
+        for result, bucket in (("Flaky", "flaky"), ("Skip", "skipped"), (None, "not_run")):
+            for side in (a, b):
+                with tempfile.TemporaryDirectory() as tmp:
+                    report = compare(fake_run(Path(tmp), points, results={side: result}), coverage)
+                self.assertEqual((report["verdict"], report["compared"], report["differences"]), ("pass", 0, []),
+                                 (result, side))
+                self.assertEqual(report[bucket], [[ident, "cli", "mcp"]], (result, side))
+        with tempfile.TemporaryDirectory() as tmp:
+            report = compare(fake_run(Path(tmp), points, results={a: "Slow"}), coverage)
+        self.assertEqual(report["differences"][0]["pointer"], "/facets/topology/x")
         with tempfile.TemporaryDirectory() as tmp:
             run = fake_run(Path(tmp), {a: [("action", "settled", snap(a))]})
             lone = {"suite": SUITE, "actions": {ident: {"entrypoints": ["cli"], "pairs": [["cli", "mcp"]]}}}
@@ -829,7 +942,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                       f"{found['pointer'] or '/'} ({json.dumps(found['a_value'])[:80]} vs "
                       f"{json.dumps(found['b_value'])[:80]})")
             print(f"gen_entrypoints: {report['compared']} pairs compared, {len(report['differences'])} differ, "
-                  f"{len(report['failed'])} failed on both sides, {len(report['not_run'])} not run")
+                  f"{len(report['failed'])} failed on both sides, {len(report['not_run'])} not run, "
+                  f"{len(report['flaky'])} flaky, {len(report['skipped'])} skipped")
             return 1 if report["differences"] else 0
         catalog = gen_actions.Catalog.load(args.catalog)
         files = generate(catalog, gen_actions.Gaps.load(args.gaps), gen_actions.load_tuning(args.actions, catalog))
