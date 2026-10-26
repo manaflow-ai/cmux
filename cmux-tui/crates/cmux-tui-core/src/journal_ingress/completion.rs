@@ -1,6 +1,52 @@
 //! Delivering a batch's results to the requests that wait on them.
 
-use super::{JournalIngressCompletion, QueuedJournalEvent};
+use std::sync::Arc;
+use std::sync::atomic::AtomicU8;
+use std::time::Instant;
+
+use cmux_threads::sync::mpsc::SyncSender;
+
+use super::QueuedJournalEvent;
+
+/// Where the writer answers a request that waits for its event: a channel
+/// that carries the writer's QoS (`cmux_threads::sync`), so a receipt sent
+/// below the waiting request is a recorded `priority-inversion` site.
+#[derive(Debug)]
+pub(super) enum JournalIngressCompletion {
+    Durable {
+        sender: SyncSender<Result<(), String>>,
+        deadline: Instant,
+        commit_fence: Arc<AtomicU8>,
+    },
+    Producer {
+        sender: SyncSender<Result<crate::JournalAppendCommit, String>>,
+        deadline: Instant,
+        commit_fence: Arc<AtomicU8>,
+    },
+    Effect {
+        sender: SyncSender<Result<crate::workspace_registry::RegistryReceipt, String>>,
+        deadline: Instant,
+        commit_fence: Arc<AtomicU8>,
+    },
+}
+
+impl JournalIngressCompletion {
+    pub(super) fn deadline(&self) -> Instant {
+        match self {
+            Self::Durable { deadline, .. }
+            | Self::Producer { deadline, .. }
+            | Self::Effect { deadline, .. } => *deadline,
+        }
+    }
+
+    pub(super) fn commit_fence(&self) -> &AtomicU8 {
+        match self {
+            Self::Durable { commit_fence, .. }
+            | Self::Producer { commit_fence, .. }
+            | Self::Effect { commit_fence, .. } => commit_fence,
+        }
+    }
+}
 
 /// The writer's result for one batch event, in batch order.
 #[derive(Debug)]

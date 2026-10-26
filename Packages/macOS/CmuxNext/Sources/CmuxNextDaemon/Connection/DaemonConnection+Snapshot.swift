@@ -2,13 +2,19 @@ import Foundation
 
 extension DaemonConnection {
     /// Fetches the first snapshot now, off the main thread, for the launch's
-    /// prestart: the store's first resync takes it instead of asking again
+    /// prestart and the connection the startup attaches: the store's first resync takes it instead of asking again
     /// once the main thread is free. Events stay buffered meanwhile, and
     /// those past its barrier still apply, so it is as current as a later one.
-    public func prefetchSnapshot() {
+    /// `onReceived` runs once the read answered (the launch's `daemon.snapshot_received`); a call while a prefetch
+    /// runs does nothing.
+    public func prefetchSnapshot(onReceived: (@Sendable () -> Void)? = nil) {
         guard prefetchedSnapshot == nil, let serial = ready?.serial else { return }
         // task-owner: one read per connection, taken (or dropped) by the first snapshot()
-        prefetchedSnapshot = (serial, Task { try await self.fetchSnapshot() })
+        prefetchedSnapshot = (serial, Task {
+            let snapshot = try await self.fetchSnapshot()
+            onReceived?()
+            return snapshot
+        })
     }
 
     /// `list-workspaces` plus the sequence of the last event it supersedes.

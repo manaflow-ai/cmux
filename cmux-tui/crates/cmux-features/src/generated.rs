@@ -16,6 +16,11 @@ pub(crate) const TABLE: &[crate::FeatureDef] = &[
         process: crate::Process::Daemon,
     },
     crate::FeatureDef {
+        name: "energySaver",
+        defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        process: crate::Process::Both,
+    },
+    crate::FeatureDef {
         name: "leftoverDaemonIdleExit",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
         process: crate::Process::Daemon,
@@ -44,6 +49,8 @@ pub mod feature {
         COLD_SCROLLBACK_COMPRESSION = "coldScrollbackCompression",
         /// Daemon requests run at their cause's class: verified-app requests at user-initiated, CLI, script, agent and page requests at utility, raised while they wait for or hold a daemon lock.
         DAEMON_REQUEST_QOS = "daemonRequestQos",
+        /// Energy Saver turns on as the energy.saver setting asks (Low Power Mode, low battery or a hot Mac on battery by default) and makes cmux draw fewer frames and wake less often.
+        ENERGY_SAVER = "energySaver",
         /// The acpmux daemon and a headless cmux-tui owner exit after 10 minutes with no client, no live agent, no live terminal (own or holder-owned) and no owning app; an app that reconnects within the 10 minutes keeps them.
         LEFTOVER_DAEMON_IDLE_EXIT = "leftoverDaemonIdleExit",
         /// acpmux and its TUI follow system memory pressure: at warning they empty caches rebuilt on demand (parsed login files, idle chats' error tails, the TUI's transcript layout); at critical they also drop live model lists and each chat's prompt outcomes past its newest 8.

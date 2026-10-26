@@ -2,6 +2,8 @@ public import CmuxNextWakeups
 import Foundation
 public import Observation
 import os
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
 
 public enum DaemonConnectionState: Sendable, Equatable {
     case connecting
@@ -184,7 +186,7 @@ public final class DaemonStore: StateResourceQueries {
     /// The `list-personal` refetch a `personal-changed` asks for (`refetchPersonal`).
     @ObservationIgnored var personalRefetch = PersonalRefetch()
     /// `refresh()` callers waiting for a snapshot requested after their call.
-    @ObservationIgnored var refreshWaiters: [CheckedContinuation<Void, Never>] = []
+    @ObservationIgnored var refreshWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
     /// Work waiting for the first live snapshot (`whenFirstSnapshotApplied`); emptied when it lands.
     @ObservationIgnored var firstSnapshotWaiters: [@MainActor () -> Void] = []
     /// Spacing and budget of failed-snapshot retries; reset by the next applied one.

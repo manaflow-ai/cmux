@@ -1,5 +1,8 @@
 public import Foundation
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 public import CmuxNextWakeups
 
 /// One running `cmux-mobile-host` child: its stdout as event lines, its stdin for
@@ -14,7 +17,7 @@ public final class MobileHostProcess: Sendable {
         var exitStatus: Int32?
         /// stop() ran; a launch that finishes after it ends hostd at once.
         var stopped = false
-        var exitWaiters: [CheckedContinuation<Int32, Never>] = []
+        var exitWaiters: [OnceContinuation<Int32, OnceContinuationError>] = []
     }
 
     /// hostd's stdout lines (bounded: oldest dropped past 256 pending).
@@ -57,7 +60,7 @@ public final class MobileHostProcess: Sendable {
         }
         process.terminationHandler = { [weak self] finished in
             let status = finished.terminationStatus
-            let waiters = self?.state.withLock { state -> [CheckedContinuation<Int32, Never>] in
+            let waiters = self?.state.withLock { state -> [OnceContinuation<Int32, OnceContinuationError>] in
                 state.exitStatus = status
                 try? state.input?.close()
                 state.input = nil
@@ -97,15 +100,20 @@ public final class MobileHostProcess: Sendable {
 
     public var pid: Int32? { state.withLock { $0.process?.processIdentifier } }
 
+    /// What ``waitForExit()`` returns when its waiter was dropped without the exit status: the supervisor's
+    /// "status unknown".
+    public static let unknownExitStatus: Int32 = -1
+
+    /// The child's exit status once it exited; ``unknownExitStatus`` when the wait was dropped unresumed.
     public func waitForExit() async -> Int32 {
-        await withCheckedContinuation { waiter in
+        (try? await withOnceContinuation { (waiter: OnceContinuation<Int32, OnceContinuationError>) in
             let done = state.withLock { state -> Int32? in
                 if let status = state.exitStatus { return status }
                 state.exitWaiters.append(waiter)
                 return nil
             }
             if let done { waiter.resume(returning: done) }
-        }
+        }) ?? Self.unknownExitStatus
     }
 
     /// Closes stdin (hostd exits on its own) and sends SIGTERM, on the launcher's queue after the launch.

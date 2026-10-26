@@ -79,6 +79,8 @@ final class AcpmuxPermissionFeedBridge {
     /// session can register an "ios" install. A deny needs no proof.
     private let presenceKeys: PresenceKeys
     private var connection: AcpmuxCheckedLine?
+    /// Each `permission_pending` request from its line until its post task starts.
+    private var requestsToPost: [String: [String: Any]] = [:]
     /// One backoff wait after a lost or absent socket: background work, nobody waits on it.
     private let reconnect: MainDeadline
     private var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
@@ -210,8 +212,10 @@ final class AcpmuxPermissionFeedBridge {
         case "_acpmux/permission_pending":
             guard let session = params["sessionId"] as? String, let permission = params["permissionId"] as? String,
                   let request = params["request"] as? [String: Any] else { return }
-            // The prompt's post: the person waits for it on the phone. The body stays main-actor (it holds the request).
-            work.task(.userVisible) { @MainActor [weak self] in await self?.post(session: session, permission: permission, request: request) }
+            // The prompt's post: the person waits for it on the phone. The body stays main-actor; the request
+            // (not Sendable) waits on the bridge under its permission id, so the task captures only Sendable values.
+            requestsToPost[permission] = request
+            work.task(.userVisible) { [weak self] in await self?.postWaiting(session: session, permission: permission) }
         case "_acpmux/session_changed":
             let kind = params["kind"] as? String
             if kind == "permission_decision" || kind == "permission_resolved",
@@ -310,6 +314,12 @@ final class AcpmuxPermissionFeedBridge {
             "poster": ["label": String(localized: "feed.bridge.poster", defaultValue: "Agent", bundle: .module)],
         ]
         return ["op": "feed.post", "params": params, "idempotency_key": String(key.prefix(200)), "origin": "script"]
+    }
+
+    /// Posts the `permission_pending` request that waits under `permission`.
+    private func postWaiting(session: String, permission: String) async {
+        guard let request = requestsToPost.removeValue(forKey: permission) else { return }
+        await post(session: session, permission: permission, request: request)
     }
 
     private func post(session: String, permission: String, request: [String: Any]) async {

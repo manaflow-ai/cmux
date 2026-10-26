@@ -18,7 +18,8 @@ import Testing
         try #require(attached)
         let keys = CrashKeySlots()
         let log = HangLog(capacity: 8)
-        var monitor = HangMonitor(source: HangMonitor.Source(watch: watch, crashKeys: keys), log: log, janks: HangLog(capacity: 8), logger: nil)
+        var monitor = HangMonitor(source: HangMonitor.Source(watch: watch, crashKeys: keys), log: log, janks: HangLog(capacity: 8), logger: nil,
+                                  intervalNanos: 0, deliver: { _ in })
         let scope = HeldScope(watch: watch)
 
         now.add(2_500_000_000) // past the 100 ms budget and the 2 s hang tier after it

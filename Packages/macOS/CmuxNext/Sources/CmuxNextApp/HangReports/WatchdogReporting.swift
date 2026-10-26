@@ -42,6 +42,14 @@ enum WatchdogReporting {
                                 phase: hang.phase, attribution: .init(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass, location: hang.attribution.location, turnNanos: hang.attribution.turnNanos))
             collector?.noteHang(durationNanos: Self.nanos(hang.duration), addresses: hang.addresses, task: HangSample.MainTask(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass))
         }
+        // A watched thread still in its hang-watch scope 2 s past its budget (p09-observability-068): a crash report
+        // tagged hang.thread and a hang-report entry, at most once per registration name per report interval.
+        watchdog.onThreadHang = { hang in
+            reporter.reportThreadHang(ThreadHangEvent(thread: hang.name, threadKind: hang.kindName, threadName: hang.threadName,
+                                                      overrun: hang.overrun, addresses: hang.addresses))
+            collector?.noteThreadHang(durationNanos: Self.nanos(hang.overrun), addresses: hang.addresses,
+                                      thread: HangSample.WatchedThread(name: hang.name, kind: hang.kindName))
+        }
         // ~/Library/Logs/<bundle id>/hangs, listed in Debug Settings > Hangs.
         watchdog.episodes = HangFileTunables.recorder(bundleID: Bundle.main.bundleIdentifier)
         let lagSpikes = LagSpikeReporter(reporter: reporter)

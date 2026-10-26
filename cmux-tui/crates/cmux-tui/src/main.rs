@@ -2457,6 +2457,10 @@ fn run_server(
     if let Err(error) = mux.start_cold_scrollback(&features) {
         eprintln!("cmux-tui: cold scrollback worker did not start: {error}");
     }
+    // Energy Saver follows AC and battery after the app quits too.
+    if let Err(error) = mux.start_power_source(&features) {
+        eprintln!("cmux-tui: power source reading did not start: {error}");
+    }
     #[cfg(debug_assertions)]
     owner_start::hang_for_test(args.headless);
     local_owner::install_key_from_launcher(&mux, args.owner_install_key_fd);

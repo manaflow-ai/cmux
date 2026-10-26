@@ -33,6 +33,10 @@ pub(crate) const MAX_TERMINAL_WORKERS: usize = 8;
 /// runs it inline, as before this pool existed.
 const MAX_QUEUED_TERMINAL_JOBS: usize = 1024;
 
+/// The workers' class: a person waits on a terminal start (a new tab,
+/// split or workspace).
+const TERMINAL_WORK_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::UserInitiated;
+
 type TerminalJob = Box<dyn FnOnce() + Send>;
 
 #[derive(Default)]
@@ -89,10 +93,9 @@ impl TerminalWorkPool {
             return Ok(());
         }
         let state = self.state.clone();
-        let started =
-            cmux_tui_platform::qos::spawn_outside_request("mux-terminal-work", move || {
-                Self::work(&state);
-            });
+        let started = cmux_threads::spawn("mux-terminal-work", TERMINAL_WORK_QOS, move || {
+            Self::work(&state);
+        });
         if started.is_ok() {
             return Ok(());
         }
