@@ -293,4 +293,27 @@ mod tests {
         let answers = parse_answers(&question, &["q1=blue, red, teal".into()]).unwrap();
         assert_eq!(answers, json!({"Pick?": "Red, Blue, teal"}));
     }
+
+    /// The CLI is never the person (`hub/person.rs`): the daemon refuses its
+    /// allow and its answer. The way to answer a pending ask it prints (the
+    /// send reply, `acpmux pending`) names the app for those, and only the
+    /// commands the CLI may run (ergo-walk, 2026-10-25).
+    #[test]
+    fn the_pending_hint_offers_only_what_the_cli_may_run() {
+        let permission = json!({"toolCall": {"title": "Read README.md"}, "options": [
+            {"optionId": "accept", "kind": "allow_once"},
+            {"optionId": "cancel", "kind": "reject_once"}]});
+        let hint = pending_hint(&permission, "my-linux/api-work");
+        assert!(!hint.contains("session allow"), "{hint}");
+        assert!(hint.contains("allow it in the cmux app (the chat's permission card)"), "{hint}");
+        assert!(hint.contains("acpmux session deny my-linux/api-work"), "{hint}");
+
+        let question = json!({"toolCall": {"_meta": {"acpmux": {"question": {"items": [
+            {"id": "q1", "prompt": "Pick?", "options": [{"label": "Red"}]}]}}}},
+            "options": [{"optionId": "allow", "kind": "allow_once"}]});
+        let hint = pending_hint(&question, "s");
+        assert!(!hint.contains("session answer"), "{hint}");
+        assert!(hint.contains("answer it in the cmux app (the chat's question card)"), "{hint}");
+        assert!(hint.contains("acpmux session deny s"), "{hint}");
+    }
 }
