@@ -895,12 +895,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     const known = this.order.has(id);
     const previous = this.get(id);
     const unchanged = known && previous === row;
-    if (
-      !unchanged &&
-      (previous?.kind === "activity" ||
-        row.kind === "activity" ||
-        pullRequestRowKey(previous) !== pullRequestRowKey(row))
-    )
+    if (!unchanged && pullRequestRowKey(previous) !== pullRequestRowKey(row))
       this.pullRequestActivityVersion = Symbol();
     if (!unchanged) this.snapshot = undefined;
     if (!known) {

@@ -15,6 +15,12 @@ const keys = [
   "navigator",
   "HTMLElement",
   "Element",
+  "Node",
+  "MutationObserver",
+  "ResizeObserver",
+  "getComputedStyle",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
   "localStorage",
   "IS_REACT_ACT_ENVIRONMENT",
 ] as const;
@@ -29,6 +35,16 @@ beforeAll(() => {
     navigator: dom.window.navigator,
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
+    Node: dom.window.Node,
+    MutationObserver: dom.window.MutationObserver,
+    ResizeObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+    getComputedStyle: dom.window.getComputedStyle,
+    requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0) as unknown as number,
+    cancelAnimationFrame: (handle: number) => clearTimeout(handle),
     localStorage: dom.window.localStorage,
     IS_REACT_ACT_ENVIRONMENT: true,
   });

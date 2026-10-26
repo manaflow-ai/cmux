@@ -14,6 +14,9 @@ import { LinkHoverCard } from "../chips/LinkHoverCard";
 import { useSiteInfo } from "../chips/linkStore";
 import { useHoverCard } from "../chips/useHoverCard";
 
+import { Popover } from "../../../ui/Popover";
+import { usePopoverTrigger } from "../../../ui/popoverTrigger";
+
 const SHOWN = 2;
 export type PullRequestDockMode = "compact" | "none" | "collapsed" | "full";
 const BADGES: Record<string, StringKey> = {
@@ -97,7 +100,10 @@ export function PullRequestDock({
   const changes = visibleChanges(all, headerStatus(live));
   const [dismissed, setDismissed] = useState(() => readDismissed(sessionId));
   const [expanded, setExpanded] = useState(false);
-  const dock = useRef<HTMLElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const count = useRef<HTMLButtonElement>(null);
+  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  const trigger = usePopoverTrigger(expanded, setExpanded);
   const disclosure = useRef<HTMLButtonElement>(null);
   const listId = useId();
   // The place of the bar just dismissed: focus moves to the bar now there, or the composer.
@@ -105,11 +111,12 @@ export function PullRequestDock({
   useEffect(() => {
     if (refocus === undefined) return;
     setRefocus(undefined);
-    const buttons = dock.current?.querySelectorAll<HTMLElement>(".acpmux-pr-dock__dismiss");
+    const buttons = list.current?.querySelectorAll<HTMLElement>(".acpmux-pr-dock__dismiss");
     const next = buttons?.[Math.min(refocus, buttons.length - 1)];
     (
       next ??
       disclosure.current ??
+      count.current ??
       document.querySelector<HTMLElement>(".acpmux-composer [contenteditable], .acpmux-composer textarea")
     )?.focus();
   }, [refocus]);
@@ -120,18 +127,53 @@ export function PullRequestDock({
     .reverse();
   if ((compact ? changes.length : prs.length) === 0 || mode === "none") return null;
   const displayMode = mode === "compact" && !compact ? "full" : mode;
-  const visible = compact ? (expanded ? prs : []) : displayMode === "collapsed" || expanded ? prs : prs.slice(0, SHOWN);
+  const visible = compact || displayMode === "collapsed" || expanded ? prs : prs.slice(0, SHOWN);
   const dismiss = (url: string, index: number) => {
     const next = [...dismissed, url];
     setDismissed(next);
     writeDismissed(sessionId, next);
     setRefocus(index);
+    if (compact && prs.length === 1) setExpanded(false);
   };
+  const bars = (
+    <div
+      ref={list}
+      tabIndex={compact ? -1 : undefined}
+      id={listId}
+      className="acpmux-pr-dock__list"
+      hidden={visible.length === 0}
+    >
+      {visible.map((pr, index) => {
+        const { state, title, labeled } = shown(pr, live);
+        const badge = BADGES[state];
+        return (
+          <div key={pr.url} className="acpmux-pr-dock__chip">
+            <PullRequestBar pr={pr} state={state} title={title}>
+              <Icon name="git.pullrequest" size={13} />
+              <span className="acpmux-pr-dock__number">#{pr.number}</span>
+              <span className="acpmux-pr-dock__repo">{pr.repo.split("/").pop()}</span>
+              {title && <span className="acpmux-pr-dock__title">{title}</span>}
+              {labeled && <span className="acpmux-pr-dock__state">{badge ? t(badge) : state}</span>}
+            </PullRequestBar>
+            <button
+              type="button"
+              className="cv-iconbtn cv-iconbtn--compact acpmux-pr-dock__dismiss"
+              aria-label={t("prDock.dismiss", { number: pr.number })}
+              onClick={() => dismiss(pr.url, index)}
+            >
+              <Close size={12} />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
   return (
-    <section ref={dock} className="acpmux-pr-dock" data-mode={displayMode} aria-label={t("prDock.label")}>
+    <section className="acpmux-pr-dock" data-mode={displayMode} aria-label={t("prDock.label")}>
       {compact && (
         <div className="acpmux-pr-dock__compact">
           <button
+            ref={count}
             type="button"
             className="acpmux-pr-dock__count"
             aria-label={t(changes.length === 1 ? "prDock.countOne" : "prDock.count", { count: String(changes.length) })}
@@ -144,44 +186,39 @@ export function PullRequestDock({
           </button>
           {prs.length > 0 && (
             <button
-              ref={disclosure}
+              ref={(element) => {
+                disclosure.current = element;
+                setAnchor(element);
+              }}
               type="button"
               className="acpmux-pr-dock__count acpmux-pr-dock__disclosure"
               aria-label={t("prDock.label")}
+              aria-haspopup="dialog"
               aria-expanded={expanded}
               aria-controls={listId}
-              onClick={() => setExpanded(!expanded)}
+              {...trigger}
             >
               <Icon name={expanded ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
             </button>
           )}
         </div>
       )}
-      <div id={listId} className="acpmux-pr-dock__list" hidden={visible.length === 0}>
-        {visible.map((pr, index) => {
-          const { state, title, labeled } = shown(pr, live);
-          const badge = BADGES[state];
-          return (
-            <div key={pr.url} className="acpmux-pr-dock__chip">
-              <PullRequestBar pr={pr} state={state} title={title}>
-                <Icon name="git.pullrequest" size={13} />
-                <span className="acpmux-pr-dock__number">#{pr.number}</span>
-                <span className="acpmux-pr-dock__repo">{pr.repo.split("/").pop()}</span>
-                {title && <span className="acpmux-pr-dock__title">{title}</span>}
-                {labeled && <span className="acpmux-pr-dock__state">{badge ? t(badge) : state}</span>}
-              </PullRequestBar>
-              <button
-                type="button"
-                className="cv-iconbtn cv-iconbtn--compact acpmux-pr-dock__dismiss"
-                aria-label={t("prDock.dismiss", { number: pr.number })}
-                onClick={() => dismiss(pr.url, index)}
-              >
-                <Close size={12} />
-              </button>
-            </div>
-          );
-        })}
-      </div>
+      {compact ? (
+        <Popover
+          open={expanded && prs.length > 0}
+          onOpenChange={setExpanded}
+          anchor={anchor}
+          label={t("prDock.label")}
+          className="acpmux-pr-dock__popover"
+          side="top"
+          initialFocus={list}
+          finalFocus={prs.length > 0 ? disclosure : count}
+        >
+          {bars}
+        </Popover>
+      ) : (
+        bars
+      )}
       {displayMode === "full" && prs.length > SHOWN && (
         <button
           type="button"

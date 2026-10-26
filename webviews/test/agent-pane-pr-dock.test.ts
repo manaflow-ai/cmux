@@ -275,12 +275,12 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
       expect(await disclosure.getAttribute("aria-expanded")).toBe("false");
       await page.waitForFunction(() => document.activeElement?.classList.contains("acpmux-pr-dock__disclosure"));
       await disclosure.click();
-      const link = dock.locator(".acpmux-pr-dock__bar").first();
+      const link = page.locator(".acpmux-pr-dock__popover .acpmux-pr-dock__bar").first();
       await link.focus();
       await page.locator(".acpmux-pr-card").waitFor();
       expect(await page.locator(".acpmux-pr-card").innerText()).toContain("Log each retry");
-      await dock.locator(".acpmux-pr-dock__dismiss").first().click();
-      expect(await dock.locator(".acpmux-pr-dock__bar").count()).toBe(3);
+      await page.locator(".acpmux-pr-dock__popover .acpmux-pr-dock__dismiss").first().click();
+      expect(await page.locator(".acpmux-pr-dock__popover .acpmux-pr-dock__bar").count()).toBe(3);
       expect(await dock.locator(".acpmux-pr-dock__count").first().innerText()).toBe("4 PRs");
     } finally {
       await page.close();

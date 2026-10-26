@@ -128,6 +128,8 @@
 .acpmux-pr-dock[data-mode="compact"]{padding-bottom:4px}
 .acpmux-pr-dock__compact{display:flex;align-items:center}
 .acpmux-pr-dock__list{display:contents}
+.acpmux-pr-dock__popover{max-width:min(480px,calc(100vw - 24px))}
+.acpmux-pr-dock__popover .acpmux-pr-dock__list{display:flex;flex-direction:column;gap:4px;outline:none}
 .acpmux-pr-dock__list[hidden]{display:none}
 .acpmux-pr-dock__count{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 4px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;cursor:default}
 .acpmux-pr-dock__count>svg{color:var(--agent-muted)}
