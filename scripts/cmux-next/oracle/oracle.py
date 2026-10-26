@@ -37,7 +37,7 @@ flakiness by hashes; diff.py compares the snapshot values.
 
 Run directory (`run --out DIR`; the format diff.py (014) reads, with the extra fields below):
     receipt.json       {"schema": "cmux-oracle-run-v1", "runId", "sha", "host": {"name", "os",
-                        "osVersion", "arch"}, "platform", "product", "arm" (baseline arm or null),
+                        "osVersion", "arch", "display"}, "platform", "product", "arm" (baseline arm or null),
                         "shards": [i], "seeds": {"i": seed}, "selection", "cases": {"<suite>/<case>":
                         {"suite", "result" (Flaky for a flaky case), "outcome", "flaky", "reasons",
                         "expected", "attempts", "checkpoints": N}}, "counts", ...}
@@ -188,14 +188,52 @@ def current_platform() -> str:
     return "linux"
 
 
-def host_info() -> Dict[str, str]:
-    """The host keys diff.py checks (3F.1: base and head run on one host)."""
+def host_info(read_displays: Optional[Callable[[], Optional[Dict[str, Any]]]] = None) -> Dict[str, Optional[str]]:
+    """The host keys diff.py checks (3F.1, task 008: base and head run on one host, OS and display)."""
     return {
         "name": socket.gethostname(),
         "os": platform_mod.system(),
         "osVersion": platform_mod.mac_ver()[0] or platform_mod.release(),
         "arch": platform_mod.machine(),
+        "display": display_info(read_displays or system_displays),
     }
+
+
+def system_displays() -> Optional[Dict[str, Any]]:
+    """`system_profiler SPDisplaysDataType -json` on macOS; None when it cannot be read."""
+    try:
+        proc = subprocess.run(["/usr/sbin/system_profiler", "SPDisplaysDataType", "-json"], check=False,
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=60)
+        profile = json.loads(proc.stdout)
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return None
+    return profile if proc.returncode == 0 and isinstance(profile, dict) else None
+
+
+def display_info(read_displays: Callable[[], Optional[Dict[str, Any]]]) -> Optional[str]:
+    """The main display the app opens on: points and refresh, pixels, and how many displays there are.
+
+    "none" off macOS and on a Mac with no display; None (diff.py refuses it as not recorded) when the
+    profile cannot be read or names no main display, so an unknown display never compares equal.
+    """
+    if sys.platform != "darwin":
+        return "none"
+    profile = read_displays()
+    if profile is None:
+        return None
+    displays = [d for gpu in profile.get("SPDisplaysDataType") or [] if isinstance(gpu, dict)
+                for d in gpu.get("spdisplays_ndrvs") or [] if isinstance(d, dict)]
+    if not displays:
+        return "none"
+    main = [d for d in displays if d.get("spdisplays_main") == "spdisplays_yes"]
+    chosen = main[0] if len(main) == 1 else (displays[0] if len(displays) == 1 else None)
+    if chosen is None:
+        return None
+    resolution, pixels = chosen.get("_spdisplays_resolution"), chosen.get("_spdisplays_pixels")
+    if not resolution and not pixels:
+        return None
+    count = f"{len(displays)} display" + ("" if len(displays) == 1 else "s")
+    return f"{resolution or 'unknown points'} ({pixels or 'unknown'} px), {count}"
 
 
 def digest(items: Iterable[str]) -> str:

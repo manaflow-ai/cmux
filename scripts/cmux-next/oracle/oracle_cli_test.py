@@ -16,6 +16,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import unittest.mock
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
@@ -391,7 +392,7 @@ class RunTests(unittest.TestCase):
             run_cases(tmp, FakeDriver(), ref="abc123")
             receipt = json.loads((tmp / "out" / "receipt.json").read_text())
             self.assertEqual(receipt["sha"], "abc123")
-            self.assertEqual(set(receipt["host"]), {"name", "os", "osVersion", "arch"})
+            self.assertEqual(set(receipt["host"]), {"name", "os", "osVersion", "arch", "display"})
             self.assertEqual(receipt["cases"]["alpha/case-000"]["result"], "Pass")
             rows = [json.loads(line) for line in (tmp / "out" / "checkpoints.jsonl").read_text().splitlines()]
             self.assertEqual(len(rows), 4)
@@ -400,6 +401,42 @@ class RunTests(unittest.TestCase):
                              {"case": "alpha/case-000", "suite": "alpha", "step": "s1", "index": 0,
                               "checkpoint": "settled", "attempt": 0, "result": "Pass"})
             self.assertEqual(row["sha256"], oracle.snapshot_sha256(row["snapshot"]))
+
+
+def profile(*displays):
+    return {"SPDisplaysDataType": [{"_name": "Apple M4 Pro", "spdisplays_ndrvs": list(displays)}]}
+
+
+MAIN = {"_name": "Display", "_spdisplays_pixels": "3840 x 2160", "_spdisplays_resolution": "1920 x 1080 @ 60.00Hz",
+        "spdisplays_main": "spdisplays_yes"}
+SIDE = {"_name": "Virtual", "_spdisplays_pixels": "1920 x 1200", "_spdisplays_resolution": "1920 x 1200 @ 120.00Hz"}
+
+
+class DisplayTests(unittest.TestCase):
+    """The receipt's host.display (task 008): what diff.py's same-host policy compares."""
+
+    def on_mac(self, value):
+        with unittest.mock.patch.object(oracle.sys, "platform", "darwin"):
+            return oracle.display_info(lambda: value)
+
+    def test_main_display_with_points_pixels_and_count(self):
+        self.assertEqual(self.on_mac(profile(MAIN)), "1920 x 1080 @ 60.00Hz (3840 x 2160 px), 1 display")
+        self.assertEqual(self.on_mac(profile(SIDE, MAIN)), "1920 x 1080 @ 60.00Hz (3840 x 2160 px), 2 displays")
+
+    def test_a_second_display_changes_the_value(self):
+        self.assertNotEqual(self.on_mac(profile(MAIN)), self.on_mac(profile(MAIN, SIDE)))
+
+    def test_no_display_is_none_and_unknown_is_not_recorded(self):
+        self.assertEqual(self.on_mac(profile()), "none")
+        self.assertIsNone(self.on_mac(None))
+        self.assertIsNone(self.on_mac(profile(SIDE, dict(SIDE, _name="other"))))  # two displays, none main
+        self.assertIsNone(self.on_mac(profile({"spdisplays_main": "spdisplays_yes"})))
+
+    def test_off_macos_is_none_without_reading(self):
+        def unread():
+            raise AssertionError("read the display profile off macOS")
+        with unittest.mock.patch.object(oracle.sys, "platform", "linux"):
+            self.assertEqual(oracle.display_info(unread), "none")
 
 
 class CompareTests(unittest.TestCase):
