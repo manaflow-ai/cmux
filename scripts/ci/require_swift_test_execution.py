@@ -23,11 +23,15 @@ XCTEST_COMPLETION = re.compile(
 # Swift Testing names each test it skips (a disabled trait, or its suite's), and the suite whose own trait
 # skipped it ("➜ Suite SidebarMultiViewHomeTests skipped: "the drag tests need a display""; with no comment,
 # "skipped."). Its run summary still counts skipped tests ("Test run with 2 tests in 1 suite passed"), so a run
-# of skips reads as a pass. The line starts with its skip symbol: ➜ or ↷ in a terminal, an SF Symbol (Private
-# Use plane) where those draw.
-SKIP_SYMBOL = "[➜↷\U00100000-\U0010FFFD]"
-SWIFT_SKIPPED_TEST = re.compile(r"^\s*" + SKIP_SYMBOL + r" Test (?P<name>.+?) skipped(?:: (?P<reason>.+?))?\.?\s*$")
-SWIFT_SKIPPED_SUITE = re.compile(r"^\s*" + SKIP_SYMBOL + r" Suite (?P<name>\S+) skipped(?:: (?P<reason>.+?))?\.?\s*$")
+# of skips reads as a pass. The line starts with its skip symbol: ➜ or ↷ in a terminal, ✘ in older releases
+# (after a zero-width space), an SF Symbol (Private Use plane) where those draw. A custom display name may have
+# spaces ("➜ Suite "Food truck tests" skipped: ...").
+SKIP_SYMBOL = "[\u200b\ufeff]*[➜↷✘\U00100000-\U0010FFFD]"
+# A ✘ line also reports issues ("✘ Test a() recorded an issue at F.swift:3:5: ... skipped"): no skip names
+# an issue, and a name never ends in a colon.
+SWIFT_SKIPPED_TEST = re.compile(r"^\s*" + SKIP_SYMBOL
+                                + r" Test (?P<name>(?:(?! recorded an issue).)+?)(?<!:) skipped(?:: (?P<reason>.+?))?\.?\s*$")
+SWIFT_SKIPPED_SUITE = re.compile(r"^\s*" + SKIP_SYMBOL + r" Suite (?P<name>.+?) skipped(?:: (?P<reason>.+?))?\.?\s*$")
 
 
 def skip_report(output: str) -> tuple[int, int, list[str]]:

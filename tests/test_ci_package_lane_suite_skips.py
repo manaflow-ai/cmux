@@ -100,11 +100,26 @@ class SkipReportTest(unittest.TestCase):
             ("↷ Test a() skipped.", "no reason given"),
             ("\U0010058d Test a(points:) skipped.", "no reason given"),
             ('\x1b[90m➜\x1b[0m Test a() skipped: "no display"', '"no display"'),
+            ('\u200b✘ Test a() skipped: "no display"', '"no display"'),
+            ('➜ Test "A row drops" skipped.', "no reason given"),
         ):
             with self.subTest(line=line):
                 ran, skipped, reasons = guard.skip_report(line + "\n✔ Test run with 1 test passed after 0.1 seconds.\n")
                 self.assertEqual((ran, skipped), (0, 1))
                 self.assertEqual(reasons, [f"1 test: {reason}"])
+
+    def test_a_suite_with_a_display_name_is_named(self):
+        _, _, reasons = guard.skip_report('➜ Suite "Food truck tests" skipped: "no display"\n'
+                                          '➜ Test a() skipped: "no display"\n'
+                                          "✔ Test run with 1 test in 1 suite passed after 0.1 seconds.\n")
+        self.assertEqual(reasons[0], 'suite "Food truck tests": "no display"')
+
+    def test_a_failed_test_is_no_skip(self):
+        with self.assertRaises(ValueError):
+            guard.skip_report("\u200b✘ Test a() failed after 0.1 seconds with 1 issue.\n"
+                              "✘ Test run with 1 test failed after 0.1 seconds with 1 issue.\n")
+        self.assertEqual(guard.skip_report("✘ Test a() recorded an issue: skipped\n"
+                                           "✔ Test run with 1 test passed after 0.1 seconds.\n"), (1, 0, []))
 
     def test_a_log_line_that_only_says_skipped_is_no_skip(self):
         for line in ("INFO Test diagnostic skipped", "Test cache skipped", "- Test a() skipped"):
