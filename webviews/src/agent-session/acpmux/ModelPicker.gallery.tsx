@@ -195,6 +195,22 @@ const startedFork: ModelPickerProps = {
   fork: { to: () => undefined, ready: true },
 };
 
+/// The same chat on a Mac with 48 installed Claude profiles (Lawrence: "model picker too tall"): its
+/// Account submenu keeps to the window and scrolls to the last profile.
+const manyProfiles: ModelPickerProps = {
+  ...startedFork,
+  profiles: {
+    claude: Array.from({ length: 24 }, (_, index) => ({
+      id: `claude-profile-${index + 1}`,
+      name: `Claude profile ${index + 1}`,
+    })),
+    "claude-work": Array.from({ length: 24 }, (_, index) => ({
+      id: `claude-work-profile-${index + 1}`,
+      name: `Claude work profile ${index + 1}`,
+    })),
+  },
+};
+
 const openQuick: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu") !== null);
@@ -350,7 +366,8 @@ export default componentEntry<GalleryProps>({
       props: startedFork,
       play: async (ctx) => {
         await openQuick(ctx);
-        await ctx.click({ role: "menuitem", name: /^Account/ });
+        await ctx.focus({ role: "menuitem", name: /^Account/ });
+        await ctx.press("Enter");
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-profile") !== null);
       },
     },
@@ -390,6 +407,18 @@ export default componentEntry<GalleryProps>({
         await ctx.waitFor(
           () => ctx.document.querySelector('.acpmux-quick-rail-tab[aria-label="Codex"][aria-pressed="true"]') !== null,
         );
+      },
+    },
+    // A short window and 48 profiles (Lawrence: "model picker too tall"): the menu, its search, rail
+    // and agent update keep to the window, and Account's submenu scrolls to its last profile.
+    "quick-menu-many-profiles": {
+      props: { ...manyProfiles, update },
+      height: 360,
+      play: async (ctx) => {
+        await openQuick(ctx);
+        await ctx.focus({ role: "menuitem", name: /^Account/ });
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-quick-profile").length >= 24);
       },
     },
     // Search, version A (ships): a search field heads the list and has the keyboard as the menu
