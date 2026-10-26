@@ -98,7 +98,8 @@ export function parseAvatarManifest(value: unknown): { manifest: AvatarManifest 
   if (fps === null) return { error: "fps must be 1 to 30" };
   if (raw.faces !== undefined && raw.faces !== "left" && raw.faces !== "right")
     return { error: 'faces must be "left" or "right"' };
-  if (raw.pixelArt !== undefined && typeof raw.pixelArt !== "boolean") return { error: "pixelArt must be true or false" };
+  if (raw.pixelArt !== undefined && typeof raw.pixelArt !== "boolean")
+    return { error: "pixelArt must be true or false" };
   const rawStates = raw.states as Record<string, unknown> | undefined;
   if (!rawStates || typeof rawStates !== "object") return { error: "states must be an object" };
   const states: Partial<Record<AvatarState, AvatarStateSpec>> = {};
