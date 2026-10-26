@@ -72,7 +72,8 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
 
     /// Set once by `AppServices`: every event `sendEvent` gets is dispatched inside it, so the
     /// router, the menu gate and the action signposts read the event given to `sendEvent`, not
-    /// `currentEvent` (the last dequeued one, kept after its dispatch).
+    /// `currentEvent` (the last dequeued one, kept after its dispatch). It tells the main-thread scheduler
+    /// about each discrete input and whether its turn expects a frame (`MainWorkScheduler.noteDiscreteInput(expectsFrame:)`).
     var inputDispatch: InputDispatchContext?
 
     /// Each window's continuous input, coalesced to its frame (`FrameInputCoalescer`). `sendEvent`
