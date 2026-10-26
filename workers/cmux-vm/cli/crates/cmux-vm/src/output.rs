@@ -373,16 +373,47 @@ impl<'a> Printer<'a> {
         let session_id = value
             .get("id")
             .and_then(serde_json::Value::as_str)
-            .unwrap_or("unknown");
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| {
+                CliError::unexpected(format!(
+                    "client session for VM {vm_id} omitted its id; run `cmux-vm client-session list {vm_id}` and revoke the new session before retrying"
+                ))
+            })?;
+        let response_vm = value
+            .get("vmId")
+            .and_then(serde_json::Value::as_str)
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| {
+                CliError::unexpected(format!(
+                    "client session {session_id} for VM {vm_id} omitted its VM id; run `cmux-vm client-session list {vm_id}` and revoke the new session before retrying"
+                ))
+            })?;
+        if response_vm != vm_id {
+            return Err(CliError::unexpected(format!(
+                "client session {session_id} belongs to VM {response_vm}, not VM {vm_id}; run `cmux-vm client-session list {vm_id}` and revoke the new session before retrying"
+            )));
+        }
         let provider_vm = value
             .get("providerVmId")
             .and_then(serde_json::Value::as_str)
-            .unwrap_or("unknown-provider-vm");
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| {
+                CliError::unexpected(format!(
+                    "client session {session_id} for VM {vm_id} omitted providerVmId; revoke it with `cmux-vm client-session revoke {vm_id} {session_id} --yes`"
+                ))
+            })?;
         let user = value
             .get("linuxUser")
             .and_then(serde_json::Value::as_str)
-            .unwrap_or("ubuntu");
+            .filter(|user| !user.is_empty())
+            .ok_or_else(|| {
+                CliError::unexpected(format!(
+                    "client session {session_id} for VM {vm_id} omitted linuxUser; revoke it with `cmux-vm client-session revoke {vm_id} {session_id} --yes`"
+                ))
+            })?;
         let ssh = format!("{provider_vm}+{user}@beta-ssh.freestyle.sh");
+        let recovery =
+            format!("revoke it with `cmux-vm client-session revoke {vm_id} {session_id} --yes`");
         if let Some((path, mut file)) = token_file {
             if let Err(error) = file.write_all(token.as_bytes()) {
                 return Err(CliError::unexpected(format!(
@@ -402,21 +433,31 @@ impl<'a> Printer<'a> {
                 if let Some(object) = value.as_object_mut() {
                     object.remove("token");
                 }
-                return self.json_value(&value);
+                return self
+                    .json_value(&value)
+                    .map_err(|error| CliError::unexpected(format!("{error}; {recovery}")));
             }
-            self.line(&format!("ssh {ssh}"))?;
-            return self.line(&format!(
-                "Token shown once and written to {} (mode 0600).",
-                path.display()
-            ));
+            self.line(&format!("ssh {ssh}"))
+                .map_err(|error| CliError::unexpected(format!("{error}; {recovery}")))?;
+            return self
+                .line(&format!(
+                    "Token shown once and written to {} (mode 0600).",
+                    path.display()
+                ))
+                .map_err(|error| CliError::unexpected(format!("{error}; {recovery}")));
         }
         if self.json {
             value["sshLine"] = serde_json::json!(ssh);
-            return self.json_value(&value);
+            return self
+                .json_value(&value)
+                .map_err(|error| CliError::unexpected(format!("{error}; {recovery}")));
         }
-        self.line(&format!("ssh {ssh}"))?;
-        self.line(&format!("token {token}"))?;
+        self.line(&format!("ssh {ssh}"))
+            .map_err(|error| CliError::unexpected(format!("{error}; {recovery}")))?;
+        self.line(&format!("token {token}"))
+            .map_err(|error| CliError::unexpected(format!("{error}; {recovery}")))?;
         self.line("This token is shown once; store it now.")
+            .map_err(|error| CliError::unexpected(format!("{error}; {recovery}")))
     }
 
     /// Lists sessions without ever forwarding a token field from the server.
