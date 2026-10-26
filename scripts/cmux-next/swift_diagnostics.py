@@ -4,28 +4,46 @@
 Usage (a build runs only as a fleet step; see swift-diagnostics.sh):
   cmux-ci run --class isolated --ref SHA --script scripts/cmux-next/swift-diagnostics.sh -- --summary
   swift-diagnostics.sh [--package Packages/macOS/CmuxNext] [--scratch-path DIR [--no-build]] [--read-log FILE]
-                       [--out FILE] [--fixits-out FILE] [--group NAME]... [--summary] [--ref SHA]
+                       [--no-tests] [--out FILE] [--fixits-out FILE] [--group NAME]... [--summary] [--ref SHA]
 
 Modes (each row records its mode):
-- clean (default): `swift build -Xswiftc -print-diagnostic-groups` into a new, empty --scratch-path, so no file is
-  skipped as up to date and no warning is lost (an incremental build prints only the files it recompiles).
+- clean (default): `swift build --build-tests -Xswiftc -print-diagnostic-groups` into a new, empty --scratch-path,
+  so no file is skipped as up to date and no warning is lost (an incremental build prints only the files it
+  recompiles). Test targets are built too (--no-tests leaves them out).
 - persisted: --scratch-path DIR is an existing build folder. The build there is incremental, then every persisted
   `.dia` file is read, so files the build did not recompile still count. --no-build only reads (any host).
 - log: --read-log FILE parses a saved build log (any host). The log has no fix-it offsets.
 
+Every mode that reads `.dia` files checks them against the checkout (SwiftPM's native layout: each
+<target>.build folder has the output-file-map.json of its last planning, which maps each source to its `.dia`):
+- stale: a source newer than its `.dia` (edited since, or not recompiled by a failed build), and any row whose
+  file, fix-it or note names a file newer than the `.dia`. Its rows and fix-its are refused, because their line,
+  column and byte offsets no longer match the file (summary stale_sources).
+- orphan: a `.dia` its target's map no longer names (its source was excluded or moved to another target;
+  SwiftPM leaves the old file in place) is not read (summary orphan_dia). The module's own `.dia`
+  (`<Module>.emit-module.dia`, or a release build's whole-module `<Module>.dia`) covers every mapped source.
+- missing: a mapped source with no `.dia` in a target that has some (summary missing_dia). A target with none was
+  not built (a build without --build-tests plans the test targets too); it is listed (summary unbuilt_targets).
+- --no-build only: a manifest, or a source no map lists, newer than the build plan <scratch>/<configuration>.yaml
+  (summary changed_since_build); the persisted maps predate it.
+swiftc writes size 0 and time 0 in its FILENAME records, so the `.dia` file's own mtime is the reference.
+
 Rows come from the serialized diagnostics (`.dia`, the LLVM bitstream format of
 clang/include/clang/Frontend/SerializedDiagnostics.h that swiftc writes per source file), which carry the group
 and machine-applicable fix-its; the build log adds what has no `.dia` (driver and manifest diagnostics). Groups:
-Swift 6.2 writes the category record as `Group@documentation-url` and prints `message [#Group]`; a category or
-suffix without the URL (older and later compilers) is read the same way.
+the category record names the group (Swift 6.2.4 and 6.3.3 write the bytes `Group@documentation-url`, but the
+record's length field covers only `Group`; the URL is the DIAG_FLAG record's text), and the printed message ends
+in ` [#Group]`.
 
 Row: {mode, source, target, file, line, column, severity, group, message, fixits, notes}. A fix-it is
 {file, line, column, offset, end_line, end_column, end_offset, text}: replace the bytes [offset, end_offset) of
 file with text. --fixits-out writes one line per row fix-it (the diagnostic's own fix-its, not its notes'
 alternatives), the input of the strict-memory-safety pass (p10-stability-211).
 
-Exit status: 0 the build succeeded; 1 the build failed (its diagnostics are still written); 2 bad arguments or a
-host that may not build; 3 no verdict (no toolchain, or no diagnostics could be read).
+Exit status: 0 the build succeeded (or none ran) and every diagnostic was read; 1 the build failed (its
+diagnostics are still written); 2 bad arguments or a host that may not build; 3 no verdict: no toolchain, no
+`.dia` file in the build folder, or any stale, missing or changed_since_build entry, or (persisted mode) an
+unreadable `.dia`. A failed build is 1 even then; the reasons still print.
 """
 
 from __future__ import annotations
@@ -69,7 +87,9 @@ CHAR6 = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._"
 LOG_HEADER = re.compile(r"^(?P<file>[^\s:][^:]*):(?P<line>\d+):(?P<column>\d+): "
                         r"(?P<severity>error|warning|note|remark): (?P<message>.*)$")
 GROUP_SUFFIX = re.compile(r"\s+\[#(?P<group>[A-Za-z][A-Za-z0-9_-]*)\]\s*$")
+TARGET_ROOTS = ("Sources", "Tests", "Plugins")
 TARGET_FOLDER = re.compile(r"^(?:Sources|Tests|Plugins)/(?P<target>[^/]+)/")
+OUTPUT_FILE_MAP = "output-file-map.json"
 
 
 class UsageError(Exception):
@@ -311,11 +331,11 @@ def parse_dia(data: bytes) -> DiaFile:
 # ---------------------------------------------------------------- rows
 
 def split_group(message: str, category: str = "") -> tuple[str, str]:
-    """(message without a ` [#Group]` suffix, group): the suffix, else the category's name before `@url`."""
+    """(message without a ` [#Group]` suffix, group): the suffix (log lines), else the category record's name."""
     match = GROUP_SUFFIX.search(message)
     if match:
         return message[:match.start()], match.group("group")
-    return message, category.split("@", 1)[0].strip()
+    return message, category.strip()
 
 
 def target_of(file: str, package_dir: Path) -> str:
@@ -393,17 +413,143 @@ def merge_rows(dia: Iterable[dict], log: Iterable[dict]) -> list[dict]:
     return sorted(rows.values(), key=lambda r: (r["target"], r["file"], r["line"], r["column"], r["message"]))
 
 
-def find_dia_files(scratch: Path, configuration: str) -> list[Path]:
-    """Every .dia of the configuration's build folders (<scratch>/<triple>/<configuration>/...), symlinks not
-    followed, so `<scratch>/debug -> <triple>/debug` is read once."""
+def configuration_files(scratch: Path, configuration: str) -> list[Path]:
+    """Every .dia and output-file-map.json of the configuration's build folders
+    (<scratch>/<triple>/<configuration>/...), symlinks not followed, so `<scratch>/debug -> <triple>/debug` is
+    read once."""
     found = []
     for directory, subdirectories, files in os.walk(scratch, followlinks=False):
         parts = Path(directory).relative_to(scratch).parts
         if len(parts) >= 2 and parts[1] != configuration:
             subdirectories.clear()
             continue
-        found.extend(Path(directory) / name for name in files if name.endswith(".dia") and len(parts) >= 2)
+        if len(parts) >= 2:
+            found.extend(Path(directory) / name for name in files
+                         if name.endswith(".dia") or name == OUTPUT_FILE_MAP)
     return sorted(found)
+
+
+@dataclasses.dataclass
+class TargetMap:
+    """A target folder's output-file-map.json, which SwiftPM rewrites at each planning (and which drops a source
+    that left the target, while its old .dia stays in the folder)."""
+    sources: dict[str, str]  # .dia file name -> source
+    whole_module_dia: str  # `<object stem>.dia` of a whole-module (release) build's "" entry, else ""
+
+    @classmethod
+    def read(cls, path: Path) -> "TargetMap":
+        entries = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(entries, dict):
+            raise ValueError("not a JSON object")
+        sources = {Path(entry["diagnostics"]).name: source for source, entry in entries.items()
+                   if source and isinstance(entry, dict) and isinstance(entry.get("diagnostics"), str)}
+        module = entries.get("")
+        whole = Path(module["object"]).stem + ".dia" if isinstance(module, dict) and isinstance(
+            module.get("object"), str) else ""
+        return cls(sources, whole)
+
+    def module_level(self, name: str) -> bool:
+        """The .dia of the module, not of one source: it covers every source of the target."""
+        return name.endswith(".emit-module.dia") or name == self.whole_module_dia
+
+
+class MtimeCache:
+    """Each file's mtime in ns, or None when it does not exist; one stat per file however many rows name it."""
+
+    def __init__(self):
+        self._times: dict[str, int | None] = {}
+
+    def __call__(self, file: str) -> int | None:
+        if file not in self._times:
+            try:
+                self._times[file] = os.stat(file).st_mtime_ns
+            except OSError:
+                self._times[file] = None
+        return self._times[file]
+
+    def newer(self, file: str, than: int) -> bool:
+        mtime = self(file) if file else None
+        return mtime is not None and mtime > than
+
+
+def row_files(row: Mapping) -> set[str]:
+    """The files a row's positions and offsets point into."""
+    files = {row["file"], *(f["file"] for f in row["fixits"])}
+    for note in row["notes"]:
+        files.update([note["file"], *(f["file"] for f in note["fixits"])])
+    return {file for file in files if file}
+
+
+def read_build_folder(scratch: Path, configuration: str, mode: str, package_dir: Path, meta: dict,
+                      mtimes: MtimeCache) -> tuple[list[dict], set[str]]:
+    """(the rows of every fresh .dia that its target still compiles, the real paths of every mapped source); meta
+    records the stale, orphan, missing and unreadable ones."""
+    files = configuration_files(scratch, configuration)
+    dia_files = [path for path in files if path.suffix == ".dia"]
+    meta["dia_files"] = len(dia_files)
+    maps: dict[Path, TargetMap] = {}
+    for path in files:
+        if path.name == OUTPUT_FILE_MAP:
+            try:
+                maps[path.parent] = TargetMap.read(path)
+            except (ValueError, OSError) as error:
+                meta["unreadable_dia"].append(f"{path}: {error}")
+    present = {(path.parent, path.name) for path in dia_files}
+    compiled = {path.parent for path in dia_files}
+    for folder, target in maps.items():
+        if folder not in compiled:
+            meta["unbuilt_targets"].append(folder.name)
+        elif (folder, target.whole_module_dia) not in present:
+            meta["missing_dia"].extend(source for name, source in target.sources.items()
+                                       if (folder, name) not in present and mtimes(source) is not None)
+    stale: set[str] = set()
+    rows: list[dict] = []
+    for path in dia_files:
+        target = maps.get(path.parent)
+        if target is None:
+            covered = []
+        elif path.name in target.sources:
+            covered = [target.sources[path.name]]
+        elif target.module_level(path.name):
+            covered = list(target.sources.values())
+        else:
+            meta["orphan_dia"].append(str(path))
+            continue
+        try:
+            written = path.stat().st_mtime_ns
+            found = dia_rows(path, mode, package_dir)
+        except (DiaError, OSError) as error:
+            meta["unreadable_dia"].append(f"{path}: {error}")
+            continue
+        newer_sources = {source for source in covered if mtimes.newer(source, written)}
+        if newer_sources:
+            stale.update(newer_sources)
+            continue
+        for row in found:
+            newer = {file for file in row_files(row) if mtimes.newer(file, written)}
+            stale.update(newer)
+            if not newer:
+                rows.append(row)
+    meta["stale_sources"] = sorted(stale)
+    meta["missing_dia"].sort()
+    meta["unbuilt_targets"].sort()
+    return rows, {os.path.realpath(source) for target in maps.values() for source in target.sources.values()}
+
+
+def changed_since_build(package_dir: Path, scratch: Path, configuration: str, listed: set[str]) -> list[str]:
+    """--no-build: the manifests and unlisted sources (new since the last planning) newer than the build plan
+    SwiftPM writes at each planning; the persisted maps cannot know them."""
+    plan = scratch / f"{configuration}.yaml"
+    try:
+        planned = plan.stat().st_mtime_ns
+    except OSError:
+        return [f"{plan} (no build plan: not a SwiftPM build folder)"]
+    candidates = list(package_dir.glob("Package*.swift"))
+    for folder in TARGET_ROOTS:
+        root = package_dir / folder
+        if root.is_dir():
+            candidates.extend(path for path in root.rglob("*.swift") if os.path.realpath(path) not in listed)
+    return sorted(str(path) for path in candidates if path.stat().st_mtime_ns > planned)
 
 
 def drop_deleted_sources(rows: list[dict], root: Path) -> tuple[list[dict], int]:
@@ -456,9 +602,15 @@ def resolve_environment(root: Path, environ: Mapping[str, str]) -> tuple[dict[st
     return env, completed.stdout.strip().splitlines()[0] if completed.stdout.strip() else ""
 
 
-def run_build(package_dir: Path, scratch: Path, configuration: str, env: Mapping[str, str], log: Path) -> int:
-    command = ["xcrun", "--sdk", "macosx", "swift", "build", "--package-path", str(package_dir),
-               "--scratch-path", str(scratch), "-c", configuration, "-Xswiftc", "-print-diagnostic-groups"]
+def build_command(package_dir: Path, scratch: Path, configuration: str, build_tests: bool) -> list[str]:
+    return ["xcrun", "--sdk", "macosx", "swift", "build", "--package-path", str(package_dir),
+            "--scratch-path", str(scratch), "-c", configuration, *(["--build-tests"] if build_tests else []),
+            "-Xswiftc", "-print-diagnostic-groups"]
+
+
+def run_build(package_dir: Path, scratch: Path, configuration: str, env: Mapping[str, str], log: Path,
+              build_tests: bool) -> int:
+    command = build_command(package_dir, scratch, configuration, build_tests)
     print(f"swift-diagnostics: {' '.join(command)}", flush=True)
     with log.open("w", encoding="utf-8") as handle:
         return subprocess.run(command, env=dict(env), stdout=handle, stderr=subprocess.STDOUT,
@@ -510,6 +662,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--no-build", action="store_true", help="with --scratch-path: only read its .dia files")
     parser.add_argument("--read-log", type=Path, help="log mode: parse this saved build log, no build")
     parser.add_argument("--configuration", choices=("debug", "release"), default="debug")
+    parser.add_argument("--no-tests", action="store_true", help="do not build the test targets")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT, help="diagnostics JSONL (default %(default)s)")
     parser.add_argument("--fixits-out", type=Path, help="also write each row's fix-its as JSONL")
     parser.add_argument("--group", action="append", default=[], help="only this diagnostic group; repeatable")
@@ -537,11 +690,14 @@ def check_ref(root: Path, ref: str) -> str:
 
 def collect(args: argparse.Namespace, root: Path, environ: Mapping[str, str], system: str,
             resolve: Callable[[Path, Mapping[str, str]], tuple[dict[str, str], str]],
-            build: Callable[[Path, Path, str, Mapping[str, str], Path], int],
+            build: Callable[[Path, Path, str, Mapping[str, str], Path, bool], int],
             out_dir: Path) -> tuple[list[dict], dict]:
     package_dir = (root / args.package).resolve()
     meta = {"mode": args.mode, "package": args.package, "configuration": args.configuration,
-            "build_status": None, "swift_version": "", "dia_files": 0, "unreadable_dia": [], "deleted_sources": 0}
+            "build_status": None, "build_tests": None, "swift_version": "", "dia_files": 0, "unreadable_dia": [],
+            "stale_sources": [], "orphan_dia": [], "missing_dia": [], "unbuilt_targets": [],
+            "changed_since_build": [],
+            "deleted_sources": 0}
     if args.mode == "log":
         return log_rows(args.read_log.read_text(encoding="utf-8", errors="replace"), "log", package_dir), meta
     building = not args.no_build
@@ -562,17 +718,13 @@ def collect(args: argparse.Namespace, root: Path, environ: Mapping[str, str], sy
             env, meta["swift_version"] = resolve(root, environ)
             log = out_dir / "build.log"
             log.parent.mkdir(parents=True, exist_ok=True)
-            meta["build_status"] = build(package_dir, scratch, args.configuration, env, log)
+            meta["build_tests"] = not args.no_tests
+            meta["build_status"] = build(package_dir, scratch, args.configuration, env, log, meta["build_tests"])
             log_text = log.read_text(encoding="utf-8", errors="replace")
             meta["build_log"] = str(log)
-        dia_files = find_dia_files(scratch, args.configuration)
-        meta["dia_files"] = len(dia_files)
-        dia: list[dict] = []
-        for path in dia_files:
-            try:
-                dia.extend(dia_rows(path, args.mode, package_dir))
-            except (DiaError, OSError) as error:
-                meta["unreadable_dia"].append(f"{path}: {error}")
+        dia, listed = read_build_folder(scratch, args.configuration, args.mode, package_dir, meta, MtimeCache())
+        if not building:
+            meta["changed_since_build"] = changed_since_build(package_dir, scratch, args.configuration, listed)
     finally:
         if args.mode == "clean" and not args.keep_scratch:
             shutil.rmtree(scratch, ignore_errors=True)
@@ -582,9 +734,27 @@ def collect(args: argparse.Namespace, root: Path, environ: Mapping[str, str], sy
     return rows, meta
 
 
+def no_verdict_reasons(mode: str, meta: Mapping) -> list[str]:
+    """Why the rows are not the whole set of current diagnostics; any reason makes the exit status 3."""
+    if mode == "log":
+        return []
+    reasons = []
+    if not meta["dia_files"]:
+        reasons.append("no .dia file in the build folder (<scratch>/<triple>/<configuration>/<target>.build)")
+    for key, what in (("stale_sources", "source(s) newer than their .dia; their rows and fix-its are refused"),
+                      ("missing_dia", "mapped source(s) with no .dia"),
+                      ("changed_since_build", "file(s) changed since the last build plan (--no-build)")):
+        if meta[key]:
+            reasons.append(f"{len(meta[key])} {what}: " + ", ".join(meta[key][:5])
+                           + (" ..." if len(meta[key]) > 5 else ""))
+    if mode == "persisted" and meta["unreadable_dia"]:
+        reasons.append(f"{len(meta['unreadable_dia'])} unreadable .dia file(s); no build log covers them")
+    return reasons
+
+
 def main(argv: list[str] | None = None, environ: Mapping[str, str] | None = None, system: str | None = None,
          resolve: Callable[[Path, Mapping[str, str]], tuple[dict[str, str], str]] = resolve_environment,
-         build: Callable[[Path, Path, str, Mapping[str, str], Path], int] = run_build, root: Path = ROOT) -> int:
+         build: Callable[[Path, Path, str, Mapping[str, str], Path, bool], int] = run_build, root: Path = ROOT) -> int:
     environ = dict(os.environ if environ is None else environ)
     try:
         args = parse_args(list(sys.argv[1:] if argv is None else argv))
@@ -616,16 +786,17 @@ def main(argv: list[str] | None = None, environ: Mapping[str, str] | None = None
     for problem in meta["unreadable_dia"]:
         print(f"swift-diagnostics: unreadable .dia: {problem}", file=sys.stderr)
     print(f"swift-diagnostics: mode {meta['mode']}; {meta['dia_files']} .dia file(s); {len(rows)} row(s) in {out}"
+          + (f"; {len(meta['orphan_dia'])} orphan .dia" if meta["orphan_dia"] else "")
+          + (f"; unbuilt targets: {', '.join(meta['unbuilt_targets'])}" if meta["unbuilt_targets"] else "")
           + (f"; {meta['swift_version']}" if meta["swift_version"] else ""))
+    reasons = no_verdict_reasons(args.mode, meta)
+    for reason in reasons:
+        print(f"swift-diagnostics: no verdict: {reason}", file=sys.stderr)
     status = meta["build_status"]
     if status:
         print(f"swift-diagnostics: the build failed (exit {status}); log {meta.get('build_log')}", file=sys.stderr)
         return 1
-    if args.mode != "log" and not meta["dia_files"] and not rows:
-        print("swift-diagnostics: no verdict: the build left no .dia file and the log no diagnostic",
-              file=sys.stderr)
-        return 3
-    return 0
+    return 3 if reasons else 0
 
 
 if __name__ == "__main__":
