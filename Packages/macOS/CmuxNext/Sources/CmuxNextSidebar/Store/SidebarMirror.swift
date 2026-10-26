@@ -168,10 +168,12 @@ public final class SidebarMirror {
         return (reply.stale == true ? .stale : .applied(revision: reply.revision.flatMap { UInt64($0) }), dropped)
     }
 
-    /// Drops the pending intent `key` (the daemon refused it; no batch will echo it).
-    public func reject(_ key: String) {
-        guard let body = try? JSONEncoder().encode(Rejected(idempotencyKey: key)) else { return }
-        _ = applyBatch(raw: body)
+    /// Drops the pending intent `key` (the daemon refused it; no batch will echo it). Returns the keys of the later
+    /// pending intents its replay dropped with it (a Chief add over the Chief the refusal put back).
+    @discardableResult
+    public func reject(_ key: String) -> [String] {
+        guard let body = try? JSONEncoder().encode(Rejected(idempotencyKey: key)) else { return [] }
+        return applyBatchDropping(raw: body)?.dropped ?? []
     }
 
     /// Applies an intent optimistically (the daemon's reply or batch

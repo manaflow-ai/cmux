@@ -397,8 +397,7 @@ public final class SidebarDocStore {
     }
 
     private func drop(_ key: String, redraws: Bool = true) {
-        mirror?.reject(key)
-        settlePendingChief([key])
+        settlePendingChief(Set(mirror?.reject(key) ?? []).union([key]))
         if redraws { bump() }
     }
 

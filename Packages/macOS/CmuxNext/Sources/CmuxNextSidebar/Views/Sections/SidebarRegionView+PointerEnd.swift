@@ -3,8 +3,8 @@ import AppKit
 // The older top band keeps its drag (`reorder`) and ends it on its tile's mouse-up. A release that went to another
 // window or the desktop never reaches the tile: the band sees it here, as the list does (`SidebarListView+PointerEnd`).
 extension SidebarRegionView {
-    /// Watches the app's releases while the region holds a drag: set with the drag, removed when it ends (any end) or
-    /// when the region leaves its window (`viewWillMove(toWindow:)`). The monitor holds neither the region nor the drag.
+    /// Watches the app's releases while the region holds a drag: set with the drag, removed when it ends (any end, leaving
+    /// its window too: `viewWillMove(toWindow:)`). The monitor holds neither the region nor the drag.
     func followPointerEnd(from old: SidebarRegionDrag?) {
         guard old !== reorder else { return }
         if let old { Self.stopFollowing(old) }
@@ -27,10 +27,17 @@ extension SidebarRegionView {
         if let monitor = drag.pointerEnd { NSEvent.removeMonitor(monitor); drag.pointerEnd = nil }
     }
 
-    /// Off its window no release can end the drag: its monitor goes now.
+    /// Off its window no release can end the drag: it ends now, removing and moving nothing. Its monitor goes with
+    /// it (`reorder`'s `didSet`), its card leaves and its views show again, with no landing (nothing draws it).
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
-        if newWindow == nil, let reorder { Self.stopFollowing(reorder) }
+        guard newWindow == nil, let drag = reorder else { return }
+        reorder = nil
+        _ = dropToListProbe?(nil)
+        reorderSections = nil
+        drag.lift.removeFromSuperview()
+        for view in drag.hidden { view.alphaValue = 1 }
+        relayout(animated: false)
     }
 
     /// A left release anywhere in the app (`eventWindow`, at `screenPoint` on screen), before its window gets it. One sent
