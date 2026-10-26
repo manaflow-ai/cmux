@@ -239,6 +239,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// export and in host mode, whose return means only "sent" (the answer is a later REPLY).
     let tabDiscard: (@convention(c) (Int32) -> Int32)?
     let widgets: CEFShimWidgetOps
+    /// Drops into a detached page (task 050, fork API 31).
+    let dragTarget: CEFShimDragTargetOps
     /// `cmux_shim_browser_attach_view(browser, parent_view)` (fork API 33, p03-rendering-044, Track B): moves the
     /// browser's `WebContentsViewCocoa` into `parent_view` (an NSView*), below its other subviews; 1 attached, 0
     /// refused (an unknown browser, no page window yet, a fork below API 33). Nil without the export and in host
@@ -301,17 +303,6 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     // Side panel header (fork API 13).
     let sidePanelState: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
     let sidePanelPress: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
-
-    /// Opens the shim at `url`, resolves every symbol and checks that its ABI
-    /// identity is `expected` (`CEFShimABI.bundledIdentity()`).
-    static func open(_ url: URL, expected: String?) throws(LoadError) -> CEFShimLibrary {
-        guard let handle = dlopen(url.path, RTLD_NOW | RTLD_LOCAL) else {
-            throw .open(String(cString: dlerror()))
-        }
-        let library = try CEFShimLibrary(Resolver(symbol: { dlsym(handle, $0) }))
-        try checkABI(expected: expected, found: library.abiIDFn().map { String(cString: $0) })
-        return library
-    }
 
     /// Where every function came from (``overriding(_:)`` resolves the others the same way).
     let resolver: Resolver
@@ -445,6 +436,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         tabDiscard = r.hostExports == nil ? r.optional("cmux_shim_tab_discard") : nil
         widgets = CEFShimWidgetOps(setGeometry: r.optional("cmux_shim_widget_set_geometry"), dismiss: r.optional("cmux_shim_widget_dismiss"),
                                    sendInput: r.optional("cmux_shim_widget_send_input"))
+        dragTarget = try CEFShimDragTargetOps(r)
         browserAttachView = r.hostExports == nil ? r.optional("cmux_shim_browser_attach_view") : nil
         setContextProxy = try r("cmux_shim_set_context_proxy")
         contextProxyState = try r("cmux_shim_context_proxy_state")

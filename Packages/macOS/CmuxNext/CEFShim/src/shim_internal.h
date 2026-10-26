@@ -143,6 +143,9 @@ struct ForkApi {
   char* (*tab_entry_page_state)(int, int) = nullptr;
   int (*tab_page_state_watch)(int, void (*)(void*, int, int), void*) = nullptr;
   int (*tab_restore_entries)(int, const ForkRestoreEntry*, int, int) = nullptr;
+  // API version 31 (task 172): the renderer's answer to each DragTarget*
+  // enter and over of a detached page (shim_helper_host.mm).
+  int (*browser_drag_target_watch)(int, void (*)(void*, int, int, int), void*) = nullptr;
   // No API number yet (p13-webui-017; the fork train numbers it): its
   // presence says the fork honors CMUX_EXTRA_INFO_NO_RENDERER.
   int (*tab_renderer_state)(int) = nullptr;

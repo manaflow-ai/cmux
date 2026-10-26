@@ -375,7 +375,7 @@ import Testing
         let page = try #require(host.hostedPageView)
         #expect(page.pageCursorName == "default", "the arrow until the page sets one")
 
-        runtime.handle(.cursor(browser: Self.firstBrowser, cursor: .builtIn(3)))
+        runtime.handle(.pageView(browser: Self.firstBrowser, .cursor(.builtIn(3))))
         #expect(page.pageCursorName == "text")
 
         let second = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
@@ -383,9 +383,9 @@ import Testing
         runtime.register(second, browser: Self.firstBrowser + 1)
         host.present(second, in: container)
         #expect(page.pageCursorName == "default", "the first tab's cursor is not the second's")
-        runtime.handle(.cursor(browser: Self.firstBrowser + 1, cursor: .builtIn(18)))
+        runtime.handle(.pageView(browser: Self.firstBrowser + 1, .cursor(.builtIn(18))))
         #expect(page.pageCursorName == "col-resize")
-        runtime.handle(.cursor(browser: Self.firstBrowser, cursor: .builtIn(2)))
+        runtime.handle(.pageView(browser: Self.firstBrowser, .cursor(.builtIn(2))))
         #expect(page.pageCursorName == "col-resize", "a hidden tab's cursor does not show")
 
         host.present(first, in: container)

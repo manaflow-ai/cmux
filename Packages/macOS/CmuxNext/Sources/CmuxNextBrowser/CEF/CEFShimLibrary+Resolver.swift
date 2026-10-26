@@ -20,6 +20,17 @@ nonisolated extension CEFShimLibrary {
         }
     }
 
+    /// Opens the shim at `url`, resolves every symbol and checks that its ABI
+    /// identity is `expected` (`CEFShimABI.bundledIdentity()`).
+    static func open(_ url: URL, expected: String?) throws(LoadError) -> CEFShimLibrary {
+        guard let handle = dlopen(url.path, RTLD_NOW | RTLD_LOCAL) else {
+            throw .open(String(cString: dlerror()))
+        }
+        let library = try CEFShimLibrary(Resolver(symbol: { dlsym(handle, $0) }))
+        try checkABI(expected: expected, found: library.abiIDFn().map { String(cString: $0) })
+        return library
+    }
+
     /// The functions `symbol` gives by name, with no shim loaded (a test's spy shim).
     static func resolving(_ symbol: @escaping (String) -> UnsafeMutableRawPointer?) throws(LoadError) -> CEFShimLibrary {
         try CEFShimLibrary(Resolver(symbol: symbol))
