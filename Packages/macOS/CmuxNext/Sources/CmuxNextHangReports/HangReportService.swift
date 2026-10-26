@@ -306,8 +306,8 @@ public actor HangReportService {
 
     /// `report` shrunk until it encodes under the body cap. The input latency is context and goes
     /// first (the least frequent rows, then the scroll jank histograms, then the whole block), so
-    /// hangs keep the room they had without it; then the shortest hangs, CPU exceptions and
-    /// intervals.
+    /// hangs keep the room they had without it; then the shortest hangs (the blocking samples, first
+    /// in the list, after every timed one), CPU exceptions and intervals.
     static func fitted(_ report: HangReport) -> HangReport {
         var report = report
         while (try? HangReport.encoder.encode(report).count) ?? 0 > HangReport.maxBodyBytes {
