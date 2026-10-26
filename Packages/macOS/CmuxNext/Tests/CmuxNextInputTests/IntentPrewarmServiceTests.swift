@@ -9,6 +9,10 @@ import Testing
 /// after 200 ms; FIFO of 2, oldest cancelled; nothing starts in Low Power Mode on battery or at memory
 /// pressure warning or worse, and critical pressure cancels the held prewarms (Chrome's speculation rules:
 /// anchor_element_interaction_tracker.cc, prerender_host_registry.cc).
+///
+/// Key steps (p04-input-044): a next/previous key's prewarm of the following item is one background-class
+/// deadline, never run in the key's turn; three presses prewarm items 2, 3, 4 in order through the FIFO of 2;
+/// a step the other way cancels the old direction's key-step prewarms.
 @MainActor @Suite(.timeLimit(.minutes(1)))
 struct IntentPrewarmServiceTests {
     /// The content owner: which targets are cold, and what was started and cancelled, in order.
@@ -28,19 +32,21 @@ struct IntentPrewarmServiceTests {
         func cancelPrewarm(_ target: String) { cancelled.append(target) }
     }
 
-    /// A service whose dwell is a background `MainDeadline` on a deadline rig the test fires, and a pressure
-    /// source the test drives.
+    /// A service whose dwell and key step are background `MainDeadline`s on a deadline rig the test fires, and
+    /// a pressure source the test drives.
     struct Rig {
         let warmer = Warmer()
         let deadlines = IntentPrewarmDeadlineRig()
         let pressure = ManualMemoryPressureSource()
         let dwell: MainDeadline
+        let step: MainDeadline
         let service: IntentPrewarmService<String>
 
-        init(power: IntentPrewarmPower = IntentPrewarmPower()) {
+        init(power: IntentPrewarmPower = IntentPrewarmPower(), hovers: Bool = true, steps: Bool = true) {
             dwell = MainDeadline(owner: "IntentPrewarm.hoverDwell", workClass: .background, scheduler: deadlines.scheduler)
+            step = MainDeadline(owner: "IntentPrewarm.keyStep", workClass: .background, scheduler: deadlines.scheduler)
             service = IntentPrewarmService(warmer: warmer, memoryPressure: MemoryPressureEvents(source: pressure),
-                                           dwellTimer: dwell, power: power)
+                                           dwellTimer: hovers ? dwell : nil, stepTimer: steps ? step : nil, power: power)
         }
     }
 
@@ -238,5 +244,185 @@ struct IntentPrewarmServiceTests {
         #expect(rig.service.queue.held.isEmpty)
         #expect(rig.warmer.cancelled.isEmpty)
         #expect(rig.service.counters.used == 1)
+    }
+
+    // MARK: Key steps (p04-input-044)
+
+    @Test func aKeyStepsPrewarmRunsAtTheBackgroundClassNeverInTheKeysTurn() {
+        let rig = Rig()
+        var reads = 0
+        rig.service.stepped(.forward) {
+            reads += 1
+            return ["b"]
+        }
+        #expect(rig.step.workClass == .background)
+        #expect(rig.service.isStepPending)
+        #expect(reads == 0, "the following item is not even read in the key's turn")
+        #expect(rig.warmer.started.isEmpty, "the prewarm ran in the key's turn")
+
+        rig.deadlines.fire()
+        #expect(reads == 1)
+        #expect(rig.warmer.started == ["b"])
+        #expect(rig.warmer.triggers == [.keyStep])
+        #expect(rig.service.counters.started[.keyStep] == 1)
+        #expect(!rig.service.isStepPending)
+        #expect(rig.service.stepDirection == .forward)
+    }
+
+    @Test func threePressesPrewarmItemsTwoThreeFourInOrderWithAFIFOOfTwo() {
+        let rig = Rig()
+        rig.warmer.cold = ["1", "2", "3", "4"]
+        for item in 1...3 {
+            rig.service.committed("\(item)") // the press showed item `item`
+            rig.service.stepped(.forward) { ["\(item + 1)"] }
+            #expect(rig.service.queue.held.count <= 2)
+            rig.deadlines.fire()
+        }
+        #expect(rig.warmer.started == ["2", "3", "4"])
+        #expect(rig.service.counters.used == 2, "presses two and three landed on prewarmed items")
+        #expect(rig.service.queue.held == ["4"])
+        #expect(rig.warmer.cancelled.isEmpty)
+    }
+
+    @Test func keyStepsPastUnshownItemsEvictTheOldestOfTwo() {
+        let rig = Rig()
+        rig.warmer.cold = ["2", "3", "4"]
+        for item in 2...4 {
+            rig.service.stepped(.forward) { ["\(item)"] }
+            rig.deadlines.fire()
+        }
+        #expect(rig.warmer.started == ["2", "3", "4"])
+        #expect(rig.service.queue.held == ["3", "4"])
+        #expect(rig.warmer.cancelled == ["2"])
+        #expect(rig.service.counters.evicted == 1)
+    }
+
+    @Test func aStepTheOtherWayCancelsTheOldDirectionsPrewarms() {
+        let rig = Rig()
+        rig.service.prewarm("c", trigger: .hoverDwell)
+        rig.service.stepped(.forward) { ["b"] }
+        rig.deadlines.fire()
+        #expect(rig.service.queue.held == ["c", "b"])
+
+        rig.service.stepped(.backward) { ["a"] }
+        #expect(rig.warmer.cancelled == ["b"], "the forward prewarm goes at the backward key, in its turn")
+        #expect(rig.service.queue.held == ["c"], "a hover's prewarm is not the old direction's")
+        #expect(rig.service.counters.cancelledByDirection == 1)
+        rig.deadlines.fire()
+        #expect(rig.warmer.started == ["c", "b", "a"])
+        #expect(rig.service.queue.held == ["c", "a"])
+        #expect(rig.service.stepDirection == .backward)
+    }
+
+    @Test func aKeyStepTargetEvictedThenHoveredAgainIsTheHoversNotTheDirections() {
+        let rig = Rig()
+        rig.warmer.cold = ["x", "h1", "h2"]
+        rig.service.stepped(.forward) { ["x"] }
+        rig.deadlines.fire()
+        rig.service.prewarm("h1", trigger: .hoverDwell)
+        rig.service.prewarm("h2", trigger: .hoverDwell)
+        #expect(rig.service.queue.held == ["h1", "h2"], "the hovers evicted the key step's x")
+        rig.service.prewarm("x", trigger: .hoverDwell)
+        #expect(rig.service.queue.held == ["h2", "x"])
+        let cancelledBefore = rig.warmer.cancelled
+
+        rig.service.stepped(.backward) { [] }
+        #expect(rig.warmer.cancelled == cancelledBefore, "the hover's x is no key step's")
+        #expect(rig.service.queue.held == ["h2", "x"])
+        #expect(rig.service.counters.cancelledByDirection == 0)
+    }
+
+    @Test func aCommittedOrForgottenKeyStepTargetHoveredAgainIsNotCancelledByDirection() {
+        let rig = Rig()
+        rig.warmer.cold = ["x", "y"]
+        rig.service.stepped(.forward) { ["x", "y"] }
+        rig.deadlines.fire()
+        rig.service.committed("x")
+        rig.service.forget("y")
+        rig.service.prewarm("x", trigger: .hoverDwell)
+        rig.service.prewarm("y", trigger: .pointerDown)
+
+        rig.service.stepped(.backward) { [] }
+        #expect(rig.warmer.cancelled.isEmpty)
+        #expect(rig.service.queue.held == ["x", "y"])
+        #expect(rig.service.counters.cancelledByDirection == 0)
+    }
+
+    @Test func aStepTheOtherWayDropsTheOldDirectionsPendingStep() {
+        let rig = Rig()
+        rig.service.stepped(.forward) { ["b"] }
+        rig.service.stepped(.backward) { ["a"] }
+        rig.deadlines.fire()
+        #expect(rig.warmer.started == ["a"])
+        #expect(rig.warmer.cancelled.isEmpty, "nothing had started forward")
+    }
+
+    @Test func aRepeatedKeyKeepsOnlyItsLatestPendingStep() {
+        let rig = Rig()
+        rig.service.stepped(.forward) { ["b"] }
+        rig.service.stepped(.forward) { ["c"] }
+        rig.deadlines.fire()
+        #expect(rig.warmer.started == ["c"], "a repeat before the background run replaces the step")
+    }
+
+    @Test func aWarmOrHeldFollowingItemStartsNothing() {
+        let rig = Rig()
+        rig.warmer.cold = ["b"]
+        rig.service.prewarm("b", trigger: .hoverDwell)
+        rig.service.stepped(.forward) { ["b", "x", "b"] }
+        rig.deadlines.fire()
+        #expect(rig.warmer.started == ["b"], "b was held already and x is awake")
+        rig.service.stepped(.backward) { [] }
+        #expect(rig.warmer.cancelled.isEmpty, "the hover's b is no key step's")
+    }
+
+    @Test func keyStepsStartNothingInLowPowerModeOnBatteryOrUnderPressure() {
+        let rig = Rig(power: IntentPrewarmPower(lowPowerMode: true, onBattery: true))
+        rig.service.stepped(.forward) { ["b"] }
+        #expect(!rig.service.isStepPending)
+        #expect(rig.service.counters.skippedForPower == 1)
+
+        rig.service.power = IntentPrewarmPower()
+        rig.service.stepped(.forward) { ["b"] }
+        #expect(rig.service.isStepPending)
+        rig.pressure.send(.warning)
+        #expect(!rig.service.isStepPending, "pressure drops the pending step")
+        rig.service.stepped(.forward) { ["b"] }
+        #expect(!rig.service.isStepPending)
+        #expect(rig.service.counters.skippedForPressure == 1)
+        rig.deadlines.fire()
+        #expect(rig.warmer.started.isEmpty)
+    }
+
+    @Test func criticalPressureForgetsTheKeyStepsItCancelled() {
+        let rig = Rig()
+        rig.service.stepped(.forward) { ["b"] }
+        rig.deadlines.fire()
+        rig.pressure.send(.critical)
+        #expect(rig.warmer.cancelled == ["b"])
+        rig.pressure.send(.normal)
+        rig.service.stepped(.backward) { [] }
+        #expect(rig.warmer.cancelled == ["b"], "a cancelled prewarm is not cancelled twice")
+        #expect(rig.service.counters.cancelledByDirection == 0)
+    }
+
+    @Test func eachTriggerRunsOnlyWithItsDeadline() {
+        let stepsOnly = Rig(hovers: false)
+        stepsOnly.service.pointerHovered("a")
+        #expect(!stepsOnly.service.isDwelling, "no dwell deadline: intentPrewarmHover is off")
+        #expect(stepsOnly.service.restingTarget == nil)
+
+        let hoversOnly = Rig(steps: false)
+        hoversOnly.service.stepped(.forward) { ["b"] }
+        #expect(!hoversOnly.service.isStepPending, "no step deadline: directionalPrewarm is off")
+        #expect(hoversOnly.service.stepDirection == nil)
+        hoversOnly.deadlines.fire()
+        #expect(hoversOnly.warmer.started.isEmpty)
+    }
+
+    @Test func aStepsDirectionComesFromItsOffset() {
+        #expect(IntentPrewarmDirection(offset: 1) == .forward)
+        #expect(IntentPrewarmDirection(offset: -3) == .backward)
+        #expect(IntentPrewarmDirection(offset: 0) == nil)
     }
 }
