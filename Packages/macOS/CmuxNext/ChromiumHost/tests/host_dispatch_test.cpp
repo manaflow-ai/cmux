@@ -47,8 +47,9 @@ struct Shim {
   int live = 0;
   int devtools_result = 77;
   int focus_answer = -1;  // what the focus handler said inside set_focus
-  cmux_shim_password_reveal_fn reveal_done = nullptr;
+  cmux_shim_password_reveal_fn reveal_done = nullptr;  // the latest started reveal's
   void* reveal_ctx = nullptr;
+  int reveals_started = 0;
   bool reveal_refuses = false;  // password_reveal returns 0
 } shim;
 
@@ -104,6 +105,7 @@ int cmux_shim_password_reveal(const char* path, const char* id, cmux_shim_passwo
   if (shim.reveal_refuses) return 0;
   shim.reveal_done = done;
   shim.reveal_ctx = ctx;
+  ++shim.reveals_started;
   return 1;
 }
 int cmux_shim_live_browser_count(void) { return shim.live; }
@@ -582,6 +584,30 @@ void PasswordReveal() {
   }
   Check(done != nullptr, "the late reveal started");
   if (done) done(ctx, "late", 4);
+  // Past 64 waiting reveals one is answered as not found; the host stays up.
+  {
+    Fixture f;
+    f.Start();
+    std::vector<std::pair<cmux_shim_password_reveal_fn, void*>> waiting;
+    for (uint32_t token = 100; token < 164; ++token) {
+      f.host.OnMessages({RevealRequest(token, "id")});
+      waiting.emplace_back(shim.reveal_done, shim.reveal_ctx);
+    }
+    Check(f.sent.empty() && shim.reveals_started == 64, "64 reveals wait for the shim");
+    f.host.OnMessages({RevealRequest(164, "id")});
+    Check(Answers(f.sent, 164, nullptr), "the 65th is answered as not found at once");
+    Check(shim.reveals_started == 64, "the 65th never reaches the shim");
+    bool bad = false;
+    for (const std::string& call : f.delegate.calls) bad = bad || call.rfind("bad ", 0) == 0;
+    Check(!bad, "too many reveals is not a bad message");
+    f.sent.clear();
+    for (const auto& [reveal_done, reveal_ctx] : waiting) reveal_done(reveal_ctx, "pw", 2);
+    Check(f.sent.size() == 64, "each waiting reveal is answered by its done");
+    f.sent.clear();
+    f.host.OnMessages({RevealRequest(165, "id")});
+    Check(shim.reveals_started == 65 && f.sent.empty(), "answered reveals free their places");
+    shim.reveal_done(shim.reveal_ctx, nullptr, 0);
+  }
 }
 
 void WipeZeroes() {

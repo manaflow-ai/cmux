@@ -3103,7 +3103,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "wire:REPLY",
-      "reason": "Function-pointer arg (done). The client (ChromiumHost/client/remote_shim_local.mm) keeps done and ctx by token and sends kOpPasswordReveal (str profile_cache_path, str id) under it through cmux_remote::PostPasswordReveal (remote_shim.mm); the host (HostContext::RevealPassword) calls its shim with its own done and answers on a wire REPLY of one bytes field, the password, or no field when none was found or nothing started. That REPLY goes to the reveal's sink only, never to the reply callback (CEFHostReplies), and each side zeroes its message copy after it; done runs exactly once, on main, and the host's exit ends a pending reveal with done(ctx, NULL, 0). The password is never CMUX_SHIM_REPLY text, and no log, trace or counter names its fields (task p01-process-025)."
+      "reason": "Function-pointer arg (done). The client (ChromiumHost/client/remote_shim_local.mm) keeps done and ctx by token and sends kOpPasswordReveal (str profile_cache_path, str id) under it through cmux_remote::PostPasswordReveal (remote_shim.mm); the host (HostContext::RevealPassword) calls its shim with its own done and answers on a wire REPLY of one bytes field, the password, or no field when none was found, nothing started or 64 reveals wait already. That REPLY goes to the reveal's sink only, never to the reply callback (CEFHostReplies); done runs exactly once, on main, and a reveal with no answer (a detach, the host's exit, a malformed frame, a queued op that was not sent) ends with done(ctx, NULL, 0) from the remote shim. The password crosses as a plain frame: the channel's buffers are not zeroed, as Chrome's plaintext answer crosses its IPC (passwords_private_delegate_impl.cc); only the shims zero their own buffers. The password is never CMUX_SHIM_REPLY text, and no log, trace or counter names its fields (task p01-process-025)."
     },
     {
       "name": "cmux_shim_password_export",
@@ -4310,7 +4310,7 @@
         "cmux_shim_password_reveal"
       ],
       "needs": "client",
-      "change": "The same call in both backends: in host mode remote_shim_local.mm's cmux_shim_password_reveal keeps done and ctx, and done runs once on main with the host's REPLY (PostPasswordReveal), or with NULL when the host exits (the sheet shows not found); its 0 with no host attached throws closed, as the in-process 0 does.",
+      "change": "The same call in both backends: in host mode remote_shim_local.mm's cmux_shim_password_reveal keeps done and ctx, its transport sends through cmux_remote::PostPasswordReveal with DeliverPasswordReveal as the sink, and done runs once on main with the host's REPLY, or with NULL when no answer comes (the sheet shows not found); its 0 with no host attached throws closed, as the in-process 0 does. Listed until remote_shim.mm's LocalTransport calls PostPasswordReveal (the 014/014b integration).",
       "task": "p01-process-025"
     }
   ]

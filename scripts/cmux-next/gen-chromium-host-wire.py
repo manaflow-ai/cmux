@@ -65,9 +65,11 @@ Inputs (paths relative to --root, the repository by default):
          `kept`: a local export called only on the in-process path, which `change` names by an
          identifier of the site's file (CEFRuntimeBoot.inProcess, loadInProcess), or with needs
          `client`: a local export the client defines by hand (HOST/client, outside generated/) with
-         the in-process contract, so the same call serves both backends; that site stays listed
-         until HOST/client defines the export. Every other need names work still to do, and its
-         site stays listed until the task doing it drops the entry.
+         the in-process contract, so the same call serves both backends. `change` names the
+         client's wire entry point (cmux_remote::PostPasswordReveal); that site stays listed until
+         HOST/client both defines the export and calls that entry point outside its own
+         declarations and definitions (the transport sends it). Every other need names work still
+         to do, and its site stays listed until the task doing it drops the entry.
 
 Outputs (written by a run without a check flag; --check fails when one is stale):
 
@@ -197,6 +199,7 @@ REWRITE_NEEDS = ("after_attach", "reply", "pending_tab", "host_exit", "kept", "c
 # names work still to do: its site stays listed until the code that does the work removes the entry.
 SETTLED_NEEDS = ("kept",)
 KEPT_PATH = re.compile(r"\b\w*[iI]nProcess\w*\b")  # CEFRuntimeBoot.inProcess, loadInProcess
+CLIENT_WIRE = re.compile(r"\bcmux_remote::(Post\w+)\b")  # a `client` entry's wire entry point
 # CEFRuntime functions that send an async op and await its answer the same way in both backends
 # (CEFRuntime+HostReplies.swift, task p01-process-021): an async call in a closure handed to one is in
 # the token form, and --swift-sites no longer lists it. A mint call there is no reply's call (sendAsync
@@ -541,6 +544,7 @@ class Rewrite:
     exports: list[str]
     needs: str
     site: str
+    wire: str = ""  # needs client: the client's wire entry point (CLIENT_WIRE)
 
 
 @dataclass
@@ -867,13 +871,18 @@ def load_ops(header: Header, root: Path) -> tuple[Model | None, list[str], dict[
         elif kept_path is not None and (root / APP / rel).is_file() \
                 and kept_path.group(0).split(".")[-1] not in (root / APP / rel).read_text(encoding="utf-8"):
             problems.append(f"{label}: change names {kept_path.group(0)!r}, which {APP}/{rel} does not use")
+        client_wire = CLIENT_WIRE.search(str(entry.get("change") or "")) if entry.get("needs") == "client" else None
+        if entry.get("needs") == "client" and client_wire is None:
+            problems.append(f"{label}: needs client names the client's wire entry point in change "
+                            f"(cmux_remote::PostPasswordReveal)")
         if entry.get("needs") not in REWRITE_NEEDS:
             problems.append(f"{label}: needs {entry.get('needs')!r} is not one of {', '.join(REWRITE_NEEDS)}")
         if not isinstance(entry.get("change"), str) or not entry["change"].strip():
             problems.append(f"{label}: change says what the site becomes")
         if not isinstance(entry.get("task"), str) or not re.fullmatch(r"p\d{2}-[a-z0-9]+-\d{3}[a-z]?", entry["task"]):
             problems.append(f"{label}: task {entry.get('task')!r} is not a task id (p01-process-015)")
-        rewrites.append(Rewrite(rel, functions, names, str(entry.get("needs")), site))
+        rewrites.append(Rewrite(rel, functions, names, str(entry.get("needs")), site,
+                                client_wire.group(1) if client_wire else ""))
 
     # What the generated code depends on (op ids, classes, wire kinds, events), not reasons or prose.
     def op_wire(e: Export) -> list:
@@ -1723,6 +1732,20 @@ def hand_written(root: Path, folder: str) -> str:
     return "\n".join(parts)
 
 
+def calls(code: str, name: str) -> bool:
+    """Whether `code` calls the free function `name` (qualified or not), apart from its declarations and
+    definitions (a type word before the name) and member calls of the same name (R().Name)."""
+    for m in re.finditer(rf"(?:\b\w+\s*::\s*)*\b{re.escape(name)}\s*\(", code):
+        before = code[:m.start()].rstrip()
+        if before.endswith((".", "->")):
+            continue
+        word = re.search(r"\b(\w+)\s*[*&]*$", before)
+        if word is not None and word.group(1) != "return":
+            continue
+        return True
+    return False
+
+
 def defines(code: str, name: str) -> bool:
     for m in re.finditer(rf"\b{re.escape(name)}\s*\(", code):
         try:
@@ -2129,14 +2152,15 @@ def first_argument(text: str, begin: int, close: int) -> str:
 def site_settled(model: Model, site: Site, op: Op, client: str) -> bool:
     """Whether a call site already meets host mode, so --swift-sites no longer lists it: an async call in
     the token form, a mint_returns id call in the mint form, a site a `kept` host_mode_rewrites entry
-    settles (SETTLED_NEEDS), or a `client` one whose export `client` (hand_written HOST/client) defines."""
+    settles (SETTLED_NEEDS), or a `client` one whose export `client` (hand_written HOST/client) defines and
+    whose wire entry point it calls."""
     if site.token_form and op.cls in TOKEN_FORM_CLASSES:
         return True
     if site.mint_form and op.cls == "mint" and op.mint_returns == "id" and op.reply_event:
         return True
     rewrite = rewrite_for(model, site)
     if rewrite is not None and rewrite.needs == "client":
-        return defines(client, site.export)
+        return defines(client, site.export) and calls(client, rewrite.wire)
     return rewrite is not None and rewrite.needs in SETTLED_NEEDS
 
 

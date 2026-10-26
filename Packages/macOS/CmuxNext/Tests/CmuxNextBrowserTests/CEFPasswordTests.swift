@@ -2,10 +2,11 @@
 import Foundation
 import Testing
 
-/// The reveal callback both backends call (`cmux_shim_password_reveal`, task p01-process-025): in
-/// process the shim calls it on CEF's UI thread; in host mode the remote shim calls it on main with
-/// the host's REPLY, or with NULL when the host exits first. Either way `copy` sees the bytes once,
-/// during the call, and the reveal answers whether a password came.
+/// `cefPasswordRevealCallback`, the `done` that `CEFEngine.revealPassword` hands
+/// `cmux_shim_password_reveal`: `copy` sees the bytes once, during the call, and the reveal answers
+/// whether a password came; a NULL answer is not found. These cases call the callback as a shim
+/// does. The host-mode delivery (a REPLY, or NULL when no answer comes) is tested where it lives:
+/// remote_shim_test.cpp (scripts/cmux-next/tests/remote-shim-abi.test.sh, task p01-process-025).
 @MainActor @Suite(.timeLimit(.minutes(1))) struct CEFPasswordTests {
     /// What one reveal's `copy` saw.
     private final class Copies {
@@ -33,9 +34,8 @@ import Testing
         #expect(result.copies == [password])
     }
 
-    /// The host's exit ends a pending reveal with done(ctx, NULL, 0) (remote_shim_local.mm), as the
-    /// fork answers an id it does not have: not found, nothing copied.
-    @Test func aRevealTheHostNeverAnsweredEndsAsNotFound() async throws {
+    /// done(ctx, NULL, 0): not found, nothing copied.
+    @Test func aNullAnswerEndsAsNotFound() async throws {
         let result = try await reveal(nil)
         #expect(!result.found)
         #expect(result.copies.isEmpty)

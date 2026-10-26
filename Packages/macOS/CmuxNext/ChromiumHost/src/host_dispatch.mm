@@ -36,8 +36,8 @@ constexpr size_t kMaxPageViews = 4096;
 // create_window and create_placeholder_window calls whose AFTER_CREATED has
 // not come yet.
 constexpr size_t kMaxPendingBinds = 4096;
-// Password reveals the shim has not answered: the Passwords page asks for one
-// at a time, after the device owner authenticated.
+// Password reveals the shim has not answered. Past it a reveal is answered as
+// not found: cmux is trusted, and a stalled profile store must not end the host.
 constexpr size_t kMaxPendingReveals = 64;
 
 bool IsMirrorOp(uint16_t op) {
@@ -88,15 +88,6 @@ control::Message MessageOf(uint16_t op, bool reply, uint32_t token, std::vector<
   message.token = token;
   message.fields = std::move(fields);
   return message;
-}
-
-// Zeroes the byte payloads of `fields` (a password reveal's answer).
-void WipeFields(std::vector<control::Field>& fields) {
-  for (control::Field& field : fields) {
-    volatile char* bytes = field.bytes.data();  // volatile: the stores are not dead to the optimizer
-    for (size_t i = 0; i < field.bytes.size(); ++i) bytes[i] = 0;
-    field.bytes.clear();
-  }
 }
 
 }  // namespace
@@ -292,7 +283,7 @@ void HostContext::RevealPassword(const control::Message& message) {
   const std::optional<std::string> id = r.Str();
   if (!r.ok() || !r.AtEnd() || message.token == 0) return Bad("a malformed password reveal");
   if (state_ != State::kRunning) return SendRevealed(message.token, nullptr, 0);  // the shim's 0: not started
-  if (reveals_.size() >= kMaxPendingReveals) return Bad("too many password reveals waiting");
+  if (reveals_.size() >= kMaxPendingReveals) return SendRevealed(message.token, nullptr, 0);
   auto reveal = std::make_unique<PasswordReveal>(PasswordReveal{this, message.token});
   PasswordReveal* pending = reveal.get();
   reveals_.insert(pending);
@@ -313,15 +304,15 @@ void HostContext::OnPasswordRevealed(void* ctx, const char* password, size_t len
 }
 
 // Sent at once, never held behind an op's events: the answer refreshes no
-// mirror. The shim zeroes its buffer after done; the message's copy is zeroed
-// once the channel has framed it.
+// mirror. The shim zeroes its own buffer after done; the frame is a plain one
+// (remote_shim_runtime.h, PostPasswordReveal).
 void HostContext::SendRevealed(uint32_t token, const char* password, size_t length) {
   if (state_ == State::kEnded) return;
   TlvWriter answer;
   if (password != nullptr && length > 0) answer.Bytes(password, length);
-  control::Message message = MessageOf(kOpReply, true, token, answer.Take());
-  if (!send_(message)) fprintf(stderr, "cmux-chromium-host: a password reveal's answer was not sent\n");
-  WipeFields(message.fields);
+  if (!send_(MessageOf(kOpReply, true, token, answer.Take()))) {
+    fprintf(stderr, "cmux-chromium-host: a password reveal's answer was not sent\n");
+  }
 }
 
 void HostContext::Watch(uint16_t op, const std::vector<control::Field>& key) {

@@ -40,9 +40,9 @@
 //   kOpAck     reply flag, token: the op ran
 //   kOpReply   reply flag, token, the op's result and out-parameters; for a
 //              password reveal one bytes field, the password, or no field when
-//              the shim found none. That REPLY is the only place the password
-//              crosses (task p01-process-025): no log, trace or counter here
-//              names its fields, and its copy is zeroed once it is sent.
+//              the shim found none (or 64 reveals wait already).
+//              That REPLY is the only place the password crosses (task
+//              p01-process-025): no log, trace or counter here names its fields.
 //
 // Everything here runs on the host's main thread (Chromium's UI thread), so
 // it holds no lock (p01-process section 4, rule 1).

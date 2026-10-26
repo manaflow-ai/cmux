@@ -81,8 +81,8 @@ CMUX_REMOTE_EXPORT void cmux_remote_shim_configure(const cmux_remote_shim_callba
 // is attached already.
 CMUX_REMOTE_EXPORT int cmux_remote_shim_attach(int ctl_fd, void* in_ring, void* out_ring);
 // Main thread. Disconnects (host exit, Reload): closes the channel, drops the mirror cache, the
-// pending marks, the awaited tokens and the posts still waiting for the HELLO; `ended` is not
-// called. Posts fail until the next attach, which replays the preinit log (asking no verdict
+// pending marks, the awaited tokens and the posts still waiting for the HELLO, and ends each
+// pending password reveal as not found (PostPasswordReveal); `ended` is not called. Posts fail until the next attach, which replays the preinit log (asking no verdict
 // twice) and INITIALIZE to the new host. Ids and tokens keep counting.
 CMUX_REMOTE_EXPORT void cmux_remote_shim_detach(void);
 CMUX_REMOTE_EXPORT int cmux_remote_shim_attached(void);
@@ -132,12 +132,16 @@ bool PostForReply(uint16_t op, uint32_t token, const TlvWriter& args);
 // host's verdict once (PostForReply). Returns the client's check of the arguments, the
 // in-process shim's own: 1 accepted, 0 refused (nothing recorded).
 int32_t PostPreinit(uint16_t op, uint32_t token, const TlvWriter& args);
-// cmux_shim_password_reveal's wire (task p01-process-025), for remote_shim_local.mm:
+// cmux_shim_password_reveal's wire (task p01-process-025), for remote_shim_local.mm's
+// LocalTransport::send_password_reveal, with its DeliverPasswordReveal as `revealed`:
 // kOpPasswordReveal with str profile_cache_path and str id under `token`. The host's REPLY is
-// one bytes field, the password, or none when its shim found none; it goes to `revealed`
-// (the bytes valid during the call, zeroed after it), never to the reply callback, and
-// nothing here logs or counts it. A detach drops the token unanswered (the local class ends
-// the reveal then). False when not sent: no host attached, or the channel refused it.
+// one bytes field, the password, or none when its shim found none; it goes to `revealed` once,
+// on main (the bytes valid during the call), never to the reply callback, and nothing here
+// logs or counts it. A reveal that gets no answer ends with revealed(token, NULL, 0) once:
+// a detach, the host's end or a malformed frame, or a queued op that was then not sent.
+// False when not sent: no host attached, or the channel refused it; `revealed` never runs then.
+// The password crosses as a plain frame: the channel's buffers are not zeroed, as Chrome's
+// plaintext answer crosses its IPC (passwords_private_delegate_impl.cc).
 using PasswordRevealedFn = bool (*)(uint32_t token, const char* password, size_t length);
 bool PostPasswordReveal(uint32_t token, const char* profile_cache_path, const char* id, PasswordRevealedFn revealed);
 // Never 0.

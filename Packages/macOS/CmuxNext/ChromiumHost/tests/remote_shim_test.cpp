@@ -382,8 +382,8 @@ int main() {
     cmux_remote_shim_set_reply(nullptr, &OnReply);
   }
 
-  // A password reveal's REPLY goes to its own sink, zeroed after it, never to the reply
-  // callback (task p01-process-025).
+  // A password reveal's REPLY goes to its own sink, never to the reply callback (task
+  // p01-process-025).
   {
     static std::vector<std::pair<uint32_t, std::string>> revealed;
     static bool null_password = false;
@@ -547,6 +547,121 @@ int main() {
   PumpUntil([] { return false; }, std::chrono::milliseconds(100));
   CHECK(seen.ended == -1);
   ::close(third.fd);
+  PumpUntil([] { return false; }, std::chrono::milliseconds(100));
+
+  // A reveal no answer reaches ends once as not found, revealed(token, NULL, 0): a detach, the
+  // host's exit, a malformed answer, a queued op that was then not sent (task p01-process-025).
+  {
+    static std::vector<std::pair<uint32_t, bool>> ended;  // token, and whether password was NULL
+    const cmux_remote::PasswordRevealedFn sink = [](uint32_t token, const char* password, size_t) {
+      ended.emplace_back(token, password == nullptr);
+      return true;
+    };
+    // Reads an attach's frames up to the first reveal; true when it is `token`'s.
+    const auto read_reveal = [](Host& h, uint32_t token) {
+      for (int i = 0; i < 64; ++i) {
+        const std::vector<Message> got = h.Read(1);
+        if (got.empty()) return false;
+        if (got[0].op == cmux_remote::kOpPasswordReveal) return got[0].token == token;
+      }
+      return false;
+    };
+    const auto ended_once = [](uint32_t token) { return ended == std::vector<std::pair<uint32_t, bool>>{{token, true}}; };
+    const auto answer = [](Host& h, uint32_t token, const cmux_host::control::TlvWriter& fields) {
+      Message reply;
+      reply.op = cmux_remote::kOpReply;
+      reply.token = token;
+      reply.fields = fields.fields();
+      h.Send(reply);
+    };
+    const auto settle = [](Host& h) {
+      ::close(h.fd);
+      PumpUntil([] { return false; }, std::chrono::milliseconds(100));  // the old channel's end
+    };
+
+    // A detach cmux asks for.
+    {
+      Host h;
+      CHECK(AttachNew(&h) == 1);
+      const uint32_t token = cmux_remote::NextToken();
+      CHECK(cmux_remote::PostPasswordReveal(token, "/profile", "id", sink));
+      CHECK(read_reveal(h, token));
+      CHECK(ended.empty());
+      cmux_remote_shim_detach();
+      CHECK(ended_once(token));
+      settle(h);
+      CHECK(ended_once(token));  // never twice
+      ended.clear();
+    }
+    // The host's exit.
+    {
+      Host h;
+      CHECK(AttachNew(&h) == 1);
+      const uint32_t token = cmux_remote::NextToken();
+      CHECK(cmux_remote::PostPasswordReveal(token, "/profile", "id", sink));
+      CHECK(read_reveal(h, token));
+      seen.ended = -1;
+      ::close(h.fd);
+      CHECK(PumpUntil([] { return seen.ended >= 0; }));
+      CHECK(ended_once(token));
+      ended.clear();
+    }
+    // A malformed answer ends the host, and the reveal with it: two fields, or a field of
+    // another type.
+    for (int shape = 0; shape < 2; ++shape) {
+      Host h;
+      CHECK(AttachNew(&h) == 1);
+      const uint32_t token = cmux_remote::NextToken();
+      CHECK(cmux_remote::PostPasswordReveal(token, "/profile", "id", sink));
+      CHECK(read_reveal(h, token));
+      cmux_host::control::TlvWriter fields;
+      if (shape == 0) {
+        fields.Bytes("a", 1);
+        fields.Bytes("b", 1);
+      } else {
+        fields.I32(7);
+      }
+      seen.ended = -1;
+      answer(h, token, fields);
+      CHECK(PumpUntil([] { return seen.ended >= 0; }));
+      CHECK(seen.ended == CMUX_REMOTE_END_MALFORMED);
+      CHECK(ended_once(token));
+      ended.clear();
+      settle(h);
+    }
+    // Queued behind an optional op before the HELLO, then a detach.
+    {
+      Host h;
+      CHECK(AttachNew(&h) == 1);
+      CHECK(cmux_shim_tab_set_frozen(first, 1) == 1);  // waits for the HELLO
+      const uint32_t token = cmux_remote::NextToken();
+      CHECK(cmux_remote::PostPasswordReveal(token, "/profile", "id", sink));
+      cmux_remote_shim_detach();
+      CHECK(ended_once(token));
+      ended.clear();
+      settle(h);
+    }
+    // Queued before the HELLO, then not sendable when the HELLO flushes the queue (shared fields
+    // over kMaxSharedBytes): its true stands, and it ends as not found. Sent at once and refused,
+    // it is false and the sink never runs.
+    {
+      const std::string huge(cmux_host::control::kMaxSharedBytes + 1, 'p');
+      Host h;
+      CHECK(AttachNew(&h) == 1);
+      CHECK(cmux_shim_tab_set_frozen(first, 1) == 1);
+      const uint32_t token = cmux_remote::NextToken();
+      CHECK(cmux_remote::PostPasswordReveal(token, huge.c_str(), "id", sink));
+      CHECK(ended.empty());
+      h.Send(Hello(cmux_remote::kWireID));
+      CHECK(PumpUntil([] { return !ended.empty(); }));
+      CHECK(ended_once(token));
+      ended.clear();
+      CHECK(!cmux_remote::PostPasswordReveal(cmux_remote::NextToken(), huge.c_str(), "id", sink));
+      cmux_remote_shim_detach();
+      CHECK(ended.empty());
+      settle(h);
+    }
+  }
 
   // View tokens: NULL is 0; a view keeps its token.
   {

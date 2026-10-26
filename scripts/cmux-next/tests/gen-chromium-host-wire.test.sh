@@ -589,15 +589,35 @@ expect 1 "needs kept names the in-process-only path" "a kept entry that names no
 edit_ops "$settled" 'd["host_mode_rewrites"][0]["change"] = "Runs only as loadInProcess."'
 expect 1 "which .*CEFAsync.swift does not use" "a kept entry that names a path its file does not use" -- --root "$settled" --check-ops
 # needs client (task p01-process-025): a local export the client defines by hand (HOST/client, outside
-# generated/) is the same call in both backends; its site stays listed until HOST/client defines it.
+# generated/) is the same call in both backends. change names its wire entry point; the site stays
+# listed until HOST/client defines the export and calls that entry point (its own declarations,
+# definitions and member forwarders are no call).
 edit_ops "$settled" 'd["host_mode_rewrites"][0] = {"site": "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.boot(_:)",
   "exports": ["cmux_shim_initialize"], "needs": "client", "change": "The same call in both backends.", "task": "p01-process-025"}'
+expect 1 "needs client names the client's wire entry point" "a client entry that names no wire entry point" -- --root "$settled" --check-ops
+edit_ops "$settled" 'd["host_mode_rewrites"][0]["change"] = "The same call in both backends, sent by cmux_remote::PostInitialize."'
 expect 0 "" "a client entry is valid" -- --root "$settled" --check-ops
 sites="$(python3 "$gen" --root "$settled" --swift-sites)"
 listed 42 || fail "a client site whose export HOST/client does not define is not listed: $sites"
 hand_written "$settled"
 sites="$(python3 "$gen" --root "$settled" --swift-sites)"
-listed 42 && fail "a client site whose export HOST/client defines is listed: $sites"
+listed 42 || fail "a client site whose wire entry point nothing calls is not listed: $sites"
+wire_file="$settled/Packages/macOS/CmuxNext/ChromiumHost/client/remote_shim_wire.mm"
+cat >"$wire_file" <<'EOF'
+bool PostInitialize(uint32_t token, InitializedFn done);
+char* PostInitialize(int unused);
+bool PostInitialize(uint32_t token, InitializedFn done) { return R().PostInitialize(token, done); }
+bool Runtime::PostInitialize(uint32_t token, InitializedFn done) { return runtime->PostInitialize(token, done); }
+// cmux_remote::PostInitialize(token, &Deliver) in a comment is no call.
+EOF
+sites="$(python3 "$gen" --root "$settled" --swift-sites)"
+listed 42 || fail "declarations, definitions and member calls of the wire entry point settled a client site: $sites"
+cat >>"$wire_file" <<'EOF'
+bool SendInitialize(void*, uint32_t token) { return cmux_remote::PostInitialize(token, &DeliverInitialize); }
+EOF
+sites="$(python3 "$gen" --root "$settled" --swift-sites)"
+listed 42 && fail "a client site whose export HOST/client defines and whose wire entry point it calls is listed: $sites"
+rm "$wire_file"
 edit_ops "$settled" 'd["host_mode_rewrites"][0]["site"] = "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.window(_:)"
 d["host_mode_rewrites"][0]["exports"] = ["cmux_shim_create_window"]'
 expect 1 "needs client is for local exports the client defines; cmux_shim_create_window is mint" "a client mint" -- --root "$settled" --check-ops

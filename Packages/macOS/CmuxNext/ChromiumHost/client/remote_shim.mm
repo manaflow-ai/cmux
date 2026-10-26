@@ -13,7 +13,8 @@
 //                             value to forget the key; before the EVENT that refreshes it
 //                 kOpAck      `token`'s op ran: its pending marks clear
 //                 kOpReply    the answer to an awaited `token`, its fields to the reply callback;
-//                             a password reveal's (PostPasswordReveal) to its own sink only
+//                             a password reveal's (PostPasswordReveal) to its own sink only: one
+//                             bytes field, the password, or none
 // Anything else from the host is malformed and ends it, as bad_message::ReceivedBadMessage ends
 // a renderer (content/browser/bad_message.cc).
 
@@ -226,6 +227,7 @@ class Runtime {
     std::erase_if(replay_, [](const Replay& entry) { return !entry.keep; });
     if (initialize_) Send(*initialize_);
     Flush();
+    AnswerDroppedReveals();
     return 1;
   }
 
@@ -278,8 +280,10 @@ class Runtime {
     TlvWriter args;
     args.Str(path);
     args.Str(id);
-    reveals_[token] = revealed;  // an op that is not sent drops it again (Forget)
-    return Post(kOpPasswordReveal, token, args);
+    // Kept only once Post took it: a refused post has its false and never reaches the sink.
+    if (!Post(kOpPasswordReveal, token, args)) return false;
+    reveals_[token] = revealed;
+    return true;
   }
 
   int32_t PostPreinit(uint16_t op, uint32_t token, const TlvWriter& args) {
@@ -494,7 +498,20 @@ class Runtime {
     if (token == 0) return;
     mirror_.Ack(token);
     awaiting_.erase(token);
-    reveals_.erase(token);
+    if (const auto reveal = reveals_.find(token); reveal != reveals_.end()) {
+      dropped_reveals_.emplace_back(*reveal);
+      reveals_.erase(reveal);
+    }
+  }
+
+  // A reveal whose op will not reach the host, or whose host is gone, ends as not found:
+  // revealed(token, NULL, 0), as mojo::WrapCallbackWithDefaultInvokeIfNotRun answers a response
+  // callback its pipe dropped (mojo/public/cpp/bindings/callback_helpers.h). Called once this
+  // class's state is consistent, since a sink may post, attach or detach.
+  void AnswerDroppedReveals() {
+    std::vector<std::pair<uint32_t, PasswordRevealedFn>> dropped;
+    dropped.swap(dropped_reveals_);
+    for (const auto& [token, revealed] : dropped) revealed(token, nullptr, 0);
   }
 
   // Closes the channel. Its reader thread ends on its own and its end reaches Ended, which
@@ -514,13 +531,15 @@ class Runtime {
     queued_live_ = 0;
     mirror_.Clear();
     awaiting_.clear();
+    dropped_reveals_.insert(dropped_reveals_.end(), reveals_.begin(), reveals_.end());
     reveals_.clear();
     host_exports_.clear();
+    AnswerDroppedReveals();
   }
 
   void Deliver(uint64_t generation, std::vector<Message> batch) {
     CMUX_REMOTE_ASSERT_MAIN();
-    for (Message& message : batch) {
+    for (const Message& message : batch) {
       // A callback below may have detached, or detached and attached again.
       if (generation != generation_) return;
       if (!Apply(message)) {
@@ -540,8 +559,8 @@ class Runtime {
     closing_.erase(generation);
   }
 
-  // False for a malformed frame. A password reveal's answer is zeroed after it is applied.
-  bool Apply(Message& message) {
+  // False for a malformed frame.
+  bool Apply(const Message& message) {
     TlvReader r(message.fields);
     switch (message.op) {
       case kOpEvent: {
@@ -579,11 +598,17 @@ class Runtime {
         return true;
       case kOpReply: {
         if (const auto reveal = reveals_.find(message.token); reveal != reveals_.end()) {
+          // A malformed answer stays pending: the disconnect it causes answers it as not found.
+          const Field* password = nullptr;
+          if (!RevealedPassword(message, &password)) return false;
           const PasswordRevealedFn revealed = reveal->second;
           reveals_.erase(reveal);
-          const bool ok = Revealed(message, revealed);
-          WipeFields(message.fields);
-          return ok;
+          if (password == nullptr) {
+            revealed(message.token, nullptr, 0);
+          } else {
+            revealed(message.token, password->bytes.data(), password->bytes.size());
+          }
+          return true;
         }
         std::string fields;
         if (awaiting_.erase(message.token) == 0) return false;  // a reply to no request
@@ -603,6 +628,7 @@ class Runtime {
         hello_ = true;
         Flush();
         if (callbacks_.ready) callbacks_.ready(callbacks_.ctx);
+        AnswerDroppedReveals();
         return true;
       }
       default:
@@ -610,25 +636,18 @@ class Runtime {
     }
   }
 
-  // A password reveal's REPLY: one bytes field (the password) or none (not found).
-  static bool Revealed(const Message& message, PasswordRevealedFn revealed) {
-    if (message.fields.size() > 1) return false;
-    if (message.fields.empty()) {
-      revealed(message.token, nullptr, 0);
-      return true;
+  // A password reveal's REPLY: one bytes field, the password, or none (`password` stays NULL:
+  // not found). False when malformed.
+  static bool RevealedPassword(const Message& message, const Field** password) {
+    *password = nullptr;
+    if (message.fields.empty()) return true;
+    const Field& field = message.fields.front();
+    if (message.fields.size() > 1 || field.type != cmux_host::control::Type::kBytes ||
+        field.tag != cmux_host::control::kTagValue) {
+      return false;
     }
-    const Field& password = message.fields.front();
-    if (password.type != cmux_host::control::Type::kBytes || password.tag != cmux_host::control::kTagValue) return false;
-    revealed(message.token, password.bytes.data(), password.bytes.size());
+    *password = &field;
     return true;
-  }
-
-  static void WipeFields(std::vector<Field>& fields) {
-    for (Field& field : fields) {
-      volatile char* bytes = field.bytes.data();  // volatile: the stores are not dead to the optimizer
-      for (size_t i = 0; i < field.bytes.size(); ++i) bytes[i] = 0;
-      field.bytes.clear();
-    }
   }
 
   cmux_remote_shim_callbacks callbacks_ = {};
@@ -659,6 +678,8 @@ class Runtime {
   std::unordered_set<uint32_t> awaiting_;
   // Password reveals sent and not answered yet, and where each answer goes.
   std::unordered_map<uint32_t, PasswordRevealedFn> reveals_;
+  // Reveals Forget or Disconnect dropped, for AnswerDroppedReveals.
+  std::vector<std::pair<uint32_t, PasswordRevealedFn>> dropped_reveals_;
   std::unordered_set<std::string> host_exports_;
   std::unordered_map<uint16_t, void*> policies_;
 #if !defined(__APPLE__)
