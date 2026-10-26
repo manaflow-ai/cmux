@@ -221,9 +221,9 @@ public final class WorkstreamStore {
             }
 
             let existingIds = Set(items.map(\.id))
-            let olderItems = page.items.map(normalizedWorkstreamItem).filter {
-                !existingIds.contains($0.id)
-            }
+            let olderItems = latestItems(in: page.items)
+                .map(normalizedWorkstreamItem)
+                .filter { !existingIds.contains($0.id) }
             if !olderItems.isEmpty {
                 items.insert(contentsOf: olderItems, at: 0)
                 self.oldestLoadedPersistenceOffset = page.startOffset ?? cursor
@@ -339,6 +339,12 @@ public final class WorkstreamStore {
     }
 
     // MARK: - Private helpers
+
+    /// Keeps the newest journal row for each event UUID while preserving page order.
+    private func latestItems(in pageItems: [WorkstreamItem]) -> [WorkstreamItem] {
+        var seen = Set<UUID>()
+        return pageItems.reversed().filter { seen.insert($0.id).inserted }.reversed()
+    }
 
     private func bumpRevision() {
         revision = revision == Int.max ? Int.max : revision + 1
