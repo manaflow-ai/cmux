@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
 
@@ -11,14 +12,22 @@ struct SidebarPriorityDragTests {
 
     /// The panel in a window, its rows laid out at once (shown before the window, so nothing glides).
     final class Harness {
-        let panel = SidebarPriorityPanelView(frame: NSRect(x: 0, y: 0, width: 240, height: 400))
+        let panel: SidebarPriorityPanelView
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 400), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         var actions: [SidebarPriorityAction] = []
 
-        init() {
-            panel.show(SidebarPriorityPanel(entries: SidebarPriorityDragTests.entries))
-            window.contentView = panel
+        init(entries: [SidebarPriorityEntry] = SidebarPriorityDragTests.entries, sidebar: SidebarView? = nil) {
+            panel = sidebar?.priorityPanelView ?? SidebarPriorityPanelView(frame: NSRect(x: 0, y: 0, width: 240, height: 400))
+            if let sidebar {
+                sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 400)
+                sidebar.showPriority(SidebarPriorityPanel(entries: entries))
+                window.contentView = sidebar
+                sidebar.layoutSubtreeIfNeeded()
+            } else {
+                panel.show(SidebarPriorityPanel(entries: entries))
+                window.contentView = panel
+            }
             panel.layoutSubtreeIfNeeded()
             panel.onAction = { [unowned self] in actions.append($0) }
         }
@@ -125,6 +134,35 @@ struct SidebarPriorityDragTests {
         #expect(harness.panel.draggingID == nil)
         row.mouseUp(with: try harness.event(.leftMouseUp, on: "c", dy: -2.2 * height))
         #expect(harness.actions.isEmpty)
+    }
+
+    @Test func hidingAttentionRowsEndsTheDragAndItsStaleReleaseDoesNothing() throws {
+        let entries = Self.entries.map { var entry = $0; entry.state = .needsYou; return entry }
+        let sidebar = SidebarView(model: SidebarModel(sections: []), design: DesignSettings())
+        let harness = Harness(entries: entries, sidebar: sidebar)
+        let row = try #require(harness.panel.rows["c"])
+        let originalTop = row.frame.minY
+        let height = row.frame.height
+        row.mouseDown(with: try harness.event(.leftMouseDown, on: "c"))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "c", dy: -height))
+        #expect(harness.panel.draggingID == "c")
+        #expect(row.frame.minY != originalTop)
+
+        // Hidden Priority keeps all attention rows: only shown changes, never the IDs or geometry.
+        sidebar.showPriority(SidebarPriorityPanel(entries: entries.filter(\.needsAttention), shown: false))
+        #expect(harness.panel.isHidden)
+        #expect(harness.panel.panel.entries.map(\.id) == entries.map(\.id))
+        #expect(harness.panel.draggingID == nil)
+        #expect(row.layer?.zPosition == 0)
+        #expect(row.frame.minY == originalTop)
+
+        // The release missed the hidden row. Revealing it and delivering a stale release must do nothing.
+        sidebar.showPriority(SidebarPriorityPanel(entries: entries, shown: true))
+        #expect(!harness.panel.isHidden)
+        #expect(harness.panel.draggingID == nil)
+        row.mouseUp(with: try harness.event(.leftMouseUp, on: "c", dy: -height))
+        #expect(harness.actions.isEmpty, "a stale release must neither place nor open the chat")
+        #expect(harness.panel.panel.entries.map(\.id) == entries.map(\.id))
     }
 
     /// Released beside the list, the row goes back and nothing is placed.
