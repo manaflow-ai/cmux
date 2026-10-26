@@ -50,7 +50,9 @@ enum DebugTimings {
     }()
 
     /// Records a launch mark (milliseconds since process start) once per
-    /// name, from any thread.
+    /// name, from any thread. The first record of a name goes to
+    /// ``LaunchMarkSink``: a launch os_signpost in every build, and the
+    /// bench's pipe when one was passed.
     nonisolated static func markLaunch(_ name: String, at date: Date = Date()) {
         let ms = date.timeIntervalSince(processStart) * 1_000
         let first = launchMarks.withLock { marks in

@@ -177,7 +177,7 @@ final class AppServices {
         guard let acpmux = AcpmuxEnvironment.resolve(build: environment.build, bundledBinDirectory: bin,
                                                      environment: ProcessInfo.processInfo.environment) else { return nil }
         return ModelRouterLease(tokens: cloud.auth, apiBaseURL: feed.apiBaseURL, acpmuxHome: acpmux.home,
-                                logger: Logger(subsystem: "com.cmuxterm.next", category: "model-router"))
+                                logger: Logger(subsystem: "com.cmuxterm.app.next", category: "model-router"))
     }()
     /// Where agent cursors draw (plans/cmux-next/agent-cursor.md section 3).
     private(set) lazy var agentCursorVisibility = AgentCursorWiring.makeVisibility(services: self)
@@ -286,6 +286,17 @@ final class AppServices {
     private(set) lazy var newTabSpares = NewTabSparePool(services: self, memoryPressure: memoryPressure)
     /// The spare React page hosts for Settings, History and Cloud.
     private(set) lazy var pageHostPool = PageHostPool(memoryPressure: memoryPressure)
+    /// The one owner of cmux pages (p13-webui.md 3.A): every page view opens and closes through it.
+    /// Every page follows `browser.defaultEngine` (Chromium by default) through its one Chromium host.
+    /// Its views are listed in `PageRegistry.processWide` while the static forwarders remain (p13-webui-010).
+    private(set) lazy var webUI: WebUIHost = WebUIHost(
+        chromium: ChromiumPageHost(
+            cef: cache.cef,
+            preference: { [weak self] in
+                self?.settings?.snapshot.browserDefaultEngine ?? self?.cache.browserTabs.preference.defaultEngine ?? .fallback
+            },
+            keyRouter: keyRouter),
+        openPanel: openPanel, memoryPressure: memoryPressure, registry: .processWide)
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
     private(set) lazy var iconPicker = IconPickerService(services: self)
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
@@ -403,6 +414,8 @@ final class AppServices {
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
     /// never on the cooperative pool (PATTERNS P14). Built once here and passed to each consumer's init.
     let work: BackgroundWork
+    /// The last quit's agent pages and chat composers, read off the main thread since the launch began.
+    let launchImages: AgentPaneLaunchImages, relaunchWake: AgentPaneRelaunchWake
     /// The burst bench's record of refusals, designed no-op Cmd-W presses and terminal grids (`debug.burst`).
     let burstTrace = BurstTrace()
     /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
@@ -424,8 +437,10 @@ final class AppServices {
     /// - Parameter mainWork: The app's main-thread scheduler (`AppDelegate` passes the one its control
     ///   socket uses); tests get one of their own, with no pending-input check.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil,
-         work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())) {
+         work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
+         launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil)) {
         self.work = work
+        (self.launchImages, self.relaunchWake) = (launchImages, relaunchWake)
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))
@@ -575,8 +590,7 @@ final class AppServices {
         _ = remoteTerminals  // built here, as before
         remoteTerminals.start()
         WorkspaceClose.willClose = { [weak self] workspace in self?.remoteTerminals.workspaceClosing(workspace) }
-        let registry = registry
-        daemon.workTracker = { registry.track($0) }
+        daemon.workTracker = { [registry] in registry.track($0) }
         _ = palette  // built here, as before
         terminalDelegate.services = self
         _ = configActions  // built here, as before
@@ -604,6 +618,7 @@ final class AppServices {
             self?.windowHints.cancel()
             self?.keyRouter.cancelChord()
         }
+        AppMemoryConsumers(services: self).registerMemoryConsumers()  // AppServices+Memory.swift
     }
     // MARK: Lookup
     /// The tab with durable id (or tab resource id: links and TabMirror's wait use it) `id`
