@@ -12,11 +12,18 @@ final class FolderHeaderRowView: SidebarRowView {
         addSubview(name)
     }
 
+    private struct Content: Hashable {
+        var folder: String
+        var fontSize: CGFloat
+    }
+
     func configure(folder: String) {
+        guard needsConfigure(Content(folder: folder, fontSize: SidebarStyle.headerFont.pointSize)) else { return }
         name.setString(SidebarFolderTitle.title(folder))
         name.setFont(SidebarStyle.headerFont)
         themedToolTip = folder.isEmpty ? nil : folder
         setAccessibilityLabel(name.stringValue)
+        // invalidate: the content changed (`needsConfigure` above).
         needsLayout = true
     }
 
@@ -26,7 +33,6 @@ final class FolderHeaderRowView: SidebarRowView {
         let h = ceil(name.intrinsicContentSize.height)
         let x = SidebarStyle.titleLeading - SidebarStyle.labelCellPadding
         name.frame = NSRect(x: x, y: (b.height - h) / 2, width: max(0, b.width - x - Metrics.space2), height: h)
-        needsDisplay = true
     }
 
     /// Layer colors only: `layerContentsRedrawPolicy` (.onSetNeedsDisplay, SidebarRowView) runs it on needsDisplay, never on a resize.
