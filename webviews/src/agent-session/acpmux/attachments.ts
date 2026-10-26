@@ -95,21 +95,36 @@ export function inlineCopyParent(id: string): string | undefined {
   return copy === undefined ? undefined : id.slice(0, id.length - copy.length);
 }
 
-/// The ids of the attachments placed in `text`, in its order.
-export function inlineTokenIds(text: string): string[] {
+/// Whether `id` is one of the attachments a text's tokens are read against.
+export type InlineKnownIds = (id: string) => boolean;
+
+/// How a prompt's tokens are read beyond its attachments: `dropped`, the ids of attachments taken
+/// out of it before it goes (a recording the model cannot hear), whose tokens go as nothing.
+export type InlineReadOptions = { dropped?: InlineKnownIds };
+
+/// The ids of the attachments placed in `text`, in its order, each once (its first place). Read
+/// against `known` (the attachments' ids), a U+FFFC the person wrote before a word and a place stays
+/// their text, as `placeInline` reads it. With no ids every token-shaped run is taken for a place:
+/// mark `a` mark `b` mark could then be either token, and only the ids tell.
+export function inlineTokenIds(text: string, known: InlineKnownIds = () => true): string[] {
   if (!text.includes(INLINE_ATTACHMENT_MARK)) return [];
-  return [...text.matchAll(INLINE_TOKEN)].map((match) => decodeInlineId(match[1]!));
+  return inlineRuns(text, known).flatMap((run) => (run.type === "token" ? [run.id] : []));
 }
 
-/// A token-shaped run of a text (`inlineTokenSpans`): `place`, an attachment's place; otherwise a
-/// token whose attachment is not there (gone, or a second of one id).
-export type InlineTokenSpan = { from: number; to: number; id: string; place: boolean };
+/// A token-shaped run of a text (`inlineTokenSpans`): `known`, of an attachment's id; `place`, that
+/// attachment's place (its first token); otherwise a token whose attachment is not there (gone, or
+/// a second of one id).
+export type InlineTokenSpan = { from: number; to: number; id: string; place: boolean; known: boolean };
+
+const NONE_PLACED: ReadonlySet<string> = new Set();
 
 /// The tokens in `text`, in order, read against `opens`: whether a token of `id` is an attachment's
 /// place, given the ids placed before it. Every other U+FFFC is the person's text. A mark that opens
-/// a token-shaped run whose closing mark opens a place is the person's too, so their U+FFFC before
-/// a place (`x `, U+FFFC, `before`, then the token) never takes the place's opening mark. Read
-/// against no ids, mark `a` mark `b` mark could be either token: only the ids tell.
+/// a token-shaped run whose closing mark opens a known id's token is the person's too, so their
+/// U+FFFC before a place (`x `, U+FFFC, `before`, then the token) never takes the place's opening
+/// mark, nor the opening mark of a second token of a placed id: a token is told from text by the
+/// ids alone (`opens` with nothing placed), never by what was placed before it. Read against no
+/// ids, mark `a` mark `b` mark could be either token: only the ids tell.
 export function inlineTokenSpans(
   text: string,
   opens: (id: string, placed: ReadonlySet<string>) => boolean,
@@ -117,20 +132,22 @@ export function inlineTokenSpans(
   const spans: InlineTokenSpan[] = [];
   if (!text.includes(INLINE_ATTACHMENT_MARK)) return spans;
   const placed = new Set<string>();
+  const known = (id: string) => opens(id, NONE_PLACED);
   const tokenAt = (at: number) => {
     TOKEN_AT.lastIndex = at;
     const match = TOKEN_AT.exec(text);
     return match ? { id: decodeInlineId(match[1]!), end: at + match[0].length } : undefined;
   };
-  const opensPlace = (at: number) => {
+  const opensKnown = (at: number) => {
     const token = tokenAt(at);
-    return token !== undefined && opens(token.id, placed);
+    return token !== undefined && known(token.id);
   };
   for (let at = text.indexOf(INLINE_ATTACHMENT_MARK); at >= 0;) {
     const token = tokenAt(at);
-    const place = token !== undefined && opens(token.id, placed);
-    if (token && (place || !opensPlace(token.end - 1))) {
-      spans.push({ from: at, to: token.end, id: token.id, place });
+    const isKnown = token !== undefined && known(token.id);
+    if (token && (isKnown || !opensKnown(token.end - 1))) {
+      const place = isKnown && opens(token.id, placed);
+      spans.push({ from: at, to: token.end, id: token.id, place, known: isKnown });
       if (place) placed.add(token.id);
       at = text.indexOf(INLINE_ATTACHMENT_MARK, token.end);
     } else at = text.indexOf(INLINE_ATTACHMENT_MARK, at + 1);
@@ -140,26 +157,44 @@ export function inlineTokenSpans(
 
 type InlineRun = { type: "text"; text: string } | { type: "token"; id: string };
 
-/// `text` read against the ids of `attachments` (`inlineTokenSpans`): the first token of each one's
-/// id is its place, any other token (a second of one id, one whose attachment is gone) goes as
-/// nothing, and every other U+FFFC is the person's text.
-function inlineRuns(text: string, attachments: readonly { id: string }[]): InlineRun[] {
+/// `text` read against `known` (`inlineTokenSpans`): the first token of each known id is its place,
+/// and every U+FFFC that is no token's is the person's text. A text that places an attachment by id
+/// is the composer's, so its other tokens are stale (a second of one id, one whose attachment is
+/// gone) and go as nothing. In a text that places none, a token-shaped run is the person's text
+/// unless `dropped` names its id: the text alone cannot tell a stale token from words the person
+/// wrote between two U+FFFC, and their words are never taken for one.
+function inlineRuns(text: string, known: InlineKnownIds, dropped?: InlineKnownIds): InlineRun[] {
+  if (!text.includes(INLINE_ATTACHMENT_MARK)) return text ? [{ type: "text", text }] : [];
+  const spans = inlineTokenSpans(text, (id, placed) => known(id) && !placed.has(id));
+  const composers = spans.some((span) => span.known);
   const runs: InlineRun[] = [];
-  if (!text.includes(INLINE_ATTACHMENT_MARK)) return text ? [{ type: "text", text }] : runs;
-  const known = new Set(attachments.map((attachment) => attachment.id));
+  let words = "";
   let start = 0;
-  for (const span of inlineTokenSpans(text, (id, placed) => known.has(id) && !placed.has(id))) {
-    if (span.from > start) runs.push({ type: "text", text: text.slice(start, span.from) });
-    if (span.place) runs.push({ type: "token", id: span.id });
+  for (const span of spans) {
+    if (!span.known && !composers && !dropped?.(span.id)) continue;
+    words += text.slice(start, span.from);
     start = span.to;
+    if (!span.place) continue;
+    if (words) runs.push({ type: "text", text: words });
+    words = "";
+    runs.push({ type: "token", id: span.id });
   }
-  if (text.length > start) runs.push({ type: "text", text: text.slice(start) });
+  words += text.slice(start);
+  if (words) runs.push({ type: "text", text: words });
   return runs;
 }
 
+const idsOf = (attachments: readonly { id: string }[]): InlineKnownIds => {
+  const ids = new Set(attachments.map((attachment) => attachment.id));
+  return (id) => ids.has(id);
+};
+
+const placesSome = (runs: readonly InlineRun[]) => runs.some((run) => run.type === "token");
+const wordsOf = (runs: readonly InlineRun[]) => runs.map((run) => (run.type === "text" ? run.text : "")).join("");
+
 /// Whether `input` places any of `chips` by id (`inlineToken`).
 const placesById = (input: string, chips: readonly ComposerAttachment[]) =>
-  input.includes(INLINE_ATTACHMENT_MARK) && inlineRuns(input, chips).some((run) => run.type === "token");
+  input.includes(INLINE_ATTACHMENT_MARK) && placesSome(inlineRuns(input, idsOf(chips)));
 
 /// Whether `input` was written by an older composer: one bare mark per `inline` attachment, in order.
 const legacyMarks = (input: string, chips: readonly ComposerAttachment[]) => {
@@ -178,35 +213,37 @@ export function hasInlineMarks(input: string, chips: readonly ComposerAttachment
 /// The draft as it goes: each placed attachment keeps its token (`inlineToken`, by id, so the
 /// person's own U+FFFC beside it stays text), those attachments first in the text's order and
 /// `inline`, then the strip's in their order. A token whose attachment is gone, or a second of one
-/// id, goes as nothing.
+/// id, goes as nothing (`inlineRuns`), as does one of an attachment `options.dropped` names.
 export function placeInline(
   text: string,
   attachments: readonly ComposerAttachment[],
+  options: InlineReadOptions = {},
 ): { text: string; attachments: ComposerAttachment[] } {
   const byId = new Map(attachments.map((attachment) => [attachment.id, attachment]));
   const placed: ComposerAttachment[] = [];
   let out = "";
-  for (const run of inlineRuns(text, attachments)) {
+  for (const run of inlineRuns(text, (id) => byId.has(id), options.dropped)) {
     if (run.type === "text") out += run.text;
     else {
       placed.push(byId.get(run.id)!);
       out += inlineToken(run.id);
     }
   }
+  const placedSet = new Set(placed);
   const strip = attachments
-    .filter((attachment) => !placed.includes(attachment))
+    .filter((attachment) => !placedSet.has(attachment))
     .map(({ inline: _, ...attachment }) => attachment);
   return { text: out, attachments: [...placed.map((attachment) => ({ ...attachment, inline: true })), ...strip] };
 }
 
-/// `attachments` with the ones placed in the text (`ids`, in its order) in the text's order, each in
-/// the slot one of them held: the strip shows them as the prompt reads. The same array when it
-/// already does.
+/// `attachments` with the ones placed in the text (`ids`, in its order, each by its first place, as
+/// the prompt goes) in the text's order, each in the slot one of them held: the strip shows them as
+/// the prompt reads. The same array when it already does.
 export function orderedByMarks<T extends { id: string }>(attachments: readonly T[], ids: readonly string[]): T[] {
-  const placed = new Set(ids);
-  const slots = attachments.flatMap((attachment, index) => (placed.has(attachment.id) ? [index] : []));
+  const rank = new Map<string, number>();
+  for (const id of ids) if (!rank.has(id)) rank.set(id, rank.size);
+  const slots = attachments.flatMap((attachment, index) => (rank.has(attachment.id) ? [index] : []));
   if (slots.length < 2) return attachments as T[];
-  const rank = new Map(ids.map((id, index) => [id, index]));
   const inOrder = slots.map((slot) => attachments[slot]!).sort((a, b) => rank.get(a.id)! - rank.get(b.id)!);
   if (inOrder.every((attachment, index) => attachment === attachments[slots[index]!])) return attachments as T[];
   const next = [...attachments];
@@ -235,8 +272,10 @@ export function bindMarks(
 
 /// `text` without its attachments' places: for a host that keeps a draft's text and not its
 /// attachments (a new chat's `chat.unsentDraft`), where no mark could find its attachment again.
-export function withoutInlineTokens(text: string): string {
-  return text.includes(INLINE_ATTACHMENT_MARK) ? text.replace(INLINE_TOKEN, "") : text;
+/// Read against `known` (the attachments' ids) as `placeInline` reads it: the person's U+FFFC stays,
+/// and a text that places none of them is theirs as written. With no ids every token-shaped run goes.
+export function withoutInlineTokens(text: string, known: InlineKnownIds = () => true): string {
+  return text.includes(INLINE_ATTACHMENT_MARK) ? wordsOf(inlineRuns(text, known)) : text;
 }
 
 export type OrderedDraftPart = { type: "text"; text: string } | { type: "attachment"; attachment: ComposerAttachment };
@@ -355,14 +394,15 @@ export function decodeText(bytes: Uint8Array): string | undefined {
 export const thumbnail = thumbnailOffThread;
 
 /// The prompt's text with each text file appended as a fenced block under its name.
-export function promptText(text: string, attachments: ComposerAttachment[]): string {
-  const visibleText = placesById(text, attachments)
-    ? inlineRuns(text, attachments)
-        .map((run) => (run.type === "text" ? run.text : ""))
-        .join("")
-    : legacyMarks(text, attachments)
-      ? text.replaceAll(INLINE_ATTACHMENT_MARK, "")
-      : text;
+/// Its tokens read as `orderedDraftParts` reads them.
+export function promptText(
+  text: string,
+  attachments: ComposerAttachment[],
+  options: InlineReadOptions = {},
+): string {
+  const runs = inlineRuns(text, idsOf(attachments), options.dropped);
+  const visibleText =
+    !placesSome(runs) && legacyMarks(text, attachments) ? text.replaceAll(INLINE_ATTACHMENT_MARK, "") : wordsOf(runs);
   const files = attachments
     .filter((attachment) => attachment.kind === "text")
     .map((attachment) => {
@@ -383,13 +423,19 @@ export function promptText(text: string, attachments: ComposerAttachment[]): str
 /// each image, PDF, recording and file or folder link.
 /// A `data:` image written into the text goes as an image block, never as text (inlineImages.ts).
 /** The editor's ordered runs: each attachment at its token, by id (`placeInline`), or at its bare
- * mark as an older composer wrote it; the person's own U+FFFC stays text. Attachments not placed
+ * mark as an older composer wrote it; the person's own U+FFFC stays text, and a stale token (or one
+ * of an attachment `options.dropped` names) goes as nothing (`inlineRuns`). Attachments not placed
  * go after the text, in their order. */
-export function orderedDraftParts(input: string, chips: readonly ComposerAttachment[]): OrderedDraftPart[] {
-  if (placesById(input, chips)) {
-    const byId = new Map(chips.map((attachment) => [attachment.id, attachment]));
+export function orderedDraftParts(
+  input: string,
+  chips: readonly ComposerAttachment[],
+  options: InlineReadOptions = {},
+): OrderedDraftPart[] {
+  const byId = new Map(chips.map((attachment) => [attachment.id, attachment]));
+  const runs = inlineRuns(input, (id) => byId.has(id), options.dropped);
+  if (placesSome(runs)) {
     const placed = new Set<string>();
-    const parts = inlineRuns(input, chips).map((run): OrderedDraftPart => {
+    const parts = runs.map((run): OrderedDraftPart => {
       if (run.type === "text") return run;
       placed.add(run.id);
       return { type: "attachment", attachment: byId.get(run.id)! };
@@ -397,13 +443,15 @@ export function orderedDraftParts(input: string, chips: readonly ComposerAttachm
     for (const attachment of chips) if (!placed.has(attachment.id)) parts.push({ type: "attachment", attachment });
     return parts;
   }
-  if (!legacyMarks(input, chips))
-    return input
+  if (!legacyMarks(input, chips)) {
+    const words = wordsOf(runs);
+    return words
       ? [
-          { type: "text", text: input },
+          { type: "text", text: words },
           ...chips.map((attachment): OrderedDraftPart => ({ type: "attachment", attachment })),
         ]
       : chips.map((attachment): OrderedDraftPart => ({ type: "attachment", attachment }));
+  }
   const parts: OrderedDraftPart[] = [];
   const inline = chips.filter((attachment) => attachment.inline);
   let start = 0;
@@ -442,18 +490,23 @@ export function attachmentBlocks(attachment: ComposerAttachment): PromptBlock[] 
 }
 
 /** ACP content in the same order as the editor. Unmarked legacy drafts keep their old shape. */
-export function promptBlocks(input: string, chips: ComposerAttachment[]): PromptBlock[] {
+export function promptBlocks(
+  input: string,
+  chips: ComposerAttachment[],
+  options: InlineReadOptions = {},
+): PromptBlock[] {
   const { text, attachments } = liftInlineImages(input, chips);
-  if (!hasInlineMarks(text, attachments)) {
+  const runs = inlineRuns(text, idsOf(attachments), options.dropped);
+  if (!placesSome(runs) && !legacyMarks(text, attachments)) {
     const blocks: PromptBlock[] = [];
-    const body = promptText(text, attachments);
+    const body = promptText(text, attachments, options);
     if (body) blocks.push({ type: "text", text: body });
     blocks.push(...pastedTextBlocks(attachments));
     for (const attachment of attachments) blocks.push(...attachmentBlocks(attachment));
     return blocks;
   }
   const blocks: PromptBlock[] = [];
-  for (const part of orderedDraftParts(text, attachments)) {
+  for (const part of orderedDraftParts(text, attachments, options)) {
     if (part.type === "text") {
       if (part.text) blocks.push({ type: "text", text: part.text });
       continue;
