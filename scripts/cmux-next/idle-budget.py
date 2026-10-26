@@ -45,7 +45,7 @@ Sessions (--sessions):
            Chromium pages elsewhere); its 10 busy terminals are stopped (Ctrl-C) before the settle, so the
            terminals are quiet
   tabs-static   the launch pane with 5 WebKit and 10 Chromium tabs hidden behind 1 shown static Chromium tab,
-                every page tab_pages' static page; the settle lasts past `browser.freezeHiddenTabs`
+                every page a probe page (Visibility, below); the settle lasts past `browser.freezeHiddenTabs`
   minimized     the light session with its window minimized (action minimizeWindow)
   energy-saver  tabs-static with `energy.saver: always`, the shown tab an animated page (/anim, rAF every
                 frame, no input) whose rAF count the page server reads at the window's two ends: the page keeps
@@ -94,6 +94,16 @@ terminal hosts are never backgrounded while a terminal shows; pooled acpmux agen
 one `IDLE-BUDGET-OVER <session> <kind> role owner=role pids=... observed=... expected=...` line; a role that could not
 be read and a renderer of unknown visibility are IDLE-BUDGET-NOT-JUDGED.
 
+Visibility (D17 of plans/cmux-next/chrome-parity/p14-energy.md, task 048): every tab session's page is a probe page
+(PROBE_PAGE: tab_pages' static page plus a probe). It reports document.visibilityState at load and on each change,
+and 11 s after it reports `hidden` (before the freeze grace ends) it counts its rAF callbacks and timer wakes for 4 s.
+The report's `visibility` has, per tab, the state at the window's start and end, the last hidden probe and what is
+wrong or unknown; `met` holds when every Chromium tab reports what it should (the shown tab `visible` unless the
+session hides, minimizes or covers its window, every other `hidden`) and a hidden one ran no rAF and <= 1 timer wake/s.
+Reported (IDLE-BUDGET-VISIBILITY), never an over. chrome-static's tabs get the same report as the reference.
+--visibility-tab gives light, light-hidden, minimized and occluded one shown Chromium probe tab (off by default: it
+changes their shape).
+
 A session that fails (STRESS refuses a window under the Dock, a launch fails) is recorded with its exit
 code (`session_exits` in the report) and the others still run; the script exits 0 unless --gate.
 
@@ -131,7 +141,7 @@ Use (fleet only, a host with a GUI console session; never on a laptop in use):
 Output: one `IDLE-BUDGET-MACHINE {json}` line, one `IDLE-BUDGET-ROW {json}` line per session and process
 kind, IDLE-BUDGET-UNCLASSIFIED <session> pid <pid> other:<exe>: <command> for each process no kind names (also an IDLE-BUDGET-OVER
 `kind other != classified`), IDLE-BUDGET-GOAL for a number the plan names a goal (reported, never an over),
-IDLE-BUDGET-ENERGY / -STATE / -ASSERTION / -ANIM / -CHROME lines, IDLE-BUDGET-REFUSED for a saver mismatch, an
+IDLE-BUDGET-ENERGY / -STATE / -ASSERTION / -ANIM / -CHROME / -VISIBILITY lines, IDLE-BUDGET-REFUSED for a saver mismatch, an
 unread rAF rate or a failed or unequal chrome-static, IDLE-BUDGET-THERMAL for a marked session, IDLE-BUDGET-FRAME-CLIENTS
 when the build has debug.wakeups, IDLE-BUDGET-WINDOWSERVER per session, IDLE-BUDGET-READER-FAILED for a D15 reader
 that failed, POWER-BREAKDOWN / -OWNER / -UNNAMED / -WINDOWSERVER for the power sessions and
@@ -1851,6 +1861,59 @@ ANIM_PAGE = ("<!doctype html><meta charset='utf-8'><title>idle anim</title>"
              "fetch('/loaded/anim',{method:'POST'}).then(ask)</script>")
 
 
+# The tab sessions' pages (D17, p14-energy-048): tab_pages' static page (it POSTs /loaded/<key> and /vis/<key>/<state>
+# at load and on every visibilitychange, nothing else) plus a visibility probe. PROBE_DELAY_MS after the page reports
+# `hidden` (a timer of the hidden page, so Chromium has throttled it by then and the freeze grace of
+# FREEZE_HIDDEN_TABS_S has not ended), it counts for PROBE_MS its rAF callbacks and the fires of a setTimeout(0)
+# chain, then POSTs PROBE_REPORT_PATH/<key>/<state at start>/<state at end>/<rAF>/<timer fires>/<first to last fire
+# ms>/<probe ms>/<ms hidden at start>/<1: no visibilitychange in it>. A page shown again before its probe starts runs
+# none. A page that never reports `hidden` is never probed: its visibilityState is the finding. No held request, no
+# DevTools port: Release builds have none, and the page runs nothing in the window.
+PROBE_PATH = "/probe"
+PROBE_REPORT_PATH = "/probe-report"
+PROBE_DELAY_MS = 11000
+PROBE_MS = 4000
+PROBE_PAGE = ("<title>static {key}</title><body style='font:16px system-ui'><h1>Static page {key}</h1>"
+              "<p>Nothing runs here.</p><script>(function(){{const k='{key}';let gen=0,hiddenAt=0;"
+              "const post=p=>fetch(p,{{method:'POST'}});post('/loaded/'+k);"
+              "function probe(g){{const t0=performance.now(),s0=document.visibilityState;"
+              "let raf=0,n=0,first=0,last=0,done=false;"
+              "requestAnimationFrame(function f(){{if(done)return;raf++;requestAnimationFrame(f)}});"
+              "function tick(){{const now=performance.now();if(!n)first=now;n++;last=now;"
+              "if(now-t0<{window}){{setTimeout(tick,0);return}}done=true;"
+              "post('{report}/'+[k,s0,document.visibilityState,raf,n,Math.round(last-first),Math.round(now-t0),"
+              "Math.round(t0-hiddenAt),g===gen?1:0].join('/'))}}setTimeout(tick,0)}}"
+              "function vis(){{const s=document.visibilityState;post('/vis/'+k+'/'+s);const g=++gen;"
+              "if(s!=='hidden')return;hiddenAt=performance.now();setTimeout(function(){{if(g===gen)probe(g)}},{delay})}}"
+              "vis();document.addEventListener('visibilitychange',vis)}})()</script>")
+# A hidden page's limits (D17): no rAF, at most 1 timer wake a second (Chrome aligns a hidden page's timers to one
+# wake a second, third_party/blink/renderer/platform/scheduler/main_thread/page_scheduler_impl.cc).
+HIDDEN_TIMER_WAKES_MAX = 1.0
+
+
+def probe_page(key):
+    """The probe page of tab `key` (PROBE_PAGE)."""
+    return PROBE_PAGE.format(key=key, window=PROBE_MS, delay=PROBE_DELAY_MS, report=PROBE_REPORT_PATH)
+
+
+def parse_probe(path):
+    """(key, probe) from the page's PROBE_REPORT_PATH POST: the states at the probe's two ends, rAF callbacks and
+    rAF/s, timer fires and timer wakes/s (the intervals between the first and last fire: a probe that starts between
+    two aligned wakes counts no extra one), the probe's and the hidden time in ms, and `intact` (the page stayed as it
+    was through it); (None, {"error": ...}) for an unreadable post."""
+    parts = path.split("?", 1)[0].removeprefix(PROBE_REPORT_PATH + "/").split("/")
+    try:
+        key, start, end = parts[0], parts[1], parts[2]
+        raf, fires, span_ms, probe_ms, hidden_ms, intact = (int(float(value)) for value in parts[3:9])
+    except (IndexError, ValueError):
+        return None, {"error": f"unreadable probe post {path[:80]}"}
+    seconds = probe_ms / 1000
+    wakes = round((fires - 1) / (span_ms / 1000), 2) if fires >= 2 and span_ms > 0 else None
+    return key, {"state_start": start, "state_end": end, "raf": raf,
+                 "raf_per_s": round(raf / seconds, 2) if seconds > 0 else None, "timer_fires": fires,
+                 "timer_wakes_per_s": wakes, "probe_ms": probe_ms, "hidden_ms": hidden_ms, "intact": intact == 1}
+
+
 def parse_anim_count(path):
     """{count, t_ms, visibility} from the page's ANIM_COUNT_PATH POST, or {"error": ...}."""
     parts = path.split("?", 1)[0].removeprefix(ANIM_COUNT_PATH + "/").split("/")
@@ -1861,17 +1924,25 @@ def parse_anim_count(path):
 
 
 class IdlePages(tab_pages.TabPages):
-    """The shared tab-page server plus energy-saver's animated page at ANIM_PATH and its read path."""
+    """The shared tab-page server plus the tab sessions' probe pages (PROBE_PATH-<key>, their posts in `probes`:
+    {key: [parse_probe's probe, in order]}) and energy-saver's animated page at ANIM_PATH and its read path."""
 
     def __init__(self, *args, **kwargs):
         self._anim = threading.Condition()
         self._anim_asked = 0  # reads the bench asked for (read_anim)
         self._anim_answered = 0  # reads a held ANIM_READ_PATH GET answered; a GET is held while this equals asked
         self._anim_reads = []  # the page's parsed ANIM_COUNT_PATH posts, in order
+        self.probes = {}
+        self.probe_errors = []
         super().__init__(*args, **kwargs)
+
+    def probe_url(self, key):
+        return f"{self.origin}{PROBE_PATH}-{key}"
 
     def body(self, path):
         path = path.split("?", 1)[0]
+        if path.startswith(PROBE_PATH + "-"):
+            return probe_page(path.removeprefix(PROBE_PATH + "-")).encode()
         if path == ANIM_PATH:
             return ANIM_PAGE.encode()
         if path == ANIM_READ_PATH:
@@ -1882,6 +1953,14 @@ class IdlePages(tab_pages.TabPages):
         return super().body(path)
 
     def report(self, path):
+        if path.startswith(PROBE_REPORT_PATH + "/"):
+            key, probe = parse_probe(path)
+            with self._anim:
+                if key is None:
+                    self.probe_errors.append(probe["error"])
+                else:
+                    self.probes.setdefault(key, []).append(probe)
+            return
         if path.startswith(ANIM_COUNT_PATH + "/"):
             with self._anim:
                 self._anim_reads.append(parse_anim_count(path))
@@ -1900,6 +1979,11 @@ class IdlePages(tab_pages.TabPages):
             if not self._anim.wait_for(lambda: len(self._anim_reads) > posted, seconds):
                 return {"error": f"the page posted no rAF count in {seconds:g} s (no held {ANIM_READ_PATH})"}
             return self._anim_reads[posted]
+
+    def page_states(self):
+        """({key: the latest document.visibilityState}, {key: [probes]}) now, one copy each."""
+        with self._anim:
+            return dict(self.visibility), {key: list(probes) for key, probes in self.probes.items()}
 
     def close(self):
         """Ends the held reads with the other held loads."""
@@ -1934,14 +2018,19 @@ def run_action(app, action, args=None, focus=False, timeout=30):
     return reply
 
 
+def plan_keys(tabs):
+    """[(engine, loaded key)] of a session's tabs in opening order: the hidden WebKit tabs, the hidden Chromium tabs,
+    then the shown Chromium tab (`tabs["shown"]`: "static", key "shown", or "anim", key "anim")."""
+    return ([("webkit", f"w{n}") for n in range(tabs["webkit_hidden"])]
+            + [("chromium", f"c{n}") for n in range(tabs["chromium_hidden"])]
+            + [("chromium", "anim" if tabs["shown"] == "anim" else "shown")])
+
+
 def tab_plan(pages, tabs):
-    """[(engine, url, loaded key)] of a session's tabs in opening order: the hidden WebKit tabs, the hidden Chromium
-    tabs, then the shown Chromium tab (`tabs["shown"]`: "static" or "anim")."""
-    plan = ([("webkit", pages.url("static", f"w{n}"), f"w{n}") for n in range(tabs["webkit_hidden"])]
-            + [("chromium", pages.url("static", f"c{n}"), f"c{n}") for n in range(tabs["chromium_hidden"])])
-    if tabs["shown"] == "anim":
-        return plan + [("chromium", pages.origin + ANIM_PATH, "anim")]
-    return plan + [("chromium", pages.url("static", "shown"), "shown")]
+    """[(engine, url, loaded key)] of a session's tabs (plan_keys): each a probe page (IdlePages.probe_url), the
+    animated one at ANIM_PATH."""
+    return [(engine, pages.origin + ANIM_PATH if key == "anim" else pages.probe_url(key), key)
+            for engine, key in plan_keys(tabs)]
 
 
 def build_tabs(app, pages, tabs):
@@ -1978,6 +2067,76 @@ def anim_rate(start, end):
         return {"error": "the page clock did not advance"}
     return {"raf_per_s": round((end["count"] - start["count"]) / seconds, 2), "seconds": round(seconds, 1),
             "visibility": [start.get("visibility"), end.get("visibility")]}
+
+
+def expected_visibility(spec, key, shown):
+    """What tab `key` of a session (`spec`, its SESSIONS entry) should report: the shown tab `visible`, unless the
+    session hides, minimizes or covers its window; every other tab `hidden`."""
+    if key != shown:
+        return "hidden"
+    return "hidden" if spec.get("hide") or spec.get("minimize") or spec.get("cover") else "visible"
+
+
+def hidden_probe(probes):
+    """The last probe of a tab that ran hidden from start to end with no visibilitychange in it, or None."""
+    for probe in reversed(probes or []):
+        if probe.get("intact") and probe.get("state_start") == "hidden" and probe.get("state_end") == "hidden":
+            return probe
+    return None
+
+
+def tab_visibility(engine, expected, start, end, probes):
+    """One tab's D17 row: the visibilityState it reported last at the window's start and end, its last hidden probe,
+    and (problems, unknowns): a state other than `expected`, rAF or more than HIDDEN_TIMER_WAKES_MAX timer wakes/s
+    in a hidden probe; no state reported, or a hidden tab with no hidden probe."""
+    probe = hidden_probe(probes)
+    problems, unknowns = [], []
+    for when, state in (("window start", start), ("window end", end)):
+        if state is None:
+            unknowns.append(f"no visibilityState by the {when}")
+        elif state != expected:
+            problems.append(f"visibilityState {state} at the {when}, expected {expected}")
+    if expected == "hidden" and start == "hidden":
+        if probe is None:
+            unknowns.append("no hidden probe")
+        else:
+            if probe["raf"] > 0:
+                problems.append(f"{probe['raf_per_s']} rAF/s while hidden")
+            wakes = probe["timer_wakes_per_s"]
+            if wakes is None:
+                unknowns.append("the hidden probe's timer fired less than twice")
+            elif wakes > HIDDEN_TIMER_WAKES_MAX:
+                problems.append(f"{wakes} timer wakes/s while hidden > {HIDDEN_TIMER_WAKES_MAX:g}")
+    return {"engine": engine, "expected": expected, "window_start": start, "window_end": end, "probe": probe,
+            "probes": len(probes or []), "problems": problems, "unknown": unknowns}
+
+
+def visibility_report(spec, tabs, before, after, probes, judged_engine="chromium"):
+    """D17 of one session (plans/cmux-next/chrome-parity/p14-energy.md, task 048), reported and never judged as an
+    over: per tab of `tabs` (plan_keys; the animated page has its own visibility in `anim`) its tab_visibility row
+    from the page states `before` and `after` the window ({key: state}, IdlePages.page_states) and its `probes`;
+    `met` is True when every `judged_engine` tab reports what it should with a clean hidden probe, False when one
+    does not, None when one is unknown. `wrong` and `unknown` name the tabs. WebKit tabs are reported, not judged
+    (p14-energy-005 hides them)."""
+    keys = plan_keys(tabs)
+    shown = keys[-1][1]
+    rows = {key: tab_visibility(engine, expected_visibility(spec, key, shown), before.get(key), after.get(key),
+                                probes.get(key))
+            for engine, key in keys if key != "anim"}
+    judged = {key: row for key, row in rows.items() if row["engine"] == judged_engine}
+    wrong = {key: row["problems"] for key, row in judged.items() if row["problems"]}
+    unknown = {key: row["unknown"] for key, row in judged.items() if row["unknown"]}
+    met = None if not judged else False if wrong else None if unknown else True
+    return {"tabs": rows, "met": met, "wrong": wrong, "unknown": unknown}
+
+
+def visibility_line(report):
+    """The IDLE-BUDGET-VISIBILITY summary: met, then per tab its two states and its hidden probe's rAF/s and timer
+    wakes/s."""
+    tabs = {key: [row["window_start"], row["window_end"]]
+            + ([row["probe"]["raf_per_s"], row["probe"]["timer_wakes_per_s"]] if row["probe"] else [])
+            for key, row in report["tabs"].items()}
+    return json.dumps({"met": report["met"], "wrong": report["wrong"], "unknown": report["unknown"], "tabs": tabs})
 
 
 def build_stress(app, static=False):
@@ -2037,6 +2196,22 @@ SESSIONS = {
 }
 
 
+# --visibility-tab (D17): the light sessions get one shown Chromium probe tab (ONE_TAB), so the visible tab of a hidden,
+# minimized or covered window reports its visibility. Off by default: it changes those sessions' shape (D3 compares
+# them with light, which then has the tab too). Its settle outlasts the probe.
+LIGHT_SESSIONS = ("light", "light-hidden", "minimized", "occluded")
+VISIBILITY_SETTLE_S = (PROBE_DELAY_MS + PROBE_MS) / 1000 + 5
+
+
+def session_tabs(session, visibility_tab=False):
+    """The tabs build_tabs opens for `session`: its own, or with `visibility_tab` ONE_TAB in a light session; None
+    when it has none."""
+    tabs = SESSIONS[session].get("tabs")
+    if tabs is None and visibility_tab and session in LIGHT_SESSIONS:
+        return ONE_TAB
+    return tabs
+
+
 def session_config(session):
     """The cmux-next.json of `session`: BASE_CONFIG with the session's own keys on top."""
     return {**BASE_CONFIG, **(SESSIONS[session].get("config") or {})}
@@ -2051,9 +2226,10 @@ def parse_sessions(text):
     return names
 
 
-def settle_seconds(session, asked):
-    """The settle of `session`: the asked one, at least the session's settle_min (past the hidden-tab freeze)."""
-    return max(asked, SESSIONS[session].get("settle_min", 0))
+def settle_seconds(session, asked, tabs=None):
+    """The settle of `session`: the asked one, at least the session's settle_min (past the hidden-tab freeze), and
+    with tabs at least VISIBILITY_SETTLE_S (each hidden tab's probe ends before the window)."""
+    return max(asked, SESSIONS[session].get("settle_min", 0), VISIBILITY_SETTLE_S if tabs else 0)
 
 
 def wait_for(check, seconds, what):
@@ -2141,8 +2317,9 @@ def run_chrome_static(opts, out, session=CHROME_SESSION):
             if target.get("url") not in urls:
                 browser.close(target["id"])
         browser.activate(browser.tabs[-1])
-        settle = settle_seconds(session, opts.settle)
+        settle = settle_seconds(session, opts.settle, spec["tabs"])
         time.sleep(settle)  # bench: the pages settle and hidden tabs pass Chrome's background throttling
+        states_before = pages.page_states()[0]
         # As measure: PowerWindow's subprocesses before `first` and after `last`, its libproc reads around the sleep.
         window = (power_attribution.PowerWindow(browser.instance.pid, browser.instance.pids, chrome_kind)
                   if spec.get("power") else None)
@@ -2167,6 +2344,7 @@ def run_chrome_static(opts, out, session=CHROME_SESSION):
             # Named while the browser still runs: a stack sample of each process with an unnamed owner over the floor.
             result["power"] = name_power_owners(power_attribution.attribute(power), opts.sample, os.path.join(out, session))
         visibility = dict(pages.visibility)
+        states_after, probes = pages.page_states()
         running = any(t.get("url", "").startswith(f"chrome-extension://{UBLOCK_ID}/") for t in targets)
         chrome = {"app": bundle, "bundle_id": bundle_id, "version": version, "build": info.get("CFBundleVersion"),
                   "switches": browser.switches(), "settle_s": settle, "template_built": built,
@@ -2176,7 +2354,9 @@ def run_chrome_static(opts, out, session=CHROME_SESSION):
                   "ublock": {"cmux_version": manifest_version(cmux_ublock), "chrome_version": chrome_version,
                              "running": running},
                   "unequal": chrome_shape_unequal(page_targets, visibility, [key for _engine, _url, key in plan]),
-                  "extension_targets": [target.get("url", "")[:120] for target in targets]}
+                  "extension_targets": [target.get("url", "")[:120] for target in targets],
+                  # D17's reference: Chrome's own tabs (every one a Chromium tab), reported.
+                  "visibility": visibility_report(spec, spec["tabs"], states_before, states_after, probes)}
         return {"chrome": chrome, "result": result}
     finally:
         browser.quit()
@@ -2194,7 +2374,9 @@ def chrome_static_entry(opts, out, session, markdown):
         entry["exit"] = 0
         for name, values in entry["kinds"].items():
             print("IDLE-BUDGET-ROW " + json.dumps({"session": session, "kind": name, **values}), flush=True)
-        print("IDLE-BUDGET-CHROME " + json.dumps({k: v for k, v in entry["chrome"].items() if k != "switches"}), flush=True)
+        print("IDLE-BUDGET-CHROME " + json.dumps({k: v for k, v in entry["chrome"].items() if k not in ("switches", "visibility")}),
+              flush=True)
+        print(f"IDLE-BUDGET-VISIBILITY {session} " + visibility_line(entry["chrome"]["visibility"]), flush=True)
         if entry["result"].get("power"):
             entry["power"] = entry["result"]["power"]
             for line in power_attribution.report_lines(session, entry["power"]):
@@ -2392,7 +2574,9 @@ def table(session, kinds, overs, entry=None):
         lines.append(f"energy {energy['cpu']} mW CPU, {energy['billed']} mW billed (tree); saver asked {saver['asked']}, "
                      f"observed {saver['observed']}{' REFUSED' if saver['mismatch'] else ''}; thermal {thermal['worst']}"
                      f"{' (marked)' if thermal['marked'] else ''}; {len(entry['assertions'])} power assertion(s)"
-                     + (f"; page rAF {entry['anim']}" if "anim" in entry else "") + "\n")
+                     + (f"; page rAF {entry['anim']}" if "anim" in entry else "")
+                     + (f"; D17 visibility met={entry['visibility']['met']} wrong={sorted(entry['visibility']['wrong'])}"
+                        if "visibility" in entry else "") + "\n")
     lines += ["| process | n | threads (max) | wakeups/s (max) | pkg-idle wakeups/s | main wakes/s | "
               "CPU mW | billed mW | GPU ms/s | csw/s | CPU % | threads that ran | disk B/s | net bytes (conns) | "
               "log lines | roles |",
@@ -2463,6 +2647,10 @@ def main(argv=None):
     parser.add_argument("--windowserver-reference", type=float, default=None,
                         help="seconds of the WindowServer reference window with cmux hidden, after the window and its "
                         "samples (default: --measure; 0: none; a hidden session is its own reference)")
+    parser.add_argument("--visibility-tab", action="store_true",
+                        help="D17: open one shown Chromium probe tab in light, light-hidden, minimized and occluded, so "
+                        "the visible tab of a hidden, minimized or covered window reports its visibility (changes "
+                        "those sessions' shape)")
     parser.add_argument("--chrome-app", default=CHROME_APP,
                         help="the chrome-static browser: a Chromium that runs Manifest V2 (ungoogled-chromium of "
                         "cmux's Chromium major); branded Chrome 137+ and Chrome for Testing 139+ are refused")
@@ -2514,7 +2702,8 @@ def main(argv=None):
             report["sessions"][session] = chrome_static_entry(opts, out, session, markdown)
             continue
         app = BenchApp(opts.app, out=os.path.join(out, session), env=env, config=session_config(session))
-        pages = IdlePages() if spec.get("tabs") else None
+        tabs = session_tabs(session, opts.visibility_tab)
+        pages = IdlePages() if tabs else None
         try:
             entry = {"fresh_session": fresh_session(app)}
             report["sessions"][session] = entry
@@ -2525,8 +2714,8 @@ def main(argv=None):
             if spec.get("stress"):
                 entry["stress"] = build_stress(app, static=spec.get("static", False))
             shown_tab = None
-            if spec.get("tabs"):
-                entry["tabs"], shown_tab = build_tabs(app, pages, spec["tabs"])
+            if tabs:
+                entry["tabs"], shown_tab = build_tabs(app, pages, tabs)
                 entry["shown_tab"] = shown_tab
             activation = app.activate()  # once, before the settle (and before a hide or minimize): users run an active app
             if not activation["activated"]:
@@ -2535,7 +2724,7 @@ def main(argv=None):
                 entry["hide"] = hide_all(app)
             if spec.get("minimize"):
                 entry["minimize"] = minimize(app)
-            settle = settle_seconds(session, opts.settle)
+            settle = settle_seconds(session, opts.settle, tabs)
             entry["settle_s"] = settle
             time.sleep(settle)  # bench: the session settles (page loads, Chromium's post-load work, the hidden-tab freeze)
             instance = procs.Instance(app.app, app.process.pid)
@@ -2547,9 +2736,13 @@ def main(argv=None):
             if mismatch:
                 print(f"IDLE-BUDGET-DRAW-MISMATCH {session}: {mismatch}", flush=True)
             window_before = window_state(app)
+            states_before = pages.page_states()[0] if pages else None
             result = measure(app, instance, opts.measure, pages.read_anim if spec.get("anim") else None,
                              attribute=spec.get("power", False), shown_tab=shown_tab,
                              workdir=os.path.join(out, session))
+            if pages:
+                states_after, probes = pages.page_states()
+                visibility = visibility_report(spec, tabs, states_before, states_after, probes)
             result["window_state"] = {"start": window_before, "end": window_state(app)}
             print(f"IDLE-BUDGET-WINDOW {session} " + json.dumps(result["window_state"]), flush=True)
             app_sample = os.path.join(out, session, "sample-app.txt")
@@ -2563,6 +2756,9 @@ def main(argv=None):
             result["windowserver"] = windowserver_with_reference(app, result["windowserver"], spec, reference_s, entry)
             print(f"IDLE-BUDGET-WINDOWSERVER {session} " + json.dumps(result["windowserver"]), flush=True)
             entry.update(summarize(session, result, budget))
+            if pages:
+                entry["visibility"] = visibility
+                print(f"IDLE-BUDGET-VISIBILITY {session} " + visibility_line(visibility), flush=True)
             for reader in entry["readers_failed"]:
                 print(f"IDLE-BUDGET-READER-FAILED {session} {reader}: not measured", flush=True)
             if result.get("power"):
