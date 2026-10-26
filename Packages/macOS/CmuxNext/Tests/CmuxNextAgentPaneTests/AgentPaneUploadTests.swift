@@ -19,4 +19,18 @@ struct AgentPaneUploadTests {
         let oversized = Data(repeating: 0, count: 512 * 1024 + 1).base64EncodedString()
         #expect(AgentPaneRequest(body: ["method": "chat.upload.chunk", "params": ["token": "t", "offset": 0, "data": oversized]]) == .unsupported("chat.upload.chunk"))
     }
+
+    /// A file has no size cap (Leo, 2026-10-24: "I thought we removed the file size limit attachment
+    /// situation... we shouldn't have this limit"): a 3 GiB video, and a batch that holds one, start
+    /// streaming; the machine they go to refuses one only when its disk lacks room.
+    @Test func aFilePastOneGibibyteStartsStreaming() {
+        let size = 3 * 1024 * 1024 * 1024
+        let begin = AgentPaneRequest(body: ["method": "chat.upload.begin", "params": ["name": "movie.mov", "size": size]])
+        #expect(begin == .uploadStage(.begin(name: "movie.mov", size: size, batchToken: nil, batch: nil)))
+        let batch: [[String: Any]] = [["name": "movie.mov", "size": size], ["name": "notes.txt", "size": 2]]
+        let first = AgentPaneRequest(body: ["method": "chat.upload.begin", "params": ["name": "movie.mov", "size": size, "batch": batch]])
+        #expect(first == .uploadStage(.begin(name: "movie.mov", size: size, batchToken: nil,
+                                             batch: [AgentPaneUploadBatchEntry(name: "movie.mov", size: size), AgentPaneUploadBatchEntry(name: "notes.txt", size: 2)])))
+        #expect(AgentPaneRequest(body: ["method": "chat.upload.begin", "params": ["name": "movie.mov", "size": -1]]) == .unsupported("chat.upload.begin"))
+    }
 }
