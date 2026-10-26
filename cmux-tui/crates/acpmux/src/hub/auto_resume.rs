@@ -695,11 +695,9 @@ mod tests {
         let set = Mark::Waiting { turn: "t1".into(), retry: Some(retry("t1")), _wake: wake() };
         assert_eq!(settled_by_stop(Some(&set)).as_deref(), Some("t1"));
         assert_eq!(settled_by_stop(Some(&Mark::Ending("t1".into()))).as_deref(), Some("t1"));
-        for mark in [
-            Mark::Firing("t1".into()),
-            Mark::Stopped("t1".into()),
-            Mark::Stopping("t1".into()),
-        ] {
+        for mark in
+            [Mark::Firing("t1".into()), Mark::Stopped("t1".into()), Mark::Stopping("t1".into())]
+        {
             assert_eq!(settled_by_stop(Some(&mark)), None);
         }
         assert_eq!(settled_by_stop(None), None);
