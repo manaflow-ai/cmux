@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxNextSettings
 public import Foundation
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 
 /// What cmux already knows about a web page a reply links to: its site's favicon (PNG) and the
 /// page's title, from the user's own browsing. Never fetched for a chip (D4).

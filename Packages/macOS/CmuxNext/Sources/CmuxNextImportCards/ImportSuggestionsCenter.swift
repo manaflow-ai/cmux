@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxNextActions
 public import CmuxNextBrowserImport
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextDesign
 public import CmuxNextImportSuggestions
 import CmuxNextOnboarding

@@ -1,4 +1,3 @@
-public import AppKit
 public import Foundation
 
 /// Where a page's developer tools show (the dock side).

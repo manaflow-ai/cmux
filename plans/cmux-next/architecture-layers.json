@@ -4,6 +4,7 @@
   "targets": {
     "CCmuxAppFFI": {"layer": "core"},
     "CmuxNextCompat": {"layer": "core"},
+    "CmuxNextCompatAppKit": {"layer": "core", "plan": "Compat's AppKit and QuartzCore helpers (p15-oracle 119/121): keeps CmuxNextCompat free of UI frameworks for the Linux tier"},
     "CmuxNextWakeups": {"layer": "core"},
     "CmuxNextWakeupsTestSupport": {"layer": "core"},
     "CmuxNextActions": {"layer": "core"},

@@ -1,7 +1,7 @@
 public import AppKit
 import CmuxUpdater
 import Observation
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 
 /// What the update sheet renders and where its buttons go.
 @MainActor

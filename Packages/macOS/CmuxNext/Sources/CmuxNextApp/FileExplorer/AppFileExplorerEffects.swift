@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextFilesUI
 
 /// The App's ``FileExplorerEffects``: cmux viewers through the link opener

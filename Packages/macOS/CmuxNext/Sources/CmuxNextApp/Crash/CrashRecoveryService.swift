@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import Foundation
 import os
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 
 /// Whole-app crash recovery and crash visibility (plans/cmux-next/browser-isolation.md):
 /// the run marker, the restart notice, crash reports for app and Chromium

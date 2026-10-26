@@ -1,4 +1,3 @@
-public import AppKit
 public import Foundation
 
 /// Implemented by a window that has its own native overlays taking the

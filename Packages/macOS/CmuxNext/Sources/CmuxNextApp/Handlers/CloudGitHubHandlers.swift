@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 
 /// Set Up GitHub on This Machine (`cmux cloud setup-github --target machine:<id>`), over
 /// ``CloudHandlers``' machine resolution, runs and results (its own type: CloudHandlers is at the

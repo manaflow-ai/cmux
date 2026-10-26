@@ -1,6 +1,6 @@
 import AppKit
 import os
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextPages
 import CmuxNextDesign
 import CmuxNextActions

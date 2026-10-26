@@ -13,6 +13,7 @@ extension NSWorkspace {
     public func openInBackground(_ url: URL, completion: (@MainActor @Sendable (Bool) -> Void)? = nil) {
         DispatchQueue.global(qos: .userInitiated).async {
             // The only sanctioned synchronous open (check-concurrency: workspace opens).
+            // concurrency-allow: this block runs on a global dispatch queue, never on the main thread.
             let opened = NSWorkspace.shared.open(url)
             guard let completion else { return }
             // task-owner: one main-actor hop to report the open; nothing to cancel
@@ -23,6 +24,7 @@ extension NSWorkspace {
     /// Selects `urls` in a Finder window.
     public func revealInBackground(_ urls: [URL]) {
         DispatchQueue.global(qos: .userInitiated).async {
+            // concurrency-allow: this block runs on a global dispatch queue, never on the main thread.
             NSWorkspace.shared.activateFileViewerSelecting(urls)
         }
     }

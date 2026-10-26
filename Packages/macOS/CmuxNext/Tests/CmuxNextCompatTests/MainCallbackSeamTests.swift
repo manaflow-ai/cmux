@@ -1,4 +1,4 @@
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import Foundation
 import QuartzCore
 import Testing

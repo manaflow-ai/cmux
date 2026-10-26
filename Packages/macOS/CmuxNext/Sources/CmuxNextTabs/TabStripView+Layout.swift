@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 public import CmuxNextDesign
 public import CmuxNextWakeups
 import QuartzCore

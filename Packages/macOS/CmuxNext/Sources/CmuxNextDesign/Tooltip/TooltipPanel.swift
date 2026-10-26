@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 
 /// The tooltip's ink and legibility tint, read in the panel's theme scope.
 struct TooltipStyle {

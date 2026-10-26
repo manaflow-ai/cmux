@@ -1,7 +1,7 @@
 import AppKit
 import CmuxHomeCore
 import CmuxHomeRender
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextDaemon
 import CmuxNextActions
 import CmuxNextChiefPetWiring

@@ -3,7 +3,7 @@ import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDesign
 import UniformTypeIdentifiers
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 
 /// A download row's menu in the toolbar's Downloads popup
 /// (`BrowserDownloadsPopup`, Edge's downloads flyout, cx-6qwm.1): open the

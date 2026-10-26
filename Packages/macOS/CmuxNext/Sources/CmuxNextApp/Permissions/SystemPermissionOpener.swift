@@ -1,7 +1,7 @@
 import AppKit
 import AVFoundation
 import CmuxNextAgentPermissions
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 
 /// Takes the person to a grant after they pressed Continue on the card:
 /// the System Settings list for kinds with a list, macOS's one prompt for

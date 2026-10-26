@@ -3,7 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextSidebar
 
 /// Workspace names, colors, notifications, identifiers, and Finder reveal.

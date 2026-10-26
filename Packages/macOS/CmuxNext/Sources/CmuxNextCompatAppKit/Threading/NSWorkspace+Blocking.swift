@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextCompat
 public import UniformTypeIdentifiers
 
 /// Checked blocking NSWorkspace queries (``assertBlockingAllowed(_:fileID:line:)``): each one waits for

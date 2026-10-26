@@ -1,7 +1,7 @@
 import AppKit
 public import CmuxNextDictation
 import Foundation
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 
 /// A dictation request from the page's mic button or keys.
 public nonisolated enum AgentPaneDictationCommand: Equatable, Sendable {

@@ -1,6 +1,6 @@
 public import Foundation
 import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 
 /// A page's links to other apps (mailto:, tel:, an app's own scheme), from a
 /// click in the main frame, in both engines (cx-d0d.22). A well-known scheme

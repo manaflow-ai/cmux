@@ -4,7 +4,7 @@ public import CmuxAuthRuntime
 import Foundation
 import os
 public import Observation
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 
 /// Stack Auth for cmux-next, composed from the kept `CmuxAuthRuntime`
 /// library exactly as the old app did (MacAuthComposition): the Keychain

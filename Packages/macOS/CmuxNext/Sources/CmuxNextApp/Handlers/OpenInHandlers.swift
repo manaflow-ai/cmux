@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextPages
 
 /// Open-in-app and Reveal in Finder for the focused file. Until the file

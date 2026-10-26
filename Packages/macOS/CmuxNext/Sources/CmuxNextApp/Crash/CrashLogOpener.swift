@@ -1,6 +1,6 @@
 import AppKit
 import Foundation
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 
 /// The one path every "Show Crash Logs" entrypoint takes (the Help menu, the
 /// palette, `cmux settings show-crash-logs`, the restart notice): the

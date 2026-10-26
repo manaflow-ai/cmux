@@ -1,4 +1,4 @@
-public import AppKit
+import Foundation
 
 /// Whether a page is actually on screen where its pane expects it, read
 /// from AppKit (for the content invariant and `debug.surfaces`). Reading it

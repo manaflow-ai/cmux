@@ -4,7 +4,7 @@ import CmuxNextBookmarks
 import CmuxNextBrowserImport
 import CmuxNextDesign
 import Foundation
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 
 /// Bookmarks from another browser (decision BOOKMARKS-IMPORT-EVERY-BROWSER
 /// I4/I5), one path for File > Import, the palette, the Bookmark Manager and

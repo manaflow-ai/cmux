@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 @testable import CmuxNextCompat
+import CmuxNextCompatAppKit
 import Darwin
 import Foundation
 import Security

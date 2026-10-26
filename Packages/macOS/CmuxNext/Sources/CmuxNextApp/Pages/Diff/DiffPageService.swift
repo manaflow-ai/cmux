@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextDesign
 import typealias CmuxNextDaemon.SurfaceID
 import CmuxNextDiff

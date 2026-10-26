@@ -1,6 +1,6 @@
 public import AppKit
 import CoreImage
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 public import CmuxNextDesignTokens
 
 /// The one material behind a window's content (``WindowMaterial``) and the

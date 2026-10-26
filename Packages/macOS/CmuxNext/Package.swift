@@ -16,7 +16,10 @@ import PackageDescription
 //   Feature UI modules never import CmuxNextDaemon; the App maps daemon state into their view models.
 //   CmuxNextTerminal -> CmuxNextTerminalGeometry, CmuxNextCopyMode (pure), CmuxGhosttyKit (binary)
 //   CmuxNextCompat -> swift-atomics, system frameworks (back-ports of newer system APIs for the
-//     macOS 14 floor: Mutex, Atomic; any module may import it; plans/cmux-next/macos-floor.md)
+//     macOS 14 floor: Mutex, Atomic; any module may import it; plans/cmux-next/macos-floor.md; no UI framework)
+//   CmuxNextCompatAppKit -> Compat (re-exported), AppKit, QuartzCore (Compat's AppKit helpers: openInBackground and
+//     revealInBackground, the checked NSWorkspace queries and table/browser rows, CATransaction.setMainCompletion,
+//     NSApplication.terminateFromRunLoop; p15-oracle.md section H)
 //   CmuxNextWakeups -> Compat, Signposts, Trace, Metrics, system frameworks (the only sanctioned wakeup
 //     primitives: FrameScheduler, DemandTimer, Backoff, WakeupLedger, the one main-thread scheduler's
 //     per-frame budget MainFrameBudget, and TracedTask; plans/cmux-next/idle-wakeups.md,
@@ -229,6 +232,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAppCore",
                 "CmuxNextChiefMemory",
                 "CmuxNextCompat",
+                "CmuxNextCompatAppKit",
                 "CmuxNextFavicons",
                 "CmuxNextFiles",
                 "CmuxNextFilesUI",
@@ -399,7 +403,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // token, session id). Everything above the handshake is TypeScript.
         .target(
             name: "CmuxNextAgentPane",
-            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextErrorJournal", "CmuxNextActions", "CmuxNextDictation", "CmuxNextPages", "CmuxNextRemoteFetch", "CmuxNextSettings", "CmuxNextWakeups",
+            dependencies: ["CmuxNextCompat", "CmuxNextCompatAppKit", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextErrorJournal", "CmuxNextActions", "CmuxNextDictation", "CmuxNextPages", "CmuxNextRemoteFetch", "CmuxNextSettings", "CmuxNextWakeups",
                            "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts",
                            .product(name: "CmuxAppAttest", package: "CmuxAppAttest")],
             resources: [
@@ -514,7 +518,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // Settings › Import (no Home or New Tab suggestion). The App supplies `ImportCardsHost`.
         .target(
             name: "CmuxNextImportCards",
-            dependencies: ["CmuxNextActions", "CmuxNextBrowserImport", "CmuxNextCompat", "CmuxNextDesign",
+            dependencies: ["CmuxNextActions", "CmuxNextBrowserImport", "CmuxNextCompat", "CmuxNextCompatAppKit", "CmuxNextDesign",
                            "CmuxNextImportSuggestions", "CmuxNextOnboarding", "CmuxNextSettings", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
@@ -575,7 +579,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextHome",
             dependencies: [
-                "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextIcons", "CmuxNextWakeups",
+                "CmuxNextCompat", "CmuxNextCompatAppKit", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextIcons", "CmuxNextWakeups",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
@@ -592,7 +596,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextHomeEngine",
             dependencies: [
-                "CmuxNextAgentPane", "CmuxNextActions", "CmuxNextCloud", "CmuxNextCompat",
+                "CmuxNextAgentPane", "CmuxNextActions", "CmuxNextCloud", "CmuxNextCompat", "CmuxNextCompatAppKit",
                 "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextHome", "CmuxNextIcons", "CmuxNextWakeups",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
@@ -694,7 +698,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // index.html each under Resources/pages (scripts/cmux-next/build-pages-web.sh).
         .target(
             name: "CmuxNextPages",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextErrorJournal", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts"],
+            dependencies: ["CmuxNextCompat", "CmuxNextCompatAppKit", "CmuxNextDesign", "CmuxNextErrorJournal", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts"],
             resources: [.copy("Resources/pages"), .process("Localizable.xcstrings")],
             swiftSettings: uiSwiftSettings
         ),
@@ -800,7 +804,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // the shared icon and thumbnail cache. The App hosts it as an internal page.
         .target(
             name: "CmuxNextFilesUI",
-            dependencies: ["CmuxNextFiles", "CmuxNextDesign", "CmuxNextCompat", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextFiles", "CmuxNextDesign", "CmuxNextCompat", "CmuxNextCompatAppKit", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -1115,7 +1119,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // Share This Mac. Input capture comes from CmuxNextRemoteView.
         .target(
             name: "CmuxNextMacScreen",
-            dependencies: ["CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextActions", "CmuxNextControl", "CmuxNextDesign", "CmuxNextRemoteView", "CmuxNextDevices", .product(name: "CmuxScreenKit", package: "CmuxScreenKit")],
+            dependencies: ["CmuxNextCompat", "CmuxNextCompatAppKit", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextActions", "CmuxNextControl", "CmuxNextDesign", "CmuxNextRemoteView", "CmuxNextDevices", .product(name: "CmuxScreenKit", package: "CmuxScreenKit")],
             resources: [
                 .process("Resources"),
             ],
@@ -1190,6 +1194,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextUpdater",
             dependencies: [
                 "CmuxNextCompat",
+                "CmuxNextCompatAppKit",
                 "CmuxNextDesign",
                 "CmuxNextIcons",
                 "CmuxNextPages",
@@ -1222,6 +1227,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextCloud",
             dependencies: [
                 "CmuxNextCompat",
+                "CmuxNextCompatAppKit",
                 "CmuxNextWakeups",
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CmuxInstallAuthCore", package: "CmuxInstallAuthCore"),
@@ -1259,9 +1265,19 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [.product(name: "Atomics", package: "swift-atomics")],
             swiftSettings: daemonSwiftSettings
         ),
+        // Compat's AppKit and QuartzCore helpers (background NSWorkspace opens, the checked NSWorkspace
+        // queries, checked table and browser rows, CATransaction main completion, terminate from the run
+        // loop), apart so CmuxNextCompat imports no UI framework and builds on Linux
+        // (plans/cmux-next/chrome-parity/p15-oracle.md section H, tasks 119 and 121). It re-exports
+        // CmuxNextCompat, so an AppKit file imports it in place of CmuxNextCompat.
+        .target(
+            name: "CmuxNextCompatAppKit",
+            dependencies: ["CmuxNextCompat"],
+            swiftSettings: daemonSwiftSettings
+        ),
         .testTarget(
             name: "CmuxNextCompatTests",
-            dependencies: ["CmuxNextCompat"],
+            dependencies: ["CmuxNextCompat", "CmuxNextCompatAppKit"],
             swiftSettings: uiSwiftSettings
         ),
         // The error journal (`cmux errors`): one bounded, deduplicated NDJSON log of the
@@ -1448,6 +1464,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextDesign",
             dependencies: [
                 "CmuxNextCompat",
+                "CmuxNextCompatAppKit",
                 "CmuxNextDesignTokens",
                 // The shared overflow button's ⋮ glyph (OverflowButton, action.more.vertical).
                 "CmuxNextIcons",
@@ -1533,6 +1550,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextTerminal",
             dependencies: [
                 "CmuxNextCompat",
+                "CmuxNextCompatAppKit",
                 "CmuxNextWakeups",
                 "CmuxNextProcessEnvironment",
                 "CmuxNextDesign",
@@ -1584,6 +1602,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextTabs",
             dependencies: [
                 "CmuxNextCompat",
+                "CmuxNextCompatAppKit",
                 "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextResources", "CmuxNextIcons",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             ],
@@ -1603,7 +1622,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextPalette",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextActions", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI", "CmuxNextTrace", "CmuxNextSignposts", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextCompatAppKit", "CmuxNextDesign", "CmuxNextActions", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI", "CmuxNextTrace", "CmuxNextSignposts", "CmuxNextWakeups"],
             resources: [
                 .process("Localizable.xcstrings"),
                 .process("Resources"),
@@ -1642,7 +1661,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextBrowser",
-            dependencies: ["CmuxNextBrowserCore", "CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextRemoteFetch", "CmuxNextRemoteLayer", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts"],
+            dependencies: ["CmuxNextBrowserCore", "CmuxNextCompat", "CmuxNextCompatAppKit", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextRemoteFetch", "CmuxNextRemoteLayer", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts"],
             // The CEF shim's C header: its SHA-256 is the shim ABI identity
             // (CEFShimABI, scripts/cmux-next/build-cef-shim.sh).
             resources: [.copy("CEF/Shim/cmux_cef_shim.h"), .process("Resources")],
@@ -1762,6 +1781,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextChiefPetWiring",
                 "CmuxNextChromiumRuntime",
                 "CmuxNextCompat",
+                "CmuxNextCompatAppKit",
                 "CmuxNextComputerUse",
                 "CmuxNextCookieImport",
                 "CmuxNextCopyMode",
