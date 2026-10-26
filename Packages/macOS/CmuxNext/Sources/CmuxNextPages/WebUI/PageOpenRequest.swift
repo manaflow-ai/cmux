@@ -49,6 +49,7 @@ extension PageWebView {
     ///   - registry: Lists the view for the debug verbs.
     convenience init?(request: PageOpenRequest, chromium: (any PageChromiumHosting)?,
                       openPanel: MadeAheadOpenPanel?, registry: PageRegistry) {
+        let requested = ProcessInfo.processInfo.systemUptime
         let root: URL
         if let explicit = request.root {
             guard Self.mayServe(request.descriptor, from: explicit) else { return nil }
@@ -63,6 +64,7 @@ extension PageWebView {
         self.init(descriptor: request.descriptor, configuration: host.configuration,
                   inputReadiness: host.inputReadiness, routes: request.routes, route: request.route,
                   options: request.options, surface: request.surface, dynamicResources: request.dynamicResources,
-                  pooled: false, load: true, chromium: chromium, openPanel: openPanel, registry: registry)
+                  pooled: false, load: true, openRequested: requested, chromium: chromium,
+                  openPanel: openPanel, registry: registry)
     }
 }
