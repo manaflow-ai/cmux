@@ -11,9 +11,9 @@ import Observation
 
 /// The `cmux://agent-activity` page in a browser tab: the Activity page on the
 /// shared page host (``PageDescriptor/agentActivity``, Chromium or WebKit by
-/// `browser.defaultEngine`), else the old WebKit view when the page host has no
-/// root for it. Navigating it to a web address asks the host (`onNavigate`) to
-/// turn the tab into a real page.
+/// `browser.defaultEngine`), else the pane's load error page (``missingPage``)
+/// when the page host has no root for it. Navigating it to a web address asks
+/// the host (`onNavigate`) to turn the tab into a real page.
 @MainActor
 @Observable
 final class AgentActivityPageTab: BrowserTab {
@@ -42,16 +42,24 @@ final class AgentActivityPageTab: BrowserTab {
         standInCap = MainDeadline(owner: "AgentActivityPageTab.standIn", workClass: .visible, scheduler: deadlines)
         self.engineKind = engine
         self.profileID = profile
-        var state = BrowserTabState(url: AgentActivityPageAddress.url, title: AgentActivityPaneStrings.title)
-        state.phase = .finished
-        self.state = state
         let model = AgentActivityModel(source: source)
+        model.layout = AgentActivityTunables.layout.value
         self.model = model
         let provider = AgentActivityPageProvider(requests: AgentActivityRequests(model: model, source: source), mainWork: deadlines.work)
-        contentView = webUI.open(PageOpenRequest(descriptor: .agentActivity,
-                                                 routes: [PageRoute(prefix: AgentActivityPageProvider.prefix, provider: provider)]))
-            ?? AgentActivityHostView(model: model, source: source)
-        model.start()
+        let page = webUI.open(PageOpenRequest(descriptor: .agentActivity,
+                                              routes: [PageRoute(prefix: AgentActivityPageProvider.prefix, provider: provider)]))
+        var state = BrowserTabState(url: AgentActivityPageAddress.url, title: AgentActivityPaneStrings.title)
+        state.phase = page == nil ? .failed(Self.missingPage) : .finished
+        self.state = state
+        contentView = page ?? NSView()
+        if page != nil { model.start() }
+    }
+
+    /// The failure a tab shows, on the browser pane's load error page, when the page host has no root for the
+    /// Activity page (its files are missing from the bundle).
+    static var missingPage: BrowserLoadError {
+        BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorFileDoesNotExist, message: AgentActivityPaneStrings.pageMissing,
+                         failingURL: AgentActivityPageAddress.url)
     }
 
     func load(_ url: URL) {
@@ -75,16 +83,11 @@ final class AgentActivityPageTab: BrowserTab {
     }
 
     func snapshot() async throws -> CGImage {
-        // A hidden web view draws nothing into an AppKit cache: its engine pictures it.
-        if let page = contentView as? PageWebView {
-            guard let image = await page.snapshot()?.bestCGImage else {
-                throw BrowserTabError.snapshotUnavailable
-            }
-            return image
+        // A hidden web view draws nothing into an AppKit cache: its engine pictures it. A missing page
+        // has no picture (the pane's load error page is the chrome's, not this content).
+        guard let page = contentView as? PageWebView, let image = await page.snapshot()?.bestCGImage else {
+            throw BrowserTabError.snapshotUnavailable
         }
-        guard let rep = contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds) else { throw BrowserTabError.snapshotUnavailable }
-        contentView.cacheDisplay(in: contentView.bounds, to: rep)
-        guard let image = rep.cgImage else { throw BrowserTabError.snapshotUnavailable }
         return image
     }
 
@@ -134,7 +137,7 @@ extension AgentActivityPageTab: BrowserAppPage {
         }
     }
 
-    /// The document's scroll, read within 2 s; nil for the old WebKit view or a page that does not answer.
+    /// The document's scroll, read within 2 s; nil for a missing page or a page that does not answer.
     private func documentScroll() async -> BrowserAppPageState.Point? {
         guard let page = contentView as? PageWebView else { return nil }
         let point = try? await ControlDeadline.shared.run(method: "pages.discard.scroll", deadline: .now + .seconds(2)) { @MainActor in
@@ -145,8 +148,8 @@ extension AgentActivityPageTab: BrowserAppPage {
 }
 
 /// A woken page's last frame over its rebuilt document until the document paints, at most `cap`,
-/// as a woken web page's (`WebKitTab+WakeStandIn`). The old WebKit view has no paint signal and a
-/// Chromium page draws in the engine's own view: those wakes count as uncovered.
+/// as a woken web page's (`WebKitTab+WakeStandIn`). A missing page has no document and a Chromium
+/// page draws in the engine's own view: those wakes count as uncovered.
 extension AgentActivityPageTab: BrowserWakeStandIn {
     @discardableResult
     func showStandIn(_ picture: CGImage, decoded: Bool, cap: Duration, clock: any Clock<Duration>) -> Bool {
