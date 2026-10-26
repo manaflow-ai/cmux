@@ -557,6 +557,25 @@ describe("sandboxed Run lifecycle in the repository", () => {
     }
   });
 
+  dbTest("a create the VM reaper abandoned keeps cleanup pending and VM time unknown; a plain failed create does not", async () => {
+    const userId = `sandbox-${randomUUID()}`;
+    try {
+      const target = await startedAttempt(userId);
+      const key = `sandbox-run:${target.runId}:attempt:${target.attemptId}`;
+      await sql!`insert into cloud_vms (user_id, billing_team_id, provider, image_id, status, idempotency_key, provider_metadata, failure_code)
+        values (${userId}, ${userId}, 'freestyle', 'sh-test-image', 'failed', ${key}, ${sql!.json({ cmuxSandboxRun: key })}, 'create_abandoned')`;
+      const abandoned = await repo().getRun(target.runId, userId);
+      expect(abandoned.sandboxVmLive).toBe(true);
+      expect(abandoned.sandboxVmUnknown).toBe(true);
+      await sql!`update cloud_vms set failure_code = 'provider_create_failed' where idempotency_key = ${key}`;
+      const failed = await repo().getRun(target.runId, userId);
+      expect(failed.sandboxVmUnknown).toBe(false);
+    } finally {
+      await sql!`delete from cloud_vms where user_id = ${userId}`;
+      await removeRuns(userId);
+    }
+  });
+
   dbTest("a sandbox key allocates one machine, ever: a destroyed or failed row is returned, never replaced", async () => {
     const userId = `sandbox-${randomUUID()}`;
     try {

@@ -48,7 +48,12 @@ export type RunSnapshot = {
   readonly sandboxVmLive?: boolean;
   /** Sandboxed Runs only: each VM row created under its key, for the receipt's VM time. */
   readonly sandboxVms?: readonly { readonly createdAt: Date; readonly destroyedAt: Date | null; readonly live: boolean }[];
+  /** Sandboxed Runs only: a create the VM reaper abandoned may have made a machine nobody recorded. */
+  readonly sandboxVmUnknown?: boolean;
 };
+
+/** The VM reaper's failure code for a create that passed its deadline with no provider id (services/vms/workflows.ts). */
+const VM_CREATE_ABANDONED_CODE = "create_abandoned";
 
 export type CreateRunInput = {
   readonly userId: string;
@@ -167,6 +172,7 @@ async function readSnapshot(db: RunQueryDb, runId: string, userId: string): Prom
     destroyedAt: cloudVms.destroyedAt,
     status: cloudVms.status,
     providerVmId: cloudVms.providerVmId,
+    failureCode: cloudVms.failureCode,
     destroyConfirmed: sql<string | null>`${cloudVms.providerMetadata}->>${SANDBOX_VM_DESTROY_CONFIRMED_KEY}`,
   }).from(cloudVms).where(and(
     eq(cloudVms.billingTeamId, run.billingTeamId),
@@ -175,7 +181,11 @@ async function readSnapshot(db: RunQueryDb, runId: string, userId: string): Prom
     // Only the launcher's own rows (marked from their first insert); an unmarked row is not this Run's.
     sql`${cloudVms.providerMetadata}->>${SANDBOX_VM_MARKER_KEY} = ${cloudVms.idempotencyKey}`,
   )).limit(keys.length * 4);
-  // A create that failed before the provider made a machine never ran: no VM time, nothing to clean.
+  // A create that failed with no provider id never ran: no VM time, nothing to clean. Except one
+  // the VM reaper abandoned at its deadline (`create_abandoned`): the provider may have made the
+  // machine and the process died before recording it, so whether it exists is unknown, and the
+  // receipt says cleanup is pending and VM time is unknown rather than claim either.
+  const allocationUnknown = rows.some((row) => row.status === "failed" && !row.providerVmId && row.failureCode === VM_CREATE_ABANDONED_CODE);
   const sandboxVms = rows.filter((row) => !(row.status === "failed" && !row.providerVmId)).map((row) => {
     const confirmedAt = row.destroyConfirmed ? new Date(row.destroyConfirmed) : null;
     const confirmed = !!confirmedAt && !Number.isNaN(confirmedAt.getTime());
@@ -188,7 +198,7 @@ async function readSnapshot(db: RunQueryDb, runId: string, userId: string): Prom
       live,
     };
   });
-  return { run, attempts, artifacts, sandboxVmLive: sandboxVms.some((vm) => vm.live), sandboxVms };
+  return { run, attempts, artifacts, sandboxVmLive: allocationUnknown || sandboxVms.some((vm) => vm.live), sandboxVms, sandboxVmUnknown: allocationUnknown };
 }
 
 export async function getRun(runId: string, userId: string): Promise<RunSnapshot> {

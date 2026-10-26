@@ -216,8 +216,9 @@ function receiptOutcome(
  */
 function vmSecondsFor(snapshot: RunSnapshotRow): number | null {
   const vms = snapshot.sandboxVms ?? [];
-  // No VM row to measure (none was made, or its row is gone): the lifetime is unknown, not zero.
-  if (vms.length === 0) return null;
+  // No VM row to measure (none was made, or its row is gone), or a machine nobody recorded may
+  // exist: the lifetime is unknown, not zero.
+  if (vms.length === 0 || snapshot.sandboxVmUnknown) return null;
   const nowMs = Date.now();
   const ms = vms.reduce((sum, vm) => sum + Math.max(0, (vm.destroyedAt?.getTime() ?? nowMs) - vm.createdAt.getTime()), 0);
   return Math.round(ms / 1000);

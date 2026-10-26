@@ -268,6 +268,13 @@ describe("sandbox receipt", () => {
     expect(sandboxReceiptFor(withArtifact)?.artifacts[0]?.name).toBe("dump-[redacted].txt");
   });
 
+  test("a machine nobody recorded may exist: cleanup pending, VM time unknown", () => {
+    const unknown = { ...snapshot(), sandboxVmLive: true, sandboxVmUnknown: true, sandboxVms: [] } as RunSnapshotRow;
+    const receipt = sandboxReceiptFor(unknown);
+    expect(receipt?.cleanup).toBe("pending");
+    expect(receipt?.cost.vmSeconds).toBeNull();
+  });
+
   test("a VM lifetime nobody measured is a null cost, never zero", () => {
     const base = snapshot();
     const noStart = { ...base.attempts[0]!, startedAt: null };

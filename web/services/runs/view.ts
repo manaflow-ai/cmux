@@ -26,6 +26,7 @@ export type RunSnapshotRow = {
   readonly artifacts: readonly (typeof runArtifacts.$inferSelect)[];
   readonly sandboxVmLive?: boolean;
   readonly sandboxVms?: readonly { readonly createdAt: Date; readonly destroyedAt: Date | null; readonly live: boolean }[];
+  readonly sandboxVmUnknown?: boolean;
 };
 
 export type RunViewOptions = {
