@@ -3019,9 +3019,6 @@ PACKAGE_MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
 # CmuxThreading, the leaf that gives the linked Shared/iOS packages their `blockingCall` seam and Mutex.
 THREADING_LEAF = "Packages/Shared/CmuxThreading/"
 BLOCKING_SEAMS = (SOURCES + "CmuxNextCompat/Threading/", SOURCES + "CmuxNextCompat/Mutex.swift", THREADING_LEAF)
-# A `.package(path:)` link anywhere on a line (`dependencies: [.package(path: "../A"), ...]`); a comment line links
-# nothing (linked_closure skips it).
-LINKED_PACKAGE = re.compile(r'(?<![\w.])\.package\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"')
 BLOCKING_ALLOW = re.compile(r"//\s*blocking-allow:\s*\S")
 FILE_OPS = (r"fileExists|isReadableFile|isWritableFile|isExecutableFile|createDirectory|removeItem|contentsOfDirectory|"
             r"subpathsOfDirectory|enumerator|createFile|contents|contentsEqual|attributesOfItem|attributesOfFileSystem|"
@@ -4156,38 +4153,80 @@ def blocking_once(changes: list[FileChange], moved: collections.Counter) -> list
     return changed_debt(outside_seams(changes), judge)
 
 
-def linked_closure(manifest: str, read: Callable[[list[str]], dict[str, str]]) -> dict[str, str]:
-    """{package folder: its Package.swift text} of every package under Packages/ that CmuxNext's MANIFEST reaches
-    through `.package(path:)`, transitively, each path resolved against the folder of the manifest that names it.
-    READ maps Package.swift paths to their texts (a path it leaves out has no manifest: not a package). CmuxNext
-    itself is not one."""
+class LinkedPackage(NamedTuple):
+    """A package CmuxNext's app code links: its Package.swift TEXT and the TARGETS of it that code reaches."""
+    text: str
+    targets: frozenset[str]
+
+
+def linked_closure(manifest: str, read: Callable[[list[str]], dict[str, str]]) -> dict[str, LinkedPackage]:
+    """{package folder: LinkedPackage} of every package under Packages/ whose code runs in the app: the library
+    targets that CmuxNext's MANIFEST's `.target`s reach through `.product(name:package:)` (a `.package(path:)`
+    resolved against the folder of the manifest that names it), transitively, with each reached target's own
+    `.target` dependencies. A `.testTarget`'s products (CmuxFuzzSupport), an `.executableTarget` or `.macro` (a
+    separate process: cmux-vnc-host) and a package no reached target uses are not in it; nor is CmuxNext itself.
+    READ maps Package.swift paths to their texts (a path it leaves out has no manifest: not a package)."""
     root = PACKAGE_ROOT.rstrip("/")
-    found: dict[str, str] = {}
-    pending = [(root, manifest)]
+    graphs = {root: swift_scope.package_graph(manifest)}
+    texts: dict[str, str] = {}
+    absent: set[str] = set()
+    reached: dict[str, set[str]] = {}
+    # (folder, product or None, target or product name): a product resolves once its package's manifest is read.
+    pending: list[tuple[str, bool, str]] = [(root, False, name) for name in graphs[root].kinds]
     while pending:
-        wanted = sorted({path for folder, text in pending for line in text.split("\n")
-                         if not COMMENT_LINE.match(line) for match in LINKED_PACKAGE.finditer(line)
-                         if (path := posixpath.normpath(posixpath.join(folder, match.group(1)))).startswith("Packages/")
-                         and path != root and path not in found})
-        texts = read([path + "/Package.swift" for path in wanted]) if wanted else {}
-        pending = [(path, texts[path + "/Package.swift"]) for path in wanted if path + "/Package.swift" in texts]
-        found.update(pending)
-    return found
+        wanted = sorted({folder for folder, _, _ in pending if folder not in graphs and folder not in absent})
+        found = read([folder + "/Package.swift" for folder in wanted]) if wanted else {}
+        for folder in wanted:
+            if folder + "/Package.swift" in found:
+                texts[folder] = found[folder + "/Package.swift"]
+                graphs[folder] = swift_scope.package_graph(texts[folder])
+            else:
+                absent.add(folder)
+        following: list[tuple[str, bool, str]] = []
+        for folder, product, name in pending:
+            graph = graphs.get(folder)
+            if graph is None:
+                continue
+            targets = (graph.libraries.get(name, [name] if name in graph.kinds else [])) if product else [name]
+            for target in targets:
+                if graph.kinds.get(target) != "target" or target in reached.setdefault(folder, set()):
+                    continue
+                reached[folder].add(target)
+                for dependency in graph.dependencies.get(target, []):
+                    if dependency.kind == "target" or (dependency.kind == "byName" and dependency.name in graph.kinds):
+                        following.append((folder, False, dependency.name))
+                        continue
+                    path = graph.paths.get((dependency.package or dependency.name).lower())
+                    linked = posixpath.normpath(posixpath.join(folder, path)) if path is not None else ""
+                    if linked.startswith("Packages/") and linked != root:
+                        following.append((linked, True, dependency.name))
+        pending = following
+    return {folder: LinkedPackage(texts[folder], frozenset(names))
+            for folder, names in sorted(reached.items()) if folder != root and names}
+
+
+def linked_targets(packages: dict[str, LinkedPackage]) -> dict[str, list]:
+    """{package folder: its reached targets (swift_scope.Target: name, folder, isolation)} of linked_closure()'s
+    PACKAGES."""
+    return {folder: [t for t in swift_scope.package_targets(package.text) if t.name in package.targets]
+            for folder, package in packages.items()}
 
 
 def load_linked_packages(manifest: str | None, read: Callable[[list[str]], dict[str, str]]) -> None:
-    """Keeps the linked packages of MANIFEST (HEAD's CmuxNext Package.swift; None: none) and their targets for
-    in_rule_scope() and linked_main_default(). READ is linked_closure()'s."""
-    packages = linked_closure(manifest or "", read)
-    BLOCKING_CONTEXT["linked"] = {folder: swift_scope.package_targets(text) for folder, text in packages.items()}
+    """Keeps the linked packages of MANIFEST (HEAD's CmuxNext Package.swift; None: none) and their reached targets
+    for in_rule_scope() and linked_main_default(). READ is linked_closure()'s."""
+    BLOCKING_CONTEXT["linked"] = linked_targets(linked_closure(manifest or "", read))
 
 
 def linked_package(path: str) -> str | None:
-    """The folder of the linked package whose Sources hold PATH, None for any other path (and before
-    load_linked_packages())."""
-    linked = BLOCKING_CONTEXT.get("linked") or {}
-    folder = path.split("/Sources/", 1)[0] if "/Sources/" in path and path.endswith(".swift") else None
-    return folder if folder in linked else None
+    """The folder of the linked package one of whose reached targets holds PATH (a Swift file), None for any other
+    path (and before load_linked_packages())."""
+    if not path.endswith(".swift"):
+        return None
+    for folder, targets in (BLOCKING_CONTEXT.get("linked") or {}).items():
+        if path.startswith(folder + "/") and swift_scope.default_isolation(path[len(folder) + 1:], targets) is not None:
+            return folder
+    return None
 
 
 def linked_main_default(path: str) -> bool:

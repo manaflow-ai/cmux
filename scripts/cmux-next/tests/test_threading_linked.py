@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """The linked Shared/iOS packages in guardrails.py and threading-inventory.py (p02-threads-130).
 
-CmuxNext's Package.swift links Shared, macOS and iOS packages by path, transitively, and their code runs in the app.
-guardrails' linked_closure() follows those `.package(path:)` links (each path against its own manifest's folder; a
-path with no Package.swift, CmuxNext itself and folders outside Packages/ are not packages). On a push, the blocking
+CmuxNext's Package.swift links Shared, macOS and iOS packages by path, transitively, and the library targets its
+`.target`s reach run in the app. guardrails' linked_closure() follows `.product(name:package:)` dependencies of
+`.target`s to those `.package(path:)` links (each path against its own manifest's folder; a path with no
+Package.swift, CmuxNext itself and folders outside Packages/ are not packages), and each reached target's own
+`.target` dependencies. A package only a `.testTarget` uses, a linked package no target uses and a linked package's
+`.executableTarget` (a separate process) are not in it. On a push, the blocking
 rules and task-priority judge a linked package's Sources by its targets' isolation (not main actor), a CmuxThreading
 `blockingCall { }` closure is the seam there, and an unlinked package, a linked package's Tests and the CmuxThreading
 leaf itself are not judged. The inventory reads the same closure: `--count` prints CmuxNext's counts as before and
@@ -51,11 +54,22 @@ let package = Package(
         .package(path: "../../Shared/NoManifest"),
         .package(path: "../../../vendor/Outside"),
         // .package(path: "../../Shared/Unlinked"),
+        .package(path: "../../Shared/TestOnly"),
+        .package(path: "../../Shared/Unused"),
         .package(url: "https://example.com/remote.git", from: "1.0.0"),
     ],
     targets: [
-        .target(name: "CmuxNextUI", swiftSettings: uiSwiftSettings),
-        .target(name: "CmuxNextCore", swiftSettings: daemonSwiftSettings),
+        .target(name: "CmuxNextUI", dependencies: [.product(name: "MobileLinked", package: "MobileLinked")],
+                swiftSettings: uiSwiftSettings),
+        .target(name: "CmuxNextCore", dependencies: [
+            "CmuxNextUI", .product(name: "Linked", package: "Linked"),
+            .product(name: "CmuxUpdaterLike", package: "CmuxUpdaterLike"),
+            .product(name: "NoManifest", package: "NoManifest"), .product(name: "Outside", package: "Outside"),
+            .product(name: "Remote", package: "remote"),
+        ], swiftSettings: daemonSwiftSettings),
+        .testTarget(name: "CmuxNextCoreTests", dependencies: [
+            "CmuxNextCore", .product(name: "TestOnly", package: "TestOnly"),
+        ]),
     ]
 )
 """
@@ -64,8 +78,22 @@ import PackageDescription
 
 let package = Package(
     name: "Linked",
-    dependencies: [.package(path: "../Transitive"), .package(path: "../../../Packages/macOS/CmuxNext")],
-    targets: [.target(name: "Linked"), .testTarget(name: "LinkedTests", dependencies: ["Linked"])]
+    products: [
+        .library(name: "Linked", targets: ["Linked"]),
+        .executable(name: "linked-host", targets: ["linked-host"]),
+    ],
+    dependencies: [
+        .package(path: "../Transitive"), .package(path: "../../../Packages/macOS/CmuxNext"),
+        // Test-only: LinkedTests' fuzz helpers.
+        .package(path: "../TestOnly"),
+    ],
+    targets: [
+        .target(name: "Linked", dependencies: [
+            .product(name: "Transitive", package: "Transitive"), .product(name: "CmuxNextCore", package: "CmuxNext"),
+        ]),
+        .executableTarget(name: "linked-host", dependencies: ["Linked"]),
+        .testTarget(name: "LinkedTests", dependencies: ["Linked", .product(name: "TestOnly", package: "TestOnly")]),
+    ]
 )
 """
 PLAIN_MANIFEST = """// swift-tools-version: 6.2
@@ -112,6 +140,11 @@ FILES = {
     "Packages/Shared/Linked/Sources/Linked/Pool.swift": POOL_READ,
     "Packages/Shared/Linked/Sources/Linked/Main.swift": MAIN_READ,
     "Packages/Shared/Linked/Tests/LinkedTests/RawTests.swift": RAW_READ,
+    "Packages/Shared/Linked/Sources/linked-host/Raw.swift": RAW_READ,
+    "Packages/Shared/TestOnly/Package.swift": PLAIN_MANIFEST.format(name="TestOnly"),
+    "Packages/Shared/TestOnly/Sources/TestOnly/Raw.swift": RAW_READ,
+    "Packages/Shared/Unused/Package.swift": PLAIN_MANIFEST.format(name="Unused"),
+    "Packages/Shared/Unused/Sources/Unused/Raw.swift": RAW_READ,
     "Packages/Shared/Transitive/Package.swift": PLAIN_MANIFEST.format(name="Transitive"),
     "Packages/Shared/Transitive/Sources/Transitive/Raw.swift": RAW_READ,
     "Packages/iOS/MobileLinked/Package.swift": PLAIN_MANIFEST.format(name="MobileLinked"),
@@ -172,7 +205,25 @@ class ClosureTests(unittest.TestCase):
 
         found = guardrails.linked_closure(MANIFEST, read)
         self.assertEqual(sorted(found), sorted(LINKED))
+        self.assertEqual({folder: set(package.targets) for folder, package in found.items()},
+                         {folder: {folder.rsplit("/", 1)[1]} for folder in LINKED})
         self.assertEqual(guardrails.linked_closure("", read), {})
+
+    def test_test_only_unused_and_executable_code_is_not_linked(self):
+        manifests = {path: text for path, text in FILES.items() if path.endswith("/Package.swift")}
+        found = guardrails.linked_closure(MANIFEST, lambda paths: {p: manifests[p] for p in paths if p in manifests})
+        self.assertNotIn("Packages/Shared/TestOnly", found)  # only CmuxNextCoreTests and LinkedTests use it
+        self.assertNotIn("Packages/Shared/Unused", found)  # `.package(path:)` with no product dependency
+        self.assertNotIn("linked-host", found["Packages/Shared/Linked"].targets)  # a separate process
+        self.assertNotIn("LinkedTests", found["Packages/Shared/Linked"].targets)
+
+    def test_the_app_manifest_links_no_test_only_package(self):
+        repo = SCRIPTS.parents[1]
+        found = guardrails.linked_closure((repo / guardrails.PACKAGE_MANIFEST).read_text(), lambda paths: {
+            p: (repo / p).read_text() for p in paths if (repo / p).is_file()})
+        self.assertNotIn("Packages/Shared/CmuxFuzzSupport", found)
+        if "Packages/Shared/CmuxVNCWebRTC" in found:
+            self.assertNotIn("cmux-vnc-host", found["Packages/Shared/CmuxVNCWebRTC"].targets)
 
     def test_the_app_manifest_links_the_threading_leaf(self):
         manifest = (SCRIPTS.parents[1] / guardrails.PACKAGE_MANIFEST).read_text()
@@ -215,6 +266,9 @@ class PushTests(unittest.TestCase):
         for path in ("Packages/Shared/Unlinked/Sources/Unlinked/Raw.swift",
                      "Packages/Shared/NoManifest/Sources/NoManifest/Raw.swift",
                      "Packages/Shared/Linked/Tests/LinkedTests/RawTests.swift",
+                     "Packages/Shared/Linked/Sources/linked-host/Raw.swift",
+                     "Packages/Shared/TestOnly/Sources/TestOnly/Raw.swift",
+                     "Packages/Shared/Unused/Sources/Unused/Raw.swift",
                      "Packages/Shared/CmuxThreading/Sources/CmuxThreading/Raw.swift"):
             self.assertNotIn(path, judged)
 

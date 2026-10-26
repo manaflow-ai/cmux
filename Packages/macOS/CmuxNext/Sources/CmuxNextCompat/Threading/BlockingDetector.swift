@@ -29,9 +29,9 @@ public struct BlockingDetector: Sendable {
     public static func forProcess() -> BlockingDetector {
         SharedThreadingBridge.installForProcess()
         #if DEBUG || CMUX_BLOCKING_CHECKS
-        BlockingDetector(table: .shared)
+        return BlockingDetector(table: .shared)
         #else
-        BlockingDetector()
+        return BlockingDetector()
         #endif
     }
 

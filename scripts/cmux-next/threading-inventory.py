@@ -7,8 +7,9 @@ p02-threads machine queues (plans/cmux-next/chrome-parity/p02-threads.md section
 the hook refuses. The rules model Chromium's blocking discipline: base/threading/scoped_blocking_call.h (a blocking
 call is marked and may not run on the UI thread) and base/threading/thread_restrictions.h (the reviewed allow list).
 
-The linked section (p02-threads-130): CmuxNext's Package.swift links Shared, macOS and iOS packages by path
-(guardrails' linked_closure, transitively), and their code runs in the app. Their Sources are judged by the same
+The linked section (p02-threads-130): CmuxNext's Package.swift links Shared, macOS and iOS packages by path, and
+the library targets its `.target`s reach through `.product` dependencies (guardrails' linked_closure, transitively;
+not test-only products, executables or macros) run in the app. Those targets' sources are judged by the same
 rules, by their own targets' isolation (none is main actor by default), with CmuxThreading's `blockingCall` closure as
 their seam, and `--count` reports them apart: `linked:<rule> N` lines after the CmuxNext ones (`"linked"` in
 `--count --jsonl`), so the CmuxNext counts stay comparable across revisions. `--paths` and `--group` take them as any
@@ -696,16 +697,16 @@ def context_of(lines: list[str], index: int, prefix: str, default_main: bool) ->
 @dataclass
 class Tree:
     """The Swift sources of one revision ({path: text}) and the files the rules read beside them: PACKAGES are the
-    linked packages ({folder: Package.swift text}, guardrails' linked_closure of MANIFEST), whose Sources are in
-    SOURCES too and form the report's linked section."""
+    linked packages ({folder: guardrails.LinkedPackage}, guardrails' linked_closure of MANIFEST), whose reached
+    targets' sources are in SOURCES too and form the report's linked section."""
     sources: dict[str, str]
     threading_doc: str | None = None
     manifest: str | None = None
-    packages: dict[str, str] = field(default_factory=dict)
+    packages: dict = field(default_factory=dict)
 
     def read_package(self, paths: list[str]) -> dict[str, str]:
         """linked_closure's reader over PACKAGES."""
-        return {p: self.packages[p.removesuffix("/Package.swift")] for p in paths
+        return {p: self.packages[p.removesuffix("/Package.swift")].text for p in paths
                 if p.removesuffix("/Package.swift") in self.packages}
 
 
@@ -718,7 +719,8 @@ def read_tree(repo: Path, rev: str) -> Tree:
         return {p: found[(rev, p)] for p in paths if (rev, p) in found}
 
     packages = g.linked_closure(manifest or "", read)
-    roots = [g.SOURCES] + [folder + "/Sources/" for folder in sorted(packages)]
+    roots = [g.SOURCES] + sorted(f"{folder}/{target.path}/" for folder, targets in g.linked_targets(packages).items()
+                                 for target in targets)
     listing = g.git(repo, "ls-tree", "-r", "--name-only", rev, "--", *roots)
     paths = [p for p in listing.split("\n") if p.endswith(".swift")]
     texts.update(g.blobs(repo, [(rev, p) for p in paths]))
