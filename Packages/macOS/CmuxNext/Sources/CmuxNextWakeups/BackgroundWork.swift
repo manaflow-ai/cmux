@@ -27,6 +27,8 @@ import Dispatch
 /// Startup fence: between ``beginBestEffortFence()`` and ``endBestEffortFence()`` posted
 /// ``WorkPriority/idle`` and ``WorkPriority/bestEffort`` items wait, so they do not compete with launch.
 /// An awaited item is never held: someone waits for it, so it runs at once at its own priority.
+/// The app's fence is the launch's: ``StartupPhase/fenceBestEffort(_:)`` raises it while launching
+/// and the reveal lowers it.
 ///
 /// One instance per app, built in the composition root (AppServices) and passed through `init`;
 /// tests build their own.

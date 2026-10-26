@@ -1,5 +1,7 @@
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
+import Dispatch
+import os
 import Testing
 
 /// The startup phases (StartupPhase.swift; p06-scheduler.md section A): launching holds background
@@ -196,6 +198,108 @@ import Testing
         startup.noteFirstFrame()
         #expect(ran == ["background 1", "background 2", "idle"])
         #expect(startup.settleCause == .references)
+    }
+
+    /// The off-main best-effort fence (p06-scheduler-204): a posted best-effort item waits for the
+    /// reveal on every lane while user-visible work runs, and the reveal releases them in post order.
+    @Test(arguments: BlockingLane.allCases)
+    func aBestEffortPostWaitsForTheReveal(lane: BlockingLane) async {
+        let queued = BackgroundWorkTests.Started()
+        let finished = BackgroundWorkTests.Started()
+        let startup = StartupPhase(clock: ManualClock(), ledger: WakeupLedger())
+        // One cpu slot, so the release order is the run order on every lane but system (six slots).
+        let work = BackgroundWork(cpuWidth: 1, label: "test.startup.fence", onQueued: { _, _ in queued.signal() })
+        let log = OSAllocatedUnfairLock<[String]>(initialState: [])
+        startup.fenceBestEffort(work)
+        for name in ["a", "b", "c"] {
+            work.post(.bestEffort, mayBlock: lane) {
+                log.withLock { $0.append(name) }
+                finished.signal()
+            }
+        }
+        // Queued, not started, although the lane's slots are free.
+        await queued.wait(3)
+
+        // User-visible and user-blocking posts on the same lane run at once while launching.
+        let above = BackgroundWorkTests.Started()
+        work.post(.userVisible, mayBlock: lane) { above.signal() }
+        work.post(.userBlocking, mayBlock: lane) { above.signal() }
+        await above.wait(2)
+        #expect(log.withLock { $0 }.isEmpty, "best effort waits for the reveal")
+        #expect(startup.phase == .launching)
+
+        startup.noteFirstFrame()
+        await finished.wait(3)
+        if lane == .system {
+            #expect(Set(log.withLock { $0 }) == ["a", "b", "c"])
+        } else {
+            #expect(log.withLock { $0 } == ["a", "b", "c"], "the reveal releases them in post order")
+        }
+        // Once revealed nothing is held.
+        work.post(.bestEffort, mayBlock: lane) { finished.signal() }
+        await finished.wait()
+    }
+
+    /// Raising the fence does not wait for a best-effort item that already runs; it holds only
+    /// the items posted after it.
+    @Test func theFenceDoesNotWaitForARunningItem() async {
+        let started = BackgroundWorkTests.Started()
+        let queued = BackgroundWorkTests.Started()
+        let finished = BackgroundWorkTests.Started()
+        let gate = DispatchSemaphore(value: 0)
+        let log = OSAllocatedUnfairLock<[String]>(initialState: [])
+        // Two cpu slots: the held item has a free slot and still waits.
+        let work = BackgroundWork(cpuWidth: 2, label: "test.startup.running", onQueued: { _, _ in queued.signal() })
+        work.post(.bestEffort, mayBlock: .cpu) {
+            started.signal()
+            gate.wait()
+            log.withLock { $0.append("running") }
+            finished.signal()
+        }
+        await started.wait()
+
+        let startup = StartupPhase(clock: ManualClock(), ledger: WakeupLedger())
+        // Returns while the running item is still blocked on the gate.
+        startup.fenceBestEffort(work)
+        work.post(.bestEffort, mayBlock: .cpu) {
+            log.withLock { $0.append("held") }
+            finished.signal()
+        }
+        await queued.wait()
+        gate.signal()
+        await finished.wait()
+        #expect(log.withLock { $0 } == ["running"], "the running item finishes; the later one is held")
+
+        startup.noteLaunch(.hidden)
+        await finished.wait()
+        #expect(log.withLock { $0 } == ["running", "held"])
+    }
+
+    /// The reveal deadline lowers the fence too, and a phase that is already revealed or settled
+    /// raises none.
+    @Test func theDeadlineEndsTheFenceAndALaterPhaseRaisesNone() async throws {
+        let queued = BackgroundWorkTests.Started()
+        let finished = BackgroundWorkTests.Started()
+        let clock = ManualClock()
+        let startup = StartupPhase(clock: clock, ledger: WakeupLedger())
+        let work = BackgroundWork(label: "test.startup.deadline", onQueued: { _, _ in queued.signal() })
+        startup.fenceBestEffort(work)
+        work.post(.idle, mayBlock: .files) { finished.signal() }
+        await queued.wait()
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(1_500))
+        await reached(.revealed, startup)
+        await finished.wait()
+
+        startup.fenceBestEffort(work)
+        work.post(.bestEffort, mayBlock: .files) { finished.signal() }
+        await finished.wait()
+
+        let settled = StartupPhase.settled()
+        let other = BackgroundWork(label: "test.startup.settled")
+        settled.fenceBestEffort(other)
+        other.post(.bestEffort, mayBlock: .files) { finished.signal() }
+        await finished.wait()
     }
 
     /// Returns once `startup` reaches `phase` (event-driven: the phase change runs the resume).

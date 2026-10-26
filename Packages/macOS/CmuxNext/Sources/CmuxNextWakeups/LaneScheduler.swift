@@ -12,6 +12,8 @@ import Dispatch
 /// While a best-effort fence is up (``fence()``), a posted ``WorkPriority/idle`` or
 /// ``WorkPriority/bestEffort`` item stays queued in post order; an item someone awaits still runs at its
 /// own QoS. Chrome's `CanRunPolicy::kForegroundOnly` (base/task/thread_pool/thread_pool_impl.cc).
+/// Raising the fence only counts: an item that already runs is not waited on. The app raises it
+/// while launching (``StartupPhase/fenceBestEffort(_:)``) and the reveal lowers it.
 final class LaneScheduler: Sendable {
     enum Policy: Sendable {
         case perPriority

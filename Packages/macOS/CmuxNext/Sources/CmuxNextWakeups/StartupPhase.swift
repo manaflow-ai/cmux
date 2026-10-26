@@ -5,7 +5,8 @@
 ///   background and idle work are held.
 /// - ``Phase/revealed``: at the first frame (``noteFirstFrame()``), at once for a hidden or
 ///   windowless launch (``noteLaunch(_:)``), or at the reveal deadline (1.5 s) when no frame
-///   comes. Background work opens.
+///   comes. Background work opens, and so does the off-main best-effort fence
+///   (``fenceBestEffort(_:)``).
 /// - ``Phase/settled``: when every ``Reference`` is done (first frame, first daemon snapshot,
 ///   session restore, the visible page load-idle), or at the failsafe (10 s after launch). Idle
 ///   work opens.
@@ -24,6 +25,8 @@
 /// // The composition root (one per app, passed by init; no shared instance):
 /// let startup = StartupPhase()
 /// startup.noteLaunch(NSApp.isHidden ? .hidden : .window)
+/// // Posted best-effort and idle lane items wait for the reveal too:
+/// startup.fenceBestEffort(backgroundWork)
 /// // A background post:
 /// startup.whenReached(MainWorkClass.background.startupOpening) { queue.enqueue(body) }
 /// // LaunchReveal's first frame, the daemon's first snapshot:
@@ -139,6 +142,8 @@ public final class StartupPhase {
     private let onHeldAwait: @MainActor (HeldAwait) -> Void
     private var revealWaiters: [@MainActor () -> Void] = []
     private var settleWaiters: [@MainActor () -> Void] = []
+    /// The lanes whose best-effort fence this phase raised; the reveal lowers each once.
+    private var fencedWork: [BackgroundWork] = []
     /// True while the reveal runs its held actions: a reference one of them marks done settles
     /// only after the last of them, so held background work runs before held idle work.
     private var releasingReveal = false
@@ -193,6 +198,19 @@ public final class StartupPhase {
         case .revealed: revealWaiters.append(action)
         case .settled: settleWaiters.append(action)
         }
+    }
+
+    /// Holds `work`'s posted ``WorkPriority/bestEffort`` and ``WorkPriority/idle`` items until the
+    /// reveal, which releases them in post order within each priority (Chrome:
+    /// `ThreadPoolInstance::BeginBestEffortFence`, ended at startup complete;
+    /// base/task/thread_pool/thread_pool_instance.h). Higher priorities and awaited items run at once,
+    /// and an item that already runs is not waited on: raising the fence only counts. Once revealed
+    /// it holds nothing. The phase must live until the reveal (its owner is the app's
+    /// ``MainWorkScheduler``), since only the reveal lowers the fence.
+    public func fenceBestEffort(_ work: BackgroundWork) {
+        guard phase == .launching else { return }
+        work.beginBestEffortFence()
+        fencedWork.append(work)
     }
 
     /// Records how the app launched: a hidden or windowless launch reveals at once and has no
@@ -251,6 +269,10 @@ public final class StartupPhase {
         // Only the deadline leaves a frame to wait for: a frame, a hidden or a windowless launch does not.
         if cause != .deadline { pendingReferences.remove(.firstFrame) }
         timer.cancel()
+        // Off-main work first: the lanes start on their own threads while held main bodies run.
+        let fenced = fencedWork
+        fencedWork = []
+        for work in fenced { work.endBestEffortFence() }
         let held = revealWaiters
         revealWaiters = []
         releasingReveal = true
