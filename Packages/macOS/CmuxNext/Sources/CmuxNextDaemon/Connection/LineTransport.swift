@@ -101,9 +101,9 @@ final class LineTransport: Sendable {
     let decoder: WireDecoder
     /// Watches the reader's handling of each line, never its wait in `read(2)`; nil watches nothing.
     private let hangWatched: HangWatchedLane?
-    /// Where each request's `daemon.request` slice goes (LineTransport+RequestTrace.swift), and the top bits
-    /// of its async id (``traceConnectionBits(descriptor:)``).
-    let trace: TraceRuntime, traceConnection: UInt64
+    /// Where each request's `daemon.request` slice goes (LineTransport+RequestTrace.swift), the top bits of its
+    /// async id (``traceConnectionBits(scope:)``) and its flow's seed (``requestFlowSeed(pid:)``).
+    let trace: TraceRuntime, traceConnection: UInt64, traceFlowSeed: UInt64
 
     /// - Parameter stats: Where the connection counts (``DaemonEndpoint/wireStats``); nil for none.
     /// - Parameter hangs: Watches each line's handling on the reader thread; nil watches nothing.
@@ -112,6 +112,8 @@ final class LineTransport: Sendable {
         self.path = path
         self.role = role
         self.trace = trace
+        traceConnection = Self.traceConnectionBits(scope: trace.nextAsyncScope())
+        traceFlowSeed = Self.requestFlowSeed(pid: getpid())
         let recorder = stats?.recorder()
         self.recorder = recorder
         decoder = WireCoding.decoder(recorder)
@@ -125,7 +127,6 @@ final class LineTransport: Sendable {
             child = nil
         }
         socket = Mutex(Socket(fd: fd))
-        traceConnection = Self.traceConnectionBits(descriptor: fd)
         writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write")
         recorder?.connectionOpened(role, bridged: bridge != nil)
         // After the last throw: a transport that never opened registers nothing (its deinit does not run).
@@ -208,34 +209,29 @@ final class LineTransport: Sendable {
     /// `body` receives the allocated id and returns the encoded JSON object
     /// without the trailing newline. With a `timeout`, a reply that has not
     /// arrived in time fails the request with `DaemonError.timedOut`; the
-    /// late reply is dropped when it comes (architecture.md 5a).
-    func request(cmd: String, timeout: Duration?, _ body: (UInt64) throws -> Data) async throws -> Response {
+    /// late reply is dropped when it comes (architecture.md 5a). Its
+    /// `daemon.request` slice ends when the slot resolves (LineTransport+RequestTrace.swift).
+    func request(cmd: DaemonCommandName, timeout: Duration?, _ body: (UInt64) throws -> Data) async throws -> Response {
         let slot = ReplySlot()
-        let command = requestCommand(cmd)
-        var span: RequestSpan?
         #if DEBUG || CMUX_BENCH_HOOKS
         // A traced new terminal: the request naming its id, and that request's reply.
         let armed = NewTerminalTrace.shared.isArmed
         var traced: String?
         #endif
-        let submitted = submit(.reply(cmd: cmd, slot)) { id in
+        let submitted = submit(.reply(cmd: cmd.wire, slot)) { id in
             let line = try body(id)
             #if DEBUG || CMUX_BENCH_HOOKS
             if armed { traced = NewTerminalTrace.shared.requestSent(line) }
             #endif
-            span = beginRequestSpan(command, id: id)
+            beginRequestSpan(cmd, id: id, slot: slot)
             return line
         }
-        var outcome = RequestOutcome.error
-        defer { endRequestSpan(span, outcome) }
         // A failed submit resolved the slot already.
         guard case .success(let id) = submitted else { return try await slot.value() }
         let timer = DemandTimer(owner: "LineTransport.deadline")
         defer { timer.cancel() }
         if let timeout { timer.schedule(after: timeout) { [weak self] in self?.expire(id: id, after: timeout) } }
-        let response: Response
-        do { response = try await slot.value() } catch { outcome = RequestOutcome(error); throw error }
-        outcome = .reply
+        let response = try await slot.value()
         #if DEBUG || CMUX_BENCH_HOOKS
         if let traced { NewTerminalTrace.shared.mark(.reply, terminal: traced) }
         #endif

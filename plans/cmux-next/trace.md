@@ -304,12 +304,19 @@ the tables of "Release trace ring v1"; the Swift `TraceRuntime.Role` and `TraceR
   `parsed`, `dispatched`, `reply.queued` and `reply.sent`, only when the variable is set.
 - The app's own daemon round trip is the ring slice `daemon.request` (category `daemon`, closed by
   p09-observability-025): an async slice from the send to the reply, the error or the timeout of every
-  request that waits for a reply (`LineTransport.request` and `pipeline`). Begin arg0 is the method id
-  the daemon's own `daemon.request` slice carries (`DaemonCommandName`, generated from the daemon's
-  tables by `scripts/cmux-next/gen-daemon-command-names.py`; a name neither table has is `other`,
-  0x8007). End arg0 is the outcome: 0 reply, 1 error, 2 timeout. The async id is the wire request id
-  in bits 0-39 and the connection's socket descriptor in bits 40-63. A request sent without waiting
-  (`sendNoReply`) has no slice, and the link to the daemon's slice is a flow (task 103).
+  request that waits for a reply (`LineTransport.request` and `pipeline`). The end is written when the
+  reply, error or timeout resolves the request, so a pipelined request ends at its own reply. Begin
+  arg0 is the method id the daemon's own `daemon.request` slice carries: callers pass a typed
+  `DaemonCommandName` (a request type's `static let commandName`), whose id comes from the daemon's
+  tables through `scripts/cmux-next/gen-daemon-command-names.py`. A name neither table has takes the
+  daemon's routed id: `agent-` and `access-request` 0x8005, `browser-` 0x8004, else 0x8007. The Rust
+  test `request_spans_generated_swift_*_match_the_daemon` fails when the Swift tables are stale. End
+  arg0 is the outcome: 0 reply, 1 error, 2 timeout. The async id is the wire request id in bits 0-39
+  and, in bits 40-63, a per-connection scope that the process never hands out again
+  (`TraceRuntime.nextAsyncScope`), so a reconnect cannot pair with an old connection's slice. At the
+  send a flow-out carries the flow `FNV-1a 64(app pid as 4 bytes LE, request id as 8 bytes LE)` in
+  arg1 and the async id in arg0; the daemon's flow-in from `LOCAL_PEERPID` is task 103. A request
+  sent without waiting (`sendNoReply`) has no slice.
 - `cef.pump` and `cef.create_browser` are reserved but have no emitter (requested from PL-motion-cef).
   Without them, a Release trace attributes Chromium main-thread time only through the stack samples.
 - The holder and the terminal hosts have `task` trace points (recording only, never the black

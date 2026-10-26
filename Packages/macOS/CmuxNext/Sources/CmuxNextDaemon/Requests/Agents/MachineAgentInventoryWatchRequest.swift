@@ -8,7 +8,7 @@ public nonisolated struct MachineAgentInventoryWatchRequest: DaemonRequest {
     /// The owner and exact revision accepted for this connection's lease.
     public typealias Response = AgentInventoryWatchReceipt
     /// The internal native subscription command.
-    public static let command = "agent-inventory-watch"
+    public static let commandName: DaemonCommandName = "agent-inventory-watch"
     /// Require conditional cleanup support before enabling a managed lease.
     public static let requiredCapability: String? = "agent-inventory-watch-fence-v1"
     /// The selected owner's full canonical ID, used only as an identity fence.

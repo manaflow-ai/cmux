@@ -44,7 +44,7 @@ public struct CreateTerminalResult: Decodable, Sendable, Equatable {
 /// Spawns a terminal inside a workspace (a new screen/pane when it is empty).
 public struct CreateTerminalRequest: TerminalSpawningRequest {
     public typealias Response = CreateTerminalResult
-    public static let command = "create-terminal"
+    public static let commandName: DaemonCommandName = "create-terminal"
     public var workspace: WorkspaceRef
     public var argv: [String]?
     public var command: String?

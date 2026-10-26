@@ -2,7 +2,7 @@ import Foundation
 
 public struct CloseWorkspaceRequest: DaemonRequest {
     public typealias Response = WorkspaceMutationResult
-    public static let command = "close-workspace"
+    public static let commandName: DaemonCommandName = "close-workspace"
     public var workspace: WorkspaceRef
     /// Also end, in the same commit, each terminal whose tabs all close and
     /// that is not kept (`batch-close-v1`). Sent only when true.

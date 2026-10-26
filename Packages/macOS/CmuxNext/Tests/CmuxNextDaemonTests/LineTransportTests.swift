@@ -5,7 +5,8 @@ import Foundation
 import Testing
 
 /// The app's `daemon.request` slices (p09-observability task 025): every request that waits for a reply writes
-/// one async begin at its send and one end with the same name and id at its reply, error or timeout.
+/// one async begin and one flow-out at its send, and one end with the same name and id when its reply, error or
+/// timeout resolves it.
 @Suite(.serialized, .timeLimit(.minutes(1))) struct LineTransportTests {
     typealias FakeDaemon = ReplyEventOrderTests.FakeDaemon
 
@@ -29,6 +30,10 @@ import Testing
         Data(#"{"id":\#(id),"cmd":"\#(cmd)"}"#.utf8)
     }
 
+    private static func pipelined(_ commands: [String]) -> [PipelinedLine] {
+        commands.map { cmd in PipelinedLine(cmd: DaemonCommandName(wire: cmd)) { line($0, cmd) } }
+    }
+
     private func connect(_ daemon: FakeDaemon, _ trace: TraceRuntime) throws -> LineTransport {
         let transport = try LineTransport(path: daemon.path, role: .control, stats: nil, trace: trace)
         try daemon.accept()
@@ -36,13 +41,17 @@ import Testing
         return transport
     }
 
-    /// Begins and ends pair by name and async id, each end after its begin.
+    /// Begins and ends pair by name and async id, each end after its begin, and each begin has one flow-out that
+    /// names its slice in `arg0`.
     private func expectMatchedPairs(_ records: [TraceRuntime.StubRecord], count: Int) {
         let begins = records.filter { $0.phase == .asyncBegin }
         let ends = records.filter { $0.phase == .asyncEnd }
-        #expect(begins.count == count && ends.count == count && records.count == 2 * count)
+        let flows = records.filter { $0.phase == .flowOut }
+        #expect(begins.count == count && ends.count == count && flows.count == count && records.count == 3 * count)
         #expect(Set(begins.map(\.arg1)).count == count, "two requests share an async id")
-        #expect(records.allSatisfy { $0.flags == .asyncID && $0.name == records[0].name })
+        #expect(records.allSatisfy { $0.name == records[0].name })
+        #expect((begins + ends).allSatisfy { $0.flags == .asyncID })
+        #expect(flows.map(\.arg0) == begins.map(\.arg1), "a flow-out does not name its slice")
         for begin in begins {
             let end = ends.first { $0.arg1 == begin.arg1 }
             #expect(end.map { $0.tNanos >= begin.tNanos } == true, "a begin has no later end")
@@ -72,7 +81,7 @@ import Testing
         let all = records.all
         expectMatchedPairs(all, count: 3)
         let begins = all.filter { $0.phase == .asyncBegin }
-        #expect(begins.map(\.arg0) == [0, UInt64(DaemonCommandName.resourceBase), UInt64(DaemonCommandName.other.id)])
+        #expect(begins.map(\.arg0) == [0, UInt64(DaemonCommandName.resourceBase), 0x8007])
         #expect(begins.map { $0.arg1 & LineTransport.requestIDMask } == [answeredID, refusedID, refusedID + 1])
         #expect(all.filter { $0.phase == .asyncEnd }.map(\.arg0) == [0, 1, 2], "outcomes: reply, error, timeout")
     }
@@ -83,15 +92,31 @@ import Testing
         let transport = try connect(daemon, records.runtime(on: true))
         defer { transport.close() }
 
-        let results = Task {
-            await transport.pipeline(["identify", "ping"].map { cmd in PipelinedLine(cmd: cmd) { Self.line($0, cmd) } }, timeout: nil)
-        }
+        let results = Task { await transport.pipeline(Self.pipelined(["identify", "ping"]), timeout: nil) }
         let first = try daemon.readRequestID(), second = try daemon.readRequestID()
         daemon.write([#"{"id":\#(first),"ok":true,"data":{}}"#, #"{"id":\#(second),"ok":false,"error":"no"}"#])
         _ = await results.value
 
         expectMatchedPairs(records.all, count: 2)
         #expect(records.all.filter { $0.phase == .asyncEnd }.map(\.arg0) == [0, 1])
+    }
+
+    /// The second reply comes first: its slice ends at its own reply, before the first request's, although
+    /// `pipeline` awaits the first slot first.
+    @Test func aPipelinedSliceEndsAtItsOwnReplyNotAtAnEarlierOne() async throws {
+        let records = Records()
+        let daemon = try FakeDaemon()
+        let transport = try connect(daemon, records.runtime(on: true))
+        defer { transport.close() }
+
+        let results = Task { await transport.pipeline(Self.pipelined(["identify", "ping"]), timeout: nil) }
+        let first = try daemon.readRequestID(), second = try daemon.readRequestID()
+        daemon.write([#"{"id":\#(second),"ok":true,"data":{}}"#, #"{"id":\#(first),"ok":true,"data":{}}"#])
+        _ = await results.value
+
+        expectMatchedPairs(records.all, count: 2)
+        let ends = records.all.filter { $0.phase == .asyncEnd }
+        #expect(ends.map { $0.arg1 & LineTransport.requestIDMask } == [second, first], "the fast reply waited for the slow one")
     }
 
     @Test func aClosedConnectionEndsTheSliceAsAnError() async throws {
@@ -106,6 +131,37 @@ import Testing
 
         expectMatchedPairs(records.all, count: 1)
         #expect(records.all.last?.arg0 == 1)
+    }
+
+    @Test func eachConnectionTakesAnAsyncScopeNoOtherConnectionHad() throws {
+        let records = Records()
+        let runtime = records.runtime(on: true)
+        let firstDaemon = try FakeDaemon(), secondDaemon = try FakeDaemon()
+        let first = try connect(firstDaemon, runtime)
+        first.close()
+        let second = try connect(secondDaemon, runtime)
+        defer { second.close() }
+
+        #expect(first.traceConnection == 1 << 40 && second.traceConnection == 2 << 40, "a reconnect reused a scope")
+        #expect(runtime.nextAsyncScope() == 3)
+    }
+
+    @Test func eachRequestSendsItsFlowFromThePidAndTheRequestID() async throws {
+        let records = Records()
+        let daemon = try FakeDaemon()
+        let transport = try connect(daemon, records.runtime(on: true))
+        defer { transport.close() }
+
+        let answered = Task { try await transport.request(cmd: "identify", timeout: nil) { Self.line($0, "identify") } }
+        let id = try daemon.readRequestID()
+        daemon.write([#"{"id":\#(id),"ok":true,"data":{}}"#])
+        _ = try await answered.value
+
+        expectMatchedPairs(records.all, count: 1)
+        let flow = records.all.first { $0.phase == .flowOut }
+        #expect(flow?.arg1 == LineTransport.requestFlow(seed: LineTransport.requestFlowSeed(pid: getpid()), requestID: id))
+        #expect(LineTransport.requestFlow(seed: LineTransport.requestFlowSeed(pid: 1234), requestID: 1) == 0xA3E9_5B7B_0AA2_937A,
+                "FNV-1a 64 over the pid's 4 bytes then the request id's 8, little-endian")
     }
 
     @Test func withTheCategoryOffNothingIsWritten() async throws {
@@ -137,14 +193,26 @@ import Testing
     }
 
     @Test func namesMapToTheDaemonsMethodIDs() {
-        #expect(DaemonCommandName(wire: "identify").id == 0)
+        let literal: DaemonCommandName = "identify"
+        #expect(literal.id == 0 && literal.wire == "identify" && literal == DaemonCommandName(wire: "identify"))
+        #expect(IdentifyRequest.commandName == literal && IdentifyRequest.command == "identify")
         #expect(DaemonCommandName(wire: "machine.list").id == DaemonCommandName.resourceBase)
         #expect(DaemonCommandName(wire: "session.journal.subscribe").id > DaemonCommandName.resourceBase)
-        #expect(DaemonCommandName(wire: "no-such-command") == .other)
-        #expect(DaemonCommandName(wire: "") == .other)
-        #expect(DaemonCommandName(wire: "identify").isSpelled("identify"))
-        #expect(!DaemonCommandName(wire: "identify").isSpelled("identifY"))
+        #expect(DaemonCommandName(wire: "browser-host-provider").id == 1, "a table row wins over its routed prefix")
+        #expect(DaemonCommandName(wire: "no-such-command").id == 0x8007)
+        #expect(DaemonCommandName(wire: "").id == 0x8007)
+        #expect(DaemonCommandName.spells("identify", "identify"))
+        #expect(!DaemonCommandName.spells("identify", "identifY"))
         #expect(DaemonCommandName.hash("") == 0xCBF2_9CE4_8422_2325, "FNV-1a's offset basis, as the generator's")
         #expect(DaemonCommandName.hash("a") == 0xAF63_DC4C_8601_EC8C, "FNV-1a 64 of \"a\"")
+    }
+
+    /// A name no table has takes request_spans.rs `RequestMethod::routed`'s id: `ROUTED_BASE` plus its prefix's class.
+    @Test(arguments: [
+        ("agent-session-events", 0x8005), ("agent-inventory", 0x8005), ("access-request-list", 0x8005),
+        ("browser-foo", 0x8004), ("browser-runtime-start", 0x8004), ("agent", 0x8007), ("other-thing", 0x8007),
+    ] as [(String, UInt16)])
+    func routedNamesTakeTheDaemonsRoutedClass(name: String, id: UInt16) {
+        #expect(DaemonCommandName(wire: name).id == id)
     }
 }
