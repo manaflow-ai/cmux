@@ -62,4 +62,28 @@ struct ScreenBackingChangeTests {
         #expect(abs(screen.view.bounds.width - 1200 / CanvasCamera.zoomStep) < 1, "the camera did not set the bounds: \(screen.view.bounds)")
         #expect(!screen.view.isApplyingCamera)
     }
+
+    @Test(arguments: [CanvasCamera.zoomStep, 1 / CanvasCamera.zoomStep])
+    func aCanvasGestureSetsItsBoundsWithoutReenteringReconcile(factor: Double) {
+        let screen = Screen()
+        defer { screen.window.close() }
+        screen.showCanvas(CanvasCamera(center: CGPoint(x: 600, y: 400)))
+        let before = screen.view.reconcilePasses
+        let boundsBefore = screen.view.bounds
+        let frameBefore = screen.view.frame
+        let anchor = CGPoint(x: 300, y: 200)
+        let windowPoint = screen.view.convert(anchor, to: nil)
+
+        screen.view.canvasMagnify(by: CGFloat(factor), at: windowPoint, ended: false)
+
+        // Ignoring the gesture would avoid recursion too: require the zoom to actually reach AppKit.
+        #expect(abs(screen.view.bounds.width - boundsBefore.width / factor) < 0.001)
+        #expect(abs(screen.view.bounds.height - boundsBefore.height / factor) < 0.001)
+        #expect(screen.view.frame == frameBefore)
+        let shownAnchor = screen.view.convert(anchor, to: nil)
+        #expect(abs(shownAnchor.x - windowPoint.x) < 0.001)
+        #expect(abs(shownAnchor.y - windowPoint.y) < 0.001)
+        #expect(screen.view.reconcilePasses == before, "the gesture re-entered reconcile \(screen.view.reconcilePasses - before) times")
+        #expect(!screen.view.isApplyingCamera)
+    }
 }
