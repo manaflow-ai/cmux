@@ -743,3 +743,7 @@ mod tests;
 #[cfg(test)]
 #[path = "conversation_attachment_tests.rs"]
 mod attachment_tests;
+
+#[cfg(test)]
+#[path = "conversation_wire_tests.rs"]
+mod wire_tests;
