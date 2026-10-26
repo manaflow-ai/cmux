@@ -195,13 +195,14 @@ class App:
     CONFIG = {"appearance": {"backgroundOpacity": 1,
                              "colorTransition": {"duration": 400, "curve": "linear", "colorSpace": "oklab"}}}
 
-    def __init__(self, bundle, out, socket_only=False, build_config=None):
+    def __init__(self, bundle, out, socket_only=False, build_config=None, perf_session="light"):
         env = {}
         # --hang-ms: the main-thread watchdog samples every stall over N ms (debug.hangs), for a late frame's cause.
         if os.environ.get("PERF_GATE_HANG_MS"):
             env["CMUX_NEXT_HANG_THRESHOLD_MS"] = os.environ["PERF_GATE_HANG_MS"]
         self.bench = BenchApp(bundle, out=out, env=env, config=self.CONFIG, window=(40, 40, 1440, 900), screen="last",
-                              log_name="app.log", socket_only=socket_only, build_config=build_config)
+                              log_name="app.log", socket_only=socket_only, build_config=build_config,
+                              perf_session=perf_session)
         self.bundle, self.tag, self.out, self.scratch = self.bench.app, self.bench.tag, out, self.bench.scratch
         self.cli_path = self.bench.cli
         self.config = os.path.join(self.scratch, "cmux.json")  # BenchApp.environment() writes it at each launch
@@ -225,11 +226,18 @@ class App:
 
     def relaunch(self):
         """Quits the app and starts it again on the same tag with its saved session: it restores what this launch
-        left. The teardown is a new one: the stop's end() ran the first launch's."""
-        self.stop()
-        self.bench.fresh_state = False
-        self.bench.teardown = TagTeardown(self.bundle)
-        self.launch()
+        left. The teardown is a new one: the stop's end() ran the first launch's. A relaunch that does not answer
+        keeps the features snapshot of the launch that did (the same bundle and env), so record() still writes the
+        scenarios run before it."""
+        features = self.bench.features
+        try:
+            self.stop()
+            self.bench.fresh_state = False
+            self.bench.teardown = TagTeardown(self.bundle)
+            self.launch()
+        finally:
+            if self.bench.features is None:
+                self.bench.features = features
 
     def stop(self):
         self.bench.stop()
@@ -1063,8 +1071,8 @@ def failed_checks(checks, ran=()):
 
 def record(app, checks, ran=()):
     """Writes each scenario's failed checks as cmux-perf-result/v1 in the out folder (BenchApp.record: the build, host
-    and features of the launched app); returns {metric: path, or `not recorded: <reason>`}. A run whose app never
-    answered has no features to name, and records nothing."""
+    and features of the last launch that answered, see App.relaunch); returns {metric: path, or `not recorded:
+    <reason>`}. A run whose app never answered has no features to name, and records nothing."""
     written = {}
     for metric, failed in failed_checks(checks, ran).items():
         try:
@@ -1082,6 +1090,7 @@ def parse(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--app", help="a Debug `cmux DEV <tag>.app` (not running)")
     parser.add_argument("--tag", help="the app's tag (the lab's story runner passes it; the bundle names its own tag)")
+    parser.add_argument("--session", choices=["light"], default="light", help="result-v1 session (the story runner's)")
     parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or "/tmp/cmux-next-perf-gate")
     parser.add_argument("--frames", choices=["auto", "required"], default="auto",
                         help="auto: skip the frame-dependent checks (warning) when the window draws no frames")
@@ -1112,7 +1121,8 @@ def main(argv=None):
         if opts.hang_ms:
             os.environ["PERF_GATE_HANG_MS"] = str(opts.hang_ms)
         # --frames auto skips the frame checks on a console that draws none, so it launches without a GUI session too.
-        app = App(os.path.abspath(opts.app), opts.out, socket_only=opts.frames == "auto", build_config=opts.build_config)
+        app = App(os.path.abspath(opts.app), opts.out, socket_only=opts.frames == "auto", build_config=opts.build_config,
+                  perf_session=opts.session)
         report.update({"app": app.bundle, "tag": app.tag, "budget": BUDGET, "host": os.uname().nodename})
         gate = Gate(app, opts)
         try:

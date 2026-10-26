@@ -23,6 +23,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent.parent
@@ -151,6 +152,20 @@ class AppTests(unittest.TestCase):
         app.relaunch()
         self.assertEqual(seen, ["stop", ("launch", False, True)])
 
+    def test_a_relaunch_that_does_not_answer_keeps_the_answered_launchs_features(self):
+        app = gate.App(self.app_path, self.out)
+        app.bench.features = FEATURES  # the first launch answered
+        app.bench.stop = lambda: None
+
+        def silent():
+            app.bench.features = None  # BenchApp.launch's first step
+            raise gate.LaunchError("socket-silent", {"detail": "no answer"})
+
+        app.launch = silent
+        with self.assertRaises(gate.LaunchError):
+            app.relaunch()
+        self.assertEqual(app.bench.features, FEATURES)
+
 
 class ResultTests(unittest.TestCase):
     CHECKS = [{"scenario": "source guard", "ok": True}, {"scenario": "tabs", "ok": True},
@@ -215,12 +230,76 @@ class ResultTests(unittest.TestCase):
         self.assertEqual(list(Path(out).glob("*.ndjson")), [])
 
 
+class FailedRelaunchRunTests(unittest.TestCase):
+    """main() with a first launch that answers and a relaunch that does not: the scenarios before it and the launch
+    failure are still written as result-v1."""
+
+    def setUp(self):
+        self.folder = tempfile.mkdtemp(prefix="perf-gate-main-")
+        self.addCleanup(shutil.rmtree, self.folder, True)
+        self.out = os.path.join(self.folder, "out")
+        self.app_path = bundle(self.folder, "main")
+        saved = (list(gate.failures), list(gate.warnings), dict(gate.report))
+        self.addCleanup(self.restore, saved)
+        gate.failures.clear()
+        gate.warnings.clear()
+        gate.report.clear()
+        gate.report.update({"checks": [], "phases": {}})
+
+    @staticmethod
+    def restore(saved):
+        for target, value in zip((gate.failures, gate.warnings), saved[:2]):
+            target[:] = value
+        gate.report.clear()
+        gate.report.update(saved[2])
+
+    def test_the_scenarios_before_a_failed_relaunch_are_recorded(self):
+        launches = []
+
+        def launch(app):
+            app.bench.features = None  # BenchApp.launch's first step
+            launches.append(app.bench.fresh_state)
+            if len(launches) > 1:
+                raise gate.LaunchError("crashed", {"detail": "the restored session crashed"})
+            app.bench.features = FEATURES
+
+        patches = [mock.patch.object(gate, "source_guard", lambda: None),
+                   mock.patch.object(sys.modules["bench_launch"], "read_host", lambda: dict(HOST)),
+                   mock.patch.object(gate.App, "launch", launch),
+                   mock.patch.object(gate.App, "stop", lambda app: None),
+                   mock.patch.object(gate.Gate, "workspaces", lambda g: gate.check(False, "a breach", "workspaces")),
+                   mock.patch.object(gate.Gate, "tabs", lambda g: gate.check(True, "in budget", "tabs")),
+                   mock.patch.object(gate.Gate, "relaunch", lambda g: g.app.relaunch())]
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = gate.main(["--app", self.app_path, "--out", self.out, "--session", "light",
+                              "--only", "workspaces,tabs,relaunch,status"])
+        self.assertEqual(code, 1)
+        self.assertEqual(launches, [True, False], "the relaunch keeps the saved session")
+        lines = [json.loads(text) for path in sorted(Path(self.out).glob("*.ndjson"))
+                 for text in path.read_text().splitlines()]
+        self.assertEqual({line["metric"]: line["samples"] for line in lines},
+                         {"perf_gate.workspaces.failed_checks": [1], "perf_gate.tabs.failed_checks": [0],
+                          "perf_gate.launch.failed_checks": [1]})
+        self.assertEqual({(line["session"], line["features_hash"]) for line in lines}, {("light", "fh-1")})
+
+
 class CommandLineTests(unittest.TestCase):
-    RUNNER = ["--app", "/x/cmux DEV t.app", "--tag", "t", "--out", "/x/out"]  # what the story runner adds
+    # what the story runner adds (stories.d/README.md: --app, --tag, --out and the session)
+    RUNNER = ["--app", "/x/cmux DEV t.app", "--tag", "t", "--out", "/x/out", "--session", "light"]
 
     def test_the_story_command_parses_with_the_runners_flags(self):
         opts = gate.parse(story()["command"][1:] + self.RUNNER)
-        self.assertEqual((opts.app, opts.tag, opts.out, opts.frames), ("/x/cmux DEV t.app", "t", "/x/out", "auto"))
+        self.assertEqual((opts.app, opts.tag, opts.out, opts.frames, opts.session),
+                         ("/x/cmux DEV t.app", "t", "/x/out", "auto", "light"))
+
+    def test_the_session_reaches_bench_app(self):
+        folder = tempfile.mkdtemp(prefix="perf-gate-session-")
+        self.addCleanup(shutil.rmtree, folder, True)
+        app = gate.App(bundle(folder, "ses"), os.path.join(folder, "out"), perf_session=gate.parse(self.RUNNER).session)
+        self.assertEqual(app.bench.perf_session, "light")
 
     def test_unknown_scenarios_and_a_missing_app_are_refused(self):
         with contextlib.redirect_stderr(io.StringIO()):
