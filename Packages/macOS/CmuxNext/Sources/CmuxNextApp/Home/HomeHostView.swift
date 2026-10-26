@@ -34,6 +34,9 @@ final class HomeHostView: NSView {
     /// Each Chief's avatar beside this conversation's group bubbles, as its Home row draws it.
     private var avatarsWatch: Task<Void, Never>?
     private var agentsWatch: Task<Void, Never>?
+    private var memoryOfferWatch: Task<Void, Never>?
+    /// UserDefaults: the first-run memory offer was clicked (it shows once).
+    static let memoryOfferUsedKey = "home.firstRun.memoryOfferUsed"
     private var shortcutsWatch: Task<Void, Never>?
     private var spellCheckingWatch: Task<Void, Never>?
     /// The Chief's avatar when its profile sets none: the pet character `mascot` picks
@@ -228,13 +231,30 @@ final class HomeHostView: NSView {
         }
         // The first-run rows run the same registry actions as the sidebar's
         // New Terminal Tab and New Agent Chat, and show their shortcuts.
-        transcript.onFirstRunAction = { action in
+        transcript.onFirstRunAction = { [weak self] action in
             let id: ActionID = switch action {
             case .openTerminal: Self.openTerminalAction
             case .startAgent: Self.startAgentAction
             case .togglePet: "home.toggleChiefPet"
+            case .importMemories: ChiefMemoryImportHandlers.actionID
+            }
+            if action == .importMemories {
+                // The offer is used up by the click: the panel shows it once.
+                UserDefaults.standard.set(true, forKey: Self.memoryOfferUsedKey)
+                self?.transcript.setFirstRunMemoryOffer(nil)
             }
             _ = registry.perform(id, invocation: ActionInvocation(origin: .user))
+        }
+        // Onboarding: the Chief's front page (no messages yet) offers to bring memory from the other tools found on
+        // this Mac. One read off the main thread; nothing found, nothing shown, and a used offer never returns.
+        let muxHome = HomeBrainHost.muxHome(tag: services.environment.tag).path
+        memoryOfferWatch = Task { [weak self] in
+            guard !UserDefaults.standard.bool(forKey: Self.memoryOfferUsedKey) else { return }
+            let sources = await ChiefMemoryImportHandlers.detectForOffer(muxHome: muxHome)
+            guard !Task.isCancelled, !service.isCloudConversation(id), let title = MemorySource.offerTitle(sources),
+                  let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
+                  summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return }
+            self?.transcript.setFirstRunMemoryOffer(title)
         }
         // The first-run panel's agent rows open the agent's tab like a jump (Search Tabs).
         transcript.onFirstRunAgent = { [weak services] tab in _ = services?.revealTab(tab) }
@@ -323,7 +343,7 @@ final class HomeHostView: NSView {
     // the app's claim registry and cancels its wake on the app's timer (both outlive this view). A guard that
     // returned off main skipped all of it.
     nonisolated deinit {
-        for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, spellCheckingWatch, headerPanelsWatch, firstPage] {
+        for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, spellCheckingWatch, headerPanelsWatch, firstPage, memoryOfferWatch] {
             task?.cancel()
         }
         let settings = settings, transcript = transcript
