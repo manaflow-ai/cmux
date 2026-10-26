@@ -38,7 +38,7 @@ import Testing
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .darkAqua)
         let input = try AANestedGroupsGalleryTests.input("Soft Blue")
-        _ = ThemeStore.shared.apply(input)
+        _ = ThemeScope.app.store.apply(input)
         let scope = ThemeScope(level: .room)
         scope.setOverride(ThemeSpec("Soft Blue"), input: input, animated: false)
         let sidebar = SidebarView(model: SidebarModel(sections: sections(leadingStatusIcons: leadingStatusIcons)), design: DesignSettings())

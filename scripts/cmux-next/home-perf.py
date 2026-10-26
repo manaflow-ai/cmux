@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
 # The shared launch helper's socket paths and session check (bench_launch.py); this bench keeps its own launch
 # (its scratch working folder, its own session).
-from bench_launch import require_gui_session, socket_candidates  # noqa: E402
+from bench_launch import finder_limits, limits_line, require_gui_session, socket_candidates  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -96,8 +96,11 @@ env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.ge
        "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_DEV_BACKEND_MODE": "local", **home_classic.ENV}
 if os.path.exists(sock):
     os.unlink(sock)
-process = subprocess.Popen([f"{app}/Contents/MacOS/cmux DEV"], env=env, cwd=work, stdin=subprocess.DEVNULL,
-                           stdout=open(os.path.join(work, "perf-app.log"), "a"), stderr=subprocess.STDOUT, start_new_session=True)
+with finder_limits() as changed:  # the limits a Finder launch gets (bench_launch.py, Resource limits)
+    process = subprocess.Popen([f"{app}/Contents/MacOS/cmux DEV"], env=env, cwd=work, stdin=subprocess.DEVNULL,
+                               stdout=open(os.path.join(work, "perf-app.log"), "a"), stderr=subprocess.STDOUT,
+                               start_new_session=True)
+print(f"home-perf: app limits {limits_line(changed)}", file=sys.stderr, flush=True)
 pid = process.pid
 try:
     if not home_classic.require(rpc):  # classic Home: these checks drive the native transcript

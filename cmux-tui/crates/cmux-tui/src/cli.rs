@@ -47,6 +47,9 @@ mod frontend_browser;
 mod host_mount;
 mod launch_credential;
 mod lifecycle;
+// Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
+#[cfg(unix)]
+mod vm;
 #[cfg(unix)]
 pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
 #[cfg(unix)]
@@ -285,41 +288,11 @@ pub(crate) fn removed_route_requested(args: &[String]) -> bool {
         .unwrap_or(false)
 }
 
+/// Startup options that take a value: the one list in main.rs
+/// (`STARTUP_VALUE_OPTIONS`), so a new option is skipped here too, plus the
+/// provider command, whose payload this scanner must not read as words.
 fn startup_value_option(value: &str) -> bool {
-    matches!(
-        value,
-        "--terminal"
-            | "--state"
-            | "--machine-provider"
-            | "--cloud-host"
-            | "--cloud-user"
-            | "--cloud-port"
-            | "--cloud-identity"
-            | "--ws"
-            | "--ws-token"
-            | "--ws-allow-origin"
-            | "--ws-allow-host"
-            | "--remote-ws"
-            | "--remote-http"
-            | "--remote-state-dir"
-            | "--remote-link-socket"
-            | "--remote-admin-socket"
-            | "--remote-resume-lease-seconds"
-            | "--terminal-reap-grace-seconds"
-            | "--relay"
-            | "--relay-slot"
-            | "--relay-ticket"
-            | "--relay-ticket-file"
-            | "--relay-ticket-command"
-            | "--relay-ticket-command-arg"
-            | "--advertise"
-            | "--term"
-            | "--owner-host-fg"
-            | "--owner-host-bg"
-            | "--owner-ready-fd"
-            | "--owner-install-key-fd"
-            | "--machine-provider-command"
-    )
+    value == "--machine-provider-command" || crate::STARTUP_VALUE_OPTIONS.contains(&value)
 }
 
 /// Rewrites a pre-D1 `cmux server <lifecycle verb>` to `cmux daemon <verb>`
@@ -374,6 +347,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| chief::run_avatar_if_requested(args))
         .or_else(|| coderouter::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
+        .or_else(|| vm::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))

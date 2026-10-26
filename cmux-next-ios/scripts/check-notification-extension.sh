@@ -16,3 +16,14 @@ if ! otool -L "$bin" | grep -q '/UserNotificationsUI.framework/UserNotifications
   exit 1
 fi
 echo "ok: content extension links UserNotificationsUI"
+# The content extension reads the push key and the Macs' trust record (PushTrustGate) to
+# open a sealed push again; without the shared push keychain group every sealed push
+# shows "Open cmux to see this notification" and a terminal one gets no Reply (PR B, found
+# live). Simulator builds embed entitlements in the binary's __entitlements section.
+ent=$( (codesign -d --entitlements - --xml "$ext" 2>/dev/null; strings -a "$bin") | tr -d '\n\t ' )
+if ! grep -q '<key>keychain-access-groups</key><array><string>[^<]*\.push</string>' <<<"$ent"; then
+  echo "FAIL: the content extension has no shared push keychain group (sealed pushes can't open in the long look)"
+  exit 1
+fi
+echo "ok: content extension shares the push keychain group"
+

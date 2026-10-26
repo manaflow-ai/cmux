@@ -145,6 +145,11 @@ pub struct SessionMeta {
     pub html_previews: bool,
     #[serde(default)]
     pub modes: Option<Value>,
+    /// The mode cmux itself last asked the harness for (its start default, the person's pick, a
+    /// policy's mode), never one the harness reported on its own: a chat in full access lends its
+    /// folder's trust only by this (`hub/trust_wait.rs`), so a harness that claims a mode gets none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode_set_by_cmux: Option<String>,
     #[serde(default)]
     pub config_options: Option<Value>,
     #[serde(default)]
@@ -182,6 +187,10 @@ pub struct SessionMeta {
     pub turn_count: u64,
     #[serde(default)]
     pub usage: Option<Value>,
+    /// Claude Code's newest /context breakdown (`claude_stdio::context_breakdown`),
+    /// sent after each turn; none from any other harness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_breakdown: Option<Value>,
     /// The agent's newest `available_commands_update` (its slash commands), so
     /// opening a chat names them without reading its log back to the start,
     /// where an agent lists them once (perf100).
@@ -266,15 +275,15 @@ pub struct SessionMeta {
     /// The tools the chat has (`hub/tools.rs`).
     #[serde(default, skip_serializing_if = "ToolInventory::is_empty")]
     pub tools: ToolInventory,
-    /// The branch checked out in `cwd` when the session started (session/new,
-    /// or a fork at fork time; `git_state.rs`). `None` on a detached HEAD or
-    /// outside a repository. Never updated after: it joins the session to the
-    /// pull request it produced (hq#1920).
+    /// Initial branch (session/new or fork; git_state.rs), never updated: it joins the
+    /// session to its PR (hq#1920). None outside a repository or on detached HEAD.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git_branch: Option<String>,
-    /// The full HEAD commit of `cwd` when the session started, as `git_branch`.
+    /// Initial git commit and linked-worktree recovery record.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git_head: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<crate::git_state::WorktreeOrigin>,
     /// The sum of what this session's turns reported (`hub/turn_usage.rs`).
     /// `None` until a harness reports any; a fork starts its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -576,6 +585,12 @@ pub trait Store: Send + Sync {
     /// Where each peer's last-known sessions are saved: `peers/` beside
     /// `sessions/`, or none (in memory) for the memory store.
     fn peer_cache_dir(&self) -> Option<PathBuf> {
+        None
+    }
+    /// Where the brief and task ledger is saved (`hub/dispatch.rs`): `briefs.json` beside
+    /// `sessions/`, or none (in memory) for the memory store, so a hub's tasks always name
+    /// sessions of its own store.
+    fn briefs_path(&self) -> Option<PathBuf> {
         None
     }
 }
@@ -1231,6 +1246,10 @@ impl Store for LocalStore {
 
     fn peer_cache_dir(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("peers"))
+    }
+
+    fn briefs_path(&self) -> Option<PathBuf> {
+        self.root.parent().map(|home| home.join("briefs.json"))
     }
 }
 

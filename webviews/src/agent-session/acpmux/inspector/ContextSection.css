@@ -103,7 +103,8 @@
 .acpmux-context-pop.acpmux-context-pop--breakdown {
   --acpmux-inspector-row-radius: 6px;
   --acpmux-inspector-row-hover: color-mix(in srgb, var(--agent-text) 7%, transparent);
-  width: 288px;
+  width: 230px;
+  max-width: min(230px, calc(100vw - 24px));
 }
 .acpmux-context-pop .acpmux-chat-inspector-context__bar {
   margin: 8px 0 6px;

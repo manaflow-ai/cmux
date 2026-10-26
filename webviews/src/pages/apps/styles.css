@@ -616,6 +616,22 @@ code {
   gap: 8px;
 }
 
+/* The failed-check notice and the update rows sit under the Updates head with the rows' own spacing. */
+.apps-updates-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 10px;
+}
+
+.apps-updates-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
 .apps-installed-row {
   border: 1px solid var(--page-separator);
   border-radius: 10px;
@@ -790,7 +806,7 @@ code {
 @container apps-discover (max-width: 480px) {
   .apps-cloud-feature {
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 8px;
   }
 
   .apps-cloud-feature-text {

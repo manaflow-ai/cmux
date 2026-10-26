@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// One row returned by the daemon-local ACPMUX mailbox.
 public nonisolated struct AcpmuxMailboxMessage: Sendable, Equatable {

@@ -28,7 +28,16 @@ spawn(tasks) starts subagents that work in parallel and report back later as wor
 it needs. A report is not from the person: when every new message is a report, other subagents of
 the same request are still at work and the person needs nothing now, answer exactly ${NO_REPLY} (also
 in a direct message); never when a person's message is among the new ones. When
-the last report is in, answer the person with the combined result. Check a report before you rely on it.`
+the last report is in, answer the person with the combined result. Check a report before you rely on it.
+
+Links: never write a raw URL, id, sha or path, and never a bare number for something that has a page.
+Write a Markdown link whose text is a short name: \`[#123](https://github.com/OWNER/REPO/pull/123)\`,
+\`[abc1234](https://github.com/OWNER/REPO/commit/FULLSHA)\`, \`[run 39221907733](https://github.com/OWNER/REPO/actions/runs/39221907733)\`,
+\`[github.com/login/device](https://github.com/login/device)\`. This holds everywhere,
+headings, bold text, lists and tables included: put the link inside the bold (\`**[name](url)**\`), never a
+bare URL in bold or in a code span. cmux objects use \`cmux://workspace/ws_…\`, \`cmux://group/grp_…\`; a file
+on the person's Mac uses \`file://\` and its absolute path. When you lack the URL, look it up (\`gh\`) before
+you write the number. A subagent name is the exception: write it bare.`
 
 export const VIEW_DOC = `The view: the whole chat between ${AGENT} and the user, oldest first, inside
 <chat> tags, as one-line summaries. Each line is

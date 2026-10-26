@@ -17,6 +17,33 @@ public enum PushReplyPlan: Equatable, Sendable {
     case prompt(sessionID: String, text: String, attachments: [String], promptID: String)
     /// A message to that Mac's Chief.
     case chief(text: String, attachments: [String])
+    /// Text into the terminal that posted a notification: daemon
+    /// `notification-reply {notification, text}` (PR B; device unlock).
+    case terminal(notification: String, text: String)
+
+    /// The `notification-reply` params for a terminal reply. `reply_id` is the
+    /// reply's id, the same one its mailbox copy carries, so the Mac applies a
+    /// reply once whichever way it arrives first.
+    public static func terminalRequest(notification: String, text: String, replyID: UUID) -> [String: Any] {
+        let id: Any = Int(notification).map { $0 as Any } ?? notification
+        return ["notification": id, "text": text, "reply_id": replyID.uuidString.lowercased()]
+    }
+
+    /// What the daemon said to a `notification-reply`.
+    public enum TerminalAnswer: Equatable, Sendable {
+        /// Applied now, or already applied (`duplicate`: the same reply id came first another way).
+        case delivered
+        case refused(String)
+    }
+
+    public static func terminalAnswer(_ data: Data) -> TerminalAnswer {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return .delivered }
+        if object["error"] != nil || object["ok"] as? Bool == false {
+            let message = ((object["error"] as? [String: Any])?["message"] as? String) ?? (object["error"] as? String)
+            return .refused(message ?? String(localized: "The terminal didn't take the reply."))
+        }
+        return .delivered
+    }
 
     public struct Refusal: Error, Equatable, Sendable {
         public var message: String
@@ -32,7 +59,12 @@ public enum PushReplyPlan: Equatable, Sendable {
         switch reply.action {
         case .text(let text, let attachments):
             if reply.kind == .chief { return .chief(text: text, attachments: attachments) }
-            guard reply.kind != .terminal else { throw Refusal(String(localized: "Replies to a terminal aren't available yet.")) }
+            if reply.kind == .terminal {
+                guard let notification = reply.notificationId else { throw Refusal(String(localized: "This notification takes no reply.")) }
+                guard attachments.isEmpty else { throw Refusal(String(localized: "A terminal takes text only.")) }
+                guard text.utf8.count <= MailboxReply.maxTextBytes else { throw Refusal(String(localized: "That reply is too long for a terminal.")) }
+                return .terminal(notification: notification, text: text)
+            }
             guard let session = reply.sessionId else { throw Refusal(String(localized: "This notification names no chat.")) }
             return .prompt(sessionID: session, text: text, attachments: attachments, promptID: reply.id.uuidString.lowercased())
         case .option, .answers, .allow, .deny:

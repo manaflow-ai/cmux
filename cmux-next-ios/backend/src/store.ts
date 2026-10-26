@@ -354,6 +354,7 @@ export const memoryStore = (): Store => ({
 
 export const openStore = (env: Env): Promise<Store> => {
   if (env.HYPERDRIVE) return pgStore(env.HYPERDRIVE)
-  if (env.ENVIRONMENT === "test") return Promise.resolve(memoryStore())
+  // Tests, and `wrangler dev` of the local (top-level) config: rows live in the isolate's memory.
+  if (env.ENVIRONMENT === "test" || env.ENVIRONMENT === "local") return Promise.resolve(memoryStore())
   throw new Error("no database binding")
 }

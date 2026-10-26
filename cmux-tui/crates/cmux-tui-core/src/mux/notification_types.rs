@@ -124,6 +124,26 @@ pub struct ResourceNotification {
     pub reply: bool,
 }
 
+/// The program that held a notification's terminal when it was posted
+/// (memory only): a typed reply goes only to that same program
+/// (cmux-next-ios `mailbox_apply.rs`), never to whatever runs there later.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotificationPoster {
+    /// The terminal's foreground process-group leader.
+    pub pid: u32,
+    /// Its executable, as `process-info`'s `foreground_executable` names it.
+    pub executable: String,
+}
+
+/// What the daemon remembers about a ledger row it posted in this run
+/// (memory only): the `notification` event's number and the poster.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotificationPost {
+    /// The `notification` field of the `notification` event.
+    pub notification: u64,
+    pub poster: Option<NotificationPoster>,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct SurfaceNotification {
     pub notification: u64,

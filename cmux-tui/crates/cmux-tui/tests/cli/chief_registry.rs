@@ -482,9 +482,11 @@ fn an_agent_caller_cannot_control_or_raw_write_a_chief() {
         ),
         (argv(&["--json", "chief", "shutdown"]), "shutdown"),
         (argv(&["--json", "action", "run", "home.archiveChief"]), "home.archiveChief"),
+        (argv(&["--json", "action", "run", "home.deleteChief"]), "home.deleteChief"),
         (argv(&["--json", "action", "run", "home.stopChief"]), "home.stopChief"),
         (argv(&["--json", "action", "run", "home.stopAllAgents"]), "home.stopAllAgents"),
         (argv(&["--json", "home", "archive-chief", "--chief", &id]), "home archive-chief"),
+        (argv(&["--json", "home", "delete-chief", "--chief", &id]), "home delete-chief"),
     ];
     let nowhere = std::env::temp_dir().join(format!("no-such-chief-{}.sock", std::process::id()));
     for (key, value) in [
@@ -645,7 +647,14 @@ fn every_chief_change_reaches_the_subscribers_that_asked() {
     let refused = v2(&mut home, "chief.profile.delete", json!({"chief": "agent_mux"}), Some("x"));
     assert_eq!(refused["ok"], false, "{refused}");
     ok(&v2(&mut home, "chief.profile.delete", json!({"chief": scout}), Some("changed-delete")));
-    assert_eq!(next_chief_change(&mut page), (scout, "deleted".to_owned()));
+    assert_eq!(next_chief_change(&mut page), (scout.clone(), "deleted".to_owned()));
+    // The list names the deleted Chief apart from the live ones (Home hides its direct message).
+    let listed = ok(&v2(&mut home, "chief.profile.list", json!({}), None));
+    assert!(
+        !listed["chiefs"].as_array().unwrap().iter().any(|c| c["id"] == json!(scout)),
+        "{listed}"
+    );
+    assert!(listed["deleted"].as_array().unwrap().contains(&json!(scout)), "{listed}");
 
     quiet.request("identify", json!({}));
     assert!(

@@ -40,12 +40,24 @@ final class NotificationViewController: UIViewController, @MainActor UNNotificat
 
     // UserNotificationsUI calls the extension on the main thread (an isolated conformance).
     func didReceive(_ notification: UNNotification) {
-        let payload = PushPayload(userInfo: notification.request.content.userInfo)
+        // Opened again from its box; an unsealed one from a Mac that seals, or a
+        // stale one, shows without rows, Submit or composer (PR B security review H1).
+        let content = notification.request.content
+        let verdict = PushTrustGate.current().verdict(
+            userInfo: content.userInfo,
+            shown: PushTrustGate.Shown(title: content.title, subtitle: content.subtitle, body: content.body,
+                                       category: content.categoryIdentifier))
+        let (payload, actionable): (PushPayload?, Bool) = switch verdict {
+        case .trusted(let p): (p, true)
+        case .openOnly(let p): (p, false)
+        case .refused: (nil, false)
+        }
         let group = PushAppGroup.current()
         model.load(payload: payload, group: group)
+        model.actionable = actionable
         // The notification's own buttons: a question's options, the permission's offers.
         // With previews off the static buttons stay (review L1); Require Face ID opens the app (L2).
-        if let payload {
+        if let payload, actionable {
             let actions = PushActions(defaults: PushActions.sharedDefaults(group)).extensionActions(for: payload)
             if !actions.isEmpty { extensionContext?.notificationActions = actions }
         }

@@ -98,7 +98,7 @@ nonisolated enum DiffPageConfig {
             "capabilityToken": .string(token),
             "repoRoot": .string(repository.root),
             "headRef": .string(repository.branch ?? "HEAD"),
-            "layout": "split",
+            "layout": "auto",
             "layoutSource": "default",
             "sessionCapabilities": .array(sessionCapabilities.map(JSONValue.string)),
         ]

@@ -31,7 +31,7 @@ public nonisolated struct AgentPageOps {
     /// Op suffix to the old bridge method that ``AgentPaneRequest`` parses.
     static let methods: [String: String] = {
         var methods = Dictionary(uniqueKeysWithValues: [
-            "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate", "pane.saveLog", "pane.saveFile", "pane.showContextUsage", "pane.showDictation", "pane.setDisplay",
+            "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate", "pane.saveLog", "pane.saveFile", "pane.showContextUsage", "pane.showDictation", "pane.setDisplay", "pane.setAttachmentView",
             "pane.edit", "pane.setQuickActions", "tab.open", "run.attach", "tab.typeAhead", "tab.jump",
             "newTab.remember", "newTab.setTemplate", "newTab.editWidgets", "nowPlaying.command", "newTab.inputReady", "newTab.touched", "newTab.context", "newTab.warm", "shortcut.edit", "action.run", "file.open", "browser.open",
             "project.list", "project.icon", "project.browse", "workspace.chooseFolder", "workspace.useFolder", "chat.folder.choose", "chat.attach.choose", "chat.attach.dropped", "app.action", "chats.open", "chats.openInTerminal", "chats.watch", "chats.page",
@@ -40,7 +40,7 @@ public nonisolated struct AgentPageOps {
             "git.diff", "git.status", "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove", "git.githubRepository", "file.search", "git.checkpoint.diff", "turn.undo", "git.stage", "git.unstage", "git.stageHunk", "git.unstageHunk", "git.pullRequest", "project.instructions", "project.addFiles", "composer.capture",
             "dictation.toggle", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings", "dictation.audio",
             "transport.open", "transport.send", "transport.close", "transport.gesture", "transport.gesture.release",
-            "chat.missing",
+            "chat.missing", "uiPointer.report", "acpmux.restart",
         ].map { ($0, $0) })
         for method in AgentPaneReplyRequest.methods.union(AgentPaneEnvironmentRequest.methods) { methods[method] = method }
         methods["handshake"] = "ready"
@@ -119,6 +119,9 @@ public final class AgentPageProvider: PageProvider {
     public var pendingAsksSocket: @MainActor () -> String? = { nil }
     /// Reads `chat.asks.pending` through ``pendingAsksSocket`` (tests inject the reader).
     public var pendingAsks = AgentPanePendingAsks()
+    /// The debug UI pointer report from an app-owned page. The native picker
+    /// owns the crop and composer delivery; the page only supplies metadata.
+    public var onUiPointerReport: @MainActor (JSONValue) -> Void = { _ in }
 
     public init(prepare: @escaping Prepare) {
         self.prepare = prepare
@@ -352,6 +355,10 @@ public final class AgentPageProvider: PageProvider {
         if AgentPaneTailCache.handles(method: method) { return try Self.tail(method, params: params, op: op) }
         // Needs you's read of a chat's open requests: the host's, never the relay's (AgentPanePendingAsks).
         if method == "chat.asks.pending" { return try await pendingAsks.reply(params, op: op, socket: pendingAsksSocket()) }
+        if method == "uiPointer.report" {
+            onUiPointerReport(params)
+            return .object(["ok": .bool(true)])
+        }
         if method.hasPrefix("chat.draftAttachments") { return try await Self.draftAttachments(method, params: params, op: op) }
         let request = AgentPaneRequest(body: ["method": method, "params": params.foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }

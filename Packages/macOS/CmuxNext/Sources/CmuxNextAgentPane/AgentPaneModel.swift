@@ -102,11 +102,18 @@ public final class AgentPaneModel {
     /// What this chat's last page held when it let go (hibernation); the next handshake
     /// carries it (`wake`) and clears it.
     @ObservationIgnored public var pendingWake: AgentPaneWakeState?
+    /// The last quit's state of this chat while the launch still reads it (``AgentPaneRelaunchWake/hand(_:to:)``):
+    /// the page's first `ready` awaits it into ``pendingWake``.
+    @ObservationIgnored public var wakeSource: (@MainActor () async -> AgentPaneWakeState?)?
     /// The state the page's last `ready` took, kept for a quit the page does not answer in time.
     @ObservationIgnored public internal(set) var handedWake: AgentPaneWakeState?
     /// Whether the page has asked for a handshake, so its bridge is up and
     /// a turn can be revealed through it directly.
     @ObservationIgnored public internal(set) var hasHandshake = false
+    /// The binary on the socket when the last handshake was refused with a daemon this app may
+    /// replace: only then does `acpmux.restart` stop it, and only while that same binary holds
+    /// the socket (``AgentPaneHandshakeReply/restartAcpmux(in:)``).
+    @ObservationIgnored var acpmuxRestartOffered: AcpmuxSocketOwner?
     /// Runs a git read on the session host and returns its JSON result.
     /// Throws an ``AgentPaneGitFailure`` saying who failed; any other error
     /// reaches the page as `native.failed`.
@@ -177,6 +184,7 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onToolCard: (@MainActor (_ card: String, _ action: String, _ value: AgentPaneToolCard.Entered?) -> Void)?
     /// The App's upload for this chat (a chat moved to a Cloud machine), nil when it takes none (``AgentPaneUpload``).
     @ObservationIgnored public var onUpload: (@MainActor () -> AgentPaneUploader?)?
+    @ObservationIgnored public var onUploadStage: (@MainActor () -> AgentPaneUploadStager?)?
 
     @ObservationIgnored let host: any AgentPaneHostProviding
     /// The page's host is another machine's (cx-k21v): it never becomes this Mac's prewarmed spare.
@@ -250,7 +258,7 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
+        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
              .tabRowTools, .projectIcon, .environment(.list): break
         case .reply(let reply) where reply.isPassive: break
@@ -259,8 +267,10 @@ public final class AgentPaneModel {
             userTouched = true
         }
         switch request {
+        case .uiPointerReport: return AgentPaneReply.success()
         case .ready, .reconnect:
             return await AgentPaneHandshakeReply.reply(to: request, in: self)
+        case .restartAcpmux: return await AgentPaneHandshakeReply.restartAcpmux(in: self)
         case .persistSession(let id): adoptSession(id); return AgentPaneReply.success()
         case .missingChat(let session, let reason):
             missingChatLog.record(session: session, reason: reason, tabSession: sessionId, remote: remoteChat)
@@ -382,6 +392,10 @@ public final class AgentPaneModel {
         case .displaySetting(let path, let value): return await setDisplay(path, value)
         case .toolCard(let card, let action, let value): return AgentPaneToolCard.respond(card: card, action: action, value: value, in: self)
         case .upload(let files): return await AgentPaneUpload.respond(files, in: self)
+        case .uploadStage(let stage):
+            guard let stager = onUploadStage?(), let sessionId else { return Self.unsupported("chat.upload.stage") }
+            if case .begin(_, _, let batchToken, _) = stage, batchToken == nil, !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
+            return await stager(stage, sessionId)
         case .unsupported(let method): return Self.unsupported(method)
         }
     }

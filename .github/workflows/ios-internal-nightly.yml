@@ -337,6 +337,8 @@ jobs:
           # The notification content extension's App Store profile that lists
           # CI's certificate (downloaded with the release key; verify/rich-push.md).
           CMUX_MOBILE_CONTENT_EXTENSION_PROFILE_NAME: cmux Internal Distribution CI Notification Content
+          # The same for the notification service extension (verify/notifications-trust.md).
+          CMUX_MOBILE_SERVICE_EXTENSION_PROFILE_NAME: cmux Internal Distribution CI Notification Service
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/archive"

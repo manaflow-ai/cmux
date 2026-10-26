@@ -117,6 +117,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `layout.scrollAreas`: splits that cannot fit scroll instead of squashing (default off;
     /// plans/cmux-next/scroll-areas-DESIGN.md).
     public var layoutScrollAreas: Bool = ColumnLayoutSettings.scrollAreasFallback
+    /// `layout.scrollModifier`: which scroll moves the layout (``LayoutScrollModifier``).
+    public var layoutScrollModifier: LayoutScrollModifier = ColumnLayoutSettings.scrollModifierFallback
     public var minimumPaneContentSize = CGSize(width: ColumnLayoutSettings.minimumPaneWidthFallback,
                                                height: ColumnLayoutSettings.minimumPaneHeightFallback)
     /// `layout.newPanePlacement` and `layout.tileBrowsers` (`CmuxConfigSnapshot+PanePlacement`).
@@ -205,6 +207,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var tabOverflow: TabOverflow = TabOverflowSetting.fallback
     /// `tabs.swapCmdTAndCmdN`; off when unset or invalid.
     public var swapCmdTAndCmdN: Bool = SwapCmdTAndCmdNSetting.fallback
+    /// `tabs.commandDigits`; workspaces when unset or invalid.
+    public var commandDigits: CommandDigitsSetting = CommandDigitsSetting.fallback
     /// `palette.scopes.<scope>.prefix`: user-assigned palette scope prefixes.
     public var paletteScopePrefixes = PaletteScopePrefixes()
     /// `tasks.layout`; "inbox" when unset or invalid.
@@ -394,6 +398,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (swapCmdTAndCmdN, swapCmdTAndCmdNDiagnostic) = SwapCmdTAndCmdNSetting.parse(root)
         snapshot.swapCmdTAndCmdN = swapCmdTAndCmdN
         if let swapCmdTAndCmdNDiagnostic { snapshot.diagnostics.append(swapCmdTAndCmdNDiagnostic) }
+        let (commandDigits, commandDigitsDiagnostic) = CommandDigitsSetting.parse(root)
+        snapshot.commandDigits = commandDigits
+        if let commandDigitsDiagnostic { snapshot.diagnostics.append(commandDigitsDiagnostic) }
         let (prefixes, prefixDiagnostics) = PaletteScopePrefixes.parse(root)
         snapshot.paletteScopePrefixes = prefixes
         snapshot.diagnostics += prefixDiagnostics

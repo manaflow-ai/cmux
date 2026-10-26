@@ -6,6 +6,7 @@ import { useContext, useMemo, useState, type ReactNode } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { copyText } from "./clipboard";
 import { MessageCard } from "./MessageCard";
+import { DispatchCard } from "./DispatchCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
 import { mcpNames, McpNamesContext } from "./mcpCalls";
@@ -77,6 +78,7 @@ function groupNode(
   group: ToolGroup,
   index: number,
   rowId: string,
+  rowAt: number,
   live: boolean,
   folded = false,
   thoughts = 0,
@@ -102,9 +104,18 @@ function groupNode(
         />
       );
     case "message":
-      return <MessageCard key={group.item.tool!.id || index} item={group.item} message={group.message} />;
+      return (
+        <MessageCard
+          key={group.item.tool!.id || index}
+          item={group.item}
+          message={group.message}
+          messageAt={group.item.tool!.startedAt ?? rowAt}
+        />
+      );
+    case "dispatch":
+      return <DispatchCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
     case "subsession":
-      return <SubsessionCallCard key={group.item.tool!.id || index} call={group.call} />;
+      return <SubsessionCallCard key={group.item.tool!.id || index} call={group.call} tool={group.item.tool!} />;
     case "item":
       // A short interim note folded into the run (turns.ts mergeShortNotes).
       if (group.item.kind === "note")
@@ -187,7 +198,7 @@ export function thoughtIds(groups: readonly ToolGroup[]): number[] {
 /// the rest of the work and the line names them (Leo 2026-10-22: "this is pretty good ui: … the
 /// collapsing i mean"); the turn's edited-files card lists them once it ends.
 function staysInSight(group: ToolGroup): boolean {
-  if (group.type === "message" || group.type === "subsession") return true;
+  if (group.type === "message" || group.type === "subsession" || group.type === "dispatch") return true;
   // A pending change draws as its own item (toolGroups.ts `toolGroupKind`); any entry holding one
   // stays in sight all the same.
   return ("items" in group ? group.items : [group.item]).some((item) => awaitsPermission(item.tool));
@@ -205,6 +216,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
         group,
         at,
         row.id,
+        row.at,
         row.live === true && at === groups.length - 1,
         row.foldRun === true && !stretch.fold,
         thoughts[at],
