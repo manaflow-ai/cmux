@@ -153,7 +153,7 @@ public final class AgentPaneLaunchImages {
     /// limit's share of ``maximumFiles`` the oldest held frame goes; at the critical limit none is kept.
     public func hold(_ key: String, _ frame: CGImage, size: NSSize, appearance: NSAppearance.Name?) async {
         guard size.width > 0 else { return }
-        let data = await Task.detached(priority: .utility) { frame.pageImageData() }.value
+        let data = await Task.detached(priority: Task.currentPriority) { frame.pageImageData() }.value
         removeHeld(key)
         guard let data, heldLimit > 0 else { return }
         held[key] = HeldFrame(data: data, size: size, appearance: appearance, order: nextHeldOrder)
@@ -208,7 +208,7 @@ public final class AgentPaneLaunchImages {
             let scale = max(1, min(3, Int((CGFloat(cgImage.width) / image.size.width).rounded())))
             frames[Self.fileName(key, scale: scale, ext: cgImage.pageImageExtension)] = cgImage
         }
-        await Task.detached(priority: .utility) { Self.write(frames.compactMapValues { $0.pageImageData() }, to: directory) }.value
+        await Task.detached(priority: Task.currentPriority) { Self.write(frames.compactMapValues { $0.pageImageData() }, to: directory) }.value
     }
 
     /// Every saved page in `directory`, decoded, with its point size, by tab key: for each key the first

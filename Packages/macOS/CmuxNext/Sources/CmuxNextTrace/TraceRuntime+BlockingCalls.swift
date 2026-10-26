@@ -11,12 +11,6 @@ extension TraceRuntime {
     /// FNV-1a 64 hash of its `#fileID`; the end has no arguments.
     static let blockingCallText: StaticString = "task.blocking_call"
 
-    /// The trace clock now (``TraceClock``), for a span whose start is taken before its begin is written: a lane
-    /// item's post time, for its queue wait.
-    public func nowNanos() -> UInt64 {
-        clock.nowNanos()
-    }
-
     /// Makes this runtime's blocking-call sink; `init` calls it once for a runtime that routes blocking calls.
     func installBlockingCallSink() {
         let name = InternedName(Self.blockingCallText, categoryBit: TraceCategories.taskBit)

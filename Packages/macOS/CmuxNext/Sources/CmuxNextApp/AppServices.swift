@@ -167,8 +167,13 @@ final class AppServices {
     var observations: ObservationLedger { mainWork.observations }
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater: UpdaterService
-    /// The app's one file picker made ahead of the click (agent panes, page inputs, Home's "+") and agent page WebKit warm-up.
-    let openPanel = MadeAheadOpenPanel()
+    /// The app's one file picker made ahead of the click (agent panes, page inputs, Home's "+"). With feature
+    /// `memoryOpenPanelOnFirstUse` (default off) it is made on the first click and released once unused, so no
+    /// panel service process runs at Home idle.
+    private(set) lazy var openPanel = MadeAheadOpenPanel(policy: features.isEnabled(.memoryOpenPanelOnFirstUse)
+        ? .afterFirstUse(releaseAfter: Feature.memoryOpenPanelOnFirstUse.durationParam("releaseAfter") ?? .seconds(300),
+                         deadline: MainDeadline(owner: "openPanel.release", workClass: .background, scheduler: mainDeadlines)) : .ahead)
+    /// The agent page WebKit warm-up.
     private(set) lazy var agentPageWarmup = AgentPageWarmup(chromiumChat: agentChromiumChat)
     /// Whether a new agent page may show in Chromium: feature `agentChromium`, its Debug tunable `agent.chromium` (the
     /// tunable's only reader) as the local override, read at each page; the warm-up and every agent pane share it.

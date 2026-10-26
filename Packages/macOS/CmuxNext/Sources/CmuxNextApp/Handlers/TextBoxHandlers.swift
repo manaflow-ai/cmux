@@ -27,12 +27,15 @@ enum TextBoxHandlers {
             let box = textBox(of: entry, ctx), focus = invocation.allowsViewChange
             box.show(focus: focus)
             let window = entry.session.view.window
-            registry.track(Task { @MainActor in
-                let paths = await chooseFiles(in: window)
+            // The person's pick is awaited off main; the files go into the box in the run's completion.
+            registry.trackWork(owner: "TextBoxHandlers.attach", on: ctx.services.mainWork) {
+                await chooseFiles(in: window)
+            } then: { result in
+                let paths = (try? result.get()) ?? []
                 box.insert(paths: paths)
                 if focus, !paths.isEmpty { box.show(focus: true) }
                 return nil
-            })
+            }
         })
     }
 

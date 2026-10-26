@@ -23,7 +23,7 @@ enum GhosttyConfigFontFamily {
 
     private static var loads = 0
 
-    /// A load of the user's own config (`GhosttyConfigBackground.overrideLines`; only the shared
+    /// A load of the user's own config, applied on the main actor (`recordUserConfigLoad`; only the shared
     /// runtime loads it): reads its family off the main actor, records it in
     /// `DesignSettings.terminalConfigFontFamily`, which repaints pages when the terminal's face
     /// changed (`WebTheme.Terminal`). Only the latest load's read applies.

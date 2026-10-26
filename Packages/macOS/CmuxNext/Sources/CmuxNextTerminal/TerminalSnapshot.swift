@@ -30,7 +30,7 @@ extension TerminalSurfaceView {
         guard let frame = beginFrameRead() else { return nil }
         defer { endFrameRead(frame) }
         let surface = SendableSurface(surface: frame)
-        return await Task.detached(priority: .utility) {
+        return await Task.detached(priority: Task.currentPriority) {
             TerminalSnapshotRenderer.render(surface, maxPixelSize: maxPixelSize)
         }.value
     }

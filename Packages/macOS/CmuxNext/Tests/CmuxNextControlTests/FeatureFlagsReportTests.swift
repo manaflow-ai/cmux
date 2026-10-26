@@ -76,6 +76,22 @@ struct FeatureFlagsReportTests {
         #expect(report.json["next_local"] == nil)
     }
 
+    /// A live Debug toggle (p12-perf-process-101) shows as the feature's value, source `local`, while it answers a
+    /// value; unset (nil), the launch's resolution shows.
+    @Test func aLiveToggleReportsWhatTheAppRunsWith() throws {
+        func report(_ toggle: Bool?) -> FeatureFlagsReport {
+            FeatureFlagsReport(features: Self.list(.dev), liveLocal: ["perfThing": { toggle }])
+        }
+        func row(_ toggle: Bool?) throws -> JSONValue { try #require(report(toggle).json["features"]?.arrayValue?.first) }
+        #expect(try row(nil)["source"] == .string("remote"))
+        #expect(try row(nil)["state"] == .string("on"))
+        #expect(report(false).resolution(of: Self.registry.features[0]) == Feature.Resolution(isEnabled: false, source: .local))
+        #expect(try row(false)["state"] == .string("off"))
+        #expect(try row(false)["source"] == .string("local"))
+        #expect(try row(true)["state"] == .string("on"))
+        #expect(report(true).entries.map { $0.resolution.source } == [.local, .policy, .environment])
+    }
+
     @Test func localTogglesApplyOnlyOnDevAndNightly() {
         #expect(FeatureFlagsReport(features: Self.list(.dev)).json["local_overrides"] == .bool(true))
         #expect(FeatureFlagsReport(features: Self.list(.nightly)).json["local_overrides"] == .bool(true))
