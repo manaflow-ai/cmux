@@ -57,7 +57,9 @@
       "args": {
         "method": "chief.profile.avatar.set",
         "params": {
-          "chief": "$step:fx-chief#/value/id"
+          "chief": "$step:fx-chief#/value/id",
+          "media_type": "image/png",
+          "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
         },
         "idempotencyKey": "chief-profile-avatar-set-ok.call"
       },
@@ -69,7 +71,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "a 1x1 PNG on the fixture Chief; the record's avatar is its sha256, type and size"
     }
   ],
   "invariants": [

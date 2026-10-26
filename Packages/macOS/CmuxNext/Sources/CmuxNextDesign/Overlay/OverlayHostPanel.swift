@@ -2,27 +2,24 @@ public import AppKit
 public import CmuxNextInput
 public import CmuxNextWakeups
 
-/// The one overlay child window of a main window (`WindowOverlayHost`):
+/// The overlay child window of a main window (`WindowOverlayHost`), the
+/// fallback home of its top layer while Chromium page child windows show:
 /// transparent and borderless, the size of its parent, ordered above every
 /// page window. It ignores the mouse except over interactive overlays, and
 /// becomes key only while a modal overlay shows.
 public final class OverlayHostPanel: NSPanel, HoverFrameInputHosting {
+    /// The host's top layer, which this panel holds while overlays draw here.
+    public let topLayer: OverlayTopLayerView
     /// The layout overlay planes (focus rings, drop zones) live here, below the presented overlays.
-    public let planeContainer = NSView()
+    public var planeContainer: NSView { topLayer.planeContainer }
     /// Presented overlays, above the planes, one container per layer (bottom to top).
-    let paneContainer = OverlayContainerView()
-    let windowContainer = OverlayContainerView()
-    let modalContainer = OverlayContainerView()
+    var paneContainer: OverlayContainerView { topLayer.paneContainer }
+    var windowContainer: OverlayContainerView { topLayer.windowContainer }
+    var modalContainer: OverlayContainerView { topLayer.modalContainer }
     /// The full-size container used for bounds and coordinates.
-    var overlayContainer: OverlayContainerView { windowContainer }
+    var overlayContainer: OverlayContainerView { topLayer.overlayContainer }
 
-    func container(for layer: OverlayLayer) -> OverlayContainerView {
-        switch layer {
-        case .pane: paneContainer
-        case .window: windowContainer
-        case .modal: modalContainer
-        }
-    }
+    func container(for layer: OverlayLayer) -> OverlayContainerView { topLayer.container(for: layer) }
     var acceptsKey = false
     var onCancel: (() -> Void)?
     /// Tab (true) or Shift-Tab (false) inside a modal overlay: the host moves focus within it.
@@ -33,7 +30,8 @@ public final class OverlayHostPanel: NSPanel, HoverFrameInputHosting {
     /// Its parent's frame-aligned hover input (``WindowOverlayHost/hoverFrames``): its views hover once per frame.
     public internal(set) var hoverFrameInput: FrameInputCoalescers?
 
-    init() {
+    init(topLayer: OverlayTopLayerView) {
+        self.topLayer = topLayer
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         isOpaque = false
         backgroundColor = .clear
@@ -46,14 +44,10 @@ public final class OverlayHostPanel: NSPanel, HoverFrameInputHosting {
         animationBehavior = .none
         isExcludedFromWindowsMenu = true
         collectionBehavior = [.fullScreenAuxiliary, .transient, .ignoresCycle]
+        // The host mounts the top layer here while overlays draw in the panel.
         let root = NSView()
         root.wantsLayer = true
         root.autoresizingMask = [.width, .height]
-        for layer in [planeContainer, paneContainer, windowContainer, modalContainer] as [NSView] {
-            layer.wantsLayer = true
-            layer.autoresizingMask = [.width, .height]
-            root.addSubview(layer)
-        }
         contentView = root
         setAccessibilityElement(false)
     }

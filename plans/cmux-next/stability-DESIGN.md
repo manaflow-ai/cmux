@@ -453,8 +453,9 @@ Each check is a command with a number. `scripts/cmux-next/stability-final.sh` (1
 Each hit (or each file/module group shown) is one task; the generator splits groups to <= 400 changed lines.
 
 - **Q01 swift-v5-targets:** `git grep -n 'swiftLanguageMode(.v5)' -- '*Package.swift'`; then per folder,
-  `scripts/cmux-next/swift-diagnostics.sh --package Packages/Shared/CmuxMessagesLab --summary` (fleet:
-  `cmux-ci run --class isolated --ref SHA --script scripts/cmux-next/swift-diagnostics.sh`).
+  `scripts/cmux-next/messageslab-queue.sh` (fleet: `cmux-ci run --class isolated --ref SHA --script
+  scripts/cmux-next/messageslab-queue.sh -- --ref SHA`), which is swift-diagnostics.sh's build with complete checking
+  as a build flag. It counts only concurrency diagnostics (Q01 MessagesLab per-folder queue, below).
 - **Q02 unchecked-sendable:** `git grep -n -B1 -E '@unchecked Sendable|nonisolated\(unsafe\)' --
   'Packages/**/Sources/**/*.swift'`, grouped by closure module (258 lines total, 131 in the closure ratchet); later
   `crash_ratchet.py --report unchecked`.
@@ -504,6 +505,45 @@ Each hit (or each file/module group shown) is one task; the generator splits gro
   (69); `git grep -n -E 'NSClassFromString|NSSelectorFromString|dlsym' -- 'Packages/**/Sources/**/*.swift'` (94).
 - **Q25 state-writes:** `git grep -n 'fs::write(' -- 'cmux-tui/crates/*/src'` (production files) and `git grep -n -E
   'fn write_atomic'`.
+
+### Q01 MessagesLab per-folder queue (task 038)
+
+**Decision: complete checking is a flag of one diagnostics build, not a manifest setting.** The 4 CmuxMessagesLab
+targets stay as they are (`.v5`, minimal checking) until 039 and 045 request `.v6` through the lander. CmuxNextHome
+depends on MessagesLabHome and MessagesLabSidebar, so the app build compiles them, and `ci-macos.yml` runs
+`scripts/swift_warning_budget.py` on that build log against an empty `.github/swift-warning-budget.tsv` (`Packages/` is an
+owned root, and its `/vendor/` ignore is lowercase, so `Vendor/catalyst` counts). A manifest
+`.enableUpcomingFeature("StrictConcurrency")` would add hundreds of warnings there (risk 6) and fail every PR after the
+lander commit; regenerating the budget to hide them would be new debt. So 038 adds no `stability-settings.json` row.
+
+`scripts/cmux-next/messageslab-queue.sh` (fleet only: `cmux-ci run --class isolated --ref SHA --script
+scripts/cmux-next/messageslab-queue.sh -- --ref SHA`) runs swift-diagnostics.sh's clean build (036) of the package with
+`-Xswiftc -strict-concurrency=complete --build-tests` and prints the table below. Counting rule: a row counts when it is an
+error, is in a concurrency group (ActorIsolatedCall, ConformanceIsolation, IsolatedConformances, MutableGlobalVariable,
+PreconcurrencyImport, SendableClosureCaptures, SendableMetatypes, SendingClosureRisksDataRace, SendingRisksDataRace,
+NonisolatedNonsendingByDefault), or carries the compiler's "this is an error in the Swift 6 language mode" suffix (a
+non-Sendable stored property of a Sendable type has no group). Deprecations, unused values and other warnings that stay
+warnings in Swift 6 do not count; rows in dependency packages do not count. A Swift 6.3.3 run of the script with the real
+036 parser on a `.v5` probe laid out like this package counted 7 of 9 rows (2 mutable globals, 2 sending closures, 1
+conformance isolation, 1 Sendable stored property, 1 test-target global; not the deprecation or the unused value).
+Tasks 039-044 use the same command for their "0 concurrency diagnostics" acceptance.
+
+Source sizes at perf/chrome-parity f50dd944398 (all 247 target files; `Harness/` is in no target):
+
+| Folder (under CmuxMessagesLab/) | Task | Files | Lines |
+| --- | --- | ---: | ---: |
+| Sources/MessagesLabHome/Vendor/catalyst/[A-L]* | 040 | 13 | 5,776 |
+| Sources/MessagesLabHome/Vendor/catalyst/[M-Z]* | 041 | 22 | 13,072 |
+| Sources/MessagesLabHome/Vendor/appkit-native | 042 | 11 | 5,163 |
+| Sources/MessagesLabHome/Vendor/appkit-port | 042 | 3 | 892 |
+| Sources/MessagesLabHome/Cmux/[A-L]* | 043 | 72 | 8,606 |
+| Sources/MessagesLabHome/Cmux/[M-Z]* | 044 | 30 | 3,920 |
+| Sources/MessagesLabSidebar | 039 | 12 | 4,657 |
+| Tests/MessagesLabHomeTests | 045 | 81 | 10,834 |
+| Tests/MessagesLabSidebarTests | 039 | 3 | 412 |
+
+The concurrency diagnostic counts are not recorded yet (section 9: 038 is blocked). The script prints them with a
+`(split)` mark on a folder over 400; such a folder is split again (risk 6) before its task starts.
 
 ## 7. Risks
 
@@ -599,3 +639,10 @@ The tasks 001-211 (080 and 149 dropped) and their dependencies are in the spec's
 `chrome-parity/design-result.json`; `chrome-parity/WORK.tsv` lists them with their files. Run order: H0-12 lab core and
 shared APIs, H12-60 all queues in parallel with the lab running, H60-66 error flips, H66-72 test phase and
 `stability-final.sh` (151), which prints the done checks of section 5.
+
+Status:
+
+- **038 blocked.** The command and counting rule are in section 6 (Q01 MessagesLab per-folder queue), but the
+  per-folder counts are not recorded. Two things block it: 036 (`swift_diagnostics.py`) is not on perf/chrome-parity,
+  and nobody has run `messageslab-queue.sh` on the fleet at a commit that has 036. Tasks 039-044 do not start until the
+  counts table is filled in.

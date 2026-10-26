@@ -38,7 +38,8 @@ import Testing
                               backing: .buffered, defer: true)
             window.isReleasedWhenClosed = false
             layer = WindowOverlayLayer(window: window,
-                                       signposter: Signposter(category: .cef, mirror: SignpostMetricKitMirror(), trace: runtime))
+                                       signposter: Signposter(category: .cef, mirror: SignpostMetricKitMirror(), trace: runtime),
+                                       currentTurn: { 0 })
             log.clear()
         }
 

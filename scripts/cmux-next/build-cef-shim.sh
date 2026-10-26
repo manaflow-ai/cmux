@@ -93,7 +93,7 @@ done
   "$OUT_DIR/obj/shim/shim_page_scheme.mm.o" "$OUT_DIR/obj/shim/shim_downloads.mm.o" \
   "$OUT_DIR/obj/shim/shim_background.mm.o" "$OUT_DIR/obj/shim/shim_bookmarks.mm.o" \
   "$OUT_DIR/obj/shim/shim_permissions.mm.o" "$OUT_DIR/obj/shim/shim_helper_host.mm.o" \
-  "$OUT_DIR/obj/shim/shim_file_dialog.mm.o" \
+  "$OUT_DIR/obj/shim/shim_file_dialog.mm.o" "$OUT_DIR/obj/shim/shim_tracing.mm.o" \
   "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -lobjc
 
 "$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \

@@ -38,7 +38,9 @@ public import CmuxNextWakeups
         node = VisibilityNode(root: "app", own: isAppHidden ? .hidden : .visible, uptime: uptime)
         let owner = "AppVisibilitySource"
         subscriptions = [
+            // raw-observer-allow: an AppEvents subscription, the recipe R-notif asks for (the app's one observer per notice); only the notice's name matches
             appEvents.subscribe(NSApplication.didHideNotification, owner: owner) { [weak self] in self?.setHidden(true) },
+            // raw-observer-allow: an AppEvents subscription, the recipe R-notif asks for (the app's one observer per notice); only the notice's name matches
             appEvents.subscribe(NSApplication.didUnhideNotification, owner: owner) { [weak self] in self?.setHidden(false) },
             workspaceEvents.subscribe(NSWorkspace.screensDidSleepNotification, owner: owner) { [weak self] in self?.setAsleep(true) },
             workspaceEvents.subscribe(NSWorkspace.screensDidWakeNotification, owner: owner) { [weak self] in self?.setAsleep(false) },

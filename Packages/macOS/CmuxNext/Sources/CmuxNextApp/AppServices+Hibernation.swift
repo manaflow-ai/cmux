@@ -2,7 +2,6 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
-import CmuxNextEnergy
 import CmuxNextFeatures
 import CmuxNextHibernation
 import CmuxNextInput
@@ -22,7 +21,7 @@ extension AppServices {
     /// show and screen change; its measurements start after startup (``startHibernationMeasurements()``).
     func startHibernation(settings: SettingsController) {
         let audible = features.isEnabled(.recentlyAudibleProtection) ? AudibleHistory(mainWork: mainWork) : nil
-        let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, deadlines: mainDeadlines, lowPower: energyMonitor.lowPowerMode, audible: audible)
+        let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, deadlines: mainDeadlines, energy: mainWork.energy, audible: audible)
         cache.hibernation = hibernation
         hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }
         hibernation.isDownloading = { [weak self] key in self?.cache.pageRequests.downloads.isDownloading(tab: key) ?? false }
@@ -41,7 +40,8 @@ extension AppServices {
         hibernation.follow(settings)
         hibernation.start()
         if features.isEnabled(.intentPrewarmHover) { startIntentPrewarm(over: hibernation) }
-        cache.warmSetRelease = WarmSetRelease(host: cache, normalCapacity: WarmSetBudget.standard.terminalCapacity, registry: memoryCoordinator)
+        AppMemoryConsumers(services: self).registerHibernationSnapshots(hibernation)  // AppServices+Memory.swift
+        cache.warmSetRelease = WarmSetRelease(host: cache, normalCapacity: cache.normalWarmCapacity, registry: memoryCoordinator)
         _ = parkedWorkspaceBudget  // registers with the coordinator before any pressure change reads it
     }
 
@@ -89,6 +89,20 @@ extension AppServices {
             capacity: held ? budget.parkedWorkspaces : nil,
             idleTimeout: held && features.isEnabled(.memoryDiscardParkedIdleTimeout) ? budget.parkedIdleTimeout : nil,
             deadline: MainDeadline(owner: "ParkedWorkspaceBudget", workClass: .background, scheduler: mainDeadlines),
+            memory: memoryCoordinator)
+    }
+
+    /// The one list of hidden frames with `memoryHiddenFrameLRU` (p03-rendering-099): every evicted terminal's last
+    /// frame, as many unlocked as this Mac's memory allows, each culled after 5 min hidden on one background deadline,
+    /// all purged in the memory coordinator's release slices at a warning. Holders drop culled frames on a second
+    /// background deadline, never in the turn that culled them. Nil while off.
+    func makeHiddenFrameLRU() -> HiddenFrameLRU? {
+        guard features.isEnabled(.memoryHiddenFrameLRU) else { return nil }
+        let budget = SubsystemBudget.forThisMac(gpuResidentAvailable: false)
+        return HiddenFrameLRU(
+            softLimit: HiddenFrameLRU.softLimit(physicalMiB: budget.physicalMiB),
+            deadline: MainDeadline(owner: "HiddenFrameLRU.cull", workClass: .background, scheduler: mainDeadlines),
+            evictions: MainDeadline(owner: "HiddenFrameLRU.evict", workClass: .background, scheduler: mainDeadlines),
             memory: memoryCoordinator)
     }
 }

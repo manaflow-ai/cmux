@@ -375,6 +375,7 @@ final class WindowManager {
             keepsOrder = restacks
             WindowActivation.show(window, restacks ? .bringForward : behind ? .presentBehind : .present)
             keepsOrder = kept
+            DebugTimings.markLaunch("window_display") // first on screen: Chrome's RecordBrowserWindowDisplay (BrowserView::Show)
         }
         onPresent?(controller)
         enterRestoredFullScreens()
@@ -419,6 +420,14 @@ final class WindowManager {
         isTerminating = true
         membershipObservation?.cancel()
         // Chromium stops later, as the last quit step (QuitCompletion).
+    }
+
+    /// Quit: each open window's sidebar change still waiting for its idle task reaches the snapshot
+    /// store (`SidebarSnapshotRecorder.flushNow`), before the store's flush.
+    func flushSidebarSnapshots() async {
+        for controller in controllers {
+            await controller.sidebar.flushSnapshot()
+        }
     }
 
     /// Copies each open window's frame and display into the registry.

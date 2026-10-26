@@ -1,0 +1,6 @@
+{
+  "use": "The perf lab's test key for signed flags documents (plans/cmux-next/chrome-parity/p12-perf-process.md section 3.9). Only bench builds (CMUX_BENCH_HOOKS) trust its public key (FeatureRemoteSignatureCheck.benchTestPublicKey); a shipped app does not, and check-no-bench-hooks.sh refuses a shipped app whose executable contains it. Not a secret: never sign anything a shipped app reads with it.",
+  "algorithm": "Ed25519",
+  "publicKey": "tOVR4m5KjnfoL+4rA/GqbLNDSgK8cJV8G0noc8Atvww=",
+  "privateSeed": "eg5S/uhlpeYBovEojWYCn7lPE0l+A5/WfpNa9qly/cg="
+}

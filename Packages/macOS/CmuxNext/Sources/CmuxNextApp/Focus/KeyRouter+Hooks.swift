@@ -116,7 +116,10 @@ extension KeyRouter {
     func focus(for window: NSWindow?) -> (WindowController?, KeyWindowKind) {
         guard let services, let window else { return (nil, .other) }
         let controllers = services.windows.controllers
-        if let controller = controllers.first(where: { $0.window === window }) { return (controller, .content) }
+        if let controller = controllers.first(where: { $0.window === window }) {
+            // An overlay of the window's top layer has the keyboard: it gates keys as its panel did.
+            return (controller, (window as? ShellWindow)?.overlayHasKeyboard == true ? .textPanel : .content)
+        }
         // A popup window (or the Chromium page window in it) gates menu
         // chords like a panel over the window that opened it.
         if let popup = services.popups.window(containing: window) {

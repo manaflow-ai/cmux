@@ -46,7 +46,8 @@ pub use blocking::{
     OwnDescriptorToken, own_fd_read, own_fd_write, own_fd_write_all, register_own_descriptor,
 };
 pub use lock_wait::{
-    LOCK_WAIT_BUDGET, LockHolder, LockWait, LockWaitSnapshot, lock_waits, set_holder_tracking,
+    LOCK_WAIT_BUDGET, LockHolder, LockWait, LockWaitSnapshot, lock_waits, note_thread_lock_wait,
+    set_holder_tracking, thread_lock_wait_nanos,
 };
 pub use process::HELPER_CHILD;
 pub use qos::{

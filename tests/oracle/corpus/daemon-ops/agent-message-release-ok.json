@@ -94,7 +94,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "approves the held delivery of the fixture message"
     }
   ],
   "invariants": [
@@ -103,5 +103,8 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
+  ],
+  "untested": [
+    "no product runs it yet: only the person in the verified cmux app (the frontend actor) releases a held delivery, and a delivery is held only when an agent (a terminal actor) sends into another workspace; the case connection is a plain local client. p15-oracle-240 gives driver_daemon.py 237's user connection for the release and a fixture-terminal sender for the held delivery"
   ]
 }
