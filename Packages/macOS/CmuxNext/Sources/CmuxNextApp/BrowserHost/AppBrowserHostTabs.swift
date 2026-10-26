@@ -5,6 +5,7 @@ import CmuxNextBrowserTabs
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 import Observation
 import WebKit
@@ -17,7 +18,8 @@ import WebKit
 /// machine drive tabs this machine's store owns. The getters read the store
 /// and the live pages, which are observable, plus `pageInstalls` (a page was
 /// created); visibility is pushed with `refreshTabs()`.
-final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, AutomationTabProvider, ProviderAgentMarking, ProviderTabOpening {
+final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, AutomationTabProvider, ProviderAgentMarking, ProviderTabOpening,
+    ProviderCaptureVoting {
     private weak var services: AppServices?
     /// Extension access depends on manifests read from disk: computed again
     /// only when the profile's extension list or the page URL changes.
@@ -123,6 +125,15 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         if AppBrowserPage.markAgentDriven(targetID, services: services) {
             services.cache.rebuildForAgent(targetID)
         }
+    }
+
+    // MARK: ProviderCaptureVoting
+
+    /// An agent's screenshot or screencast of an announced tab votes on the tab's node
+    /// (``TabContentCache/node(for:)``): a hidden tab renders for it and its page still reads hidden.
+    func captureVote(targetID: String, reason: String) -> VisibilityCaptureVote? {
+        guard let services, isDrivable(targetID) else { return nil }
+        return services.cache.node(for: targetID).captureVote(reason: reason, stayHidden: true)
     }
 
     // MARK: AutomationTabProvider (WebKit driver)
