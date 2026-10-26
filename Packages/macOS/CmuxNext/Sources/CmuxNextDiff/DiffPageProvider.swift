@@ -17,7 +17,9 @@ public import Foundation
 /// The stdio sidecar sends no events: `cmux.diff.events` subscribes and stays
 /// quiet until the sidecar becomes a pane-protocol provider.
 public final class DiffPageProvider: PageProvider {
-    static let methods: Set<String> = ["protocolHandshake", "sessionOpen", "sessionClose", "branchList", "branchChange"]
+    static let methods: Set<String> = [
+        "protocolHandshake", "sessionOpen", "sessionClose", "branchList", "branchChange", "fileContents",
+    ]
     static let configOp = "cmux.diff.config"
     static let languagesOp = "cmux.diff.languages"
     static let eventsStream = "cmux.diff.events"
@@ -33,17 +35,23 @@ public final class DiffPageProvider: PageProvider {
     public private(set) var ready: Task<DiffTabReady, any Error>?
     private let sidecar: (any DiffSidecarRunning)?
     private let languages: DiffLanguageFeed?
-    private weak var host: (any DiffTabHosting)?
+    private(set) weak var host: (any DiffTabHosting)?
     /// Prefs and viewed marks (``DiffPageStores``); nil serves no store op.
     let stores: DiffPageStores?
     /// Stage, Commit and Push in the tab's repository (``DiffGitRunning``); nil serves no git op.
     let git: (any DiffGitRunning)?
+    /// Asks before Revert throws work away (DiffPageProvider+Revert.swift); nil reverts no file.
+    public var confirmRevert: DiffRevertConfirming?
+    /// The hunks Undo can put back, and the gesture the last revert spent.
+    var revertState = DiffRevertState()
     /// Sessions of the current grant this tab named or was given, not closed yet.
     private(set) var sessions: Set<String> = []
     private var opening: (session: String, task: Task<JSONValue, any Error>)?
     private var discards: [Task<Void, Never>] = []
     private var events: [UUID: (JSONValue) -> Void] = [:]
     private(set) var isClosed = false
+    /// The gesture (`systemUptime`) the last `cmux.diff.openFile` spent (DiffPageProvider+Open.swift).
+    var spentOpenGesture: TimeInterval?
 
     public init(ready: Task<DiffTabReady, any Error>?, sidecar: (any DiffSidecarRunning)?, languages: DiffLanguageFeed?,
          host: (any DiffTabHosting)? = nil, stores: DiffPageStores? = nil, git: (any DiffGitRunning)? = nil) {
@@ -79,6 +87,8 @@ public final class DiffPageProvider: PageProvider {
         default:
             if let value = try await storeCall(op, params: params) { return value }
             if let value = try await gitCall(op, params: params, context: context) { return value }
+            if let value = try await revertCall(op, params: params, context: context) { return value }
+            if let value = try await openFileCall(op, params: params, context: context) { return value }
             let method = String(op.dropFirst("cmux.diff.".count))
             guard op.hasPrefix("cmux.diff."), Self.methods.contains(method) else { throw PageError.unknownOp(op) }
             return try await request(method, params: params.objectValue ?? [:])
@@ -109,7 +119,11 @@ public final class DiffPageProvider: PageProvider {
     private func config() async throws -> JSONValue {
         guard let ready else { return await withStores(["pick": true]) }
         do {
-            return withGit(await withStores(try await ready.value.config))
+            let tab = try await ready.value
+            // A turn the tab got after its grant (the header's Changes) is offered as Last turn too.
+            let config = tab.turn == nil && host?.turn(for: tab.grant.repository) != nil
+                ? DiffPageConfig.offeringTurn(tab.config) : tab.config
+            return withOpenFile(withGit(await withStores(config)))
         } catch let failure as DiffTabFailure {
             return DiffPageConfig.failure(title: failure.title, message: failure.message)
         }
@@ -135,19 +149,20 @@ public final class DiffPageProvider: PageProvider {
 
     private func request(_ method: String, params: [String: JSONValue]) async throws -> JSONValue {
         guard let ready else { throw PageError(code: "sidecarUnavailable", message: "No repository is open") }
-        let grant: DiffSessionGrant
+        let tab: DiffTabReady
         do {
-            grant = try await ready.value.grant
+            tab = try await ready.value
         } catch let failure as DiffTabFailure {
             throw PageError(code: "sidecarUnavailable", message: failure.message)
         }
+        let grant = tab.grant
         var params = params
         params["capabilityToken"] = .string(grant.token)
         switch method {
         case "protocolHandshake":
             return try await send(method, params: nil)
         case "sessionOpen":
-            return try await open(params, grant: grant)
+            return try await open(params, tab: tab)
         case "sessionClose":
             guard let id = params["sessionId"]?.stringValue else { throw PageError.invalidParams("sessionId is required") }
             if id == Self.pendingSessionID {
@@ -158,6 +173,13 @@ public final class DiffPageProvider: PageProvider {
             let result = try await send(method, params: params)
             sessions.remove(id)
             return result
+        case "fileContents":
+            // A file's two sides (Load full files, Rich preview): only for one of this tab's
+            // sessions; the sidecar also checks the token owns it and its patch names the path.
+            guard let id = params["sessionId"]?.stringValue, sessions.contains(id) else {
+                throw PageError(code: "notAllowed", message: "Diff session is not authorized")
+            }
+            return try await send(method, params: params)
         case "branchChange":
             params["groupId"] = .string(grant.group)
             let result = try await send(method, params: params)
@@ -168,17 +190,49 @@ public final class DiffPageProvider: PageProvider {
         }
     }
 
-    /// A new open replaces the one in flight (the page shows one session).
-    private func open(_ params: [String: JSONValue], grant: DiffSessionGrant) async throws -> JSONValue {
+    /// A new open replaces the one in flight (the page shows one session). Last turn first
+    /// writes the chat turn's patch, read from the session host, inside the same open, so a newer
+    /// pick stops it as it stops any open.
+    private func open(_ params: [String: JSONValue], tab: DiffTabReady) async throws -> JSONValue {
+        let grant = tab.grant
         stopOpening(grant: grant)
         let id = UUID().uuidString.lowercased()
         var params = params
         params["sessionId"] = .string(id)
         sessions.insert(id)
-        let task = Task { [self] in try await send("sessionOpen", params: params) }
+        // The chat's turn now (the header gives a tab a newer one), else the one the tab opened with.
+        let turnPatch = DiffTurnPatch.opens(params), turn = host?.turn(for: grant.repository) ?? tab.turn
+        let task = Task { [self] in
+            if turnPatch {
+                try await writeTurnPatch(turn, in: grant)
+                try Task.checkCancellation()
+            }
+            return try await send("sessionOpen", params: params)
+        }
         opening = (id, task)
         defer { if opening?.session == id { opening = nil } }
-        return try await task.value
+        let result = try await task.value
+        // A patch session (Last turn) gets the sidecar's own id, which the page then closes.
+        if let opened = Self.openedSession(result) { sessions.insert(opened) }
+        return result
+    }
+
+    /// Writes the tab's turn patch (``DiffTurnPatch``) from the session host's
+    /// `git.checkpoint.diff` of the tab's repository. Read-only: a pair never changes.
+    private func writeTurnPatch(_ turn: DiffTurn?, in grant: DiffSessionGrant) async throws {
+        guard let turn, let git else { throw PageError(code: "notAllowed", message: "This diff tab has no chat turn") }
+        let diff: JSONValue
+        do {
+            diff = try await git.checkpointDiff(grant.repository, from: turn.from, to: turn.to)
+        } catch {
+            throw Self.pageError(error)
+        }
+        try await Self.write(diff, to: grant)
+    }
+
+    /// The patch can be megabytes: built and written off the main actor.
+    @concurrent private static func write(_ diff: JSONValue, to grant: DiffSessionGrant) async throws {
+        try grant.writeTurnPatch(DiffTurnPatch.make(diff))
     }
 
     /// Stops the open in flight and closes its session once it settles (it may
@@ -250,6 +304,7 @@ public final class DiffPageProvider: PageProvider {
 
     /// Ends the current grant: the open in flight, its sessions, its files.
     private func retire() async {
+        revertState.reset()
         guard let current = ready else { return }
         ready = nil
         guard let grant = try? await current.value.grant else { return }

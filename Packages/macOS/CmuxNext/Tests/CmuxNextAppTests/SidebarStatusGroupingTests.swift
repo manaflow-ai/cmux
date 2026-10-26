@@ -179,6 +179,19 @@ import Testing
         #expect(!keys.contains { if case .showMore = $0 { true } else { false } })
     }
 
+    /// A status section's last row and the next section's header keep the row spacing alone, as under a group's last
+    /// member (Leo 2026-10-21: "ALL THIS RELATIVELY UNNECESSARY SPACING AFTER GROUPS").
+    @Test func aStatusSectionsLastRowAndTheNextHeaderKeepTheRowSpacing() throws {
+        let m = SidebarLayoutMetrics.standard
+        var o = SidebarLayoutOptions()
+        o.grouping.setByStatus(true)
+        let layout = SidebarLayout.make(sections: Sidebar.sections([Self.agent("build", working: true), SidebarWorkspace(id: WorkspaceID("shell"), title: "shell")]),
+                                        metrics: m, options: o)
+        let build = try #require(layout.row(for: .workspace(WorkspaceID("build"))))
+        let idle = try #require(layout.row(for: .status(.idle)))
+        #expect(abs(idle.y - build.maxY - m.rowSpacing) < 0.01, "the section's end adds \(idle.y - build.maxY - m.rowSpacing) pt to the row spacing")
+    }
+
     /// The sections are the Priority classifier's (`AgentPriorityRanking.state` through `SidebarLaneStatus`), not one
     /// of the sidebar's own: acpmux lanes in, the rows the row feed maps, laid out under their states.
     @Test func theSectionsComeFromThePriorityClassifier() throws {

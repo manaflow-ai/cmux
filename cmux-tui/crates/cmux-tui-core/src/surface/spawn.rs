@@ -4,8 +4,11 @@
 //! terminal (`terminal_backend`) both start here, from a [`LocalLaunch`].
 
 use std::io::{Read, Write};
+#[cfg(unix)]
+use std::os::fd::{AsRawFd, BorrowedFd, RawFd};
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
-use std::sync::mpsc::sync_channel;
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::Duration;
 
@@ -14,6 +17,29 @@ use ghostty_vt::{Callbacks, RenderState, Terminal};
 
 use super::*;
 use crate::terminal_end::TerminalEnd;
+
+#[cfg(unix)]
+fn wait_for_local_output(fd: RawFd, wake: &mut UnixStream) -> std::io::Result<bool> {
+    let mut descriptors = [
+        libc::pollfd { fd, events: libc::POLLIN, revents: 0 },
+        libc::pollfd { fd: wake.as_raw_fd(), events: libc::POLLIN, revents: 0 },
+    ];
+    loop {
+        // SAFETY: both descriptors are initialized and owned by the reader.
+        let result = unsafe { libc::poll(descriptors.as_mut_ptr(), 2, -1) };
+        if result >= 0 {
+            let mut bytes = [0u8; 64];
+            if descriptors[1].revents != 0 {
+                let _ = wake.read(&mut bytes);
+            }
+            return Ok(descriptors[0].revents != 0);
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+}
 
 /// What the local runtime of one terminal runs on.
 pub(crate) struct LocalLaunch {
@@ -28,6 +54,9 @@ pub(crate) struct LocalLaunch {
     pub command: Vec<String>,
     pub cwd: Option<String>,
     pub supports_clear_history_key_fallback: bool,
+    /// The holder terminal this launch runs on, if any (`holder_runtime`).
+    #[cfg(unix)]
+    pub holder: Option<Arc<crate::holder_runtime::HolderTerminal>>,
 }
 
 /// The surface-side inputs of [`Surface::spawn_local`].
@@ -42,6 +71,8 @@ pub(crate) struct LocalSpawn {
     pub lifetime: PtyLifetime,
     pub cell_pixels: (u16, u16),
     pub initial_geometry: PtyGeometry,
+    /// The registry identity a holder terminal carries; `None` otherwise.
+    pub host_identity: Option<crate::terminal_host_runtime::TerminalHostIdentity>,
 }
 
 impl Surface {
@@ -62,6 +93,7 @@ impl Surface {
             lifetime,
             cell_pixels,
             initial_geometry,
+            host_identity,
         } = spawn;
         let LocalLaunch {
             master,
@@ -73,7 +105,36 @@ impl Surface {
             command: argv,
             cwd,
             supports_clear_history_key_fallback,
+            #[cfg(unix)]
+            holder,
         } = launch;
+        // A holder terminal's reader confirms each chunk it parsed under the
+        // terminal lock, so a hand-off to a new holder after a holder crash
+        // reads the screen and what is still unparsed at one instant.
+        #[cfg(unix)]
+        let parsed_sink = holder.as_ref().map(|terminal| terminal.sink.clone());
+        // Direct PTY readers can wait for readiness before taking the source
+        // order gate. Holder and byte-backend readers are not backed by this
+        // PTY descriptor, so they retain their existing blocking path.
+        #[cfg(unix)]
+        let read_fd = holder.is_none().then(|| master.as_raw_fd()).flatten();
+        #[cfg(unix)]
+        let read_descriptor = read_fd
+            .map(|fd| {
+                // SAFETY: master still owns fd here. The duplicate remains owned
+                // by LocalOutput until its reader has finished.
+                unsafe { BorrowedFd::borrow_raw(fd) }.try_clone_to_owned()
+            })
+            .transpose()?;
+        #[cfg(unix)]
+        let (wake_writer, mut wake_reader) = if read_fd.is_some() {
+            let (writer, reader) = UnixStream::pair()?;
+            writer.set_nonblocking(true)?;
+            reader.set_nonblocking(true)?;
+            (Some(writer), Some(reader))
+        } else {
+            (None, None)
+        };
         // Query responses generated while parsing pty output are queued
         // here and flushed to the pty after each vt_write (the callback
         // runs under the terminal lock; writing to the pty from inside it
@@ -114,9 +175,22 @@ impl Surface {
         let mut mouse_encoders = MouseEncoders::new()?;
         mouse_encoders.sync_from_terminal(&term);
         let render_state = RenderState::new()?;
-        let (frame_requests, frame_rx) = sync_channel(1);
+        let frame_requests = frame_producer::FrameRequests::new();
         #[cfg(test)]
         let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
+        let output = Arc::new(Mutex::new(local_output::LocalOutput::new(
+            title_changed,
+            pending_responses,
+            pending_bells,
+            #[cfg(unix)]
+            read_descriptor,
+            #[cfg(unix)]
+            wake_writer,
+            #[cfg(unix)]
+            parsed_sink,
+        )));
+        #[cfg(unix)]
+        let shared_output = read_fd.map(|_| output.clone());
         let surface = Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta {
                 id,
@@ -132,6 +206,8 @@ impl Surface {
                     crate::workspace_registry::new_uuid_v4()
                 )),
                 journal_capture_supported: true,
+                #[cfg(unix)]
+                local_output: shared_output,
                 journal_capture_epoch: AtomicU64::new(0),
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
@@ -154,13 +230,19 @@ impl Surface {
                 runtime: RankedMutex::new(
                     LockRank::Runtime,
                     "pty.runtime",
-                    PtyRuntime::Local { writer, master: Some(master), killer },
+                    PtyRuntime::Local {
+                        writer,
+                        master: Some(master),
+                        killer,
+                        #[cfg(unix)]
+                        holder,
+                    },
                 ),
                 lifetime,
                 supports_clear_history_key_fallback: AtomicBool::new(
                     supports_clear_history_key_fallback,
                 ),
-                host_identity: None,
+                host_identity,
                 #[cfg(any(unix, windows))]
                 pending_host_binding: Mutex::new(None),
                 #[cfg(any(unix, windows))]
@@ -200,7 +282,7 @@ impl Surface {
                 test_master_control: None,
                 #[cfg(test)]
                 vt_replay_builds: AtomicUsize::new(0),
-                mux: mux.clone(),
+                mux,
                 taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", Vec::new()),
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
@@ -236,12 +318,19 @@ impl Surface {
             surface.kill();
             return Err(error);
         }
-        spawn_frame_producer(&surface, frame_rx)?;
+        spawn_frame_producer(&surface)?;
 
         // PTY reader: pty bytes -> terminal state -> SurfaceOutput events.
         let reader_thread =
             std::thread::Builder::new().name(format!("surface-{id}-reader")).spawn({
                 let surface = surface.clone();
+                #[cfg(unix)]
+                let read_fd = output
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .descriptor
+                    .as_ref()
+                    .map(AsRawFd::as_raw_fd);
                 move || {
                     let _reader_completion = ReaderCompletionGuard(
                         surface
@@ -250,155 +339,72 @@ impl Surface {
                             .reader_completion
                             .clone(),
                     );
-                    let mut buf = [0u8; 64 * 1024];
-                    let mut shell_marks = crate::prompt_mode_reset::ShellMarks::default();
-                    // The PTY master is blocking, so WouldBlock should not
-                    // happen; if it does, retries are spaced instead of the
-                    // old fixed 1 ms (1 kHz) poll.
                     let mut would_block = crate::backoff::Backoff::new(
                         Duration::from_millis(1),
                         Duration::from_millis(50),
                     );
+                    let publisher = output
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .publisher();
                     loop {
                         let pty = surface.as_pty().expect("surface reader got non-pty surface");
-                        let journal_target = pty.journal_target();
-                        // Reserve the capture epoch before read(2). Shutdown
-                        // can revoke a blocked reservation, but it cannot place
-                        // its final barrier in the read-to-parser gap.
-                        let mut journal_update = journal_target
-                            .as_ref()
-                            .and_then(|_| pty.begin_terminal_journal_update());
-                        if journal_target.is_some() && journal_update.is_none() {
-                            break;
-                        }
-                        let n = match reader.read(&mut buf) {
-                            Ok(0) => break,
-                            Ok(n) => {
-                                would_block.reset();
-                                n
+                        #[cfg(unix)]
+                        let ready = if let (Some(fd), Some(wake)) = (read_fd, wake_reader.as_mut())
+                        {
+                            match wait_for_local_output(fd, wake) {
+                                Ok(ready) => ready,
+                                Err(_) => break,
                             }
+                        } else {
+                            true
+                        };
+                        #[cfg(not(unix))]
+                        let ready = true;
+                        #[cfg(all(test, unix))]
+                        if ready {
+                            pty.run_geometry_test_hook(PtyGeometryTestStep::LocalReaderReady);
+                        }
+                        let (result, events) = {
+                            let mut output =
+                                output.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                            // A resize may have drained the readiness that woke
+                            // us. Recheck under the same parser lock before a
+                            // blocking read, then parse on that same boundary.
+                            #[cfg(unix)]
+                            let ready = ready
+                                && read_fd.is_none_or(|fd| {
+                                    local_output::readable(fd, 0).unwrap_or(false)
+                                });
+                            let result = if ready {
+                                output.read(pty, |buf| reader.read(buf)).map(Some)
+                            } else {
+                                Ok(None)
+                            };
+                            let events = output.take_pending();
+                            (result, events)
+                        };
+                        publisher.publish(&surface, events);
+                        match result {
+                            Ok(Some(0)) => break,
+                            Ok(_) => would_block.reset(),
                             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
                                 continue;
                             }
                             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                                // No parser or source lock is held across backoff.
                                 would_block.sleep();
-                                continue;
                             }
                             Err(_) => break,
-                        };
-                        let mut scroll_changed = None;
-                        let mut title_update = None;
-                        let terminal_notifications;
-                        let finished_commands;
-                        let generation = {
-                            let mut term = pty.term.lock().unwrap();
-                            if let Some(update) = journal_update.as_mut()
-                                && !update.activate()
-                            {
-                                break;
-                            }
-                            let journal_enabled = journal_update.is_some();
-                            let before = terminal_scroll_position(&term);
-                            let color_revision = term.color_revision();
-                            let color_reapply_revision = term.color_reapply_revision();
-                            let cursor_activity = term
-                                .cursor_activity()
-                                .expect("valid local terminals expose cursor activity");
-                            let normalized = crate::prompt_mode_reset::write_output(
-                                &mut term,
-                                &buf[..n],
-                                &mut shell_marks,
-                            );
-                            terminal_notifications = pty.observe_terminal_output(&buf[..n]);
-                            finished_commands = pty.observe_shell_marks(&mut term, || {
-                                mux.upgrade()
-                                    .is_some_and(|mux| mux.terminal_command_history_enabled())
-                            });
-                            let cursor_changed = term
-                                .cursor_activity()
-                                .expect("valid local terminals expose cursor activity")
-                                != cursor_activity;
-                            pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
-                            let after = terminal_scroll_position(&term);
-                            let has_attach_taps = pty.broadcast_attach_output(normalized.as_ref());
-                            if has_attach_taps
-                                && (term.color_revision() != color_revision || cursor_changed)
-                            {
-                                pty.attach_colors_pending.store(true, Ordering::Release);
-                                if term.color_reapply_revision() != color_reapply_revision
-                                    || cursor_changed
-                                {
-                                    pty.attach_colors_force_pending.store(true, Ordering::Release);
-                                }
-                            }
-                            if title_changed.swap(false, Ordering::Relaxed) {
-                                // A program that rewrites the same title (a spinner's
-                                // resting frame, a prompt redraw) announces nothing.
-                                let title = crate::terminal_title::read(&term);
-                                let mut stored = pty.title.lock().unwrap();
-                                if *stored != title {
-                                    *stored = title.clone();
-                                    title_update = Some(title);
-                                }
-                            }
-                            pty.record_directory(term.pwd());
-                            if before != after {
-                                scroll_changed = Some(after);
-                                broadcast_render_scroll_locked(pty, after);
-                            }
-                            // Keep the terminal lock scoped to parser and observer work. A
-                            // borrowed normalized frame still points into `buf`, which lives
-                            // for the reader loop, so any journal allocation can happen after
-                            // releasing the lock.
-                            let journal_output = journal_enabled.then_some(normalized);
-                            let generation =
-                                pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
-                            // Advance the output watermark before releasing
-                            // the parser lock. Screen snapshots take the same
-                            // lock, so they cannot observe this frame with the
-                            // previous revision.
-                            pty.stream_progress.notify();
-                            (generation, journal_output)
-                        };
-                        let (generation, journal_output) = generation;
-                        if let (Some(journal_target), Some(journal_output)) =
-                            (journal_target, journal_output)
-                        {
-                            pty.record_output(journal_target, journal_output.as_ref());
                         }
-                        drop(journal_update);
-                        surface.publish_pending_directory();
-                        surface.publish_pending_progress();
-                        pty.stream_progress.notify();
-                        pty.request_frame(generation);
-                        // Mux events take `Mux::state`; publish them only after
-                        // the terminal lock is released (see PtyTerminalRuntime).
-                        pending_bells.publish(&mux, surface.id);
-                        if let Some(title) = title_update
-                            && let Some(mux) = mux.upgrade()
-                        {
-                            mux.emit_terminal_title(surface.id, title.into());
-                        }
-                        if let Some((offset, at_bottom)) = scroll_changed
-                            && let Some(mux) = mux.upgrade()
-                        {
-                            mux.emit_terminal_scroll(surface.id, offset, at_bottom);
-                        }
-                        if !terminal_notifications.is_empty()
-                            && let Some(mux) = mux.upgrade()
-                        {
-                            mux.post_terminal_notifications(surface.id, terminal_notifications);
-                        }
-                        if !finished_commands.is_empty()
-                            && let Some(mux) = mux.upgrade()
-                            && let Some(terminal) = surface.terminal_public_id()
-                        {
-                            mux.append_shell_commands(terminal.clone(), finished_commands);
-                        }
-                        let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
-                        if !responses.is_empty() {
-                            let _ = surface.write_bytes(&responses);
-                        }
+                    }
+                    #[cfg(unix)]
+                    {
+                        let mut output =
+                            output.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                        // Dead surfaces can remain visible. Do not keep their
+                        // duplicated PTY descriptor alive with that placement.
+                        output.finish();
                     }
                     if let Some(pty) = surface.as_pty() {
                         pty.publish_final_frame();
@@ -495,6 +501,8 @@ impl Surface {
             command,
             cwd: None,
             supports_clear_history_key_fallback: false,
+            #[cfg(unix)]
+            holder: None,
         };
         let spawn = LocalSpawn {
             id,
@@ -507,6 +515,7 @@ impl Surface {
             lifetime: PtyLifetime::DaemonOwned,
             cell_pixels,
             initial_geometry,
+            host_identity: None,
         };
         Self::spawn_local(spawn, launch)
     }

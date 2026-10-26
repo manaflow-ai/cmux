@@ -25,7 +25,7 @@ final class HomeService {
     /// The Chief conversation whose settings open once its Home view shows it: Toggle Chief
     /// Settings with no Home in front brings Home forward there (`HomeChiefActions`).
     @ObservationIgnored var pendingChiefSettings: ConversationID?
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// DEBUG: the Chiefs of `debug.home.sidebar_fixture`'s rows, which wear their own characters too.
     var debugChiefs: Set<String> = []
     #endif
@@ -38,7 +38,9 @@ final class HomeService {
     @ObservationIgnored private var replyWatch: Task<Void, Never>?
     @ObservationIgnored private let replyTimer = DemandTimer(owner: "HomeService.replyWatchdog")
     /// The Chief home's conversation owner serves `local-conversations-v1`.
-    var isAvailable: Bool { chief.supports(DaemonCapabilities.shared.localConversations) }
+    var isAvailable: Bool { chief.supports(DaemonCapability.localConversations.rawValue) }
+    /// The owner answered and its build is too old: Home shows why only then.
+    var isRefused: Bool { chief.refusal != nil }
     /// The owner of every Home conversation: this build's Chief home's (one Chief per build).
     @ObservationIgnored let chief: ChiefConversationOwner
     /// Keeps the Chief home's brain host running (ChiefBrainKeeper).
@@ -53,7 +55,10 @@ final class HomeService {
             host?.ensureAppAcpmux = { try? await local.prewarm() }
             return host
         },
-        mint: { connection in try await ConversationClient(connection).agentToken(for: HomeService.mux.id) })
+        mint: { connection in try await ConversationClient(connection).agentToken(for: HomeService.mux.id) },
+        // The default Chief is this Mac's while its brain runs, so a brain that
+        // just started or died re-runs the Chief tab check (HomeService+ChiefRoster).
+        hostChanged: { [weak self] _ in self?.localChiefHostChanged() })
     @ObservationIgnored private(set) var sessions: [String: HomeConversationSession] = [:]
     @ObservationIgnored unowned let services: AppServices
     @ObservationIgnored private var availability: Task<Void, Never>?
@@ -83,14 +88,25 @@ final class HomeService {
     /// The signed-in user's cloud Chiefs (the Hosted Chief and the one
     /// placed on a paired server), as last read on a connect or sign-in.
     private(set) var cloudChiefs = HomeCloudChiefs()
-    /// The cloud Chief whose main conversation is the Chief tab, or nil (the local Chief).
-    var cloudChief: CloudChief? { tabChiefs.shown(choice: hostedChief.choice) }
+    /// The cloud Chief whose main conversation is the Chief tab, or nil (the local Chief, also
+    /// whenever it is the default Chief: ``prefersLocalChief``).
+    var cloudChief: CloudChief? { prefersLocalChief ? nil : tabChiefs.shown(choice: hostedChief.choice) }
+    /// This Mac's optchat-chief held the Chief home's lock at the last Chief tab check (HomeService+ChiefDefault).
+    var localChiefRunning = false
+    /// How many reads of that lock have started, and the newest one that published its answer, so
+    /// an older read never lands on top of a newer one (``readLocalChiefRunning``).
+    @ObservationIgnored var chiefRunningReads = 0
+    @ObservationIgnored var chiefRunningPublished = 0
     /// The cloud Chiefs the Chief tab may show: without the Hosted Chief while
     /// this Mac's history is still being copied into it (the local Chief stays).
     var tabChiefs: HomeCloudChiefs { hostedChief.pending ? HomeCloudChiefs(hosted: nil, placed: cloudChiefs.placed) : cloudChiefs }
     /// The one-time copy of this Mac's Chief into the Hosted Chief and its brain check (HomeService+HostedChief).
     @ObservationIgnored let hostedChief = HostedChiefMigration()
     @ObservationIgnored private var homeObservation: Task<Void, Never>?
+    /// Re-runs the Chief tab check when Settings > Chief's Engine changes (HomeService+ChiefDefault).
+    @ObservationIgnored var chiefEngineObservation: Task<Void, Never>?
+    /// The latest brain start or death's tab check (HomeService+ChiefRoster); a newer one wins.
+    @ObservationIgnored var chiefHostChange: Task<Void, Never>?
     /// The shared Home core over the local owner (home-mac.md): the native
     /// transcript of every conversation tab reads this one store.
     /// Mermaid fences in Home chat draw as diagrams with the bundled Ondine
@@ -109,7 +125,12 @@ final class HomeService {
     @ObservationIgnored let homeCloudInbox = HomeInboxSource(owners: ["cloud"])
     /// The Home list's last state beyond the conversations, for the next launch's first frame
     /// (HomeService+LaunchList), kept beside the conversations' cache of the same Chief owner.
-    @ObservationIgnored private(set) lazy var sidebarLaunch = HomeSidebarLaunchCache.standard(owner: chief.home.session)
+    @ObservationIgnored private(set) lazy var sidebarLaunch = HomeSidebarLaunchCache.standard(owner: chief.home.session,
+                                                                                               caches: homeCaches)
+    /// The folder of this service's Home caches: the app's (`AppEnvironment.homeCachesDirectory`), else
+    /// a temporary folder of its own, so the drafts of one `AppServices` never reach another's.
+    @ObservationIgnored private lazy var homeCaches: URL = services.environment.homeCachesDirectory
+        ?? FileManager.default.temporaryDirectory.appending(path: "cmux-home-\(UUID().uuidString)", directoryHint: .isDirectory)
     /// The last launch's Chief roster, used until the cloud Chiefs are read (`chiefRoster`).
     @ObservationIgnored var launchRoster: HomeChiefRoster?
     /// The cloud Chiefs were read this launch (`setCloudChiefs`). Observed: the roster changes with it.
@@ -124,14 +145,20 @@ final class HomeService {
     /// Its durable copy is keyed by the Chief owner (one per Chief home), so
     /// a relaunch or another build shows the same history before the owner
     /// answers (home-state-ownership.md section 4).
-    @ObservationIgnored private(set) lazy var homeStore = HomeStore(source: homeRouter,
-                                                                   cache: HomeCache.standard(owner: chief.home.session))
+    @ObservationIgnored private(set) lazy var homeStore = HomeStore(
+        source: homeRouter,
+        blobCacheDirectory: homeCaches.appending(path: "cmux-home-blobs", directoryHint: .isDirectory),
+        cache: HomeCache.standard(owner: chief.home.session, caches: homeCaches))
     @ObservationIgnored var cloudLink: Task<Void, Never>?
     /// Team members and Chiefs for the Home page's New Message and New Chief.
     @ObservationIgnored private(set) lazy var directory = HomeDirectory(
         call: { [weak self] path, body in
             guard let feed = self?.services.feed else { throw FeedServiceError.signedOut }
             return try await feed.call(path, body)
+        },
+        teamCall: { [weak self] path, body, team in
+            guard let feed = self?.services.feed else { throw FeedServiceError.signedOut }
+            return try await feed.call(path, body, team: team)
         },
         me: { [weak self] in
             guard let auth = self?.services.cloud.auth, let id = auth.user?.id else { return nil }
@@ -185,7 +212,7 @@ final class HomeService {
         homeObservation = Task { [weak self] in
             // A sign-in or account change re-reads the placed chief (G6), so the Chief tab follows it.
             for await (connection, _) in ObservationStream({
-                (local.supports(DaemonCapabilities.shared.workspaceKind) ? local.connection : nil, auth.isSignedIn ? auth.user?.id : nil)
+                (local.supports(DaemonCapability.workspaceKind.rawValue) ? local.connection : nil, auth.isSignedIn ? auth.user?.id : nil)
             }) {
                 guard let self, let connection else { continue }
                 ensureHomeWorkspace(connection)
@@ -193,12 +220,13 @@ final class HomeService {
                 if homeWasOpened { publishAppLinks() }
             }
         }
+        observeChiefEngine()
         startCloud()
         // task-owner: lives as long as the service; event-driven (Observation)
         homeStore.start()
         keepHomeListForLaunch()
         availability = Task { [weak self] in
-            for await connection in ObservationStream({ chief.supports(DaemonCapabilities.shared.localConversations) ? chief.connection : nil }) {
+            for await connection in ObservationStream({ chief.supports(DaemonCapability.localConversations.rawValue) ? chief.connection : nil }) {
                 guard let self else { continue }
                 homeSource.connectionChanged(connection)
                 homeInbox.connectionChanged(connection)
@@ -210,7 +238,7 @@ final class HomeService {
                 // The Chief tab may wait on this owner (a local Chief with history
                 // takes it back from a placed chief): check it again now.
                 if let local = services.machines.local.connection,
-                   services.machines.local.supports(DaemonCapabilities.shared.workspaceKind) {
+                   services.machines.local.supports(DaemonCapability.workspaceKind.rawValue) {
                     ensureHomeWorkspace(local)
                 }
                 for session in sessions.values {
@@ -265,6 +293,7 @@ final class HomeService {
                     guard let known = current[listed.id], known.rev > listed.rev else { return listed }
                     return known
                 }
+                openChiefDirectMessages()
             } catch {
                 self?.logger.error("conversation-list: \(String(describing: error), privacy: .public)")
             }
@@ -297,6 +326,10 @@ final class HomeService {
             homeSource.publish(changed)
         case .cloudConversations(let event):
             handleCloud(event)
+        case .unknown(name: "chief-changed", let payload) where payload["change"]?.stringValue == "created":
+            // A Chief made by a Chief's chiefs tool or `cmux chief new` has no conversation yet:
+            // the list read again opens its direct message (openChiefDirectMessages).
+            if let connection { reloadList(connection) }
         default:
             break
         }
