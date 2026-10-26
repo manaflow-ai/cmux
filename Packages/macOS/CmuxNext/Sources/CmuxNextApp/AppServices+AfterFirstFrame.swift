@@ -59,11 +59,11 @@ extension AppServices {
         startHibernation(settings: settings)
         let with = { (body: @escaping @MainActor @Sendable (AppServices, SettingsController) -> Void) -> @MainActor @Sendable () -> Void in
             { [weak self, weak settings] in if let self, let settings { body(self, settings) } } }
-        let startHotKeys: (@MainActor @Sendable () -> Void)? = hotKeys ? { [weak self] in self?.globalHotKeys.start() } : nil
+        let startHotKeys: @MainActor @Sendable () -> Void = { [weak self] in self?.globalHotKeys.start() }
         let followUpdateFeed: @MainActor @Sendable () -> Void = { [weak self] in
             if let self { self.updateFeedObservation = UpdateFeedPosting.follow(self) }
         }
-        let posts = LaunchServicePosts.platform(globalHotKeys: startHotKeys,
+        let posts = LaunchServicePosts.platform(globalHotKeys: hotKeys ? startHotKeys : nil,
                                                 borders: { [weak self] in self?.observeBorders() }, glass: { [weak self] in self?.observeGlass() },
                                                 keepAwake: with { KeepAwakeService.shared.start(settings: $1, store: $0.daemon.store) },
                                                 mobile: with { $0.mobile.follow($1, launch: $0.environment.launch) }, notifications: with { $0.notifications.follow($1) },
