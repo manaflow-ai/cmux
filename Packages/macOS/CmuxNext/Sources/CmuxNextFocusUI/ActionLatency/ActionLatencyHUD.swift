@@ -64,9 +64,12 @@ package final class ActionLatencyHUD {
         isShown ? hide() : show(over: window)
     }
 
-    /// Shows the panel, filled with the ring's newest runs, and follows every new run.
+    /// Shows the panel, filled with the ring's newest runs, and follows every new run (and every
+    /// closed input; a new feed reader replays the newest ones first).
     package func show(over window: NSWindow?) {
         rows = monitor.recent(Self.rowCount)
+        // The rows a hidden HUD kept are stale: the new feed reader's replay fills them.
+        if inputWatch == nil { inputRows = [] }
         let panel = self.panel ?? makePanel()
         self.panel = panel
         render()
@@ -82,7 +85,6 @@ package final class ActionLatencyHUD {
             }
         }
         if inputWatch == nil, let inputFeed {
-            inputRows = []
             let slots = inputFeed.closedSlots(replaying: Self.rowCount)
             // task-owner: this HUD (cancelled in hide); event-driven (the feed's stream).
             inputWatch = Task { [weak self] in
@@ -99,6 +101,9 @@ package final class ActionLatencyHUD {
         inputWatch = nil
         panel?.orderOut(nil)
     }
+
+    /// The panel once shown (tests close it the way its title bar button does).
+    package var window: NSWindow? { panel }
 
     /// Whether the HUD holds a reader on the monitor (tests: none while hidden).
     package var isReadingRuns: Bool { watch != nil }
@@ -155,11 +160,11 @@ package final class ActionLatencyHUD {
             } else {
                 color = Palette.textTertiary
             }
-            let kind = String(describing: input.slot.kind)
-            let target = String(describing: input.slot.target)
+            let kind = Self.label(input.slot.kind)
+            let target = Self.label(input.slot.target)
             let line = if let dominant = input.dominant {
-                Self.inputRow(Self.milliseconds(total), kind, target, String(describing: dominant.from),
-                              String(describing: dominant.to), Self.milliseconds(dominant.nanos))
+                Self.inputRow(Self.milliseconds(total), kind, target, Self.label(dominant.from), Self.label(dominant.to),
+                              Self.milliseconds(dominant.nanos))
             } else {
                 Self.inputRowWithoutStages(Self.milliseconds(total), kind, target)
             }

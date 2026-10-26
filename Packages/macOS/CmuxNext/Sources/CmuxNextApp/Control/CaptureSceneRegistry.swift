@@ -1,5 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextFocusUI
+import CmuxNextInput
 import CmuxNextResources
 import CmuxNextSettings
 
@@ -102,6 +104,8 @@ final class CaptureSceneRegistry {
         // The Task Manager is native too: its page covers the agent pane.
         let isTaskManager = definition.name == Self.taskManagerScene
         let isNative = isHome || isTaskManager
+        // The latency HUD is a panel over the showcase window: the window settles as usual.
+        let isLatencyHUD = definition.name == Self.latencyHUDScene
         let readiness = await DebugAgentPane.handle(["action": .string("readiness")], services)
         guard isNative || readinessIsComplete(readiness) else {
             return .object([
@@ -116,14 +120,18 @@ final class CaptureSceneRegistry {
             actionReadiness = await showHomeChief(windowID: targetWindowID, longDraft: definition.name == Self.homeChiefLongDraftScene)
         } else if isTaskManager {
             actionReadiness = await showTaskManager(windowID: targetWindowID)
+        } else if isLatencyHUD {
+            actionReadiness = await showLatencyHUD(windowID: targetWindowID)
         } else {
             actionReadiness = await waitForSceneAnimation()
         }
         guard case .object(let actionReadinessReport) = actionReadiness,
               actionReadinessReport["error"] == nil,
-              isNative || actionReadinessReport["animations_pending"]?.boolValue == false else {
+              isNative || isLatencyHUD || actionReadinessReport["animations_pending"]?.boolValue == false else {
+            if isLatencyHUD { services.actionLatencyHUD.hide() }
             let failure = isHome ? "Home scene did not settle"
-                : isTaskManager ? "Task Manager scene did not settle" : "scene popover did not become opaque before capture"
+                : isTaskManager ? "Task Manager scene did not settle"
+                : isLatencyHUD ? "latency HUD scene did not settle" : "scene popover did not become opaque before capture"
             return .object(["error": .string(failure),
                             "scene": .string(definition.name), "readiness": actionReadiness,
                             "scene_action": sceneAction])
@@ -133,6 +141,7 @@ final class CaptureSceneRegistry {
         let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
         let click = isHome ? await clickHomeAgent(params, windowID: targetWindowID) : nil
         if isHome { clearShowcaseAgent(windowID: targetWindowID) }
+        if isLatencyHUD { services.actionLatencyHUD.hide() }
         guard case .object(var result) = snapshot else { return snapshot }
         result["click"] = click
         guard isNative || (result["webviews_composited"]?.intValue ?? 0) > 0 else {
@@ -226,6 +235,36 @@ final class CaptureSceneRegistry {
         return .object(report)
     }
 
+    static let latencyHUDScene = "latency-hud"
+
+    /// `latency-hud`: publishes ``ActionLatencyHUD/captureInputs`` to the app's input latency feed, shows the action latency
+    /// HUD over window `windowID` and waits until its input section lists them. The capture's floating windows
+    /// include the panel. An error names what never appeared.
+    private func showLatencyHUD(windowID: String) async -> JSONValue {
+        guard let window = services.windows.controller(for: windowID)?.window else {
+            return .object(["error": .string("capture window is gone")])
+        }
+        let fixture = ActionLatencyHUD.captureInputs
+        for slot in fixture { services.inputLatencyFeed.publish(slot) }
+        let hud = services.actionLatencyHUD
+        hud.hide()
+        hud.show(over: window)
+        frames.start()
+        let settled = await frames.settled(
+            until: { hud.isShown && hud.inputRows.count >= fixture.count },
+            start: .now,
+            window: 100,
+            deadline: 5_000,
+        )
+        var report: [String: JSONValue] = [
+            "latency_hud_frames": frames.stop(),
+            "input_rows": .number(Double(hud.inputRows.count)),
+            "action_rows": .number(Double(hud.rows.count)),
+        ]
+        if settled == nil { report["error"] = .string("the latency HUD did not list the fixture inputs before the deadline") }
+        return .object(report)
+    }
+
     /// The agent pane drew the worked turn and shows its composer.
     private func readinessIsComplete(_ readiness: JSONValue) -> Bool {
         guard case .object(let report) = readiness else { return false }
@@ -252,6 +291,8 @@ final class CaptureSceneRegistry {
                                description: "The home-chief scene with a long draft that grows the field up into the first-run panel; the panel drops what does not fit and nothing it shows runs under the field."),
         CaptureSceneDefinition(name: "task-manager",
                                description: "The Task Manager with taskManagerMemorySaved on: the app's processes, then two pages Memory Saver discarded (one saved about 182 MB, one with no measurement) and the Memory Saver freed footer."),
+        CaptureSceneDefinition(name: "latency-hud",
+                               description: "The action latency HUD over the showcase window, its input section with three fixture inputs: a terminal key under one 120 Hz frame, a page scroll over it (danger color) and a sidebar click with no presented frame."),
     ]
 }
 #endif

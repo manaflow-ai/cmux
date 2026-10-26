@@ -7,7 +7,8 @@ import Testing
 
 /// The latency HUD's input rows (p04-input-009): a reader on the input feed only while the HUD is
 /// shown, the newest 16 events first with their longest stage interval, the ones over one 120 Hz
-/// frame in the danger color, and no input section without a feed. Run:
+/// frame in the danger color, in catalog words (not enum case names), stale rows dropped on a new
+/// show, both readers stopped by the title bar button, and no input section without a feed. Run:
 /// `swift test --filter ActionLatencyHUDInputTests`.
 @MainActor
 @Suite struct ActionLatencyHUDInputTests {
@@ -89,7 +90,8 @@ import Testing
         #expect(hud.inputRows.count == ActionLatencyHUD.rowCount)
         #expect(hud.inputRows.first?.slot.generated == UInt64(ActionLatencyHUD.rowCount + 4) * 100 * Self.ms)
         #expect(hud.inputRows.first?.dominant == InputLatencyDominantStage(from: .dispatchEnd, to: .presented, nanos: 2 * Self.ms))
-        #expect(hud.text.string.contains("longest dispatchEnd to presented"))
+        #expect(hud.text.string.contains("key down  terminal  longest dispatch end to presented"))
+        #expect(!hud.text.string.contains("keyPress"), "an enum case name reached the panel")
     }
 
     @Test func anInputOverOneFrameIsInTheDangerColor() {
@@ -104,11 +106,58 @@ import Testing
 
         let text = hud.text
         let fast = Self.color(of: "sidebar", in: text)
-        let slow = Self.color(of: "chromiumPage", in: text)
+        let slow = Self.color(of: "Chromium page", in: text)
         let unknown = Self.color(of: "palette", in: text)
         #expect(fast != nil && slow != nil && unknown != nil)
         #expect(slow != fast, "the input over 8.3 ms is not marked")
         #expect(unknown != slow, "an input with no presented frame is marked as slow")
+    }
+
+    @Test func aHUDShownAgainDropsTheRowsItKeptWhileHidden() {
+        let hud = ActionLatencyHUD(monitor: ActionBudgetMonitor(), inputs: CountingFeed())
+        hud.show(over: nil)
+        hud.hide()
+        hud.addInput(Self.key(generated: 100 * Self.ms, dispatchEnd: 101 * Self.ms, presented: 103 * Self.ms))
+        hud.hide()
+        hud.show(over: nil)
+        defer { hud.hide() }
+        #expect(hud.inputRows.isEmpty, "the feed's replay fills the rows, not the last session")
+        #expect(hud.text.string.contains("No input yet"))
+    }
+
+    @Test func closingThePanelWithItsButtonStopsBothReaders() async {
+        let feed = CountingFeed()
+        let hud = ActionLatencyHUD(monitor: ActionBudgetMonitor(), inputs: feed)
+        hud.show(over: nil)
+        #expect(hud.isReadingInputs && hud.isReadingRuns)
+        var ends = feed.ended.makeAsyncIterator()
+
+        hud.window?.performClose(nil)
+        #expect(!hud.isShown)
+        #expect(!hud.isReadingInputs && !hud.isReadingRuns, "the title bar button left a reader running")
+        #expect(await ends.next() != nil)
+    }
+
+    @Test func theHUDIsOneReaderOfTheAppFeed() {
+        let feed = InputLatencySlotFeed()
+        let hud = ActionLatencyHUD(monitor: ActionBudgetMonitor(), inputs: feed)
+        #expect(feed.readerCount == 0)
+        hud.show(over: nil)
+        hud.show(over: nil)
+        defer { hud.hide() }
+        #expect(feed.readerCount == 1)
+    }
+
+    @Test func theCaptureSceneInputsShowOneFastOneSlowAndOneUnpresented() {
+        let feed = InputLatencySlotFeed()
+        for slot in ActionLatencyHUD.captureInputs { feed.publish(slot) }
+        let hud = ActionLatencyHUD(monitor: ActionBudgetMonitor(), inputs: feed)
+        for slot in feed.recentSlots(ActionLatencyHUD.rowCount) { hud.addInput(slot) }
+        let totals = hud.inputRows.map(\.slot.totalNanos)
+        #expect(totals.count == 3)
+        #expect(totals[0] == nil, "the newest, the sidebar click, has no presented frame")
+        #expect((totals[1] ?? 0) > ActionLatencyHUD.inputBudgetNanos)
+        #expect((totals[2] ?? .max) < ActionLatencyHUD.inputBudgetNanos)
     }
 
     @Test func noFeedShowsNoInputSection() {
