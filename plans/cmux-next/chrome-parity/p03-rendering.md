@@ -1454,6 +1454,11 @@ every task that changes behavior or performance and is not repeated per row.
 - Acceptance: locked never evicted; oldest unlocked first; pressure purges all unlocked; no per-pane limit remains.
 - Test phase: bench_memory.py 30 hidden tabs and terminals; show.again for the 4 most recent tabs.
 - Size M.
+- Gap (review of 099): pages are not in the list yet. A hosted page view is only a `CALayerHost` of the page
+  window's remote context, and `setLayerHosting(false)` frees no Chromium surface, so evicting it freed nothing
+  while it took slots from terminal frames that hold real IOSurfaces. Pages join when the fork has a call that
+  drops a hidden widget's compositor surface (Chrome's `DelegatedFrameHost::EvictDelegatedFrame`), with a lock
+  per page window, not per tab.
 
 #### p03-rendering-100 Sidebar slide on the render server
 - Files: `.../CmuxNextSidebar/Views/SidebarContainerView.swift`, `.../CmuxNextApp/WindowRootView.swift`,
