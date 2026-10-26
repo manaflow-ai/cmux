@@ -22,7 +22,8 @@ export type ChiefMascot =
   | "machine-blue"
   | "moon"
   | "moon-blue"
-  | "fox";
+  | "fox"
+  | "mochi";
 
 const CHIEF_MASCOTS: Record<ChiefMascot, string> = {
   orb: new URL("./mascots/ChiefMascotOrb.png", import.meta.url).href,
@@ -34,6 +35,7 @@ const CHIEF_MASCOTS: Record<ChiefMascot, string> = {
   moon: new URL("./mascots/ChiefMascotMoon.png", import.meta.url).href,
   "moon-blue": new URL("./mascots/ChiefMascotMoonBlue.png", import.meta.url).href,
   fox: new URL("./mascots/ChiefMascotFox.png", import.meta.url).href,
+  mochi: new URL("./mascots/ChiefMascotMochi.png", import.meta.url).href,
 };
 
 export type ChiefDockProps = {
