@@ -95,12 +95,12 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         }
     }
     /// The right sidebar's on-screen width (0 while hidden): the main pane
-    /// is inset by it (`applyMainPane`).
+    /// is inset by it (`applyMainPane`, which marks the root for the window's
+    /// next layout pass; a resize drag lays out once per frame, not per move).
     var rightPanelWidth: CGFloat = 0 {
         didSet {
             guard rightPanelWidth != oldValue else { return }
             applyMainPane()
-            layoutSubtreeIfNeeded()
         }
     }
 

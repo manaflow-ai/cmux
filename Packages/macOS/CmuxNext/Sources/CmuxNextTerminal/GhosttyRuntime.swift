@@ -2,7 +2,7 @@ public import AppKit
 public import CmuxNextProcessEnvironment
 public import CmuxNextDesign
 import CmuxNextTrace
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import GhosttyNextKit
 import os
 import CmuxNextCompat
@@ -99,6 +99,9 @@ public final class GhosttyRuntime {
     public let secureInput = TerminalSecureInput(trace: .shared)
     private var observers: [any NSObjectProtocol] = []
     private var appearanceObservation: NSKeyValueObservation?
+    /// Energy Saver's edges to libghostty (``followEnergySaver(on:)``); nil before that call, and always
+    /// for a GhosttyNextKit pin without `ghostty_app_set_energy_saver`.
+    private var energySaver: GhosttyEnergySaver?
 
     /// Runs `ghostty_init` when `main` did not (tests); the app starts at ``start(with:)``. The app has one
     /// runtime, ``shared``; a test makes its own only to check one that never started.
@@ -167,6 +170,7 @@ public final class GhosttyRuntime {
         }
         // SAFETY: `app` was just created and is never freed.
         unsafe ghostty_app_set_focus(app, NSApp?.isActive ?? false)
+        energySaver?.refresh()
         traceHook.refreshDemand()
         installObservers()
     }
@@ -380,6 +384,24 @@ public final class GhosttyRuntime {
         guard let app else { return }
         // SAFETY: `app` is live (never freed).
         unsafe ghostty_app_set_focus(app, focused)
+    }
+
+    /// Sends the Energy Saver state of `mainWork`'s policy (``MainWorkScheduler/energy``, the app's one
+    /// source) to libghostty on each edge (`ghostty_app_set_energy_saver`, ghostty-next p14-energy-114):
+    /// shader and Kitty animations wake at most every 33 ms and scrollback compression runs at utility
+    /// QoS while it is on. The composition root calls it once. It makes no call at all when the pinned
+    /// GhosttyNextKit lacks the export (`GHOSTTY_ENERGY_SAVER`, Package.swift).
+    public func followEnergySaver(on mainWork: MainWorkScheduler) {
+        #if GHOSTTY_ENERGY_SAVER
+        let saver = GhosttyEnergySaver { [weak self] on in
+            guard let app = self?.app else { return false }
+            // SAFETY: `app` is live (never freed).
+            unsafe ghostty_app_set_energy_saver(app, on)
+            return true
+        }
+        energySaver = saver
+        saver.follow(mainWork.energy, queue: mainWork.wakeUps)
+        #endif
     }
 
     /// Drives Ghostty's light/dark conditional config

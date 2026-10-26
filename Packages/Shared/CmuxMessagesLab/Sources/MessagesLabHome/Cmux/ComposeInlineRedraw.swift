@@ -26,9 +26,9 @@ final class ComposeInlineRedraw {
 
     /// FIELD's redraw (made with it the first time).
     static func of(_ field: NSTextView) -> ComposeInlineRedraw {
-        if let made = objc_getAssociatedObject(field, redrawKey.pointer) as? ComposeInlineRedraw { return made }
+        if let made = redrawKey.value(on: field) as? ComposeInlineRedraw { return made }
         let made = ComposeInlineRedraw(field: field)
-        objc_setAssociatedObject(field, redrawKey.pointer, made, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        redrawKey.set(made, on: field)
         return made
     }
 

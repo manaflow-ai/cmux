@@ -165,7 +165,8 @@ public nonisolated struct ImageClassifier: Sendable {
         if ["/System/Library/Frameworks/\(name).framework", "/System/Library/PrivateFrameworks/\(name).framework"]
             .contains(where: { manager.fileExists(atPath: $0) }) { return true }
         return ["/usr/lib/\(name)", "/usr/lib/system/\(name)"].contains {
-            _dyld_shared_cache_contains_path($0) || manager.fileExists(atPath: $0)
+            // SAFETY: the path is passed as a NUL-terminated temporary copy that lives for the call; dyld only reads it.
+            unsafe _dyld_shared_cache_contains_path($0) || manager.fileExists(atPath: $0)
         }
     }
 
@@ -175,7 +176,8 @@ public nonisolated struct ImageClassifier: Sendable {
         let full = NSFullUserName().split { !$0.isLetter && !$0.isNumber }.map(String.init)
         // gethostname, not ProcessInfo.hostName: the latter may wait on a DNS lookup.
         var buffer = [CChar](repeating: 0, count: 256)
-        let raw = gethostname(&buffer, buffer.count) == 0
+        // SAFETY: gethostname writes at most buffer.count bytes into `buffer`, a local array live for the call.
+        let raw = unsafe gethostname(&buffer, buffer.count) == 0
             ? String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self) : ""
         let host = raw.split(separator: ".").map(String.init).filter { $0 != "local" }
         return [NSUserName(), NSHomeDirectory()] + full + host

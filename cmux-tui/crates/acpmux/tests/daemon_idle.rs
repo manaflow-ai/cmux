@@ -8,6 +8,10 @@
 //! The same holds with a chat that watches a transcript nobody writes to
 //! (`hub/watch.rs`) and with an `_acpmux/wait` (`server/wait.rs`) pending on an
 //! idle chat: both wake on a change or a deadline, never on a timer.
+//!
+//! The periodic upkeep (catalog refresh, harness health, upload sweep) runs on
+//! one maintenance clock with a 5-minute wall grid (`src/maintenance.rs`), so
+//! a daemon with all three registered does not wake inside the window either.
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -256,6 +260,11 @@ impl Daemon {
     /// `fakeclaude`, is of the Claude family and never starts: launches are
     /// denied, and a watch starts none.
     fn start(dir: PathBuf) -> Self {
+        Self::start_with(dir, &[])
+    }
+
+    /// [`Daemon::start`] with `env` set over the test's defaults.
+    fn start_with(dir: PathBuf, env: &[(&str, &str)]) -> Self {
         let home = daemon_env::home(&dir);
         write_chats(&home);
         write_watched(&home, &dir.join("watched"));
@@ -276,6 +285,7 @@ impl Daemon {
             // The kernel memory pressure source runs too (`src/memory.rs`):
             // it waits on the kernel's event, never on a timer.
             .env("CMUX_ENABLE_FEATURES", "memoryAcpmuxPressure")
+            .envs(env.iter().copied())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -473,4 +483,23 @@ fn acpmux_daemon_idle_with_a_pending_wait() {
     assert!(!waiter.answered_within(wait, Duration::from_secs(1)), "the wait resolved at once");
     assert_idle(&daemon, "an acpmux daemon with a pending wait");
     assert!(!waiter.answered_within(wait, Duration::from_millis(10)), "the wait resolved");
+}
+
+/// The catalog refresh, the harness health check and the upload sweep are
+/// registered on the maintenance clock, and none of them wakes the daemon
+/// inside the measured windows (30 s).
+#[test]
+fn acpmux_daemon_idle_with_its_maintenance_jobs_registered() {
+    // The upload age cap stays on (default 30 days), so the sweep is a real job.
+    let daemon = Daemon::start_with(scratch("upkeep"), &[("ACPMUX_HEALTH_FETCH", "0")]);
+    let mut app = watch_stream(&daemon);
+    let energy = app.call("_acpmux/energy", json!({}));
+    assert_eq!(
+        energy["jobs"],
+        json!(["catalog.refresh", "harness_health.check", "file_uploads.sweep"]),
+        "{energy}"
+    );
+    // An Energy Saver edge wakes the clock once to re-grid, then nothing.
+    assert_eq!(app.call("_acpmux/energy", json!({"saver": true}))["changed"], json!(true));
+    assert_idle(&daemon, "an acpmux daemon with its maintenance jobs registered");
 }

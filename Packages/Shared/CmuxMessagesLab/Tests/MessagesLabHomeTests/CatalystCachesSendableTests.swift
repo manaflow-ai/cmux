@@ -71,7 +71,7 @@ import Testing
     }
 
     private static func image(side: Int) -> HomeShared<UIImage>? {
-        guard let ctx = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,
+        guard let ctx = CGContext.ownedBitmap(width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpaceCreateDeviceRGB(),
                                   bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue),
               let cg = ctx.makeImage() else { return nil }

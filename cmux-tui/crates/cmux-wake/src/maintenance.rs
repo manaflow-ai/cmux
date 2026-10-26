@@ -5,8 +5,18 @@
 //!
 //! - Every period is a multiple of a 5-minute grid on the wall clock
 //!   ([`GRID`]); a job is due at the next multiple of its period since the
-//!   Unix epoch. A 300 s, a 600 s and a 900 s job wake the thread once at each
-//!   300 s boundary, and all three share the wake at 1800 s.
+//!   Unix epoch, shifted by its [`Placement::phase`] in whole grid steps. A
+//!   300 s, a 600 s and a 900 s job wake the thread once at each 300 s
+//!   boundary, and all three share the wake at 1800 s.
+//! - The phase spreads a job that calls a server across its period, one
+//!   phase per install: every install still wakes only on 300 s boundaries,
+//!   but they do not all ask at 00:00 UTC. Chrome's component updater spreads
+//!   its checks the same way, from each client's own start
+//!   (components/update_client/configurator.h, `InitialDelay`,
+//!   `NextCheckDelay`).
+//! - A job its owner runs at registration ([`Placement::ran_at_registration`])
+//!   first runs on the grid at least half a period (and one [`GRID`]) later,
+//!   not seconds after the run at start.
 //! - The kernel sees a 30 s leeway ([`LEEWAY`]): on macOS the thread waits on
 //!   kqueue `EVFILT_TIMER` armed for a wall-clock instant with
 //!   `NOTE_ABSOLUTE | NOTE_NSECONDS | NOTE_MACH_CONTINUOUS_TIME | NOTE_LEEWAY`,
@@ -77,6 +87,18 @@ pub struct JobSpec {
     pub skippable_in_saver: bool,
 }
 
+/// Where a job's runs sit on its grid.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Placement {
+    /// The shift of the job's grid from the epoch's, in [`GRID`] steps, taken
+    /// modulo the steps of its period. Jobs with one phase and periods that
+    /// divide each other share their wakes.
+    pub phase: u64,
+    /// The owner ran the job at registration: its first grid run comes at
+    /// least half a period, and at least one [`GRID`], after it.
+    pub ran_at_registration: bool,
+}
+
 /// Why a job was not registered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RegisterError {
@@ -103,7 +125,7 @@ impl std::error::Error for RegisterError {}
 type Job = Box<dyn FnMut() + Send>;
 
 enum Command {
-    Register(JobSpec, Job),
+    Register(JobSpec, Placement, Job),
     /// The energy mode changed; the thread reads it.
     Energy,
     Stop,
@@ -188,8 +210,18 @@ impl MaintenanceClock {
         spec: JobSpec,
         job: impl FnMut() + Send + 'static,
     ) -> Result<(), RegisterError> {
+        self.register_placed(spec, Placement::default(), job)
+    }
+
+    /// [`MaintenanceClock::register`] on the grid `placement` shifts.
+    pub fn register_placed(
+        &self,
+        spec: JobSpec,
+        placement: Placement,
+        job: impl FnMut() + Send + 'static,
+    ) -> Result<(), RegisterError> {
         check(spec)?;
-        self.mailbox.send(Command::Register(spec, Box::new(job)))
+        self.mailbox.send(Command::Register(spec, placement, Box::new(job)))
     }
 }
 
@@ -235,8 +267,8 @@ fn drive(
     loop {
         match waiter.wait(schedule.next_wake(), clock.now()) {
             Wake::Due | Wake::Command(Command::Energy) => {}
-            Wake::Command(Command::Register(spec, job)) => {
-                schedule.register(spec, job, clock.now());
+            Wake::Command(Command::Register(spec, placement, job)) => {
+                schedule.register(spec, placement, job, clock.now());
             }
             Wake::Command(Command::Stop) | Wake::Closed => return,
         }
@@ -248,10 +280,20 @@ fn drive(
 
 struct Entry {
     spec: JobSpec,
+    phase: u64,
     job: Job,
-    /// The last run, or the registration before the first.
-    anchor: SystemTime,
+    /// What the next grid run counts from: the last run, or the
+    /// registration before the first (plus [`min_gap`] for a job its owner
+    /// ran at registration).
+    from: SystemTime,
     next: SystemTime,
+}
+
+impl Entry {
+    /// The first instant on this job's grid of `period` seconds after `time`.
+    fn next_after(&self, time: SystemTime, period: u64) -> SystemTime {
+        next_on_grid(time, period, self.phase)
+    }
 }
 
 #[derive(Default)]
@@ -267,9 +309,11 @@ impl Schedule {
         if self.saver && spec.skippable_in_saver { base * u64::from(SAVER_STRETCH) } else { base }
     }
 
-    fn register(&mut self, spec: JobSpec, job: Job, now: SystemTime) {
-        let next = next_multiple(now, self.period_secs(spec));
-        self.entries.push(Entry { spec, job, anchor: now, next });
+    fn register(&mut self, spec: JobSpec, placement: Placement, job: Job, now: SystemTime) {
+        let period = self.period_secs(spec);
+        let from = if placement.ran_at_registration { now + min_gap(period) } else { now };
+        let next = next_on_grid(from, period, placement.phase);
+        self.entries.push(Entry { spec, phase: placement.phase, job, from, next });
     }
 
     /// Moves skippable jobs to the grid of the new mode, counted from their
@@ -284,7 +328,7 @@ impl Schedule {
             if spec.skippable_in_saver {
                 let period = self.period_secs(spec);
                 let entry = &mut self.entries[index];
-                entry.next = next_multiple(entry.anchor, period);
+                entry.next = entry.next_after(entry.from, period);
             }
         }
     }
@@ -306,8 +350,8 @@ impl Schedule {
             let period = self.period_secs(self.entries[index].spec);
             let entry = &mut self.entries[index];
             let _ = catch_unwind(AssertUnwindSafe(&mut entry.job));
-            entry.anchor = now;
-            entry.next = next_multiple(due.max(now), period);
+            entry.from = now;
+            entry.next = entry.next_after(due.max(now), period);
             ran.push(entry.spec.name);
         }
         ran
@@ -321,8 +365,8 @@ impl Schedule {
             let period = self.period_secs(self.entries[index].spec);
             let entry = &mut self.entries[index];
             if entry.next > now + Duration::from_secs(period) {
-                entry.anchor = now;
-                entry.next = next_multiple(now, period);
+                entry.from = now;
+                entry.next = entry.next_after(now, period);
             }
         }
     }
@@ -345,11 +389,23 @@ impl Schedule {
     }
 }
 
-/// The first multiple of `period` seconds since the Unix epoch after `time`
-/// (whole seconds).
-fn next_multiple(time: SystemTime, period: u64) -> SystemTime {
+/// The first instant after `time` (whole seconds) that is a multiple of
+/// `period` seconds since the Unix epoch plus the shift of `phase` grid
+/// steps, taken modulo the period's steps.
+fn next_on_grid(time: SystemTime, period: u64, phase: u64) -> SystemTime {
+    let grid = GRID.as_secs();
+    let shift = phase % (period / grid).max(1) * grid;
     let secs = time.duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs());
-    UNIX_EPOCH + Duration::from_secs((secs / period + 1).saturating_mul(period))
+    // Counted from `shift - period` (before the epoch), so no step goes below zero.
+    let lead = period - shift;
+    let next = (secs.saturating_add(lead) / period + 1).saturating_mul(period);
+    UNIX_EPOCH + Duration::from_secs(next - lead)
+}
+
+/// How long after a run at registration the first grid run may come: half
+/// the period, at least one [`GRID`].
+fn min_gap(period: u64) -> Duration {
+    Duration::from_secs((period / 2).max(GRID.as_secs()))
 }
 
 #[cfg(target_os = "macos")]

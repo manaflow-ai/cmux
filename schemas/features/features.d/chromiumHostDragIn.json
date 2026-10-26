@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "chromiumHostDragIn",
+  "owner": "PL-cef-layer",
+  "description": "In host mode, files, text and links dragged onto a Chromium page reach it as Chrome's own drop (file inputs and drop zones get the files), with the page's answer shown as the drag's operation; needs a Chromium fork at API 31.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

@@ -27,11 +27,13 @@ inline constexpr uint32_t kMaxPayload = 64 * 1024;
 // Seconds a host may take to end after kQuit or EOF before it ends by force
 // (it _exits itself; cmux SIGKILLs it): ChromiumHostFrame.quitLimit.
 inline constexpr int kQuitLimitSeconds = 15;
-// The oldest fork API the host runs on: layer hosting (26) and the resize
-// sync (27), so its Chromium never holds a commit for a resize on its own.
-// cmux starts it with the switch set of this API (ChromiumHostConfiguration,
+// The oldest fork API the host runs on: detached hosting (30), so no page
+// window of the host is ever on screen (its windows are never ordered in,
+// HostPageViews), over layer hosting (26) and the resize sync (27), so its
+// Chromium never holds a commit for a resize on its own. cmux starts it with
+// the switch set of API 27 (ChromiumHostConfiguration,
 // CEFSwitches.resizeSyncForkAPI: no AsyncLiveResize).
-inline constexpr int kMinForkAPI = 27;
+inline constexpr int kMinForkAPI = 30;
 // Frames the reader may hand to the UI thread that it has not run yet (and
 // frames held before the UI thread exists), after coalescing (FrameQueue):
 // ChromiumHostConnection.frameBacklog.
@@ -294,6 +296,20 @@ class WheelPixelCarry {
   int64_t dx_ = 0;  // hundredths of a pixel not sent yet
   int64_t dy_ = 0;
 };
+
+// The time Chromium gives an input frame's event (task p04-input-065): its t0,
+// the NSEvent's timestamp, as Chrome stamps each event with
+// ui::EventTimeStampFromSeconds([event timestamp])
+// (content/browser/renderer_host/input/web_input_event_builders_mac.mm), so
+// EventLatency and the page's event.timeStamp start at the OS event, not at the
+// host's dispatch. 0 (the time it is sent) for a frame that is not input or has
+// no event time, and for a t0 later than `now_ns`, which is not of this clock
+// (ui::ValidateEventTimeClock in ui/events/base_event_utils.cc replaces such a
+// time with now).
+inline uint64_t EventTimeOf(const Header& frame, uint64_t now_ns) {
+  if (frame.kind != kMouse && frame.kind != kWheel && frame.kind != kKey) return 0;
+  return frame.t0 <= now_ns ? frame.t0 : 0;
+}
 
 // One ordered input stream (task p01-process-092). Chrome sends input and the
 // view's state (focus, IME, edit commands, geometry) to the renderer host on

@@ -378,7 +378,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Host page windows are always detached and never ordered in (task 053); ChromiumHostPageView owns the mode."
+      "reason": "Host page windows are always detached and never ordered in (task 053): the host detaches each page window once its layers are hosted (HostContext::HandleLayerHosting), so cmux never sends it."
     },
     {
       "name": "cmux_shim_browser_set_embedder_active",
@@ -635,6 +635,138 @@
       "pending_keys": [],
       "reply_event": null,
       "reason": "The page's own drag came back over the page (task 050)."
+    },
+    {
+      "name": "cmux_shim_browser_drag_target_enter",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "files",
+          "type": "const char* const*"
+        },
+        {
+          "name": "file_count",
+          "type": "int"
+        },
+        {
+          "name": "text",
+          "type": "const char*"
+        },
+        {
+          "name": "url",
+          "type": "const char*"
+        },
+        {
+          "name": "url_title",
+          "type": "const char*"
+        },
+        {
+          "name": "x",
+          "type": "int"
+        },
+        {
+          "name": "y",
+          "type": "int"
+        },
+        {
+          "name": "allowed_operations",
+          "type": "int"
+        },
+        {
+          "name": "modifiers",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "A drag from outside the page entered the page view (task 050, Chrome's WebDragDest -draggingEntered:). One-way, in order with the over, leave and drop after it; the page's answer comes as CMUX_SHIM_DRAG_OPERATION, which the destination keeps as its last operation."
+    },
+    {
+      "name": "cmux_shim_browser_drag_target_over",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "x",
+          "type": "int"
+        },
+        {
+          "name": "y",
+          "type": "int"
+        },
+        {
+          "name": "allowed_operations",
+          "type": "int"
+        },
+        {
+          "name": "modifiers",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The drag moved over the page view (task 050, -draggingUpdated:). One-way on the control channel, after its enter; the answer is CMUX_SHIM_DRAG_OPERATION, never awaited: AppKit gets the last answer at once."
+    },
+    {
+      "name": "cmux_shim_browser_drag_target_leave",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The drag left the page view or ended with no drop there (task 050, -draggingExited:)."
+    },
+    {
+      "name": "cmux_shim_browser_drag_target_drop",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "x",
+          "type": "int"
+        },
+        {
+          "name": "y",
+          "type": "int"
+        },
+        {
+          "name": "modifiers",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The drag was dropped on the page view (task 050, -performDragOperation:); AppKit gets YES at once, as Chrome's WebDragDest returns it."
     },
     {
       "name": "cmux_shim_set_color_chooser_handler",
@@ -4437,6 +4569,11 @@
       "kind": "CMUX_SHIM_CURSOR",
       "value": 54,
       "refreshes": []
+    },
+    {
+      "kind": "CMUX_SHIM_DRAG_OPERATION",
+      "value": 55,
+      "refreshes": []
     }
   ],
   "optional_exports": [
@@ -4782,6 +4919,126 @@
       "reason": "Input to a hosted widget, as a page view's input goes to its page: kind, v0..v5, flags, time_ns, ch and unmod are the fields of a ChromiumHostFrame of kind mouse, wheel, key, focus or edit (ChromiumHost/src/chromium_host_wire.h); the host sends it to the widget's RenderWidgetHost (task 066).",
       "fork_api": 29,
       "channel": "input"
+    },
+    {
+      "name": "cmux_shim_browser_ime_set_composition",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "text",
+          "type": "const uint8_t*"
+        },
+        {
+          "name": "text_length",
+          "type": "int"
+        },
+        {
+          "name": "clauses",
+          "type": "const uint8_t*"
+        },
+        {
+          "name": "clauses_length",
+          "type": "int"
+        },
+        {
+          "name": "selection_start",
+          "type": "int"
+        },
+        {
+          "name": "selection_end",
+          "type": "int"
+        },
+        {
+          "name": "replace_start",
+          "type": "int"
+        },
+        {
+          "name": "replace_end",
+          "type": "int"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "One op of the page view's NSTextInputClient (p04-input-064), ordered after the key frames before it as Chrome's RenderWidgetHostNSViewHost pipe orders ImeSetComposition with key events (content/common/render_widget_host_ns_view.mojom); the host's shim runs the fork's remote-presentation IME export (p01-process-170). Offsets are UTF-16 units; text is UTF-16LE. Clauses: per clause i32 start, i32 end, u32 color 0xAARRGGBB, u32 thick (kIme's layout).",
+      "fork_api": 31
+    },
+    {
+      "name": "cmux_shim_browser_ime_commit_text",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "text",
+          "type": "const uint8_t*"
+        },
+        {
+          "name": "text_length",
+          "type": "int"
+        },
+        {
+          "name": "replace_start",
+          "type": "int"
+        },
+        {
+          "name": "replace_end",
+          "type": "int"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "One op of the page view's NSTextInputClient (p04-input-064), ordered after the key frames before it as Chrome's RenderWidgetHostNSViewHost pipe orders ImeCommitText with key events (content/common/render_widget_host_ns_view.mojom); the host's shim runs the fork's remote-presentation IME export (p01-process-170). Offsets are UTF-16 units; text is UTF-16LE.",
+      "fork_api": 31
+    },
+    {
+      "name": "cmux_shim_browser_ime_finish_composing",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "One op of the page view's NSTextInputClient (p04-input-064), ordered after the key frames before it as Chrome's RenderWidgetHostNSViewHost pipe orders ImeFinishComposingText with key events (content/common/render_widget_host_ns_view.mojom); the host's shim runs the fork's remote-presentation IME export (p01-process-170). Offsets are UTF-16 units; text is UTF-16LE.",
+      "fork_api": 31
+    },
+    {
+      "name": "cmux_shim_browser_ime_cancel_composition",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "One op of the page view's NSTextInputClient (p04-input-064), ordered after the key frames before it as Chrome's RenderWidgetHostNSViewHost pipe orders ImeCancelComposition with key events (content/common/render_widget_host_ns_view.mojom); the host's shim runs the fork's remote-presentation IME export (p01-process-170). Offsets are UTF-16 units; text is UTF-16LE.",
+      "fork_api": 31
     }
   ],
   "optional_events": [

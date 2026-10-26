@@ -21,7 +21,7 @@ import Testing
     }
 
     @Test func builtInCursorsDecodeToTheirCSSNames() {
-        #expect(event(type: 3) == .cursor(browser: 7, cursor: .builtIn(3)))
+        #expect(event(type: 3) == .pageView(browser: 7, .cursor(.builtIn(3))))
         #expect(CEFPageCursor.builtIn(0).cssName == "default")
         #expect(CEFPageCursor.builtIn(2).cssName == "pointer")
         #expect(CEFPageCursor.builtIn(3).cssName == "text")
@@ -40,7 +40,7 @@ import Testing
         let image = try png(width: 64, height: 32)
         let hotspot = (Int64(9) << 32) | 6
         let decoded = event(type: 45, scaleMilli: 2_000, hotspot: hotspot, png: image.base64EncodedString())
-        #expect(decoded == .cursor(browser: 7, cursor: .custom(png: image, scale: 2, hotspotX: 6, hotspotY: 9)))
+        #expect(decoded == .pageView(browser: 7, .cursor(.custom(png: image, scale: 2, hotspotX: 6, hotspotY: 9))))
         #expect(CEFPageCursor.custom(png: image, scale: 2, hotspotX: 6, hotspotY: 9).cssName == "custom")
 
         // Points, as Chrome's CreateCustomCursor sizes it: pixels / scale, the hotspot too.
@@ -51,9 +51,9 @@ import Testing
 
     /// The shim sends the arrow for an image it cannot encode; cmux does the same for one it cannot read.
     @Test func aCustomCursorWithoutAReadableImageIsTheArrow() {
-        #expect(event(type: 45, scaleMilli: 1_000, png: "not base64 !") == .cursor(browser: 7, cursor: .arrow))
-        #expect(event(type: 45, scaleMilli: 1_000, png: "") == .cursor(browser: 7, cursor: .arrow))
-        #expect(event(type: 45, scaleMilli: 0, png: "AAAA") == .cursor(browser: 7, cursor: .arrow))
+        #expect(event(type: 45, scaleMilli: 1_000, png: "not base64 !") == .pageView(browser: 7, .cursor(.arrow)))
+        #expect(event(type: 45, scaleMilli: 1_000, png: "") == .pageView(browser: 7, .cursor(.arrow)))
+        #expect(event(type: 45, scaleMilli: 0, png: "AAAA") == .pageView(browser: 7, .cursor(.arrow)))
         let garbage = CEFPageCursor.custom(png: Data([1, 2, 3]), scale: 1, hotspotX: 0, hotspotY: 0)
         #expect(garbage.makeCursor() === NSCursor.arrow)
     }

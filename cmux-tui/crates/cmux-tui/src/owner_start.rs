@@ -15,6 +15,24 @@ pub(crate) fn hang_for_test(headless: bool) {
     }
 }
 
+/// The QoS of the owner's main thread: it serves requests a person waits
+/// on, so UserInitiated (Chromium's kDefault in the `cmux_threads::qos`
+/// table), below the UserInteractive echo threads.
+const MAIN_THREAD_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::UserInitiated;
+
+/// Lists the calling thread as `main` in the thread registry at
+/// [`MAIN_THREAD_QOS`] and sets its QoS, so `cmux_threads::snapshot` (and
+/// `server.threads` on it, p02-threads task 203) shows it.
+/// Returns false, and changes nothing, when the thread is listed already.
+///
+/// Call it once the main thread starts no more threads: a macOS thread
+/// starts at its creator's class, and the owner's workers (journal
+/// maintenance, history search, the panic and memory watchers) run at
+/// their own lower classes, not at the main thread's.
+pub(crate) fn register_main_thread() -> bool {
+    cmux_threads::register_current("main", MAIN_THREAD_QOS)
+}
+
 /// Validate the owner's storage flags and raise its open-file soft limit.
 ///
 /// The owner holds descriptors for every terminal, and the default soft

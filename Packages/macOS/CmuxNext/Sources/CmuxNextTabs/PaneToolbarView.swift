@@ -102,8 +102,8 @@ public final class PaneToolbarView: NSView {
         applyTint()
         reveal.isEnabled = !lit
         invalidateIntrinsicContentSize()
-        needsLayout = true
-        superview?.needsLayout = true // the strip gives up this width (PaneContentView+Toolbar)
+        needsLayout = true // invalidate: other buttons or state (the guard above)
+        superview?.needsLayout = true // invalidate: the strip gives up this width (PaneContentView+Toolbar)
         refreshCorner()
     }
 

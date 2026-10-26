@@ -18,6 +18,7 @@ extension WindowController {
             // The top row places it (layoutTitlebarAccessories), then strips avoid it.
             // invalidate: the indicator showed, hid or changed width (it calls this on a change only).
             self?.root.needsLayout = true
+            // sync-layout: relayoutTopRowStrips reads the indicator's frame the root's layout places.
             self?.root.layoutSubtreeIfNeeded()
             self?.relayoutTopRowStrips()
         }
@@ -33,6 +34,7 @@ extension WindowController {
             if hidden { services.hoverCards.dismiss(.action) }
             root.showsTitlebarBadge = hidden && root.titlebarBadge != nil
             root.sidebarHidden = hidden
+            // sync-layout: relayoutTopRowStrips reads the strips' window frames and the badge the root places.
             root.layoutSubtreeIfNeeded()
             relayoutTopRowStrips()
             pagesDidChangeChrome()
@@ -60,11 +62,12 @@ extension WindowController {
         }
     }
 
-    /// Strips under the traffic lights recompute their inset.
+    /// Strips under the traffic lights recompute their inset. A strip whose
+    /// inset changed marks itself (`updateWindowControlsAvoidance`) and lays
+    /// out in the window's next pass; nothing in this turn reads its tabs.
     func relayoutTopRowStrips() {
         for pane in content?.panes.values.map({ $0 }) ?? [] {
             pane.view.stripView.updateWindowControlsAvoidance()
-            pane.view.stripView.layoutSubtreeIfNeeded()
         }
     }
 

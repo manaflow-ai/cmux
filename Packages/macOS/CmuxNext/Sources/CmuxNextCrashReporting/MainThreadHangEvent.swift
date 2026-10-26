@@ -142,34 +142,57 @@ public nonisolated struct MainThreadHangEvent: Sendable {
         var images: [Image] = []
         for address in addresses where !images.contains(where: { $0.contains(address) }) {
             var info = Dl_info()
-            guard let pointer = UnsafeRawPointer(bitPattern: address), dladdr(pointer, &info) != 0, let base = info.dli_fbase,
-                  let image = image(header: base.assumingMemoryBound(to: mach_header_64.self),
-                                    path: info.dli_fname.map { String(cString: $0) } ?? "")
+            // SAFETY: dladdr only looks the address up in dyld's image list (never dereferences it) and fills `info`,
+            // a local; dli_fbase is then the mach header of a loaded image and dli_fname its NUL-terminated path,
+            // which String(cString:) copies.
+            guard let pointer = unsafe UnsafeRawPointer(bitPattern: address), unsafe dladdr(pointer, &info) != 0,
+                  let base = unsafe info.dli_fbase,
+                  let image = unsafe image(header: base.assumingMemoryBound(to: mach_header_64.self),
+                                           path: info.dli_fname.map { unsafe String(cString: $0) } ?? "")
             else { continue }
             images.append(image)
         }
         return images
     }
 
-    private static func image(header: UnsafePointer<mach_header_64>, path: String) -> Image? {
-        guard header.pointee.magic == MH_MAGIC_64 else { return nil }
+    /// The image at `header`: its LC_UUID and `__TEXT` size; nil for a 32-bit or UUID-less image, or load
+    /// commands that do not fit their declared size.
+    // SAFETY (the walk): `header` is a loaded image's mach header (confirmed by dladdr), mapped while the image
+    // stays loaded; every load reads a whole command that lies inside the header's `sizeofcmds` bytes after it,
+    // checked before the load.
+    @unsafe private static func image(header: UnsafePointer<mach_header_64>, path: String) -> Image? {
+        // SAFETY: as above (the walk): the header itself is mapped.
+        guard unsafe header.pointee.magic == MH_MAGIC_64 else { return nil }
         var uuid: String?
         var textSize: UInt64 = 0
-        var command = UnsafeRawPointer(header).advanced(by: MemoryLayout<mach_header_64>.size)
-        for _ in 0..<header.pointee.ncmds {
-            let load = command.load(as: load_command.self)
-            if load.cmd == LC_UUID {
-                let bytes = command.load(as: uuid_command.self).uuid
-                uuid = UUID(uuid: bytes).uuidString
-            } else if load.cmd == LC_SEGMENT_64 {
-                var segment = command.load(as: segment_command_64.self)
-                let name = withUnsafeBytes(of: &segment.segname) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+        // SAFETY: as above (the walk).
+        var command = unsafe UnsafeRawPointer(header).advanced(by: MemoryLayout<mach_header_64>.size)
+        // SAFETY: as above (the walk).
+        var remaining = unsafe Int(header.pointee.sizeofcmds)
+        // SAFETY: as above (the walk).
+        let commandCount = unsafe header.pointee.ncmds
+        for _ in 0..<commandCount {
+            guard remaining >= MemoryLayout<load_command>.size else { return nil }
+            // SAFETY: as above (the walk): a load_command's bytes remain.
+            let load = unsafe command.load(as: load_command.self)
+            guard Int(load.cmdsize) >= MemoryLayout<load_command>.size, Int(load.cmdsize) <= remaining else { return nil }
+            remaining -= Int(load.cmdsize)
+            if load.cmd == LC_UUID, Int(load.cmdsize) >= MemoryLayout<uuid_command>.size {
+                // SAFETY: as above (the walk): the command holds a whole uuid_command.
+                uuid = unsafe UUID(uuid: command.load(as: uuid_command.self).uuid).uuidString
+            } else if load.cmd == LC_SEGMENT_64, Int(load.cmdsize) >= MemoryLayout<segment_command_64>.size {
+                // SAFETY: as above (the walk): the command holds a whole segment_command_64.
+                var segment = unsafe command.load(as: segment_command_64.self)
+                // SAFETY: reads the 16 bytes of `segname`, a tuple in the local copy, only inside the closure.
+                let name = unsafe withUnsafeBytes(of: &segment.segname) { unsafe String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
                 if name == "__TEXT" { textSize = segment.vmsize }
             }
-            command = command.advanced(by: Int(load.cmdsize))
+            // SAFETY: as above (the walk): the next command starts inside the checked bytes, or the loop ends.
+            command = unsafe command.advanced(by: Int(load.cmdsize))
         }
         guard let uuid, textSize > 0 else { return nil }
-        return Image(base: UInt64(UInt(bitPattern: header)), size: textSize, uuid: uuid, path: path)
+        // SAFETY: the header's address as an integer, the image's load address.
+        return unsafe Image(base: UInt64(UInt(bitPattern: header)), size: textSize, uuid: uuid, path: path)
     }
 
     static func hex(_ value: UInt64) -> String {

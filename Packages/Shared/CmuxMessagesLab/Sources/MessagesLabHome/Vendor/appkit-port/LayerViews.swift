@@ -188,7 +188,8 @@ class UIView: NSObject, CALayerDelegate {
 
     var overridesDraw: Bool {
         let sel = #selector(UIView.draw(_:))
-        return class_getMethodImplementation(type(of: self), sel) != class_getMethodImplementation(UIView.self, sel)
+        // SAFETY: the two implementation pointers are only compared, never called or dereferenced.
+        return unsafe class_getMethodImplementation(type(of: self), sel) != class_getMethodImplementation(UIView.self, sel)
     }
 
     func draw(_ layer: CALayer, in ctx: CGContext) {

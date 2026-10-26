@@ -11,6 +11,9 @@ import Testing
 /// token wins; the edits are the theme's wherever it applies, a pair takes its variant's, a bad
 /// entry is dropped with a diagnostic, and a previewed edit shows live.
 @MainActor @Suite(.serialized) struct ThemeEditsTests {
+    /// Where the terminal setting hears app notices: held for the whole test (its AppEvents hold it weakly).
+    private let center = NotificationCenter()
+
     func make(_ json: String) async throws -> (SettingsController, URL) {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-theme-edits-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -23,7 +26,7 @@ import Testing
     }
 
     func follow(_ settings: SettingsController) -> TerminalThemeSetting {
-        let terminal = TerminalThemeSetting(backdropScope: ThemeScope(level: .room))
+        let terminal = TerminalThemeSetting.testing(backdropScope: ThemeScope(level: .room), center: center)
         terminal.reload = {}
         terminal.follow(settings)
         return terminal
