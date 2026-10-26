@@ -19,8 +19,8 @@ blacksmith-12vcpu-macos-26 (CAPACITY 5) first, then blacksmith-6vcpu-macos-26
 owned label as before, where the rescue still watches them.
 
 Only CASCADE_JOBS take part, and only those the workflow says run on this route
-(CASCADE_RUNS: not fast-tier when vars.CI_FAST_LANE_RUNNER gives it its own
-runner, not a job path routing or labels skip), so no slot is spent on a job
+(CASCADE_RUNS: not fast-tier while an idle vars.CI_FAST_LANE_RUNNER runner takes
+it, not a job path routing or labels skip), so no slot is spent on a job
 that never asks for it. The jobs that need a logged-in session (swift-test,
 daemon-test, generated-files) keep the gui route. release-compile cascades too
 (2026-10-21 ~20:10Z: 76 Release compiles queued on the minis); off a mini it
