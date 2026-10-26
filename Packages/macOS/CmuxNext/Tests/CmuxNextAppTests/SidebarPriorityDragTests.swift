@@ -165,6 +165,90 @@ struct SidebarPriorityDragTests {
         #expect(harness.panel.panel.entries.map(\.id) == entries.map(\.id))
     }
 
+    @Test func escapeCancelsPriorityDragWithoutPlacingOrOpening() throws {
+        let harness = Harness()
+        let row = try #require(harness.panel.rows["c"])
+        let originalTop = row.frame.minY
+        let height = row.frame.height
+        row.mouseDown(with: try harness.event(.leftMouseDown, on: "c"))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "c", dy: -height))
+        #expect(harness.panel.draggingID == "c")
+        harness.panel.cancelOperation(nil)
+        #expect(harness.panel.draggingID == nil)
+        #expect(row.frame.minY == originalTop)
+        row.mouseUp(with: try harness.event(.leftMouseUp, on: "c", dy: -height))
+        #expect(harness.actions.isEmpty)
+    }
+
+    @Test func sharedEscapeMonitorCancelsFromThisSidebarChildOnly() throws {
+        let sidebar = SidebarView(model: SidebarModel(sections: []), design: DesignSettings())
+        let harness = Harness(sidebar: sidebar)
+        let row = try #require(harness.panel.rows["c"])
+        let height = row.frame.height
+        row.mouseDown(with: try harness.event(.leftMouseDown, on: "c"))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "c", dy: -height))
+        let child = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 80), styleMask: .borderless,
+                             backing: .buffered, defer: false)
+        harness.window.addChildWindow(child, ordered: .above)
+        defer { harness.window.removeChildWindow(child); child.close() }
+        let childEscape = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                        windowNumber: child.windowNumber, context: nil, characters: "\\e",
+                                                        charactersIgnoringModifiers: "\\e", isARepeat: false, keyCode: 53))
+        child.sendEvent(childEscape)
+        #expect(harness.panel.draggingID == nil)
+        row.mouseUp(with: try harness.event(.leftMouseUp, on: "c", dy: -height))
+        #expect(harness.actions.isEmpty)
+
+        row.mouseDown(with: try harness.event(.leftMouseDown, on: "c"))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "c", dy: -height))
+        let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 80), styleMask: .borderless,
+                             backing: .buffered, defer: false)
+        defer { other.close() }
+        let otherEscape = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                        windowNumber: other.windowNumber, context: nil, characters: "\\e",
+                                                        charactersIgnoringModifiers: "\\e", isARepeat: false, keyCode: 53))
+        other.sendEvent(otherEscape)
+        #expect(harness.panel.draggingID == "c", "an unrelated window must not cancel this sidebar's drag")
+        harness.panel.pointerFocusLost()
+    }
+
+    @Test func aHeldPriorityDragAutoscrollsOnlyAtAnEdgeAndStopsOnRelease() throws {
+        let entries = (0..<20).map { SidebarPriorityEntry(id: "row\($0)", title: "row\($0)", state: .idle) }
+        let harness = Harness(entries: entries)
+        let row = try #require(harness.panel.rows["row7"])
+        let scroll = try #require(harness.panel.subviews.lazy.compactMap { view -> NSScrollView? in
+            if let scroll = view as? NSScrollView { return scroll }
+            return view.subviews.compactMap { $0 as? NSScrollView }.first
+        }.first)
+        row.mouseDown(with: try harness.event(.leftMouseDown, on: "row7"))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "row7", dy: 10))
+        let before = scroll.contentView.bounds.minY
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        #expect(scroll.contentView.bounds.minY > before, "a held drag at the edge should autoscroll the overflowing list")
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "row7", dy: 150))
+        let away = scroll.contentView.bounds.minY
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        #expect(scroll.contentView.bounds.minY == away, "moving away from the edge should stop autoscroll")
+        row.mouseUp(with: try harness.event(.leftMouseUp, on: "row7", dy: 150))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        #expect(scroll.contentView.bounds.minY == away, "release must stop autoscroll")
+    }
+
+    @Test func keyboardAndVoiceOverMoveUseThePersistentPlaceAction() throws {
+        let harness = Harness()
+        let row = try #require(harness.panel.rows["b"])
+        let actions = try #require(row.accessibilityCustomActions())
+        let later = try #require(actions.first { $0.name == "Move Later" })
+        #expect(later.handler?() == true)
+        #expect(harness.actions == [.place("b", order: ["a", "c", "b"])])
+
+        harness.actions.removeAll()
+        let up = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .option], timestamp: 0,
+                                                windowNumber: harness.window.windowNumber, context: nil, characters: "↑", charactersIgnoringModifiers: "↑", isARepeat: false, keyCode: 126))
+        row.keyDown(with: up)
+        #expect(harness.actions == [.place("b", order: ["a", "b", "c"])])
+    }
+
     /// Released beside the list, the row goes back and nothing is placed.
     @Test func aReleaseBesideTheListPlacesNothing() throws {
         let harness = Harness()
