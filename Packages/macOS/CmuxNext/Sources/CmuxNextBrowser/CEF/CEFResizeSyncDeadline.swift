@@ -1,8 +1,9 @@
 import Foundation
 
 /// How long a layer-hosted page's resize may hold its window's Core Animation commit for
-/// Chromium's frame at the new size (fork API 27, `cmux_browser_set_resize_sync`), in whole
-/// milliseconds.
+/// Chromium's frame at the new size (fork API 27 to 31, `cmux_browser_set_resize_sync`), in whole
+/// milliseconds. From fork API 32 a page window never holds the commit and ``CEFLayerHosting``
+/// sends no deadline (`CEFLayerHosting.hasResizeSync(apiVersion:)`).
 ///
 /// Chromium's pre-commit wait (`CATransactionCoordinator`) runs inside the process's Core Animation
 /// commit, on the main thread, in every commit while a page still waits for its frame at a new size.

@@ -62,7 +62,10 @@ unsigned int cmux_shim_browser_set_layer_hosting(int browser_id, int enabled) {
 }
 
 int cmux_shim_browser_set_resize_sync(int browser_id, int timeout_ms) {
-  if (!fork_api().browser_set_resize_sync) return 0;
+  // From API 32 a page window never holds the commit, and the fork's call
+  // takes the value without effect: 0 keeps "the commit is not held" true.
+  constexpr int kResizeFenceForkApi = 32;
+  if (!fork_api().browser_set_resize_sync || fork_api().version >= kResizeFenceForkApi) return 0;
   return fork_api().browser_set_resize_sync(browser_id, timeout_ms);
 }
 
