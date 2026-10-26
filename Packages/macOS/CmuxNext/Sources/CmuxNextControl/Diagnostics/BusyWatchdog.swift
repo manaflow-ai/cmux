@@ -114,7 +114,7 @@ public final class BusyWatchdog: Sendable {
     /// The tabs the tab source lists, in one main-actor turn; [] without a source.
     func sourceTabs() async -> [ProcessUsage.TabRenderers] {
         guard let source = helpers.withLock({ $0.tabs }) else { return [] }
-        return await MainActor.run { source() }
+        return await source()
     }
 
     /// The main run loop woke. Cheap: one atomic store, plus opening a

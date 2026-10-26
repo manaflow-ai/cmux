@@ -38,7 +38,7 @@ extension EnergyReport {
     private static func rendererJSON(_ shared: ProcessUsage.SharedRenderer) -> JSONValue {
         [
             "pid": JSONValue(Int(truncatingIfNeeded: shared.renderer.pid)),
-            "clientId": shared.renderer.clientID.map { JSONValue(Int($0)) } ?? .null,
+            "clientId": shared.renderer.clientID.map { JSONValue(Int(truncatingIfNeeded: $0)) } ?? .null,
             "cpuMs": .number(Double(shared.usage.cpuNanos) / 1e6),
             "energyNj": integer(shared.usage.energyNanojoules),
             "interruptWakeups": integer(shared.usage.interruptWakeups),
