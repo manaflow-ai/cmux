@@ -112,7 +112,8 @@ pub(super) fn apply(
             return Ok(false);
         }
         // A terminal the daemon no longer shows keeps the daemon's default.
-        let place = caller_place(reader, socket, &caller, params, app.then_some(global)).ok().flatten();
+        let place =
+            caller_place(reader, socket, &caller, params, app.then_some(global)).ok().flatten();
         caller_scope::apply(params, place.as_ref(), None);
         return Ok(true);
     }
@@ -134,7 +135,9 @@ pub(super) fn apply(
     }
     let place = match outermost(params) {
         // `current` at the top is the caller's place: no answer, no guess.
-        Some(CURRENT) if !filled => caller_place(reader, socket, &caller, params, app.then_some(global))?,
+        Some(CURRENT) if !filled => {
+            caller_place(reader, socket, &caller, params, app.then_some(global))?
+        }
         // Below `focused` every level is the person's.
         Some(FOCUSED) => None,
         // Under an id, `current` is the caller's only inside its own

@@ -176,11 +176,15 @@ fn a_shell_outside_cmux_keeps_the_daemons_current() {
 fn a_cloud_chief_turn_keeps_its_vms_current_and_never_sends_the_macs_ids() {
     // The relayed app places the Home chat in the Mac's topology; the VM's
     // daemon has none of those ids.
-    let run = Run::new().app(App::Placed).cloud_chief_turn().cli(&["--json", "pane", "current", "split"]);
+    let run =
+        Run::new().app(App::Placed).cloud_chief_turn().cli(&["--json", "pane", "current", "split"]);
     let split = run.mutation("pane.split");
     assert_eq!(split["workspace"], "current", "{}", run.stderr());
     assert_eq!(split["pane"], "current");
-    let run = Run::new().app(App::Placed).cloud_chief_turn().cli(&["--json", "tab", "create", "terminal"]);
+    let run = Run::new()
+        .app(App::Placed)
+        .cloud_chief_turn()
+        .cli(&["--json", "tab", "create", "terminal"]);
     let created = run.mutation("tab.create_terminal");
     assert!(created.get("pane").is_none_or(Value::is_null), "{created} {}", run.stderr());
 }
