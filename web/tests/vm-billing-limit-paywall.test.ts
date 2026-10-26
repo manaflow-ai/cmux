@@ -182,7 +182,7 @@ describe("Cloud VM memory allowance", () => {
 });
 
 describe("active-limit response as the paywall moment", () => {
-  test("a zero-allowance free plan is told Cloud VMs require a cmux Pro subscription", async () => {
+  test("a zero-allowance free plan is told Cloud VMs require a cmux Go plan", async () => {
     const response = await vmActiveLimitExceededResponse({
       limit: 0,
       planId: "free",
@@ -191,8 +191,8 @@ describe("active-limit response as the paywall moment", () => {
     expect(response.status).toBe(402);
     const payload = await body(response);
     expect(payload.error).toBe("vm_active_limit_exceeded");
-    expect(payload.message).toBe("Cloud VMs require a cmux Pro subscription.");
-    expect(String(payload.action)).toContain("Subscribe to cmux Pro");
+    expect(payload.message).toBe("Cloud VMs require a cmux Go plan.");
+    expect(String(payload.action)).toContain("Upgrade to cmux Go");
     expect(String(payload.action)).not.toContain("up to");
     expect(String(payload.action)).not.toContain("cmux vm rm");
     expect(payload.upgradeRequired).toBe(true);

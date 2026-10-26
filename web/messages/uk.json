@@ -108,9 +108,9 @@
       }
     },
     "requiresPro": {
-      "title": "Потрібен cmux Pro",
-      "message": "Для Cloud VM потрібен план cmux Pro.",
-      "action": "Перейдіть на cmux Pro на {upgradeUrl}, щоб створювати Cloud VM."
+      "title": "Потрібен cmux {plan}",
+      "message": "Для Cloud VM потрібен план cmux {plan}.",
+      "action": "Перейдіть на cmux {plan} на {upgradeUrl}, щоб створювати Cloud VM."
     },
     "displayName": {
       "title": "Неприпустима назва машини",

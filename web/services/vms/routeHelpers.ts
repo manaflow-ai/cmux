@@ -48,6 +48,7 @@ import {
 } from "./errors";
 import { recordSpanTiming } from "./timings";
 import { nextUpgradePlanId, planIncludes } from "../billing/planTier";
+import { GO_PLAN_ID } from "../billing/pro";
 import { authProviderErrorResponse } from "./authErrors";
 import { goCapacityConstraint } from "./goUsage";
 import { isSyntheticAccountEmail, rememberSyntheticUser } from "../analytics/syntheticAccounts";
@@ -406,7 +407,7 @@ export function vmFreeAccessExpiredResponse(input: {
   return vmErrorResponse({
     error: "vm_access_requires_pro",
     status: 402,
-    message: `The free plan includes ${input.windowDays} days of access to a machine. ${input.vmId} is past that window — the machine and everything on it are preserved, and upgrading to Pro reconnects it.`,
+    message: `The free plan includes ${input.windowDays} days of access to a machine. ${input.vmId} is past that window — the machine and everything on it are preserved, and upgrading to a paid plan reconnects it.`,
     action: `Upgrade to Pro at ${VM_UPGRADE_URL} to reconnect ${input.vmId}, or delete it with \`cmux vm rm ${input.vmId}\`.`,
     extra: { upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
     details: { vmId: input.vmId, windowDays: input.windowDays },
@@ -605,8 +606,8 @@ export function vmCreateCreditsCheckoutExtra(amount: number, planId: string | nu
  * catalog so non-English clients get a translated upgrade instruction; the
  * machine-readable `upgradeUrl`/`upgradeRequired` fields stay locale-free.
  */
-export async function vmRequiresProResponse(locale: Locale = "en"): Promise<Response> {
-  const copy = await vmRequiresProCopy(locale, { upgradeUrl: VM_UPGRADE_URL });
+export async function vmRequiresProResponse(locale: Locale = "en", planId: string = GO_PLAN_ID): Promise<Response> {
+  const copy = await vmRequiresProCopy(locale, { upgradeUrl: VM_UPGRADE_URL, planId });
   return vmErrorResponse({
     error: "vm_requires_pro",
     status: 402,
@@ -714,11 +715,12 @@ export async function vmActiveLimitExceededResponse(input: {
   if (input.limit <= 0) {
     // Free plans have no allowance at all: this is the subscribe gate, not a
     // "free a slot" situation.
+    const copy = await vmRequiresProCopy(input.locale ?? "en", { upgradeUrl: VM_UPGRADE_URL, planId: GO_PLAN_ID });
     return vmErrorResponse({
       error: "vm_active_limit_exceeded",
       status: 402,
-      message: "Cloud VMs require a cmux Pro subscription.",
-      action: `Subscribe to cmux Pro at ${VM_UPGRADE_URL} to get access to Cloud VMs.`,
+      message: copy.message,
+      action: copy.action,
       extra: { limit: input.limit, upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
       details: { limit: input.limit, upgradeRequired: true },
       ...(input.phase ? { phase: input.phase } : {}),
