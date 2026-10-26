@@ -146,7 +146,7 @@ final class CloudMachineSession {
                 try await resumer(machineID)
             } catch {
                 guard !disconnected else { return }
-                resumeFailure = RefusalStrings.describe(error)
+                resumeFailure = CloudStrings.errorText(error)
                 return
             }
             // The resume's refresh connects a record that turned live; a

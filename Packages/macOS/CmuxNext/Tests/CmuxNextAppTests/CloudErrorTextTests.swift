@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 @testable import CmuxNextCloud
+import CmuxNextCompat
 import Foundation
 import Testing
 
@@ -44,6 +45,31 @@ struct CloudErrorTextTests {
                                        headerCode: code)
         #expect(error.description == "It failed. \(action) (trace t-1)")
         #expect(CloudStrings.errorText(error) == "It failed. \(CloudStrings.trace("t-1"))")
+    }
+
+    /// A paused machine's resume and a creation failure read through the same
+    /// text: no `cmux vm` action, no API path from a timeout.
+    @Test(.timeLimit(.minutes(1)), arguments: [
+        CloudAPIError.http(status: 404, code: "vm_not_found", message: "Cloud VM vm-1 was not found.",
+                           action: "Run `cmux vm ls` to see available Cloud VMs.", traceId: "t-2"),
+        CloudAPIError.timedOut("POST /api/vm/vm-1/resume"),
+    ])
+    func aFailedResumeReadsAsTheErrorText(error: CloudAPIError) async {
+        let f = CloudIdlePauseTests.pausedMachine(reason: .idle)
+        f.session.resumer = { _ in throw error }
+        f.session.attach(origin: .user)
+        let session = f.session
+        for await busy in ObservationStream({ session.resuming }) where !busy { break }
+        #expect(f.session.resumeFailure == CloudStrings.errorText(error))
+        #expect(f.session.resumeFailure?.contains("cmux vm") == false)
+        #expect(f.session.resumeFailure?.contains("/api/vm") == false)
+        f.session.disconnect()
+    }
+
+    @Test func aFailedCreationReadsAsTheErrorText() {
+        let creation = CloudMachineCreation(windowID: nil)
+        creation.fail(CloudAPIError.timedOut("POST /api/vm"))
+        #expect(creation.phase == .failed(CloudStrings.apiTimedOut))
     }
 
     /// An action for a person stays, a checkout link under /api/billing included.
