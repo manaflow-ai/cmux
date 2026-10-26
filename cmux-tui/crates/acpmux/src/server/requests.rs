@@ -938,7 +938,9 @@ async fn dispatch_request(
                 .filter(|p| !p.is_empty())
                 .map(str::to_owned);
             let on_accepted = Some(composer::on_accepted(hub, conn, &s, &params)?);
-            let supersede = crate::hub::supersede_key(&params)?;
+            // A key replaces its sender's queued prompts (`supersede.rs`), which knows agents and
+            // the owner only: a person's prompt neither replaces nor is replaced.
+            let supersede = crate::hub::supersede_key(&params)?.filter(|_| !person_message);
             // Files sent with the message (`acpmux send --attach`), after every check that can
             // refuse it: saved in the session's uploads, and what the agent gets put in their
             // place (`attach.rs`).

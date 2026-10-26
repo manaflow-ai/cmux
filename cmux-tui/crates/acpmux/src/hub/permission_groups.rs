@@ -423,6 +423,8 @@ impl Hub {
         let mut replies = Vec::new();
         for (id, outcome) in answers {
             if let Some(pending) = state.pending.remove(&id) {
+                // Told to a later answer at once (`permission_settled.rs`), as one answer is.
+                state.settled.remember(&id, None, &outcome);
                 replies.push((id, pending.reply, outcome));
             }
         }

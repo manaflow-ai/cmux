@@ -815,3 +815,22 @@ async fn a_losing_answer_is_told_who_answered_first() {
     assert_eq!(lost.pointer("/error/data/answeredBy"), Some(&Value::Null), "{lost}");
     c.reply_to(asked).await;
 }
+
+/// A supersede key (`supersede.rs`) knows agents and the owner only: a person's keyed prompt
+/// neither replaces the owner's waiting one nor is replaced by it.
+#[tokio::test]
+async fn a_persons_prompt_neither_supersedes_nor_is_superseded() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    c.busy(&session).await;
+    for (id, author) in [("p-owner", None), ("p-ana", Some(ana())), ("p-owner-2", None)] {
+        let mut keyed = by(prompt(&session, id, id, None), author.as_ref());
+        keyed["_meta"]["acpmux"]["supersede"] = json!("status");
+        c.queue(keyed).await;
+    }
+    let removed = c.records(&session, "queue_removed").await;
+    let gone: Vec<&Value> = removed.iter().map(|m| &m["promptId"]).collect();
+    assert_eq!(gone, [&json!("p-owner")], "{removed:?}");
+    c.cancel(&session).await;
+}
