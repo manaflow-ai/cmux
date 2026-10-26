@@ -5,6 +5,62 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 
+const RESOLVE_BENEATH: u32 = 0x08;
+
+fn child_name(name: &OsStr) -> Result<CString, String> {
+    if name.is_empty() || name == "." || name == ".." || name.as_bytes().contains(&b'/') {
+        return Err("HOME child must be a single component".into());
+    }
+    CString::new(name.as_bytes()).map_err(|_| "HOME child contains NUL".into())
+}
+
+/// Inspect the single enumerated name without following symlinks.
+fn stat_child(parent: RawFd, name: &OsStr) -> Result<libc::stat, String> {
+    let name = child_name(name)?;
+    let mut meta = std::mem::MaybeUninit::<libc::stat>::uninit();
+    // SAFETY: name is terminated, parent is live, and meta is writable.
+    if unsafe { libc::fstatat(parent, name.as_ptr(), meta.as_mut_ptr(), libc::AT_SYMLINK_NOFOLLOW) }
+        < 0
+    {
+        return Err(format!("cannot stat HOME child: {}", io::Error::last_os_error()));
+    }
+    // SAFETY: successful fstatat initialized meta.
+    Ok(unsafe { meta.assume_init() })
+}
+
+/// Open only through the enumerated parent and reject replacement since fstatat.
+fn open_child(parent: RawFd, name: &OsStr, expected: &libc::stat) -> Result<OwnedFd, String> {
+    let name = child_name(name)?;
+    let how = OpenHow {
+        flags: (libc::O_PATH | libc::O_CLOEXEC | libc::O_NOFOLLOW) as _,
+        mode: 0,
+        resolve: (RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS | RESOLVE_BENEATH) as _,
+    };
+    // SAFETY: parent is live and the name and open_how remain valid for the call.
+    let raw = unsafe {
+        libc::syscall(
+            libc::SYS_openat2,
+            parent,
+            name.as_ptr(),
+            &how,
+            std::mem::size_of::<OpenHow>(),
+        )
+    } as RawFd;
+    if raw < 0 {
+        return Err(format!(
+            "HOME child changed or cannot be opened: {}",
+            io::Error::last_os_error()
+        ));
+    }
+    // SAFETY: openat2 returned a newly owned descriptor.
+    let file = unsafe { fs::File::from_raw_fd(raw) };
+    let actual = file.metadata().map_err(|e| e.to_string())?;
+    if actual.dev() != expected.st_dev || actual.ino() != expected.st_ino {
+        return Err(format!("HOME child changed: {}", name.to_string_lossy()));
+    }
+    Ok(file.into())
+}
+
 /// Read a symlink through its already-open parent directory, avoiding a
 /// pathname race between the directory snapshot and the emitted `--symlink`.
 fn read_link_at(parent: RawFd, name: &OsStr) -> Result<OsString, String> {
@@ -167,17 +223,15 @@ pub(super) fn rebuild(
     }
     let mut out = Vec::new();
     let mut fds = Vec::new();
+    // HOME is the sole pathname bind-source open. Every descendant fd is
+    // obtained from its enumerated parent and retained until final validation.
+    let mut parents = BTreeMap::from([(home.to_owned(), open_bind_source(home)?)]);
     for dir in &dirs {
         out.extend(["--tmpfs".into(), path_arg(dir)?]);
-        let parent_fd = match open_bind_source(dir) {
-            Ok(fd) => fd,
-            Err(_) if matches!(fs::symlink_metadata(dir), Err(e) if e.kind() == io::ErrorKind::NotFound) =>
-            {
-                continue;
-            }
-            Err(error) => return Err(error),
+        let Some(parent_fd) = parents.get(dir).map(AsRawFd::as_raw_fd) else {
+            continue; // An absent ancestor contributes only an empty tmpfs.
         };
-        let pinned = PathBuf::from(format!("/proc/self/fd/{}", parent_fd.as_raw_fd()));
+        let pinned = PathBuf::from(format!("/proc/self/fd/{parent_fd}"));
         let children = match fs::read_dir(&pinned) {
             Ok(entries) => entries
                 .map(|e| e.map(|e| dir.join(e.file_name())))
@@ -193,26 +247,37 @@ pub(super) fn rebuild(
             ));
         }
         for child in children {
-            if denied.iter().any(|d| child.starts_with(d)) || dirs.contains(&child) {
+            if denied.iter().any(|d| child.starts_with(d)) {
                 continue;
             }
             let name = child.file_name().ok_or("HOME child has no filename")?;
-            let meta = fs::symlink_metadata(pinned.join(name)).map_err(|e| e.to_string())?;
-            if meta.is_symlink() {
-                let target = read_link_at(parent_fd.as_raw_fd(), name)?;
+            let meta = stat_child(parent_fd, name)?;
+            if meta.st_mode & libc::S_IFMT == libc::S_IFLNK {
+                if dirs.contains(&child) {
+                    return Err(format!("HOME ancestor changed to a symlink: {}", child.display()));
+                }
+                let target = read_link_at(parent_fd, name)?;
                 let target = target.to_str().ok_or("symlink target must be UTF-8")?;
                 out.extend(["--symlink".into(), target.into(), path_arg(&child)?]);
             } else {
                 let child_text = path_arg(&child)?;
                 #[cfg(test)]
                 hook(&child, true);
-                let fd = open_bind_source(&child)?;
+                let opened = open_child(parent_fd, name, &meta);
                 #[cfg(test)]
                 hook(&child, false);
-                out.extend(["--ro-bind-fd".into(), fd.as_raw_fd().to_string(), child_text]);
-                fds.push(fd);
-                if fds.len() > 512 {
-                    return Err("HOME rebuild requires more than 512 bind descriptors".into());
+                let fd = opened?;
+                if dirs.contains(&child) {
+                    if meta.st_mode & libc::S_IFMT != libc::S_IFDIR {
+                        return Err(format!("HOME ancestor is not a directory: {child_text}"));
+                    }
+                    parents.insert(child, fd);
+                } else {
+                    out.extend(["--ro-bind-fd".into(), fd.as_raw_fd().to_string(), child_text]);
+                    fds.push(fd);
+                }
+                if fds.len() + parents.len() > 512 {
+                    return Err("HOME rebuild requires more than 512 descriptors".into());
                 }
             }
         }
@@ -223,6 +288,25 @@ pub(super) fn rebuild(
     }
     if let Some(snapshot) = snapshot {
         verify_snapshot(snapshot)?;
+    }
+    for (path, fd) in &parents {
+        // Fresh lstat is validation only; no mount source is reopened by name.
+        let fresh = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
+        let mut pinned = std::mem::MaybeUninit::<libc::stat>::uninit();
+        // SAFETY: fd is live and pinned is writable.
+        if unsafe { libc::fstat(fd.as_raw_fd(), pinned.as_mut_ptr()) } < 0 {
+            return Err(io::Error::last_os_error().to_string());
+        }
+        // SAFETY: fstat initialized pinned on success.
+        let pinned = unsafe { pinned.assume_init() };
+        if fresh.dev() != pinned.st_dev
+            || fresh.ino() != pinned.st_ino
+            || snapshot
+                .and_then(|s| s.ancestors.get(path))
+                .is_some_and(|id| *id != (fresh.dev(), fresh.ino()))
+        {
+            return Err(format!("HOME ancestor changed: {}", path.display()));
+        }
     }
     Ok((out, fds))
 }
