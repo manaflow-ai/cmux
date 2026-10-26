@@ -1508,11 +1508,9 @@ jobs:
             python3 tests/test_dev_release_product_key.py
             # A reused DEV Release app is trusted and intact, or the job compiles; DEV lane only.
             python3 tests/test_dev_release_product_reuse.py
-            # A hand merge of a Swift PR waits for its Release compile (scripts/ci/merge_compile_guard.py).
-            python3 tests/test_merge_compile_guard.py
             # The advisory test-compile check: its plan, the lane phase and red only for a compile failure.
             python3 tests/test_ci_compile_test_plan.py
-            # The merge guards run from the feat-cmux-next tip, never a pull request's checkout.
+            # A merge goes to the landing gate installed from cmuxterm-hq, never a guard in a checkout.
             python3 tests/test_guard_hooks_from_base.py
             # ci-guards.yml's `ci` group runs for feat-cmux-next too (cmux-next-guards.yml).
             python3 tests/test_feat_ci_guard_group.py
@@ -2211,7 +2209,7 @@ jobs:
   # A same-repository pull request's app compile, on the build fleet instead
   # of the Mac Release queue (2026-10-21: 76 of ~350 queued Mac jobs were
   # Release compiles). It compiles and links the app at the PR's head, the
-  # commit merge_compile_guard.py and the landing hooks ask about, in about a
+  # commit the landing gate (require-cmux-guards) asks about, in about a
   # minute. A fleet compile error fails this job: the PR's own red. No verdict
   # (no client, the fleet down, a timeout) is a notice, and release-compile
   # runs on a Mac instead. A full-ci PR, a fork, and every push and dispatch
