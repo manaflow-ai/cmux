@@ -71,8 +71,10 @@ public final class WindowMaterialView: NSView {
     /// The web views lensing this backdrop, told when what they draw changes (`glassSource`).
     let glassFeeds = NSHashTable<GlassBackdropFeed>.weakObjects()
     private let images: BackdropImageStore
-    /// Loads the art the last `apply` asked for when it was not decoded yet.
-    private var artLoad: Task<Void, Never>?
+    /// Loads the art the last `apply` asked for when it was not decoded yet; a later `apply`
+    /// that needs other art cancels and replaces it. Tests await its `value` to see the art the
+    /// load shows.
+    private(set) var artLoad: Task<Void, Never>?
     /// The solid sheet and Reduce Transparency must never expose art.
     private(set) var hidesArt = false
     /// The blur on the art now (``WindowBackdrop/artBlurRadius``).
@@ -244,12 +246,9 @@ public final class WindowMaterialView: NSView {
         let fade = inactiveTintFade
         inactiveTintView.isHidden = false
         CATransaction.begin()
-        CATransaction.setCompletionBlock { [weak self] in
-            // main-proof: CATransaction.h: the completion block is called on the main thread
-            MainActor.assumeIsolated {
-                guard let self, self.inactiveTintFade == fade, self.inactiveTintTarget == 0 else { return }
-                self.inactiveTintView.isHidden = true
-            }
+        CATransaction.setMainCompletion { [weak self] in
+            guard let self, self.inactiveTintFade == fade, self.inactiveTintTarget == 0 else { return }
+            self.inactiveTintView.isHidden = true
         }
         // From what shows now (a reversal mid-fade continues from there), or from 0 when hidden.
         Motion.overlays.set(layer, "opacity", to: Float(alpha), fade: .scrim, from: showing ? nil : Float(0))

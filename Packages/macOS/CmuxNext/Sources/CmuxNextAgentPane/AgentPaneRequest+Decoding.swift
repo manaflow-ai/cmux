@@ -127,6 +127,13 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.setAttachmentView":
+            // The composer's Inline or Strip choice; the page writes only this key with it.
+            if let view = (params?["view"] as? String).flatMap(AgentPaneAttachmentView.init(rawValue:)) {
+                self = .displaySetting(path: AgentPaneComposerSetting.attachmentViewPath, value: .string(view.rawValue))
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.setDisplay":
             // Only the chat's own look keys: the page can never write another setting.
             if let key = params?["key"] as? String, let path = AgentPaneDisplaySetting.writablePath(key) {
@@ -175,6 +182,8 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "acpmux.restart":
+            self = .restartAcpmux
         case "harness.restart":
             self = .harnessRestart
         case "shell.run":

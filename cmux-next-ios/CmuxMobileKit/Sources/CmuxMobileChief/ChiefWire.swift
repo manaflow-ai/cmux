@@ -93,17 +93,24 @@ struct ChiefWire {
         // diagnostics by the backend (``failure(_:)``).
         var shown = retracted == nil ? text(parts: parts) : ""
         if author == identity.chiefID, let failure = ChiefTurnFailure(text: shown) { shown = failure.displayText }
+        // Chief and agents write Markdown links; the bubble shows each label as
+        // a link. My own text stays as typed (Edit must get it back verbatim).
+        let shownMentions = retracted == nil ? mentions(parts: parts) : []
+        let linked: (text: String, links: [ConversationTextLink], mentions: [ConversationMention]) = mine
+            ? (shown, [], shownMentions)
+            : ConversationMarkdownLinks.extract(shown, mentions: shownMentions)
         return ConversationMessage(
             id: id, seq: seq, clientMessageID: object["client_msg_id"] as? String, senderID: author,
             sentAt: date(object["created_at"]) ?? Date(),
-            text: shown,
+            text: linked.text,
             replyToID: (object["reply_to"] as? [String: Any])?["message_id"] as? String,
             editedAt: date(object["edited_at"]),
             unsentAt: retracted,
             reactions: reactions,
             attachments: retracted == nil ? parts.compactMap { attachment($0, bytes: ($0["hash"] as? String).flatMap { bytes[$0] }) } : [],
             delivery: mine ? (seq <= peerReadSeq ? .read(nil) : .delivered) : nil,
-            mentions: retracted == nil ? mentions(parts: parts) : []
+            mentions: linked.mentions,
+            links: linked.links
         )
     }
 

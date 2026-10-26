@@ -135,7 +135,7 @@ The remaining ~1 s gap had two candidate causes: a segment lost at the very end 
 
 **Re-run at the review head (501fc429fb86) on a second, quieter rig**
 - Mac: the same fleet app, moved to mini-cmuxs-mac-mini-2 (load average about 3). Its Claude Code is 2.1.292 through the shared gateway.
-- The move was needed because on mini-cmux11s the phone folds every rig that shares the mini's machine id into one roster entry, and other agents' rigs won it. The Mac app does not pass `CMUX_MOBILE_MACHINE_ID` on to cmux-mobile-host.
+- The move was needed because on mini-cmux11s the phone folds every rig that shares the mini's machine id into one roster entry, and other agents' rigs won it. The Mac app did not pass `CMUX_MOBILE_MACHINE_ID` on to cmux-mobile-host; since #24701 a DEBUG rig app sets `CMUX_NEXT_MOBILE_MACHINE_ID` (32 hex digits) at launch and it reaches the host.
 - Simulator: still on mini-3. Path: WireGuard over TURN.
 
 | Build | Fast flicks with a gap ≥ 0.9 s | Largest gap | 200 rows after first report |

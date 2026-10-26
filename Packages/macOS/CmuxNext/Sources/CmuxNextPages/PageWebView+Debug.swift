@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 public import CmuxNextSettings
 import CmuxNextDesign
 public import Foundation

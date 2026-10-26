@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextWakeups
 import Foundation
 
 /// Files the person drops or pastes into a chat moved to a Cloud machine (cmuxterm-hq#1874 slice 6)
@@ -43,6 +44,9 @@ final class CloudUploads {
     private var stages: [String: Stage] = [:]
     private struct Batch { var target: Target; var remaining: [AgentPaneUploadBatchEntry]; var expires: Date }
     private var batches: [String: Batch] = [:]
+    /// One deadline for the earliest stage expiry, so an abandoned stage's folder is removed
+    /// without a sleeping task per stage (plans/cmux-next/idle-wakeups.md).
+    private let expiryTimer = DemandTimer(owner: "CloudUploads.stageExpiry")
 
     /// The upload for chat tab `tab`, nil unless it is a live moved chat on a connected machine. The
     /// upload looks the chat up again when it runs.
@@ -145,8 +149,9 @@ final class CloudUploads {
                 guard manifest.first?.name == name, manifest.first?.size == size,
                       manifest.allSatisfy({ $0.size >= 0 && $0.size <= Self.maximumFileBytes }),
                       manifest.reduce(0) { $0 + $1.size } <= Self.maximumTotalBytes else { return AgentPaneReply.failure(code: "upload_refused", message: CloudUploadStrings.refused) }
-                batchID = UUID().uuidString.lowercased()
-                batches[batchID!] = Batch(target: target, remaining: Array(manifest.dropFirst()), expires: Date().addingTimeInterval(Self.stageLifetime))
+                let newBatchID = UUID().uuidString.lowercased()
+                batchID = newBatchID
+                batches[newBatchID] = Batch(target: target, remaining: Array(manifest.dropFirst()), expires: Date().addingTimeInterval(Self.stageLifetime))
             } else { batchID = batchToken }
             let used = stages.values.filter { $0.target.chat.session == session }.reduce(0) { $0 + $1.size }
             guard used + size <= Self.maximumTotalBytes, let pastes = Self.pastes else { return AgentPaneReply.failure(code: "upload_refused", message: CloudUploadStrings.refused) }
@@ -157,7 +162,7 @@ final class CloudUploads {
                 guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw CocoaError(.fileWriteUnknown) }
             } catch { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
             stages[token] = Stage(target: target, folder: folder, file: file, name: name, size: size, received: 0, expires: Date().addingTimeInterval(Self.stageLifetime))
-            scheduleExpiry(token)
+            armExpiry()
             var response: [String: Any] = ["token": token, "size": size, "chunkSize": Self.stageChunkBytes]
             if let batchID { response["batchToken"] = batchID }
             return AgentPaneReply.success(response)
@@ -170,7 +175,7 @@ final class CloudUploads {
                 try handle.seekToEnd(); try handle.write(contentsOf: data); try handle.close()
             } catch { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
             stage.received += data.count; stage.expires = Date().addingTimeInterval(Self.stageLifetime); stages[token] = stage
-            scheduleExpiry(token)
+            armExpiry()
             return AgentPaneReply.success(["offset": stage.received])
         case .finish(let token):
             guard let stage = stages[token], stage.target.chat.session == session,
@@ -196,18 +201,14 @@ final class CloudUploads {
         batches = batches.filter { $0.value.expires >= Date() }
     }
 
-    private func scheduleExpiry(_ token: String) {
-        Task { [weak self] in
-            try? await Task.sleep(for: .seconds(Self.stageLifetime))
+    /// Arms the deadline for the earliest live stage's expiry; nothing pending when no stage is left.
+    private func armExpiry() {
+        guard let next = stages.values.map(\.expires).min() else { expiryTimer.cancel(); return }
+        expiryTimer.schedule(after: .seconds(max(1, next.timeIntervalSinceNow))) { @MainActor [weak self] in
             guard let self else { return }
-            await self.expire(token)
+            purgeStages()
+            armExpiry()
         }
-    }
-
-    private func expire(_ token: String) {
-        guard let stage = stages[token], stage.expires < Date() else { return }
-        stages.removeValue(forKey: token)
-        try? FileManager.default.removeItem(at: stage.folder)
     }
 
     /// Writes each file owner-only to `folder/<index>/<name>` (its own folder, so two files may share
