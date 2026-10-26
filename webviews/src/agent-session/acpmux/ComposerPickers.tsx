@@ -750,10 +750,16 @@ export function ComposerPickers({
     snapshot.origin !== "remote" && snapshot.origin !== "peer" && !summary?.host && summary?.hostKind !== "cloud";
   // A local chat whose menu has a full-access row learns whether full access is managed off, and
   // again on `_acpmux/start_mode_changed` (#23322).
+  // The Options chip's choices count too: a harness can offer full access only as a config option
+  // (review 48).
+  const extraOptions = extraConfigOptions(summary);
   useFullAccessProbe(
     chipHarness,
     folder ?? summary?.cwd,
-    !asksStart && onThisMac && modes.some((choice) => unrestricted(choice.id)),
+    !asksStart &&
+      onThisMac &&
+      (modes.some((choice) => unrestricted(choice.id)) ||
+        extraOptions.some((option) => option.options.some((choice) => unrestricted(choice.value)))),
   );
   // This Mac's daemon said full access is managed off: it bounds only the chats it runs (review 37).
   const fullAccessManaged = useFullAccessManaged() && onThisMac;
@@ -1040,7 +1046,12 @@ export function ComposerPickers({
       )}
       {/* A custom harness's other settings: each config option no chip above owns, picked like the
           effort level. Codex's collaboration mode stays on its command/mode paths. */}
-      <AgentOptionsMenu options={extraConfigOptions(summary)} onPick={(configId, value) => onEffort(configId, value)} />
+      <AgentOptionsMenu
+        options={extraOptions}
+        managed={fullAccessManaged}
+        managedReason={t(PICKER_LABELS.fullAccessManaged)}
+        onPick={(configId, value) => onEffort(configId, value)}
+      />
     </div>
   );
   return chips;
@@ -1160,9 +1171,10 @@ function AccessMenu({
   if (
     refusedIds.length > 0 &&
     grants.length === 0 &&
-    // A full-access row managed off stays in the menu, disabled and saying why (review 37).
+    // A full-access row managed off, the current one included, keeps the menu: it stays, disabled
+    // and saying why (reviews 37 and 48).
     modes.every(
-      (choice) => choice.id === value || (refusedIds.includes(choice.id) && !(managed && unrestricted(choice.id))),
+      (choice) => !(managed && unrestricted(choice.id)) && (choice.id === value || refusedIds.includes(choice.id)),
     )
   ) {
     return (
