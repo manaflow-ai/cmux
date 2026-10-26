@@ -1285,21 +1285,23 @@
       ]
     },
     "list.next": {
-      "receipt": "action.done",
+      "entry": "action",
+      "error": "control.unavailable",
       "invariants": [
-        "a Down arrow key event goes to the key window (ListHandlers.arrow); the focused terminal takes it as a cursor key"
+        "the oracle launch never activates cmux (CMUX_NEXT_NO_ACTIVATE=1), so no cmux window is key: ListHandlers.arrow finds no key window (keyWindowSource, NSApp.keyWindow) and the run is refused with RefusalStrings.noWindowOpen; no Down arrow event is sent"
       ],
       "untested": [
-        "the list selection: with the terminal focused there is no list; the window's key status follows the host (a launch whose window is not key is refused with RefusalStrings.noWindowOpen)"
+        "the Down arrow into a focused list (sidebar list, page combobox or menu): it needs a key window, which only debug.key supplies, and the key path (its ctrl aliases) runs the action only `when: listFocus`, which a fresh session's focused terminal does not have"
       ]
     },
     "list.previous": {
-      "receipt": "action.done",
+      "entry": "action",
+      "error": "control.unavailable",
       "invariants": [
-        "a Up arrow key event goes to the key window (ListHandlers.arrow); the focused terminal takes it as a cursor key"
+        "the oracle launch never activates cmux (CMUX_NEXT_NO_ACTIVATE=1), so no cmux window is key: ListHandlers.arrow finds no key window (keyWindowSource, NSApp.keyWindow) and the run is refused with RefusalStrings.noWindowOpen; no Up arrow event is sent"
       ],
       "untested": [
-        "the list selection: with the terminal focused there is no list; the window's key status follows the host (a launch whose window is not key is refused with RefusalStrings.noWindowOpen)"
+        "the Up arrow into a focused list (sidebar list, page combobox or menu): it needs a key window, which only debug.key supplies, and the key path (its ctrl aliases) runs the action only `when: listFocus`, which a fresh session's focused terminal does not have"
       ]
     },
     "macScreen.open": {
@@ -1403,10 +1405,11 @@
         "equals": true
       },
       "invariants": [
-        "the active window is miniaturized (NSWindow.miniaturize); Show cmux (showMainWindow) restores it"
+        "the active window is miniaturized (NSWindow.miniaturize)",
+        "the generated restore (the sweep's UNDO: showMainWindow) puts it back: WindowActivation.show deminiaturizes the window, so the batch's next case runs on a window that is not in the Dock"
       ],
       "untested": [
-        "the restore: the case leaves the window in the Dock and app_reset.py puts it back or relaunches (NeedsRelaunch); no generated restore runs for a non-toggle"
+        "the restored window's frame and order after the deminiaturize: app_reset.py's projection has no window frame or miniaturized field"
       ]
     },
     "music.open": {
