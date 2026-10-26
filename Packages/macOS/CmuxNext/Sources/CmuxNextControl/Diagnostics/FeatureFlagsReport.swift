@@ -58,7 +58,7 @@ public struct FeatureFlagsReport: Sendable {
     /// Labs and Debug toggles apply on this channel (DEV and NIGHTLY only).
     public var json: JSONValue {
         let channel = features.channel
-        let entries = entries
+        let entries = self.entries
         return .object([
             "channel": .string(channel.rawValue),
             "local_overrides": .bool(channel.allowsLocalOverrides),
