@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 492,
+  "count": 493,
   "sections": [
     {
       "id": "general",
@@ -4360,6 +4360,14 @@
           "kind": "host_list",
           "default": [],
           "group": "Opening Links"
+        },
+        {
+          "key": "browser.import.enabled",
+          "title": "Import from Other Browsers",
+          "help": "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Import"
         },
         {
           "key": "browser.keepNeighborTabsAwake",
