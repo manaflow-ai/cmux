@@ -13,6 +13,9 @@ public import CmuxNextWakeups
 /// - an agent-driven tab's on the next turn as `automation` work: the agent reads its tab's state while it is hidden;
 /// - a tab no node follows as `visible` work.
 ///
+/// The class is chosen again each time the node starts or stops rendering: a title that came while the tab was shown
+/// and is still held when it hides runs as hidden work, not held until the tab shows again.
+///
 /// Every other event of a browser (commits, dialogs, crashes, input acknowledgements) stays FIFO and immediate:
 /// ``holds(_:for:)`` applies that browser's held events first, so no event overtakes one Chromium sent before it.
 /// Chromium sends cmux no status-bubble text yet; it joins ``Kind`` when the shim does.
@@ -63,10 +66,11 @@ final class CEFMergedEvents<Target: AnyObject> {
     private var routesPruneAt = 64
     private var held: [Int32: Held] = [:]
 
-    /// The node a target follows, and its two queues on the scheduler they were made on.
+    /// The node a target follows, its two queues on the scheduler they were made on, and its rendering flips.
     private final class Route {
         weak var target: Target?
         let node: VisibilityNode
+        var rendering: VisibilitySubscription?
         private var made: (work: MainWorkScheduler, visible: MainTaskQueue, background: MainTaskQueue)?
 
         init(target: Target, node: VisibilityNode) {
@@ -119,7 +123,11 @@ final class CEFMergedEvents<Target: AnyObject> {
         let id = ObjectIdentifier(target)
         if let node {
             if let route = routes[id], route.target === target, route.node === node { return }
-            routes[id] = Route(target: target, node: node)
+            let route = Route(target: target, node: node)
+            route.rendering = node.subscribeRendering(owner: "CEFMergedEvents") { [weak self, weak target] _ in
+                if let self, let target { self.renderingChanged(target) }
+            }
+            routes[id] = route
         } else if routes.removeValue(forKey: id) == nil {
             return
         }
@@ -146,6 +154,12 @@ final class CEFMergedEvents<Target: AnyObject> {
         }
         if !held.isEmpty, let entry = held.removeValue(forKey: browser) { apply(entry, browser: browser) }
         return false
+    }
+
+    /// `target`'s node started or stopped rendering: what its browser holds moves to the class the new state takes.
+    private func renderingChanged(_ target: Target) {
+        guard let work, let browser = reading.browser(target), held[browser] != nil else { return }
+        schedule(browser, target: target, on: work)
     }
 
     private func flushAll() {

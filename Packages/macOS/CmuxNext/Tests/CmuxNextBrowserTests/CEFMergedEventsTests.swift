@@ -118,6 +118,42 @@ import Testing
         #expect(page.applied == [.progress(browser: 11, value: 0.5), .title(browser: 11, title: "t20")])
     }
 
+    /// A title held for a shown tab's next frame, when the tab hides before that frame, runs as one background task:
+    /// the tab strip item, the sidebar and the session record get it without the tab showing again.
+    @Test func aShownTabsHeldTitleRunsAsBackgroundWhenTheTabHidesBeforeTheFrame() {
+        let rig = MergeRig()
+        let tabNode = VisibilityNode(root: "tab:shown", own: .visible)
+        let page = MergePage(browser: 12)
+        rig.merger.follow(page, node: tabNode)
+        _ = rig.merger.holds(.title(browser: 12, title: "Inbox (3)"), for: page)
+        tabNode.set(.hidden)
+        #expect(rig.work.postedCount(.background) == 1, "the hide moved the held title to one background task")
+        rig.frame()
+        rig.frame()
+        #expect(page.applied == [.title(browser: 12, title: "Inbox (3)")], "the title waited for the tab to show again")
+        #expect(rig.merger.heldBrowsers == 0)
+        tabNode.set(.visible)
+        rig.frame()
+        #expect(page.applied.count == 1, "the show applied the title again")
+    }
+
+    /// A shown tab's held progress, when the tab hides before the frame, stays held by the node until it shows.
+    @Test func aShownTabsHeldProgressWaitsForTheShowWhenTheTabHides() {
+        let rig = MergeRig()
+        let tabNode = VisibilityNode(root: "tab:shown", own: .visible)
+        let page = MergePage(browser: 13)
+        rig.merger.follow(page, node: tabNode)
+        _ = rig.merger.holds(.progress(browser: 13, value: 0.4), for: page)
+        tabNode.set(.hidden)
+        rig.frame()
+        rig.frame()
+        #expect(page.applied.isEmpty, "a hidden tab's progress applied while it was hidden")
+        #expect(rig.work.postedCount(.background) == 0, "the node holds it; no app hidden wake is installed")
+        tabNode.set(.visible)
+        rig.frame()
+        #expect(page.applied == [.progress(browser: 13, value: 0.4)])
+    }
+
     /// Following a shown node moves a hidden tab's held events to it: they apply in the next frame.
     @Test func followingAShownNodeAppliesWhatAHiddenOneHeld() {
         let rig = MergeRig()
