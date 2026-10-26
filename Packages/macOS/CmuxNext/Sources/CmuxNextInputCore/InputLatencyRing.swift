@@ -2,8 +2,9 @@
 /// closes slots (``InputLatencySlotTable/close(_:)``) writes in place, as CmuxNextActions'
 /// `ActionSampleRing` does for action runs. A raw buffer, not an `Array`, so a write never copies.
 ///
-/// Half-ring hand-off: ``append(_:)`` returns true each time half the ring has filled since the
-/// last take; the writer then calls ``takeBatch()`` and hands that array to the ledger, which
+/// Half-ring hand-off: ``append(_:)`` returns true once ``batchSize`` slots (half the ring) have
+/// been appended since the last take, and on every append after that until a take; the writer
+/// then calls ``takeBatch()`` and hands that array to the ledger, which
 /// folds it off the writer's thread. The half being handed over is never overwritten before it
 /// is copied, and the cost is one copy per ``batchSize`` slots. Slots the ring overwrote before
 /// anyone took them are counted in ``droppedCount``.
@@ -23,7 +24,6 @@ public final class InputLatencyRing {
     public private(set) var droppedCount: UInt64 = 0
 
     private let mask: UInt64
-    private let batchMask: UInt64
     private let slots: UnsafeMutablePointer<InputLatencySlot>
     /// Slots before this sequence were taken (or counted as dropped).
     private var takenThrough: UInt64 = 0
@@ -35,7 +35,6 @@ public final class InputLatencyRing {
         self.capacity = size
         batchSize = size / 2
         mask = UInt64(size - 1)
-        batchMask = UInt64(size / 2 - 1)
         slots = .allocate(capacity: size)
         slots.initialize(repeating: InputLatencySlot(kind: .keyPress, target: .other, entrypoint: .person), count: size)
     }
@@ -47,13 +46,13 @@ public final class InputLatencyRing {
 
     /// Writes `slot` after the newest one.
     ///
-    /// - Returns: True when a half of the ring just filled: call ``takeBatch()`` now.
+    /// - Returns: True when ``batchSize`` or more slots wait for a take: call ``takeBatch()`` now.
     // perf-hot: 0.05us key-dispatch
     @discardableResult
     public func append(_ slot: InputLatencySlot) -> Bool {
         slots[Int(truncatingIfNeeded: appendedCount & mask)] = slot
         appendedCount &+= 1
-        return appendedCount & batchMask == 0
+        return appendedCount &- takenThrough >= UInt64(batchSize)
     }
 
     /// The slots appended since the last take, oldest first, now counted as taken. Slots the

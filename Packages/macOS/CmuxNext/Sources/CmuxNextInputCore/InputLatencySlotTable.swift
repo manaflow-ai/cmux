@@ -1,4 +1,5 @@
 internal import Atomics
+internal import CmuxNextCompat
 
 /// Names one open slot of an ``InputLatencySlotTable``: the entry index and that entry's
 /// generation, so a late mark for an input that was already closed (or whose entry now holds
@@ -41,7 +42,10 @@ public struct InputLatencyToken: Sendable, Hashable {
 /// about 18 minutes; longer clamps), which leaves room for the generation in the same word.
 ///
 /// No allocation, lock, string or system call after `init`; callers pass the clock readings.
-/// Every word is a `ManagedAtomic` made in `init`, so the table is checked `Sendable`.
+/// The words are one contiguous buffer of atomics made in `init` (as CmuxNextCompat's
+/// `BlockingViolationTable` keeps its counts), each entry on its own 128-byte cache lines, so a
+/// close reads two lines and inputs stamped on different threads never share one. Every access
+/// to the buffer is an atomic operation, which is why the table is `Sendable`.
 public final class InputLatencySlotTable: Sendable {
     /// The entries a table holds unless told otherwise.
     public static let defaultCapacity = 128
@@ -51,7 +55,12 @@ public final class InputLatencySlotTable: Sendable {
 
     /// Read once: a synthesized `allCases` builds a new array on each read.
     private static let stageCount = InputStage.allCases.count
-    private static let stride = 3 + stageCount
+    /// Words per entry: the state, meta and base words and one per stage, rounded up to whole
+    /// cache lines.
+    private static let stride = (3 + stageCount + wordsPerLine - 1) / wordsPerLine * wordsPerLine
+    /// Apple silicon's cache line (128 bytes) in words.
+    private static let lineBytes = 128
+    private static let wordsPerLine = lineBytes / MemoryLayout<UInt64>.stride
     private static let stateWord = 0
     private static let metaWord = 1
     private static let baseWord = 2
@@ -68,15 +77,25 @@ public final class InputLatencySlotTable: Sendable {
         case closing = 3
     }
 
-    /// ``capacity`` entries of ``stride`` words each, made once in `init`.
-    private let words: [ManagedAtomic<UInt64>]
-    private let cursor = ManagedAtomic<UInt>(0)
-    private let dropped = ManagedAtomic<UInt64>(0)
+    /// ``capacity`` entries of ``stride`` words each, made once in `init`, line-aligned.
+    nonisolated(unsafe) private let words: UnsafeMutablePointer<UnsafeAtomic<UInt64>.Storage> // crash-allow: fixed allocation of atomics; every access is an atomic operation
+    private var wordCount: Int { capacity * Self.stride }
+    private let cursor = Atomic<UInt>(0)
+    private let dropped = Atomic<UInt64>(0)
 
     /// A table of `capacity` entries (clamped to 1...256).
     public init(capacity: Int = InputLatencySlotTable.defaultCapacity) {
         self.capacity = min(max(capacity, 1), 256)
-        words = (0..<self.capacity * Self.stride).map { _ in ManagedAtomic<UInt64>(0) }
+        let count = self.capacity * Self.stride
+        words = UnsafeMutableRawPointer
+            .allocate(byteCount: count * MemoryLayout<UnsafeAtomic<UInt64>.Storage>.stride, alignment: Self.lineBytes)
+            .bindMemory(to: UnsafeAtomic<UInt64>.Storage.self, capacity: count)
+        for word in 0..<count { (words + word).initialize(to: UnsafeAtomic<UInt64>.Storage(0)) }
+    }
+
+    deinit {
+        words.deinitialize(count: wordCount)
+        UnsafeMutableRawPointer(words).deallocate()
     }
 
     /// Inputs refused because every entry was open.
@@ -99,7 +118,7 @@ public final class InputLatencySlotTable: Sendable {
     public func begin(kind: InputEventKind, target: InputTarget, entrypoint: InputEntrypoint,
                       generated: UInt64) -> InputLatencyToken? {
         guard generated != 0 else { return nil }
-        let start = cursor.loadThenWrappingIncrement(ordering: .relaxed)
+        let start = cursor.wrappingAdd(1, ordering: .relaxed).oldValue
         for probe in 0..<capacity {
             let index = Int(truncatingIfNeeded: (start &+ UInt(probe)) % UInt(capacity))
             let state = atomic(index, Self.stateWord)
@@ -119,7 +138,7 @@ public final class InputLatencySlotTable: Sendable {
             state.store(generation << 8 | Phase.open.rawValue, ordering: .releasing)
             return InputLatencyToken(index: index, generation: generation)
         }
-        dropped.wrappingIncrement(ordering: .relaxed)
+        dropped.wrappingAdd(1, ordering: .relaxed)
         return nil
     }
 
@@ -207,8 +226,9 @@ public final class InputLatencySlotTable: Sendable {
 
     // MARK: words
 
-    private func atomic(_ index: Int, _ word: Int) -> ManagedAtomic<UInt64> {
-        words[index * Self.stride + word]
+    @inline(__always)
+    private func atomic(_ index: Int, _ word: Int) -> UnsafeAtomic<UInt64> {
+        UnsafeAtomic(at: words + (index * Self.stride + word))
     }
 
     /// The next generation after `generation`, never 0 (so no token is 0).

@@ -1,4 +1,6 @@
+import CmuxNextCompat
 @testable import CmuxNextInputCore
+import Foundation
 import Testing
 
 /// The input latency core (p04-input-001): the slot is a plain value, the open-slot table takes
@@ -133,6 +135,10 @@ struct InputLatencyRingTests {
         #expect(table.droppedCount == 2)
     }
 
+    /// Three lanes stamp stages and a fourth thread closes, each on a thread of its own and all
+    /// released together, the lanes marking until the closer is done, so closes land between one
+    /// lane's mark and another's. A slot that closes with some lanes' stages stamped and others
+    /// skipped proves the four overlapped; over 50 rounds at least one must.
     @Test func stagesFromThreeThreadsAndACloseOnAFourthDoNotRace() async throws {
         let table = InputLatencySlotTable()
         let lanes: [[InputStage]] = [
@@ -140,6 +146,7 @@ struct InputLatencyRingTests {
             [.dispatchEnd, .mainCommit, .contentSubmitted, .daemonReceived],
             [.ptyWritten, .echoRead, .echoSent, .presented],
         ]
+        var overlapped = false
         for round in 0..<UInt64(50) {
             var tokens: [InputLatencyToken] = []
             for offset in 0..<UInt64(table.capacity) {
@@ -148,38 +155,47 @@ struct InputLatencyRingTests {
                 tokens.append(token)
             }
             let opened = tokens
-            let closed = await withTaskGroup(of: [InputLatencySlot].self) { group in
-                for lane in lanes {
-                    group.addTask {
-                        for (offset, token) in opened.enumerated() {
+            let gate = ThreadGate(threads: lanes.count + 1)
+            var bodies: [@Sendable () -> Void] = []
+            for (laneIndex, lane) in lanes.enumerated() {
+                // Each lane starts at its own third of the table, so while the closer walks it the
+                // lanes stand at different slots.
+                let first = laneIndex * opened.count / lanes.count
+                bodies.append {
+                    repeat {
+                        for step in 0..<opened.count {
+                            let offset = (first + step) % opened.count
                             let generated = (round * 1_000 + UInt64(offset) + 1) * Self.ms
-                            for stage in lane { table.mark(token, stage, at: Self.expected(generated, stage)) }
-                            table.setCausedFrameUpdate(token)
+                            for stage in lane { table.mark(opened[offset], stage, at: Self.expected(generated, stage)) }
+                            table.setCausedFrameUpdate(opened[offset])
                         }
-                        return []
-                    }
+                    } while !gate.closerDone
                 }
-                group.addTask {
-                    let ring = InputLatencyRing()
-                    for token in opened {
-                        if let slot = table.close(token) { ring.append(slot) }
-                    }
-                    return ring.takeBatch()
-                }
-                var all: [InputLatencySlot] = []
-                for await batch in group { all += batch }
-                return all
             }
-            #expect(closed.count == table.capacity, "every open slot closes exactly once")
-            for slot in closed {
+            bodies.append {
+                let ring = InputLatencyRing()
+                for token in opened {
+                    if let slot = table.close(token) { ring.append(slot) }
+                }
+                gate.finishClosing(ring.takeBatch())
+            }
+            await gate.run(bodies)
+            let slots = gate.closedSlots
+            #expect(slots.count == table.capacity, "every open slot closes exactly once")
+            for slot in slots {
+                var stamped = false
+                var skipped = false
                 for stage in InputStage.allCases where stage != .generated && stage != .lastGenerated {
                     let value = slot[stage]
+                    if value == 0 { skipped = true } else { stamped = true }
                     #expect(value == 0 || value == Self.expected(slot.generated, stage),
                             "stage \(stage) holds a value no thread wrote for this input")
                 }
+                if stamped && skipped { overlapped = true }
             }
             for token in opened { #expect(!table.mark(token, .presented, at: 1), "a closed slot takes no late mark") }
         }
+        #expect(overlapped, "no slot closed between two lanes' marks: the threads never overlapped")
         #expect(table.droppedCount == 0)
     }
 
@@ -217,6 +233,19 @@ struct InputLatencyRingTests {
         #expect(ring.takeBatch().map(\.generated) == [5, 6, 7, 8])
         #expect(ring.takeBatch().isEmpty, "a taken slot is not handed over twice")
         #expect(ring.droppedCount == 0)
+    }
+
+    @Test func aHandOffCountsFromTheLastTakeAndRepeatsUntilATake() {
+        let ring = InputLatencyRing(capacity: 8)
+        var handOffs: [Int] = []
+        for value in 1...12 {
+            if ring.append(Self.slot(UInt64(value))) { handOffs.append(value) }
+            if value == 3 { #expect(ring.takeBatch().count == 3, "a take in the middle of a half") }
+        }
+        #expect(handOffs == [7, 8, 9, 10, 11, 12], "batchSize slots after the take, then each append until a take")
+        #expect(ring.takeBatch().map(\.generated) == Array(UInt64(5)...12), "the ring kept the newest capacity slots")
+        #expect(ring.droppedCount == 1, "slot 4 was overwritten before a take")
+        #expect(!ring.append(Self.slot(13)), "a take resets the count")
     }
 
     @Test func theRingWrapsAndCountsWhatItOverwrote() {
@@ -257,3 +286,48 @@ struct InputLatencyRingTests {
         #expect(buckets.counts[0] == 1 && buckets.counts[3] == 1 && buckets.counts[5] == 2 && buckets.counts[13] == 1)
     }
 }
+
+/// Runs bodies on threads of their own, releases them together and resumes when all have
+/// returned; the closing body hands its slots over with ``finishClosing(_:)``. Dedicated threads, not the cooperative pool, so the start gate's spin cannot starve a
+/// body that has not started yet.
+private final class ThreadGate: Sendable {
+    private let threads: Int
+    private let arrived = Atomic<Int>(0)
+    private let finished = Atomic<Int>(0)
+    private let closed = Atomic<Bool>(false)
+    private let done = Mutex<CheckedContinuation<Void, Never>?>(nil)
+    private let slots = Mutex<[InputLatencySlot]>([])
+
+    init(threads: Int) {
+        self.threads = threads
+    }
+
+    /// Whether the closing body has finished its walk.
+    var closerDone: Bool { closed.load(ordering: .acquiring) }
+
+    /// The slots the closing body handed over.
+    var closedSlots: [InputLatencySlot] { slots.withLock { $0 } }
+
+    func finishClosing(_ closedSlots: [InputLatencySlot]) {
+        slots.withLock { $0 = closedSlots }
+        closed.store(true, ordering: .releasing)
+    }
+
+    func run(_ bodies: [@Sendable () -> Void]) async {
+        precondition(bodies.count == threads)
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            done.withLock { $0 = continuation }
+            for body in bodies {
+                Thread.detachNewThread { [self] in
+                    arrived.wrappingAdd(1, ordering: .acquiringAndReleasing)
+                    while arrived.load(ordering: .acquiring) < threads {}
+                    body()
+                    if finished.wrappingAdd(1, ordering: .acquiringAndReleasing).newValue == threads {
+                        done.withLock { $0.take() }?.resume()
+                    }
+                }
+            }
+        }
+    }
+}
+
