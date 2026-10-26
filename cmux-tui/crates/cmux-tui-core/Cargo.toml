@@ -17,8 +17,12 @@ default = []
 # have it and release builds never do. Off by default; the oracle builds
 # `--profile oracle --features oracle` (p15-oracle task 201).
 oracle = []
+# The lab's tokio slow-poll detector (cmux-blocking; RUSTFLAGS="--cfg tokio_unstable").
+cmux-stability = ["cmux-blocking/cmux-stability"]
 
 [dependencies]
+cmux-blocking.workspace = true
+cmux-lock-rank.workspace = true
 cmux-agent-pane-policy.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-cdp.workspace = true
