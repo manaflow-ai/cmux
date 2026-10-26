@@ -85,6 +85,8 @@ final class BlockingViolationTable: Sendable {
         var kind: BlockingKind
         var seamKind: BlockingKind
         var location: String
+        /// What the sink got, or, for a site drained before a sink was installed, gets at install.
+        var violation: BlockingViolation
     }
 
     /// Makes a table.
@@ -330,9 +332,11 @@ final class BlockingViolationTable: Sendable {
     private func drain(_ ring: BlockingPendingRing, context: BlockingContext, _ resolver: inout BlockingFrameResolver) {
         while let pending = ring.pop() {
             let location = "\(pending.fileID):\(pending.line)"
+            let violation = BlockingViolation(kind: pending.kind, context: context, frames: resolver.frames(pending.stack),
+                                              seamKind: pending.seamKind)
             published.withLock {
                 $0.append(PublishedSite(id: pending.site, context: context, kind: pending.kind,
-                                        seamKind: pending.seamKind, location: location))
+                                        seamKind: pending.seamKind, location: location, violation: violation))
             }
             #if DEBUG
             // A fault, not an error: a new site is a bug to fix (p02-threads-006), and a fault is kept in the
@@ -346,9 +350,7 @@ final class BlockingViolationTable: Sendable {
                 logger.fault("blocking \(pending.kind.rawValue, privacy: .public) on the main thread at \(location, privacy: .public): move it off the main thread, or wrap it in allowBlocking(<reviewed reason>) (plans/cmux-next/threading-model.md)")
             }
             #endif
-            guard let sink = sink.withLock({ $0 }) else { continue }
-            sink.record(BlockingViolation(kind: pending.kind, context: context, frames: resolver.frames(pending.stack),
-                                          seamKind: pending.seamKind))
+            sink.withLock { $0 }?.record(violation)
         }
     }
 
@@ -376,8 +378,15 @@ final class BlockingViolationTable: Sendable {
 
     // MARK: readers (any thread)
 
+    /// Installs `sink` on the drain queue and, in the same turn, hands it every site drained before
+    /// (the launch's sites before the composition root ran): the drain runs on that queue too, so each
+    /// site reaches the sink once, by this replay or by the drain.
     func install(sink: (any BlockingViolationSink)?) {
-        self.sink.withLock { $0 = sink }
+        drainQueue.async { [self] in
+            self.sink.withLock { $0 = sink }
+            guard let sink else { return }
+            for site in published.withLock({ $0 }) { sink.record(site.violation) }
+        }
     }
 
     /// Every published site of every context, in the order each first reached the drain.
