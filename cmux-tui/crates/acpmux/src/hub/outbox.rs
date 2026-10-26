@@ -12,6 +12,12 @@
 //! every change, so a daemon restart goes on with what was not delivered yet; a store in memory
 //! keeps it in memory. Settled deliveries are kept for [`KEEP_SETTLED_MS`].
 //!
+//! A change returns once a file that holds it is on disk, unless the write failed: that is
+//! logged and the change is only in memory until a later write succeeds, as before. The file is
+//! written outside the deliveries lock and changes made while one write runs share the next one
+//! (group commit): 60 sends at once used to queue behind 180 whole-file writes and syncs, each up
+//! to a second on a busy disk (`design/acpmux-perf.md` in leo-workspace).
+//!
 //! A peer answers a forwarded `session/prompt` only when its turn ends (or, for a steer, when the
 //! agent's step ends), so the forwarding daemon passes the peer's `_acpmux/prompt_accepted` on to
 //! the connection that sent the prompt as soon as it arrives ([`PeerAccepts`]).
@@ -94,10 +100,19 @@ impl Delivery {
 /// The deliveries, saved at `path` when the store is on disk.
 #[derive(Default)]
 pub struct Outbox {
-    deliveries: StdMutex<BTreeMap<String, Delivery>>,
+    deliveries: StdMutex<Book>,
     path: StdMutex<Option<PathBuf>>,
+    /// The last change on disk, held while a write runs.
+    saved: StdMutex<u64>,
     /// Fired on every change: a `send_status` that waits wakes.
     pub changed: Notify,
+}
+
+/// The deliveries and the number of changes made to them.
+#[derive(Default)]
+struct Book {
+    deliveries: BTreeMap<String, Delivery>,
+    changes: u64,
 }
 
 impl Outbox {
@@ -112,55 +127,136 @@ impl Outbox {
             Err(_) => BTreeMap::new(),
         };
         *self.path.lock().unwrap_or_else(|e| e.into_inner()) = Some(path.to_owned());
-        let mut deliveries = self.deliveries.lock().unwrap_or_else(|e| e.into_inner());
-        deliveries.extend(saved);
-        deliveries.values().filter(|d| !d.settled()).cloned().collect()
+        let mut book = self.book();
+        book.deliveries.extend(saved);
+        // Attachments come back from beside the file; ones no waiting delivery names go.
+        let dir = attachments_dir(path);
+        let mut named = std::collections::HashSet::new();
+        for d in book.deliveries.values_mut().filter(|d| !d.settled()) {
+            let kept = dir.join(format!("{}.json", d.id));
+            if let Some(request) =
+                std::fs::read(&kept).ok().and_then(|b| serde_json::from_slice(&b).ok())
+            {
+                d.request = request;
+                named.insert(kept);
+            }
+        }
+        for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            if !named.contains(&entry.path()) {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+        book.deliveries.values().filter(|d| !d.settled()).cloned().collect()
+    }
+
+    fn book(&self) -> std::sync::MutexGuard<'_, Book> {
+        self.deliveries.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Where delivery `d`'s attachments are kept, when it has any and the outbox is on disk.
+    pub fn attachments_path(&self, d: &Delivery) -> Option<PathBuf> {
+        let blocks = d.request.get("prompt").and_then(Value::as_array)?;
+        let path = self.path.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
+        crate::attach::any(blocks).then(|| attachments_dir(&path).join(format!("{}.json", d.id)))
     }
 
     /// Records a new delivery; the same prompt id again answers with the first one.
     pub fn add(&self, delivery: Delivery) -> Delivery {
-        let mut deliveries = self.deliveries.lock().unwrap_or_else(|e| e.into_inner());
+        let mut book = self.book();
         let prompt_id = delivery.prompt_id().to_owned();
-        if let Some(first) = deliveries.values().find(|d| d.prompt_id() == prompt_id) {
-            return first.clone();
+        if let Some(first) = book.deliveries.values().find(|d| d.prompt_id() == prompt_id) {
+            let first = first.clone();
+            // The first add may still be writing: answer once the file holds it too.
+            let change = book.changes;
+            drop(book);
+            self.save(change);
+            return first;
         }
-        deliveries.insert(delivery.id.clone(), delivery.clone());
-        self.save(&mut deliveries);
-        drop(deliveries);
+        book.deliveries.insert(delivery.id.clone(), delivery.clone());
+        let change = book.changed();
+        drop(book);
+        self.save(change);
         self.changed.notify_waiters();
         delivery
     }
 
     pub fn get(&self, id: &str) -> Option<Delivery> {
-        self.deliveries.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()
+        self.book().deliveries.get(id).cloned()
     }
 
     /// Changes delivery `id` with `f` and saves.
     pub fn update(&self, id: &str, f: impl FnOnce(&mut Delivery)) {
-        let mut deliveries = self.deliveries.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(d) = deliveries.get_mut(id) else { return };
+        let mut book = self.book();
+        let Some(d) = book.deliveries.get_mut(id) else { return };
         f(d);
         d.updated_at = crate::store::now_ms();
-        self.save(&mut deliveries);
-        drop(deliveries);
+        let change = book.changed();
+        drop(book);
+        self.save(change);
         self.changed.notify_waiters();
     }
 
-    /// Drops what settled long ago, then writes the file (when there is one).
-    fn save(&self, deliveries: &mut BTreeMap<String, Delivery>) {
-        let now = crate::store::now_ms();
-        deliveries
-            .retain(|_, d| !d.settled() || now.saturating_sub(d.updated_at) < KEEP_SETTLED_MS);
+    /// Returns once a file that holds change `change` is on disk, or after logging a failed
+    /// write (then nothing is marked saved, so the next change writes everything again). A write
+    /// that started after the change covers it, so changes made while one write runs share the
+    /// next.
+    fn save(&self, change: u64) {
         let Some(path) = self.path.lock().unwrap_or_else(|e| e.into_inner()).clone() else {
             return;
         };
-        let written = serde_json::to_vec_pretty(&*deliveries)
+        let mut saved = self.saved.lock().unwrap_or_else(|e| e.into_inner());
+        if *saved >= change {
+            return;
+        }
+        let (bytes, newest) = {
+            let book = self.book();
+            // Attachment bytes are kept once beside the file (`keep_attachments`), not rewritten
+            // here.
+            let on_disk: BTreeMap<&String, std::borrow::Cow<Delivery>> = book
+                .deliveries
+                .iter()
+                .map(|(id, d)| {
+                    let blocks = d.request.get("prompt").and_then(Value::as_array);
+                    if !blocks.is_some_and(|b| crate::attach::any(b)) {
+                        return (id, std::borrow::Cow::Borrowed(d));
+                    }
+                    let mut d = d.clone();
+                    crate::attach::strip(&mut d.request);
+                    (id, std::borrow::Cow::Owned(d))
+                })
+                .collect();
+            (serde_json::to_vec(&on_disk), book.changes)
+        };
+        let written = bytes
             .map_err(anyhow::Error::from)
             .and_then(|bytes| crate::config::write_atomic(&path, &bytes));
-        if let Err(e) = written {
-            tracing::warn!("outbox: could not save {}: {e:#}", path.display());
+        match written {
+            Ok(()) => *saved = newest,
+            // Not marked saved: the next change writes again.
+            Err(e) => tracing::warn!("outbox: could not save {}: {e:#}", path.display()),
         }
     }
+}
+
+impl Book {
+    /// Counts a change and drops what settled long ago; returns the change's number.
+    fn changed(&mut self) -> u64 {
+        let now = crate::store::now_ms();
+        self.deliveries
+            .retain(|_, d| !d.settled() || now.saturating_sub(d.updated_at) < KEEP_SETTLED_MS);
+        self.changes += 1;
+        self.changes
+    }
+}
+
+/// The folder beside `outbox.json` (at `path`) that keeps waiting deliveries' attachments.
+fn attachments_dir(path: &Path) -> PathBuf {
+    path.with_file_name("outbox-attachments")
+}
+
+/// Keeps `request` (with its attachment bytes) at `path`, owner-only. Blocking.
+pub fn keep_attachments(path: &Path, request: &Value) -> anyhow::Result<()> {
+    crate::agent_tools::write_private(path, &serde_json::to_vec(request)?)
 }
 
 type AcceptHook = Box<dyn FnOnce(Value) + Send>;
@@ -215,4 +311,132 @@ impl PeerAccepts {
 pub fn local_only() -> RpcError {
     RpcError::invalid_params("only the unix socket queues a message for delivery")
         .with_data(json!({"reason": "outbox.local_only"}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn delivery(n: usize) -> Delivery {
+        let now = crate::store::now_ms();
+        Delivery {
+            id: format!("d-{n}"),
+            target: "lane".into(),
+            request: json!({"sessionId": "lane", "_meta": {"acpmux": {"promptId": format!("p-{n}")}}}),
+            caller: None,
+            state: State::Queued,
+            attempts: 0,
+            error: None,
+            accepted: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    /// Sends from many tasks at once share writes, and the file still holds every one of them
+    /// when each `add` returns: a restart delivers all of them.
+    #[test]
+    fn concurrent_adds_are_all_on_disk_when_they_return() {
+        let dir = std::env::temp_dir().join(format!("acpmux-outbox-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("outbox.json");
+        let outbox = std::sync::Arc::new(Outbox::default());
+        assert!(outbox.open(&path).is_empty());
+        let threads: Vec<_> = (0..64)
+            .map(|n| {
+                let outbox = outbox.clone();
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    outbox.add(delivery(n));
+                    // What a restart would read right now holds this one.
+                    let saved: BTreeMap<String, Delivery> =
+                        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+                    assert!(saved.contains_key(&format!("d-{n}")), "d-{n} not on disk");
+                })
+            })
+            .collect();
+        for t in threads {
+            t.join().unwrap();
+        }
+        outbox.update("d-3", |d| d.state = State::Delivered);
+        let restarted = Outbox::default();
+        let pending = restarted.open(&path);
+        assert_eq!(pending.len(), 63);
+        assert_eq!(restarted.get("d-3").map(|d| d.state), Some(State::Delivered));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A retry of a prompt whose first add is still writing answers only once the file holds it.
+    #[test]
+    fn a_duplicate_add_returns_once_the_first_is_on_disk() {
+        let dir = std::env::temp_dir().join(format!("acpmux-outbox-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("outbox.json");
+        let outbox = std::sync::Arc::new(Outbox::default());
+        outbox.open(&path);
+        // Hold the write lock as a slow write would, then add: the delivery is in memory only.
+        let held = outbox.saved.lock().unwrap();
+        let first = {
+            let outbox = outbox.clone();
+            std::thread::spawn(move || outbox.add(delivery(1)))
+        };
+        while outbox.get("d-1").is_none() {
+            std::thread::yield_now();
+        }
+        let retry = {
+            let outbox = outbox.clone();
+            let path = path.clone();
+            std::thread::spawn(move || {
+                let again = outbox.add(delivery(1));
+                let saved: BTreeMap<String, Delivery> =
+                    serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+                (again.id, saved.contains_key("d-1"))
+            })
+        };
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert!(!retry.is_finished(), "the retry answered before the first add was on disk");
+        drop(held);
+        first.join().unwrap();
+        assert_eq!(retry.join().unwrap(), ("d-1".to_owned(), true));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A waiting delivery's attachments are kept once beside `outbox.json`, which never holds
+    /// their bytes; a restart reads them back, and ones nothing names go.
+    #[test]
+    fn attachments_are_kept_beside_the_file_and_come_back_after_a_restart() {
+        let dir = std::env::temp_dir().join(format!("acpmux-outbox-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("outbox.json");
+        let block = crate::attach::block("shot.png", b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR");
+        let data = block["data"].as_str().unwrap().to_owned();
+        let request = json!({"sessionId": "lane", "prompt": [block],
+                             "_meta": {"acpmux": {"promptId": "p1"}}});
+        let d = Delivery {
+            id: "d1".into(),
+            target: "lane".into(),
+            request,
+            caller: None,
+            state: State::Queued,
+            attempts: 0,
+            error: None,
+            accepted: None,
+            created_at: 0,
+            updated_at: crate::store::now_ms(),
+        };
+        let outbox = Outbox::default();
+        outbox.open(&path);
+        let kept = outbox.attachments_path(&d).unwrap();
+        keep_attachments(&kept, &d.request).unwrap();
+        let orphan = kept.with_file_name("gone.json");
+        std::fs::write(&orphan, b"{}").unwrap();
+        outbox.add(d);
+        assert!(!std::fs::read_to_string(&path).unwrap().contains(&data));
+        assert_eq!(outbox.get("d1").unwrap().request["prompt"][0]["data"], data);
+        let restarted = Outbox::default();
+        let pending = restarted.open(&path);
+        assert_eq!(pending[0].request["prompt"][0]["data"], data);
+        assert!(kept.exists() && !orphan.exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

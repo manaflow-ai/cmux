@@ -65,6 +65,9 @@ export type AcpmuxSessionEntry = {
   /** One line of what its running turn does now: its plan step and latest tool, as acpmux says it
    *  to the parent's agent (`doing`). */
   doing?: string;
+  /** The tool part of `doing` (acpmux `turn.activity`, its latest tool call's title), when it has
+   *  one: the tray reads a shell call's title, the command as typed, as "Running <command>". */
+  doingTool?: string;
   /** What it waits on the person for, while it does: an agent question (with its first prompt)
    *  or a tool's permission. acpmux names it on a sub-session's family rows (`waitingOn`,
    *  subsession_send.rs `waiting_on`); a summary that does not leaves it unknown. */
@@ -222,6 +225,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     queued: Number(session.queued) > 0 ? Number(session.queued) : undefined,
     ...(session.waitsForSlot === true && { waitsForSlot: true as const }),
     doing: doingLine(session),
+    doingTool: session.lane?.state === "working" ? text(session.turn?.activity) : undefined,
     waitingOn: sessionWaiting(session),
     forkSeq: typeof session.forkSeq === "number" ? session.forkSeq : undefined,
     turnCount: typeof session.turnCount === "number" ? session.turnCount : undefined,

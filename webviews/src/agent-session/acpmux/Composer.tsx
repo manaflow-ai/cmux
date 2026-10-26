@@ -8,12 +8,13 @@ import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import { type AttachmentError, type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
+import { opensProcessTerminal } from "./processTerminal";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
 import { showsLocationRow } from "./locationRow";
 import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
 import { ComposerQueue } from "./ComposerQueue";
-import type { Subsessions } from "./subagents/subsessions";
+import { ownQueue } from "./conversation/queuedMessages";
 import {
   ArrowUpIcon,
   AtIcon,
@@ -30,6 +31,7 @@ import {
   type ComposerPermissionAccess,
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
+import { PromptFocus } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
 import { Icon } from "./icons/Icon";
 import { MentionMenu, mentionQuery, mentionResults, useMentionSearch } from "./MentionMenu";
@@ -187,8 +189,6 @@ type Props = {
   /// Reads an image a queued prompt sends by its acpmux id, as a data URL (`_acpmux/attachment`).
   /// Stable: each queued thumbnail reads once.
   queueImage?(id: string): Promise<string | undefined>;
-  /// The listed chats, among which a queued agent's message finds its sender's (ComposerQueue.tsx).
-  queueSubsessions?: Subsessions;
   /// Asks a queued prompt in a new side chat and withdraws it (the queued row's Open in side chat);
   /// absent where the chat opens no side chat.
   onQueueSideChat?(promptId: string, prompt: string): Promise<boolean>;
@@ -237,7 +237,7 @@ type Props = {
   /// Saves dropped, pasted or chosen files the composer can't attach where the agent reads them (a
   /// moved chat's machine, or this Mac): each becomes a chip that sends its path. Undefined when this
   /// chat takes none.
-  upload?(files: File[]): Promise<UploadResult>;
+  upload?(files: File[], cancelled?: (index: number) => boolean): Promise<UploadResult>;
   /// For a chat on this Mac: where the files of the person's drop or paste are, so a folder or a file
   /// no block takes goes as a link to it, with nothing copied (composer/intakeFiles.ts droppedPaths).
   localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
@@ -304,7 +304,6 @@ export function Composer({
   onQueueLost,
   onQueueSideChat,
   queueImage,
-  queueSubsessions,
   draft,
   leading,
   permissionAccess,
@@ -479,6 +478,8 @@ export function Composer({
     setAttachments,
     pending,
     loading,
+    unsettled,
+    videoReading,
     cancel,
     retry,
     attachError,
@@ -502,6 +503,8 @@ export function Composer({
     // pasted in: its chip joins that chat's kept chips (keptAttachments.ts), unless a switch carries
     // the prompt to its new session.
     scope: sessionId,
+    // A chat on this Mac (Quick Chat too): its attached videos show their posters.
+    localChat: opensProcessTerminal(snapshot.summary),
     elsewhere: (chat, chips) => {
       if (!keptAttachments) return;
       void keptAttachments
@@ -515,7 +518,7 @@ export function Composer({
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
-  const holdForAttachments = useSendWhenAttached(loading, sessionId);
+  const holdForAttachments = useSendWhenAttached(loading + videoReading, sessionId, unsettled + videoReading);
   // The box makes a huge paste a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
   const box = useRef<ComposerBoxHandle>(null);
   // A paste anywhere in the pane outside a text field goes into the prompt, after what is already
@@ -1155,7 +1158,7 @@ export function Composer({
       }
     }
     // ↑ on an empty prompt goes to the queue's last prompt (ComposerQueue.tsx has its keys).
-    if (event.key === "ArrowUp" && plain && !open && !text.trim() && snapshot.queue.length) {
+    if (event.key === "ArrowUp" && plain && !open && !text.trim() && ownQueue(snapshot.queue).length) {
       // The list draws at the top of the form, over the strip (ComposerQueue.tsx).
       const chat = form.current?.closest(".acpmux-main") ?? form.current;
       // A long queue's fold ("N more queued") sits under its rows, so ↑ reaches it first.
@@ -1478,7 +1481,7 @@ export function Composer({
     locationSlotSession.current = undefined;
     locationSlotWasShown.current = false;
   }
-  const keepLocationSlot = !locationVisible && locationWasVisible && snapshot.queue.length === 0;
+  const keepLocationSlot = !locationVisible && locationWasVisible && ownQueue(snapshot.queue).length === 0;
   const context = locationVisible ? (
     <ComposerContext
       projectChoices={projectChoices}
@@ -1589,7 +1592,6 @@ export function Composer({
         onLost={onQueueLost}
         onSideChat={onQueueSideChat}
         readImage={queueImage}
-        subsessions={queueSubsessions}
         onLeave={() => field.current?.focus()}
       />
       {context}
@@ -1648,6 +1650,7 @@ export function Composer({
           field.current?.focus();
         }}
         onRetryAttachment={retry}
+        onPasteFile={(file) => void attach([file], true, "paste")}
         fieldMenu={fieldMenu}
         onFieldMenuOpen={noteSelection}
         fieldOverlay={
@@ -1806,7 +1809,11 @@ export function Composer({
             )}
           </>
         }
-        chips={<Chips snapshot={snapshot} permissionAccess={permissionAccess} />}
+        chips={
+          <PromptFocus value={focusPrompt}>
+            <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
+          </PromptFocus>
+        }
         // Claude Code ends the quiet row on the context ring. It keeps its place before the chat
         // reports usage (inert, ContextRing), so the first report moves nothing in the row
         // (hq#1957: the composer holds still while a turn runs); the context-usage setting

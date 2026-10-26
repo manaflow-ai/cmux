@@ -148,7 +148,7 @@ export default componentEntry<Props>({
   widths: { narrow: 900, normal: 1280 },
   covers: ["agent-session/acpmux/inspector/ChatInspector.tsx#InspectorPanel"],
   load: async () => {
-    // The viewer left the Inspector open (it holds in every chat tab), and the header offers it.
+    // The viewer left the Inspector open (each pane keeps its own), and the header offers it.
     setHeaderState({ inspector: true });
     setInspectorOpen(true);
     return GalleryPane;
