@@ -129,9 +129,9 @@ public final class ChromiumHostPageView: NSView {
     var textInput = ChromiumHostTextInput()
     /// Secure event input while a password field of the page has focus (ChromiumHostPageView+TextInput.swift).
     var passwordInput = ChromiumHostPasswordInput()
-    /// The page is a cmux page (host mode's counterpart of ``CEFTab/pageThemeSurface``), set by the page's
-    /// owner: no macOS caret accessory over its fields.
-    var showsCmuxPage = false
+    /// Whether the page shown now is a cmux page (host mode's counterpart of ``CEFTab/pageThemeSurface``),
+    /// asked of the page's owner (``CEFPaneHost/hostedPage()``): no macOS caret accessory over its fields.
+    var showsCmuxPage: @MainActor () -> Bool = { false }
     private var tracking: NSTrackingArea?
     #endif
 

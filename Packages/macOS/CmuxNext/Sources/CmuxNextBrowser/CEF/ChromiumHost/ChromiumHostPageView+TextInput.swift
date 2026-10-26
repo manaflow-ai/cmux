@@ -109,11 +109,12 @@ extension ChromiumHostPageView: NSTextInputClient {
         passwordInput.turn(passwordInput.isKey(window))
     }
 
-    /// The view moved to another window or out of every window: the key watch was the old window's, and a
-    /// view out of every window is no one's first responder (AppKit need not tell it).
+    /// The view moved to another window or out of every window: the key watch was the old window's, and the
+    /// focus is what the new window says (AppKit need not tell a view that leaves a window that it resigned),
+    /// as Chrome reads `[[self window] firstResponder] == self` (render_widget_host_view_cocoa.mm).
     func passwordInputWindowChanged() {
         passwordInput.keyWatch = []
-        if window == nil { passwordInput.focused = false }
+        passwordInput.focused = window?.firstResponder === self
         updatePasswordInput()
     }
 
@@ -121,9 +122,10 @@ extension ChromiumHostPageView: NSTextInputClient {
 
     /// macOS 14's caret bubble over a cmux page stays hidden, as on Chromium's
     /// own view of one; a web page keeps the system's placement
-    /// (``ChromiumPageTextAccessory/placement(showsCmuxPage:)``).
-    @objc public var preferredTextAccessoryPlacement: NSTextCursorAccessoryPlacement {
-        ChromiumPageTextAccessory.placement(showsCmuxPage: showsCmuxPage)
+    /// (``ChromiumPageTextAccessory/placement(showsCmuxPage:)``). The page's
+    /// owner says which page shows (``showsCmuxPage``).
+    public func preferredTextAccessoryPlacement() -> NSTextCursorAccessoryPlacement {
+        ChromiumPageTextAccessory.placement(showsCmuxPage: showsCmuxPage())
     }
 
     // MARK: NSTextInputClient: changes

@@ -42,6 +42,8 @@ extension CEFPaneHost {
         }
         #if DEBUG || CMUX_BENCH_HOOKS
         page.textInputSink = { [weak self] op in self?.sendTextInput(op) }
+        // No macOS caret accessory while the shown tab is a cmux page, as on Chromium's own view of one.
+        page.showsCmuxPage = { [weak self] in self?.visibleTab?.pageThemeSurface != nil }
         #endif
         // The host's page window takes the view's size in the same commit as the pane (task 052).
         page.onGeometry = { [weak self, weak page] geometry in

@@ -33,6 +33,11 @@ import Testing
         var isKey = true
     }
 
+    /// Whether the page the owner shows is a cmux page.
+    final class ShownPage {
+        var isCmuxPage = false
+    }
+
     /// A page view in a window that never shows, with the recorder and the key state as its seams.
     struct Rig {
         let calls = SwitchCalls()
@@ -152,6 +157,32 @@ import Testing
         #expect(rig.calls.enableCount == 2 && rig.calls.disableCount == 2)
     }
 
+    /// A focused page moved straight into another window (an addSubview with no removal first) is not that
+    /// window's first responder: secure input stays off there until it becomes one, as Chrome reads
+    /// `[[self window] firstResponder] == self` (render_widget_host_view_cocoa.mm).
+    @Test func aFocusedPageMovedStraightIntoAnotherWindowIsBlurredThere() {
+        let rig = Rig()
+        let second = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 400, height: 300), styleMask: .borderless,
+                              backing: .buffered, defer: true)
+        second.isReleasedWhenClosed = false
+        defer {
+            rig.close()
+            second.close()
+        }
+        #expect(rig.window.makeFirstResponder(rig.view))
+        rig.view.applyTextInputState(Self.password)
+        #expect(rig.calls.isOn)
+
+        second.contentView?.addSubview(rig.view)
+        #expect(rig.view.window === second)
+        #expect(second.firstResponder !== rig.view)
+        #expect(!rig.calls.isOn, "keyboard focus is elsewhere in the new window")
+
+        #expect(second.makeFirstResponder(rig.view))
+        #expect(rig.calls.isOn)
+        #expect(rig.calls.enableCount == 2 && rig.calls.disableCount == 1)
+    }
+
     /// The enabler is scoped: releasing what holds it (the page view's release too) disables once.
     @Test func releasingTheHolderDisablesOnce() {
         let calls = SwitchCalls()
@@ -168,16 +199,24 @@ import Testing
 
     /// No macOS 14 caret bubble over a cmux page on the host page view, the text input client cmux implements
     /// itself; a web page keeps the system's placement, as on Chromium's own view (`ChromiumPageTextAccessory`).
+    /// AppKit asks through the Objective-C selector, so the answer is read there.
     @Test func aCmuxPageShowsNoCaretAccessory() throws {
-        typealias Getter = @convention(c) (AnyObject, Selector) -> Int
         let view = ChromiumHostPageView(frame: .zero)
+        #expect(try Self.accessoryPlacement(of: view) == .unspecified, "no owner: a web page")
+        let shown = ShownPage()
+        view.showsCmuxPage = { shown.isCmuxPage }
+        #expect(try Self.accessoryPlacement(of: view) == .unspecified)
+        shown.isCmuxPage = true
+        #expect(try Self.accessoryPlacement(of: view) == .invisible)
+    }
+
+    /// The caret accessory placement AppKit reads from `view` (`-preferredTextAccessoryPlacement`).
+    static func accessoryPlacement(of view: ChromiumHostPageView) throws -> NSTextCursorAccessoryPlacement? {
+        typealias Getter = @convention(c) (AnyObject, Selector) -> Int
         let selector = ChromiumPageTextAccessory.selector
         try #require(view.responds(to: selector))
         let imp = try #require(class_getMethodImplementation(ChromiumHostPageView.self, selector))
-        let placement = { NSTextCursorAccessoryPlacement(rawValue: unsafeBitCast(imp, to: Getter.self)(view, selector)) }
-        #expect(placement() == .unspecified)
-        view.showsCmuxPage = true
-        #expect(placement() == .invisible)
+        return NSTextCursorAccessoryPlacement(rawValue: unsafeBitCast(imp, to: Getter.self)(view, selector))
     }
 }
 
