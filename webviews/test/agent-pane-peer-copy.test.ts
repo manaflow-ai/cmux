@@ -27,7 +27,9 @@
 //   - a chat on this Mac never asks for a copy;
 //   - an attach reply of the session before a recreation is dropped for the session listed now, an
 //     attach a reconnect took over leaves the copy to it, and a redraw's attach refused as down
-//     draws the Mac's copy.
+//     draws the Mac's copy;
+//   - a late record of an attach that failed stays off the offline copy, and every attach reply
+//     is held to the row as it answers (a retry's too, and a createdAt earlier than the reply's).
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
@@ -886,6 +888,63 @@ test("a session recreated and back at once takes the old copy off screen before 
   daemon.comeBack();
   await flush();
   expect(shownDuringAttach).not.toContain("old ");
+  const shown = text(tab.last());
+  expect(shown).toContain("new 3.");
+  expect(shown).not.toContain("old ");
+});
+
+test("a record that comes after the attach failed is not shown past the offline copy", async () => {
+  const daemon = new Daemon();
+  daemon.copy = { events: turn(1, 4, "kept"), generation: 100, lastSeq: 4 };
+  const tab = open(daemon);
+  live.push(await tab.client);
+  await flush();
+  expect(tab.last()!.peerCopy?.offline).toBe(true);
+  // A live record of the refused attach, late: the copy shows what the Mac confirmed, no more.
+  const late = record(5, "late 5. ");
+  daemon.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: late }) });
+  await flush();
+  const shown = text(tab.last());
+  expect(shown).toContain("kept 4.");
+  expect(shown).not.toContain("late 5.");
+});
+
+test("an attach retried for a recreated session is held to the row again when it answers", async () => {
+  const daemon = new Daemon();
+  daemon.down = false;
+  daemon.log = turn(1, 3, "new");
+  // The row changes twice while the attaches are out (100, then 200, then 300), and each reply is
+  // of the session before: the retry's reply of 200 is not taken for the 300 listed by then.
+  daemon.staleReply = { createdAt: 100, events: turn(1, 5, "old") };
+  daemon.onAttach = () => {
+    daemon.createdAt = 200;
+    daemon.announce();
+    daemon.onAttach = () => {
+      daemon.createdAt = 300;
+      daemon.announce();
+      daemon.staleReply = { createdAt: 200, events: turn(1, 4, "mid") };
+    };
+  };
+  const tab = open(daemon);
+  live.push(await tab.client);
+  await flush();
+  const shown = text(tab.last());
+  expect(shown).toContain("new 3.");
+  expect(shown).not.toContain("mid ");
+  expect(shown).not.toContain("old ");
+});
+
+test("a session recreated with an earlier createdAt is not taken for the one before", async () => {
+  const daemon = new Daemon();
+  daemon.down = false;
+  daemon.createdAt = 200;
+  daemon.log = turn(1, 3, "new");
+  // A machine back on an earlier clock recreates the session as 150 while the attach is out.
+  daemon.recreatedDuringAttach = 150;
+  daemon.staleReply = { createdAt: 200, events: turn(1, 5, "old") };
+  const tab = open(daemon);
+  live.push(await tab.client);
+  await flush();
   const shown = text(tab.last());
   expect(shown).toContain("new 3.");
   expect(shown).not.toContain("old ");

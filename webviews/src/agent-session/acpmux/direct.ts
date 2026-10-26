@@ -234,6 +234,9 @@ const sentByChief = (msg: { promptId?: unknown }) =>
 /// Page size caps acpmux applies (maxBytes): opening a chat, then each older page as the reader scrolls up.
 const OPEN_PAGE_BYTES = 128 * 1024;
 const OLDER_PAGE_BYTES = 256 * 1024;
+/// How many times an attach is asked when its reply is of another session or machine than the row
+/// names when it answers (the row changed while it was out); past that the open fails.
+const ATTACH_TRIES = 3;
 /// Pages one older read takes at most (about 2 MB, more when a single record is larger).
 const OLDER_PAGES_PER_ASK = 8;
 /** How long a session list that failed to load waits before it is read once more. */
@@ -2669,7 +2672,7 @@ export class AcpmuxDirectClient {
     sessionId: string,
     generation = this.selectionGeneration,
     keptThrough = 0,
-    again = true,
+    tries = 1,
   ): Promise<EventRecord[]> {
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
     // Rows drawn before it (a kept tail, the Mac's copy): what comes live from their draw
@@ -2678,7 +2681,10 @@ export class AcpmuxDirectClient {
     if (keptThrough > 0 || this.peerCopy?.sessionId === sessionId) this.copyLive ??= new Map();
     // The machine the row names when the attach is asked: a reply that comes after the session
     // moved to another is that machine's journal, not the one the row names now.
-    const askedOf = this.sessions.find((session) => session.sessionId === sessionId)?.peer;
+    // The session it names too: a row that changed while the attach was out may name another.
+    const askedRow = this.sessions.find((session) => session.sessionId === sessionId);
+    const askedOf = askedRow?.peer;
+    const askedGen = askedRow?.createdAt;
     const visible = pageShown();
     const attaching = this.typed("_acpmux/attach", {
       sessionId,
@@ -2716,13 +2722,20 @@ export class AcpmuxDirectClient {
     const result = await attaching;
     this.syncView();
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
-    // The row names a newer session than the reply's (recreated while it was out): the reply is of
-    // the session before, so the session listed now is attached instead, once.
-    const listedNow = this.sessions.find((session) => session.sessionId === sessionId)?.createdAt;
+    // The row changed while the attach was out to name another session than the reply's (another
+    // `createdAt`, earlier or later), or another machine: the reply is not of the session listed
+    // now, so that one is attached instead. A row that did not change meanwhile only lags what the
+    // machine answered. Every reply is held to the row as it answers, a retry's too; a row that
+    // keeps changing fails the open.
+    const rowNow = this.sessions.find((session) => session.sessionId === sessionId);
+    const listedNow = rowNow?.createdAt;
     const replyOf = result?.session?.createdAt;
-    const movedTo = this.sessions.find((session) => session.sessionId === sessionId)?.peer;
-    const recreated = typeof listedNow === "number" && typeof replyOf === "number" && listedNow > replyOf;
-    if (again && (recreated || movedTo !== askedOf)) return this.attach(sessionId, generation, keptThrough, false);
+    const recreated =
+      typeof listedNow === "number" && listedNow !== askedGen && typeof replyOf === "number" && replyOf !== listedNow;
+    if (recreated || rowNow?.peer !== askedOf) {
+      if (tries >= ATTACH_TRIES) throw new Error("the session changed while it was opened");
+      return this.attach(sessionId, generation, keptThrough, tries + 1);
+    }
     this.presence.attached(sessionId, result);
     const page = records(result?.events);
     const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
@@ -3002,6 +3015,10 @@ export class AcpmuxDirectClient {
     if (!event?.seq || event.sessionId !== this.selectedSessionId) return;
     // Held until the attach says whether the copy drawn is this session's history (`copyLive`).
     this.copyLive?.set(event.seq, event);
+    // A copy shown offline once its attach failed is what the Mac confirmed: a late record of that
+    // attach is not shown past it (`keepPeerCopy`); the next attach reads on from its newest seq.
+    const copy = this.peerCopy;
+    if (copy?.offline && !copy.attaching && copy.sessionId === event.sessionId && event.seq > copy.lastSeq) return;
     if (event.seq <= this.lastSeq) return;
     this.events.push(event);
     this.lastSeq = event.seq;
