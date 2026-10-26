@@ -90,17 +90,10 @@ extension UpdaterService {
         settingsObservation = Task { [weak self, weak settings] in
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
-            for await (updates, downloads, announcements, tips) in ObservationStream({
-                // Written or not; a malformed value keeps the parsed default (off) and its diagnostic.
-                (settings.snapshot.updates, settings.snapshot.root.value(at: UpdatesSettings.downloadAutomaticallyPath) != nil,
-                 settings.snapshot.announcements, settings.snapshot.sidebarSections.showsTips)
+            for await (updates, announcements, tips) in ObservationStream({
+                (settings.snapshot.updates, settings.snapshot.announcements, settings.snapshot.sidebarSections.showsTips)
             }) {
-                self?.apply(updates, downloadsAutomatically: downloads ? updates.downloadAutomatically : nil)
-                // Opt-in on stable; the dogfood apps write their default while it is unset (Reset included).
-                if !downloads, let self, self.identity.track.downloadsAutomaticallyByDefault {
-                    // task-owner: one settings write that ends by itself; its change returns through this loop.
-                    Task { _ = try? await settings.seedDownloadAutomatically(channelDefault: true) }
-                }
+                self?.apply(updates)
                 if self?.whatsNew.isItemEnabled != updates.showWhatsNew { self?.whatsNew.isItemEnabled = updates.showWhatsNew }
                 if self?.tipsEnabled != tips { self?.tipsEnabled = tips }
                 self?.announcementsFetch = announcements.fetch
@@ -109,10 +102,7 @@ extension UpdaterService {
         }
     }
 
-    /// `downloadsAutomatically` is `updates.downloadAutomatically` as written (cmux.json or a
-    /// managed layer), nil while unset: then the channel's default applies
-    /// (``UpdateTrack/downloadsAutomaticallyByDefault``), as the launch seeds it.
-    func apply(_ updates: UpdatesSettings, downloadsAutomatically: Bool? = nil) {
+    func apply(_ updates: UpdatesSettings) {
         WebUpdates.shared.follow(updates)
         let preferences = UpdatePreferences(
             installOnQuit: updates.installOnQuit,
@@ -120,7 +110,7 @@ extension UpdaterService {
             keepPreviousVersions: updates.keepPreviousVersions)
         if self.preferences != preferences { self.preferences = preferences }
         configure(checkAutomatically: updates.checkAutomatically, checkInterval: updates.checkIntervalSeconds,
-                  downloadAutomatically: downloadsAutomatically ?? identity.track.downloadsAutomaticallyByDefault,
+                  downloadAutomatically: updates.downloadAutomatically,
                   metered: UpdateMeteredMode(rawValue: updates.meteredNetwork.rawValue) ?? .deferLowData, ring: updates.channel.rawValue, idleInstall: (updates.idleInstallMaxWaitSeconds, updates.idleInstallQuietSeconds))
     }
 }

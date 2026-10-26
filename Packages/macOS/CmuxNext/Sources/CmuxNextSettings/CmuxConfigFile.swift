@@ -122,18 +122,6 @@ public actor CmuxConfigFile {
         try publish(try JSONC.setting(value, at: path, in: current))
     }
 
-    /// Sets `path` to `value` only while it is absent, in one actor turn: a write that lands
-    /// first (the person's) is never overwritten. Returns whether it wrote.
-    @discardableResult
-    public func setIfAbsent(_ value: JSONValue, at path: [String]) throws -> Bool {
-        guard !path.isEmpty else { throw Failure.invalidPath("") }
-        let current = try source()
-        guard try validated(current).value(at: path) == nil else { return false }
-        try managedGuard.checkSet(value, at: path)
-        try publish(try JSONC.setting(value, at: path, in: current))
-        return true
-    }
-
     /// Removes the member at `path`. No-op when absent.
     public func remove(_ path: [String]) throws {
         guard !path.isEmpty else { throw Failure.invalidPath("") }

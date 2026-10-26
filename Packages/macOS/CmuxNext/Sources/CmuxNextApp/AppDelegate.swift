@@ -15,6 +15,7 @@ import CmuxNextPhoneAccess
 import CmuxNextPopups
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextUpdater
 import CmuxNextWakeups
 import os
 
@@ -101,7 +102,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // cmux.json's appearance goes on the Ghostty overrides before the
         // runtime's first config load, so the first frame needs no reload.
-        let settingsRead = SettingsController.readAtLaunch(fileURL: settingsFileURL())
+        let settingsRead = SettingsController.readAtLaunch(
+            fileURL: settingsFileURL(), buildDefaults: .channel(downloadsAutomatically: UpdateBuildIdentity.main().track.downloadsAutomaticallyByDefault))
         TerminalThemeSetting.prime(settingsRead.snapshot)
         DebugTimings.markLaunch("dfl.settings_read")
         // Chrome colors derive from the Ghostty theme; load it before any window.

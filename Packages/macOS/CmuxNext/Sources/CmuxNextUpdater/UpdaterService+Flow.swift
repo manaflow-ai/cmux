@@ -235,10 +235,11 @@ extension UpdaterService {
     /// `updates.downloadAutomatically` (a managed configuration can force it)
     /// on the user's metered-network choice, except that an update the
     /// organization requires (`MinimumVersion`) always downloads, and an app
-    /// off the organization's `UpdateChannel` downloads none of its own.
+    /// off the organization's `UpdateChannel` downloads none of its own, nor does one under a
+    /// forced `DisableAutoUpdate`.
     func applyDownloadPolicy() {
         let required = requiredMinimumVersion != nil
-        let enabled = (downloadSetting.enabled || required) && !isOffManagedChannel
+        let enabled = (downloadSetting.enabled || required) && !isOffManagedChannel && !policy.disablesUpdates
         let downloads = UpdateNetworkPolicy.downloadsAutomatically(setting: enabled, mode: required ? .download : downloadSetting.metered,
                                                                    constrained: network.constrained, expensive: network.expensive)
         // The tip app reads its feed every few minutes only where found updates download by

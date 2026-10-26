@@ -150,6 +150,21 @@ import Testing
         #expect(UpdateTrack.development.downloadsAutomaticallyByDefault)
     }
 
+    /// A forced `DisableAutoUpdate` keeps a waiting update waiting, whatever turns downloads on.
+    @Test func aManagedDisableNeverDownloadsTheFoundUpdate() {
+        let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.silent-background-update", shortVersion: "1.0.0",
+                                           build: "100", minimumSystemVersion: nil,
+                                           infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
+        let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { true },
+                                     defaults: UserDefaults(suiteName: "SilentBackgroundUpdateTests.\(UUID().uuidString)")!,
+                                     enableSparkle: false, recordsUpdates: false)
+        var accepted = 0
+        updater.acceptAvailable = { accepted += 1 }
+        updater.downloadSetting = (true, .download)
+        updater.applyDownloadPolicy()
+        #expect(accepted == 0, "a managed disable downloaded the found update")
+    }
+
     /// Before the setting loads nothing downloads by itself, on any channel: a launch check's
     /// update waits until ``UpdaterService/configure`` applies the person's choice.
     @Test func nothingDownloadsUntilTheSettingLoads() {
