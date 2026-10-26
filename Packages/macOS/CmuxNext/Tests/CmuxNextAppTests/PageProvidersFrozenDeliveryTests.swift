@@ -20,8 +20,14 @@ import Testing
         }
     }
 
+    /// `DaemonPageRelay.subscribe` returns this subscription for every daemon stream.
     @Test func theDaemonRelayResyncsAfterDrops() {
-        #expect(DaemonPageRelay.frozenDelivery == .resync)
+        var cancelled = 0
+        let subscription = DaemonPageRelay.subscription { cancelled += 1 }
+        #expect(subscription.frozenDelivery == .resync)
+        subscription.cancel()
+        subscription.cancel()
+        #expect(cancelled == 1)
     }
 
     @Test(arguments: [PageFrozenDelivery.latest, .resync, .queue(32), .ordered])

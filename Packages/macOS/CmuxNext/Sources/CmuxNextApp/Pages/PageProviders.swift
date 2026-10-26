@@ -150,7 +150,7 @@ final class DaemonPageRelay: PageProvider {
             let cancel = try await PageRelayChannel.shared(for: services.machines.local, page: context.page).listen(event: event) { payload in
                 onEvent((try? Self.pageValue(payload)) ?? .object([:]))
             }
-            return PageSubscription(frozenDelivery: Self.frozenDelivery, onCancel: cancel)
+            return Self.subscription(onCancel: cancel)
         } catch is PageRelayChannel.NoSuchEvent {
             throw PageError.unknownOp(stream)
         } catch let error as DaemonError {
@@ -161,7 +161,9 @@ final class DaemonPageRelay: PageProvider {
     /// Daemon page events are change notices the page answers with a fresh read (the relay sends
     /// `{resync: true}` after an overflow), so a frozen page keeps only the newest and a gap mark
     /// when older ones dropped. Never `.latest`: that would hide the lost changes.
-    static let frozenDelivery: PageFrozenDelivery = .resync
+    static func subscription(onCancel: @escaping () -> Void) -> PageSubscription {
+        PageSubscription(frozenDelivery: .resync, onCancel: onCancel)
+    }
 
     /// The v2 idempotency key: the page's own, else its operation id (decision 31), so a resend
     /// after a reconnect replays the daemon's first answer instead of applying twice.
