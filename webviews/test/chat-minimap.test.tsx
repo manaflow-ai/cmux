@@ -460,3 +460,35 @@ test("with the setting off the minimap reads no row", async () => {
     setChatDisplay({});
   }
 });
+
+test("while a reply streams above the reader, the value follows the growing range with no draw", async () => {
+  setChatDisplay({ "agentPane.display.vscodeMinimap": true });
+  const pane = await mount();
+  try {
+    await pane.render("Done.");
+    await act(async () => flushFrames());
+    const control = pane.host.querySelector<HTMLElement>(".acpmux-chat-minimap [role=scrollbar]")!;
+    const page = content(pane.scroller(), 2000);
+    await scrollTo(pane.scroller(), 700);
+    expect(control.getAttribute("aria-valuenow")).toBe("50");
+    let reply = "Streaming";
+    await pane.render(reply, true);
+    await act(async () => flushFrames());
+    const draws = pane.draws();
+    const box = pane.box().style.transform;
+    // The reply grows below the reader; the transcript does not scroll (the reader is above the end).
+    for (let token = 0; token < 5; token += 1) {
+      reply += `\n\nParagraph ${token}.`;
+      page.height += 600;
+      await pane.render(reply, true);
+      await act(async () => runFrames());
+    }
+    // 700 of a 4400 - 600 range.
+    expect(control.getAttribute("aria-valuenow")).toBe(String(Math.round((100 * 700) / (page.height - VIEWPORT))));
+    expect(pane.draws()).toBe(draws);
+    expect(pane.box().style.transform).toBe(box);
+  } finally {
+    await pane.done();
+    setChatDisplay({});
+  }
+});

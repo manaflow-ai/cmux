@@ -147,7 +147,7 @@ const Minimap = memo(function Minimap({
   // prettier-ignore
   const drawn = useRef({
     scale: 0, draws: 0, at: -Infinity, colors: undefined as MinimapColors | undefined,
-    painted: undefined as Source | undefined, boxHeight: "", transform: "", scrolledAt: -Infinity, atLatest: false, box: { top: 0, height: 0 },
+    painted: undefined as Source | undefined, boxHeight: "", transform: "", scrolledAt: -Infinity, atLatest: false, box: { top: 0, height: 0 }, boxScrolled: false,
   });
   type Timer = ReturnType<typeof setTimeout> | 0;
   const pending = useRef({ frame: 0, timer: 0 as Timer, post: 0 as Timer, sized: false });
@@ -166,12 +166,20 @@ const Minimap = memo(function Minimap({
     if (drawn.current.transform !== transform) box.style.transform = drawn.current.transform = transform;
     const boxHeight = `${drawn.current.box.height}px`;
     if (drawn.current.boxHeight !== boxHeight) box.style.height = drawn.current.boxHeight = boxHeight;
-    // The control's value: the share of the scroller's own range scrolled, written when it changes.
-    const owner = control.current;
-    const range = node.scrollHeight - node.clientHeight;
-    const now = String(range > 0 ? Math.round((100 * Math.min(range, Math.max(0, top))) / range) : 0);
-    if (owner && owner.getAttribute("aria-valuenow") !== now) owner.setAttribute("aria-valuenow", now);
+    placeValue();
   });
+  /// The control's value: the share of the scroller's own range scrolled, written when it changes.
+  const [placeValue] = useState(() => () => {
+    const node = scroller.current;
+    const owner = control.current;
+    if (!node || !owner) return;
+    const range = node.scrollHeight - node.clientHeight;
+    const now = String(range > 0 ? Math.round((100 * Math.min(range, Math.max(0, node.scrollTop))) / range) : 0);
+    if (owner.getAttribute("aria-valuenow") !== now) owner.setAttribute("aria-valuenow", now);
+  });
+  /// While a reply streams, the rows' changes move nothing on the map, but the range grows under the
+  /// reader: the value follows in the box's own frame (set by the scroll effect below).
+  const valueFrame = useRef<() => void>(() => {});
 
   const [draw] = useState(() => () => {
     const state = pending.current;
@@ -259,6 +267,7 @@ const Minimap = memo(function Minimap({
   useEffect(() => {
     changed.current = () => {
       if (live.current.streaming < 0) schedule(true);
+      else valueFrame.current();
     };
     return () => {
       changed.current = undefined;
@@ -305,6 +314,10 @@ const Minimap = memo(function Minimap({
     const follow = () => {
       boxFrame = 0;
       const record = drawn.current;
+      const scrolled = record.boxScrolled;
+      record.boxScrolled = false;
+      // Only the rows changed while a reply streams: the value alone.
+      if (!scrolled) return placeValue();
       // While a reply streams, the transcript following it (its end, as the reply grows) leaves the box
       // where it was put when it reached the end; a scroll away from the end is the person's own, as
       // the transcript scrolls by itself only while it follows.
@@ -318,8 +331,10 @@ const Minimap = memo(function Minimap({
     let boxFrame = 0;
     const scrolled = () => {
       drawn.current.scrolledAt = performance.now();
+      drawn.current.boxScrolled = true;
       boxFrame ||= requestAnimationFrame(follow);
     };
+    valueFrame.current = () => void (boxFrame ||= requestAnimationFrame(follow));
     const theme = new MutationObserver(recolor);
     theme.observe(document.documentElement, {
       attributes: true,
@@ -333,13 +348,14 @@ const Minimap = memo(function Minimap({
       node?.removeEventListener("scroll", scrolled);
       if (state.frame) cancelAnimationFrame(state.frame);
       if (boxFrame) cancelAnimationFrame(boxFrame);
+      valueFrame.current = () => {};
       if (state.timer) clearTimeout(state.timer);
       if (state.post) clearTimeout(state.post);
       state.frame = 0;
       state.timer = 0;
       state.post = 0;
     };
-  }, [scroller, placeView, schedule]);
+  }, [scroller, placeView, placeValue, schedule]);
 
   /// Scrolls so map point `y` is at the view's middle, at once (VS Code's minimap jumps, then drags).
   const seek = (y: number, grab = live.current.viewportHeight / 2) => {
