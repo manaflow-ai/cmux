@@ -21,15 +21,24 @@ describe("health", () => {
 describe("POST /v1/auth/stack", () => {
   it("exchanges a Stack access token for an ES256 hub session", async () => {
     mockOutbound();
-    const res = await rawCall("POST", "/v1/auth/stack", { body: { token: await stackToken(stackClaims("stack-user-1")) } });
+    const token = await stackToken(stackClaims("stack-user-1"));
+    const res = await rawCall("POST", "/v1/auth/stack", { body: { token } });
     expect(res.status).toBe(200);
     expect(res.json).toMatchObject({ userId: `${STACK_PROJECT}:stack-user-1`, stackUserId: "stack-user-1", projectId: STACK_PROJECT });
-    expect(res.json.expiresAt).toBeGreaterThan(Date.now() + 3500_000);
+    // The hub session ends no later than the Stack token it was exchanged for
+    // (stackClaims: exp = now + 600), so relay checks always have a live token.
+    const stackExp = stackClaims("stack-user-1").exp;
+    expect(res.json.expiresAt).toBeLessThanOrEqual(stackExp * 1000);
+    expect(res.json.expiresAt).toBeGreaterThan(Date.now() + 500_000);
     const [h, p] = (res.json.session as string).split(".");
     expect(JSON.parse(atob(h!.replace(/-/g, "+").replace(/_/g, "/")))).toMatchObject({ alg: "ES256" });
     const payload = JSON.parse(atob(p!.replace(/-/g, "+").replace(/_/g, "/")));
     expect(payload).toMatchObject({ iss: "device-hub", sub: `${STACK_PROJECT}:stack-user-1` });
-    expect(payload.exp - payload.iat).toBe(3600);
+    expect(payload.exp - payload.iat).toBeLessThanOrEqual(600);
+    // The Stack token rides in the session only sealed: never in the clear.
+    expect(JSON.stringify(payload)).not.toContain(token.split(".")[2]);
+    expect(JSON.stringify(payload)).not.toContain(token.split(".")[1]);
+    expect(typeof payload.stk).toBe("string");
     // JWKS is cached across sign-ins.
     const before = outbound.filter((u) => u.endsWith("jwks.json")).length;
     await rawCall("POST", "/v1/auth/stack", { body: { token: await stackToken(stackClaims("stack-user-1")) } });
@@ -97,5 +106,12 @@ describe("POST /v1/auth/stack", () => {
     // A token signed by another key (the ticket key) is not a session.
     const forged = await signEs256(hubEnv.TICKET_KEY, { iss: "device-hub", sub: account.userId, iat: now, exp: now + 60 });
     expect((await d.call("GET", "/v1/me", undefined, { session: forged })).status).toBe(401);
+    // A session from before relay checks (no sealed Stack token) is refused, so
+    // the app exchanges its Stack token again instead of silently losing the relay.
+    const legacy = await signEs256(hubEnv.SESSION_KEY, { iss: "device-hub", sub: account.userId, iat: now, exp: now + 600 });
+    expect((await d.call("GET", "/v1/me", undefined, { session: legacy })).json.error.code).toBe("unauthorized");
+    // A sealed token that does not open (tampered) is refused too.
+    const tampered = await signEs256(hubEnv.SESSION_KEY, { iss: "device-hub", sub: account.userId, iat: now, exp: now + 600, stk: "AAAA.BBBB" });
+    expect((await d.call("GET", "/v1/me", undefined, { session: tampered })).json.error.code).toBe("unauthorized");
   });
 });
