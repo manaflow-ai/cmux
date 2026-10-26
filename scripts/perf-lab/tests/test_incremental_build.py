@@ -16,6 +16,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -30,6 +31,17 @@ ib = importlib.util.module_from_spec(_SPEC)
 sys.modules[_SPEC.name] = ib
 _SPEC.loader.exec_module(ib)
 perf_result = ib.perf_result
+
+
+def _load(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+queues = _load("perf_lab_queues_under_incremental_build_test", LAB / "queues.py")
 
 FACTS = {"chip": "Apple M4 Pro", "memory_bytes": 48 * 2 ** 30, "macos": "26.1", "macos_build": "25B78"}
 LEAVES = (
@@ -52,21 +64,43 @@ CARGO_REBUILD_LOG = """   Compiling cmux-panic-log v0.1.0 (/r/cmux-tui/crates/cm
 
 
 def warm_log(repo: Path) -> str:
+    """Warnings in the text swiftc 6.2 prints for -warn-long-function-bodies=100 (DiagnosticsSema.def
+    debug_long_function_body "%kind0 took %1ms to type-check (limit: %2ms)" and debug_long_closure_body), plus an
+    expression warning, which only -warn-long-expression-type-checking gives."""
     sources = f"{repo}/Packages/macOS/CmuxNext/Sources"
     return "\n".join([
-        f"{sources}/CmuxNextApp/Big.swift:10:5: warning: body of 'render()' took 450ms to type-check (limit: 100ms)",
-        f"{sources}/CmuxNextApp/Big.swift:40:5: warning: body of 'layout()' took 120ms to type-check (limit: 100ms)",
-        f"{sources}/CmuxNextSidebar/Row.swift:7:3: warning: body of 'init(model:)' took 450ms to type-check "
+        f"{sources}/CmuxNextApp/Big.swift:10:10: warning: instance method 'render()' took 450ms to type-check "
         "(limit: 100ms)",
-        # the same function reported twice (two jobs): the larger time stays
-        f"{sources}/CmuxNextSidebar/Row.swift:7:3: warning: body of 'init(model:)' took 300ms to type-check "
+        f"{sources}/CmuxNextApp/Big.swift:40:9: warning: getter for property 'layout' took 120ms to type-check "
         "(limit: 100ms)",
-        f"\x1b[1m{sources}/CmuxNextApp/Small.swift:3:1: warning: body of 'fast()' took 100ms to type-check\x1b[0m",
+        f"{sources}/CmuxNextSidebar/Row.swift:7:3: warning: initializer 'init(model:)' took 450ms to type-check "
+        "(limit: 100ms)",
+        # the same body reported twice (two jobs): the larger time stays
+        f"{sources}/CmuxNextSidebar/Row.swift:7:3: warning: initializer 'init(model:)' took 300ms to type-check "
+        "(limit: 100ms)",
+        # exactly the limit: the compiler warns at elapsed >= limit, so it is in the queue
+        f"\x1b[1m{sources}/CmuxNextApp/Small.swift:3:6: warning: global function 'fast()' took 100ms to type-check "
+        "(limit: 100ms)\x1b[0m",
+        f"{sources}/CmuxNextApp/Closures.swift:12:31: warning: closure took 140ms to type-check (limit: 100ms)",
         f"{sources}/CmuxNextApp/Expr.swift:9:9: warning: expression took 900ms to type-check (limit: 100ms)",
-        "/Users/x/.build/checkouts/sentry/Sources/S.swift:1:1: warning: body of 'dep()' took 999ms to type-check",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Relative.swift:2:2: warning: body of 'rel()' took 101ms to "
-        "type-check",
+        "/Users/x/.build/checkouts/sentry/Sources/S.swift:1:13: warning: static method 'dep()' took 999ms to "
+        "type-check (limit: 100ms)",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Relative.swift:2:7: warning: instance method 'rel()' took "
+        "101ms to type-check (limit: 100ms)",
     ]) + "\n"
+
+
+QUEUE_FILES = ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/Big.swift",
+               "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Row.swift",
+               "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Closures.swift",
+               "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Relative.swift",
+               "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Small.swift"]
+
+
+def alive(pid: int) -> bool:
+    """A process that still runs (a zombie waiting for its parent to reap it runs no code)."""
+    state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    return bool(state) and not state.startswith("Z")
 
 
 class FakeBuilder:
@@ -192,6 +226,39 @@ class IncrementalBuildTest(unittest.TestCase):
         self.assertEqual(raised.exception.signum, signal.SIGTERM)
         self.assertEqual(self.repo.bytes(), self.pristine)
 
+    def test_a_signal_mid_build_stops_the_build_before_the_restore(self) -> None:
+        pids = self.work / "pids"
+        script = f'echo "$$" > "{pids}"; sleep 60 & echo "$!" >> "{pids}"; wait'
+        metrics = ib.MetricsBuilder(self.work / "real")
+        edited = {}
+
+        def builder(role, workdir, command):
+            if role != "compat_leaf-r0":
+                return self.builder(role, workdir, command)
+            edited["leaf"] = (self.repo.root / LEAVES[0].path).read_bytes()
+            threading.Timer(1.0, os.kill, (os.getpid(), signal.SIGTERM)).start()
+            return metrics(role, self.work, ["sh", "-c", script])
+
+        with redirect_stdout(io.StringIO()), ib.signals_raise(), self.assertRaises(ib.Interrupted):
+            self.measure(builder=builder)
+        leader, child = (int(pid) for pid in pids.read_text().split())
+        self.assertFalse(alive(leader), "the build command outlived measure()")
+        self.assertFalse(alive(child), "a job the build started outlived measure()")
+        self.assertNotEqual(edited["leaf"], self.pristine[LEAVES[0].path])
+        self.assertEqual(self.repo.bytes(), self.pristine)
+
+    def test_a_leaf_missing_from_head_skips_only_that_leaf(self) -> None:
+        gone = ib.Leaf("gone_leaf", ib.SWIFT, "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Gone.swift")
+        outcome = ib.measure(self.repo.root, (*LEAVES, gone), 2, self.builder, self.work / "scratch",
+                             self.work / "cargo")
+        self.assertEqual(outcome.errors, [f"{gone.path}: not in HEAD, so gone_leaf is not measured"])
+        for leaf in LEAVES:
+            self.assertEqual(len(outcome.ok_samples(leaf.name)), 2, leaf.name)
+        self.assertEqual(outcome.ok_samples("gone_leaf"), [])
+        self.assertFalse(outcome.complete)
+        self.assertFalse((self.repo.root / gone.path).exists())
+        self.assertEqual(self.repo.bytes(), self.pristine)
+
     def test_a_dirty_leaf_is_refused_before_any_build(self) -> None:
         dirty = self.repo.root / LEAVES[1].path
         dirty.write_text("struct Mine {}\n")
@@ -259,18 +326,19 @@ class IncrementalBuildTest(unittest.TestCase):
 
     # ------------------------------------------------------------ MQ15
 
-    def test_typecheck_queue_is_one_task_per_repo_file_over_the_limit(self) -> None:
+    def test_typecheck_queue_is_one_task_per_repo_file_at_or_over_the_limit(self) -> None:
         queue = ib.typecheck_queue(warm_log(self.repo.root), self.repo.root)
         self.assertEqual(queue["schema"], ib.QUEUE_SCHEMA)
-        files = [task["file"] for task in queue["tasks"]]
-        self.assertEqual(files, ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/Big.swift",
-                                 "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Row.swift",
-                                 "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Relative.swift"])
+        self.assertEqual([task["file"] for task in queue["tasks"]], QUEUE_FILES)
         big = queue["tasks"][0]
-        self.assertEqual([f["subject"] for f in big["functions"]], ["render()", "layout()"])
+        self.assertEqual([(f["declaration"], f["subject"]) for f in big["functions"]],
+                         [("instance method", "render()"), ("getter for property", "layout")])
         self.assertEqual(queue["tasks"][1]["functions"], [{"line": 7, "column": 3, "subject": "init(model:)",
-                                                           "ms": 450.0}])
-        self.assertEqual(queue["functions"], 4)  # not the 100 ms one, the expression or the dependency
+                                                           "declaration": "initializer", "ms": 450.0}])
+        self.assertEqual(queue["tasks"][2]["functions"], [{"line": 12, "column": 31, "subject": "closure",
+                                                           "declaration": "closure", "ms": 140.0}])
+        self.assertEqual(queue["tasks"][4]["functions"][0]["ms"], 100.0)
+        self.assertEqual(queue["functions"], 6)  # not the expression or the dependency
 
     def test_typecheck_queue_is_deterministic_for_one_log(self) -> None:
         text = warm_log(self.repo.root)
@@ -280,30 +348,84 @@ class IncrementalBuildTest(unittest.TestCase):
                                                                         sort_keys=True))
         self.assertEqual(first, ib.typecheck_queue(shuffled, self.repo.root))
 
-    def test_queue_command_reads_a_log_and_a_run_folder(self) -> None:
+    def lab_queue(self, *argv: str) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, "-I", str(LAB / "lab.py"), "queue", "typecheck", *argv,
+                               "--root", str(self.repo.root)], capture_output=True, text=True)
+
+    def test_lab_py_queue_typecheck_reads_a_log_and_a_run_folder(self) -> None:
         log = self.work / "warm.log"
         log.write_text(warm_log(self.repo.root))
-        out = io.StringIO()
-        with redirect_stdout(out):
-            code = ib.main(["--repo", str(self.repo.root), "queue", "typecheck", "--log", str(log), "--json"])
-        self.assertEqual(code, 0)
-        queue = json.loads(out.getvalue())
-        run = self.work / "run"
-        run.mkdir()
-        (run / ib.QUEUE_FILE).write_text(json.dumps(queue))
-        out = io.StringIO()
-        with redirect_stdout(out):
-            self.assertEqual(ib.main(["queue", "typecheck", "--dir", str(run)]), 0)
-        self.assertTrue(out.getvalue().startswith("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Big.swift\t450 ms"))
-
-    def test_lab_py_runs_the_queue_command(self) -> None:
+        from_log = self.lab_queue("--log", str(log))
+        self.assertEqual(from_log.returncode, 0, from_log.stderr)
+        self.assertEqual([line.split("\t")[0] for line in from_log.stdout.splitlines()], [*QUEUE_FILES, "5 items"])
+        self.assertEqual(from_log.stdout.splitlines()[0].split("\t")[1:],
+                         [f"{QUEUE_FILES[0]}:10", "instance method render() :10 450 ms, "
+                                                  "getter for property layout :40 120 ms"])
         run = self.work / "run"
         run.mkdir()
         (run / ib.QUEUE_FILE).write_text(json.dumps(ib.typecheck_queue(warm_log(self.repo.root), self.repo.root)))
-        done = subprocess.run([sys.executable, "-I", str(LAB / "lab.py"), "queue", "typecheck", "--dir", str(run)],
-                              capture_output=True, text=True)
-        self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(len(done.stdout.splitlines()), 3)
+        from_dir = self.lab_queue("--dir", str(run))
+        self.assertEqual((from_dir.returncode, from_dir.stdout), (0, from_log.stdout), from_dir.stderr)
+
+    def ingest(self, out: Path, db: Path, keep: bool = True):
+        ingest = _load("perf_lab_ingest_under_incremental_build_test", LAB / "ingest.py")
+        if not keep:
+            (out / ib.QUEUE_FILE).unlink()
+        lab = ingest.store.Store(db)
+        try:
+            lab.migrate()
+            report = ingest.ingest_paths(lab, [out], commit_positions=lambda sha: ingest.CommitPosition(7, True))
+        finally:
+            lab.close()
+        self.assertEqual(report.rejected, [])
+        return report
+
+    def story_run(self, out: Path) -> None:
+        args = ib.parse_args(["--repo", str(self.repo.root), "run", "--out", str(out), "--rounds", "1",
+                              "--scratch", str(self.work / "scratch"), "--cargo-target", str(self.work / "cargo")])
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(ib.run(args, {}, builder=self.builder, host_facts=lambda: FACTS,
+                                    hostname="aws-m4pro-7", catalog=LEAVES), 0)
+
+    def test_lab_py_queue_typecheck_latest_reads_the_stored_run_by_digest(self) -> None:
+        out, db = self.work / "out", self.work / "lab.sqlite3"
+        self.story_run(out)
+        self.assertEqual(self.ingest(out, db).kept_attachments, 3)
+        expected = self.lab_queue("--dir", str(out)).stdout
+        shutil_out = self.work / "moved"
+        os.rename(out, shutil_out)  # the builder's folder is gone: only the store has the queue
+        latest = self.lab_queue("--latest", "--db", str(db))
+        self.assertEqual((latest.returncode, latest.stdout), (0, expected), latest.stderr)
+        by_env = subprocess.run([sys.executable, "-I", str(LAB / "lab.py"), "queue", "typecheck"],
+                                capture_output=True, text=True, env={**os.environ, queues.DB_ENV: str(db)})
+        self.assertEqual((by_env.returncode, by_env.stdout), (0, expected), by_env.stderr)
+
+    def test_latest_says_why_when_the_store_lacks_the_queue(self) -> None:
+        out, db = self.work / "out", self.work / "lab.sqlite3"
+        self.story_run(out)
+        self.ingest(out, db, keep=False)
+        latest = self.lab_queue("--latest", "--db", str(db))
+        self.assertEqual(latest.returncode, 1)
+        self.assertIn("the store does not hold it; ingest the run's result folder again", latest.stderr)
+        no_store = self.lab_queue("--latest", "--db", str(self.work / "none.sqlite3"))
+        self.assertEqual(no_store.returncode, 1)
+        self.assertIn("no lab store there", no_store.stderr)
+
+    def test_queues_py_lists_mq15(self) -> None:
+        run = self.work / "run"
+        run.mkdir()
+        (run / ib.QUEUE_FILE).write_text(json.dumps(ib.typecheck_queue(warm_log(self.repo.root), self.repo.root)))
+        self.assertEqual(queues.find("mq15"), queues.find("typecheck"))
+        items = queues.find("MQ15").run(str(self.repo.root), queues.TypecheckSource(run_dir=str(run)))
+        self.assertEqual([item.key for item in items], QUEUE_FILES)
+
+    def test_the_wrapper_waits_for_the_story_and_always_moves_the_submodule(self) -> None:
+        text = (ROOT / "scripts" / "measure" / "incremental-build.sh").read_text()
+        self.assertIn('"${story[@]}" run --out "$out" "$@" &', text)
+        self.assertIn('wait "$story_pid"', text)
+        self.assertIn('kill -TERM "$story_pid"', text)
+        self.assertIn("if ! git submodule update --init --depth 1 ghostty-next; then", text)
+        self.assertNotIn("ghostty-next/.git ] ||", text)
 
     # ------------------------------------------------------------ hosts
 
@@ -363,7 +485,7 @@ class IncrementalBuildTest(unittest.TestCase):
         self.assertEqual(timed.target_ref.target, "incremental-build")
         self.assertEqual((timed.build.sha, timed.build.config, timed.story), (self.repo.sha, "debug", ib.STORY))
         self.assertEqual(by_metric["build.incremental.tui_crate_leaf.rebuilt_modules"].samples, [2, 2])
-        self.assertEqual(by_metric["build.typecheck.slow_functions"].samples, [4])
+        self.assertEqual(by_metric["build.typecheck.slow_functions"].samples, [6])
         kinds = {a.kind: a.digest for a in timed.attachments}
         self.assertEqual(sorted(kinds), ["incremental-diagnostics", "rebuilt-modules", "typecheck-queue"])
         for kind, digest in kinds.items():

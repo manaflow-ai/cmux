@@ -19,25 +19,26 @@ Metrics (result-v1, build.config debug):
   build.incremental.<leaf>_s                  one sample per round; target row incremental-build (p50 < 30 s)
   build.incremental.<leaf>.rebuilt_modules    modules (SwiftPM "Compiling"/"Emitting module" lines, cargo "Compiling"
                                               lines) the timed rebuild touched, one sample per round
-  build.typecheck.slow_functions              function bodies over 100 ms in the warm Swift build
+  build.typecheck.slow_functions              function and closure bodies of 100 ms or more in the warm Swift build
 
 Attachments (files in OUT, named by kind, digests in every result):
   rebuilt-modules          every timed rebuild's module list
   incremental-diagnostics  scripts/ci/swift_incremental_diagnostics.py per Swift rebuild (-driver-show-incremental)
-  typecheck-queue          MQ15: function bodies over 100 ms (scripts/ci/swift_typecheck_diagnostics.py's warning
-                           pattern), one task per file, ordered by the slowest function then the path; the same log
-                           always gives the same bytes
+  typecheck-queue          MQ15: function and closure bodies the compiler reports at 100 ms or more
+                           (scripts/ci/swift_typecheck_diagnostics.py's pattern of swiftc's warnings), one task per
+                           file, ordered by the slowest body then the path; the same log always gives the same bytes.
+                           `lab.py queue typecheck --latest` reads it from the lab store after ingest (queues.py)
 
 Every edited leaf is put back on exit, on an error and on SIGTERM/SIGINT/SIGHUP; `restore` does it from HEAD for the
 fleet script's trap, and touches a leaf only when its bytes are HEAD's plus probe lines.
 
   scripts/measure/incremental-build.sh                      # the fleet entry (cmux-ci run --class exclusive)
   python3 scripts/perf-lab/stories/incremental_build.py leaves
-  python3 scripts/perf-lab/stories/incremental_build.py queue typecheck [--dir OUT | --log LOG] [--json]
   python3 scripts/perf-lab/stories/incremental_build.py restore
+  python3 scripts/perf-lab/lab.py queue typecheck [--latest | --dir OUT | --log LOG]
 
-The leaf list is fixed, so each series is the same edit on every commit; a commit without a leaf file measures
-nothing for it and says so. Not a CI gate (Lawrence 2026-10-23).
+The leaf list is fixed, so each series is the same edit on every commit; a commit without a leaf file measures the
+other leaves, names the missing one in its errors and exits 1. Not a CI gate (Lawrence 2026-10-23).
 """
 from __future__ import annotations
 
@@ -88,7 +89,8 @@ CARGO_PACKAGE = "cmux-tui"
 PROBE = "// incremental-build probe {round}\n"
 PROBE_LINE = re.compile(rb"// incremental-build probe [0-9]+\n")
 
-QUEUE_FILE = "typecheck-queue.json"
+QUEUE_KIND = "typecheck-queue"
+QUEUE_FILE = f"{QUEUE_KIND}.json"
 MODULES_FILE = "rebuilt-modules.json"
 DIAGNOSTICS_FILE = "incremental-diagnostics.json"
 BUILDS_DIR = "builds"
@@ -179,7 +181,9 @@ class MetricsBuilder:
     def __call__(self, role: str, workdir: Path, command: Sequence[str]) -> Build:
         metrics = swiftpm_build_metrics()
         with working_directory(workdir):
-            exit_code = metrics.run_build(role, self.directory, list(command))
+            # Its own process group: on Interrupted, run_build stops the whole build (swift-frontend, rustc) and
+            # reaps it before the leaf restore and the scratch removal run.
+            exit_code = metrics.run_build(role, self.directory, list(command), own_process_group=True)
         receipt_path = self.directory / f"{role}.json"
         try:
             seconds = float(json.loads(receipt_path.read_text(encoding="utf-8"))["build_step_seconds"])
@@ -223,40 +227,38 @@ def _repo_relative(path: str, roots: Sequence[str]) -> Optional[str]:
 
 
 def typecheck_queue(log_text: str, repo: Path, limit_ms: int = TYPECHECK_LIMIT_MS) -> dict:
-    """MQ15 from one build log: every function body that took more than LIMIT_MS to type-check, one task per
-    repository file (a dependency's file is not ours to fix), files by their slowest function then path. Only function
-    bodies: a slow expression sits in a function whose body is listed too. A function reported twice keeps its
-    larger time. The same log and repository give the same queue."""
+    """MQ15 from one build log: every function and closure body swiftc reported at LIMIT_MS or more (it warns at
+    elapsed >= the -warn-long-function-bodies limit), one task per repository file (a dependency's file is not ours to
+    fix), files by their slowest body then path. Expression warnings are left out: they come only from
+    -warn-long-expression-type-checking, which this build does not pass. A body reported twice keeps its larger
+    time. The same log and repository give the same queue."""
     roots = sorted({str(repo), str(repo.resolve())})
     text = typecheck_diagnostics.ANSI_RE.sub("", log_text)
     slowest: Dict[tuple, float] = {}
     for match in typecheck_diagnostics.WARNING_RE.finditer(text):
-        subject = match.group("function")
+        if match.group("kind") == "expression":
+            continue
         milliseconds = float(match.group("milliseconds"))
-        if not subject or milliseconds <= limit_ms:
+        if milliseconds < limit_ms:
             continue
         path, line, column = match.group("location").strip().rsplit(":", 2)
         relative = _repo_relative(path, roots)
         if relative is None:
             continue
-        key = (relative, int(line), int(column), subject)
+        declaration = match.group("decl_kind") or "closure"
+        key = (relative, int(line), int(column), match.group("function") or "closure", declaration)
         slowest[key] = max(slowest.get(key, 0.0), milliseconds)
     by_file: Dict[str, list] = collections.defaultdict(list)
-    for (relative, line, column, subject), milliseconds in slowest.items():
-        by_file[relative].append({"line": line, "column": column, "subject": subject, "ms": milliseconds})
+    for (relative, line, column, subject, declaration), milliseconds in slowest.items():
+        by_file[relative].append({"line": line, "column": column, "subject": subject, "declaration": declaration,
+                                  "ms": milliseconds})
     tasks = []
     for relative, functions in by_file.items():
-        functions.sort(key=lambda f: (-f["ms"], f["line"], f["column"], f["subject"]))
+        functions.sort(key=lambda f: (-f["ms"], f["line"], f["column"], f["subject"], f["declaration"]))
         tasks.append({"file": relative, "max_ms": functions[0]["ms"], "functions": functions})
     tasks.sort(key=lambda task: (-task["max_ms"], task["file"]))
     return {"schema": QUEUE_SCHEMA, "limit_ms": limit_ms,
             "functions": sum(len(task["functions"]) for task in tasks), "tasks": tasks}
-
-
-def describe_queue(queue: dict) -> List[str]:
-    return [f"{task['file']}\t{task['max_ms']:g} ms\t" +
-            ", ".join(f"{f['subject']} (:{f['line']}, {f['ms']:g} ms)" for f in task["functions"])
-            for task in queue["tasks"]]
 
 
 # ---------------------------------------------------------------- leaf edits
@@ -280,12 +282,18 @@ def probe_only(current: bytes, original: bytes) -> bool:
 
 
 class LeafEdits:
-    """Appends one probe line to a leaf and puts HEAD's bytes back. Every leaf must equal HEAD at the start, so a
-    restore can never drop someone's edit."""
+    """Appends one probe line to a leaf and puts HEAD's bytes back. Every leaf HEAD has must equal HEAD at the start,
+    so a restore can never drop someone's edit; a leaf HEAD does not have is in `missing` and is never edited."""
 
     def __init__(self, repo: Path, leaves: Sequence[Leaf]) -> None:
         self.repo = repo
-        self.originals = {leaf.path: head_bytes(repo, leaf.path) for leaf in leaves}
+        self.originals: Dict[str, bytes] = {}
+        self.missing: List[Leaf] = []
+        for leaf in leaves:
+            try:
+                self.originals[leaf.path] = head_bytes(repo, leaf.path)
+            except StoryError:
+                self.missing.append(leaf)
         for path, original in self.originals.items():
             file = repo / path
             if not file.is_file() or file.read_bytes() != original:
@@ -427,6 +435,8 @@ def measure(repo: Path, leaves: Sequence[Leaf], rounds: int, builder: Builder, s
                          check=True).stdout.strip()
     outcome = Outcome(sha, rounds, leaves)
     edits = LeafEdits(repo, leaves)
+    outcome.errors.extend(f"{leaf.path}: not in HEAD, so {leaf.name} is not measured" for leaf in edits.missing)
+    leaves = [leaf for leaf in leaves if leaf not in edits.missing]
     workdirs = {SWIFT: repo / SWIFT_PACKAGE, CARGO: repo / CARGO_WORKSPACE}
     commands = {SWIFT: swift_command(scratch), CARGO: cargo_command(cargo_target)}
     kinds = [kind for kind in (SWIFT, CARGO) if any(leaf.kind == kind for leaf in leaves)]
@@ -560,7 +570,7 @@ def run(args: argparse.Namespace, environ: Mapping[str, str], builder: Optional[
         seconds = [f"{s.seconds:.1f}" for s in outcome.ok_samples(leaf.name)]
         print(f"{STORY}: {leaf.name} {', '.join(seconds) or 'no sample'} s  ({leaf.path})")
     if outcome.queue is not None:
-        print(f"{STORY}: {outcome.queue['functions']} function bodies over {TYPECHECK_LIMIT_MS} ms in "
+        print(f"{STORY}: {outcome.queue['functions']} bodies of {TYPECHECK_LIMIT_MS} ms or more in "
               f"{len(outcome.queue['tasks'])} files ({out / QUEUE_FILE})")
     if written is None:
         print(f"{STORY}: nothing measured", file=sys.stderr)
@@ -574,35 +584,6 @@ def repo_root(repo: Optional[Path]) -> Path:
         return repo.resolve()
     found = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
     return Path(found.stdout.strip()) if found.returncode == 0 else SCRIPTS.parent
-
-
-def queue_command(args: argparse.Namespace) -> int:
-    repo = repo_root(getattr(args, "repo", None))
-    if args.log is not None:
-        queue = typecheck_queue(args.log.read_text(encoding="utf-8", errors="replace"), repo)
-    else:
-        directory = args.dir or repo / "artifacts" / "incremental-build"
-        try:
-            queue = json.loads((directory / QUEUE_FILE).read_text(encoding="utf-8"))
-        except (OSError, ValueError) as error:
-            print(f"{STORY}: no type-check queue in {directory} ({error}); run the story or pass --log",
-                  file=sys.stderr)
-            return 2
-    if args.json:
-        print(json.dumps(queue, indent=1, sort_keys=True))
-    else:
-        print("\n".join(describe_queue(queue)) or f"no function body over {queue['limit_ms']} ms")
-    return 0
-
-
-def add_queue_arguments(parser: argparse.ArgumentParser) -> None:
-    """`queue typecheck`'s arguments; scripts/perf-lab/build_queue.py gives lab.py the same command."""
-    parser.add_argument("queue", choices=("typecheck",))
-    source = parser.add_mutually_exclusive_group()
-    source.add_argument("--dir", type=Path, default=None,
-                        help=f"a run's output folder (default artifacts/incremental-build): its {QUEUE_FILE}")
-    source.add_argument("--log", type=Path, default=None, help="build the queue from this compiler log")
-    parser.add_argument("--json", action="store_true")
 
 
 def parse_args(argv: Optional[List[str]]) -> argparse.Namespace:
@@ -629,8 +610,6 @@ def parse_args(argv: Optional[List[str]]) -> argparse.Namespace:
     commands.add_parser("check-host", help="exit 2 on a perf-lab host")
     commands.add_parser("restore", help="put every leaf that holds only probe lines back to HEAD's bytes")
     commands.add_parser("leaves", help="list the leaves")
-
-    add_queue_arguments(commands.add_parser("queue", help="MQ15: slow type-check functions, one task per file"))
     args = parser.parse_args(argv)
     if args.command is None:
         parser.error("a command is required")
@@ -647,8 +626,6 @@ def main(argv: Optional[List[str]] = None, environ: Optional[Mapping[str, str]] 
     environ = os.environ if environ is None else environ
     if args.command == "run":
         return run(args, environ)
-    if args.command == "queue":
-        return queue_command(args)
     if args.command == "leaves":
         for leaf in LEAVES:
             print(f"{leaf.name}\t{leaf.kind}\t{leaf.path}")
