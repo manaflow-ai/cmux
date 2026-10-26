@@ -12,11 +12,12 @@
 /// ``init(key:)`` (counts nothing) in Release. ``ran(new:)`` is one relaxed atomic add, safe from any
 /// thread and on a per-frame path.
 public struct RefactorSwitchHit: Sendable {
-    public let key: RefactorSwitchKey
+    /// The switch's registry key: the `app_key` of its `plans/cmux-next/refactor-switches/` file.
+    public let key: String
     private let counter: RefactorSwitchHitCounter?
 
     /// A hit that counts nothing.
-    public init(key: RefactorSwitchKey) {
+    public init(key: String) {
         self.key = key
         counter = nil
     }
@@ -40,13 +41,14 @@ public struct RefactorSwitchHit: Sendable {
 /// The two arm counts of one guarded site: every hit of that site, from every instance of its
 /// owner, lands here.
 public final class RefactorSwitchHitCounter: Sendable {
-    public let key: RefactorSwitchKey
+    /// The switch's registry key (``RefactorSwitchHit/key``).
+    public let key: String
     /// The site's name, `Type.method`.
     public let site: String
     private let oldArm = Atomic<Int>(0)
     private let newArm = Atomic<Int>(0)
 
-    public init(key: RefactorSwitchKey, site: String) {
+    public init(key: String, site: String) {
         self.key = key
         self.site = site
     }

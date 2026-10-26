@@ -25,8 +25,11 @@ Usage:
 
 `--hits` (task p15-oracle-027) reads the per-site hit counters the app reports through
 `debug.oracle.switch_hits` (`SwitchHits.swift`): `{"switches": {KEY: {"old": N, "new": N, "sites":
-{SITE: {"old": N, "new": N}}}}}`, KEY the registry entry's app or daemon key. It prints one line
-    NAME arm=ARM verdict=VERDICT key=app:KEY|daemon:KEY old=N new=N sites=SITE:old=N/new=N,...
+{SITE: {"old": N, "new": N}}}}}`, KEY the registry entry's `app_key` (the golden reply both sides test
+is schemas/oracle/fixtures/switch-hits-reply.json). It prints one line
+    NAME arm=ARM verdict=VERDICT key=app:KEY old=N new=N sites=SITE:old=N/new=N,...
+A daemon switch (`daemon_key`) is refused as bad input: only app sites count hits; the daemon has no
+hit source yet, so every daemon run would read as arm-not-exercised.
 `exercised` needs hits on the requested arm and none on the other. 0 hits on the requested arm (or no
 entry) is `arm-not-exercised`: the run never reached a guarded site on that arm, so its diff proves
 nothing. Hits on the other arm too are `arm-mixed`: a site does not read the frozen value. Chrome
@@ -78,6 +81,8 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
 TASK = "p15-oracle-018"
 REGISTRY = REPO / "plans" / "cmux-next" / "refactor-switches"
+# The `debug.oracle.switch_hits` reply SwitchHitsTests encodes; --selftest reads the same file.
+GOLDEN_HITS = REPO / "schemas" / "oracle" / "fixtures" / "switch-hits-reply.json"
 SCHEMA = REPO / "schemas" / "oracle" / "refactor-switches.schema.json"
 APP_CATALOG = REPO / "Packages" / "macOS" / "CmuxNext" / "Sources" / "CmuxNextCompat" / "RefactorSwitches.swift"
 DAEMON_CATALOG = REPO / "cmux-tui" / "crates" / "cmux-tui-core" / "src" / "switches.rs"
@@ -470,7 +475,11 @@ def hit_count(value: Any, where: str) -> int:
 def hit_verdict(report: Any, name: str, key: str, arm: str) -> HitVerdict:
     """The verdict on `arm` of the switch `key` from one `debug.oracle.switch_hits` result:
     `{"switches": {KEY: {"old": N, "new": N, "sites": {SITE: {"old": N, "new": N}}}}}`.
-    `key` is the registry entry's `app:KEY` or `daemon:KEY`; the report is keyed by the bare KEY."""
+    `key` is the registry entry's `app:KEY`; the report, made by the app, is keyed by the bare KEY.
+    A `daemon:KEY` is refused: the daemon has no hit source, so the app report says nothing about it."""
+    if key.startswith("daemon:"):
+        raise UsageError(f"{name}: {key} is a daemon switch; only app sites report switch hits "
+                         "(the daemon has no hit source), so --hits cannot judge it")
     if arm not in ARMS:
         raise UsageError(f"arm {arm!r} is not one of {', '.join(ARMS)}")
     switches = report.get("switches") if isinstance(report, dict) else None
@@ -501,7 +510,7 @@ def hit_verdict(report: Any, name: str, key: str, arm: str) -> HitVerdict:
 
 
 def switch_key(roots: Roots, name: str) -> str:
-    """`app:KEY` or `daemon:KEY` of the registry entry `name`."""
+    """`app:KEY` or `daemon:KEY` of the registry entry `name` (hit_verdict refuses a daemon key)."""
     path = roots.registry / f"{name}.json"
     where = relative(path, roots.repo)
     if not path.is_file():
@@ -796,11 +805,20 @@ SELFTEST_HITS: Sequence[Tuple[str, Any, str, str]] = (
     ("an arm outside old/new is refused", hit_report(0, 1), "launch", ""),
 )
 
+# (label, registry key, arm, verdict; "" = refused) on the golden reply both sides test.
+SELFTEST_HITS_GOLDEN: Sequence[Tuple[str, str, str, str]] = (
+    ("golden: layer hosting ran new", "app:browser.layer-hosting", "new", EXERCISED),
+    ("golden: layer hosting never ran old", "app:browser.layer-hosting", "old", NOT_EXERCISED),
+    ("golden: cef helper ran old", "app:browser.cef-helper", "old", EXERCISED),
+    ("golden: a switch with no entry", "app:browser.discard", "new", NOT_EXERCISED),
+    ("golden: a daemon key is refused", "daemon:browser.layer-hosting", "new", ""),
+)
+
 # (CLI arguments after --hits FILE, the report, exit code, the verdict on stdout or None)
 SELFTEST_HITS_CLI: Sequence[Tuple[Tuple[str, ...], Any, int, Optional[str]]] = (
     (("--switch", "layer-hosting", "--arm", "new"), hit_report(0, 2, CEFLayerHosting_pageShown=(0, 2)), 0, EXERCISED),
     (("--switch", "layer-hosting", "--arm", "old"), hit_report(0, 2, CEFLayerHosting_pageShown=(0, 2)), 1, NOT_EXERCISED),
-    (("--switch", "holder", "--arm", "new"), hit_report(0, 1, key="holder"), 0, EXERCISED),
+    (("--switch", "holder", "--arm", "new"), hit_report(0, 1, key="holder"), 2, None),  # a daemon switch is refused
     (("--switch", "ghost", "--arm", "new"), hit_report(0, 1), 2, None),
     (("--switch", "layer-hosting"), hit_report(0, 1), 2, None),
     (("--switch", "layer-hosting", "--arm", "new"), "{", 2, None),
@@ -817,6 +835,17 @@ def selftest_hits(tmp: Path) -> List[str]:
             got = ""
         if got != want:
             failures.append(f"--hits {label}: got {got or 'refused'!r}, want {want or 'refused'!r}")
+    golden = json.loads(GOLDEN_HITS.read_text(encoding="utf-8"))
+    for label, key, arm, want in SELFTEST_HITS_GOLDEN:
+        try:
+            got = hit_verdict(golden, "golden", key, arm).verdict
+        except UsageError:
+            got = ""
+        if got != want:
+            failures.append(f"--hits {label}: got {got or 'refused'!r}, want {want or 'refused'!r}")
+    golden_sites = hit_verdict(golden, "golden", "app:browser.layer-hosting", "new").sites
+    if golden_sites != (("CEFLayerHosting.pageShown", 0, 2), ("CEFLayerHosting.pageWindowCreated", 0, 1)):
+        failures.append(f"--hits golden: layer hosting sites read as {golden_sites}")
     verdict = hit_verdict(hit_report(0, 3, CEFLayerHosting_pageShown=(0, 3)), "layer hosting", "app:browser.layer-hosting", "new")
     fields = shlex.split(verdict.line())
     if fields[0] != "layer hosting" or "sites=CEFLayerHosting.pageShown:old=0/new=3" not in fields:
@@ -860,10 +889,10 @@ def selftest() -> int:
         messages = [str(f) for f in check(missing)[0]]
         if not (len(messages) == 2 and APP_CATALOG_TASK in messages[1] and DAEMON_CATALOG_TASK in messages[0]):
             failures.append(f"missing catalogs: got {messages}")
-    # The closure, refusal, --expired, --expired CLI, --hits and --hits CLI tables, the missing registry,
-    # the missing catalogs and the --hits line round trip.
+    # The closure, refusal, --expired, --expired CLI, --hits, --hits golden and --hits CLI tables, the missing registry,
+    # the missing catalogs, the golden sites and the --hits line round trip.
     total = (len(SELFTEST_CLOSURES) + len(SELFTEST_CASES) + len(SELFTEST_EXPIRED) + len(SELFTEST_EXPIRED_CLI)
-             + len(SELFTEST_HITS) + len(SELFTEST_HITS_CLI) + 3)
+             + len(SELFTEST_HITS) + len(SELFTEST_HITS_GOLDEN) + len(SELFTEST_HITS_CLI) + 4)
     for failure in failures:
         print(f"FAIL {failure}")
     print(f"selftest: {total - len(failures)}/{total} pass")

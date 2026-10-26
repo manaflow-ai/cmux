@@ -11,16 +11,36 @@
 /// which the oracle reads as `arm-not-exercised` for that switch.
 @MainActor
 public final class SwitchHits {
+    /// The `debug.oracle.switch_hits` reply, encoded as is:
+    /// `{"switches": {KEY: {"old": N, "new": N, "sites": {SITE: {"old": N, "new": N}}}}}`.
+    /// `scripts/cmux-next/oracle/switches.py --hits` reads this shape; both sides test it against
+    /// `schemas/oracle/fixtures/switch-hits-reply.json`.
+    public struct Report: Codable, Equatable, Sendable {
+        /// Switch registry key to its entry, one per switch with a registered site (a switch with
+        /// none has no entry: 0 hits).
+        public var switches: [String: Entry]
+
+        public init(switches: [String: Entry]) {
+            self.switches = switches
+        }
+    }
+
     /// One switch's counts: the sum over its sites, and each site's.
-    public struct Entry: Equatable, Sendable {
-        public var old = 0
-        public var new = 0
+    public struct Entry: Codable, Equatable, Sendable {
+        public var old: Int
+        public var new: Int
         /// Site name to its (old, new) counts.
-        public var sites: [String: Arms] = [:]
+        public var sites: [String: Arms]
+
+        public init(old: Int = 0, new: Int = 0, sites: [String: Arms] = [:]) {
+            self.old = old
+            self.new = new
+            self.sites = sites
+        }
     }
 
     /// One site's counts per arm.
-    public struct Arms: Equatable, Sendable {
+    public struct Arms: Codable, Equatable, Sendable {
         public var old: Int
         public var new: Int
 
@@ -31,7 +51,7 @@ public final class SwitchHits {
     }
 
     private struct Site: Hashable {
-        let key: RefactorSwitchKey
+        let key: String
         let name: String
     }
 
@@ -43,25 +63,27 @@ public final class SwitchHits {
     }
 
     /// The hit a site of `key` counts with: the same counter for every call with this site name.
-    public func hit(_ key: RefactorSwitchKey, site name: StaticString) -> RefactorSwitchHit {
-        guard counting else { return RefactorSwitchHit(key: key) }
-        let site = Site(key: key, name: name.description)
+    /// `key` is the switch's catalog case (`RefactorSwitchKey`); its raw value is the registry key.
+    public func hit<Key: RawRepresentable>(_ key: Key, site name: StaticString) -> RefactorSwitchHit
+        where Key.RawValue == String {
+        guard counting else { return RefactorSwitchHit(key: key.rawValue) }
+        let site = Site(key: key.rawValue, name: name.description)
         if let counter = counters[site] { return RefactorSwitchHit(counter: counter) }
-        let counter = RefactorSwitchHitCounter(key: key, site: site.name)
+        let counter = RefactorSwitchHitCounter(key: site.key, site: site.name)
         counters[site] = counter
         return RefactorSwitchHit(counter: counter)
     }
 
-    /// Switch raw value to its entry, one per switch with a registered site (a switch with none has
-    /// no entry: 0 hits). `reset` starts every count at 0 after reading it.
-    public func report(reset: Bool) -> [String: Entry] {
+    /// The counts of every registered site, per switch. `reset` starts every count at 0 after
+    /// reading it.
+    public func report(reset: Bool) -> Report {
         var switches: [String: Entry] = [:]
         for (site, counter) in counters {
             let counts = counter.read(reset: reset)
-            switches[site.key.rawValue, default: Entry()].old += counts.old
-            switches[site.key.rawValue, default: Entry()].new += counts.new
-            switches[site.key.rawValue, default: Entry()].sites[site.name] = Arms(old: counts.old, new: counts.new)
+            switches[site.key, default: Entry()].old += counts.old
+            switches[site.key, default: Entry()].new += counts.new
+            switches[site.key, default: Entry()].sites[site.name] = Arms(old: counts.old, new: counts.new)
         }
-        return switches
+        return Report(switches: switches)
     }
 }
