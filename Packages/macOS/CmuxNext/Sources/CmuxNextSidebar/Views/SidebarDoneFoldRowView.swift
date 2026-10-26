@@ -44,6 +44,7 @@ final class SidebarDoneFoldRowView: SidebarRowView {
         needsDisplay = true
     }
 
+    /// Layer colors only: `layerContentsRedrawPolicy` (.onSetNeedsDisplay, SidebarRowView) runs it on needsDisplay, never on a resize.
     override func updateLayer() {
         performWithTheme {
             name.setColor(Palette.textSecondary)

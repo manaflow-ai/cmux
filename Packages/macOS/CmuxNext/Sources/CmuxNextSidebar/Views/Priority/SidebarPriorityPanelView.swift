@@ -32,6 +32,7 @@ final class SidebarPriorityPanelView: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // updateLayer sets colors only
         header.onPress = { [weak self] in self.map { $0.onAction?(.setCollapsed(!$0.panel.collapsed)) } }
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true

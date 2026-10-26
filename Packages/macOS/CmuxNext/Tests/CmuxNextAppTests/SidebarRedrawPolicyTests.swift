@@ -22,7 +22,7 @@ struct SidebarRedrawPolicyTests {
         [
             PresenceDotsView(frame: .zero), SidebarItemRowView(frame: .zero), SidebarRegionView(region: .top),
             SidebarSectionHeaderView(frame: .zero), SidebarCardTextButton(frame: .zero), GroupLineView(),
-            SidebarIconButton(symbol: "plus", label: "Add"), SidebarIconView(frame: .zero),
+            SidebarIconButton(symbol: "pin", label: "Pin"), SidebarIconView(frame: .zero),
             SidebarNowPlayingPlayButton(frame: .zero), SidebarUpdateButton(frame: .zero),
             SidebarUpdateCardView(frame: .zero), SidebarUpdateToggle(frame: .zero), SidebarEditBar(),
             UnreadBadgeView(frame: .zero), WorkspaceStatusView(frame: .zero), SidebarPriorityPanelView(frame: .zero),

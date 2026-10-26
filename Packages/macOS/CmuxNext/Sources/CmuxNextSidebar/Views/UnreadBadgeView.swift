@@ -22,6 +22,7 @@ final class UnreadBadgeView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // updateLayer sets colors only
         layer?.cornerCurve = .continuous
         label.font = SidebarStyle.badgeFont
         label.alignment = .center
@@ -74,7 +75,6 @@ final class UnreadBadgeView: NSView {
             layer.borderColor = colors.border?.cgColor
             layer.borderWidth = colors.border == nil ? 0 : colors.borderWidth
         }
-        layer.cornerRadius = state == .dot ? bounds.height / 2 : Metrics.chipCornerRadius(height: bounds.height)
     }
 
     /// One look's colors, from this view's Ghostty theme scope.
@@ -106,7 +106,14 @@ final class UnreadBadgeView: NSView {
         let scale = window?.backingScaleFactor ?? 2
         let y = (((bounds.height - font.capHeight) / 2 + font.descender) * scale).rounded() / scale
         label.frame = NSRect(x: 0, y: y, width: bounds.width, height: h)
+        layer?.cornerRadius = state == .dot ? bounds.height / 2 : Metrics.chipCornerRadius(height: bounds.height)
         needsDisplay = true
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        if changed { needsLayout = true }
     }
 }
 
