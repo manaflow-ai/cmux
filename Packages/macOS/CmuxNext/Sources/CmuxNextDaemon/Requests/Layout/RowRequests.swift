@@ -4,7 +4,7 @@ import Foundation
 /// its column, holding one new pane with one new terminal.
 public struct NewRowRequest: TerminalSpawningRequest {
     public typealias Response = SurfaceCreated
-    public static let command = "new-row"
+    public static let commandName: DaemonCommandName = "new-row"
     public static let requiredCapability: String? = DaemonCapability.rows.rawValue
     public var pane: PaneID
     /// 100...1000 permille of the column's viewport height.
@@ -28,7 +28,7 @@ public struct NewRowRequest: TerminalSpawningRequest {
 /// requires a sum of exactly 1000.
 public struct SetRowHeightsRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "set-row-heights"
+    public static let commandName: DaemonCommandName = "set-row-heights"
     public static let requiredCapability: String? = DaemonCapability.rows.rawValue
     public var column: ColumnID
     public var heights: [RowHeightValue]

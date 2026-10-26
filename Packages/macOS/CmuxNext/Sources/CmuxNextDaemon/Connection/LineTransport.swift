@@ -101,13 +101,19 @@ final class LineTransport: Sendable {
     let decoder: WireDecoder
     /// Watches the reader's handling of each line, never its wait in `read(2)`; nil watches nothing.
     private let hangWatched: HangWatchedLane?
+    /// Where each request's `daemon.request` slice goes (LineTransport+RequestTrace.swift), the top bits of its
+    /// async id (``traceConnectionBits(scope:)``) and its flow's seed (``requestFlowSeed(pid:)``).
+    let trace: TraceRuntime, traceConnection: UInt64, traceFlowSeed: UInt64
 
     /// - Parameter stats: Where the connection counts (``DaemonEndpoint/wireStats``); nil for none.
     /// - Parameter hangs: Watches each line's handling on the reader thread; nil watches nothing.
     init(path: String, bridge: DaemonBridge? = nil, role: DaemonWireStats.Role,
-         stats: DaemonWireStats?, hangs: (any HangWatchScoping)? = nil) throws(DaemonError) {
+         stats: DaemonWireStats?, hangs: (any HangWatchScoping)? = nil, trace: TraceRuntime = .shared) throws(DaemonError) {
         self.path = path
         self.role = role
+        self.trace = trace
+        traceConnection = Self.traceConnectionBits(scope: trace.nextAsyncScope())
+        traceFlowSeed = Self.requestFlowSeed(pid: getpid())
         let recorder = stats?.recorder()
         self.recorder = recorder
         decoder = WireCoding.decoder(recorder)
@@ -203,37 +209,33 @@ final class LineTransport: Sendable {
     /// `body` receives the allocated id and returns the encoded JSON object
     /// without the trailing newline. With a `timeout`, a reply that has not
     /// arrived in time fails the request with `DaemonError.timedOut`; the
-    /// late reply is dropped when it comes (architecture.md 5a).
-    func request(cmd: String, timeout: Duration?, _ body: (UInt64) throws -> Data) async throws -> Response {
+    /// late reply is dropped when it comes (architecture.md 5a). Its
+    /// `daemon.request` slice ends when the slot resolves (LineTransport+RequestTrace.swift).
+    func request(cmd: DaemonCommandName, timeout: Duration?, _ body: (UInt64) throws -> Data) async throws -> Response {
         let slot = ReplySlot()
         #if DEBUG || CMUX_BENCH_HOOKS
         // A traced new terminal: the request naming its id, and that request's reply.
+        let armed = NewTerminalTrace.shared.isArmed
         var traced: String?
-        let submitted: Result<UInt64, any Error>
-        if NewTerminalTrace.shared.isArmed {
-            submitted = submit(.reply(cmd: cmd, slot), { id in
-                let line = try body(id)
-                traced = NewTerminalTrace.shared.requestSent(line)
-                return line
-            })
-        } else {
-            submitted = submit(.reply(cmd: cmd, slot), body)
-        }
-        #else
-        let submitted = submit(.reply(cmd: cmd, slot), body)
         #endif
+        let submitted = submit(.reply(cmd: cmd.wire, slot)) { id in
+            let line = try body(id)
+            #if DEBUG || CMUX_BENCH_HOOKS
+            if armed { traced = NewTerminalTrace.shared.requestSent(line) }
+            #endif
+            beginRequestSpan(cmd, id: id, slot: slot)
+            return line
+        }
         // A failed submit resolved the slot already.
         guard case .success(let id) = submitted else { return try await slot.value() }
         let timer = DemandTimer(owner: "LineTransport.deadline")
         defer { timer.cancel() }
         if let timeout { timer.schedule(after: timeout) { [weak self] in self?.expire(id: id, after: timeout) } }
-        #if DEBUG || CMUX_BENCH_HOOKS
         let response = try await slot.value()
+        #if DEBUG || CMUX_BENCH_HOOKS
         if let traced { NewTerminalTrace.shared.mark(.reply, terminal: traced) }
-        return response
-        #else
-        return try await slot.value()
         #endif
+        return response
     }
 
     /// Fails a still-pending request with `timedOut`.
@@ -448,7 +450,7 @@ final class LineTransport: Sendable {
             recorder?.lineRead(.droppedReply)
             return
         }
-        recorder?.lineRead(Self.replyKind(waiter, ok: envelope.ok == true))
+        recorder?.lineRead(waiter.replyKind(ok: envelope.ok == true))
         if envelope.ok == true {
             if case .reply(_, let slot) = waiter {
                 slot.resolve(.success(Response(line: line, eventBarrier: barrier, recorder: recorder)))
@@ -461,16 +463,6 @@ final class LineTransport: Sendable {
         case .reply(_, let slot): slot.resolve(.failure(error))
         case .discard(_, let onError): onError?(error)
         case .expired: break
-        }
-    }
-
-    /// A reply line is read when a request waits for it, or when it is the error of one sent
-    /// without waiting; otherwise it is dropped.
-    private static func replyKind(_ waiter: Waiter, ok: Bool) -> DaemonWireStats.FrameKind {
-        switch waiter {
-        case .reply: .reply
-        case .discard: ok ? .droppedReply : .reply
-        case .expired: .droppedReply
         }
     }
 }

@@ -28,14 +28,14 @@ public actor AgentSessionAttachClient {
             }
         }
 
-        var command: String {
+        var command: DaemonCommandName {
             switch self {
             case .attach: return "agent-session-attach"
             case .observe: return "agent-session-observe"
             }
         }
 
-        var clientInfoKind: String { command }
+        var clientInfoKind: String { command.wire }
         var clientInfoName: String {
             switch self {
             case .attach: return "cmux-next agent attach"
@@ -207,10 +207,10 @@ public actor AgentSessionAttachClient {
     }
 
     /// One verb on the tab; the result's `data` as JSON, or the daemon's refusal.
-    private func call(_ cmd: String, _ params: [String: any Sendable]) async throws -> Data {
+    private func call(_ cmd: DaemonCommandName, _ params: [String: any Sendable]) async throws -> Data {
         let transport = try await liveTransport()
         var object = params
-        object["cmd"] = cmd
+        object["cmd"] = cmd.wire
         object["surface"] = surface
         // Integers stay integers (the daemon reads u64 seqs and surface ids).
         let fields = try JSONSerialization.data(withJSONObject: object)

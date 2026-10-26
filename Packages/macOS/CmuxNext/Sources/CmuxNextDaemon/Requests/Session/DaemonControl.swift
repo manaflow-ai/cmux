@@ -13,7 +13,7 @@ public struct ShutdownDaemonRequest: DaemonRequest {
             case endedTerminals = "ended_terminals"
         }
     }
-    public static let command = "shutdown-daemon"
+    public static let commandName: DaemonCommandName = "shutdown-daemon"
     public var pid: Int32
     public var generation: DaemonGeneration
     public var force: Bool?
@@ -35,7 +35,7 @@ public struct ShutdownDaemonRequest: DaemonRequest {
 /// Keeps daemon replay colors in step with the app's Ghostty theme.
 public struct SetDefaultColorsRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "set-default-colors"
+    public static let commandName: DaemonCommandName = "set-default-colors"
     public var fg: String?
     public var bg: String?
     public var cursor: String?
