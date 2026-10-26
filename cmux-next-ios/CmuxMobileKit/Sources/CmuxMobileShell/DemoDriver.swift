@@ -95,7 +95,7 @@ struct DemoDriver {
         }
     }
 
-    /// Team management (scripts/ci/cmux-next-ios-sim.sh teams): the drawer with your role
+    /// Team management (verify/team-capture.sh): the drawer with your role
     /// per team, an admin's team page, rename, a member's read-only page, the
     /// delete confirmation, then the delete and the team it moves to. Each
     /// step is marked (`teamsStep`) and then held 3 s for its screenshot.
@@ -141,8 +141,8 @@ struct DemoDriver {
         await teamsStep("done", hold: 0)
     }
 
-    /// Marks a demo step for the recording script (Documents/demo-step.txt,
-    /// read by scripts/ci/cmux-next-ios-sim.sh `teams`), then holds it.
+    /// Marks a demo step for a recording script (Documents/demo-step.txt;
+    /// verify/team-capture.sh waits on it), then holds it.
     private func teamsStep(_ name: String, hold: Double = 3) async {
         demoLog.info("demo step \(name, privacy: .public)")
         if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
