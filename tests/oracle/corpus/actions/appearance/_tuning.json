@@ -1,0 +1,1584 @@
+{
+  "$comment": "p15-oracle-074: the appearance and toggle action families (every non-excluded id of plans/cmux-next/action-surfaces.json whose family prefix is appearance or toggle: 66 today, 65 runnable and toggleFileEditorWordWrap a gap; appearance.animations.feedback.toggle is excluded). The format is browser/_tuning.json's (p15-oracle-072): gen_actions.py (p15-oracle-071) reads it and writes one case per action and engine into the flat actions suite; a context-none case is the same on both engines. Settings facet assertions: an action that writes a non-default value waits until /settings/nonDefaultKeys contains its key; one that writes the default first makes the key non-default in its before steps, then waits until the list changed; the motion actions read the arm back (/settings/motion/enabled and speed, MotionSpeed.timeScale fast 1, normal 1.5, off 0). The oracle launch is the bench config plus ui.animations.enabled false, appearance.backgroundOpacity 1 and mcp.enabled true (driver_app.py ORACLE_CONFIG). Every key these actions write is agent-settable (SettingsSchema.agentSettableKeys), so a socket caller (SettingWriter.caller) may write it; the handlers apply the value at once and return the cmux-next.json write as tracked work (AppActionContext.writeSettings), so action.run answers after the file has it. Legacy bind/run/invoke handlers report action.done. A toggle's generated restore runs it again; app_reset puts the settings back between cases. Keys as in 072: context, entrypoint, params, before, after, expect, waitFor, invariants, untested, note, chromium, divergence, gap, gap_success.",
+  "task": "p15-oracle-074",
+  "families": [
+    "appearance",
+    "toggle"
+  ],
+  "engines": [
+    "chromium",
+    "webkit"
+  ],
+  "contexts": {
+    "page": {
+      "note": "the fixture page in the focused pane: p15-oracle-222's loopback load.html (openBrowser and cmux browser navigate refuse data: URLs, BrowserURLResolver searches them), opened with focus so the socket caller's tab is selected and focused (without it TabLifecycle.newBrowser opens it unselected behind the focused tab), then navigated to #b by the bundle's CLI (a same-document navigation), so it has two history entries. The tabs facet lists a pane's browser and page tabs only (OracleTabsFacet), so on a fresh launch per case (--batch-limit 1) the fixture is the one tab of pane 0's list: page-only checks that before any case reads $page",
+      "pointer": "/tabs/panes/0/tabs/0",
+      "url": "$WEB/load.html#b",
+      "fixture": {
+        "web": true
+      },
+      "depends_on": [
+        "p15-oracle-222",
+        "p15-oracle-245"
+      ],
+      "before": {
+        "chromium": [
+          {
+            "id": "open-page",
+            "action": "openBrowser.chromium",
+            "params": {
+              "url": "$WEB/load.html"
+            },
+            "focus": true
+          },
+          {
+            "id": "page-loaded",
+            "waitFor": {
+              "pointer": "$page/loadState",
+              "maxMs": 15000,
+              "equals": "finished"
+            }
+          },
+          {
+            "id": "page-hash",
+            "cli": [
+              "browser",
+              "page",
+              "navigate",
+              "$WEB/load.html#b"
+            ]
+          }
+        ],
+        "webkit": [
+          {
+            "id": "open-page",
+            "action": "openBrowser.webkit",
+            "params": {
+              "url": "$WEB/load.html"
+            },
+            "focus": true
+          },
+          {
+            "id": "page-loaded",
+            "waitFor": {
+              "pointer": "$page/loadState",
+              "maxMs": 15000,
+              "equals": "finished"
+            }
+          },
+          {
+            "id": "page-hash",
+            "cli": [
+              "browser",
+              "page",
+              "navigate",
+              "$WEB/load.html#b"
+            ]
+          }
+        ]
+      },
+      "ready": [
+        {
+          "id": "page-ready",
+          "waitFor": {
+            "pointer": "$page/url",
+            "maxMs": 15000,
+            "equals": "$WEB/load.html#b"
+          }
+        },
+        {
+          "id": "page-history",
+          "waitFor": {
+            "pointer": "$page/canGoBack",
+            "maxMs": 5000,
+            "equals": true
+          }
+        },
+        {
+          "id": "page-only",
+          "waitFor": {
+            "pointer": "/tabs/panes/0/tabs",
+            "maxMs": 5000,
+            "predicate": {
+              "op": "lengthEquals",
+              "value": 1
+            }
+          }
+        },
+        {
+          "id": "page-focused",
+          "waitFor": {
+            "pointer": "/focus/context/browser",
+            "maxMs": 5000,
+            "equals": true
+          }
+        }
+      ]
+    },
+    "none": {
+      "note": "no page: the action acts on settings, the window or the focused terminal",
+      "before": {
+        "chromium": [],
+        "webkit": []
+      },
+      "ready": []
+    }
+  },
+  "actions": {
+    "appearance.animationSpeed.fast": {
+      "context": "none",
+      "before": [
+        {
+          "id": "speed-normal",
+          "action": "appearance.animationSpeed.normal"
+        },
+        {
+          "id": "speed-normal-applied",
+          "waitFor": {
+            "pointer": "/settings/motion/speed",
+            "maxMs": 10000,
+            "equals": 1.5
+          }
+        }
+      ],
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/motion/speed",
+        "maxMs": 10000,
+        "equals": 1
+      },
+      "invariants": [
+        "fast is ui.animationSpeed's default: the key is removed and the time scale reads back 1",
+        "nonDefaultKeys no longer lists ui.animationSpeed"
+      ]
+    },
+    "appearance.animationSpeed.normal": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/motion/speed",
+        "maxMs": 10000,
+        "equals": 1.5
+      },
+      "invariants": [
+        "ui.animationSpeed normal: the motion gates' time scale reads back 1.5 (settings/motion/speed)",
+        "nonDefaultKeys lists ui.animationSpeed"
+      ]
+    },
+    "appearance.animationSpeed.off": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/motion/speed",
+        "maxMs": 10000,
+        "equals": 0
+      },
+      "invariants": [
+        "ui.animationSpeed off: the motion gates' time scale reads back 0 (every change applies in one frame)",
+        "nonDefaultKeys lists ui.animationSpeed"
+      ]
+    },
+    "appearance.animations.bounce.none": {
+      "context": "none",
+      "before": [
+        {
+          "id": "bounce-subtle",
+          "action": "appearance.animations.bounce.subtle"
+        },
+        {
+          "id": "bounce-subtle-saved",
+          "waitFor": {
+            "pointer": "/settings/nonDefaultKeys",
+            "maxMs": 10000,
+            "predicate": {
+              "op": "contains",
+              "value": "ui.animations.bounce"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": "changed"
+      },
+      "invariants": [
+        "ui.animations.bounce goes back to its default: nonDefaultKeys no longer lists it (the waitFor sees the list change from the before steps' value; the settled checkpoint records the list)",
+        "none is the default: the key is removed"
+      ]
+    },
+    "appearance.animations.bounce.subtle": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "ui.animations.bounce"
+        }
+      },
+      "invariants": [
+        "ui.animations.bounce applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "subtle is written; settings/motion does not change (bounce is not part of the arm)"
+      ]
+    },
+    "appearance.animations.cursor.toggle": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "ui.animations.cursor"
+        }
+      },
+      "invariants": [
+        "ui.animations.cursor applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "the Agent Cursor category is off (false is written); the master switch and the speed do not change (settings/motion reads the same)",
+        "the generated restore runs the toggle again, which removes the key"
+      ]
+    },
+    "appearance.animations.home.toggle": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "ui.animations.home"
+        }
+      },
+      "invariants": [
+        "ui.animations.home applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "the Home and Chat category is off (false is written); the master switch and the speed do not change (settings/motion reads the same)",
+        "the generated restore runs the toggle again, which removes the key"
+      ]
+    },
+    "appearance.animations.hoverCards.toggle": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "ui.animations.hoverCards"
+        }
+      },
+      "invariants": [
+        "ui.animations.hoverCards applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "the Hover Card category is off (false is written); the master switch and the speed do not change (settings/motion reads the same)",
+        "the generated restore runs the toggle again, which removes the key"
+      ]
+    },
+    "appearance.animations.indicators.toggle": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "ui.animations.indicators"
+        }
+      },
+      "invariants": [
+        "ui.animations.indicators applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "the Spinner and Progress category is off (false is written); the master switch and the speed do not change (settings/motion reads the same)",
+        "the generated restore runs the toggle again, which removes the key"
+      ]
+    },
+    "appearance.animations.newTab.toggle": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "ui.animations.newTab"
+        }
+      },
+      "invariants": [
+        "ui.animations.newTab applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "the new tab animation kind is off (false is written)",
+        "the generated restore runs the toggle again, which removes the key"
+      ]
+    },
+    "appearance.animations.newWorkspace.toggle": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "ui.animations.newWorkspace"
+        }
+      },
+      "invariants": [
+        "ui.animations.newWorkspace applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "the new workspace animation kind is off (false is written)",
+        "the generated restore runs the toggle again, which removes the key"
+      ]
+    },
+    "appearance.animations.overlays.toggle": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "ui.animations.overlays"
+        }
+      },
+      "invariants": [
+        "ui.animations.overlays applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "the Menu and Card category is off (false is written); the master switch and the speed do not change (settings/motion reads the same)",
+        "the generated restore runs the toggle again, which removes the key"
+      ]
+    },
+    "appearance.animations.panes.toggle": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "ui.animations.panes"
+        }
+      },
+      "invariants": [
+        "ui.animations.panes applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "the Pane and Window category is off (false is written); the master switch and the speed do not change (settings/motion reads the same)",
+        "the generated restore runs the toggle again, which removes the key"
+      ]
+    },
+    "appearance.animations.sidebar.toggle": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "ui.animations.sidebar"
+        }
+      },
+      "invariants": [
+        "ui.animations.sidebar applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "the Sidebar category is off (false is written); the master switch and the speed do not change (settings/motion reads the same)",
+        "the generated restore runs the toggle again, which removes the key"
+      ]
+    },
+    "appearance.animations.tabs.toggle": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "ui.animations.tabs"
+        }
+      },
+      "invariants": [
+        "ui.animations.tabs applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "the Tab category is off (false is written); the master switch and the speed do not change (settings/motion reads the same)",
+        "the generated restore runs the toggle again, which removes the key"
+      ]
+    },
+    "appearance.animations.toggle": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/motion/enabled",
+        "maxMs": 10000,
+        "equals": true
+      },
+      "invariants": [
+        "the launch has ui.animations.enabled false (driver_app.py ORACLE_CONFIG), so the toggle turns motion on: on is the default, so the key is removed and settings/motion/enabled reads back true",
+        "nonDefaultKeys no longer lists ui.animations.enabled",
+        "the generated restore runs the toggle again: motion is off for the next case"
+      ],
+      "note": "the only case of the suite that runs with the motion arm on between its action and its restore (the motion-on arm of every case is p15-oracle-233's)"
+    },
+    "appearance.animations.web.toggle": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "ui.animations.web"
+        }
+      },
+      "invariants": [
+        "ui.animations.web applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "the Web Page category is off (false is written); the master switch and the speed do not change (settings/motion reads the same)",
+        "the generated restore runs the toggle again, which removes the key"
+      ]
+    },
+    "appearance.changeBackground": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/webviews/pages",
+        "maxMs": 15000,
+        "predicate": "changed"
+      },
+      "invariants": [
+        "Settings on the background picker for the shown workspace opens: its page joins webviews (a page in no tab), without focus for a socket caller (ActionInvocation.allowsViewChange)",
+        "cmux-next.json does not change"
+      ],
+      "untested": [
+        "the page's route and section: the case checks that the Settings page loaded, not where it scrolled"
+      ],
+      "note": "no action closes the Settings window from the socket and app_reset does not see it: the case wants a fresh launch after it (--batch-limit 1, as the page cases of 072)"
+    },
+    "appearance.chromeStyle.bare": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "appearance.chromeStyle"
+        }
+      },
+      "invariants": [
+        "appearance.chromeStyle applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "the bare style is written; its pane separation, sidebar border and sidebar surface defaults apply (no facet reads them)"
+      ]
+    },
+    "appearance.chromeStyle.card": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "appearance.chromeStyle"
+        }
+      },
+      "invariants": [
+        "appearance.chromeStyle applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "the card style is written; its pane separation, sidebar border and sidebar surface defaults apply (no facet reads them)"
+      ]
+    },
+    "appearance.chromeStyle.cardOutlined": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "appearance.chromeStyle"
+        }
+      },
+      "invariants": [
+        "appearance.chromeStyle applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "the cardOutlined style is written; its pane separation, sidebar border and sidebar surface defaults apply (no facet reads them)"
+      ]
+    },
+    "appearance.chromeStyle.default": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "appearance.chromeStyle"
+        }
+      },
+      "invariants": [
+        "appearance.chromeStyle applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "the default style is written; its pane separation, sidebar border and sidebar surface defaults apply (no facet reads them)"
+      ]
+    },
+    "appearance.chromeStyle.flat": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "appearance.chromeStyle"
+        }
+      },
+      "invariants": [
+        "appearance.chromeStyle applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "the flat style is written; its pane separation, sidebar border and sidebar surface defaults apply (no facet reads them)"
+      ]
+    },
+    "appearance.chromeStyle.flatSidebarLine": {
+      "context": "none",
+      "before": [
+        {
+          "id": "style-card",
+          "action": "appearance.chromeStyle.card"
+        },
+        {
+          "id": "style-card-saved",
+          "waitFor": {
+            "pointer": "/settings/nonDefaultKeys",
+            "maxMs": 10000,
+            "predicate": {
+              "op": "contains",
+              "value": "appearance.chromeStyle"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": "changed"
+      },
+      "invariants": [
+        "appearance.chromeStyle goes back to its default: nonDefaultKeys no longer lists it (the waitFor sees the list change from the before steps' value; the settled checkpoint records the list)",
+        "flat-sidebar-line is the default: the key is removed"
+      ]
+    },
+    "appearance.chromeStyle.floating": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "appearance.chromeStyle"
+        }
+      },
+      "invariants": [
+        "appearance.chromeStyle applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "the floating style is written; its pane separation, sidebar border and sidebar surface defaults apply (no facet reads them)"
+      ]
+    },
+    "appearance.chromeStyle.panes": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "appearance.chromeStyle"
+        }
+      },
+      "invariants": [
+        "appearance.chromeStyle applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "the panes style is written; its pane separation, sidebar border and sidebar surface defaults apply (no facet reads them)"
+      ]
+    },
+    "appearance.chromeStyle.twoTone": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "appearance.chromeStyle"
+        }
+      },
+      "invariants": [
+        "appearance.chromeStyle applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "the twoTone style is written; its pane separation, sidebar border and sidebar surface defaults apply (no facet reads them)"
+      ]
+    },
+    "appearance.customize": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/webviews/pages",
+        "maxMs": 15000,
+        "predicate": "changed"
+      },
+      "invariants": [
+        "Settings on its Appearance section opens: its page joins webviews (a page in no tab), without focus for a socket caller (ActionInvocation.allowsViewChange)",
+        "cmux-next.json does not change"
+      ],
+      "untested": [
+        "the page's route and section: the case checks that the Settings page loaded, not where it scrolled"
+      ],
+      "note": "no action closes the Settings window from the socket and app_reset does not see it: the case wants a fresh launch after it (--batch-limit 1, as the page cases of 072)"
+    },
+    "appearance.density.comfortable": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "appearance.density"
+        }
+      },
+      "invariants": [
+        "appearance.density applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "comfortable is written and appearance.customDensity removed; the chrome metrics follow"
+      ]
+    },
+    "appearance.density.compact": {
+      "context": "none",
+      "before": [
+        {
+          "id": "density-cozy",
+          "action": "appearance.density.cozy"
+        },
+        {
+          "id": "density-cozy-saved",
+          "waitFor": {
+            "pointer": "/settings/nonDefaultKeys",
+            "maxMs": 10000,
+            "predicate": {
+              "op": "contains",
+              "value": "appearance.density"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": "changed"
+      },
+      "invariants": [
+        "appearance.density goes back to its default: nonDefaultKeys no longer lists it (the waitFor sees the list change from the before steps' value; the settled checkpoint records the list)",
+        "compact, the default, is written: the key is no longer non-default"
+      ],
+      "untested": [
+        "the already-in-use toast (DensityStrings.alreadyUsing) of compact on a fresh launch: the before steps leave compact first so the case checks the write"
+      ]
+    },
+    "appearance.density.cozy": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "appearance.density"
+        }
+      },
+      "invariants": [
+        "appearance.density applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "cozy is written and appearance.customDensity removed; the chrome metrics follow"
+      ]
+    },
+    "appearance.density.create": {
+      "context": "none",
+      "entrypoint": "action",
+      "params": {
+        "name": "Oracle",
+        "basedOn": "compact"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "appearance.customDensity"
+        }
+      },
+      "invariants": [
+        "a custom density named Oracle, copied from compact, is appended to appearance.customDensities and selected by appearance.customDensity: both become non-default keys (the selection is written last, so the waitFor on it sees both)",
+        "the created toast (DensityStrings.created) shows on the active window"
+      ],
+      "untested": [
+        "the toast's text: overlays lists toasts by kind, not by text"
+      ]
+    },
+    "appearance.density.set": {
+      "context": "none",
+      "entrypoint": "action",
+      "params": {
+        "density": "cozy"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "appearance.density"
+        }
+      },
+      "invariants": [
+        "Set Density with density cozy takes the one DensityController path: appearance.density cozy is written and becomes a non-default key"
+      ]
+    },
+    "appearance.density.spacious": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "appearance.density"
+        }
+      },
+      "invariants": [
+        "appearance.density applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "spacious is written and appearance.customDensity removed; the chrome metrics follow"
+      ]
+    },
+    "appearance.density.ultraCompact": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "appearance.density"
+        }
+      },
+      "invariants": [
+        "appearance.density applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "ultraCompact is written and appearance.customDensity removed; the chrome metrics follow"
+      ]
+    },
+    "appearance.glass.lens.toggle": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "invariants": [
+        "the Debug choice glass.lens flips between Plain Glass and Lens"
+      ],
+      "untested": [
+        "the Debug tunable store is not a facet, and no reset puts it back"
+      ],
+      "note": "isDebugOnly: the sweep's plan excludes it by its flag, so the generator writes it blocked (flag); this entry is the expectation for the day a debug arm runs it"
+    },
+    "appearance.interfaceSize.decrease": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "appearance.metrics.chromeFontSize"
+        }
+      },
+      "invariants": [
+        "appearance.metrics.chromeFontSize applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "the chrome body size is the density's minus one point, inside 10...16"
+      ],
+      "untested": [
+        "appearance.interfaceScale, the path while the Debug Settings toggle chrome.interfaceSize is on: the oracle launch keeps Debug tunables at their defaults"
+      ]
+    },
+    "appearance.interfaceSize.increase": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "appearance.metrics.chromeFontSize"
+        }
+      },
+      "invariants": [
+        "appearance.metrics.chromeFontSize applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "the chrome body size is the density's plus one point, inside 10...16"
+      ],
+      "untested": [
+        "appearance.interfaceScale, the path while the Debug Settings toggle chrome.interfaceSize is on: the oracle launch keeps Debug tunables at their defaults"
+      ]
+    },
+    "appearance.interfaceSize.reset": {
+      "context": "none",
+      "before": [
+        {
+          "id": "size-up",
+          "action": "appearance.interfaceSize.increase"
+        },
+        {
+          "id": "size-up-saved",
+          "waitFor": {
+            "pointer": "/settings/nonDefaultKeys",
+            "maxMs": 10000,
+            "predicate": {
+              "op": "contains",
+              "value": "appearance.metrics.chromeFontSize"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": "changed"
+      },
+      "invariants": [
+        "appearance.metrics.chromeFontSize goes back to its default: nonDefaultKeys no longer lists it (the waitFor sees the list change from the before steps' value; the settled checkpoint records the list)",
+        "the density's size applies again: the key is removed"
+      ],
+      "untested": [
+        "appearance.interfaceScale, the path while the Debug Settings toggle chrome.interfaceSize is on: the oracle launch keeps Debug tunables at their defaults"
+      ]
+    },
+    "appearance.paneBorder.toggle": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "layout.paneBorder"
+        }
+      },
+      "divergence": [
+        "pane-border-toggle-reads-configured"
+      ],
+      "invariants": [
+        "layout.paneBorder none is written (the handler flips the configured border, unset reads as subtle), so it becomes a non-default key",
+        "the generated restore runs the toggle again, which removes the key"
+      ],
+      "untested": [
+        "pane padding, border and corner metrics are not a facet: the cards look the written none gives (divergence pane-border-toggle-reads-configured) is found by reading the handler"
+      ]
+    },
+    "appearance.paneBorderColor.reset": {
+      "context": "none",
+      "before": [
+        {
+          "id": "border-color",
+          "cli": [
+            "settings",
+            "set",
+            "layout.paneBorderColor",
+            "#1A2B3C"
+          ]
+        },
+        {
+          "id": "border-color-saved",
+          "waitFor": {
+            "pointer": "/settings/nonDefaultKeys",
+            "maxMs": 10000,
+            "predicate": {
+              "op": "contains",
+              "value": "layout.paneBorderColor"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": "changed"
+      },
+      "invariants": [
+        "layout.paneBorderColor goes back to its default: nonDefaultKeys no longer lists it (the waitFor sees the list change from the before steps' value; the settled checkpoint records the list)",
+        "the theme color applies again: the key is removed"
+      ]
+    },
+    "appearance.paneBorderWidth.toggle": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "layout.paneBorderWidth"
+        }
+      },
+      "invariants": [
+        "layout.paneBorderWidth applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "2 pt is written; the generated restore runs the toggle again, which removes the key"
+      ]
+    },
+    "appearance.paneCorners.toggle": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "layout.paneCornerRadius"
+        }
+      },
+      "invariants": [
+        "the default style draws square corners (no padding, no border), so the toggle writes the density's radius explicitly: layout.paneCornerRadius becomes a non-default key",
+        "the generated restore runs the toggle again, which writes 0 (square): the key stays listed until the reset removes it"
+      ]
+    },
+    "appearance.panePadding.toggle": {
+      "context": "none",
+      "before": [
+        {
+          "id": "style-panes",
+          "action": "appearance.chromeStyle.panes"
+        },
+        {
+          "id": "style-panes-saved",
+          "waitFor": {
+            "pointer": "/settings/nonDefaultKeys",
+            "maxMs": 10000,
+            "predicate": {
+              "op": "contains",
+              "value": "appearance.chromeStyle"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "layout.panePadding"
+        }
+      },
+      "divergence": [
+        "pane-padding-toggle-noop-default-style"
+      ],
+      "invariants": [
+        "under the Panes window style (bordered panes with the density's padding) the toggle writes layout.panePadding 0: it becomes a non-default key",
+        "the generated restore runs the toggle again: padding 0 reads as off, so the key is removed"
+      ],
+      "note": "the before steps choose the Panes window style because under the default one the toggle writes nothing (divergence pane-padding-toggle-noop-default-style); the reset puts appearance.chromeStyle back"
+    },
+    "appearance.reset": {
+      "context": "none",
+      "entrypoint": "action",
+      "params": {
+        "scope": "workspace",
+        "property": "tint"
+      },
+      "before": [
+        {
+          "id": "set-tint",
+          "action": "appearance.set",
+          "params": {
+            "scope": "workspace",
+            "property": "tint",
+            "value": "blue"
+          }
+        }
+      ],
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "invariants": [
+        "the shown workspace's tint follows its window again; cmux-next.json does not change"
+      ],
+      "untested": [
+        "the appearance scope store is not a facet"
+      ]
+    },
+    "appearance.set": {
+      "context": "none",
+      "entrypoint": "action",
+      "params": {
+        "scope": "workspace",
+        "property": "tint",
+        "value": "blue"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "after": [
+        {
+          "id": "clear-tint",
+          "action": "appearance.reset",
+          "params": {
+            "scope": "workspace",
+            "property": "tint"
+          }
+        }
+      ],
+      "invariants": [
+        "the shown workspace's own tint is blue; cmux-next.json does not change (nonDefaultKeys and effectiveSha256 equal before and after)"
+      ],
+      "untested": [
+        "the appearance scope store is not a facet, and no reset reads it: the after step clears the tint"
+      ]
+    },
+    "appearance.titlebar.minimal": {
+      "context": "none",
+      "before": [
+        {
+          "id": "titlebar-standard",
+          "action": "appearance.titlebar.standard"
+        },
+        {
+          "id": "titlebar-standard-saved",
+          "waitFor": {
+            "pointer": "/settings/nonDefaultKeys",
+            "maxMs": 10000,
+            "predicate": {
+              "op": "contains",
+              "value": "window.titlebar"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": "changed"
+      },
+      "invariants": [
+        "window.titlebar goes back to its default: nonDefaultKeys no longer lists it (the waitFor sees the list change from the before steps' value; the settled checkpoint records the list)",
+        "minimal is the default: the key is removed"
+      ]
+    },
+    "appearance.titlebar.standard": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "window.titlebar"
+        }
+      },
+      "invariants": [
+        "window.titlebar applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "standard is written; the tab bar is at the top, so the applied titlebar is standard too"
+      ]
+    },
+    "appearance.uiScale.decrease": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "app.uiScale"
+        }
+      },
+      "invariants": [
+        "app.uiScale applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "0.95 is written (inside 0.85...1.5)"
+      ]
+    },
+    "appearance.uiScale.increase": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": {
+          "op": "contains",
+          "value": "app.uiScale"
+        }
+      },
+      "invariants": [
+        "app.uiScale applies at once and is written to cmux-next.json: it becomes a non-default key (settings facet nonDefaultKeys; effectiveSha256 changes with it)",
+        "1.05 is written (inside 0.85...1.5)"
+      ]
+    },
+    "appearance.uiScale.reset": {
+      "context": "none",
+      "before": [
+        {
+          "id": "scale-up",
+          "action": "appearance.uiScale.increase"
+        },
+        {
+          "id": "scale-up-saved",
+          "waitFor": {
+            "pointer": "/settings/nonDefaultKeys",
+            "maxMs": 10000,
+            "predicate": {
+              "op": "contains",
+              "value": "app.uiScale"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "maxMs": 10000,
+        "predicate": "changed"
+      },
+      "invariants": [
+        "app.uiScale goes back to its default: nonDefaultKeys no longer lists it (the waitFor sees the list change from the before steps' value; the settled checkpoint records the list)",
+        "1 applies again: the key is removed"
+      ]
+    },
+    "toggleBrowserDesignMode": {
+      "context": "page",
+      "entrypoint": "action",
+      "expect": {
+        "outcome": "error",
+        "error": "control.unavailable",
+        "errorDetails": {
+          "action": "toggleBrowserDesignMode",
+          "reason": "UI pointer picker is off. Turn it on in Debug Settings > Browser Page Loading."
+        }
+      },
+      "divergence": [
+        "design-mode-unlocalized-refusal"
+      ],
+      "invariants": [
+        "the Debug tunable browserPage.uiPointer is off in the oracle launch, so the action is unavailable with its reason before the handler runs",
+        "no facet changes"
+      ],
+      "gap_success": "the success case needs the Debug tunable browserPage.uiPointer on in the launch: p15-oracle-087 (toggle fixtures)"
+    },
+    "toggleBrowserDeveloperTools": {
+      "context": "page",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "invariants": [
+        "the focused page's inspector opens; the generated restore closes it"
+      ],
+      "untested": [
+        "the inspector's visibility is not a facet (WebKit's is not observable at all, BrowserHandlers)"
+      ]
+    },
+    "toggleBrowserFocusMode": {
+      "context": "page",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "invariants": [
+        "the page tab enters browser focus mode and takes the keyboard (focus model target content); the generated restore, an action.run, leaves it (a key would reach the page)"
+      ],
+      "untested": [
+        "FocusState.browserFocusMode is not in the focus facet"
+      ]
+    },
+    "toggleCanvasLayout": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/layout/screens/0/canvas",
+        "maxMs": 5000,
+        "predicate": "changed"
+      },
+      "invariants": [
+        "the shown screen becomes a canvas seeded from where its pane shows now (layout canvas is no longer null)",
+        "the generated restore runs the toggle again: the daemon layout shows"
+      ]
+    },
+    "toggleChecklistItemComplete": {
+      "context": "none",
+      "before": [
+        {
+          "id": "add-item",
+          "action": "palette.addWorkspaceChecklistItem",
+          "params": {
+            "text": "oracle"
+          }
+        }
+      ],
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "invariants": [
+        "the workspace's one checklist item (to do) is done; the generated restore makes it to do again",
+        "the settled daemon facet records the checklist (extra.state workspace_checklist)"
+      ],
+      "untested": [
+        "debug.oracle.wait_for reads app facets only, so no step waits on the daemon's checklist"
+      ]
+    },
+    "toggleFileEditorWordWrap": {
+      "context": "none",
+      "gap": "needs codeEditorFocused, a file page with the code editor focused: p15-oracle-082 makes the file page fixtures (every-action-gaps.json lists the gap)"
+    },
+    "toggleFocusedWorkspaceGroupCollapsed": {
+      "context": "none",
+      "before": [
+        {
+          "id": "group",
+          "action": "workspace.moveToNewGroup",
+          "params": {
+            "name": "oracle"
+          }
+        },
+        {
+          "id": "grouped",
+          "waitFor": {
+            "pointer": "/topology/topology/workspace_groups",
+            "maxMs": 5000,
+            "predicate": {
+              "op": "lengthEquals",
+              "value": 1
+            }
+          }
+        }
+      ],
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/workspace_groups/0/collapsed",
+        "maxMs": 5000,
+        "equals": true
+      },
+      "invariants": [
+        "the shown workspace's personal group collapses; the generated restore expands it",
+        "a socket caller's new group opens no name editor (SidebarGroupFlow.newGroup byUser false)"
+      ]
+    },
+    "toggleFullScreen": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/windows/list/0/fullscreen",
+        "maxMs": 10000,
+        "equals": true
+      },
+      "invariants": [
+        "the launch's one window enters full screen (AppKit's transition ends before the waitFor holds)",
+        "the generated restore runs the toggle again: the window leaves full screen"
+      ],
+      "chromium": "chrome/browser/ui/exclusive_access/fullscreen_controller.cc ToggleBrowserFullscreenMode"
+    },
+    "toggleReactGrab": {
+      "context": "page",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "divergence": [
+        "react-grab-untracked-work"
+      ],
+      "invariants": [
+        "the first toggle loads the pinned React Grab library into the fixture page's world; the generated restore turns it off"
+      ],
+      "untested": [
+        "React Grab's state in the page is not a facet"
+      ]
+    },
+    "toggleRightSidebar": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "invariants": [
+        "the right sidebar shows on its last section without taking focus; the generated restore hides it"
+      ],
+      "untested": [
+        "the right sidebar's visibility is not a facet: the case checks that the action ran"
+      ]
+    },
+    "toggleSidebar": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/sidebar/hidden",
+        "maxMs": 5000,
+        "equals": true
+      },
+      "invariants": [
+        "the left sidebar hides (sidebar facet hidden, focus model sidebarHidden)",
+        "the generated restore runs the toggle again: it shows"
+      ]
+    },
+    "toggleSplitZoom": {
+      "context": "none",
+      "before": [
+        {
+          "id": "split",
+          "action": "splitRight",
+          "focus": true
+        },
+        {
+          "id": "split-shown",
+          "waitFor": {
+            "pointer": "/layout/screens/0/root/kind",
+            "maxMs": 5000,
+            "equals": "split"
+          }
+        }
+      ],
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/layout/screens/0/zoomedPane",
+        "maxMs": 5000,
+        "predicate": "changed"
+      },
+      "invariants": [
+        "the focused pane of a two-pane screen zooms: layout zoomedPane names it",
+        "the generated restore runs the toggle again: no pane is zoomed"
+      ]
+    },
+    "toggleTabAudioMute": {
+      "context": "page",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "$page/muted",
+        "maxMs": 5000,
+        "equals": true
+      },
+      "invariants": [
+        "the fixture page's tab is muted; the generated restore unmutes it"
+      ],
+      "chromium": "chrome/browser/ui/tabs/tab_utils.cc SetTabAudioMuted"
+    },
+    "toggleTerminalCopyMode": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "invariants": [
+        "the focused terminal enters keyboard copy mode; the generated restore leaves it"
+      ],
+      "untested": [
+        "copy mode is not a facet (the terminals facet reads the VT state, not the surface's mode)"
+      ]
+    },
+    "toggleUnread": {
+      "context": "none",
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/workspaces/0/screens/0/panes/0/tabs/0/unread",
+        "maxMs": 5000,
+        "equals": true
+      },
+      "invariants": [
+        "the focused terminal tab, which has no notification, is marked unread (the daemon keeps the mark)",
+        "the generated restore runs the toggle again: the mark is cleared"
+      ]
+    }
+  },
+  "divergences": {
+    "pane-border-toggle-reads-configured": {
+      "actions": [
+        "appearance.paneBorder.toggle"
+      ],
+      "what": "The handler flips the configured border (an unset layout.paneBorder reads as subtle), not the drawn one. Under the default window style (flat-sidebar-line: separation none, no border drawn) the first Toggle Pane Borders writes layout.paneBorder none, which PaneSeparation.resolve reads as cards: panes gain the density's padding and rounded corners, and no border appears or goes.",
+      "where": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/AppearanceHandlers.swift togglePaneBorder; Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/PaneChrome.swift PaneSeparation.resolve",
+      "chromium": "chrome/browser/ui/browser_commands.cc ToggleBookmarkBar (a toggle flips the effective pref value the person sees, components/prefs/pref_service.cc GetBoolean)",
+      "case": "the case checks the write; no facet reads pane metrics, so the look change was found by reading the code"
+    },
+    "pane-padding-toggle-noop-default-style": {
+      "actions": [
+        "appearance.panePadding.toggle"
+      ],
+      "what": "Under the default window style the pane padding is 0 by the style's separation (impliedPadding), so Toggle Pane Padding computes off -> on as nil, writes nothing and changes nothing: action.run answers ok and padding can never be turned on from the toggle.",
+      "where": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/AppearanceHandlers.swift togglePanePadding; Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Metrics.swift codePanePadding",
+      "chromium": "chrome/browser/ui/browser_commands.cc ToggleBookmarkBar (a toggle always changes what shows)",
+      "case": "the case runs under the Panes style, where the toggle works; the default-style no-op was found by reading the handler"
+    },
+    "design-mode-unlocalized-refusal": {
+      "actions": [
+        "toggleBrowserDesignMode"
+      ],
+      "what": "The unavailable reason and the thrown refusal are English literals, not String(localized:) (CLAUDE.md, cmux-localization): a socket or palette caller in another language gets English.",
+      "where": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/BrowserHandlers.swift toggleBrowserDesignMode",
+      "chromium": "chrome/app/generated_resources.grd (every user-visible string is a message id)",
+      "case": "errorDetails pins today's English reason, so a localized fix shows as a base/head divergence on an English launch only if the text changes"
+    },
+    "react-grab-untracked-work": {
+      "actions": [
+        "toggleReactGrab"
+      ],
+      "what": "The handler starts the library load in an unstructured Task: the registry never tracks it, action.run answers before the page has React Grab, and a failure shows only as a page notice.",
+      "where": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/BrowserHandlers.swift toggleReactGrab",
+      "chromium": "content/public/browser/web_contents.h ExecuteJavaScriptInIsolatedWorld (the callback reports the result to the caller)",
+      "case": "no facet reads the page's React Grab state, so the case stays green; a facet would make it flaky until the work is returned as an ActionEffect"
+    }
+  }
+}
