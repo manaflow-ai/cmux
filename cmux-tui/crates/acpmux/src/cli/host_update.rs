@@ -563,6 +563,15 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
         up.outcome = Outcome::Current;
         return up;
     }
+    // Read under the host's update lock, so a self-update that ran since the
+    // caller looked is seen here and never undone.
+    if opts.keep_newer
+        && let (Some(running), Some(pushing)) = (&probe.build, &binary_build)
+        && let Some(reason) = keeps_over(running, pushing)
+    {
+        let why = format!("{} runs {running}, kept over {pushing}", remote.host());
+        return up.end(Outcome::Current, reason, why);
+    }
     if opts.if_idle {
         match &probe.busy {
             Some(names) if names.is_empty() => {}
