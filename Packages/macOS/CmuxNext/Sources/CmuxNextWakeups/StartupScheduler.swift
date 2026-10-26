@@ -49,9 +49,25 @@ public final class StartupScheduler {
     /// cmux panes are local, so a launch not complete in 10 s is a stuck daemon or a bug (p08-startup.md, 3A).
     public nonisolated static let failsafeTimeout: Duration = .seconds(10)
 
-    /// The names a ``StartupPriority/critical`` post may have (<= 15; task 015 fills it from the
-    /// startup design's table).
-    public nonisolated static let criticalAllowlist: [StaticString] = []
+    /// The names a ``StartupPriority/critical`` post may have, in launch order: the critical rows of
+    /// plans/cmux-next/startup-DESIGN.md (section 1), which says why the first frame needs each. At most
+    /// 15; a new name needs a row there with its measured cost.
+    public nonisolated static let criticalAllowlist: [StaticString] = [
+        "Settings.takeLaunchRead",
+        "ThemeBridge.start",
+        "AppActions.bind",
+        "Settings.applyManagedFeaturesNow",
+        "ManagedPolicyBridge.start",
+        "TerminalTheme.follow",
+        "Themes.start",
+        "MainMenu.make",
+        "WindowActivation.activateApp",
+        "Daemon.start",
+        "FeaturePolicyEnforcer.start",
+        "WindowManager.restoreWhenLoaded",
+        "WebAuthSessionHandler.install",
+        "AppleEvents.getURL",
+    ]
 
     /// How startup completed.
     public nonisolated struct Completion: Sendable {
