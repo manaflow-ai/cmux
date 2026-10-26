@@ -1003,6 +1003,15 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "tdh-1", "status": "completed"})
         time.sleep(3600)
         return
+    # "slow-limit": a usage limit after a second, then on the fallback profile (FAKE_FALLBACK=1)
+    # an answer (`hub/full_access_bound.rs`, a family message that fails over).
+    if text == "slow-limit":
+        if os.environ.get("FAKE_FALLBACK") != "1":
+            time.sleep(1)
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
+            return
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "limit-then-hang": a usage limit, then on the fallback profile (FAKE_FALLBACK=1) one word
     # and nothing more (`hub/stalled_turn.rs`, a stalled turn after a failover).
     if text == "limit-then-hang":
