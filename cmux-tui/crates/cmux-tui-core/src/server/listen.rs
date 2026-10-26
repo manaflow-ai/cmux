@@ -413,7 +413,7 @@ impl ServedSession {
         };
         let mux = self.mux.clone();
         let render_service = self.render_service.clone();
-        let _ = std::thread::Builder::new().name("mux-conn".into()).spawn(move || {
+        let _ = super::spawn_connection_reader("mux-conn", move || {
             handle_connection_with_permit(mux, stream, render_service, Some(permit));
         });
     }

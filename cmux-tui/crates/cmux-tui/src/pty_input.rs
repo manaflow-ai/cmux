@@ -366,9 +366,9 @@ impl PtyInputDispatcher {
         let worker_queue = queue.clone();
         let on_failure = Arc::new(on_failure);
         let worker_failure = on_failure.clone();
-        let worker = std::thread::Builder::new()
-            .name("mux-pty-input".into())
-            .spawn(move || worker(worker_queue, worker_failure))?;
+        let worker = cmux_tui_core::echo_thread::spawn("mux-pty-input", move || {
+            worker(worker_queue, worker_failure);
+        })?;
         Ok(Self {
             sender: PtyInputSender { queue, on_failure, session_generation: 1 },
             worker: Some(worker),
@@ -1759,6 +1759,21 @@ mod tests {
 
         unblock_tx.send(()).unwrap();
         same_surface_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    }
+
+    /// p02-threads task 210: the input worker is an echo path thread.
+    #[test]
+    fn the_input_worker_is_an_echo_path_thread() {
+        let mut dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
+        let rows: Vec<_> = cmux_threads::snapshot()
+            .into_iter()
+            .filter(|row| row.name == "mux-pty-input")
+            .map(|row| row.declared)
+            .collect();
+        assert!(!rows.is_empty(), "mux-pty-input is registered while it runs");
+        let echo = cmux_tui_core::echo_thread::ECHO_PATH_QOS;
+        assert!(rows.iter().all(|qos| *qos == echo), "{rows:?}");
+        assert!(dispatcher.shutdown(Duration::from_secs(1)));
     }
 
     #[test]
