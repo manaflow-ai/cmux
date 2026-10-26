@@ -53,7 +53,7 @@ import { useSenderChat, useSenderPlace } from "../subagents/subsessions";
 import { MessageScopeContext, type MessageScope } from "../chips/messageScope";
 import { mentionedRepository } from "../../../githubReferences";
 import { useChatDisplay } from "../chatDisplay";
-import { playResize } from "./fold";
+import { cancelResize, playResize } from "./fold";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import { wholeLineCut } from "./lineCut";
@@ -203,7 +203,12 @@ export function IncomingMessageLine({
     const card = node?.parentElement;
     const from = cardFrom.current;
     cardFrom.current = undefined;
-    if (!node || !card || from === undefined) return;
+    if (!node) return;
+    // Not the reader's click (Find opening it): a resize still playing would keep clipping it.
+    if (!card || from === undefined) {
+      cancelResize(node);
+      return;
+    }
     const text = node.getBoundingClientRect().height;
     playResize(node, from - (card.getBoundingClientRect().height - text));
   }, [open]);

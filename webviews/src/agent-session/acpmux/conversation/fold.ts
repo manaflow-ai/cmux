@@ -100,6 +100,11 @@ export function playResize(node: HTMLElement, from: number): void {
   animation.oncancel = release;
 }
 
+/// Stops the resize `node` is playing, if any (`playResize`), leaving it at the height it lays out at.
+export function cancelResize(node: HTMLElement): void {
+  resizing.get(node)?.cancel();
+}
+
 /// Holds `node` shut (height and opacity 0, its body clipped), or with `undefined`, lets it take its
 /// own size again.
 function pin(node: HTMLElement, value: 0 | undefined): void {
