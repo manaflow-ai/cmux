@@ -19,6 +19,9 @@ Per size it measures:
                 (the selection is applied and drawn by then) and the frame intervals
   drag          a row dragged over the list (`debug.mouse` down, then one dragged event per RPC):
                 main-thread time per mouse-move (Time Profiler) and frame intervals
+  observations  `debug.observations` before and after one workspace status change, tickers paused: armed
+                observations app-wide and the evaluations, applies and hosting bodies the one change cost
+                (budget: armed sidebar rows <= on screen + one screen, 1 change -> <= 2 evaluations)
 Traces go to OUT/traces/*.trace; OUT/results.json holds every number and the top main-thread frames.
 
 Usage (nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA):
@@ -34,7 +37,7 @@ parser.add_argument("--sizes", default="100,500,1000")
 parser.add_argument("--groups", type=int, default=10)
 parser.add_argument("--tick-share", type=float, default=0.05)
 parser.add_argument("--tickers", type=int, default=0, help="exact number of ticking workspaces (overrides --tick-share)")
-parser.add_argument("--scenarios", default="ticks,scroll,scroll_ticking,switch,drag,hitches",
+parser.add_argument("--scenarios", default="ticks,scroll,scroll_ticking,switch,drag,hitches,observations",
                     help="which scenarios to run per size; add switch_matrix for the workspace switch matrix")
 parser.add_argument("--switches", type=int, default=16, help="switch_matrix: switches per input and kind")
 parser.add_argument("--no-trace", action="store_true")
@@ -451,6 +454,24 @@ def scenario_ticks(pid, size):
             "frames_while_ticking": stats, "trace": os.path.relpath(tr.path, OUT), "profile": profile}
 
 
+def scenario_observations():
+    """One status change's observation cost (debug.observations, p06-scheduler-029)."""
+    if not made["workspaces"]:
+        return {"error": "no workspace to change"}
+    ticking(False)
+    time.sleep(1)
+    before = rpc("debug.observations", {"reset": True})
+    if not isinstance(before, dict) or "error" in before:
+        return {"error": f"debug.observations: {before}"}  # an older build has no method
+    first = made["workspaces"][0]
+    cli("workspace", first["ref"] or first["name"], "status", "set", "bench", f"observations {time.time():.0f}")
+    time.sleep(1)
+    after = rpc("debug.observations") or {}
+    owners = [o for o in after.get("owners") or [] if o.get("evaluations") or o.get("applies") or o.get("body_evaluations")]
+    return {"armed_before": (before.get("totals") or {}).get("armed"), "totals_after_change": after.get("totals"),
+            "busy_owners": owners}
+
+
 def scenario_switch(pid, size, count=24):
     scroll_to_top()
     time.sleep(1)
@@ -715,6 +736,8 @@ def main():
                 entry["drag"] = scenario_drag(app.pid, size)
             if "hitches" in want:
                 entry["hitches"] = scenario_hitches(app.pid, size)
+            if "observations" in want:
+                entry["observations"] = scenario_observations()
             entry["hangs"] = rpc("debug.hangs", {})
             results["sizes"][str(size)] = entry
             with open(os.path.join(OUT, "results.json"), "w") as f:
