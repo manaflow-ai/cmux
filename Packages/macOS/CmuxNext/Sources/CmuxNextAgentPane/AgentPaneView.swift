@@ -83,7 +83,7 @@ public final class AgentPaneView: NSView {
     /// Where they come from: the app's ``AppearanceSignals`` (its composition root's, once a pane shows the chat).
     private var appearanceSignals = DesignSettings.shared.signals
     /// The chat's tab in the visibility tree, held while it follows it.
-    private var visibilityNode: VisibilityNode?
+    private(set) var visibilityNode: VisibilityNode?
     /// Hands this pane the person's key presses and clicks that go to it (``AgentPaneUserGestures``),
     /// through one input tap subscription per window, while the pane is in one.
     let gestureRouter: AgentPaneGestureRouter

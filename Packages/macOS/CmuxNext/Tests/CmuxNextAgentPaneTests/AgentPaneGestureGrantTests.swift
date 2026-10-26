@@ -24,6 +24,9 @@ struct AgentPaneGestureGrantTests {
         let field = Field()
         var judged: [NSEvent.EventType] = []
         var pageWindow: NSWindow?
+        var gestureNode: VisibilityNode?
+        /// The router's child-window questions to this pane.
+        var asked = 0
 
         override init(frame: NSRect) {
             super.init(frame: frame)
@@ -37,7 +40,8 @@ struct AgentPaneGestureGrantTests {
         func judge(_ event: NSEvent, eventWindow: NSWindow?) { judged.append(event.type) }
 
         func ownsChildWindow(_ eventWindow: NSWindow) -> Bool {
-            !isHiddenOrHasHiddenAncestor && eventWindow === pageWindow
+            asked += 1
+            return eventWindow === pageWindow
         }
     }
 
@@ -174,7 +178,9 @@ struct AgentPaneGestureGrantTests {
             harness.router.attach(pane, to: harness.window)
             pane.pageWindow = harness.childWindow(over: frame)
         }
-        hidden.isHidden = true
+        let tab = VisibilityNode(root: "pane", own: .visible)
+        hidden.gestureNode = VisibilityNode("tab:hidden", own: .hidden, parent: tab)
+        shown.gestureNode = VisibilityNode("tab:shown", own: .visible, parent: tab)
         let shownPage = try #require(shown.pageWindow)
         let hiddenPage = try #require(hidden.pageWindow)
 
@@ -185,6 +191,44 @@ struct AgentPaneGestureGrantTests {
 
         harness.dispatch(try harness.mouse(.leftMouseDown, at: CGPoint(x: 150, y: 100), in: hiddenPage))
         #expect(hidden.judged.isEmpty && shown.judged.count == 2, "a hidden tab's page window granted a press")
+    }
+
+    /// p06-scheduler-220: 40 hidden tabs and the shown one share one pane's place, each with its page
+    /// window there. A press in the shown page asks one pane, not 41: a hidden tab node is skipped in O(1).
+    @Test func fortyHiddenTabsAndOneShownAskOnePanePerPress() throws {
+        let harness = Harness(count: 0)
+        defer { harness.close() }
+        let frame = NSRect(x: 100, y: 100, width: 300, height: 200)
+        let pane = VisibilityNode(root: "pane", own: .visible)
+        var tabs: [Pane] = []
+        var nodes: [VisibilityNode] = []
+        for index in 0..<41 {
+            let tab = Pane(frame: frame)
+            let node = VisibilityNode("tab:\(index)", own: index == 40 ? .visible : .hidden, parent: pane)
+            tab.gestureNode = node
+            nodes.append(node)
+            harness.window.contentView?.addSubview(tab)
+            harness.router.attach(tab, to: harness.window)
+            tab.pageWindow = harness.childWindow(over: frame)
+            tabs.append(tab)
+        }
+        let shown = tabs[40]
+        let shownPage = try #require(shown.pageWindow)
+
+        harness.dispatch(try harness.key(.keyDown, in: shownPage))
+        #expect(shown.judged == [.keyDown])
+        #expect(tabs.reduce(0) { $0 + $1.asked } == 1, "a key-down asked \(tabs.reduce(0) { $0 + $1.asked }) panes")
+        #expect(tabs.reduce(0) { $0 + $1.judged.count } == 1)
+
+        // Selecting tab 0: its node shows and the old one hides, and the next press follows.
+        nodes[40].set(.hidden)
+        nodes[0].set(.visible)
+        let page0 = try #require(tabs[0].pageWindow)
+        harness.dispatch(try harness.mouse(.leftMouseDown, at: CGPoint(x: 150, y: 100), in: page0))
+        #expect(tabs[0].judged == [.leftMouseDown])
+        #expect(shown.judged == [.keyDown], "the tab hidden since took the press")
+        harness.dispatch(try harness.key(.keyDown, in: shownPage))
+        #expect(shown.judged == [.keyDown], "a hidden tab's page window granted a press")
     }
 
     @Test func anotherWindowsPressesAreNotHeard() throws {
