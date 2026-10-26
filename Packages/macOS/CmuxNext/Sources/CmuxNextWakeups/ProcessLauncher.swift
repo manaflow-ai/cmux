@@ -41,9 +41,17 @@ public final class ProcessLauncher: Sendable {
 
     /// Spawns `process` on the queue; `failed` runs there when it cannot start.
     public func launch(_ process: Process, failed: @escaping @Sendable (any Error) -> Void = { _ in }) {
+        launch(process, started: {}, failed: failed)
+    }
+
+    /// Spawns `process` on the queue; then `started` runs there once the child has its pid, or `failed` when
+    /// it cannot start.
+    public func launch(_ process: Process, started: @escaping @Sendable () -> Void,
+                       failed: @escaping @Sendable (any Error) -> Void) {
         prepare(process)
         queue.async { [spawn] in
-            do { try spawn(process) } catch { failed(error) }
+            do { try spawn(process) } catch { return failed(error) }
+            started()
         }
     }
 
