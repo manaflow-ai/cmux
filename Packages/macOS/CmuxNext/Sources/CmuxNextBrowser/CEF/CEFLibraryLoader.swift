@@ -1,28 +1,22 @@
-import CmuxNextWakeups
 import Foundation
 
-// The in-process load of the shim and the framework, and the wait for a preload's load.
-extension CEFRuntime {
-    /// Returns once the preload's load (behind the fence or not) ended.
-    func libraryLoadEnded() async {
-        _ = await preloadMap()?.value
+/// Maps the in-process shim and the framework (`cef_load_library`, fork API lookup), reading the framework's
+/// files into the file cache through ``prefetch`` first. Thread-safe: plain `dlopen`/`dlsym`, no Chromium code
+/// runs yet. The runtime's loader reads through the runtime's prefetch (``CEFRuntime/prefetch``), so what a
+/// fenced or promoted read already read is not read again.
+nonisolated struct CEFLibraryLoader: Sendable {
+    /// The framework read the load goes through.
+    let prefetch: CEFFrameworkPrefetch
+    /// Checks a downloaded runtime's code before it loads; nil: Security's code signature check.
+    var signatureChecker: (any CEFCodeSignatureChecking)?
+
+    init(prefetch: CEFFrameworkPrefetch, signatureChecker: (any CEFCodeSignatureChecking)? = nil) {
+        self.prefetch = prefetch
+        self.signatureChecker = signatureChecker
     }
 
-    /// The framework read as idle items behind the startup fence (``CEFFrameworkPrefetch/post(_:on:)``), awaited
-    /// by one task of `work` that quit cancels.
-    func postRead(_ layout: CEFRuntimeLayout, on work: BackgroundWork) -> Task<Bool, any Error> {
-        prefetch.post(layout, on: work)
-        return work.task(.bestEffort) { @Sendable [prefetch] () async -> Bool in await prefetch.finished() }
-    }
-
-    /// Maps the shim and the framework (`cef_load_library`, fork API lookup).
-    /// Thread-safe: plain `dlopen`/`dlsym`, no Chromium code runs yet. The framework's files are read through
-    /// `prefetch`, which skips those a fenced or promoted read already read.
-    nonisolated static func loadLibrary(
-        _ candidate: CEFRuntimeLayout?,
-        signatureChecker: (any CEFCodeSignatureChecking)? = nil,
-        prefetch: CEFFrameworkPrefetch
-    ) -> Result<CEFLoadedLibrary, BootError> {
+    /// Maps the shim and the framework of `candidate`.
+    func load(_ candidate: CEFRuntimeLayout?) -> Result<CEFLoadedLibrary, CEFRuntime.BootError> {
         guard let layout = candidate else { return .failure(.notEmbedded) }
         if case .downloaded(let teamID) = layout.trust {
             guard let teamID else { return .failure(.untrusted("missing Developer ID team")) }

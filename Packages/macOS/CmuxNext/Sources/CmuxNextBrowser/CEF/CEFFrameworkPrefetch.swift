@@ -167,6 +167,12 @@ nonisolated final class CEFFrameworkPrefetch: Sendable {
         if first { postStep(layout, on: work) }
     }
 
+    /// ``post(_:on:)``, and one task of `work` (quit cancels it) that returns what ``finished()`` returns.
+    func postAwaited(_ layout: CEFRuntimeLayout, on work: BackgroundWork) -> Task<Bool, any Error> {
+        post(layout, on: work)
+        return work.task(.bestEffort) { @Sendable [self] () async -> Bool in await finished() }
+    }
+
     /// One idle item; it posts the next until every byte is read or a promotion takes over.
     private func postStep(_ layout: CEFRuntimeLayout, on work: BackgroundWork) {
         // Dropped at shutdown (the app quits): the preload that waits for the read maps nothing.
