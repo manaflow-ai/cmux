@@ -31,7 +31,8 @@
    "27.0.1": true
   },
   "NSApplication call:accessibilityAttributeValue/1": {
-   "27.0.1": true
+   "27.0.1": true,
+   "27.0": true
   },
   "NSApplication call:accessibilityFocusedWindow/0": {
    "26.5.2": true,
@@ -40,7 +41,8 @@
    "27.0.1": true
   },
   "NSApplication call:accessibilityIsAttributeSettable/1": {
-   "27.0.1": true
+   "27.0.1": true,
+   "27.0": true
   },
   "NSApplication call:accessibilityMainWindow/0": {
    "26.5.2": true,
@@ -49,7 +51,8 @@
    "27.0.1": true
   },
   "NSApplication call:accessibilitySetValue/2:forAttribute": {
-   "27.0.1": true
+   "27.0.1": true,
+   "27.0": true
   },
   "NSApplication call:activate/0": {
    "26.5.2": true,
@@ -87,6 +90,12 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSBrowser call:tile/0": {
+   "27.0": true
+  },
+  "NSButton call:acceptsFirstMouse/1": {
+   "27.0": true
+  },
   "NSButton call:accessibilityPerformPress/0": {
    "26.5.2": true,
    "26.7": true,
@@ -123,6 +132,10 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSButton call:performKeyEquivalent/1": {
+   "27.0.1": true,
+   "27.0": true
+  },
   "NSButton call:resignFirstResponder/0": {
    "26.5.2": true,
    "26.7": true,
@@ -142,7 +155,8 @@
    "27.0.1": true
   },
   "NSButton call:setFrameSize/1": {
-   "27.0.1": true
+   "27.0.1": true,
+   "27.0": true
   },
   "NSButton call:updateTrackingAreas/0": {
    "26.5.2": true,
@@ -234,6 +248,9 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSCollectionView call:selectAll/1": {
+   "27.0": true
+  },
   "NSCollectionViewItem call:prepareForReuse/0": {
    "26.5.2": true,
    "26.7": true,
@@ -245,6 +262,14 @@
    "26.7": true,
    "27.0": true,
    "27.0.1": true
+  },
+  "NSControl call:keyDown/1": {
+   "27.0.1": true,
+   "27.0": true
+  },
+  "NSControl call:layout/0": {
+   "27.0.1": true,
+   "27.0": true
   },
   "NSImageView call:viewDidChangeEffectiveAppearance/0": {
    "26.5.2": true,
@@ -384,6 +409,15 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSScroller call:mouseDown/1": {
+   "27.0": true
+  },
+  "NSScroller call:viewDidMoveToSuperview/0": {
+   "27.0": true
+  },
+  "NSScroller call:viewWillMove/1": {
+   "27.0": true
+  },
   "NSSecureTextField call:becomeFirstResponder/0": {
    "26.5.2": true,
    "26.7": true,
@@ -439,7 +473,8 @@
    "27.0.1": true
   },
   "NSSplitView call:viewDidMoveToWindow/0": {
-   "27.0.1": true
+   "27.0.1": true,
+   "27.0": true
   },
   "NSStackView call:viewDidChangeEffectiveAppearance/0": {
    "26.5.2": true,
@@ -510,6 +545,10 @@
    "26.7": true,
    "27.0": true,
    "27.0.1": true
+  },
+  "NSTextField call:layout/0": {
+   "27.0.1": true,
+   "27.0": true
   },
   "NSTextField call:mouseDown/1": {
    "26.5.2": true,
@@ -926,7 +965,8 @@
    "27.0.1": true
   },
   "NSView get:firstBaselineOffsetFromTop/0": {
-   "27.0.1": true
+   "27.0.1": true,
+   "27.0": true
   },
   "NSView get:mouseDownCanMoveWindow/0": {
    "26.5.2": true,
@@ -1017,6 +1057,12 @@
    "26.7": true,
    "27.0": true,
    "27.0.1": true
+  },
+  "NSWindow call:zoom/1": {
+   "27.0": true
+  },
+  "NSWindow get:isZoomed/0": {
+   "27.0": true
   },
   "WKWebView call:acceptsFirstMouse/1": {
    "26.5.2": true,

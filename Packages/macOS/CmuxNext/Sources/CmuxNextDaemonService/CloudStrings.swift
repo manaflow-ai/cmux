@@ -58,6 +58,20 @@ public enum CloudStrings {
     public static var createConfirmApproval: String {
         String(localized: "cloud.create.confirm.approval", defaultValue: "The machine counts against your Cloud plan. Click Create to approve it.", table: "Cloud", bundle: .module)
     }
+    public static var upgradeTitle: String { String(localized: "cloud.upgrade.title", defaultValue: "Cloud machines need a paid plan", table: "Cloud", bundle: .module) }
+    public static func upgradeDetail(_ reason: CloudUpgradeReason) -> String {
+        switch reason {
+        case .freePlan, .server:
+            String(localized: "cloud.upgrade.detail.free", defaultValue: "Your plan has no Cloud machines. The Go is $10 a month and includes machines; Pro is $50 a month.", table: "Cloud", bundle: .module)
+        case .atLimit:
+            String(localized: "cloud.upgrade.detail.limit", defaultValue: "All the running Cloud machines your plan allows are in use. Upgrade (Pro is $50 a month) or delete one.", table: "Cloud", bundle: .module)
+        }
+    }
+    public static var upgradeButton: String { String(localized: "cloud.upgrade.button", defaultValue: "Upgrade", table: "Cloud", bundle: .module) }
+    public static var notNow: String { String(localized: "cloud.upgrade.notNow", defaultValue: "Not now", table: "Cloud", bundle: .module) }
+    nonisolated public static var upgradeRequired: String {
+        String(localized: "cloud.upgrade.required", defaultValue: "No Cloud machine was created: your plan needs an upgrade. See cmux.com/pricing.", table: "Cloud", bundle: .module)
+    }
     public static var createConfirmButton: String { String(localized: "cloud.create.confirm.button", defaultValue: "Create", table: "Cloud", bundle: .module) }
     nonisolated public static var createStillPending: String {
         String(localized: "cloud.create.stillPending", defaultValue: "The machine still waits for approval. Try again in a minute.", table: "Cloud", bundle: .module)
@@ -125,4 +139,10 @@ public enum CloudStrings {
     public static func snapshotBody(_ id: String) -> String {
         String(format: String(localized: "cloud.result.snapshotBody", defaultValue: "Snapshot %@ is ready. Restore it with Restore Cloud Machine.", table: "Cloud", bundle: .module), id)
     }
+}
+
+/// Why a Cloud create needs a plan upgrade (the upgrade card's text).
+public enum CloudUpgradeReason: Equatable, Sendable {
+    case freePlan, server
+    case atLimit(Int)
 }

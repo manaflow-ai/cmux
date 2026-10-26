@@ -59,4 +59,12 @@ import Testing
         model.moveActive(by: 1, extending: true, visibleOrder: Self.ids)
         #expect(Self.selected(model) == ["a", "b", "c", "d"])
     }
+
+    @Test func shiftArrowKeepsItsRangeAfterTheActivationEcho() {
+        let model = Self.model()
+        model.onIntent = { model.apply($0) }
+        model.moveActive(by: 1, extending: true, visibleOrder: Self.ids)
+        #expect(Self.selected(model) == ["a", "b"])
+        #expect(model.activeWorkspaceID == WorkspaceID("b"))
+    }
 }

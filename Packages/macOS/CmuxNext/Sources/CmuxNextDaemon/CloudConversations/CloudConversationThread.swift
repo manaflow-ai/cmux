@@ -5,7 +5,7 @@ import Foundation
 public struct CloudConversationThreadRequest: DaemonRequest {
     public typealias Response = ConversationThread
     public static let command = "cloud-conversation-thread"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.conversationThread
+    public static let requiredCapability: String? = DaemonCapability.conversationThread.rawValue
     public static let maxLimit = 200
     public var conversation: String
     public var root: String

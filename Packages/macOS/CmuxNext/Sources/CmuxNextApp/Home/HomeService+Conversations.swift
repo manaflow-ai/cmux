@@ -1,4 +1,5 @@
 import CmuxHomeCore
+import CmuxNextDaemon
 import CmuxNextChiefPetWiring
 import CmuxNextHome
 import CmuxNextHomeEngine
@@ -53,6 +54,42 @@ extension HomeService {
     /// goes to this Mac's Chief owner, Claude to the signed-in account's cloud Chiefs.
     func createChief(named name: String, backend: ChiefBackend = .claude) async -> HomeComposeOutcome {
         backend.createsOnThisMac ? await createLocalChief(named: name, backend: backend) : await createCloudChief(named: name)
+    }
+
+    /// Headless action path: returns the exact durable record created by this
+    /// invocation, so concurrent Home actions cannot cross their result ids.
+    func createChiefForAction(named name: String, backend: ChiefBackend) async -> HomeActionChiefResult {
+        if backend.createsOnThisMac {
+            guard let connection else { return .failure(.offline) }
+            do {
+                let made = try await HomeLocalChiefCreator(connection: connection, me: Self.localUser)
+                    .create(name: name, backend: backend)
+                pendingSelection = made.conversation
+                refreshChiefHarnesses()
+                return .success(HomeChiefRecord(id: made.chief, name: name, isDefault: false, rev: 0,
+                                                mainConversation: made.conversation.rawValue, placed: true))
+            } catch let error as DaemonError {
+                switch error {
+                case .notConnected, .connectionClosed, .daemonShutdown: return .failure(.offline)
+                case .command(_, let message, let code, _, _): return .failure(.refused(message.isEmpty ? code ?? "" : message))
+                default: return .failure(.refused(error.description))
+                }
+            } catch {
+                return .failure(.refused(String(describing: error)))
+            }
+        }
+        do {
+            let record = try await directory.createChief(named: name)
+            if !record.placed { await hostedChief.enableBrain(of: record.id) }
+            pendingSelection = record.mainConversation.map { ConversationID($0) }
+            return .success(record)
+        } catch FeedServiceError.signedOut {
+            return .failure(.offline)
+        } catch FeedServiceError.owner(let code, let message) {
+            return .failure(.refused(code == "policy.denied" || code == "validation.invalid" ? message : code))
+        } catch {
+            return .failure(.refused(""))
+        }
     }
 
     /// `chief.create` on the signed-in account's cloud Chiefs (the default engine).
@@ -124,7 +161,8 @@ extension HomeService {
             chiefAvatars: { [weak self] in self?.chiefFaces ?? [:] },
             defaultChiefAvatar: { [weak self] in HomeHostView.defaultTileAvatar(mascot: self?.services.settings?.snapshot.homeChiefPetMascot) },
             chiefHarnesses: { [weak self] in self?.directory.chiefHarnesses ?? [:] },
-            chiefRoster: { [weak self] in self?.chiefRoster ?? HomeChiefRoster() })
+            chiefRoster: { [weak self] in self?.chiefRoster ?? HomeChiefRoster() },
+            chiefNames: { [weak self] in self?.chiefNames ?? [:] })
         source.onSelect = { [weak self] id in self?.pendingSelection = id }
         // The unread indicator outside Home reads `groupMuting`: a mark set in a page's own source reaches it.
         source.onMarksChanged = { [weak self] in self?.groupMuting.reloadMarks() }
@@ -158,6 +196,16 @@ extension HomeService {
         }
     }
 
+    /// Each cloud Chief's own name by its main conversation (`chief.list`, kept current by a rename),
+    /// for the list's tiles; a Chief with no name set is left out and reads "Chief".
+    var chiefNames: [ConversationID: String] {
+        Dictionary(directory.chiefs.compactMap { chief in
+            chief.mainConversation.flatMap { conversation in
+                chief.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : (ConversationID(conversation), chief.name)
+            }
+        }, uniquingKeysWith: { first, _ in first })
+    }
+
     /// Each listed Chief's avatar as its Home row, header and bubbles draw it: its own picture or
     /// text, else the picture of its own pet character (``ChiefMascotPicks``), so a character picked
     /// for one Chief never shows on another.
@@ -186,4 +234,9 @@ extension HomeService {
         let chiefs = participants.filter(\.isChief)
         return chiefs.count == 1 ? chiefs[0].id.rawValue : nil
     }
+}
+
+enum HomeActionChiefResult {
+    case success(HomeChiefRecord)
+    case failure(HomeComposeOutcome)
 }
