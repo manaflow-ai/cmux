@@ -212,7 +212,7 @@ mod tests {
                             "cols": 80, "rows": 24})
         .as_object()
         .cloned()
-        .unwrap();
+        .unwrap_or_default();
         let split = split_params(&create, "ws_a", "pane_chat");
         assert_eq!(split["shell"], "make dev");
         assert_eq!(split["cwd"], "/w");
@@ -220,9 +220,9 @@ mod tests {
         assert_eq!(split["direction"], "right");
         assert_eq!(split["viewport_width"], NEW_COLUMN_WIDTH);
         assert!(split.get("name").is_none());
-        let rename = rename_params(&create, "ws_a", &json!({"tab_id": "tab_new"})).unwrap();
-        assert_eq!(rename["tab"], "tab_new");
-        assert_eq!(rename["name"], "dev");
+        let rename = rename_params(&create, "ws_a", &json!({"tab_id": "tab_new"}));
+        assert_eq!(rename.as_ref().map(|r| r["tab"].clone()), Some(json!("tab_new")));
+        assert_eq!(rename.as_ref().map(|r| r["name"].clone()), Some(json!("dev")));
         assert!(rename_params(&Map::new(), "ws_a", &json!({"tab_id": "tab_new"})).is_none());
     }
 }

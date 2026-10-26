@@ -1012,7 +1012,13 @@ impl<B: Backend> Server<B> {
         if let Some(key) = key {
             split.insert("idempotency_key".into(), json!(format!("{key}-beside")));
         }
-        let tool = v2_tools::find("pane_split").expect("pane_split is a tool");
+        let Some(tool) = v2_tools::find("pane_split") else {
+            return tool_error(envelope(
+                v2_tools::invalid("pane_split is unavailable".into()),
+                "not_run",
+                None,
+            ));
+        };
         let result = self.call_v2(tool, &split);
         if result["isError"] == true {
             return result;
@@ -1025,10 +1031,12 @@ impl<B: Backend> Server<B> {
             if let Some(key) = key {
                 rename.insert("idempotency_key".into(), json!(format!("{key}-name")));
             }
-            let tool = v2_tools::find("tab_rename").expect("tab_rename is a tool");
-            let renamed = self.call_v2(tool, &rename);
-            if renamed["isError"] == true {
-                return renamed;
+            // The terminal exists either way; a missing rename tool leaves it unnamed.
+            if let Some(tool) = v2_tools::find("tab_rename") {
+                let renamed = self.call_v2(tool, &rename);
+                if renamed["isError"] == true {
+                    return renamed;
+                }
             }
         }
         result
