@@ -674,6 +674,10 @@ StartupTrace, daemon and CEF files (099); summary prints milestones, top 10 main
 revision as the first thresholds (tuned later on the fleet); at first frame read page-ins and main thread CPU as separate
 values. Marks `launch.temperature`, `launch.pageins_first_frame`, `launch.main_cpu_ms`. Acceptance: pure classifier
 tested; syscalls through the seam; nothing after the reads. Test: warm reads warm, purge reads cold.
+Since p09-observability-034 the classifier exists: `LaunchClock.Temperature` (CmuxNextTrace), decided once at
+`did_finish_launching_end` and sent as `launch.temperature.<name>` and `launch.pageins_run_loop_start`. 007 adds no
+second classifier or enum; it reuses that one (the hang report and metrics enums map from it with `init(_:)`) and adds
+only the first-frame values.
 
 **008 debug.startup.** Files: `CmuxNextApp/Control/DebugStartup.swift` (wiring), payload builder in `CmuxNextLaunch`,
 `Control/AppControl.swift`. Change: DEBUG or CMUX_BENCH_HOOKS only: milestones, temperature, page-ins,
