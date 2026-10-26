@@ -49,6 +49,8 @@ public final class VisibleObservation<Value> {
     private let read: @MainActor () -> Value
     private let apply: @MainActor (Value) -> Void
     private let taskOwner: MainTaskOwner
+    /// Its owner's counts in the scheduler's ``MainWorkScheduler/observations`` (`debug.observations`).
+    private let counts: ObservationLedger.Owner
     /// `==` of an Equatable value; nil applies every read.
     private let isEqual: ((Value, Value) -> Bool)?
     /// The last value applied (Equatable values only).
@@ -90,6 +92,7 @@ public final class VisibleObservation<Value> {
         self.apply = apply
         isEqual = Self.equality()
         taskOwner = work.taskOwner(owner)
+        counts = work.observations.owner(owner)
         let value = node.isVisible ? track() : read()
         if isEqual != nil { last = value }
         apply(value)
@@ -104,6 +107,7 @@ public final class VisibleObservation<Value> {
     // released off main.
     nonisolated deinit {
         guard armed else { return }
+        counts.disarmed()
         let signal = self.signal
         MainDelivery().run { signal.epoch &+= 1 }
     }
@@ -127,7 +131,10 @@ public final class VisibleObservation<Value> {
 
     private func show() {
         guard !cancelled, !armed, dirtyCause == nil else { return }
-        applyIfChanged(track())
+        let start = work.budget.uptimeNanos()
+        let value = track()
+        counts.showReread(nanos: work.budget.uptimeNanos() &- start)
+        applyIfChanged(value)
     }
 
     private func hide() {
@@ -141,6 +148,7 @@ public final class VisibleObservation<Value> {
     private func track() -> Value {
         generation &+= 1
         armed = true
+        counts.armed()
         let armedGeneration = generation, signal = self.signal, observed = self.read, causes = work.causes
         return withObservationTracking {
             _ = signal.epoch
@@ -161,6 +169,7 @@ public final class VisibleObservation<Value> {
         generation &+= 1
         guard armed else { return }
         armed = false
+        counts.disarmed()
         signal.epoch &+= 1
     }
 
@@ -168,6 +177,7 @@ public final class VisibleObservation<Value> {
         trackingCallbacks += 1
         guard !cancelled, armed, generation == self.generation else { return }
         armed = false
+        counts.disarmed()  // the tracking fired, and so is gone
         let cause = work.causes.currentCause
         let previous = dirtyCause
         if previous.map({ cause > $0 }) ?? true {
@@ -175,7 +185,10 @@ public final class VisibleObservation<Value> {
             schedule(cause, after: previous)
         }
         // Only a higher cause can change the flush now; person is the highest.
-        if dirtyCause != .person { _ = track() }
+        if dirtyCause != .person {
+            _ = track()
+            counts.evaluated()
+        }
     }
 
     /// Queues the flush for `cause`, which replaced `previous`: a task on the class's queue when
@@ -198,12 +211,15 @@ public final class VisibleObservation<Value> {
     private func flushNow() {
         dirtyCause = nil
         disarm()
-        applyIfChanged(track())
+        let value = track()
+        counts.evaluated()
+        applyIfChanged(value)
     }
 
     private func applyIfChanged(_ value: Value) {
         if let isEqual, let last, isEqual(last, value) { return }
         if isEqual != nil { last = value }
+        counts.applied()
         apply(value)
     }
 

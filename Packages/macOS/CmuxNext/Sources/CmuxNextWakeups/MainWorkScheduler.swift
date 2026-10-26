@@ -54,6 +54,10 @@ public final class MainWorkScheduler {
     /// pass applies: one per scheduler, shared by every ``VisibleObservation`` on it and the
     /// daemon store's drain (p06-scheduler.md: "The scheduler holds `currentCause`").
     public let causes: ObservationCauses
+    /// The observers' per-owner counts (`debug.observations`): every ``VisibleObservation`` on this
+    /// scheduler interns its owner here, and the app's other observers take an owner from it too.
+    /// Its counters are atomics, so the report reads them from any thread.
+    public nonisolated let observations = ObservationLedger()
     /// The app's one Energy Saver policy (p14-energy-024): its owners write it once (the App's
     /// `EnergyPolicyDriver`), and everything this scheduler is passed to reads it from here, so no
     /// consumer needs a shared instance or a second injection path.
