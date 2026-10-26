@@ -133,7 +133,7 @@ public final class CreateTabTimings {
         waiting[key] = entry
         let interval = entry.interval
         let cancel = firstFrame.wait { [weak self] outcome in self?.finish(interval, outcome) }
-        guard interval.isOpen, let current = key(of: interval) else { return } // it closed at once
+        guard interval.isOpen, let current = waitingKey(of: interval) else { return } // it closed at once
         waiting[current]?.isStarting = false
         waiting[current]?.cancel = cancel
     }
@@ -165,12 +165,12 @@ public final class CreateTabTimings {
         end(entry, .hidden)
     }
 
-    private func key(of interval: CreateTabInterval) -> String? {
+    private func waitingKey(of interval: CreateTabInterval) -> String? {
         waiting.first(where: { $0.value.interval === interval })?.key
     }
 
     private func finish(_ interval: CreateTabInterval, _ outcome: CreateTabInterval.Outcome) {
-        guard let key = key(of: interval) else { return interval.end(outcome) }
+        guard let key = waitingKey(of: interval) else { return interval.end(outcome) }
         if outcome == .shown, waiting[key]?.isStarting == true {
             // The frame exists already: it reaches the screen with the commit that shows the content.
             waiting[key]?.isStarting = false
@@ -183,7 +183,7 @@ public final class CreateTabTimings {
 
     private func committed(_ interval: CreateTabInterval, _ commit: CommitBoundary.Outcome) {
         guard interval.isOpen else { return } // closed or hidden before the commit
-        if let key = key(of: interval) { waiting[key] = nil }
+        if let key = waitingKey(of: interval) { waiting[key] = nil }
         interval.end(commit == .committed ? .shown : .missed)
     }
 
