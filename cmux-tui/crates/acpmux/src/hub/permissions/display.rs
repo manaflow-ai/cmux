@@ -71,12 +71,12 @@ impl ChildTags {
 
     /// Indexes `session` under its live `mux.parent` and `mux.handle` tags now (or takes it out).
     /// A tag that expires later is dropped by the first lookup that meets it (`child_label`).
+    /// The tags are read and published under the session's meta lock (taken before the index's,
+    /// never the other way), so of two concurrent tag writes the later one's pair is what stays.
     pub(crate) fn note(&self, session: &Session) {
-        let pair = {
-            let meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            live_tag(&meta, PARENT_TAG).zip(live_tag(&meta, HANDLE_TAG))
-        };
         self.pause("note.publish", &session.id);
+        let meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        let pair = live_tag(&meta, PARENT_TAG).zip(live_tag(&meta, HANDLE_TAG));
         let mut index = self.index();
         if let Some(old) = index.pair_of.remove(&session.id)
             && let Some(ids) = index.local.get_mut(&old)
@@ -276,21 +276,26 @@ impl Hub {
                 gone.push(id);
                 return None;
             };
+            // Checked and read under one guard: a retag between the two never names another child.
             let meta = s.meta.lock().unwrap_or_else(|e| e.into_inner());
             let mine = live_tag(&meta, PARENT_TAG).as_deref() == Some(parent)
                 && live_tag(&meta, HANDLE_TAG).as_deref() == Some(handle);
-            drop(meta);
             if !mine {
+                drop(meta);
                 stale.push(s);
                 return None;
             }
             self.child_tags.pause("label.read", &s.id);
-            let meta = s.meta.lock().unwrap_or_else(|e| e.into_inner());
             live_tag(&meta, LABEL_TAG)
         });
         for id in gone {
             self.child_tags.pause("gone.forget", &id);
-            self.child_tags.forget(&id);
+            // Still absent under the sessions lock: a session published since (an import, a fork,
+            // which insert it under that lock and then index it) keeps its entry.
+            let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+            if !sessions.contains_key(&id) {
+                self.child_tags.forget(&id);
+            }
         }
         // Its tags expired or moved: indexed by what it carries now, so it is met once.
         for s in stale {
