@@ -509,6 +509,12 @@
   },
   "exceptions": [
     {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "CmuxNextApp DebugTimings.launchCounters (p08-startup-007): the launch counter record (page-ins and temperature at run_loop_start, page-ins and main CPU at the first frame) beside the process-wide launch mark record DebugTimings.launchMarks already is. Marks arrive from main() before AppDelegate or AppServices exist and from the daemon's threads, so no composition root can inject it; Chrome keeps the same one process-wide recorder (components/startup_metric_utils/browser/startup_metric_utils.cc, GetBrowser()). The log itself is injected (LaunchCounterLog(reader:sink:); tests pass fixed counters). It folds into p08-startup-002's LaunchMarkLog static once 002 lands, which takes this +1 back."
+    },
+    {
       "date": "2026-10-23",
       "row": "assume_isolated_outside_adapters",
       "allow": 1,
