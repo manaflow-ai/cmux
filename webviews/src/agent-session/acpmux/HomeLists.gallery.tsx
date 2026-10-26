@@ -1,13 +1,17 @@
 // l10n-allow-file: gallery fixture labels and session titles, not shipped UI.
 //
 // HomeLists is the welcome surface between the hero and the composer. Its most important
-// contract is easy to lose in the full pane: only other, listed sessions appear; waiting sessions
-// and open review-ready pull requests have independent three-row caps; each row is a real button.
+// contract is easy to lose in the full pane: only other, listed sessions appear; every open ask of
+// those chats is in the inbox (Needs you), answered in place, while review-ready pull requests keep
+// a three-row cap; each row is a real button. The inbox's three looks (list, the home's; compact;
+// grouped by folder) are variants here.
 import { useState, type ComponentProps } from "react";
 import { componentEntry } from "../../gallery/format";
 import { minutesAgo } from "../../gallery/clock";
 import { chat, session } from "../../gallery/fixtures/acpmux";
 import type { Play } from "../../gallery/play";
+import type { AcpmuxPermission } from "./model";
+import type { WatchedAsk } from "./needsYou/model";
 import { Composer } from "./Composer";
 import { EmptyState } from "./EmptyState";
 import { HomeLists } from "./HomeLists";
@@ -20,17 +24,109 @@ const inputSessions = [
     title: "Fix the checkout page",
     status: "waiting",
     indicator: "input",
+    pendingPermissions: 1,
     updatedAt: minutesAgo(2),
     preview: "The payment form needs your answer.",
   }),
   session({
     sessionId: "home-input-cache",
     title: "Investigate the build cache",
+    harness: "codex",
+    cwd: "/Users/you/src/build-tools",
     indicator: "input",
     pendingPermissions: 1,
     updatedAt: minutesAgo(5),
     preview: "The runner is waiting for permission.",
   }),
+  session({
+    sessionId: "home-input-auth",
+    title: "Settings sign-in",
+    indicator: "input",
+    pendingPermissions: 1,
+    updatedAt: minutesAgo(9),
+  }),
+  // Its ask lives on the other computer: one row, which opens the chat.
+  session({
+    sessionId: "home-input-remote",
+    title: "Release notes",
+    host: "build-box",
+    hostKind: "cloud",
+    peer: "build-box",
+    indicator: "input",
+    pendingPermissions: 1,
+    waitingOn: { on: "question", prompt: "Which tag should the notes start from?" },
+    updatedAt: minutesAgo(31),
+  }),
+];
+
+const yesNo: AcpmuxPermission["options"] = [
+  { id: "allow_once", name: "Allow", kind: "allow_once", allow: true },
+  { id: "allow_always", name: "Always allow", kind: "allow_always", allow: true },
+  { id: "reject_once", name: "Deny", kind: "reject_once", allow: false },
+];
+const asks: WatchedAsk[] = [
+  {
+    sessionId: "home-input-checkout",
+    at: minutesAgo(2),
+    permission: {
+      permissionId: "home-ask-checkout",
+      title: "Run the payment tests",
+      kind: "execute",
+      command: "bun test payments",
+      pending: true,
+      options: yesNo,
+    },
+  },
+  {
+    sessionId: "home-input-cache",
+    at: minutesAgo(5),
+    permission: {
+      permissionId: "home-ask-cache",
+      title: "Delete the stale build cache",
+      kind: "execute",
+      command: "rm -rf .cache/build",
+      pending: true,
+      options: yesNo,
+    },
+  },
+  {
+    sessionId: "home-input-auth",
+    at: minutesAgo(9),
+    permission: {
+      permissionId: "home-ask-auth",
+      pending: true,
+      options: yesNo,
+      question: {
+        id: "home-ask-auth",
+        source: {
+          harness: "claude",
+          session: "home-input-auth",
+          permission: "home-ask-auth",
+          answerOption: "allow_once",
+        },
+        items: [
+          {
+            id: "q0",
+            header: "Auth",
+            prompt: "Which sign-in should the settings page use?",
+            options: [
+              { id: "OAuth", label: "OAuth" },
+              { id: "Passkeys", label: "Passkeys" },
+            ],
+            multiSelect: false,
+            allowsOther: true,
+          },
+        ],
+        state: { kind: "pending" },
+      },
+    },
+  },
+  // The current chat's own ask is its card's, never the inbox's.
+  {
+    sessionId: "home-current",
+    at: minutesAgo(0),
+    permission: { permissionId: "home-ask-current", title: "Edit App.tsx", pending: true, options: yesNo },
+  },
 ];
 
 const reviewSessions = [
@@ -72,13 +168,16 @@ const hidden = [
 const baseline: Props = {
   sessions: [...inputSessions, ...reviewSessions, current, ...hidden],
   currentId: current.sessionId,
+  asks,
   onSelect: () => undefined,
+  onAnswer: () => Promise.resolve("answered" as const),
 };
 
 const empty: Props = {
   sessions: [current, ...hidden],
   currentId: current.sessionId,
   onSelect: () => undefined,
+  onAnswer: () => Promise.resolve("answered" as const),
 };
 
 const cappedInput = Array.from({ length: 5 }, (_, index) =>
@@ -108,6 +207,7 @@ const capped: Props = {
   sessions: [...cappedInput, ...cappedReview, ...hidden],
   currentId: current.sessionId,
   onSelect: () => undefined,
+  onAnswer: () => Promise.resolve("answered" as const),
 };
 
 /// The new chat the lists sit in: no turns yet, in the fixture project's folder.
@@ -119,11 +219,13 @@ const NoChips = () => null;
 function withReceipt(Component: typeof HomeLists) {
   return function GalleryHomeLists(props: Props) {
     const [selected, setSelected] = useState<string>();
+    const [answered, setAnswered] = useState<string>();
     return (
       <section
         className="acpmux-shell home-lists-gallery"
         aria-label={newChat.summary?.title}
         data-home-selection={selected ?? ""}
+        data-home-answer={answered ?? ""}
       >
         <div className="acpmux-main" data-new-chat="">
           <div className="acpmux-stage">
@@ -136,6 +238,10 @@ function withReceipt(Component: typeof HomeLists) {
                 onSelect={(sessionId) => {
                   props.onSelect(sessionId);
                   setSelected(sessionId);
+                }}
+                onAnswer={(item, choice) => {
+                  setAnswered(`${item.permissionId}:${choice.id}`);
+                  return props.onAnswer(item, choice);
                 }}
               />
             </div>
@@ -153,6 +259,25 @@ const click: Play = async (ctx) => {
     () =>
       ctx.document.querySelector(".home-lists-gallery")?.getAttribute("data-home-selection") === "home-review-sidebar",
   );
+};
+
+const selection = (ctx: Parameters<Play>[0], id: string) =>
+  ctx.waitFor(() => ctx.document.querySelector(".home-lists-gallery")?.getAttribute("data-home-answer") === id);
+
+const answer: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /^Allow once/ });
+  await selection(ctx, "home-ask-checkout:allow_once");
+};
+
+const shortcut: Play = async (ctx) => {
+  const view = ctx.document.defaultView!;
+  view.dispatchEvent(new view.Event("cmux-acpmux-permissionDeny"));
+  await selection(ctx, "home-ask-checkout:reject_once");
+};
+
+const refusedAnswer: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /^Allow once/ });
+  await ctx.waitFor(() => Boolean(ctx.document.querySelector(".acpmux-home-inbox-error")));
 };
 
 const keyboard: Play = async (ctx) => {
@@ -200,15 +325,38 @@ export default componentEntry<Props>({
   load: () => import("./HomeLists").then(({ HomeLists: Component }) => withReceipt(Component)),
   variants: {
     baseline: {
-      note: "Needs input and Ready for review stay separate, while the current, archived, side and not-ready chats stay out.",
+      note: "Needs you lists every other chat's ask with its chat, folder and age, Allow once and Deny in place (the first takes ⌥⌘1 and ⌥⌘3); a question and another computer's chat open their chat. Ready for review stays separate, and the current, archived, side and not-ready chats stay out.",
       props: baseline,
+    },
+    compact: {
+      note: "The compact look: one line per ask, its answers at its end.",
+      props: { ...baseline, look: "compact" },
+    },
+    grouped: {
+      note: "Grouped by the chat's folder: the folder once, then its asks.",
+      props: { ...baseline, look: "grouped" },
+    },
+    answer: {
+      note: "Allow once sends that ask's own option, and the row leaves.",
+      props: baseline,
+      play: answer,
+    },
+    "deny-shortcut": {
+      note: "⌥⌘3 denies the first ask the inbox can answer.",
+      props: baseline,
+      play: shortcut,
+    },
+    refused: {
+      note: "A refused answer says so on its row, and the row answers again.",
+      props: { ...baseline, onAnswer: () => Promise.reject(new Error("no pending permission")) },
+      play: refusedAnswer,
     },
     empty: {
       note: "A clean new chat has no home lists when every other session is current, archived, side, or not ready.",
       props: empty,
     },
     "cap-filter": {
-      note: "Each list caps at three newest rows; older rows and sessions excluded by the home contract never appear.",
+      note: "Ready for review caps at three newest rows; chats with no ask read here still show in Needs you, so none is left to find.",
       props: capped,
     },
     click: {
