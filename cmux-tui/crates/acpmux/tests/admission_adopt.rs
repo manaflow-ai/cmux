@@ -109,6 +109,45 @@ async fn adopts_at_the_cap() {
     a_refused_adopt_whose_holder_ended_makes_no_worktree().await;
     an_adopt_whose_worktree_names_another_family_is_refused_and_leaves_no_worktree().await;
     adopts_waiting_on_one_that_fails_before_its_session_are_admitted_again().await;
+    an_adopt_with_a_harness_only_its_worktree_has_starts_there().await;
+}
+
+async fn an_adopt_with_a_harness_only_its_worktree_has_starts_there() {
+    let root = std::env::temp_dir().join(format!("acpmux-admwtfp-{}", uuid::Uuid::now_v7()));
+    at_the_cap_of_one(&root);
+    let gate = acpmux::config::folder_profiles::FolderGate {
+        enable_record: root.join("acpmux/harness-enable.json"),
+        trust: acpmux::trust::Paths {
+            claude_json: root.join("claude.json"),
+            codex_config: root.join("config.toml"),
+            record: root.join("acpmux/trust.json"),
+            agent_home: None,
+            cmux_worktrees: None,
+        },
+    };
+    let project = root.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    git(&project, &["init", "-q"]);
+    git(&project, &["commit", "-q", "--allow-empty", "-m", "first"]);
+    // Worktree lane-y is there already, and only it has the folder profile `fp`.
+    let worktree = root.join("home/.cmux/worktrees/project/lane-y");
+    git(&project, &["worktree", "add", "-q", "-b", "cmux/lane-y", &worktree.to_string_lossy()]);
+    folder_profile(&worktree, "codex");
+    let hub = hub_gated(Some(gate.clone()));
+    hub.set_harness_homes(HarnessHomes { claude: root.join("claude"), codex: root.join("codex") });
+    trust_and_enable(&hub, &gate, &worktree);
+    let chat = uuid::Uuid::now_v7().to_string();
+    codex_rollout(&root, &chat, &project);
+    let mut adopt = adopt_of("fp", &chat);
+    adopt["cwd"] = json!(project);
+    adopt["_meta"]["acpmux"]["worktree"] = json!({"name": "lane-y"});
+    let r = new_session(&hub, adopt).await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}"));
+    let session = hub.resolve(id).unwrap();
+    assert_eq!(session.meta().family.as_deref(), Some("codex"), "{r}");
+    assert!(worktree.exists(), "{r}");
+
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 async fn adopts_waiting_on_one_that_fails_before_its_session_are_admitted_again() {
