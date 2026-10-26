@@ -112,6 +112,13 @@ final class AgentPageHibernation {
     var liveHiddenLimit: Int? {
         didSet { if liveHiddenLimit != oldValue { replan() } }
     }
+    /// The app's one urgent pass over tabs, chats and pages takes the critical memory event's discard
+    /// (feature `memoryUrgentDiscardRanking`, set by the browser hibernation): at critical pressure the
+    /// timeout then lets one chat go per urgent pace interval, and none until one interval after the
+    /// pressure turns critical and after each urgent pass (``urgentPassDidRun()``).
+    var leavesCriticalEventToUrgentPass = false
+    /// Until when the timeout lets no chat go (``leavesCriticalEventToUrgentPass``).
+    var noReleaseBefore: ContinuousClock.Instant?
 
     init(tabs: @escaping () -> AgentTabStore?) {
         store = tabs
@@ -183,6 +190,8 @@ final class AgentPageHibernation {
 
     func update(setting: BrowserHibernationSetting, pressure: MemoryPressureLevel) {
         guard setting != self.setting || pressure != self.pressure else { return }
+        if pressure == .critical, self.pressure != .critical, leavesCriticalEventToUrgentPass { holdReleases() }
+        if pressure != .critical { noReleaseBefore = nil }
         (self.setting, self.pressure) = (setting, pressure)
         replan()
     }
