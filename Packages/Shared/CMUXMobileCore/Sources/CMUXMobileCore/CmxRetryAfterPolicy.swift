@@ -89,7 +89,7 @@ public struct CmxRetryAfterPolicy: Sendable {
     static func toleratedSleep(seconds: TimeInterval, on clock: any Clock<Duration>) async throws {
         let wait = Duration.seconds(seconds)
         // wakeup-allow: backoff the server's Retry-After cooldown, one wait per directive.
-        try await clock.sleep(for: wait)
+        try await clock.sleep(for: wait, tolerance: wait.flexibleWakeTolerance)
     }
 }
 

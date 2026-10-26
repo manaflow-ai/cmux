@@ -223,7 +223,7 @@ public actor AppLog {
             let timeoutTask = Task.detached { [self] in
                 do {
                     // wakeup-allow: deadline the acknowledgement times out once; an earlier answer cancels it.
-                    try await clock.sleep(for: timeout)
+                    try await clock.sleep(for: timeout, tolerance: timeout.flexibleWakeTolerance)
                     resolve(false)
                 } catch {
                     // The waiter completed before the deadline.
@@ -805,7 +805,7 @@ public actor AppLog {
         let timeoutTask = Task.detached { [timeoutClock] in
             do {
                 // wakeup-allow: deadline the export times out once; its completion cancels the wait.
-                try await timeoutClock.sleep(for: exportTimeout)
+                try await timeoutClock.sleep(for: exportTimeout, tolerance: exportTimeout.flexibleWakeTolerance)
                 completion.resolve(nil)
                 exportTask.cancel()
             } catch {
