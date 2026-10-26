@@ -8,7 +8,8 @@
 # missing (reload.sh --config bench proves its flags reached the app). A shipped app must also not name a
 # benchOnly feature (schemas/features/features.d/*.json with "benchOnly": true): gen-features.py compiles
 # their handles and registry entries only under DEBUG || CMUX_BENCH_HOOKS, so a tagged debug build
-# (CMUXBuildConfiguration debug, scripts/reload.sh) is the one app that may name them.
+# (CMUXBuildConfiguration debug, scripts/reload.sh) is the one app that may name them. No app but a bench
+# one may contain the flags test public key (schemas/features/bench-test-signing-key.json).
 set -euo pipefail
 expect=0
 if [[ "${1:-}" == --expect ]]; then expect=1; shift; fi
@@ -27,12 +28,21 @@ if (( expect )); then
   echo "error: $app has no bench hooks; the --config bench flags did not reach CmuxNextApp" >&2
   exit 1
 fi
+# The perf lab's flags test key (FeatureRemoteSignatureCheck.benchTestPublicKey) is compiled only under
+# CMUX_BENCH_HOOKS in CmuxNextFeatures; a per-target flag mismatch must not ship an app that trusts it.
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+test_key="$(sed -n 's/^[[:space:]]*"publicKey"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$repo/schemas/features/bench-test-signing-key.json")"
+[[ -n "$test_key" ]] || { echo "error: no publicKey in schemas/features/bench-test-signing-key.json" >&2; exit 2; }
+if LC_ALL=C grep -aqF "$test_key" "$exe"; then
+  echo "error: $app trusts the bench flags test key (schemas/features/bench-test-signing-key.json); it must not ship" >&2
+  exit 1
+fi
 config="$(/usr/libexec/PlistBuddy -c 'Print :CMUXBuildConfiguration' "$app/Contents/Info.plist" 2>/dev/null || true)"
 if [[ "$config" == debug ]]; then
   echo "bench hooks: none in $exe_name (a debug build declares the bench-only features)"
   exit 0
 fi
-features_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/schemas/features/features.d"
+features_dir="$repo/schemas/features/features.d"
 shipped_bench=()
 for file in "$features_dir"/*.json; do
   [[ -f "$file" ]] || continue
