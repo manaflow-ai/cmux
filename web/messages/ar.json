@@ -108,9 +108,9 @@
       }
     },
     "requiresPro": {
-      "title": "يتطلب cmux Pro",
-      "message": "تتطلب أجهزة Cloud VM خطة cmux Pro.",
-      "action": "قم بالترقية إلى cmux Pro عبر {upgradeUrl} لإنشاء أجهزة Cloud VM."
+      "title": "يتطلب cmux {plan}",
+      "message": "تتطلب أجهزة Cloud VM خطة cmux {plan}.",
+      "action": "قم بالترقية إلى cmux {plan} عبر {upgradeUrl} لإنشاء أجهزة Cloud VM."
     },
     "displayName": {
       "title": "اسم الجهاز غير صالح",
