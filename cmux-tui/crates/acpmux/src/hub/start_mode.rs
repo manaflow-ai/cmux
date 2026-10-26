@@ -734,6 +734,38 @@ impl Hub {
         self.full_access_managed_off() && runs_full_access(session)
     }
 
+    /// The mode a harness that declares no modes last reported for its running agent: its own
+    /// `current_mode_update` records since the agent's `host_started`, read back from the log.
+    /// Kept only in memory while a daemon runs (`RemoteFloor::undeclared_mode`), so the next daemon
+    /// reads it before it adopts a host a restart left (#23322: a harness that moved itself into
+    /// full access, ended under MDM's off like any other).
+    pub(super) fn restore_undeclared_mode(&self, session: &Session) {
+        if session.meta().modes.is_some()
+            || session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+        {
+            return;
+        }
+        let mut last = None;
+        let kinds = ["host_started", "current_mode_update"];
+        let _ = self.store.scan_kinds(&session.id, &kinds, &mut |e: crate::store::EventRecord| {
+            match (e.dir.as_str(), e.kind.as_str()) {
+                ("mux", "host_started") => last = None,
+                ("in", "current_mode_update") => {
+                    last = e
+                        .msg
+                        .pointer("/params/update/currentModeId")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned);
+                }
+                _ => {}
+            }
+            true
+        });
+        if last.is_some() {
+            *session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) = last;
+        }
+    }
+
     /// MDM forces full access off: every agent still running in it ends now (a turn in progress
     /// ends with it), each under its session's spawn lock, checked again there. Run by the push
     /// that turns it off, and by the hub's background task after a mode write moved a chat into it

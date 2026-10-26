@@ -174,6 +174,12 @@ impl Hub {
             self.start_mode_changed();
             // Unavailable now, not only for the next start: an agent still in full access ends.
             if after.full_access_managed == Some(false) {
+                // An ask decided under a policy read before this push (`policy_for` reads the
+                // bound under the prompt's lock, where it decides) finishes first: none decided
+                // after the push returns runs approve-all.
+                for session in self.sessions() {
+                    drop(session.permissions.lock().unwrap_or_else(|e| e.into_inner()));
+                }
                 self.end_every_managed_full_access().await;
             }
         }

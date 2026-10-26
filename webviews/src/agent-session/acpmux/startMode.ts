@@ -140,10 +140,9 @@ export function rememberStartMode(harness: string, cwd: string | undefined, mode
 /// Pane-wide, read from every answer, a mode-less one too; an answer without the field (MDM unset,
 /// MDM true, an older daemon) turns it off.
 let fullAccessManaged = false;
-/// The last ask's ticket, and the ticket of the newest answer kept: an answer to an older ask that
-/// arrives after a newer one's (two asks in flight across a push) changes nothing.
+/// The last ask's ticket: only the newest ask's answer counts. An answer to an older ask (two asks in
+/// flight across a push) changes nothing, also when the newer ask failed: what was kept stays.
 let fullAccessAsked = 0;
-let fullAccessKept = 0;
 
 /// A ticket for an `_acpmux/start_mode` ask about to be sent (direct.ts `startMode`).
 export function fullAccessTicket(): number {
@@ -151,11 +150,10 @@ export function fullAccessTicket(): number {
   return fullAccessAsked;
 }
 
-/// Keeps what an answer's `fullAccess` field says (direct.ts `startMode`), unless a newer ask's
-/// answer was kept already. No ticket (the gallery): the newest.
+/// Keeps what an answer's `fullAccess` field says (direct.ts `startMode`), unless a newer ask was
+/// sent since. No ticket (the gallery): the newest.
 export function rememberFullAccess(field: unknown, ticket: number = fullAccessTicket()): void {
-  if (ticket < fullAccessKept) return;
-  fullAccessKept = ticket;
+  if (ticket < fullAccessAsked) return;
   const next = field === "managed";
   if (next === fullAccessManaged) return;
   fullAccessManaged = next;
@@ -199,7 +197,6 @@ export function resetStartModesForTests(): void {
   memory = undefined;
   fullAccessManaged = false;
   fullAccessAsked = 0;
-  fullAccessKept = 0;
   version += 1;
   notify();
 }

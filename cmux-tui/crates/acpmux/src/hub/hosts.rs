@@ -210,7 +210,11 @@ impl Hub {
                 continue;
             }
             // MDM forces full access off (start-mode.json, loaded with the hub): a host left
-            // running in it is ended, never adopted (#23322).
+            // running in it is ended, never adopted (#23322), a mode it reported without
+            // declaring modes included.
+            if self.full_access_managed_off() {
+                self.restore_undeclared_mode(&session);
+            }
             if self.managed_off_runs_full_access(&session) {
                 self.end_managed_full_access(&session).await;
                 continue;
@@ -223,6 +227,9 @@ impl Hub {
             if let Some(session) = self.session_by_id(&unreadable.session_id) {
                 // MDM forces full access off (#23322): a live host this build cannot adopt ends
                 // too when its chat runs in full access (`end_unadopted_host`: its nonce proves it).
+                if self.full_access_managed_off() {
+                    self.restore_undeclared_mode(&session);
+                }
                 if self.managed_off_runs_full_access(&session) {
                     let _spawning = session.spawn_lock.lock().await;
                     self.end_managed_full_access(&session).await;

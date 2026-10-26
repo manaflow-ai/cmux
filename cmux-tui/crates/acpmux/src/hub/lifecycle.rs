@@ -521,6 +521,10 @@ impl Hub {
         }
         // MDM forces full access off (#23322): an agent still in it, live or left by a restart,
         // ends here and is never reached again; the start below asks, or refuses a pinned profile.
+        // A host a restart left may have reported its mode without declaring modes: read it back.
+        if self.full_access_managed_off() && Self::host_record_live(&session.id) {
+            self.restore_undeclared_mode(session);
+        }
         if self.managed_off_runs_full_access(session) {
             self.end_managed_full_access(session).await;
         }
