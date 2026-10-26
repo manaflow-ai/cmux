@@ -300,16 +300,22 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        which @ (Command::Status | Command::DaemonStart { .. }) => {
+        which @ (Command::Status { .. } | Command::DaemonStart { .. }) => {
             let start = matches!(which, Command::DaemonStart { .. });
+            let show_token = match &which {
+                Command::Status { show_token } | Command::DaemonStart { show_token, .. } => {
+                    *show_token
+                }
+                _ => false,
+            };
             // A keyed start (cx-0q7o, D2): the daemon must be the one this
             // command starts, with the key from the app's own exec.
             #[cfg(unix)]
-            if let Command::DaemonStart { person_key_fd: Some(fd) } = &which {
+            if let Command::DaemonStart { person_key_fd: Some(fd), .. } = &which {
                 crate::daemon::start_keyed(*fd).await?;
             }
             #[cfg(not(unix))]
-            if let Command::DaemonStart { person_key_fd: Some(_) } = &which {
+            if let Command::DaemonStart { person_key_fd: Some(_), .. } = &which {
                 return Err(crate::platform::unsupported("--person-key-fd"));
             }
             match connect(start).await {
@@ -340,12 +346,21 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         "policy:   {}",
                         v.get("permissionPolicy").and_then(Value::as_str).unwrap_or("")
                     );
-                    println!(
-                        "web:      {}",
-                        v.get("webUrl").and_then(Value::as_str).unwrap_or("-")
-                    );
+                    let url = v.get("webUrl").and_then(Value::as_str);
+                    println!("web:      {}", web_line(url, show_token));
                     if let Some(line) = host_pressure_line(&v["host_pressure"]) {
                         println!("host:     {line}");
+                    }
+                    let login = match &v["loginSession"] {
+                        Value::Bool(here) => Some(Some(*here)),
+                        Value::String(s) if s == "unknown" => Some(None),
+                        _ => None,
+                    };
+                    let own = v.get("ownHome").and_then(Value::as_bool).unwrap_or(true);
+                    if let Some(line) =
+                        login.and_then(|l| crate::daemon::login_placement::keychain_line(l, own))
+                    {
+                        println!("{line}");
                     }
                     for p in v.get("peers").and_then(Value::as_array).cloned().unwrap_or_default() {
                         println!(
@@ -422,6 +437,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 .spawn();
             }
             Ok(())
+        }
+        // No daemon connection: the update must work while the daemon does not.
+        Command::Host(PeerCmd::SelfUpdate { channel }) => {
+            crate::cli::hosts::self_update(&channel, json_out).await
         }
         Command::Host(cmd) => {
             let client = connect(true).await?;
@@ -524,8 +543,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Rm { name } => {
                     client.request("_acpmux/peer_remove", json!({"name": name})).await?
                 }
-                PeerCmd::Setup { host, name, port } => {
-                    return crate::cli::hosts::setup(client, &host, name, port, json_out).await;
+                PeerCmd::Setup { host, name, port, no_auto_update } => {
+                    let auto = !no_auto_update;
+                    return crate::cli::hosts::setup(client, &host, name, port, auto, json_out)
+                        .await;
+                }
+                // Dispatched before the connect (above); kept here so the
+                // match stays total without a panic.
+                PeerCmd::SelfUpdate { channel } => {
+                    return crate::cli::hosts::self_update(&channel, json_out).await;
                 }
                 PeerCmd::Update { name, all, binary_dir, if_idle } => {
                     // Run from a session, `--if-idle` never waits on that session's own turn.
@@ -626,5 +652,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             unreachable!()
         }
         _ => Err(anyhow!("command routed to the wrong dispatch family")),
+    }
+}
+
+/// The `web:` line of `daemon status` and `daemon start`: the Web UI link
+/// without its bearer token unless `show_token` (ergo-walk2, 2026-10-25: a
+/// terminal, a screen share or a pasted log is no place for it).
+fn web_line(url: Option<&str>, show_token: bool) -> String {
+    let Some(url) = url else { return "-".into() };
+    if show_token {
+        return url.to_owned();
+    }
+    match url.split_once("?token=") {
+        Some((bare, _)) => format!("{bare} (token hidden: add --show-token)"),
+        None => url.to_owned(),
     }
 }

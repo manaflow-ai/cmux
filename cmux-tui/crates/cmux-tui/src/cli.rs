@@ -22,6 +22,7 @@ mod app_browser_route;
 mod app_focus;
 #[cfg(unix)]
 mod apps_run;
+mod beside;
 #[cfg(unix)]
 mod billing;
 mod capability_cache;
@@ -1116,6 +1117,9 @@ CLI actions (the live action catalog is authoritative):
   set-idle-pause             delete-snapshot
   diagnostics               sign-in
   sign-out                  open-mobile-pairing
+  open-browser              port-list
+  port-forward              port-close
+  machine-link
 
 Run `cmux action list --category cloud --json` for the current catalog and
 `cmux action describe <action> --json` for an action's arguments.
@@ -1148,6 +1152,9 @@ CLI アクション（現在の一覧はアクションカタログを参照）:
   set-idle-pause             delete-snapshot
   diagnostics               sign-in
   sign-out                  open-mobile-pairing
+  open-browser              port-list
+  port-forward              port-close
+  machine-link
 
 現在のカタログは `cmux action list --category cloud --json`、引数は
 `cmux action describe <action> --json` で確認できます。

@@ -247,6 +247,10 @@ pub mod method {
     pub const MUX_ATTACH: &str = "_acpmux/attach";
     pub const MUX_VIEW: &str = "_acpmux/view";
     pub const MUX_MARK_UNREAD: &str = "_acpmux/markUnread";
+    /// A person in an attached chat starts or stops typing (`hub/presence.rs`).
+    pub const MUX_TYPING: &str = "_acpmux/typing";
+    /// Who has a chat open and who types in it, to its attached connections.
+    pub const MUX_PRESENCE: &str = "_acpmux/presence";
     pub const MUX_DETACH: &str = "_acpmux/detach";
     pub const MUX_WATCH: &str = "_acpmux/watch";
     pub const MUX_RENAME: &str = "_acpmux/rename";
@@ -326,6 +330,9 @@ pub mod method {
     /// `side` tag, valued with that session), which keeps it off the lists.
     pub const MUX_SIDE: &str = "_acpmux/side";
     pub const MUX_WAIT: &str = "_acpmux/wait";
+    pub const MUX_WATCH_ADD: &str = "_acpmux/watch_add";
+    pub const MUX_WATCH_LS: &str = "_acpmux/watch_ls";
+    pub const MUX_WATCH_RM: &str = "_acpmux/watch_rm";
     /// Start the agent children for the most recent project sessions.
     pub const MUX_WARM: &str = "_acpmux/warm";
     /// The harness the pane is about to switch to: a hidden session for it

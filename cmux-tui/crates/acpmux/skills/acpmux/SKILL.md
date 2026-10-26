@@ -159,7 +159,7 @@ in the cmux repository.
 
 ```bash
 acpmux wait                                  # ANY running session resolves: turn ended (exit 0) or permission pending (exit 2)
-acpmux wait A B --all --timeout 600 --print  # every named session, print each last reply
+acpmux wait A B --all --timeout 600 --print  # every named session, print each last reply (a failed turn: its error and retry, exit 1)
 acpmux wait NAME --until running             # the prompt was accepted
 acpmux wait NAME --until done                # turn ended while no client was attached
 acpmux wait NAME --match "tests pass"        # or --regex; existing text matches at once
@@ -174,8 +174,8 @@ cooperatively.
 ## 5. Permissions
 
 ```bash
-acpmux pending                               # every pending request with option ids
-acpmux session allow NAME [OPTION]           # or: acpmux session deny NAME
+acpmux pending                               # every pending request, and how to answer it
+acpmux session deny NAME                     # allowing is the cmux app's alone (the chat's permission card)
 acpmux session rules NAME '{"autoDeny": ["rm -rf"], "ask": ["execute"]}'
 acpmux run --on-permission deny|fail …       # never hang a script on a prompt (fail = exit 5)
 ```

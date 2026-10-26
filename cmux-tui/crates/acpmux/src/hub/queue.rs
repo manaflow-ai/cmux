@@ -706,6 +706,8 @@ impl Hub {
 
     /// The record kinds `restore_queue` reads; the store parses no other line.
     const QUEUE_KINDS: &[&str] = &[
+        // Restore the branch baseline in this same pass, never by rereading at attach.
+        "git",
         "queued",
         "transfer_out",
         "transfer_aborted",
@@ -745,6 +747,7 @@ impl Hub {
         let mut pair_records: Vec<EventRecord> = Vec::new();
         let mut recorded: std::collections::HashSet<String> = Default::default();
         let mut unstarted = lost_start::Unstarted::default();
+        let mut branch = session.meta().git_branch;
         let scanned =
             self.store.scan_kinds(&session.id, Self::QUEUE_KINDS, &mut |e: EventRecord| {
                 for (prompt_id, turn_id) in unstarted.read(&e, &waiting, &mut order) {
@@ -765,7 +768,21 @@ impl Hub {
                     recorded.insert(id.to_owned());
                 }
                 match e.kind.as_str() {
-                    "queued" => waiting.push(e),
+                    "git" if e.dir == "mux" => {
+                        branch = e.msg.get("gitBranch").and_then(Value::as_str).map(str::to_owned);
+                    }
+                    "queued" => {
+                        // A restart's continuation of a cut turn goes ahead of what waited behind
+                        // that turn, also when the daemon stopped before its `queue_order`
+                        // (`restart_resume.rs`); a later reorder still holds.
+                        if e.msg.pointer("/_meta/provenance/reason").and_then(Value::as_str)
+                            == Some("daemon_restart")
+                            && let Some(id) = e.msg.get("promptId")
+                        {
+                            order.prioritize_restart(id);
+                        }
+                        waiting.push(e);
+                    }
                     "agent_pair_held"
                     | "agent_pair_released"
                     | "agent_pair_dropped"
@@ -846,6 +863,9 @@ impl Hub {
                 }
                 true
             });
+        if scanned.is_ok() {
+            self.restore_git_branch(session, branch);
+        }
         self.restore_agent_pairs(&session.id, pair_records, &recorded);
         session.moving.lock().unwrap_or_else(|e| e.into_inner()).clone_from(&moving);
         let mut waiting = waiting.into_records();

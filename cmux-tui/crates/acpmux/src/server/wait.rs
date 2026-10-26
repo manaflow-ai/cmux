@@ -6,6 +6,7 @@
 use super::*;
 use crate::no_panic::JsonExt;
 use std::collections::HashMap;
+use std::time::Duration;
 
 /// What a caller can wait for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -162,7 +163,10 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
     let deadline = timeout.map(|t| tokio::time::Instant::now() + t);
     // Only the chats it waits on: summarizing every chat on every record any chat logs
     // kept huge-blue's daemon at 6 to 8 cores and 4.5 GB with 13 waits open (2026-10-22).
-    let evaluate = |hub: &Hub| -> (Vec<Value>, Vec<Value>) {
+    // Since when each chat's row has said its failed turn's retry is being decided.
+    let mut deciding: HashMap<String, tokio::time::Instant> = HashMap::new();
+    let mut evaluate = |hub: &Hub| -> (Vec<Value>, Vec<Value>) {
+        let now = tokio::time::Instant::now();
         let summaries = hub.session_summaries_of(&ids);
         let mut rows = Vec::new();
         let mut resolved = Vec::new();
@@ -176,6 +180,9 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
                 .get(id)
                 .map(|a| s.get("stateSeq").and_then(Value::as_u64).unwrap_or(0) > *a)
                 .unwrap_or(true);
+            // A failed turn whose retry is not settled yet is not over for a waiter: the row
+            // it answers with says whether a retry waits, and when (`retry`).
+            let seq_ok = seq_ok && !holds_for_retry(&s, deciding.entry(id.clone()), now);
             let ended = turn_ended.as_ref().is_some_and(|t| t.matches(&s));
             let hit = seq_ok && (ended || until.iter().any(|u| u.matches(&s)));
             let mut row = s.clone();
@@ -240,6 +247,34 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
     }
 }
 
+/// Longest a wait holds its answer for a row whose failed turn's retry is being decided. It is
+/// settled within moments (`Hub::retry_row`), and its settling is recorded either way
+/// (`auto_resume_scheduled`, `auto_resume_settled`), so a peer's row hears it too; this bounds
+/// only a row nothing refreshes (a record its peer link lost).
+const RETRY_DECIDING_MAX: Duration = Duration::from_secs(5);
+
+/// Whether the row `s` holds the wait's answer: no turn runs and its failed turn's retry is
+/// being decided (`retryDeciding`), for at most [`RETRY_DECIDING_MAX`] from when this wait
+/// first saw it so (`since`, kept per chat). A closed, gone or unreachable chat holds nothing.
+fn holds_for_retry(
+    s: &Value,
+    since: std::collections::hash_map::Entry<'_, String, tokio::time::Instant>,
+    now: tokio::time::Instant,
+) -> bool {
+    let deciding = s["retryDeciding"] == true
+        && s["turn"].is_null()
+        && s["status"] != "closed"
+        && s["missing"] != true
+        && s["stale"] != true;
+    if !deciding {
+        if let std::collections::hash_map::Entry::Occupied(seen) = since {
+            seen.remove();
+        }
+        return false;
+    }
+    now.duration_since(*since.or_insert(now)) < RETRY_DECIDING_MAX
+}
+
 /// Whether `ev` is a record of one of the chats `ids` names, a peer's by its id or its row's.
 fn concerns(ev: &crate::hub::HubEvent, ids: &[String]) -> bool {
     let row = ev.remote.as_ref().and_then(|r| r.summary.get("sessionId")).and_then(Value::as_str);
@@ -259,6 +294,38 @@ impl<'a> OpenWait<'a> {
 impl Drop for OpenWait<'_> {
     fn drop(&mut self) {
         self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+#[cfg(test)]
+mod retry_deciding_tests {
+    use super::*;
+
+    /// A row whose failed turn's retry is being decided holds a wait's answer, for at most
+    /// `RETRY_DECIDING_MAX` from when the wait first saw it so; any other row holds nothing.
+    #[test]
+    fn a_row_deciding_its_retry_holds_a_wait_for_a_bounded_time() {
+        let mut since = HashMap::new();
+        let t0 = tokio::time::Instant::now();
+        let deciding = json!({"status": "ready", "turn": null, "retryDeciding": true});
+        let mut holds = |s: &Value, at| holds_for_retry(s, since.entry("s".to_owned()), at);
+        assert!(holds(&deciding, t0));
+        assert!(holds(&deciding, t0 + Duration::from_secs(4)));
+        assert!(!holds(&deciding, t0 + RETRY_DECIDING_MAX), "bounded");
+        // Settled, then deciding again (its retry failed too): counted afresh.
+        let settled = json!({"status": "ready", "turn": null, "retry": {"attempt": 1}});
+        assert!(!holds(&settled, t0 + Duration::from_secs(6)));
+        assert!(holds(&deciding, t0 + Duration::from_secs(7)));
+        for s in [
+            json!({"status": "running", "turn": {"turnId": "t2"}, "retryDeciding": true}),
+            json!({"status": "closed", "turn": null, "retryDeciding": true}),
+            json!({"status": "closed", "missing": true, "retryDeciding": true}),
+            json!({"status": "unreachable", "stale": true, "turn": null, "retryDeciding": true}),
+            json!({"status": "ready", "turn": null}),
+        ] {
+            let mut since = HashMap::new();
+            assert!(!holds_for_retry(&s, since.entry("s".to_owned()), t0), "{s}");
+        }
     }
 }
 
