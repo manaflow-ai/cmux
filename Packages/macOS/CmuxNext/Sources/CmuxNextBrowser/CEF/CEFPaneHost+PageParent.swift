@@ -34,6 +34,12 @@ extension CEFPaneHost {
         page.wireToken = runtime.mintPageViewToken()
         // The page's focus follows the view's first responder state (``CEFTab/applyFocus(_:browser:)``).
         page.onFocusChange = { [weak self] focused in self?.visibleTab?.hostedPageFocusChanged(focused) }
+        // The host's page window takes the view's size in the same commit as the pane (task 052).
+        page.onGeometry = { [weak self, weak page] geometry in
+            guard let self, let page else { return }
+            runtime.hostPageResizes()?.resize(view: page.wireToken, browser: visibleTab?.browserID ?? 0, geometry: geometry,
+                                              in: page.window)
+        }
         hostView.addSubview(page, positioned: .below, relativeTo: nil)
         hostView.showOcclusion(in: page)
         hostedPageView = page
@@ -47,6 +53,12 @@ extension CEFPaneHost {
     func showHostedContext(of browser: Int32) {
         guard let page = hostedPageView, runtime.forkAPIVersion >= CEFLayerHosting.forkAPI else { return }
         let shown = window
+        // A new host's page window starts at its default size: it takes the view's size first.
+        if let pageWindow = page.window, page.bounds.width >= 1, page.bounds.height >= 1 {
+            let geometry = ChromiumHostGeometry(screenRect: pageWindow.convertToScreen(page.convert(page.bounds, to: nil)),
+                                                scale: pageWindow.backingScaleFactor)
+            runtime.hostPageResizes()?.resize(view: page.wireToken, browser: browser, geometry: geometry, in: pageWindow)
+        }
         let sent = runtime.sendAsync { $0.browserSetLayerHosting(browser, 1) }
         runtime.whenAnswered(sent, label: "page context") { [weak self, weak page] id in
             guard let self, let page, hostedPageView === page, window == shown else { return }

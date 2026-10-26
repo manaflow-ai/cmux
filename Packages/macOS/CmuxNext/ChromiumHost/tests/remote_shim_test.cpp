@@ -723,6 +723,22 @@ int main() {
     }
   }
 
+  // A page resize (task 052) is an ordered op too. With no fence channel (and no Mach off macOS)
+  // it goes unfenced: fence seq 0, no token, nothing to answer.
+  {
+    CHECK(cmux_remote_shim_set_resize_fence_channel(0) == 1);
+    CHECK(cmux_remote_shim_page_resize(9, browser, 640, 480, 0x1103u, 1) == CMUX_REMOTE_RESIZE_UNFENCED);
+    CHECK(cmux_remote_shim_last_reply_token() == 0);
+    CHECK(cmux_remote_shim_page_resize(0, browser, 640, 480, 0, 1) == CMUX_REMOTE_RESIZE_NOT_SENT);  // no view
+    const std::vector<Message> got = host.Read(1);
+    CHECK(got.size() == 1 && got[0].op == cmux_host::kOpPageResize && got[0].token == 0 && got[0].ctl_seq == 3 &&
+          got[0].after_input == 3);
+    const std::optional<cmux_host::PageResize> resize =
+        got.empty() ? std::nullopt : cmux_host::DecodePageResize(got[0].fields);
+    CHECK(resize && resize->view == 9 && resize->browser == browser && resize->width == 640 &&
+          resize->height == 480 && resize->fence_seq == 0 && resize->deadline_frames == 1);
+  }
+
   // A host that never reads: posts still return at once, and the geometry of a page waits
   // coalesced to one frame.
   cmux_remote_shim_get_stats(&stats);
@@ -873,6 +889,9 @@ int main() {
   seen.ended = -1;
   cmux_remote_shim_detach();
   CHECK(cmux_remote_shim_attached() == 0);
+  // With no host a fence channel would name a host that is gone, and a resize goes nowhere.
+  CHECK(cmux_remote_shim_set_resize_fence_channel(0) == 0);
+  CHECK(cmux_remote_shim_page_resize(9, 1, 640, 480, 0x1103u, 1) == CMUX_REMOTE_RESIZE_NOT_SENT);
   PumpUntil([] { return false; }, std::chrono::milliseconds(100));
   CHECK(seen.ended == -1);
   ::close(third.fd);

@@ -23,6 +23,10 @@ final class CEFHostStart {
     /// The host's widgets in cmux panels and panes, from the start on when ``showsWidgets``
     /// (`CEFRuntime.showHostWidgets(_:)`); nil otherwise.
     var widgetHost: ChromiumHostWidgetHost?
+    /// Page resizes hold their window's commit on a fence (feature `chromiumHostResizeFence`).
+    let fencesResizes: Bool
+    /// The attached host's page resizes (`CEFRuntime.hostPageResizes()`), made on first use; a new host starts with none.
+    var pageResizes: ChromiumHostResizeFence?
     private let supervisor: any ChromiumHostSupervising
     private let open: Open
     private let helloDeadline: Duration
@@ -37,10 +41,12 @@ final class CEFHostStart {
     /// `helloDeadline`: how long, on `clock`, the host may take from the attach to its hello
     /// before the start fails (a host that hangs while it starts Chromium). Reply deadlines run on
     /// `clock` too.
-    init(supervisor: any ChromiumHostSupervising, showsWidgets: Bool = false, open: @escaping Open = { CEFRemoteShim.open($0) },
-         helloDeadline: Duration = .seconds(30), clock: any Clock<Duration> = ContinuousClock()) {
+    init(supervisor: any ChromiumHostSupervising, showsWidgets: Bool = false, fencesResizes: Bool = false,
+         open: @escaping Open = { CEFRemoteShim.open($0) }, helloDeadline: Duration = .seconds(30),
+         clock: any Clock<Duration> = ContinuousClock()) {
         self.supervisor = supervisor
         self.showsWidgets = showsWidgets
+        self.fencesResizes = fencesResizes
         self.open = open
         self.helloDeadline = helloDeadline
         self.clock = clock
@@ -51,8 +57,9 @@ final class CEFHostStart {
 
     /// The attached host; the first caller starts the attach, later ones await it.
     func attached() async -> Result<CEFAttachedHost, CEFRuntime.BootError> {
-        let task = self.task ?? Task { [supervisor, open, replies, helloDeadline, clock] in
-            await CEFHostStart.attach(supervisor, open: open, replies: replies, helloDeadline: helloDeadline, clock: clock)
+        let task = self.task ?? Task { [supervisor, open, replies, helloDeadline, clock, fencesResizes] in
+            await CEFHostStart.attach(supervisor, open: open, replies: replies, helloDeadline: helloDeadline, clock: clock,
+                                      fencesResizes: fencesResizes)
         }
         self.task = task
         let outcome = await task.value
@@ -65,7 +72,7 @@ final class CEFHostStart {
     /// starts, as a mojo `Remote` whose peer closed is rebound to a new pipe, never reused.
     func hostEnded() {
         remote?.detach()
-        (task, remote, mapsClientIDs, hostGone) = (nil, nil, false, true)
+        (task, remote, mapsClientIDs, hostGone, pageResizes) = (nil, nil, false, true, nil)
     }
 
     /// The REPLY token of the async shim call this turn just made, now expected in ``replies``;
@@ -77,7 +84,8 @@ final class CEFHostStart {
     }
 
     private static func attach(_ supervisor: any ChromiumHostSupervising, open: @escaping Open, replies: CEFHostReplies,
-                               helloDeadline: Duration, clock: any Clock<Duration>) async -> Result<CEFAttachedHost, CEFRuntime.BootError> {
+                               helloDeadline: Duration, clock: any Clock<Duration>,
+                               fencesResizes: Bool) async -> Result<CEFAttachedHost, CEFRuntime.BootError> {
         let elapsed = ContinuousClock()
         let started = elapsed.now
         let attachment: ChromiumHostAttachment
@@ -96,6 +104,12 @@ final class CEFHostStart {
         switch await remote.attach(attachment, replies: replies, helloDeadline: helloDeadline, clock: clock) {
         case .success(let exports): hostExports = exports
         case .failure(let error): return .failure(error)
+        }
+        // The host checked its fence inbox in before its hello; the look-up is off the main thread.
+        if fencesResizes, let name = attachment.resizeFence {
+            let channel = ChromiumHostResizeFenceChannel(name: name)
+            let port = await channel.lookUp()
+            channel.hand(port, to: remote)
         }
         do {
             let shim = try CEFShimLibrary.resolving(remote.symbol, hostExports: hostExports)

@@ -101,6 +101,7 @@ extension AppServices {
         let prefetchWork = features.isEnabled(.cefPrefetchBehindFence) ? work : nil
         // Host mode only: the host's widgets in cmux panels and panes (p01-process-066).
         chromiumRuntime.source.showsHostWidgets = features.isEnabled(.chromiumHostWidgets)
+        chromiumRuntime.source.fencesHostResizes = features.isEnabled(.chromiumHostResizeFence) // p01-process-052
         // Restored pages start Chromium by their origin, the visible one after the first frame (p08-startup-040).
         let launchOrder = features.isEnabled(.cefLaunchOrigin) ? launchStartup : nil
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source, launch: launchOrder,

@@ -24,6 +24,10 @@ public final class CEFRuntimeSource {
     /// show in cmux panels and panes (feature `chromiumHostWidgets`, set by the App). Read when the
     /// runtime adopts the source, before Chromium starts; in process it changes nothing.
     public var showsHostWidgets = false
+    /// Host mode: a hosted page's resize holds its window's commit on a Core Animation fence until the
+    /// page's frame at the new size joins it, one display frame at most (feature `chromiumHostResizeFence`,
+    /// set by the App; ``ChromiumHostResizeFence``). Read when the runtime adopts the source.
+    public var fencesHostResizes = false
 
     /// Creates a source.
     ///

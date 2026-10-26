@@ -14,6 +14,14 @@ checks with debug.layers that the fork really moved the page's pixels, `hosted.f
           CEFResizeSyncDeadline: 4 ms at 120 Hz)
   on0     layer hosting on, syncDeadline 0: the page never holds the commit (it shows its last frame until Chromium
           draws the new size)
+  host    Chromium in the Chromium Host (feature cefHelperHost, Debug builds): each page resize is an ordered op, no
+          fence (the page shows its last frame until the host's page draws the new size)
+  hostfence  host, plus feature chromiumHostResizeFence (p01-process-052): the window's commit waits on a Core
+          Animation fence until the host's page joins it, one display frame at most. Rows add fence_resizes,
+          fence_joined and fence_late (`debug.cef` host_resize); acceptance: commit p95 within one display frame and
+          no more missed frames than `host`
+The host modes are not checked with cef-layer-verify.py (it checks in-process layer hosting): summary.json records
+the features they started with, and `hostfence` rows with fence_resizes 0 measured no fenced resize.
 
 Benches per mode: `light` (pane-perf-terminal.py --browser 1x2,4x2: the top-left pane is a Chromium page) and `stress`
 (pane-perf-terminal.py --layouts stress --stress-selected chromium: the STRESS session, every pane a Chromium page),
@@ -44,7 +52,9 @@ from sidebar_drag_bench_report import measured_build  # noqa: E402
 
 HOSTING_KEY = "browserResize.layerHosting"
 DEADLINE_KEY = "browserResize.syncDeadline"
-MODES = {"off": ("off", None), "on": ("on", None), "on0": ("on", 0.0)}
+MODES = {"off": ("off", None), "on": ("on", None), "on0": ("on", 0.0), "host": ("host", None), "hostfence": ("host", None)}
+# The features each host mode starts the app with (pane-perf-terminal.py --enable-features).
+HOST_FEATURES = {"host": "cefHelperHost", "hostfence": "cefHelperHost,chromiumHostResizeFence"}
 
 
 def parse(argv=None):
@@ -103,9 +113,11 @@ def check_mode(mode, hosting):
     return code == 0 and bool(rows) and all(r.get("ok") for r in rows), {"exit": code, "rows": rows, **(report.get("facts") or {})}
 
 
-def bench_command(bench, out):
+def bench_command(bench, out, mode=None):
     common = [sys.executable, os.path.join(HERE, "pane-perf-terminal.py"), "--app", opts.app, "--tag", opts.tag,
               "--out", out, "--actions", opts.actions, "--rounds", str(opts.rounds), "--json", os.path.join(out, "report.json")]
+    if mode in HOST_FEATURES:
+        common += ["--enable-features", HOST_FEATURES[mode]]
     if bench == "light":
         return common + ["--browser", "--layouts", "1x2,4x2"]
     if bench == "stress":
@@ -125,7 +137,7 @@ def stress_session(log_path):
 
 
 KEYS = ("commit_p95_ms", "commit_max_ms", "missed", "frames_p95_ms", "frames_p99_ms", "frames_max_ms", "layout_p95_ms",
-        "refresh_ms")
+        "refresh_ms", "fence_resizes", "fence_joined", "fence_late")
 
 
 def record_results(series):
@@ -150,21 +162,24 @@ def main(argv=None):
     tunables_file = None
     for mode in opts.modes.split(","):
         hosting, deadline = MODES[mode]
-        ok, facts = check_mode(mode, hosting)
-        summary["validity"][mode] = {"ok": ok, **facts}
         summary["modes"][mode] = {}
-        tunables_file = facts.get("tunables_file") or tunables_file
-        if not ok or not facts.get("tunables_file"):
-            print(f"== {mode}: not a valid {mode} run, no benches: {json.dumps(facts)[:400]}", flush=True)
-            failures += 1
-            for bench in opts.benches.split(","):
-                series += results.cef_resize_series(mode, bench, [], valid=False)
-            continue
-        set_deadline(facts["tunables_file"], deadline)
+        if mode in HOST_FEATURES:
+            summary["validity"][mode] = {"ok": True, "features": HOST_FEATURES[mode]}
+        else:
+            ok, facts = check_mode(mode, hosting)
+            summary["validity"][mode] = {"ok": ok, **facts}
+            tunables_file = facts.get("tunables_file") or tunables_file
+            if not ok or not facts.get("tunables_file"):
+                print(f"== {mode}: not a valid {mode} run, no benches: {json.dumps(facts)[:400]}", flush=True)
+                failures += 1
+                for bench in opts.benches.split(","):
+                    series += results.cef_resize_series(mode, bench, [], valid=False)
+                continue
+            set_deadline(facts["tunables_file"], deadline)
         for bench in opts.benches.split(","):
             out = os.path.join(opts.out, mode, bench)
             os.makedirs(out, exist_ok=True)
-            command = bench_command(bench, out)
+            command = bench_command(bench, out, mode)
             print(f"== {mode} {bench}: {' '.join(command)}", flush=True)
             with open(os.path.join(out, "log.txt"), "w") as log:
                 code = subprocess.call(command, stdout=log, stderr=subprocess.STDOUT)

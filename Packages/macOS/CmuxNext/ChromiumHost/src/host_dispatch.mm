@@ -165,7 +165,7 @@ void HostContext::Handle(control::Message& message) {
     case State::kPreinit:
       if (message.op == kOpInitialize) {
         if (!HandleInitialize(message)) Bad("a malformed initialize");
-      } else if (IsMirrorOp(message.op)) {
+      } else if (IsMirrorOp(message.op) || message.op == kOpPageResize) {
         waiting_.push_back(std::move(message));  // CEF state: read once initialize returned
       } else {
         Dispatch(message);  // a preinit op: the remote shim sends nothing else before initialize
@@ -188,10 +188,40 @@ void HostContext::Handle(control::Message& message) {
         Reply(message.token, reply);
         return;
       }
+      if (message.op == kOpPageResize) {
+        if (!HandlePageResize(message)) Bad("a malformed page resize");
+        return;
+      }
       if (IsMirrorOp(message.op)) return Watch(message.op, message.fields);
       Dispatch(message);
       return;
   }
+}
+
+// The fence joins the browser's next commit before the view's frame changes,
+// in this turn (host_resize.h). A view not open yet is not made here: it
+// takes the size when an op opens it (PageView).
+bool HostContext::HandlePageResize(const control::Message& message) {
+  const std::optional<PageResize> resize = DecodePageResize(message.fields);
+  if (!resize) return false;
+  if (view_sizes_.size() >= kMaxPageViews && !view_sizes_.count(resize->view)) return false;
+  view_sizes_[resize->view] = {resize->width, resize->height};
+  const int chromium_id = AwaitsCreation(resize->browser) ? 0 : Browser(resize->browser);
+  auto change_frame = [&] {
+    if (open_views_.count(resize->view)) views_.Resize(resize->view, resize->width, resize->height);
+  };
+  bool joined = false;
+  if (resizes_) {
+    joined = resizes_->Apply(*resize, chromium_id, change_frame);
+  } else {
+    change_frame();
+  }
+  if (message.token != 0) {
+    TlvWriter reply;
+    reply.I32(joined ? 1 : 0);
+    Reply(message.token, reply);
+  }
+  return true;
 }
 
 bool HostContext::HandleHello(const control::Message& message) {
@@ -485,6 +515,7 @@ void HostContext::ReleaseView(uint64_t token) {
     if (other == token) return;  // a DevTools placement still names it
   }
   if (open_views_.erase(token)) views_.Close(token);
+  view_sizes_.erase(token);
 }
 
 void* HostContext::PageView(uint64_t token) {
@@ -495,6 +526,11 @@ void* HostContext::PageView(uint64_t token) {
       return nullptr;
     }
     open_views_.insert(token);
+    void* view = views_.Open(token);
+    const auto size = view_sizes_.find(token);
+    if (size != view_sizes_.end()) views_.Resize(token, size->second.first, size->second.second);
+    if (dispatching_) dispatching_view_ = token;
+    return view;
   }
   if (dispatching_) dispatching_view_ = token;
   return views_.Open(token);

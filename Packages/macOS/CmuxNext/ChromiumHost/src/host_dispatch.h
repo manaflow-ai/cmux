@@ -29,7 +29,10 @@
 //                                              pushes for the browser start or stop;
 //                                              answered with the fork's result
 //                                              (host_text_input.h)
-//   kOpTextInputStats                           no fields: answered with the text
+//   kOpPageResize                               a page view's size and its fence seq
+//                                              (host_resize.h); a fenced one is
+//                                              answered with i32 joined
+//   kOpTextInputStats                          no fields: answered with the text
 //                                              input push counters (host_text_input.h)
 // Every preinit op comes before kOpInitialize (the remote shim queues them,
 // task 014); everything else after it.
@@ -63,6 +66,7 @@
 #include "chromium_host_control.h"
 #include "chromium_host_tlv.h"
 #include "host_mirror.h"
+#include "host_resize.h"
 #include "host_text_input.h"
 
 namespace cmux_host {
@@ -111,6 +115,12 @@ class PageViews {
   // The view (NSView*) for `token`, made on first use.
   virtual void* Open(uint64_t token) = 0;
   virtual void Close(uint64_t token) = 0;
+  // An open view's size in points (kOpPageResize); nothing when it is that size.
+  virtual void Resize(uint64_t token, int32_t width, int32_t height) {
+    (void)token;
+    (void)width;
+    (void)height;
+  }
 };
 
 // Each view in a transparent, click-through window of the host
@@ -123,6 +133,7 @@ class HostPageViews final : public PageViews {
   ~HostPageViews() override;
   void* Open(uint64_t token) override;
   void Close(uint64_t token) override;
+  void Resize(uint64_t token, int32_t width, int32_t height) override;
 
  private:
   std::unordered_map<uint64_t, void*> windows_;  // NSWindow*, retained
@@ -192,6 +203,10 @@ class HostContext {
 
   const TextInputPushes& text_input() const { return text_input_; }
 
+  // Where kOpPageResize's fences go (browser_host_main.mm, before Attach);
+  // nullptr resizes with no fence.
+  void SetPageResizes(PageResizes* resizes) { resizes_ = resizes; }
+
  private:
   enum class State { kPreinit, kInitializing, kRunning, kEnded };
   struct HeldEvent {
@@ -211,6 +226,7 @@ class HostContext {
   void Dispatch(const control::Message& message);
   bool HandleInitialize(const control::Message& message);
   bool HandleTextInputWatch(const control::Message& message);
+  bool HandlePageResize(const control::Message& message);
   // Watches `chromium_id`'s text input in the fork: its result (0 refused).
   int ArmTextInputWatch(int chromium_id);
   // True while `client_id` is a minted id whose creation event has not come.
@@ -277,9 +293,13 @@ class HostContext {
   std::unordered_set<uint64_t> open_views_;
   std::unordered_map<int, uint64_t> view_of_browser_;
   std::unordered_map<int, uint64_t> devtools_view_of_browser_;
+  // The last kOpPageResize size of each page view token (width, height),
+  // open or not yet: an op that opens the view gives it this size.
+  std::unordered_map<uint64_t, std::pair<int32_t, int32_t>> view_sizes_;
 
   // Browsers cmux watches the text input of, by Chromium id.
   TextInputPushes text_input_;
+  PageResizes* resizes_ = nullptr;
   // Text input watches of minted ids whose creation has not come, by the
   // minted id: the watch tokens Bind arms and answers. Bounded with
   // pending_binds_ (AwaitsCreation).
