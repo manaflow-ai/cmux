@@ -88,10 +88,10 @@ enum StatusGlyphArt {
             let element = StatusGlyphGeometry.repeatedElement(in: rect.size, bars: bars)
             for index in 0..<StatusIndicatorLayer.dotsCount {
                 let frame = element.frame.offsetBy(dx: element.step * CGFloat(index), dy: 0)
-                var move = CGAffineTransform(translationX: frame.minX, y: frame.minY)
-                if let path = StatusGlyphGeometry.repeatedElementPath(frame, bars: bars).copy(using: &move) {
-                    context.addPath(path)
-                }
+                let moved = CGMutablePath()
+                moved.addPath(StatusGlyphGeometry.repeatedElementPath(frame, bars: bars),
+                              transform: CGAffineTransform(translationX: frame.minX, y: frame.minY))
+                context.addPath(moved)
             }
             context.fillPath()
         case .mark(let mark):

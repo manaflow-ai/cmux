@@ -61,16 +61,11 @@ public nonisolated struct WindowFrame: Sendable {
 
     init?(_ image: CGImage, scale: Double, at milliseconds: Double) {
         let width = max(1, Int(Double(image.width) * scale)), height = max(1, Int(Double(image.height) * scale))
-        var pixels = [UInt8](repeating: 0, count: width * height * 4)
-        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
-            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
-                                          bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
-                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+        guard let pixels = DrawnPixels(width: width, height: height, bytesPerPixel: 4, space: CGColorSpaceCreateDeviceRGB(),
+                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue, draw: { context in
             context.interpolationQuality = .low
             context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-            return true
-        }
-        guard drawn else { return nil }
+        })?.bytes else { return nil }
         self.milliseconds = milliseconds
         self.width = width
         self.height = height

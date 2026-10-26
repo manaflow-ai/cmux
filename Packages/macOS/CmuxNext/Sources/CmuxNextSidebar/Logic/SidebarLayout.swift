@@ -64,13 +64,13 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             return
         }
         var add = Double(dy)
-        rows.withUnsafeMutableBytes { bytes in
-            // crash-allow: `y` is a stored CGFloat (Double) at `offset` in each row, rows are `stride` bytes apart,
-            // and the buffer holds `rows.count` rows; the add writes only those `count` doubles.
+        // SAFETY: `y` is a stored Double (checked above) at `offset` in each row, rows are `stride` bytes apart, and the
+        // buffer, valid for the closure, holds every row; the add writes only the `count` doubles of rows[start...].
+        unsafe rows.withUnsafeMutableBytes { bytes in
             guard let base = bytes.baseAddress else { return }
-            let first = (base + start * stride + offset).assumingMemoryBound(to: Double.self)
-            vDSP_vsaddD(first, vDSP_Stride(stride / MemoryLayout<Double>.stride), &add, first,
-                        vDSP_Stride(stride / MemoryLayout<Double>.stride), vDSP_Length(count))
+            let first = unsafe (base + start * stride + offset).assumingMemoryBound(to: Double.self)
+            unsafe vDSP_vsaddD(first, vDSP_Stride(stride / MemoryLayout<Double>.stride), &add, first,
+                               vDSP_Stride(stride / MemoryLayout<Double>.stride), vDSP_Length(count))
         }
     }
 

@@ -66,7 +66,8 @@ public nonisolated struct DesktopPicture: Sendable {
     private static func picture(at url: URL, dark: Bool) -> URL? {
         guard url.isFileURL else { return nil }
         var isFolder: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder) else { return nil }
+        // SAFETY: fileExists writes one ObjCBool into the local `isFolder`, live for the call.
+        guard unsafe FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder) else { return nil }
         if isFolder.boolValue {
             let files = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
             return files.sorted { $0.lastPathComponent < $1.lastPathComponent }.lazy.compactMap { decodable($0) }.first

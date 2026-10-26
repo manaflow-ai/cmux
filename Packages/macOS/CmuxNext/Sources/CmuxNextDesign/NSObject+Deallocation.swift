@@ -22,6 +22,8 @@ extension NSObject {
         let selector = allowsWeakReferenceSelector
         guard let method = method(for: selector) else { return false }
         typealias AllowsWeakReference = @convention(c) (NSObject, Selector) -> Bool
-        return !unsafeBitCast(method, to: AllowsWeakReference.self)(self, selector)
+        // SAFETY: `method` is NSObject's implementation of `allowsWeakReference`, a `-(BOOL)` method with no
+        // arguments, so it is called with the C type of exactly that method: (self, _cmd) -> BOOL.
+        return unsafe !unsafeBitCast(method, to: AllowsWeakReference.self)(self, selector)
     }
 }

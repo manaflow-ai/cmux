@@ -56,11 +56,13 @@ enum LabelText {
         let text = NSMutableAttributedString(attributedString: content)
         let all = NSRange(location: 0, length: text.length)
         let base = font ?? .systemFont(ofSize: NSFont.systemFontSize)
-        text.enumerateAttribute(.font, in: all) { value, range, _ in
+        // SAFETY: the closure never reads or writes the stop flag the enumeration lends it.
+        unsafe text.enumerateAttribute(.font, in: all) { value, range, _ in
             if value == nil { text.addAttribute(.font, value: base, range: range) }
         }
         if let color {
-            text.enumerateAttribute(.foregroundColor, in: all) { value, range, _ in
+            // SAFETY: the closure never reads or writes the stop flag the enumeration lends it.
+            unsafe text.enumerateAttribute(.foregroundColor, in: all) { value, range, _ in
                 if value == nil { text.addAttribute(.foregroundColor, value: color, range: range) }
             }
         }
@@ -73,7 +75,8 @@ enum LabelText {
         let result = NSMutableAttributedString(attributedString: text)
         let all = NSRange(location: 0, length: result.length)
         let lineBreak: NSLineBreakMode = shape.wraps ? (shape.lineBreak == .byCharWrapping ? .byCharWrapping : .byWordWrapping) : shape.lineBreak
-        result.enumerateAttribute(.paragraphStyle, in: all) { value, range, _ in
+        // SAFETY: the closure never reads or writes the stop flag the enumeration lends it.
+        unsafe result.enumerateAttribute(.paragraphStyle, in: all) { value, range, _ in
             let own = value as? NSParagraphStyle
             let style = (own ?? .default).mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
             if own == nil || shape.alignment != .natural { style.alignment = shape.alignment }
@@ -124,13 +127,14 @@ enum LabelText {
         guard range.length > 0 else { return Metrics(size: .zero, firstBaseline: 0, lastBaselineFromBottom: 0) }
         var used = CGRect.null
         var baselines: [CGFloat] = []
-        manager.enumerateLineFragments(forGlyphRange: range) { rect, usedRect, _, glyphs, stop in
+        // SAFETY: `stop` is the flag the enumeration lends for one call of the closure; it is written only there.
+        unsafe manager.enumerateLineFragments(forGlyphRange: range) { rect, usedRect, _, glyphs, stop in
             baselines.append(rect.minY + reportedAscent(of: glyphs))
             let last = baselines.count >= shownLines
             // The last line a field shows, when more text follows it, ends at its last visible
             // glyph: its trailing spaces do not count (they push a full line to the edge).
             used = used.union(last && NSMaxRange(glyphs) < NSMaxRange(range) ? withoutTrailingSpaces(usedRect, glyphs: glyphs) : usedRect)
-            if last { stop.pointee = true }
+            if last { unsafe stop.pointee = true }
         }
         // The extra line after a final line break counts too, as a field's.
         if shownLines == Int.max, !manager.extraLineFragmentUsedRect.isEmpty { used = used.union(manager.extraLineFragmentUsedRect) }
@@ -215,7 +219,8 @@ enum LabelText {
         static func metrics(of text: NSAttributedString, in range: NSRange) -> (ascent: CGFloat, height: CGFloat)? {
             var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
             let range = NSIntersectionRange(range, NSRange(location: 0, length: text.length))
-            text.enumerateAttribute(.font, in: range) { value, _, _ in
+            // SAFETY: the closure never reads or writes the stop flag the enumeration lends it.
+            unsafe text.enumerateAttribute(.font, in: range) { value, _, _ in
                 guard let font = value as? NSFont else { return }
                 ascent = max(ascent, font.ascender.rounded())
                 descent = max(descent, (-font.descender).rounded(.up))
@@ -231,9 +236,11 @@ enum LabelText {
             let characters = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
             guard let metrics = Self.metrics(of: fonts ?? storage, in: characters) else { return false }
             let ascent = metrics.ascent, height = metrics.height
-            lineFragmentRect.pointee.size.height = height
-            lineFragmentUsedRect.pointee.size.height = height
-            baselineOffset.pointee = ascent
+            // SAFETY: the layout manager lends the three values for this call (NSLayoutManagerDelegate); each is
+            // written once, in place, before it returns.
+            unsafe lineFragmentRect.pointee.size.height = height
+            unsafe lineFragmentUsedRect.pointee.size.height = height
+            unsafe baselineOffset.pointee = ascent
             return true
         }
     }

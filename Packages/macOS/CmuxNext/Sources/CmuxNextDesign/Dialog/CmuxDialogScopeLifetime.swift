@@ -22,8 +22,8 @@ nonisolated final class CmuxDialogScopeLifetime: Sendable {
         var markers: [CmuxDialogScopeLifetime] = []
     }
 
-    /// The associated-object key: one byte allocated once, never freed.
-    @MainActor private static let bagKey = UnsafeRawPointer(UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1))
+    /// Each view's bag of markers.
+    private static let bags = ObjectAssociation<Bag>()
 
     /// Attaches a marker to `view`; `onEnd` runs with its token when `view`
     /// deallocates.
@@ -31,11 +31,11 @@ nonisolated final class CmuxDialogScopeLifetime: Sendable {
     static func attach(to view: NSView, onEnd: @escaping @Sendable (UUID) -> Void) -> UUID {
         let marker = CmuxDialogScopeLifetime(onEnd: onEnd)
         let bag: Bag
-        if let existing = objc_getAssociatedObject(view, bagKey) as? Bag {
+        if let existing = bags.value(on: view) {
             bag = existing
         } else {
             bag = Bag()
-            objc_setAssociatedObject(view, bagKey, bag, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            bags.set(bag, on: view)
         }
         bag.markers.append(marker)
         return marker.token

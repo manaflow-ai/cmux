@@ -242,7 +242,8 @@ enum StatusMarkArt {
         // the mask, which read soft (Leo 2026-10-13).
         let size = CGSize(width: (image.size.width * fit).rounded(), height: (image.size.height * fit).rounded())
         var proposed = CGRect(origin: .zero, size: size)
-        guard let cg = image.cgImage(forProposedRect: &proposed, context: nil, hints: [.ctm: NSAffineTransform()]) else { return }
+        // SAFETY: the call reads and may update the local `proposed`, live for the call.
+        guard let cg = unsafe image.cgImage(forProposedRect: &proposed, context: nil, hints: [.ctm: NSAffineTransform()]) else { return }
         // The ink, not the symbol's box, is centered vertically: a symbol's box carries baseline
         // room that left the check a quarter point low. Across, the box keeps the symbol's own side
         // bearings. Whole-pixel offsets keep it crisp.
@@ -257,15 +258,10 @@ enum StatusMarkArt {
     /// The box of `image`'s pixels more than half covered, bottom-left origin (CG drawing space).
     private static func inkBounds(_ image: CGImage) -> CGRect? {
         let width = image.width, height = image.height
-        var alpha = [UInt8](repeating: 0, count: width * height)
-        let drawn = alpha.withUnsafeMutableBytes { buffer -> Bool in
-            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
-                                          space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue)
-            else { return false }
+        guard let alpha = DrawnPixels(width: width, height: height, bytesPerPixel: 1, space: CGColorSpaceCreateDeviceGray(),
+                                      bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue, draw: { context in
             context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-            return true
-        }
-        guard drawn else { return nil }
+        })?.bytes else { return nil }
         var minX = width, minRow = height, maxX = -1, maxRow = -1
         for (index, value) in alpha.enumerated() where value > 127 {
             let x = index % width, row = index / width

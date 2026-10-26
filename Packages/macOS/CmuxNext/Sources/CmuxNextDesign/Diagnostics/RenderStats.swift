@@ -224,7 +224,7 @@ public final class RenderStats {
 
     /// A KVO subclass counts as the class it observes.
     static func name(of type: AnyClass) -> String {
-        if String(cString: class_getName(type)).hasPrefix("NSKVONotifying_"), let observed = class_getSuperclass(type) {
+        if NSStringFromClass(type).hasPrefix("NSKVONotifying_"), let observed = class_getSuperclass(type) {
             return String(describing: observed)
         }
         return String(describing: type)
@@ -295,7 +295,7 @@ public final class RenderStats {
                     let claim = cell.key.compareExchange(expected: 0, desired: key, ordering: .acquiringAndReleasing)
                     if claim.exchanged {
                         // The metatype, for the owner's name (a metatype is never freed).
-                        cell.type.store(unsafeBitCast(owner, to: UInt.self), ordering: .releasing)
+                        cell.type.store(UInt(bitPattern: ObjectIdentifier(owner)), ordering: .releasing)
                         return cell
                     }
                     if claim.original == key { return cell }
@@ -314,7 +314,9 @@ public final class RenderStats {
                 let key = cell.key.load(ordering: .acquiring)
                 let type = cell.type.load(ordering: .acquiring)
                 guard key != 0, type != 0 else { return nil }
-                return (key, unsafeBitCast(type, to: AnyClass.self), cell.totals())
+                // SAFETY: `type` is the bits of the owner metatype `cell(for:)` stored (nonzero, checked above), and a
+                // metatype is never freed, so they name a live class.
+                return unsafe (key, unsafeBitCast(type, to: AnyClass.self), cell.totals())
             }
             let spill = overflow.totals()
             if spill != Totals() { owners.append((key: UInt.max, type: Ledger.self, totals: spill)) }

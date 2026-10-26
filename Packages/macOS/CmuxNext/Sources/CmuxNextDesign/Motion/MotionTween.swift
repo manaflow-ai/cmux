@@ -21,7 +21,8 @@ public nonisolated enum MotionTween: UInt8, Sendable, CaseIterable {
     /// Seconds and curve at speed `fast` from the spec.
     public var base: (duration: TimeInterval, curve: UInt8) {
         var out = CmuxMotionTween(duration: 0, curve: 0)
-        return cmux_motion_tween_base(rawValue, &out) ? (out.duration, out.curve) : (0, 0)
+        // SAFETY: the call writes one CmuxMotionTween into the local `out`, live for the call.
+        return unsafe cmux_motion_tween_base(rawValue, &out) ? (out.duration, out.curve) : (0, 0)
     }
 }
 
@@ -90,7 +91,8 @@ public nonisolated struct TweenValue: Equatable, Sendable {
     @discardableResult
     public mutating func retarget(_ target: CGFloat, duration: TimeInterval, token: MotionTween? = nil) -> Bool {
         var s = state
-        guard cmux_motion_tween_retarget(&s, Double(target), duration) else { return false }
+        // SAFETY: the call reads and writes one CmuxMotionTweenState, the local `s`, live for the call.
+        guard unsafe cmux_motion_tween_retarget(&s, Double(target), duration) else { return false }
         apply(s)
         if let token { self.token = token }
         return true
@@ -100,7 +102,8 @@ public nonisolated struct TweenValue: Equatable, Sendable {
     public mutating func step(_ dt: Double) -> Bool {
         guard !isSettled else { return false }
         var s = state
-        let moving = cmux_motion_tween_step(&s, dt, token.base.curve)
+        // SAFETY: the call reads and writes one CmuxMotionTweenState, the local `s`, live for the call.
+        let moving = unsafe cmux_motion_tween_step(&s, dt, token.base.curve)
         apply(s)
         return moving
     }
@@ -138,7 +141,8 @@ public nonisolated struct MotionTabStrip: Equatable, Sendable {
     /// The spec's geometry for `comfortable` (else compact) density.
     public init(comfortable: Bool) {
         var g = CmuxMotionTabStripGeometry()
-        _ = cmux_motion_tab_strip_geometry(comfortable ? 1 : 0, &g)
+        // SAFETY: the call writes one CmuxMotionTabStripGeometry into the local `g`, live for the call.
+        _ = unsafe cmux_motion_tab_strip_geometry(comfortable ? 1 : 0, &g)
         maxWidth = g.max_width
         openStartWidth = g.open_start_width
         closeEndWidth = g.close_end_width

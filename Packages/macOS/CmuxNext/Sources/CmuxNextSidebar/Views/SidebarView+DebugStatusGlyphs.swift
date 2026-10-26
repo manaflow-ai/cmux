@@ -106,14 +106,9 @@ private enum MaskMeasure {
 
     private static func alphaBytes(_ mask: CGImage) -> [UInt8]? {
         let width = mask.width, height = mask.height
-        var bytes = [UInt8](repeating: 0, count: width * height)
-        let drawn = bytes.withUnsafeMutableBytes { buffer -> Bool in
-            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
-                                          space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue)
-            else { return false }
+        return DrawnPixels(width: width, height: height, bytesPerPixel: 1, space: CGColorSpaceCreateDeviceGray(),
+                           bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue, draw: { context in
             context.draw(mask, in: CGRect(x: 0, y: 0, width: width, height: height))
-            return true
-        }
-        return drawn ? bytes : nil
+        })?.bytes
     }
 }

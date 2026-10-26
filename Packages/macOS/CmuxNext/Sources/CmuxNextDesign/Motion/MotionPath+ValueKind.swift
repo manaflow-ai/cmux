@@ -15,10 +15,12 @@ extension MotionPath {
                 return
             }
             guard let value = value as? NSValue else { return nil }
-            let type = value.objCType
-            if strcmp(type, Self.pointType) == 0 {
+            // SAFETY: objCType is the NSValue's NUL-terminated type encoding, valid while `value` lives (this call);
+            // each constant is a NUL-terminated array that strcmp reads during the call only.
+            let type = unsafe value.objCType
+            if unsafe strcmp(type, Self.pointType) == 0 {
                 self = .point
-            } else if strcmp(type, Self.sizeType) == 0 {
+            } else if unsafe strcmp(type, Self.sizeType) == 0 {
                 self = .size
             } else {
                 return nil
@@ -35,7 +37,8 @@ extension MotionPath {
         }
 
         // The type encodings an NSValue of a CGPoint or CGSize reports, copied once (NUL-terminated constants).
-        private static let pointType: [CChar] = Array(String(cString: NSValue(point: .zero).objCType).utf8CString)
-        private static let sizeType: [CChar] = Array(String(cString: NSValue(size: .zero).objCType).utf8CString)
+        // SAFETY: objCType is the new NSValue's NUL-terminated type encoding, copied before the value is released.
+        private static let pointType: [CChar] = Array(unsafe String(cString: NSValue(point: .zero).objCType).utf8CString)
+        private static let sizeType: [CChar] = Array(unsafe String(cString: NSValue(size: .zero).objCType).utf8CString)
     }
 }
