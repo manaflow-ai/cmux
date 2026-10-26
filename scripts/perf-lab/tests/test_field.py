@@ -54,14 +54,21 @@ def interval(category, name, *buckets, count=None):
 
 
 def row(*, version="0.71.0", build="2001", chip="Apple M4 Pro", memory=24, stalls=(), active=None,
-        intervals=(), features=None):
+        intervals=(), features=None, trials=None):
     out = {"kind": "report", "app_version": version, "app_build": build, "chip": chip, "memory_gb": memory,
            "stall_histogram": stall(*stalls), "intervals": list(intervals)}
     if active is not None:
         out["active_seconds"] = active
     if features is not None:
         out["features_hash"] = features
+    if trials is not None:
+        out["field_trials"] = trials
     return out
+
+
+def trial_installs(count, trial, *, version="0.71.0", build="2001", chip="Apple M4 Pro", memory=24):
+    return {"kind": "trial_installs", "app_version": version, "app_build": build, "chip": chip, "memory_gb": memory,
+            "trial": trial, "installs": count}
 
 
 def installs(count, *, version="0.71.0", build="2001", chip="Apple M4 Pro", memory=24, features=None):
@@ -128,9 +135,16 @@ class SelectOnlyTests(unittest.TestCase):
         self.assertNotIn("frames", script)
         self.assertNotIn("'hangs'", script)
         self.assertNotIn("md5", script)
-        self.assertEqual(script.count("install_id"), 1)
-        self.assertIn("'installs', count(DISTINCT install_id)", script)
+        self.assertEqual(script.count("install_id"), 2)
+        self.assertEqual(script.count("'installs', count(DISTINCT install_id)"), 2)
         self.assertIn("GROUP BY app_version, app_build, chip, memory_gb, COALESCE(", script)
+        self.assertIn("GROUP BY app_version, app_build, chip, memory_gb, trials.tag", script)
+
+    def test_trial_installs_read_only_a_json_array(self):
+        script = field.reports_query(since_hours=24, channel="nightly")
+        self.assertIn("CROSS JOIN LATERAL jsonb_array_elements_text(CASE WHEN jsonb_typeof(", script)
+        self.assertIn("ELSE '[]'::jsonb END) AS trials(tag)", script)
+        self.assertIn("'field_trials', COALESCE(payload->'fieldTrials', payload->'field_trials')", script)
 
 
 class CredentialTests(unittest.TestCase):
@@ -283,6 +297,38 @@ class AggregationTests(unittest.TestCase):
         self.assertIsNone(groups[("0.71.0 (2001)", "apple-m1/16gb", field.NO_ARM)].hangs_per_1000_active_hours)
         self.assertAlmostEqual(groups[("0.71.0 (2001)", "apple-m4-pro/24gb", "f00d")]
                                .hangs_per_1000_active_hours, 8000.0)
+
+    def test_metrics_split_by_field_trial_arm(self):
+        """task 152: a 50/50 study's arms are their own groups beside the features groups; each report counts once
+        in the total."""
+        rows = [
+            row(stalls=[(250, 500, 1)], active=3600, features="f1", trials=["slack=on", "other=b"],
+                intervals=[interval("action", "tab.close", (0, 8, 4))]),
+            row(stalls=[(250, 500, 3)], active=3600, features="f2", trials=["slack=off"]),
+            row(stalls=[(250, 500, 5)], active=3600, features="f2", trials=["slack=off", "bad tag", "a=b=c", 7]),
+            row(stalls=[(250, 500, 2)], active=3600),
+            trial_installs(1, "slack=on"),
+            trial_installs(2, "slack=off"),
+            trial_installs(4, "not a tag"),
+        ]
+        groups = field.aggregate(rows)
+        study = {g.arm: g for g in groups if g.split == field.STUDY_SPLIT}
+        self.assertEqual(set(study), {"slack=on", "slack=off", "other=b"})
+        self.assertEqual((study["slack=on"].reports, study["slack=on"].installs), (1, 1))
+        self.assertEqual((study["slack=off"].reports, study["slack=off"].installs), (2, 2))
+        self.assertAlmostEqual(study["slack=on"].hangs_per_1000_active_hours, 1000.0)
+        self.assertAlmostEqual(study["slack=off"].hangs_per_1000_active_hours, 4000.0)
+        self.assertEqual(study["slack=on"].action, {"tab.close": {(0, 8): 4}})
+        features = {g.arm for g in groups if g.split == field.FEATURES_SPLIT}
+        self.assertEqual(features, {"f1", "f2", field.NO_ARM})
+        self.assertEqual([g.split for g in groups], [field.FEATURES_SPLIT] * 3 + [field.STUDY_SPLIT] * 3)
+        result = field.report(groups, since_hours=None, channel="nightly", source="fixture")
+        self.assertEqual(result["reports"], 4)
+        arms = {(r["arm"], r["metric"]): r["value"] for r in result["rows"]}
+        self.assertEqual(arms[("slack=off", "hangs_over_250ms")], 8)
+        for item in result["rows"]:
+            dashboard.FieldRow(**item)
+        self.assertIn("trial slack=off: 2 reports, 2 installs", field.render_text(result))
 
     def test_action_and_turn_histograms(self):
         rows = [

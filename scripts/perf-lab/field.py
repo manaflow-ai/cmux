@@ -8,7 +8,7 @@ Chrome reports field performance as UMA histograms per channel, version and hard
 (docs/speed/how_does_chrome_measure_performance.md), and normalizes hang counts by the time the thread was
 watched (base/threading/hang_watcher.h; HangWatcher.IsThreadHung.* is logged per watched interval). This
 module does the same with the PlanetScale `cmux-prod` table `hang_reports` (branch `main`, org `cmux`). Per
-Nightly build, hardware class and features arm it reports:
+Nightly build, hardware class and features arm it reports (and again per field-trial arm, below):
 
 - hangs > 250 ms per 1000 active hours: the watchdog's stall histogram (StallAggregate, every finished stall
   of 50 ms and up; its 250 ms edge splits the count exactly) over the reports that carry active seconds
@@ -16,6 +16,13 @@ Nightly build, hardware class and features arm it reports:
 - action-latency histograms: the merged `action` signpost intervals, with interpolated p50, p95 and p99.
 - turn histograms when present: the `main_turn` and `input_queueing` intervals (task 031's histograms,
   sent by task 043 as interval entries).
+
+The features arm is the report's `features_hash` (task 151). A Nightly field trial (task 152, FieldTrial.swift)
+puts the install in one arm of each study it runs; the report lists them as `field_trials` (`study=arm`), and
+every metric is also reported per (build, hardware class, `study=arm`), so the arms of one study compare
+directly, as Chrome's UMA splits each histogram by the variation ids of the active field trials
+(components/variations/variations_ids_provider.h). A report counts once in its features group and once in each
+of its trial groups; the trial groups are left out of the report total.
 
 Rules (R10): SELECT only, counts only. Every query runs in one read-only repeatable-read transaction with
 `default_transaction_read_only=on`, and `assert_select_only` refuses any other statement before psql starts.
@@ -31,7 +38,7 @@ The URL must be for org `cmux`, database `cmux-prod`, branch `main`: a PlanetSca
 or other-database URL is refused before psql starts, and the report's `source` names the target.
 
 The SELECT reads no frames, install ids leave the database only as count(DISTINCT install_id) per build,
-hardware and features key, and the output is aggregates. Field rows are reported on the dashboard (/field)
+hardware and features key or field-trial tag, and the output is aggregates. Field rows are reported on the dashboard (/field)
 and in done check 18; they are never judged.
 """
 from __future__ import annotations
@@ -128,12 +135,20 @@ def privilege_query() -> str:
 
 
 _FEATURES_HASH = "COALESCE(payload->>'featuresHash', payload->>'features_hash')"
+_FIELD_TRIALS = "COALESCE(payload->'fieldTrials', payload->'field_trials')"
+# A report without a list (or with another JSON type there) is in no trial.
+_FIELD_TRIAL_ARRAY = f"CASE WHEN jsonb_typeof({_FIELD_TRIALS}) = 'array' THEN {_FIELD_TRIALS} ELSE '[]'::jsonb END"
+# `study=arm`: one `=`, no separator a label could hide another tag behind.
+_TRIAL_TAG = re.compile(r"^[^=,\s]+=[^=,\s]+$")
+FEATURES_SPLIT = "features"
+STUDY_SPLIT = "study"
 _KEY_COLUMNS = ("app_version", "app_build", "chip", "memory_gb")
 
 
 def reports_query(*, since_hours: int, channel: str) -> str:
     """JSON rows of the window, in one snapshot: kind `report` per report (build, hardware class and the payload
-    parts this module counts), and kind `installs` per build, hardware and features key (a distinct count)."""
+    parts this module counts), kind `installs` per build, hardware and features key (a distinct count), and kind
+    `trial_installs` per build, hardware and field-trial tag (a distinct count)."""
     if not isinstance(since_hours, int) or not 1 <= since_hours <= MAX_SINCE_HOURS:
         raise FieldError(f"since must be 1 h to {MAX_SINCE_HOURS} h")
     if channel not in CHANNELS:
@@ -142,14 +157,20 @@ def reports_query(*, since_hours: int, channel: str) -> str:
     report_columns = ", ".join(["'kind', 'report'", *key,
                                 "'stall_histogram', payload->'stallHistogram'",
                                 "'intervals', payload->'intervals'",
+                                f"'field_trials', {_FIELD_TRIALS}",
                                 "'active_seconds', COALESCE(payload->'activeSeconds', payload->'active_seconds')"])
     install_columns = ", ".join(["'kind', 'installs'", *key, "'installs', count(DISTINCT install_id)"])
-    window = (f"FROM {TABLE} WHERE received_at >= now() - make_interval(hours => {since_hours}) "
-              f"AND channel = '{channel}'")
+    trial_columns = ", ".join(["'kind', 'trial_installs'", *key[:len(_KEY_COLUMNS)], "'trial', trials.tag",
+                               "'installs', count(DISTINCT install_id)"])
+    where = (f"WHERE received_at >= now() - make_interval(hours => {since_hours}) "
+             f"AND channel = '{channel}'")
+    trials = f"CROSS JOIN LATERAL jsonb_array_elements_text({_FIELD_TRIAL_ARRAY}) AS trials(tag)"
     return _read_only(
-        f"SELECT json_build_object({report_columns})::text {window} ORDER BY received_at",
-        f"SELECT json_build_object({install_columns})::text {window} "
-        f"GROUP BY {', '.join(_KEY_COLUMNS)}, {_FEATURES_HASH}")
+        f"SELECT json_build_object({report_columns})::text FROM {TABLE} {where} ORDER BY received_at",
+        f"SELECT json_build_object({install_columns})::text FROM {TABLE} {where} "
+        f"GROUP BY {', '.join(_KEY_COLUMNS)}, {_FEATURES_HASH}",
+        f"SELECT json_build_object({trial_columns})::text FROM {TABLE} {trials} {where} "
+        f"GROUP BY {', '.join(_KEY_COLUMNS)}, trials.tag")
 
 
 # --- the credential and psql -----------------------------------------------------------------------------------------
@@ -360,6 +381,8 @@ class Group:
     build: str
     hardware_class: str
     arm: str
+    # FEATURES_SPLIT: `arm` is the features hash (or NO_ARM). STUDY_SPLIT: `arm` is one `study=arm` tag.
+    split: str = FEATURES_SPLIT
     reports: int = 0
     installs: int = 0
     hangs_over_250ms: int = 0
@@ -386,42 +409,66 @@ def _active_seconds(value: object) -> float | None:
     return float(value) if math.isfinite(value) and value > 0 else None
 
 
+def trial_tags(value: object) -> list[str]:
+    """The distinct well-formed `study=arm` tags of a report's `field_trials`, sorted; anything else is skipped."""
+    tags = {tag for tag in value if isinstance(tag, str) and _TRIAL_TAG.match(tag)} if isinstance(value, list) else ()
+    return sorted(tags)
+
+
 def aggregate(rows: Iterable[Mapping[str, Any]]) -> list[Group]:
-    """Groups by (build, hardware class, features arm), in that order. A row of kind `installs` adds its distinct
-    count; any other row is one report. One Mac sends one chip and memory value, so the raw keys that land in a
-    group never share an install and their counts add."""
-    groups: dict[tuple[str, str, str], Group] = {}
-    for row in rows:
-        arm = row.get("features_hash") if isinstance(row.get("features_hash"), str) and row.get("features_hash") \
-            else NO_ARM
-        key = (build_label(row.get("app_version"), row.get("app_build")),
-               hardware_class(row.get("chip"), row.get("memory_gb")), arm)
+    """Groups by (build, hardware class, features arm), then by (build, hardware class, field-trial arm), in that
+    order. A row of kind `installs` adds its distinct count to a features group and one of kind `trial_installs`
+    to a trial group; any other row is one report, counted in its features group and in each of its trial groups.
+    One Mac sends one chip and memory value, so the raw keys that land in a group never share an install and their
+    counts add."""
+    groups: dict[tuple[str, str, str, str], Group] = {}
+
+    def group_of(row: Mapping[str, Any], split: str, arm: str) -> Group:
+        build, hardware = build_label(row.get("app_version"), row.get("app_build")), \
+            hardware_class(row.get("chip"), row.get("memory_gb"))
+        key = (split, build, hardware, arm)
         group = groups.get(key)
         if group is None:
-            group = groups[key] = Group(*key)
+            group = groups[key] = Group(build, hardware, arm, split)
+        return group
+
+    for row in rows:
+        if row.get("kind") == "trial_installs":
+            for tag in trial_tags([row.get("trial")]):
+                group_of(row, STUDY_SPLIT, tag).installs += _count(row.get("installs"))
+            continue
+        arm = row.get("features_hash") if isinstance(row.get("features_hash"), str) and row.get("features_hash") \
+            else NO_ARM
+        group = group_of(row, FEATURES_SPLIT, arm)
         if row.get("kind") == "installs":
             group.installs += _count(row.get("installs"))
             continue
-        group.reports += 1
-        hangs = sum(count for low, _, count in _buckets(row.get("stall_histogram")) if low >= HANG_MS)
-        group.hangs_over_250ms += hangs
-        active = _active_seconds(row.get("active_seconds"))
-        if active is not None:
-            group.timed_reports += 1
-            group.timed_hangs_over_250ms += hangs
-            group.active_seconds += active
-        for interval in row.get("intervals") if isinstance(row.get("intervals"), list) else []:
-            if not isinstance(interval, Mapping) or not isinstance(interval.get("name"), str):
-                continue
-            name = interval["name"]
-            if name in TURN_INTERVAL_NAMES:
-                target = group.turn
-            elif interval.get("category") == ACTION_CATEGORY:
-                target = group.action
-            else:
-                continue
-            merge(target.setdefault(name, {}), _buckets(interval.get("buckets")))
+        for target in [group, *(group_of(row, STUDY_SPLIT, tag) for tag in trial_tags(row.get("field_trials")))]:
+            add_report(target, row)
     return [groups[key] for key in sorted(groups)]
+
+
+def add_report(group: Group, row: Mapping[str, Any]) -> None:
+    """Counts one report row into `group`."""
+    group.reports += 1
+    hangs = sum(count for low, _, count in _buckets(row.get("stall_histogram")) if low >= HANG_MS)
+    group.hangs_over_250ms += hangs
+    active = _active_seconds(row.get("active_seconds"))
+    if active is not None:
+        group.timed_reports += 1
+        group.timed_hangs_over_250ms += hangs
+        group.active_seconds += active
+    for interval in row.get("intervals") if isinstance(row.get("intervals"), list) else []:
+        if not isinstance(interval, Mapping) or not isinstance(interval.get("name"), str):
+            continue
+        name = interval["name"]
+        if name in TURN_INTERVAL_NAMES:
+            target = group.turn
+        elif interval.get("category") == ACTION_CATEGORY:
+            target = group.action
+        else:
+            continue
+        merge(target.setdefault(name, {}), _buckets(interval.get("buckets")))
 
 
 def field_rows(groups: Sequence[Group]) -> list[dict[str, Any]]:
@@ -457,9 +504,10 @@ def report(groups: Sequence[Group], *, since_hours: int | None, channel: str, so
         "source": source,
         "channel": channel,
         "since_hours": since_hours,
-        "reports": sum(group.reports for group in groups),
+        # Each report is in exactly one features group; the trial groups count it again.
+        "reports": sum(group.reports for group in groups if group.split == FEATURES_SPLIT),
         "groups": [{
-            "build": group.build, "hardware_class": group.hardware_class, "arm": group.arm,
+            "build": group.build, "hardware_class": group.hardware_class, "arm": group.arm, "split": group.split,
             "reports": group.reports, "installs": group.installs,
             "hangs_over_250ms": group.hangs_over_250ms, "timed_reports": group.timed_reports,
             "active_hours": round(group.active_hours, 4) if group.timed_reports else None,
@@ -513,7 +561,8 @@ def render_text(result: Mapping[str, Any]) -> str:
              + f" ({result['source']})"]
     for group in result["groups"]:
         rate = group["hangs_over_250ms_per_1000_active_hours"]
-        lines.append(f"  {group['build']}  {group['hardware_class']}  arm {group['arm']}: "
+        label = "trial" if group["split"] == STUDY_SPLIT else "arm"
+        lines.append(f"  {group['build']}  {group['hardware_class']}  {label} {group['arm']}: "
                      f"{group['reports']} reports, {group['installs']} installs, "
                      f"{group['hangs_over_250ms']} hangs > {HANG_MS} ms, "
                      + (f"{rate:.1f} per 1000 active hours" if rate is not None else "no active time reported"))
