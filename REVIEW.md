@@ -144,6 +144,14 @@ scripts/review-history.py cluster --cache review-history.jsonl > clusters.md
   #12607), and share constants instead of syncing them by comment (#16427).
 - **Performance (20):** no full rescans or `String(format:)` per row, and no quadratic lookups
   (#15748, #15744, #19096).
+- **Perf claims need a try receipt (added 2026-10-26; not from the history).** A PR or commit
+  that says "faster", "no regression" or gives before and after numbers must paste the
+  `python3 -I scripts/perf-lab/lab.py try --base <sha> --head <sha>` receipt lines without
+  changes. Each line has this format:
+  `Perf try <story>.<metric> @<host-class>: base p50/p95/p99 -> head p50/p95/p99 (delta %), MWU p, KS p, strict DIFFERENT|SAME|UNKNOWN (floored X), job <id>`.
+  Check that the base sha is the change's merge base or parent, the head sha is its head, and that the claim uses
+  the `strict` verdict, not `floored`. A mean, a local-Mac number or a missing receipt is not
+  evidence ([perf try receipts](skills/cmux-testing/SKILL.md#perf-try-receipts)).
 
 About a fifth of addressed comments (1,032) fit no group here; they're one-off logic bugs. Run
 the clusterer and read its "Unmatched" list for new themes before adding a section.

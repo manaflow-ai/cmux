@@ -75,3 +75,24 @@ Pass `-j 4` to every `swift build` and `swift test`. Run focused test filters wh
 ## Prototypes for every lane (added 2026-10-02)
 
 Lawrence wants prototypes for all lanes. Before you commit a user-facing design, build it so it can be compared: several variants behind a DEV/NIGHTLY switch (Debug Settings tunable or a palette action), or a parallel prototype path that leaves the current one working. Report screenshots of each variant and a recommendation; Lawrence picks. Cross-team agents (Leo's, Aziz's, Austin's) are reached through the agent mailbox on cmux-lawrence (`ssh cmux-lawrence`, `~/agent-mailbox/README.md`); send such messages through the coordinator.
+
+## Perf numbers: lab try receipts (added 2026-10-26)
+
+Use a perf lab try job when you need before and after numbers for a change. Do not measure on the local Mac, and do not add a CI step for it.
+
+```bash
+python3 -I scripts/perf-lab/lab.py try --base <base sha> --head <head sha> --stories <a,b> --wait
+```
+
+- Push both commits first. The lab builds both shas and uses a batch-tip build when one exists.
+- Each story runs 20 ABBA attempts per arm on one free fleet Mac (`--attempts` changes the count). Both arms run on the same host.
+- To measure a feature flag, give the same sha as base and head and add `--feature <name>=on` (or `=off`). The flag changes the head arm only.
+- A wait timeout leaves the job running. Do not start a second try for the same request: run the same command again to wait for the running job.
+- The command prints one receipt line per metric, in this fixed format:
+
+  ```text
+  Perf try <story>.<metric> @<host-class>: base p50/p95/p99 -> head p50/p95/p99 (delta %), MWU p, KS p, strict DIFFERENT|SAME|UNKNOWN (floored X), job <id>
+  ```
+
+- `strict` is the headline verdict: DIFFERENT only at p <= 0.01, where p = min(MWU p, KS p). `floored X` is the bisect verdict (DIFFERENT at p <= 0.05). Report the strict verdict. Do not report a floored DIFFERENT as a change.
+- Paste the receipt lines without changes in the commit message or the PR body. A perf claim without a receipt is not evidence. The rules are in [p12-perf-process.md](chrome-parity/p12-perf-process.md#36-pinpoint) (section 3.6 and rule R5).

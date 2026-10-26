@@ -19,6 +19,7 @@ even `verify-local.py --help` and `--list` load repository code.
 | Run one app module's tests | `swift test --filter <Module>Tests` in `Packages/macOS/CmuxNext` |
 | Merge-gate source rules for the app | `scripts/cmux-next/check-no-godfiles.sh`, `scripts/cmux-next/check-concurrency.sh` |
 | Decide whether a red web test is the PR's fault or a flake | `python3 scripts/ci/web_test_verdict.py --pr <N>` ([guide](references/web-test-flakes.md); `--coverage` runs the PR's code) |
+| Get before and after perf numbers for a change | `python3 -I scripts/perf-lab/lab.py try --base <sha> --head <sha> --wait` ([perf try receipts](#perf-try-receipts)) |
 
 Add a base ref after `--swift-changed` to include committed changes. Use `--list`
 to find other checks and `--help` for options. Parsing checks syntax; it doesn't
@@ -43,6 +44,30 @@ together after the fix passes; a separate hosted CI run on the deliberately
 broken intermediate commit is unnecessary. If the failure only reproduces in CI,
 use that lane and keep its receipts. Required CI and review still apply to the
 final pushed head.
+
+## Perf try receipts
+
+A perf claim ("faster", "no regression", before and after numbers) needs a perf
+lab try receipt. Push both commits, then run:
+
+```bash
+python3 -I scripts/perf-lab/lab.py try --base <base sha> --head <head sha> --stories <a,b> --wait
+```
+
+The lab builds both shas and runs 20 ABBA attempts per arm on one free fleet Mac
+(`--attempts` changes the count). `--feature <name>=on` or `=off` changes the
+head arm only; give the same sha as base and head to measure one flag. A wait
+timeout leaves the job running: run the same command again, and do not start a
+second try. The command prints one line per metric:
+
+```text
+Perf try <story>.<metric> @<host-class>: base p50/p95/p99 -> head p50/p95/p99 (delta %), MWU p, KS p, strict DIFFERENT|SAME|UNKNOWN (floored X), job <id>
+```
+
+Report the `strict` verdict (DIFFERENT only at p <= 0.01). The `floored`
+verdict is the bisect rule and is not evidence of a change. Paste the lines
+without changes in the commit message or PR body. The lab rules are in
+[p12-perf-process.md](../../plans/cmux-next/chrome-parity/p12-perf-process.md#36-pinpoint).
 
 ## Test wiring
 
