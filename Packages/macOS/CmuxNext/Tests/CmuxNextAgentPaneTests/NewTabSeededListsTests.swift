@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 import Testing
 import WebKit
@@ -34,7 +35,7 @@ struct NewTabSeededListsTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: "index.html")
         try Data(Self.page.utf8).write(to: file)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file)))
         // What `AgentPageChats.seed` does as the page is made: the page is still loading.
         view.deviceChats = [AgentPaneDeviceChat(key: "claude-code:s-1", harness: "claude-code", title: "Fix the flaky upload test",
                                                 updatedAt: Date(timeIntervalSince1970: 1_790_000_000))]

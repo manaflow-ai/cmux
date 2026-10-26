@@ -2,6 +2,7 @@
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextTabs
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -16,7 +17,7 @@ struct SpareNewTabChatOpensTabsTests {
     /// The tabs' page: a loopback dev server origin (Debug), so views are made without the bundle.
     private static func agentTabs() -> AgentTabStore {
         let environment = [AgentPaneSource.devURLVariable: "http://127.0.0.1:9"]
-        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), environment: environment, showcase: true)
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), work: BackgroundWork(label: "test.agent-pane"), environment: environment, showcase: true)
         tabs.localHost = host
         return tabs
     }

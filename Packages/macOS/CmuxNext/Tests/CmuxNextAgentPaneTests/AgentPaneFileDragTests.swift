@@ -15,6 +15,19 @@ import UniformTypeIdentifiers
 struct AgentPaneFileDragTests {
     private let work = BackgroundWork(label: "test.file-drag")
 
+    /// An icon source that counts its calls, and the calls made on the main thread.
+    private final class IconQueries: Sendable {
+        let calls = Atomic<Int>(0)
+        let onMain = Atomic<Int>(0)
+        var source: AgentPaneFileDrag.IconSource {
+            { [self] _ in
+                calls.wrappingAdd(1, ordering: .relaxed)
+                if Thread.isMainThread { onMain.wrappingAdd(1, ordering: .relaxed) }
+                return NSImage(size: AgentPaneFileDrag.iconSize)
+            }
+        }
+    }
+
     private static func folder() throws -> URL {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("file-drag-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -38,7 +51,7 @@ struct AgentPaneFileDragTests {
 
         let table = BlockingViolationTable(mode: .record)
         let contents = await BlockingViolationTable.$scoped.withValue(table) {
-            await AgentPaneFileDrag.contents(of: file, on: work)
+            await AgentPaneFileDrag(work: work).contents(of: file)
         }
         await table.flush()
 
@@ -50,24 +63,81 @@ struct AgentPaneFileDragTests {
     }
 
     /// The drag asked Launch Services for the file's icon on the main thread, in the event's turn
-    /// (p02-threads-006). Now the turn draws a generic image, and the icon comes from the system lane.
-    @Test func aFilesIconIsAskedForOnTheSystemLaneNotTheMainThread() async throws {
+    /// (p02-threads-006). Now the turn's item (what `start` hands `beginDraggingSession`) asks the icon source
+    /// nothing, and the lane read asks it once, off the main thread.
+    @Test func aFilesIconIsAskedForOnTheSystemLaneNotInTheDragsTurn() async throws {
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("notes.txt")
+        try Data("notes".utf8).write(to: file)
+        let queries = IconQueries()
+        let drag = AgentPaneFileDrag(work: work, icon: queries.source)
+        let view = NSView(frame: CGRect(x: 0, y: 0, width: 200, height: 200))
+
+        let table = BlockingViolationTable(mode: .record)
+        let (item, _) = BlockingViolationTable.$scoped.withValue(table) {
+            drag.firstItem(file, at: CGPoint(x: 100, y: 100), in: view)
+        }
+        #expect(queries.calls.load(ordering: .relaxed) == 0, "the drag's turn asked for the file's icon")
+        #expect(item.draggingFrame.size == AgentPaneFileDrag.iconSize)
+        let contents = await BlockingViolationTable.$scoped.withValue(table) { await drag.contents(of: file) }
+        await table.flush()
+
+        #expect(table.sites.isEmpty, "a drag asked for the icon on the main thread: \(table.sites)")
+        #expect(queries.calls.load(ordering: .relaxed) == 1)
+        #expect(queries.onMain.load(ordering: .relaxed) == 0, "the icon was asked for on the main thread")
+        let icon = try #require(contents.icon)
+        #expect(icon.size == AgentPaneFileDrag.iconSize)
+    }
+
+    /// The real Launch Services icon comes from the system lane, at ``AgentPaneFileDrag/iconSize``.
+    @Test func theLaunchServicesIconIsReadOnTheSystemLane() async throws {
         let folder = try Self.folder()
         defer { try? FileManager.default.removeItem(at: folder) }
         let file = folder.appendingPathComponent("notes.txt")
         try Data("notes".utf8).write(to: file)
 
         let table = BlockingViolationTable(mode: .record)
-        let placeholder = BlockingViolationTable.$scoped.withValue(table) { AgentPaneFileDrag.placeholder() }
         let contents = await BlockingViolationTable.$scoped.withValue(table) {
-            await AgentPaneFileDrag.contents(of: file, on: work)
+            await AgentPaneFileDrag(work: work).contents(of: file)
         }
         await table.flush()
 
         #expect(table.sites.isEmpty, "a drag asked for the icon on the main thread: \(table.sites)")
-        #expect(placeholder.size == AgentPaneFileDrag.iconSize)
         let icon = try #require(contents.icon)
         #expect(icon.size == AgentPaneFileDrag.iconSize)
+    }
+
+    /// The turn's generic image is not a template (a drag image is not tinted, so a template symbol drew
+    /// black, close to invisible in dark mode), draws in each appearance's label color, and keeps the
+    /// symbol's own aspect ratio (a page: taller than wide) inside the ``AgentPaneFileDrag/iconSize`` frame.
+    @Test(arguments: [true, false])
+    func thePlaceholderShowsInEachAppearanceAndKeepsItsAspect(dark: Bool) throws {
+        let appearance = try #require(NSAppearance(named: dark ? .darkAqua : .aqua))
+        let image = AgentPaneFileDrag.placeholder(appearance: appearance, scale: 1)
+        #expect(!image.isTemplate)
+        #expect(image.size == AgentPaneFileDrag.iconSize)
+
+        let bitmap = NSBitmapImageRep(cgImage: try #require(image.cgImage(forProposedRect: nil, context: nil, hints: nil)))
+        var ink: [CGFloat] = []
+        var columns = Set<Int>()
+        var rows = Set<Int>()
+        for x in 0..<bitmap.pixelsWide {
+            for y in 0..<bitmap.pixelsHigh {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB), color.alphaComponent > 0.5 else { continue }
+                ink.append(color.brightnessComponent)
+                columns.insert(x)
+                rows.insert(y)
+            }
+        }
+        let brightest = try #require(ink.max(), "the placeholder drew nothing")
+        let darkest = try #require(ink.min())
+        if dark {
+            #expect(brightest > 0.7, "the placeholder is dark on a dark background")
+        } else {
+            #expect(darkest < 0.3, "the placeholder is light on a light background")
+        }
+        #expect(columns.count < rows.count, "the symbol was stretched to a square")
     }
 
     /// The drag starts in the event's turn (lead review, 2026-10-25): its pasteboard holds the file URL and
@@ -98,7 +168,7 @@ struct AgentPaneFileDragTests {
         let file = folder.appendingPathComponent("notes.txt")
         try Data("notes".utf8).write(to: file)
 
-        let contents = await AgentPaneFileDrag.contents(of: file, on: work)
+        let contents = await AgentPaneFileDrag(work: work).contents(of: file)
 
         #expect(contents.data == nil)
         #expect(contents.picture == nil)

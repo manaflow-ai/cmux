@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextTabs
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -27,7 +28,7 @@ struct AgentTabHarnessOnCreateTests {
 
     private static func agentTabs(defaults: UserDefaults = UserDefaults()) -> AgentTabStore {
         let environment = [AgentPaneSource.devURLVariable: "http://127.0.0.1:9"]
-        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), environment: environment, showcase: true,
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), work: BackgroundWork(label: "test.agent-pane"), environment: environment, showcase: true,
                                   defaults: defaults)
         tabs.localHost = host
         return tabs

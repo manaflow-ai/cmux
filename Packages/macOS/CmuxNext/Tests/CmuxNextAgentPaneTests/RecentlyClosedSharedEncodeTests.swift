@@ -1,4 +1,5 @@
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -36,7 +37,7 @@ struct RecentlyClosedSharedEncodeTests {
     func oneChangeEncodesTheListOnceForAnyNumberOfPages(pages: Int) throws {
         let file = try Self.page()
         defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
-        let views = try (0..<pages).map { _ in try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file))) }
+        let views = try (0..<pages).map { _ in try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file))) }
 
         let counter = Counter()
         let list = AgentPaneClosedList(Self.items) { item in

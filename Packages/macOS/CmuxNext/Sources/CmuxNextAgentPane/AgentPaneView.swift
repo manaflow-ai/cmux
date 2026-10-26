@@ -32,8 +32,8 @@ public final class AgentPaneView: NSView {
     public var customization = AgentPaneCustomization() { didSet { if customization != oldValue { applyCustomization() } } }
     public var shortcuts = AgentPaneShortcuts() { didSet { if shortcuts != oldValue { applyShortcuts() } } }
     /// The app's blocking-work lanes (`AppServices.work`): a file drag reads the file's icon and an image's
-    /// bytes there (``AgentPaneFileDrag``). Nil (a pane the app did not wire) keeps a drag's generic image.
-    public var work: (any MayBlockRunner)?
+    /// bytes there (``AgentPaneFileDrag``).
+    let work: any MayBlockRunner
     public var previewFeatures = false { didSet { if previewFeatures != oldValue { applyPreviewFeatures() } } }
     /// The `agent.sessionStatus` tunable (Debug Settings), followed live (``AgentPaneSessionStatus``).
     public internal(set) var sessionStatus = AgentPaneTunables.sessionStatus.value { didSet { if sessionStatus != oldValue { AgentPaneSessionStatus.push(to: self) } } }
@@ -127,6 +127,8 @@ public final class AgentPaneView: NSView {
     ///
     /// - Parameters:
     ///   - model: Answers the page's host requests.
+    ///   - work: The app's blocking-work lanes (`AppServices.work`), for the reads of a file drag; tests pass
+    ///     their own `BackgroundWork`.
     ///   - source: The page to load; nil loads ``bundledPage``.
     ///   - renderRate: How fast the page renders. Adaptive starts at the
     ///     display's full rate and caps it while scrolls miss frames, as they
@@ -137,13 +139,14 @@ public final class AgentPaneView: NSView {
     ///     ``PageWebView/chromiumHosting`` by default; tests pass a fake).
     ///   - openPanel: The app's made-ahead open panel (`AppServices.openPanel`) for Add Files, Attach and a page's
     ///     file input, warmed when the pane reaches a window; nil (tests) shows no file picker and warms none.
-    public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
+    public init?(model: AgentPaneModel, work: any MayBlockRunner, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
                  pageHost: Bool = false, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
                  openPanel: MadeAheadOpenPanel? = nil) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         self.openPanel = openPanel
         fileChooser = openPanel.map { PageOpenPanel(openPanel: $0) }
         self.model = model
+        self.work = work
         self.source = source
         self.renderRate = renderRate
         Self.warmupNoLongerNeeded = true

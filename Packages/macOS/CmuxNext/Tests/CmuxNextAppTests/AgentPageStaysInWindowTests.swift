@@ -4,6 +4,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -44,7 +45,7 @@ import Testing
         window.orderFrontRegardless()
 
         let page = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent)),
-                                              source: .bundled(file)))
+                                              work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file)))
         defer { page.close() }
         let probe = WindowProbe()
         page.addSubview(probe)

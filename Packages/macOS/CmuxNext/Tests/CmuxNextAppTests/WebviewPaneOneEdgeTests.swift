@@ -7,6 +7,7 @@ import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSidebar
 @testable import CmuxNextTabs
+import CmuxNextWakeups
 import Testing
 
 extension MainPaneGutterSuites {
@@ -178,7 +179,7 @@ extension MainPaneGutterSuites {
             let file = try Self.page("<html><body></body></html>")
             defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
             let model = AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent))
-            let newTab = try #require(AgentPaneView(model: model, source: .bundled(file)))
+            let newTab = try #require(AgentPaneView(model: model, work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file)))
             let rig = Rig(content: newTab)
             defer { rig.tearDown() }
             try expectOneEdge(rig, content: newTab, "New Tab")
@@ -200,7 +201,7 @@ extension MainPaneGutterSuites {
             let file = try Self.page("<html><body></body></html>")
             defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
             let newTab = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent)),
-                                                    source: .bundled(file)))
+                                                    work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file)))
             let web = Rig(content: newTab)
             defer { web.tearDown() }
             let plain = NSView()

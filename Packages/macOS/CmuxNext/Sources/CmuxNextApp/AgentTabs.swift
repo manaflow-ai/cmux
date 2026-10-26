@@ -95,8 +95,8 @@ final class AgentTabStore {
     var launchDeferred: Set<String> = []
     /// The tabs' pages from the last quit, drawn at launch (`AgentPaneLaunchImages`).
     var launchImages = AgentPaneLaunchImages(directory: nil)
-    /// The app's blocking-work lanes, for each pane view's file drags (`AgentPaneView.work`).
-    var work: (any MayBlockRunner)?
+    /// The app's blocking-work lanes (`AppServices.work`), for each pane view's file drags (`AgentPaneView.work`).
+    let work: any MayBlockRunner
     /// New chats' typed text from before they have a session, kept across a relaunch (cx-z5vd).
     var unsentDrafts = AgentUnsentDrafts(file: nil)
     /// "This chat runs on <machine>" for tabs whose session another Mac's acpmux runs.
@@ -213,7 +213,7 @@ final class AgentTabStore {
     var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?, openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
-    init(build: BuildIdentity?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
+    init(build: BuildIdentity?, registry: ActionRegistry, work: any MayBlockRunner, environment: [String: String] = ProcessInfo.processInfo.environment,
          showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil,
          openPanel: MadeAheadOpenPanel? = nil, defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -222,6 +222,7 @@ final class AgentTabStore {
             adoptions = saved
         }
         self.openPanel = openPanel
+        self.work = work
         actionRegistry = registry
         self.linkScheme = linkScheme
         let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(build: build, environment: environment, showcase: showcase)
@@ -497,11 +498,10 @@ final class AgentTabStore {
     private func makeView(_ model: AgentPaneModel) -> AgentPaneView? {
         AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
-        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value, openPanel: openPanel) else { return nil }
+        guard let source, let view = AgentPaneView(model: model, work: work, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value, openPanel: openPanel) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
         view.shortcuts = shortcuts
-        view.work = work
         pageSettings.apply(to: view)
         // A New Tab page draws its own first frame: no native loading mark (Lawrence 2026-10-10,
         // React-only New Tab). Chat panes keep it.

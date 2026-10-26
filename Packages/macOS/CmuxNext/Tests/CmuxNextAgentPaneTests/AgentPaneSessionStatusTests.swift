@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 import Testing
 import WebKit
@@ -42,7 +43,7 @@ struct AgentPaneSessionStatusTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: "index.html")
         try Data(Self.page.utf8).write(to: file)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file)))
         #expect(!view.sessionStatus)
 
         try #require(store.set(key, .bool(true)) == .bool(true), "the store refused the toggle")
@@ -57,7 +58,7 @@ struct AgentPaneSessionStatusTests {
         #expect(AgentPanePageHost.currentEvents(view).filter { $0.kind == "sessionStatus" } == [.sessionStatus(true)],
                 "a page that loads again on the page host would not get the toggle")
 
-        let later = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        let later = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file)))
         #expect(later.sessionStatus, "a page made with the toggle on starts with it off")
 
         store.set(key, nil)

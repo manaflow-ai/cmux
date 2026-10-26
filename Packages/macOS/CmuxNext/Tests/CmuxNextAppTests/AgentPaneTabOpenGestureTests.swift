@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -139,7 +140,7 @@ struct AgentPaneTabOpenGestureTests {
         try Data("<html><body><input></body></html>".utf8).write(to: file)
         let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
         model.becomeNewTab(AgentPaneNewTab(kind: .terminal))
-        let view = try #require(AgentPaneView(model: model, source: .bundled(file)))
+        let view = try #require(AgentPaneView(model: model, work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file)))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

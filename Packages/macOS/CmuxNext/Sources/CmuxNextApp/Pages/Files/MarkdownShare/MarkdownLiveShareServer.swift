@@ -177,7 +177,10 @@ final class MarkdownLiveShareServer {
             guard let share = shares[token] else { break }
             let events = "/md/\(token)/\(share.name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? token)/events"
             Task { [weak self, work, file = share.file, name = share.name] in // one off-main read per page request
-                let text = await Self.text(of: file, on: work)
+                // A browser waits for the page: the read runs on the files lane at userVisible.
+                let text = (try? await work.run(.userVisible, mayBlock: .files) {
+                    (try? String(blockingContentsOf: file, encoding: .utf8)) ?? ""
+                }) ?? ""
                 guard let page = self?.renderer.document(text, title: name, eventsPath: events) else { return connection.cancel() }
                 self?.send(Self.response(200, type: "text/html; charset=utf-8", body: Data(page.utf8)), on: connection, close: true)
             }
@@ -189,14 +192,6 @@ final class MarkdownLiveShareServer {
             return send(Data(headers.utf8), on: connection, close: false)
         }
         send(Self.response(404, type: "text/plain; charset=utf-8", body: Data("Not found\n".utf8)), on: connection, close: true)
-    }
-
-    /// The text of a shared file, read on `work`'s files lane at userVisible (a browser waits for the page),
-    /// never on the main thread; empty when the read failed.
-    static func text(of file: URL, on work: BackgroundWork) async -> String {
-        (try? await work.run(.userVisible, mayBlock: .files) {
-            (try? String(blockingContentsOf: file, encoding: .utf8)) ?? ""
-        }) ?? ""
     }
 
     private func send(_ data: Data, on connection: NWConnection, close: Bool) {

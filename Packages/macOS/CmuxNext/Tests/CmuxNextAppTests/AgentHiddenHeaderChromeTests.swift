@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -22,7 +23,7 @@ import Testing
         try Data("<html><body>Agent</body></html>".utf8).write(to: file)
         let pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("chat"), title: "Chat")]),
                                    reveal: LaunchReveal(deadline: .zero))
-        let page = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        let page = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file)))
         defer { page.close() }
         pane.hidesStrip = true
         pane.show(page)

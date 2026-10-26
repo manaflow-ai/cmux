@@ -27,12 +27,15 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
     private let input = PendingInput()
     private let closed = Atomic<Bool>(false)
 
-    /// Spawns `shell` as a login shell in `workingDirectory`. The shell's `TERM` is `xterm-256color`
-    /// (``terminalEnvironment(resourcesDirectory:version:installedTerminfo:)``) unless `environment` sets it.
+    /// Spawns `shell` as a login shell in `workingDirectory`. `installedTerminfo` is the caller's lane read of
+    /// `TerminalEnvironment.hasInstalledGhosttyTerminfo` (CmuxNextDaemon): true makes the shell's `TERM`
+    /// `xterm-ghostty`, false `xterm-256color` (``terminalEnvironment(resourcesDirectory:version:installedTerminfo:)``),
+    /// unless `environment` sets it. The init reads no file for it.
     public init(
         shell: String = LocalPTYTerminalIO.defaultShell,
         workingDirectory: String = NSHomeDirectory(),
         environment extra: [String: String] = [:],
+        installedTerminfo: Bool,
         columns: Int = 80,
         rows: Int = 24
     ) throws {
@@ -40,7 +43,7 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         for key in ["CMUX_SOCKET_PATH", "CMUX_SOCKET_ENABLE", "CMUX_TAG", "CMUX_BUNDLE_ID"] {
             environment.removeValue(forKey: key)
         }
-        environment.merge(Self.terminalEnvironment()) { _, new in new }
+        environment.merge(Self.terminalEnvironment(installedTerminfo: installedTerminfo)) { _, new in new }
         environment.merge(extra) { _, new in new }
 
         // Everything the child touches is allocated before fork: after fork

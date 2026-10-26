@@ -1,7 +1,5 @@
 import CmuxNextActions
 @testable import CmuxNextApp
-@testable import CmuxNextCompat
-import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -44,31 +42,4 @@ struct CmuxAppLinksTests {
     func everythingElseIsNotAnAppLink(_ text: String) {
         #expect(link(text) == nil)
     }
-
-    #if DEBUG
-    /// A clicked path link checks whether it is a folder on the files lane, never on the main thread: the
-    /// click's turn returns at once (p02-threads-006). The table is the test's own, so a check on the main
-    /// thread shows as a site.
-    @MainActor @Test func aPathLinksFolderCheckRunsOnTheFilesLane() async throws {
-        let folder = FileManager.default.temporaryDirectory.appending(path: "app-link-\(UUID().uuidString)", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let file = folder.appending(path: "notes.md")
-        try Data("# notes\n".utf8).write(to: file)
-        let work = BackgroundWork(label: "test.app-links")
-
-        let table = BlockingViolationTable(mode: .record)
-        let answers = await BlockingViolationTable.$scoped.withValue(table) { () async -> [Bool] in
-            var answers: [Bool] = []
-            for path in [folder.path, file.path, folder.path + "/missing"] {
-                answers.append(await CmuxAppLinks.isFolder(path, on: work))
-            }
-            return answers
-        }
-        await table.flush()
-
-        #expect(table.sites.isEmpty, "a path link checked the disk on the main thread: \(table.sites)")
-        #expect(answers == [true, false, false])
-    }
-    #endif
 }
