@@ -88,6 +88,9 @@ final class BrowserHibernation {
     /// cmux pages in browser tabs (`BrowserAppPage`) hibernate as web pages do (feature
     /// `memoryDiscardPageTabs`, set by the App); off, they count as pages that cannot restore.
     var discardsAppPages = false
+    /// Remote desktop and remote browser tabs (`BrowserStreamedPage`) hibernate to their last frame
+    /// (feature `memoryDiscardRemoteTabs`, set by the App); off, they count as pages that cannot restore.
+    var discardsStreamedPages = false
     var frozenGrowth = FrozenGrowthRule()
     let growthDeadline = DemandTimer(owner: "BrowserFrozenGrowth")
     /// Tab `key`'s opener group (its openers and the tabs they opened), itself included; injected by the App.
