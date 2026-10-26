@@ -60,44 +60,65 @@ import Testing
 
     /// A run marker installs the app's fatal-signal handlers, so each case runs it in a child process (an exit test)
     /// and reads the folder it left, the way the next launch does.
-    @Test func aRunPastTheQuickCrashWindowIsMarkedSurvived() async throws {
+    @Test func aRunPastTheQuickCrashWindowIsMarkedSurvivedAtOnce() async throws {
         let directory = CrashChild.directory("survival-past", parent: getpid())
         defer { try? FileManager.default.removeItem(at: directory) }
         await #expect(processExitsWith: .success) {
-            await CrashChild.armTheQuickCrashWindow(name: "survival-past", livedSeconds: 61)
+            await CrashChild.armTheQuickCrashWindowPastItsEnd(name: "survival-past")
         }
         let previous = try #require(CrashChild.previous(in: directory), "the child left no run.json")
         #expect(previous.survived, "the window's background deadline did not mark the run survived")
     }
 
-    @Test func aRunInsideTheQuickCrashWindowIsNotMarkedSurvived() async throws {
+    @Test func aRunInsideTheQuickCrashWindowIsMarkedSurvivedOnlyWhenTheWindowEnds() async throws {
         let directory = CrashChild.directory("survival-inside", parent: getpid())
         defer { try? FileManager.default.removeItem(at: directory) }
         await #expect(processExitsWith: .success) {
-            await CrashChild.armTheQuickCrashWindow(name: "survival-inside", livedSeconds: 10)
+            await CrashChild.armTheQuickCrashWindowInsideIt(name: "survival-inside")
         }
         let previous = try #require(CrashChild.previous(in: directory), "the child left no run.json")
-        #expect(!previous.survived, "a run 10 s old was marked past the 60 s window")
+        #expect(previous.survived, "the window's background deadline did not mark the run survived at its end")
     }
 }
 
 extension CrashChild {
-    /// The launch's run marker with its quick-crash window armed `livedSeconds` after the launch, on a deadline rig
-    /// the child fires by hand: a window that is over fires at once, one that is not stays armed. Exits 0 once
-    /// `run.json` holds the outcome, 1 when the deadline was not where it belongs.
+    /// A run 61 s old arms the 60 s quick-crash window on a deadline rig the child fires by hand: the wake is due at
+    /// once (uptime does not move), and `run.json` says survived. Exits 1 on any mismatch.
     @MainActor
-    static func armTheQuickCrashWindow(name: String, livedSeconds: TimeInterval) async {
+    static func armTheQuickCrashWindowPastItsEnd(name: String) async {
         let marker = await markRun(name)
         let rig = MainDeadlineRig()
-        marker.armSurvivalWindow(on: rig.deadlines, now: Date().addingTimeInterval(livedSeconds))
+        marker.armSurvivalWindow(on: rig.deadlines, now: Date().addingTimeInterval(61))
         guard rig.hasArmedWake else { exit(1) }
-        if livedSeconds >= 60 {
-            rig.fireAndRun()
-        } else {
-            rig.frame()
-        }
-        _ = await marker.flush()
-        withExtendedLifetime(marker) {}
+        rig.fireAndRun()
+        guard rig.elapsed < 0.1 else { exit(1) }
+        guard await survivedOnDisk(marker, name: name) else { exit(1) }
         exit(0)
+    }
+
+    /// A run 10 s old arms the 60 s quick-crash window: 49 s later (59 s lived) the queue fires and the run stays
+    /// unsurvived with the wake still armed; the armed wake is about 50 s after the arm (60 s lived), and its fire marks
+    /// the run survived. Exits 1 on any mismatch.
+    @MainActor
+    static func armTheQuickCrashWindowInsideIt(name: String) async {
+        let marker = await markRun(name)
+        let rig = MainDeadlineRig()
+        marker.armSurvivalWindow(on: rig.deadlines, now: Date().addingTimeInterval(10))
+        guard rig.hasArmedWake else { exit(1) }
+        rig.advance(by: .seconds(49))
+        rig.fireAtNow()
+        guard rig.hasArmedWake else { exit(1) }
+        guard await !survivedOnDisk(marker, name: name) else { exit(1) }
+        rig.fireAndRun()
+        guard (49.9...51.1).contains(rig.elapsed) else { exit(1) }
+        guard await survivedOnDisk(marker, name: name) else { exit(1) }
+        exit(0)
+    }
+
+    /// Whether `run.json` says survived once the marker's writes are on disk.
+    @MainActor
+    private static func survivedOnDisk(_ marker: AppRunMarker, name: String) async -> Bool {
+        _ = await marker.flush()
+        return previous(in: directory(name, parent: getppid()))?.survived == true
     }
 }
