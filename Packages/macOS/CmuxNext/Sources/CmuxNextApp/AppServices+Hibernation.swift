@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextFeatures
 import CmuxNextHibernation
@@ -21,7 +22,7 @@ extension AppServices {
         hibernation.isDownloading = { [weak self] key in self?.cache.pageRequests.downloads.isDownloading(tab: key) ?? false }
         hibernation.measureMemory = { [weak self] in
             guard let self else { return [:] }
-            return await self.resources.sample(.everything).tabMemory(kinds: TabResourceKind.browserPages)
+            return await self.resources.sample(.everything).browserPageMemory
         }
         hibernation.discardsGrowingFrozenPages = features.isEnabled(.frozenGrowthDiscard)
         hibernation.openerGroup = { [weak self] key in self?.openerGroup(of: key) ?? [key] }
@@ -30,13 +31,13 @@ extension AppServices {
         hibernation.start()
     }
 
-    /// Tab `key` and every tab linked to it through the tab strip's opener relations
-    /// (`BrowserTabOpeners.openerOf`: openers, the tabs they opened, theirs), for a discard of
-    /// the whole group (`FrozenGrowthRule`). Runs only on such a discard.
+    /// Tab `key` and every tab script can reach from it through `window.opener`
+    /// (`BrowserScriptOpeners`: its opener, the tabs it opened, theirs), for a discard of the whole
+    /// group (`FrozenGrowthRule`). Runs only on such a discard.
     func openerGroup(of key: String) -> Set<String> {
-        guard let start = locateTab(key)?.0.surface else { return [key] }
-        let group = FrozenGrowthRule.openerGroup(of: start, openers: cache.pageRequests.openers.openerOf)
-        return Set(group.compactMap { locateTab(surface: $0)?.id }).union([key])
+        let keys = Dictionary(cache.browsers.map { (ObjectIdentifier($0.value.tab), $0.key) }) { first, _ in first }
+        let openers = cache.pageRequests.scriptOpeners.openers { keys[ObjectIdentifier($0)] }
+        return FrozenGrowthRule.openerGroup(of: key, openers: openers)
     }
 
     func memoryPressureDidChange(_ level: MemoryPressureLevel) {
@@ -44,5 +45,12 @@ extension AppServices {
         cache.setWarmBudget(budget)
         // Critical keeps only what shows, the parked workspaces too.
         if level == .critical { windows.controllers.forEach { $0.releaseParked() } }
+    }
+}
+
+extension ResourceSampleSet {
+    /// The browser pages' memory for the hibernation: each one's number and its sharers.
+    var browserPageMemory: [String: PageMemoryReading] {
+        tabMemoryReadings(kinds: TabResourceKind.browserPages).mapValues { PageMemoryReading(bytes: $0.bytes, sharers: $0.sharers) }
     }
 }

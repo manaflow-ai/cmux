@@ -74,23 +74,27 @@ extension BrowserHibernation {
 // The hidden pages' memory readings: the pressure sample that ranks discards, and the frozen pages'
 // growth that discards them with their opener group (`FrozenGrowthRule`, p07-memory.md task 020).
 extension BrowserHibernation {
+    /// The host of the page tab `key` shows (Never Hibernate This Site); nil for none.
+    func host(of key: String) -> String? {
+        guard let host = cache?.browsers[key]?.tab.state.url?.host(), !host.isEmpty else { return nil }
+        return host
+    }
+
     /// Under memory pressure, samples the tabs' memory when the last sample is stale, then
     /// replans with it (the heaviest of equally idle pages goes first).
     func refreshMemoryIfNeeded() {
-        guard pressure != .normal, let measureMemory, !measuringMemory else { return }
-        if let at = memoryMeasuredAt, ContinuousClock.now - at < .seconds(Self.memoryMaxAge) { return }
-        sampleMemory(measureMemory)
+        guard pressure != .normal, !memoryReadings.isFresh(at: .now) else { return }
+        sampleMemory()
     }
 
-    /// Samples the tabs' memory once, then takes the reading for the frozen pages' growth and replans.
-    private func sampleMemory(_ measureMemory: @escaping () async -> [String: UInt64]) {
-        measuringMemory = true
+    /// Samples the tabs' memory once, then takes the reading for the frozen pages' growth and
+    /// replans. A sample already running gives its reading when it lands.
+    private func sampleMemory() {
+        guard let measureMemory, memoryReadings.begin() else { return }
         Task { @MainActor [weak self] in
             let sample = await measureMemory()
             guard let self else { return }
-            self.measuringMemory = false
-            self.memoryBytes = sample
-            self.memoryMeasuredAt = .now
+            self.memoryReadings.land(sample, at: .now)
             self.noteFrozenMemory(sample)
             self.replan()
         }
@@ -101,24 +105,30 @@ extension BrowserHibernation {
     /// pages with a reading count: a closed or sleeping page, or one with nothing measured, keeps
     /// what it had. In Chrome the resource monitor's samples land on the page node, where the
     /// discarder reads them (`PageNodeImpl::EstimatePrivateFootprintSize`).
-    func noteMemory(_ bytes: [String: UInt64]) {
+    func noteMemory(_ readings: [String: PageMemoryReading]) {
         guard let cache else { return }
-        for (key, value) in bytes where value > 0 && cache.browsers[key] != nil && !cache.dormantTabs.contains(key) {
-            memoryBytes[key] = value
-        }
-        noteFrozenMemory(bytes)
+        memoryReadings.note(readings, at: .now) { cache.browsers[$0] != nil && !cache.dormantTabs.contains($0) }
+        noteFrozenMemory(readings)
     }
 
     // MARK: Frozen growth
 
-    /// Starts the memory readings of page `key`, frozen now. Its reading is the baseline when it is
-    /// fresh (within `memoryMaxAge`); otherwise its first reading after the freeze is.
+    /// Starts the memory readings of page `key`, frozen now. A fresh reading of it
+    /// (`PageMemoryReadings.maxAge`) is its baseline; without one, the freeze takes a sample
+    /// (once, an event, not a period) and its first reading after the freeze is.
     func trackGrowth(_ key: String) {
-        guard discardsGrowingFrozenPages, measureMemory != nil else { return }
+        guard discardsGrowingFrozenPages, setting.isEnabled, measureMemory != nil else { return }
         let now = ContinuousClock.now
-        let fresh = memoryMeasuredAt.map { now - $0 < .seconds(Self.memoryMaxAge) } ?? false
-        frozenGrowth.froze(key, at: now, bytes: fresh ? memoryBytes[key] : nil)
+        let reading = memoryReadings.isFresh(at: now) ? memoryReadings.reading(key) : nil
+        frozenGrowth.froze(key, at: now, reading: reading)
+        if reading == nil { sampleMemory() }
         armGrowthWakeup()
+    }
+
+    /// `browser.hibernation` turned off: no frozen page is read again.
+    func stopGrowthReadings() {
+        frozenGrowth.removeAll()
+        growthDeadline.cancel()
     }
 
     /// Page `key` thawed (or closed): its readings end, and with them its one-shot wakeups.
@@ -138,36 +148,19 @@ extension BrowserHibernation {
         growthDeadline.schedule(after: delay) { @MainActor [weak self] in self?.readFrozenGrowth() }
     }
 
-    /// The one-shot reading: one sample of every page's memory serves each frozen page due by now.
-    private func readFrozenGrowth() {
-        frozenGrowth.wake(at: .now)
+    /// The one-shot reading due at `now` (its deadline's): one sample of every page's memory serves
+    /// each frozen page due by then.
+    func readFrozenGrowth(at now: ContinuousClock.Instant = .now) {
+        frozenGrowth.wake(at: now)
         armGrowthWakeup()
-        // A sample already running gives its reading when it lands.
-        guard let measureMemory, !measuringMemory else { return }
-        sampleMemory(measureMemory)
+        sampleMemory()
     }
 
     /// A reading of the pages' memory: each frozen page that grew past its threshold goes with the
-    /// hidden pages of its opener group; the lead rule still keeps any of them (`FrozenGrowthRule`).
-    private func noteFrozenMemory(_ bytes: [String: UInt64]) {
-        guard discardsGrowingFrozenPages, let cache else { return }
-        let growing = frozenGrowth.record(bytes)
-        guard !growing.isEmpty else { return }
-        let now = ContinuousClock.now
-        var hidden: [String: HibernationPlanner.Candidate] = [:]
-        for key in Set(growing.flatMap { openerGroup($0).union([$0]) }) {
-            guard cache.lifecycle.phase(key) == .mountedHidden, let at = hiddenAt[key], !probing.contains(key),
-                  let entry = cache.browsers[key] else { continue }
-            var facts = candidate(key, entry: entry, hiddenFor: (now - at) / .seconds(1), now: now)
-            facts.isNeighbor = awakeNeighbors.contains(key) || hoverLeft(key, now: now) != nil
-            facts.isAgentDriving = agentUsedAt[key].map { now - $0 < .seconds(Self.agentGrace) } ?? false
-            hidden[key] = facts
-        }
-        let plan = frozenGrowth.plan(growing: growing, groups: openerGroup, candidates: hidden, setting: setting)
-        exemptions.merge(plan.exemptions) { $1 }
-        for key in plan.due {
-            cache.trace(key, "discard (\(DiscardReason.frozenWithGrowingMemory.rawValue))")
-            prepare(key, for: .frozenWithGrowingMemory)
-        }
+    /// frozen hidden pages of its opener group (`discardGrowing`).
+    private func noteFrozenMemory(_ readings: [String: PageMemoryReading]) {
+        guard discardsGrowingFrozenPages, setting.isEnabled, !frozenGrowth.pages.isEmpty else { return }
+        let growing = frozenGrowth.record(readings)
+        if !growing.isEmpty { discardGrowing(growing) }
     }
 }

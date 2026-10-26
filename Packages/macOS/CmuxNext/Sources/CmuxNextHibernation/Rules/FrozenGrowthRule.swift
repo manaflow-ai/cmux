@@ -3,7 +3,7 @@
 
 package import CmuxNextSettings
 
-/// Discards a frozen page whose memory keeps growing, with every hidden page of its opener group.
+/// Discards a frozen page whose memory keeps growing, with the frozen hidden pages of its opener group.
 ///
 /// Chrome's `FreezingPolicy` (components/performance_manager/freezing/freezing_policy.cc) discards
 /// a frozen browsing instance whose private memory footprint grew by more than
@@ -14,18 +14,26 @@ package import CmuxNextSettings
 /// max(``minimumGrowthBytes``, ``growthShare`` of the bytes at freeze), so a large page needs to
 /// grow in proportion.
 ///
+/// A page's number is its share of the processes it runs in (``Reading``). It is the page's own
+/// only while every page it shares them with is frozen too and the same as at the baseline: a
+/// sharer that thaws, closes or goes moves the number with no growth in the page, so the page
+/// takes a new baseline.
+///
 /// Chrome measures every `kCPUMeasurementInterval`. cmux does not sample on a period: each frozen
 /// page has at most three one-shot readings, ``sampleDelays`` after it froze, and every reading the
-/// hibernation takes anyway (memory pressure passes, the Task Manager) counts too.
+/// hibernation takes anyway (memory pressure passes, the Task Manager) counts too. A growth is
+/// reported once: its reading is the page's new baseline.
 ///
-/// The discard goes through ``ContentDiscardPlanner``: the lead rule (audio, capture, form input,
-/// a download, a `beforeunload` that asks) keeps a page from this discard as from every other one,
-/// and each member of the group is checked on its own, as Chrome's discarder does.
+/// Chrome discards only frozen pages (the instance is frozen as one), so only members in ``pages``
+/// go. The discard goes through ``ContentDiscardPlanner``: the lead rule (audio, capture, form
+/// input, a download, a `beforeunload` that asks) and the person's own choices
+/// (`browser.hibernation` off, a pinned tab, Never Hibernate This Site, open DevTools) keep a page
+/// from this discard as from the timeout's, each member checked on its own.
 ///
 /// ```swift
 /// var growth = FrozenGrowthRule()
-/// growth.froze("a", at: now, bytes: 100 << 20)
-/// let growing = growth.record(["a": 200 << 20])
+/// growth.froze("a", at: now, reading: .init(bytes: 100 << 20, sharers: ["a"]))
+/// let growing = growth.record(["a": .init(bytes: 200 << 20, sharers: ["a"])])
 /// let plan = growth.plan(growing: growing, groups: { [$0] }, candidates: hidden, setting: setting)
 /// ```
 package nonisolated struct FrozenGrowthRule: Sendable {
@@ -33,11 +41,17 @@ package nonisolated struct FrozenGrowthRule: Sendable {
     package nonisolated struct Page: Hashable, Sendable {
         /// When the page froze.
         package var frozenAt: ContinuousClock.Instant
-        /// Its memory at freeze, or at its first reading after it when none was fresh then.
+        /// Its memory at freeze, else at its first reading after it, its last growth or its last
+        /// sharer change; nil while a sharer is not frozen.
         package var baseline: UInt64?
+        /// The pages it shared its processes with at ``baseline``, itself included.
+        package var sharers: Set<String> = []
         /// The one-shot readings of ``sampleDelays`` already taken.
         package var wakeups = 0
     }
+
+    /// One page's memory in one sample, and the pages it shares its processes with.
+    package typealias Reading = PageMemoryReading
 
     /// Growth below this never discards, whatever the page's size (a cmux choice).
     package static let minimumGrowthBytes: UInt64 = 50 << 20
@@ -64,14 +78,21 @@ package nonisolated struct FrozenGrowthRule: Sendable {
         current > baseline && current - baseline >= threshold(baseline: baseline)
     }
 
-    /// Page `key` froze at `instant`, with `bytes` when a reading of it is fresh.
-    package mutating func froze(_ key: String, at instant: ContinuousClock.Instant, bytes: UInt64?) {
-        pages[key] = Page(frozenAt: instant, baseline: bytes.flatMap { $0 > 0 ? $0 : nil })
+    /// Page `key` froze at `instant`, with its `reading` when one is fresh: its baseline when every
+    /// sharer is frozen; otherwise its first such reading after the freeze is.
+    package mutating func froze(_ key: String, at instant: ContinuousClock.Instant, reading: Reading?) {
+        pages[key] = Page(frozenAt: instant)
+        if let reading { _ = take(reading, for: key) }
     }
 
     /// Page `key` thawed, hibernated or closed: its readings end.
     package mutating func thawed(_ key: String) {
         pages[key] = nil
+    }
+
+    /// Every page's readings end (`browser.hibernation` turned off).
+    package mutating func removeAll() {
+        pages.removeAll()
     }
 
     /// When the next one-shot reading is due, or nil when every frozen page had its three.
@@ -90,24 +111,18 @@ package nonisolated struct FrozenGrowthRule: Sendable {
     }
 
     /// Takes a reading of the pages' memory; returns the frozen pages that grew past their
-    /// threshold, sorted. A page with no baseline takes this reading as its baseline.
+    /// threshold, sorted. A page with no baseline, or whose sharers changed, takes this reading as
+    /// its baseline; a page that grew takes it too, so its next report needs new growth.
     ///
-    /// - Parameter bytes: Each page's memory now; pages it does not name keep what they had.
-    package mutating func record(_ bytes: [String: UInt64]) -> [String] {
-        var growing: [String] = []
-        for (key, page) in pages {
-            guard let current = bytes[key], current > 0 else { continue }
-            guard let baseline = page.baseline else {
-                pages[key]?.baseline = current
-                continue
-            }
-            if Self.grew(from: baseline, to: current) { growing.append(key) }
-        }
-        return growing.sorted()
+    /// - Parameter readings: Each page's memory now; pages it does not name keep what they had.
+    package mutating func record(_ readings: [String: Reading]) -> [String] {
+        pages.keys.sorted().filter { key in readings[key].map { take($0, for: key) } ?? false }
     }
 
-    /// Which hidden pages go for the growth of `growing`: each one's opener group, every member
-    /// checked for ``DiscardReason/frozenWithGrowingMemory`` on its own.
+    /// Which hidden pages go for the growth of `growing`: the frozen members of each one's opener
+    /// group, each checked for ``DiscardReason/frozenWithGrowingMemory`` on its own. A member that
+    /// is not frozen stays, and so does one the probe kept lately
+    /// (``ContentDiscardPlanner/Candidate/recentlyKept``): a reading does not ask it again.
     ///
     /// - Parameters:
     ///   - growing: The frozen pages that grew (``record(_:)``).
@@ -124,7 +139,7 @@ package nonisolated struct FrozenGrowthRule: Sendable {
         var seen: Set<String> = []
         for key in growing {
             for member in groups(key).union([key]).sorted() where seen.insert(member).inserted {
-                guard let candidate = candidates[member] else { continue }
+                guard pages[member] != nil, let candidate = candidates[member], !candidate.recentlyKept else { continue }
                 if let kept = planner.eligibility(of: candidate, setting: setting, for: .frozenWithGrowingMemory).reason {
                     plan.exemptions[member] = kept
                 } else {
@@ -153,6 +168,25 @@ package nonisolated struct FrozenGrowthRule: Sendable {
             for next in linked[node] ?? [] where group.insert(next).inserted { queue.append(next) }
         }
         return group
+    }
+
+    /// Takes `reading` for frozen page `key`: true when it grew past its threshold.
+    private mutating func take(_ reading: Reading, for key: String) -> Bool {
+        guard var page = pages[key], reading.bytes > 0 else { return false }
+        let sharers = reading.sharers.union([key])
+        var grew = false
+        if !sharers.allSatisfy({ pages[$0] != nil }) {
+            // A sharer that runs script moves the shared number: none of that is this page's growth.
+            page.baseline = nil
+        } else if let baseline = page.baseline, page.sharers == sharers {
+            grew = Self.grew(from: baseline, to: reading.bytes)
+            if grew { page.baseline = reading.bytes }
+        } else {
+            page.baseline = reading.bytes
+            page.sharers = sharers
+        }
+        pages[key] = page
+        return grew
     }
 
     private static func nextReading(_ page: Page) -> ContinuousClock.Instant? {
