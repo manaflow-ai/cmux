@@ -307,13 +307,13 @@ while read -r result file log; do
     printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
     continue
   fi
-  if [ "$((SECONDS - retry_started))" -ge "$retry_budget" ]; then
+  normal_limit="$(file_limit "$file" "$timeout_seconds")"
+  remaining=$((retry_budget - (SECONDS - retry_started)))
+  if [ "$remaining" -le 0 ]; then
     echo "retry budget exhausted: keeping $result $file"
     printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
     continue
   fi
-  remaining=$((retry_budget - (SECONDS - retry_started)))
-  normal_limit="$(file_limit "$file" "$timeout_seconds")"
   retry_limit="$normal_limit"
   if [ "$remaining" -lt "$retry_limit" ]; then retry_limit="$remaining"; fi
   echo "RETRY $file (remaining budget ${remaining}s, hard limit ${retry_limit}s)"
