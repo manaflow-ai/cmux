@@ -31,7 +31,7 @@ cm = swarm.corpus_manifest()
 BLOBS = swarm.sources()
 COMMITTED = json.loads((REPO_ROOT / swarm.MANIFEST_PATH).read_text(encoding="utf-8"))
 EVENTS = [json.loads(line) for line in BLOBS["input"].decode().splitlines()]
-SWITCHES = ("nextSidebarTab", "prevSidebarTab", "selectWorkspaceByNumber")
+SWITCHES = ("nextSidebarTab", "prevSidebarTab")
 
 
 def downs(events, *, cmd):
@@ -112,21 +112,66 @@ class LayoutTest(unittest.TestCase):
             self.assertEqual(agent["agent"], "acp-replay")
 
 
+def sidebar_items(workspaces=40, top_items=("home", "appStore")):
+    """SidebarItemOrder.items under the default sidebar settings (numbering and stepping `allItems`): the top items,
+    then the workspace rows (SidebarItem.swift)."""
+    return list(top_items) + [f"@w{n}" for n in range(workspaces)]
+
+
+def walk(events, items):
+    """What each workspace-switching action selects, the way the app resolves it: (t_ms, the item before, the item
+    after) per action that changes the sidebar selection. Steps walk `items` (SidebarItemOrder.step), Cmd-N picks
+    items[N - 1] (SidebarItemOrder.pick) and pane.focus selects the pane's workspace (reveal)."""
+    selected, changes = "@w0", []
+    for event in events:
+        if event["kind"] != "action":
+            continue
+        payload, before = event["payload"], selected
+        if payload["id"] in ("nextSidebarTab", "prevSidebarTab"):
+            step = 1 if payload["id"] == "nextSidebarTab" else -1
+            selected = items[(items.index(selected) + step) % len(items)]
+        elif payload["id"] == "selectWorkspaceByNumber":
+            selected = items[payload["args"]["index"] - 1]
+        elif payload["id"] == "pane.focus":
+            selected = payload["args"]["target"].split(".")[0]
+        if selected != before:
+            changes.append((event["t_ms"], before, selected))
+    return changes
+
+
 class InputTrackTest(unittest.TestCase):
-    def test_a_switch_every_three_seconds_then_the_terminal_pane_focused(self):
-        switches = [e for e in EVENTS if e["kind"] == "action" and e["payload"]["id"] in SWITCHES]
-        self.assertEqual([e["t_ms"] for e in switches], list(range(3000, 180000, 3000)))
-        focuses = [e for e in EVENTS if e["kind"] == "action" and e["payload"]["id"] == "pane.focus"]
-        self.assertEqual([e["t_ms"] for e in focuses], [t + 40 for t in range(3000, 180000, 3000)])
-        shown = 0
-        for switch, focus in zip(switches, focuses):
-            action = switch["payload"]["id"]
-            before = shown
-            shown = shown + 1 if action == "nextSidebarTab" else shown - 1 if action == "prevSidebarTab" \
-                else switch["payload"]["args"]["index"] - 1
-            self.assertNotEqual(shown, before)
-            self.assertTrue(0 <= shown < 40)
-            self.assertEqual(focus["payload"]["args"]["target"], f"@w{shown}.p0")
+    def test_one_switch_to_a_workspace_every_three_seconds(self):
+        # The app's walk, with Home and the App Store as top items: each 3 s slot switches exactly once, always
+        # from one workspace to another (never to a top item, never twice through a following pane focus).
+        changes = walk(EVENTS, sidebar_items())
+        self.assertEqual([t for t, _, _ in changes], list(range(3000, 180000, 3000)))
+        for t, before, after in changes:
+            self.assertTrue(before.startswith("@w") and after.startswith("@w"), (t, before, after))
+        # The same switches with any number of top items: the track does not depend on what the top section holds.
+        for top in ((), ("home",), ("home", "appStore", "link")):
+            self.assertEqual(walk(EVENTS, sidebar_items(top_items=top)), changes, top)
+
+    def test_no_cmd_number_selects(self):
+        # Cmd-1...9 count the top items first under the default sidebar.numbering, so they are not in the track.
+        self.assertFalse(any(e["payload"].get("id") == "selectWorkspaceByNumber" for e in EVENTS if e["kind"] == "action"))
+        self.assertFalse(any(e["payload"].get("key_code") in range(18, 30) for e in downs(EVENTS, cmd=True)))
+
+    def test_a_step_is_followed_by_its_workspaces_terminal_pane(self):
+        actions = [e for e in EVENTS if e["kind"] == "action"]
+        steps = [e for e in actions if e["payload"]["id"] in SWITCHES]
+        jumps = [e for e in actions if e["payload"]["id"] == "pane.focus" and e["t_ms"] % 3000 == 0]
+        self.assertEqual(sorted(e["t_ms"] for e in steps + jumps), list(range(3000, 180000, 3000)))
+        self.assertGreater(len(steps), 20)
+        self.assertGreater(len(jumps), 10)
+        selected = {t: after for t, _, after in walk(EVENTS, sidebar_items())}
+        for step in steps:
+            follow = [e for e in actions if e["t_ms"] == step["t_ms"] + 40]
+            self.assertEqual([e["payload"] for e in follow],
+                             [{"id": "pane.focus", "args": {"target": f"{selected[step['t_ms']]}.p0"}}])
+        for jump in jumps:
+            self.assertEqual(jump["payload"]["args"]["target"], f"{selected[jump['t_ms']]}.p0")
+            self.assertFalse(any(e["t_ms"] == jump["t_ms"] + 40 for e in actions))
+        self.assertGreater(len({after for _, _, after in walk(EVENTS, sidebar_items())}), 20, "jumps reach far rows")
 
     def test_typing_runs_at_eight_keys_a_second(self):
         typed = downs(EVENTS, cmd=False)
@@ -156,6 +201,114 @@ class InputTrackTest(unittest.TestCase):
         times = [e["t_ms"] for e in EVENTS]
         self.assertEqual(times, sorted(times))
         self.assertTrue(0 <= times[0] and times[-1] <= swarm.DURATION_MS)
+
+
+class FakeClock:
+    def __init__(self):
+        self.ns = 0
+
+    def now_ns(self):
+        return self.ns
+
+    def sleep_until(self, deadline_ns):
+        self.ns = max(self.ns, deadline_ns)
+
+
+class FakeRun:
+    def __init__(self, checkpoints):
+        self.checkpoints = checkpoints
+
+
+class FakePlayer:
+    """Replays that read the given digests per run; keeps what it was asked to play."""
+
+    def __init__(self, *runs):
+        self.runs, self.played = list(runs), []
+
+    def replay(self, manifest, *, app, out):
+        self.played.append((copy.deepcopy(manifest), app, out))
+        digests = self.runs.pop(0)
+        return FakeRun([{"name": c["name"], **digests[c["name"]]} for c in manifest["checkpoints"]])
+
+
+def digests(seed):
+    return {name: {"focus": f"{seed}{n}".ljust(64, "f"), "surfaces": f"{seed}{n}".ljust(64, "5")}
+            for n, (name, _) in enumerate(swarm.CHECKPOINTS)}
+
+
+class CaptureTest(unittest.TestCase):
+    def test_settle_returns_the_state_read_twice_in_a_row(self):
+        reads = iter([{"focus": "a"}, {"focus": "b"}, {"focus": "b"}, {"focus": "c"}])
+        clock = FakeClock()
+        self.assertEqual(swarm.settle(lambda: next(reads), clock, 5.0, 0.05), {"focus": "b"})
+        self.assertEqual(clock.ns, 100_000_000)
+
+    def test_settle_fails_on_a_state_that_keeps_changing(self):
+        counter = iter(range(10_000))
+        with self.assertRaisesRegex(swarm.CaptureError, "did not settle in 5 s"):
+            swarm.settle(lambda: {"focus": str(next(counter))}, FakeClock(), 5.0, 0.05)
+
+    def test_two_agreeing_runs_record_the_story(self):
+        player = FakePlayer(digests("a"), digests("a"))
+        doc = swarm.capture(BLOBS, app="APP", out=Path("/out"), player=player)
+        self.assertEqual(doc["status"], "recorded")
+        self.assertNotIn("planned", doc)
+        self.assertEqual({c["name"]: {"focus": c["focus"], "surfaces": c["surfaces"]} for c in doc["checkpoints"]},
+                         digests("a"))
+        self.assertEqual(cm.validation_errors(doc), [])
+        self.assertEqual(swarm.manifest(BLOBS, doc), doc, "write keeps captured digests")
+        self.assertEqual([out for _, _, out in player.played], [Path("/out/run-1"), Path("/out/run-2")])
+        played = player.played[0][0]
+        self.assertEqual(played["status"], "recorded", "the player loads only recorded stories")
+        self.assertEqual(cm.validation_errors(played), [])
+        self.assertEqual({k: v for k, v in played.items() if k not in ("status", "checkpoints")},
+                         {k: v for k, v in COMMITTED.items() if k not in ("status", "checkpoints", "planned")})
+
+    def test_runs_that_disagree_record_nothing(self):
+        with self.assertRaisesRegex(swarm.CaptureError, "checkpoint layout-imported: run 1 read a0"):
+            swarm.capture(BLOBS, app="APP", out=Path("/out"), player=FakePlayer(digests("a"), digests("b")))
+
+    def test_capture_writes_the_recorded_manifest_and_check_accepts_it(self):
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as cache:
+            path = Path(root) / swarm.MANIFEST_PATH
+            path.parent.mkdir()
+            path.write_text(swarm.render(COMMITTED))
+            argv = ["capture", "--root", root, "--cache", cache, "--app", "APP", "--out", str(Path(root) / "out")]
+            with redirect_stderr(io.StringIO()) as err:
+                self.assertEqual(swarm.main(argv, out=lambda _: None, player=FakePlayer(digests("a"), digests("c"))), 1)
+            self.assertIn("run 2 c0", err.getvalue())
+            self.assertEqual(json.loads(path.read_text()), COMMITTED, "a failed capture leaves the manifest")
+            self.assertEqual(swarm.main(argv, out=lambda _: None, player=FakePlayer(digests("a"), digests("a"))), 0)
+            self.assertEqual(json.loads(path.read_text())["status"], "recorded")
+            self.assertEqual(swarm.main(["check", "--root", root], out=lambda _: None), 0)
+
+    def test_capture_needs_an_app_and_an_out_dir(self):
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            swarm.main(["capture"], out=lambda _: None)
+
+    def test_the_capture_player_reads_the_settled_checkpoint(self):
+        if not (CORPUS / "play.py").is_file():
+            self.skipTest("play.py (p12-perf-process-115) is not on this branch yet")
+        play = swarm.play_module()
+        with tempfile.TemporaryDirectory() as cache, tempfile.TemporaryDirectory() as out:
+            store = cm.BlobCache(swarm.cache_blobs(BLOBS, Path(cache)), lambda digest: self.fail(f"fetched {digest}"))
+
+            def fetch(ref):
+                store.get(ref)
+                return store.path(ref)
+
+            player = swarm.capture_player(play, root=REPO_ROOT, fetch=fetch, clock=FakeClock())
+            recorder = FakePlayer(digests("a"), digests("a"))
+            swarm.capture(BLOBS, app="APP", out=Path(out), player=recorder)
+            story = player.load(recorder.played[0][0], Path(out))  # the player accepts what capture plays
+            item = next(i for i in story.timeline if isinstance(i, play.Checkpoint))
+            focus = {"windows": [], "context": {}, "consistent": True}
+            surfaces = [{"windows": [], "blank_panes": n, "collapsed_panes": 0} for n in (1, 2, 2)]
+            replies = iter([focus, surfaces[0], focus, surfaces[1], focus, surfaces[2]])
+            got = player.checkpoint(lambda method, params, timeout: next(replies), item, Path(out))
+            self.assertEqual(got, {"name": item.name, "focus": play.focus_digest(focus),
+                                   "surfaces": play.surfaces_digest(surfaces[2])})
+            self.assertTrue((Path(out) / f"checkpoint-{item.name}.json").is_file())
 
 
 class TranscriptTest(unittest.TestCase):

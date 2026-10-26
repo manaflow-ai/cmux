@@ -4,11 +4,13 @@
     python3 -I scripts/perf-lab/corpus/stories/agent_swarm.py write    # perf-corpus/agent-swarm.json + cached blobs
     python3 -I scripts/perf-lab/corpus/stories/agent_swarm.py check    # the committed manifest is what this makes
     python3 -I scripts/perf-lab/corpus/stories/agent_swarm.py blobs    # only put the blobs into the corpus cache
+    python3 -I scripts/perf-lab/corpus/stories/agent_swarm.py capture --app APP --out DIR   # the checkpoint digests
 
 The story: 40 workspaces, the first 12 with a terminal beside an agent chat whose acpmux fake agent (task 114) streams
 a 180 s transcript; the sidebar ticks (a `workspace @wN status set trace N` CLI call every 500 ms, round the 40 rows);
-the person types at 8 keys/s into the shown workspace's terminal, switches workspace every 3 s (next, previous or
-Cmd-1...8, then focuses its terminal pane) and opens and closes a tab with Cmd-T / Cmd-W every 15 s.
+the person types at 8 keys/s into the shown workspace's terminal, switches workspace every 3 s (next or previous,
+then focuses its terminal pane, or a jump straight to another workspace's terminal pane) and opens and closes a tab
+with Cmd-T / Cmd-W every 15 s.
 
 Every source is synthetic and made here from fixed seeds, so the bytes and their sha256 are the same on every host
 and Python version (splitmix64, not `random`): the layout snapshot (session_io.py format, task 111), the input track
@@ -18,9 +20,11 @@ are made by code in the same way (tools/perf/page_sets/system_health/, the page 
 the recording follows it). `blobs` puts them into the corpus cache ($CMUX_PERF_CORPUS_CACHE, manifest.py), so a
 lab host can replay the story without R2; `manifest.py --upload perf-corpus/agent-swarm.json` publishes them.
 
-The checkpoint digests (debug.focus and debug.surfaces) are app state and come from a replay on a lab host. `write`
-keeps the digests of the committed manifest while the sources stay the same, and the story is `recorded` once every
-checkpoint has both; a change of any source drops them.
+The checkpoint digests (debug.focus and debug.surfaces) are app state, so only a replay can read them: `capture` plays
+the story twice in fresh launches of a bench app (play.py's Player, task 115) with each checkpoint reading the state
+the app settles on instead of comparing it, and writes the manifest as `recorded` only when both runs read the same
+digests. `write` keeps the digests of the committed manifest while the sources stay the same; a change of any source
+drops them, and the story is `planned` again until the next capture.
 
 Stdlib only; runs under python3 -I. Tests: python3 -m unittest scripts/perf-lab/tests/test_story_agent_swarm.py
 """
@@ -183,9 +187,12 @@ def typing(track: Track, rng: Rng, start_ms: int, end_ms: int) -> int:
 
 
 def switch(track: Track, rng: Rng, t_ms: int, shown: int) -> int:
-    """One workspace switch at t_ms: next (45 %), previous (25 %) or Cmd-1...8 (the rest, never the shown one), then
-    the new workspace's terminal pane focused 40 ms later, so typing and Cmd-T / Cmd-W land in a terminal pane.
-    Returns the shown workspace after it."""
+    """One workspace switch at t_ms: the next workspace (45 %), the previous one (25 %), or a jump to any other
+    workspace by reference (the rest: pane.focus on its terminal pane, the path of `cmux pane <ref> focus`). A step
+    is followed 40 ms later by focusing the shown workspace's terminal pane (no second switch), so typing and
+    Cmd-T / Cmd-W land in a terminal pane. Steps never leave the workspaces, and there is no Cmd-1...9: both walk
+    the top items too by default (sidebar.numbering and sidebar.stepping `allItems`: Home = 1, App Store = 2,
+    SidebarItemOrder.pick), and the top items are app state the story does not fix. Returns the shown workspace."""
     roll = rng.percent()
     if roll < 45 and shown < WORKSPACES - 1:
         track.add(t_ms, "action", {"id": "nextSidebarTab"})
@@ -194,11 +201,10 @@ def switch(track: Track, rng: Rng, t_ms: int, shown: int) -> int:
         track.add(t_ms, "action", {"id": "prevSidebarTab"})
         shown -= 1
     else:
-        number = rng.between(1, 8)
-        if number - 1 == shown:
-            number = number % 8 + 1
-        track.add(t_ms, "action", {"id": "selectWorkspaceByNumber", "args": {"index": number}})
-        shown = number - 1
+        target = rng.between(0, WORKSPACES - 2)
+        shown = target + 1 if target >= shown else target
+        track.add(t_ms, "action", {"id": "pane.focus", "args": {"target": f"@w{shown}.p0"}})
+        return shown
     track.add(t_ms + 40, "action", {"id": "pane.focus", "args": {"target": f"@w{shown}.p0"}})
     return shown
 
@@ -315,8 +321,9 @@ def manifest(blobs: dict[str, bytes], previous: dict[str, Any] | None = None) ->
     doc: dict[str, Any] = {"schema": "cmux-perf-corpus-story/v1", "id": STORY_ID, "tier": "T1",
                            "status": "recorded" if recorded else "planned"}
     if not recorded:
-        doc["planned"] = ("Sources are generated by scripts/perf-lab/corpus/stories/agent_swarm.py (task 117); the "
-                          "checkpoint digests come from a replay on a lab host (play.py, task 115).")
+        doc["planned"] = ("Sources are generated by scripts/perf-lab/corpus/stories/agent_swarm.py (task 117); "
+                          "`agent_swarm.py capture --app APP --out DIR` on a lab host reads the checkpoint digests "
+                          "(it needs play.py, task 115, and agent_replay.py, task 114).")
     doc.update({
         "description": "40 workspaces with 12 streaming agents and the sidebar ticking; typing at 8 keys/s, a "
                        "workspace switch every 3 s and Cmd-T/Cmd-W pairs.",
@@ -333,6 +340,111 @@ def manifest(blobs: dict[str, bytes], previous: dict[str, Any] | None = None) ->
     return doc
 
 
+# ---------------------------------------------------------------- capture
+
+CAPTURE_RUNS = 2
+UNREAD = "0" * 64  # a capture's checkpoints read the state and never compare it: the digests it plays with are unused
+
+
+class CaptureError(RuntimeError):
+    pass
+
+
+def play_module():
+    path = CORPUS / "play.py"
+    if not path.is_file():
+        raise CaptureError("capture replays through scripts/perf-lab/corpus/play.py (p12-perf-process-115), "
+                           "which this checkout does not have")
+    return _load("perf_lab_corpus_play", path)
+
+
+def settle(read: Callable[[], dict[str, str]], clock: Any, settle_s: float, poll_s: float) -> dict[str, str]:
+    """The digests `read` gives twice in a row, poll_s apart: the state a replay's checkpoint finds once it settles.
+    CaptureError when it is still changing after settle_s (the replay's own bound on a checkpoint)."""
+    deadline = clock.now_ns() + round(settle_s * 1e9)
+    last = None
+    while True:
+        got = read()
+        if got == last:
+            return got
+        if clock.now_ns() >= deadline:
+            raise CaptureError(f"the app state did not settle in {settle_s:g} s")
+        last = got
+        clock.sleep_until(clock.now_ns() + round(poll_s * 1e9))
+
+
+def capture_player(play: Any, **seams: Any) -> Any:
+    """A play.Player whose checkpoints report the settled state instead of comparing it with the manifest's."""
+
+    class CapturePlayer(play.Player):
+        def checkpoint(self, rpc, item, out):
+            reports: dict[str, Any] = {}
+
+            def read() -> dict[str, str]:
+                reports["focus"], reports["surfaces"] = play.read_checkpoint(rpc)
+                return {"focus": play.focus_digest(reports["focus"]),
+                        "surfaces": play.surfaces_digest(reports["surfaces"])}
+
+            try:
+                got = settle(read, self.clock, self.settle_s, play.CHECKPOINT_POLL_S)
+            except CaptureError as error:
+                raise CaptureError(f"checkpoint {item.name} (t={item.t_ms:g} ms): {error}") from error
+            (out / f"checkpoint-{item.name}.json").write_text(json.dumps(
+                {"focus": play.focus_view(reports["focus"]), "surfaces": play.surfaces_view(reports["surfaces"])},
+                indent=1), encoding="utf-8")
+            return {"name": item.name, **got}
+
+    return CapturePlayer(**seams)
+
+
+def capture(blobs: dict[str, bytes], *, app: str, out: Path, player: Any, runs: int = CAPTURE_RUNS) -> dict[str, Any]:
+    """The story's manifest with the checkpoint digests that `runs` replays into fresh launches of `app` read.
+    CaptureError when the runs read different digests: the story does not replay to one state and is not recorded."""
+    doc = manifest(blobs)
+    names = [checkpoint["name"] for checkpoint in doc["checkpoints"]]
+    playable = {**{key: value for key, value in doc.items() if key != "planned"}, "status": "recorded",
+                "checkpoints": [dict(c, focus=UNREAD, surfaces=UNREAD) for c in doc["checkpoints"]]}
+    reads = [player.replay(playable, app=app, out=Path(out) / f"run-{n}").checkpoints for n in range(1, runs + 1)]
+    for n, read in enumerate(reads, 1):
+        if [checkpoint["name"] for checkpoint in read] != names:
+            raise CaptureError(f"run {n} read checkpoints {[c['name'] for c in read]}, the story has {names}")
+    for n, read in enumerate(reads[1:], 2):
+        for first, other in zip(reads[0], read):
+            if first != other:
+                raise CaptureError(f"checkpoint {first['name']}: run 1 read {first['focus'][:12]}/"
+                                   f"{first['surfaces'][:12]}, run {n} {other['focus'][:12]}/{other['surfaces'][:12]}")
+    read = {checkpoint["name"]: checkpoint for checkpoint in reads[0]}
+    captured = dict(doc, checkpoints=[dict(c, focus=read[c["name"]]["focus"], surfaces=read[c["name"]]["surfaces"])
+                                      for c in doc["checkpoints"]])
+    return manifest(blobs, captured)
+
+
+def run_capture(args: argparse.Namespace, blobs: dict[str, bytes], player: Any | None,
+                out: Callable[[str], None]) -> dict[str, Any] | None:
+    """`capture`: the recorded manifest, or None after printing why there is none."""
+    corpus = corpus_manifest()
+    directory = cache_blobs(blobs, args.cache)
+    store = corpus.BlobCache(directory, corpus.http_fetcher())
+
+    def fetch(ref: dict[str, Any]) -> Path:
+        store.get(ref)
+        return store.path(ref)
+
+    failures: tuple[type[BaseException], ...] = (CaptureError,)
+    try:
+        if player is None:
+            play = play_module()
+            failures += (play.PlayError,)
+            failures += (play.bench_launch().LaunchError,)
+            player = capture_player(play, root=args.root, fetch=fetch, cache_dir=directory)
+        doc = capture(blobs, app=args.app, out=args.out, player=player)
+    except failures as error:
+        print(f"capture: {error}", file=sys.stderr)
+        return None
+    out(f"captured {len(doc['checkpoints'])} checkpoints, the same in {CAPTURE_RUNS} runs")
+    return doc
+
+
 def render(doc: dict[str, Any]) -> str:
     return json.dumps(doc, indent=2) + "\n"
 
@@ -345,12 +457,16 @@ def cache_blobs(blobs: dict[str, bytes], cache_dir: Path | None) -> Path:
     return cache.directory
 
 
-def main(argv: list[str] | None = None, out: Callable[[str], None] = print) -> int:
+def main(argv: list[str] | None = None, out: Callable[[str], None] = print, player: Any | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("command", choices=("write", "check", "blobs"))
+    parser.add_argument("command", choices=("write", "check", "blobs", "capture"))
     parser.add_argument("--root", type=Path, default=REPO_ROOT, help="the checkout whose perf-corpus/ to use")
     parser.add_argument("--cache", type=Path, default=None, help="the corpus blob cache (manifest.py's default)")
+    parser.add_argument("--app", help="capture: a bench `cmux DEV <tag>.app` (not running)")
+    parser.add_argument("--out", type=Path, help="capture: the directory for the replays' results and checkpoint views")
     args = parser.parse_args(argv)
+    if args.command == "capture" and not (args.app and args.out):
+        parser.error("capture needs --app and --out")
     path = args.root / MANIFEST_PATH
     previous = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
     blobs = sources()
@@ -360,6 +476,13 @@ def main(argv: list[str] | None = None, out: Callable[[str], None] = print) -> i
             print(f"{MANIFEST_PATH} is not what agent_swarm.py makes: run `agent_swarm.py write`", file=sys.stderr)
             return 1
         out(f"ok: {MANIFEST_PATH} matches its generator")
+        return 0
+    if args.command == "capture":
+        doc = run_capture(args, blobs, player, out)
+        if doc is None:
+            return 1
+        path.write_text(render(doc), encoding="utf-8")
+        out(f"wrote {MANIFEST_PATH} ({doc['status']})")
         return 0
     directory = cache_blobs(blobs, args.cache)
     if args.command == "write":

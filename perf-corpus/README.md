@@ -29,7 +29,9 @@ All six are `planned`: their sources and checkpoint digests are `null` until the
 `scripts/perf-lab/corpus/stories/` makes them from fixed seeds, so every host gets the same bytes.
 Its `write` updates the manifest and puts the blobs into the local cache, `check` fails when the
 manifest is not what it makes, and `blobs` fills the cache of a host that cannot reach R2. Its
-checkpoint digests come from a replay on a lab host; `write` keeps them while the sources stay. A `planned` story must say what records it in `planned`. A
+`capture --app APP --out DIR` replays the story twice on a lab host (play.py) and writes the
+checkpoint digests, and the status `recorded`, only when both runs read the same state; `write`
+keeps them while the sources stay. A `planned` story must say what records it in `planned`. A
 `recorded` story must have every source and both digests of every checkpoint.
 
 ## Fields
