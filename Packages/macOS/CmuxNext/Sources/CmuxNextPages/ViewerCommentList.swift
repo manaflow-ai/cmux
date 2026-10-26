@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// A file's viewer comments as the page and the store keep them: `{"v":1,"comments":[...]}`,
@@ -18,7 +19,7 @@ public nonisolated struct ViewerCommentList: Hashable, Sendable {
 
     /// The list stored as `data`; nil when it is not one.
     public init?(data: Data) {
-        guard let stored = try? JSONDecoder().decode(Stored.self, from: data), stored.v == 1 else { return nil }
+        guard let stored = try? JSONDecoder().blockingDecode(Stored.self, from: data), stored.v == 1 else { return nil }
         comments = Array(stored.comments.suffix(Self.limit))
     }
 

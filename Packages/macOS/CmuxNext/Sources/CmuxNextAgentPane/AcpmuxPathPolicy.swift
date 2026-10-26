@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Darwin
 public import Foundation
 
@@ -88,7 +89,7 @@ nonisolated enum AcpmuxPathPolicy {
 
     static func checkNow(_ text: String, scope: Scope) -> Result<Checked, Refusal> {
         // Parsed every time: a substring test would miss an escaped key ("c\u0077d").
-        guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else {
+        guard var object = (try? JSONSerialization.blockingJSONObject(with: Data(text.utf8))) as? [String: Any] else {
             return .success(Checked(text: text, gestureRootsUsed: []))
         }
         let method = object["method"] as? String
@@ -198,7 +199,7 @@ nonisolated enum AcpmuxPathPolicy {
     /// Whether a page frame needs the disk check: it names a folder field at any depth, or it is a
     /// `session/new` (which gets a cwd when it names none). Parsed, never a substring test.
     public static func needsCheck(_ text: String) -> Bool {
-        needsCheck((try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any])
+        needsCheck((try? JSONSerialization.blockingJSONObject(with: Data(text.utf8))) as? [String: Any])
     }
 
     /// The same for a frame already parsed.

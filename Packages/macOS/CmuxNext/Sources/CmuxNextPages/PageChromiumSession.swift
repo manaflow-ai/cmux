@@ -6,12 +6,15 @@ import CmuxNextWakeups
 final class PageChromiumSession {
     let page: any PageChromiumPage
     let bridge: ChromiumPageHostBridge
+    /// The app's lanes (``PageChromiumHosting/work``): the page's large replies are decoded on them.
+    let work: BackgroundWork
     /// Cancelled when the page reaches the host or the session ends.
     let deadline: DemandTimer
 
-    init(page: any PageChromiumPage, bridge: ChromiumPageHostBridge, clock: any Clock<Duration>) {
+    init(page: any PageChromiumPage, bridge: ChromiumPageHostBridge, work: BackgroundWork, clock: any Clock<Duration>) {
         self.page = page
         self.bridge = bridge
+        self.work = work
         deadline = DemandTimer(owner: "page.chromium.deadline", clock: clock)
     }
 

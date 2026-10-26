@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 
 /// The 16 pt images of page menu rows (``BrowserContextMenuIcon``), made
@@ -22,7 +23,8 @@ final class BrowserContextMenuImages {
         switch icon {
         case .image(let oneX, let twoX):
             let reps = [oneX, twoX].compactMap { $0 }.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
-                .compactMap { NSImage(contentsOfFile: $0)?.representations.max { $0.pixelsWide < $1.pixelsWide } }
+                .compactMap { try? Data(blockingContentsOf: URL(fileURLWithPath: $0)) }
+                .compactMap { blockingNSImage($0)?.representations.max { $0.pixelsWide < $1.pixelsWide } }
             guard !reps.isEmpty else { return make(.defaultExtension) }
             let image = NSImage(size: size)
             for rep in reps {

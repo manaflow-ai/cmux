@@ -1,10 +1,11 @@
+import CmuxNextCompat
 package import Foundation
 
 /// Each collection's answer, read into results. Only works the collection marks public domain
 /// (CC0 at Cleveland), with an image on one of the source's own hosts, are kept.
 nonisolated extension MuseumArtSearch {
     package static func results(_ source: MuseumArtSource, from data: Data) -> [MuseumArtResult] {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
+        guard let json = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else { return [] }
         let found: [MuseumArtResult?]
         switch source {
         case .artInstitute: found = artInstitute(json)

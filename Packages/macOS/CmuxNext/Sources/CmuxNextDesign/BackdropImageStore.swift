@@ -1,5 +1,6 @@
 public import AppKit
 import AVFoundation
+import CmuxNextCompat
 import CoreImage
 import ImageIO
 import UniformTypeIdentifiers
@@ -167,15 +168,15 @@ public final class BackdropImageStore {
     /// a video's first frame, and a dynamic HEIC's frame for light or `dark` (``BackdropAppearance``).
     nonisolated static func decode(_ url: URL, maxPixelSize: Int, dark: Bool = false) -> CGImage? {
         if AppleWallpapers.isVideo(url.path) { return poster(url, maxPixelSize: maxPixelSize) }
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        guard let source = CheckedImageSource(blockingContentsOf: url) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
             kCGImageSourceShouldCacheImmediately: true,
         ]
-        let frame = (dark ? BackdropAppearance.dark : .light).frame(in: source)
-        return CGImageSourceCreateThumbnailAtIndex(source, frame, options as CFDictionary)
+        let frame = (dark ? BackdropAppearance.dark : .light).frame(in: source.source)
+        return source.thumbnail(at: frame, options: options)
     }
 
     /// A video's first frame, upright, its longest side at most `maxPixelSize`: the poster a

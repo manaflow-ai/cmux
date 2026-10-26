@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
+import CmuxNextCompat
 public import WebKit
 
 /// `debug.agent_pane click` and `hover` (DEBUG builds), in whichever engine the page host shows
@@ -43,7 +44,7 @@ extension AgentPaneView {
         do {
             let result = try await callPageScript(Self.locateScript, arguments: ["selector": selector, "text": text])
             guard let json = result as? String,
-                  let object = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any] else {
+                  let object = (try? JSONSerialization.blockingJSONObject(with: Data(json.utf8))) as? [String: Any] else {
                 return ["error": "the page returned no JSON"]
             }
             return object

@@ -31,7 +31,7 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     /// Selects a file in Finder (the image viewer's Show in Finder).
     public var revealFile: @MainActor (URL) -> Void = { NSWorkspace.shared.revealInBackground([$0]) }
     /// The context menu's Copy Image: replaces the general pasteboard's contents with the item
-    /// (``AgentPaneImageCopies/pasteboardItem(_:data:)``); tests record it instead.
+    /// (``AgentPaneImageCopies/pasteboardItem(_:image:)``); tests record it instead.
     public var copyItem: @MainActor (NSPasteboardItem) -> Bool = { AgentPaneImageCopies.writeGeneral($0) }
     /// Save Image As…: asks where to save the file under the name (the system save panel).
     public var saveFile: @MainActor (_ file: URL, _ name: String) -> Void = { AgentPaneImageCopies.askToSave($0, name: $1) }

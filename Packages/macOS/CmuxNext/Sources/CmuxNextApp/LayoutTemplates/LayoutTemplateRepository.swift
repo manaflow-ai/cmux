@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// The layout templates of this Mac, in one JSON file of this build's support folder
@@ -72,7 +73,7 @@ actor LayoutTemplateRepository {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let read = fileURL.flatMap { try? Data(contentsOf: $0) }
-            .flatMap { try? decoder.decode(Document.self, from: $0) }?.templates ?? []
+            .flatMap { try? decoder.blockingDecode(Document.self, from: $0) }?.templates ?? []
         templates = read
         return read
     }

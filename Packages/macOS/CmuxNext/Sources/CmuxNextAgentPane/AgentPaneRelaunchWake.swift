@@ -119,9 +119,9 @@ public final class AgentPaneRelaunchWake {
         }
         guard let data = reader.data(at: file, maximumBytes: maximumBytes) else { return [:] }
         let decoder = JSONDecoder()
-        let saved = (try? decoder.decode([String: Saved].self, from: data))
+        let saved = (try? decoder.blockingDecode([String: Saved].self, from: data))
             // A file the last build wrote, contents inline.
-            ?? (try? decoder.decode([String: AgentPaneWakeState].self, from: data))?.mapValues { Saved(state: $0) }
+            ?? (try? decoder.blockingDecode([String: AgentPaneWakeState].self, from: data))?.mapValues { Saved(state: $0) }
             ?? [:]
         var budget = budget
         return saved.compactMapValues { saved in

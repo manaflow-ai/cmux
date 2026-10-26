@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextDaemon
 public import Foundation
 public import Observation
@@ -108,7 +109,7 @@ public final class ProgramStatusSeenStore {
     public func persist(to defaults: UserDefaults) {
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.defaultsKey),
-           let keys = try? JSONDecoder().decode([ProgramStatusSeen.Key].self, from: data) {
+           let keys = try? JSONDecoder().blockingDecode([ProgramStatusSeen.Key].self, from: data) {
             seen = ProgramStatusSeen(keys: keys)
         }
     }
