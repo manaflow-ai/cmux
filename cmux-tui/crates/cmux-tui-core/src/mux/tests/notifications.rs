@@ -164,6 +164,51 @@ fn agent_hook_transitions_post_durable_notifications_once() {
 }
 
 #[test]
+fn a_turn_that_ends_while_its_subagents_run_finishes_when_the_last_one_ends() {
+    // manaflow-ai/cmux#25563: Claude Code's `Stop` comes while background
+    // subagents it started still run; the dot waits for the whole task.
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let surface_id = surface.id;
+    let terminal_id = surface.terminal_public_id().cloned().unwrap();
+    let apply = |event: &str, native: Value, sequence: u64| {
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal_id.to_string()),
+            native,
+        )
+        .unwrap();
+        mux.apply_agent_hook_record(&ingress, sequence).unwrap();
+    };
+    let session = serde_json::json!({"session_id": "native-1"});
+    let child = |agent: &str| serde_json::json!({"session_id": "native-1", "agent_id": agent});
+    apply("SessionStart", session.clone(), 1);
+    apply("UserPromptSubmit", session.clone(), 2);
+    apply("SubagentStart", child("agent-a"), 3);
+    apply("SubagentStart", child("agent-b"), 4);
+    apply("Stop", session.clone(), 5);
+    assert!(mux.resource_notifications(16).is_empty(), "its subagents still run");
+    assert!(!mux.surface_notification(surface_id).is_some_and(|marker| marker.unread));
+
+    apply("SubagentStop", child("agent-a"), 6);
+    assert!(mux.resource_notifications(16).is_empty(), "one subagent still runs");
+
+    apply("SubagentStop", child("agent-b"), 7);
+    let posted = mux.resource_notifications(16);
+    assert_eq!(posted.len(), 1);
+    assert_eq!(posted[0].title, "Claude finished");
+    assert!(mux.surface_notification(surface_id).is_some_and(|marker| marker.unread));
+
+    // A subagent that ends inside its turn (a foreground one) holds nothing.
+    apply("UserPromptSubmit", session.clone(), 8);
+    apply("SubagentStart", child("agent-c"), 9);
+    apply("SubagentStop", child("agent-c"), 10);
+    apply("Stop", session, 11);
+    assert_eq!(mux.resource_notifications(16).len(), 2);
+}
+
+#[test]
 fn notification_ack_is_per_client_and_replay_safe() {
     let mux = test_mux();
     let surface = mux.new_workspace(None, None).unwrap();
