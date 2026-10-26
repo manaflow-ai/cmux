@@ -8,6 +8,8 @@
 // not an AppServices extension, so these lines never grow the AppServices god type.
 
 import CmuxNextCompat
+import CmuxNextFeatures
+import CmuxNextHibernation
 import CmuxNextMemory
 import CmuxNextWakeups
 
@@ -49,5 +51,15 @@ struct AppMemoryConsumers {
         _ = services.memoryCoordinator  // follows pressure from launch, before any consumer registers
         // One line per package, sorted by package name, for example:
         // registerTabs()  // CmuxNextTabs
+        registerInternalPageDiscards()  // CmuxNextApp
+    }
+
+    /// `memoryDiscardInternalPages` (default off): hidden page tabs' views go after their policy.
+    private func registerInternalPageDiscards() {
+        guard services.features.isEnabled(.memoryDiscardInternalPages) else { return }
+        let discards = ContentDiscardScheduler(kind: .internalPage, memory: services.memoryCoordinator)
+        discards.host = services.pages
+        services.pages.cache = services.cache
+        services.pages.discards = discards
     }
 }

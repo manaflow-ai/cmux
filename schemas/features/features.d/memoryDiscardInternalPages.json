@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "memoryDiscardInternalPages",
+  "owner": "PL-memory",
+  "description": "A page tab hidden past its page's discard policy (10 minutes unless the page sets its own, sooner at critical memory pressure) lets its view and page renderer go and keeps its tab, scroll and picture; showing it builds the page again.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

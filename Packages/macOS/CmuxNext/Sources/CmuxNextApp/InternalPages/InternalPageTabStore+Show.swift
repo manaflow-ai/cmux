@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextHibernation
+import CmuxNextPages
 
 extension InternalPageTabStore {
     /// The catalog show action of every page (`openSettings`,
@@ -106,3 +108,118 @@ extension AppServices {
         return nil
     }
 }
+
+// MARK: Discard (`memoryDiscardInternalPages`, p07-memory.md 3.C, task 022)
+//
+// Chrome discards a background tab and keeps the tab (strip place, title, favicon, navigation
+// state), then reloads it when shown (chrome/browser/resource_coordinator/tab_lifecycle_unit.cc,
+// `TabLifecycleUnit::Discard`). A page tab hidden past its provider's policy saves its view state
+// and last picture, and its view and page renderer go; its next show makes the view again, under
+// the picture until it paints, with the state put back. `discards` (a ContentDiscardScheduler)
+// decides when; the content cache's lifecycle carries it: show and hide are a page tab's `reveal`
+// and `conceal`, the discard is its `hibernate` event and `release` effect, a show of a discarded
+// tab its `restore` effect, all under the lifecycle's tokens. The cache names a tab by its strip
+// id: an app-only tab's key, or a store page tab's id, whose view lives under a provider key.
+extension InternalPageTabStore {
+    /// The page store whose discards follow `cache`'s lifecycle; nil while the feature is off.
+    static func discarding(_ cache: TabContentCache) -> InternalPageTabStore? {
+        guard let pages = cache.pageRequests.services?.pages, pages.discards != nil else { return nil }
+        return pages
+    }
+
+    /// The provider key of `tab`: a store page tab's, else `tab` itself.
+    func providerKey(ofTab tab: String) -> String { storeKey(of: tab) ?? tab }
+
+    /// The registered provider of `tab`'s page; nil for a tab that is no page tab.
+    func provider(ofTab tab: String) -> (any InternalPageProvider)? { page(ofTab: tab).flatMap { provider($0) } }
+
+    /// Whether `tab`'s view was discarded and not made again yet.
+    func isDiscarded(_ tab: String) -> Bool { discarded[providerKey(ofTab: tab)] != nil }
+
+    /// The last picture of discarded page tab `tab`, from the content cache's previews.
+    func discardedPicture(of tab: String) -> CGImage? { cache?.previews.image(for: tab) }
+
+    // Lifecycle effects of page tabs; each is false for a tab that is no page tab.
+
+    /// A `mount`: a page tab's view exists (the pane made it with its content), so it is live. Its
+    /// memory is the discards' to manage, never the terminal warm set's.
+    func adoptPage(_ tab: String) -> Bool {
+        guard existingView(tab) != nil else { return false }
+        cache?.ledger.setRetained(tab, false)
+        return true
+    }
+
+    /// A `reveal`.
+    func pageDidShow(_ tab: String) -> Bool {
+        guard provider(ofTab: tab) != nil else { return false }
+        discards?.contentDidShow(tab)
+        return true
+    }
+
+    /// A `conceal`.
+    func pageDidHide(_ tab: String) -> Bool {
+        guard provider(ofTab: tab) != nil else { return false }
+        discards?.contentDidHide(tab)
+        return true
+    }
+
+    /// A `release`: the view goes with the state its preparation saved (none for a discard nobody
+    /// prepared, the person's Hibernate Tab); a pane still holding it lets it go.
+    func releasePage(_ tab: String, token: ContentLifecycle<String>.Token) -> Bool {
+        guard provider(ofTab: tab) != nil else { return false }
+        let state = discards?.takePrepared(tab) ?? ContentViewState()
+        guard let cache, cache.lifecycle.accepts(tab, token) else { return true }
+        cache.presenter(of: tab)?.surfaceWasDisplaced(tab)
+        // A web page ends its bridge and engine session now, so its renderer goes with the view.
+        let page = existingView(tab)?.content as? PageWebView
+        guard discardView(ofTab: tab, state: state) else { return true }
+        page?.close()
+        cache.trace(tab, "page discarded \(token)")
+        discards?.noteDiscarded(tab)
+        return true
+    }
+
+    /// A `restore`: the pane made the view with its content, so it is live; with no view (a wake
+    /// nobody shows) the tab stays discarded.
+    func restorePage(_ tab: String, token: ContentLifecycle<String>.Token) -> Bool {
+        guard provider(ofTab: tab) != nil else { return false }
+        guard let cache else { return true }
+        cache.applyLifecycle(cache.lifecycle.send(existingView(tab) != nil ? .mounted(tab, token) : .mountFailed(tab, token)))
+        return true
+    }
+}
+
+extension InternalPageTabStore: ContentDiscardHost {
+    func discardPolicy(of key: String) -> ContentDiscardPolicy? {
+        guard existingView(key) != nil, let provider = self.provider(ofTab: key) else { return nil }
+        return provider.discardPolicy(for: providerKey(ofTab: key))
+    }
+
+    func keepReasons(of key: String) -> [CannotDiscardReason] {
+        provider(ofTab: key)?.keepReasons(for: providerKey(ofTab: key)) ?? []
+    }
+
+    func isDrawn(_ key: String) -> Bool {
+        existingView(key).map { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor } ?? false
+    }
+
+    /// Saves hidden page tab `key`'s state and picture. It stays (nil) when anything changed
+    /// meanwhile: a show or hide (the lifecycle's generation), a new view, or a reason to keep it.
+    func prepareDiscard(_ key: String) async -> ContentViewState? {
+        guard let view = existingView(key), let provider = self.provider(ofTab: key), let record = cache?.lifecycle.record(key),
+              record.phase == .mountedHidden else { return nil }
+        let pageKey = providerKey(ofTab: key)
+        let state = await provider.saveViewState(for: pageKey, content: view.content)
+        let picture = await view.lastPicture()
+        guard let cache, cache.lifecycle.record(key)?.generation == record.generation, existingView(key) === view,
+              provider.keepReasons(for: pageKey).isEmpty else { return nil }
+        if let picture { cache.previews.insert(picture, for: key) }
+        return state
+    }
+
+    func commitDiscard(_ key: String) {
+        guard let cache else { return }
+        cache.applyLifecycle(cache.lifecycle.send(.hibernate(key)))
+    }
+}
+
