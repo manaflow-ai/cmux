@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextEnergy
 
 /// Calls back when the glass mode pages draw (`GlassLensMode.current`) changes: the Debug choice `glass.lens`,
 /// Reduce Transparency (system or Debug override) or Low Power Mode. Events only, nothing polls.
@@ -12,13 +13,16 @@ final class GlassModeWatch {
     private var lowPower: LowPowerModeObservation?
     private var display: MainActorObservation?
 
-    init(onChange: @escaping @MainActor () -> Void) {
+    /// - Parameters:
+    ///   - lowPowerMode: The app's Low Power Mode (its energy monitor's); the default, fixed off, is for tests.
+    ///   - onChange: Called when the mode is not the one last seen.
+    init(lowPowerMode: LowPowerMode = LowPowerMode(enabled: false), onChange: @escaping @MainActor () -> Void) {
         shown = .current
         self.onChange = onChange
         settings = Task { [weak self] in
             for await _ in ObservationStream({ GlassLensMode.tunable.value }) { self?.check() }
         }
-        lowPower = LowPowerMode.system.observe { [weak self] _ in self?.check() }
+        lowPower = lowPowerMode.observe { [weak self] _ in self?.check() }
         display = MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
             self?.check()
         }

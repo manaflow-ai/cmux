@@ -4,6 +4,7 @@ import CmuxNextBridge
 @testable import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextEnergy
 @testable import CmuxNextSettings
 import Foundation
 import Testing
