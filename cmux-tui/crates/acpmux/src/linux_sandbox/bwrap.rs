@@ -1,8 +1,7 @@
 //! Bubblewrap mount/namespace plan. Not wired to remote spawns until G2.
 //! This layer alone is insufficient: the seccomp supervisor and network
 //! proxy must also be installed before a remote command may run.
-//! Mount-alias rejection lands separately; this staged plan must not enable
-//! Linux remote spawns until that layer is installed.
+//! Linux remote spawns stay refused until G2 installs all enforcement layers.
 #![allow(dead_code)] // Staged API: G1/G2 supply the production callers.
 
 use std::ffi::CString;
@@ -28,7 +27,9 @@ pub(crate) const LINUX_READ_DENIES: &[&str] = &[
     ".claude/.credentials.json",
 ];
 
+mod aliases;
 mod home;
+use aliases::mount_aliases;
 #[cfg(test)]
 use home::{denied_paths, home_view};
 use home::{denied_paths_pinned, home_view_pinned};
@@ -240,11 +241,12 @@ fn outside_view(paths: &[PathBuf], home: &Path) -> Result<Vec<String>, String> {
 
 /// Caller supplies explicit denied paths parsed by `rules::WritePolicy`.
 /// The returned descriptors must be inherited by bwrap with CLOEXEC cleared.
-/// No spawn is wired yet; alias checks are still required.
+/// Caller supplies fresh mountinfo; no spawn is wired yet.
 /// Validation loops stop after the fixed roots and supplied deny list.
 pub(crate) fn plan(
     paths: &Paths,
     read_denies: &[PathBuf],
+    mountinfo: &str,
     cmd_prefix: &[String],
 ) -> Result<BwrapPlan, String> {
     let memory = paths.claude_project.join("memory");
@@ -262,6 +264,21 @@ pub(crate) fn plan(
         if denied.iter().chain(outside.iter()).any(|d| root.starts_with(d) || d.starts_with(root)) {
             return Err(format!("writable root overlaps read denial: {}", root.display()));
         }
+    }
+    let mut protected = vec![memory];
+    for path in denied.iter().chain(outside.iter()) {
+        match fs::canonicalize(path) {
+            Ok(target) => {
+                protected.push(path.clone());
+                protected.push(target);
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => (),
+            Err(e) => return Err(format!("cannot inspect {}: {e}", path.display())),
+        }
+    }
+    let aliases = mount_aliases(&protected, mountinfo);
+    if !aliases.is_empty() {
+        return Err(aliases.join("; "));
     }
     let mut home = home_view_pinned(&paths.home, denied, Some(&snapshot))?;
     let outside = outside_view(outside, &paths.home)?;
@@ -439,6 +456,39 @@ mod tests {
         }
     }
 
+    #[test]
+    fn mount_aliases_reject_same_device_and_overlay_views() {
+        let protected = PathBuf::from("/home/u/.ssh");
+        let info = "1 0 8:1 / / rw - ext4 root rw\n2 1 8:1 /home /mnt/home rw - ext4 root rw\n";
+        assert_eq!(
+            mount_aliases(std::slice::from_ref(&protected), info),
+            vec!["/home/u/.ssh is also visible at /mnt/home"]
+        );
+        let info = "1 0 0:32 /@home /home rw - btrfs root rw\n2 0 0:32 /@other /other rw - btrfs root rw\n";
+        assert!(mount_aliases(std::slice::from_ref(&protected), info).is_empty());
+        let info = "1 0 8:1 / / rw - ext4 root rw\n2 1 8:1 /home/u/.ssh/aws /alias\\040space rw - ext4 root rw\n";
+        assert_eq!(
+            mount_aliases(std::slice::from_ref(&protected), info),
+            vec!["/home/u/.ssh is also visible at /alias space"]
+        );
+        let info = "1 0 8:1 / / rw - ext4 root rw\n2 1 8:2 / /home rw - overlay overlay lowerdir=/tmp,upperdir=/missing/upper,workdir=/missing/work rw\n";
+        assert_eq!(
+            mount_aliases(std::slice::from_ref(&protected), info),
+            vec!["/home/u/.ssh lives on overlayfs whose layer /tmp is readable here"]
+        );
+        let info = "1 0 8:1 / / rw - ext4 root rw\n2 1 8:2 / /home rw - overlay overlay lowerdir=/missing/a\\072b:/missing/c\\040d,upperdir=/missing/upper,workdir=/missing/work rw\n";
+        assert!(mount_aliases(std::slice::from_ref(&protected), info).is_empty());
+        let fixture = Fixture::new();
+        let paths = fixture.create_paths();
+        let memory = paths.claude_project.join("memory");
+        let info = format!(
+            "1 0 8:1 / / rw - ext4 root rw\n2 1 8:1 {} /alias rw - ext4 root rw\n",
+            memory.display()
+        );
+        let error = plan(&paths, &[], &info, &strings(&["true"])).unwrap_err();
+        assert!(error.contains("also visible at /alias"), "{error}");
+    }
+
     fn real_probe() -> bool {
         match probe(Path::new("/usr/bin/bwrap")) {
             Ok(()) => true,
@@ -494,7 +544,8 @@ mod tests {
             mounts.iter().collect::<BTreeSet<_>>().len(),
             "view={view:?} denied={denied:?}"
         );
-        let (args, _fds) = plan(&p, &[], &strings(&["true"])).unwrap();
+        let (args, _fds) =
+            plan(&p, &[], "1 0 8:1 / / rw - ext4 root rw\n", &strings(&["true"])).unwrap();
         let rebuilt = args.iter().position(|s| s == "--tmpfs").unwrap();
         let writable = args.iter().position(|s| s == "--bind-fd").unwrap();
         assert!(
@@ -529,7 +580,13 @@ mod tests {
         let script = "echo ready; read -r go; if [ -e \"$1\" ]; then echo 'late credential visible' >&2; exit 49; fi";
         let command =
             strings(&["/bin/sh", "-c", script, "late-secret", credential.to_str().unwrap()]);
-        let (args, fds) = plan(&p, &[p.home.join(".ssh"), p.home.join(".aws")], &command).unwrap();
+        let (args, fds) = plan(
+            &p,
+            &[p.home.join(".ssh"), p.home.join(".aws")],
+            &fs::read_to_string("/proc/self/mountinfo").unwrap(),
+            &command,
+        )
+        .unwrap();
         let mut command = tokio::process::Command::new("/usr/bin/bwrap");
         inherit_fds(&mut command, &fds);
         let mut child = command
@@ -795,7 +852,13 @@ mod tests {
         fs::write(secret.join("marker"), "denied-marker").unwrap();
         let command =
             strings(&["/bin/sh", "-c", "cat -- \"$1/marker\"", "swap", allowed.to_str().unwrap()]);
-        let (args, fds) = plan(&p, std::slice::from_ref(&secret), &command).unwrap();
+        let (args, fds) = plan(
+            &p,
+            std::slice::from_ref(&secret),
+            &fs::read_to_string("/proc/self/mountinfo").unwrap(),
+            &command,
+        )
+        .unwrap();
         fs::rename(&allowed, f.0.join("held-allowed")).unwrap();
         std::os::unix::fs::symlink(&secret, &allowed).unwrap();
         let mut child = tokio::process::Command::new("/usr/bin/bwrap");
@@ -1049,7 +1112,13 @@ case "$bad_ipv6_route" in '') ;; *) fail 48 "non-loopback IPv6 route: observed=<
             .map(|path| path.to_str().unwrap().to_owned()),
         );
         command.extend([FILE_MARKER.to_owned(), DIRECTORY_MARKER.to_owned()]);
-        let (args, fds) = plan(&p, &profile_read_denies(&p), &command).unwrap();
+        let (args, fds) = plan(
+            &p,
+            &profile_read_denies(&p),
+            &fs::read_to_string("/proc/self/mountinfo").unwrap(),
+            &command,
+        )
+        .unwrap();
         let mut child = tokio::process::Command::new(bwrap);
         inherit_fds(&mut child, &fds);
         child
