@@ -1536,6 +1536,19 @@ class ServerStatsRegistryLock:
 
 
 @dataclass(frozen=True)
+class ServerStatsRequestLatency:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsRequestLatency'
+    agent: ServerStatsHistogram
+    browser: ServerStatsHistogram
+    cloud: ServerStatsHistogram
+    create: ServerStatsHistogram
+    other: ServerStatsHistogram
+    query: ServerStatsHistogram
+    terminal_io: ServerStatsHistogram
+    topology: ServerStatsHistogram
+
+
+@dataclass(frozen=True)
 class ServerStatsRequestPathIo:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsRequestPathIo'
     child_process: int
@@ -1590,6 +1603,8 @@ class ServerStatsResult:
     registry_lock: ServerStatsRegistryLock
     schema: int
     uptime_ms: int
+    dispatch_queue_us: Union[ServerStatsHistogram, MissingType] = field(default=MISSING)
+    request_latency_us: Union[ServerStatsRequestLatency, MissingType] = field(default=MISSING)
     request_path_io: Union[ServerStatsRequestPathIo, MissingType] = field(default=MISSING)
     resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
     slow_requests: Union[ServerStatsSlowRequests, MissingType] = field(default=MISSING)
@@ -1603,7 +1618,19 @@ class ServerStatsSlowRequest:
     busy_ms: int
     duration_ms: Union[int, None]
     method: str
+    stack: List[ServerStatsSlowRequestFrame]
+    stack_error: Union[str, None]
+    stack_truncated: bool
     started_ms: int
+
+
+@dataclass(frozen=True)
+class ServerStatsSlowRequestFrame:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsSlowRequestFrame'
+    image: Union[str, None]
+    image_id: Union[str, None]
+    offset: int
+    symbol: Union[str, None]
 
 
 @dataclass(frozen=True)
@@ -6158,11 +6185,13 @@ __all__ = [
     'ServerStatsLockSite',
     'ServerStatsLockStall',
     'ServerStatsRegistryLock',
+    'ServerStatsRequestLatency',
     'ServerStatsRequestPathIo',
     'ServerStatsRequestPathSite',
     'ServerStatsResourceProjection',
     'ServerStatsResult',
     'ServerStatsSlowRequest',
+    'ServerStatsSlowRequestFrame',
     'ServerStatsSlowRequests',
     'ServerStatsWritePath',
     'SetCellPixelsResult',

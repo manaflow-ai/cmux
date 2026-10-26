@@ -12,7 +12,7 @@ import Testing
         ThemeScope.app.store.setMachineColors(picks)
         defer { ThemeScope.app.store.setMachineColors(.none) }
         let item = TabItem(id: TabID("remote"), title: "Remote", machineBadge: "big-red")
-        let strip = TabStripView(model: TabStripModel(tabs: [item], selectedID: item.id))
+        let strip = TabStripView.testing(model: TabStripModel(tabs: [item], selectedID: item.id))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: TabStripView.preferredHeight), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         defer { window.orderOut(nil) }

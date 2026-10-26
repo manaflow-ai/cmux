@@ -2716,11 +2716,17 @@ use resource_connection::{
 };
 
 mod connection_frame;
+mod request_spans;
 #[cfg(test)]
 use connection_frame::write_vt_state_command_json;
 use connection_frame::{
-    auth_token, constant_time_eq, handle_connection_frame, handle_request,
-    handle_request_with_cancellation, pairing_request, zeroize_string,
+    auth_token, constant_time_eq, handle_connection_frame_at, handle_request_with_cancellation,
+    pairing_request, zeroize_string,
+};
+#[cfg(test)]
+use connection_frame::{handle_connection_frame, handle_request};
+use request_spans::{
+    AsyncReply, RequestArrival, RequestHead, RequestMethod, RequestSpan, request_id_hash,
 };
 
 /// One layout node. `split_ids`: the public ids of the splits

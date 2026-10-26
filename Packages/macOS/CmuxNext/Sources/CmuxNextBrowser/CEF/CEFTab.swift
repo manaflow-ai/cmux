@@ -60,6 +60,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var colorScheme: BrowserColorScheme = .system
 
     var machine = BrowserTabStateMachine()
+    /// The page plays unmuted media (`BrowserAudibleReporting`): `state.media?.isAudible`, kept
+    /// apart so its observers wake on the flip only, not on each load tick or title.
+    public internal(set) var isAudible = false
     /// Title changes reach `machine` at most 4 a second (`TitleCoalescer`, idle power).
     @ObservationIgnored var titleCoalescer = TitleCoalescer()
     @ObservationIgnored let titleTimer = DemandTimer(owner: "CEFTab.title")
@@ -307,6 +310,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // no live page ever heard.
         sentColorScheme = nil
         machine.apply(.processExited(exit))
+        noteAudible()
         // After the sad tab, not before it: no first paint or load end is
         // coming for the document that was loading, so the page area stops
         // standing in for it (`CEFTab+LoadingBackground`) -- but settling

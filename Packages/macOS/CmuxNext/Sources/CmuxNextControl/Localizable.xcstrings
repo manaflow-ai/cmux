@@ -1442,6 +1442,137 @@
         }
       }
     },
+    "control.error.debugMethodNotAllowed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is a debug method; only DEV builds serve debug methods"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ طريقة تصحيح؛ لا تُقدِّم طرق التصحيح إلا إصدارات DEV"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ je metoda za otklanjanje grešaka; takve metode imaju samo DEV verzije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er en fejlfindingsmetode; kun DEV-builds har fejlfindingsmetoder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ist eine Debug-Methode; nur DEV-Builds bieten Debug-Methoden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ es un método de depuración; solo las compilaciones DEV ofrecen métodos de depuración"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ est une méthode de débogage ; seuls les builds DEV proposent les méthodes de débogage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ è un metodo di debug; solo le build DEV offrono metodi di debug"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ はデバッグ用メソッドです。デバッグ用メソッドは DEV ビルドでのみ使えます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ គឺជាវិធីសាស្ត្របំបាត់កំហុស។ មានតែកំណែ DEV ទេដែលផ្តល់វិធីសាស្ត្របំបាត់កំហុស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 은(는) 디버그 메서드입니다. 디버그 메서드는 DEV 빌드에서만 제공됩니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er en feilsøkingsmetode; bare DEV-bygg har feilsøkingsmetoder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ to metoda debugowania; metody debugowania mają tylko kompilacje DEV"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ é um método de depuração; só builds DEV oferecem métodos de depuração"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ — отладочный метод; отладочные методы есть только в сборках DEV"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ เป็นเมธอดดีบัก มีเฉพาะบิลด์ DEV ที่มีเมธอดดีบัก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ bir hata ayıklama yöntemidir; hata ayıklama yöntemleri yalnızca DEV derlemelerinde vardır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ — метод налагодження; методи налагодження є лише у збірках DEV"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ là phương thức gỡ lỗi; chỉ bản dựng DEV mới có phương thức gỡ lỗi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 是调试方法；只有 DEV 版本提供调试方法"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 是除錯方法；只有 DEV 版本提供除錯方法"
+          }
+        }
+      }
+    },
     "control.error.unknownMethod": {
       "extractionState": "manual",
       "localizations": {

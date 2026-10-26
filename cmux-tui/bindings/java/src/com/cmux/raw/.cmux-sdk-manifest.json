@@ -2112,7 +2112,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "f12c5cffd0ca8aa8b5562c0af87e10d57f91efd999e04e3d3715c646bfb8e6e4",
+      "sha256": "24f34d98b90ea2cb9b619679b3901bdfa41dbcbddc9165650ac3ddaa8c2e9c45",
       "size": 7486
     },
     {
@@ -2526,6 +2526,11 @@
       "size": 2112
     },
     {
+      "path": "ServerStatsRequestLatency.java",
+      "sha256": "8c17007b9e1667688e8b0d137e6780abac525029c60f8c4e7b20e08519e91b80",
+      "size": 7145
+    },
+    {
       "path": "ServerStatsRequestPathIo.java",
       "sha256": "093c00faaed377225f3369ce45f20062ba7eb17cbcaf8b11e1c9e577ba498acb",
       "size": 10980
@@ -2542,13 +2547,18 @@
     },
     {
       "path": "ServerStatsResult.java",
-      "sha256": "f170237aadb2da53998f31909e7019b7c85527ad6e7a514b05230e6ce4c839da",
-      "size": 8386
+      "sha256": "91d74994d2838e377fd800748124f4a2fd9ea499534001951d603cd31cd0d99b",
+      "size": 10041
     },
     {
       "path": "ServerStatsSlowRequest.java",
-      "sha256": "95af796550fa80c49d25a8adca9d1833c3afff36a1d0e21115329d562955b40e",
-      "size": 4867
+      "sha256": "2306afa55f0bb1f6582581f993078627a6306de23179294b7ce922a851fffe41",
+      "size": 7307
+    },
+    {
+      "path": "ServerStatsSlowRequestFrame.java",
+      "sha256": "539012bd3337118f73640c35f0b900a75d17de9de64cc3675ebe12afc2927026",
+      "size": 4084
     },
     {
       "path": "ServerStatsSlowRequests.java",
@@ -3432,7 +3442,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "e1240f73a120038c17b53bc2c9c781f08181559708f4ca5d9f9ef39b09e6d103",
+  "ir_sha256": "77f0c70101ce816e2ee667ac7315cd3b234194807cf3cffd297c5e4bc46edda9",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

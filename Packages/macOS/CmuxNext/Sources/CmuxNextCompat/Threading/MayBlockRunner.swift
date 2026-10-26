@@ -65,6 +65,7 @@ public struct MayBlockCallSite: Sendable {
 ///
 /// ```swift
 /// let bytes = try await runner.runFiles(.userVisible) { try read(url) }
+/// let addresses = try await runner.runHostResolution(.userVisible) { resolve(host) }  // blockingGetaddrinfo inside
 /// runner.postFiles(.bestEffort, shutdown: .blockShutdown) { try? save(snapshot) }
 /// ```
 public protocol MayBlockRunner: Sendable {
@@ -82,6 +83,14 @@ public protocol MayBlockRunner: Sendable {
     /// - Throws: as ``runFiles(_:shutdown:site:_:)``.
     func runSystem<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown, site: MayBlockCallSite,
                                 _ body: @escaping @Sendable () throws -> T) async throws -> T
+
+    /// Runs a host name resolution (`blockingGetaddrinfo`) on the system lane and returns its result. At most
+    /// four run at once there, never on its reserved slot, so a hung resolver never holds the slots keychain or
+    /// Accessibility work needs. The cap is cmux's: Chrome gives DNS a pool of its own (net/dns/host_resolver_manager.cc).
+    ///
+    /// - Throws: as ``runFiles(_:shutdown:site:_:)``.
+    func runHostResolution<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown, site: MayBlockCallSite,
+                                        _ body: @escaping @Sendable () throws -> T) async throws -> T
 
     /// Queues `body` on the files lane at `priority` and returns at once; nothing awaits it, so nothing
     /// boosts it. A save whose loss loses data states ``MayBlockShutdown/blockShutdown``.
@@ -103,6 +112,13 @@ extension MayBlockRunner {
                                        fileID: StaticString = #fileID, line: UInt = #line,
                                        _ body: @escaping @Sendable () throws -> T) async throws -> T {
         try await runSystem(priority, shutdown: shutdown, site: MayBlockCallSite(fileID: fileID, line: line), body)
+    }
+
+    /// ``runHostResolution(_:shutdown:site:_:)`` at the caller's site; default ``MayBlockShutdown/skipOnShutdown``.
+    public func runHostResolution<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown = .skipOnShutdown,
+                                               fileID: StaticString = #fileID, line: UInt = #line,
+                                               _ body: @escaping @Sendable () throws -> T) async throws -> T {
+        try await runHostResolution(priority, shutdown: shutdown, site: MayBlockCallSite(fileID: fileID, line: line), body)
     }
 
     /// ``postFiles(_:shutdown:site:_:)`` at the caller's site.

@@ -65,15 +65,16 @@ public nonisolated final class TerminalEchoStage: Sendable {
     ///   - gate: The contents hook's gate, shared by every surface of the process.
     ///   - deadline: Closes keys after ``window``.
     ///   - capacity: Keys tracked at once.
-    ///   - now: `CLOCK_UPTIME_RAW` nanoseconds (the clock of `NSEvent.timestamp`).
+    ///   - now: `CLOCK_UPTIME_RAW` nanoseconds (the clock of `NSEvent.timestamp`); `nil` reads that
+    ///     clock (a public default argument cannot name the internally imported Darwin clock).
     public init(sink: any TerminalEchoLatencySink, gate: TerminalContentsGate, deadline: any TerminalEchoDeadline,
                 capacity: Int = TerminalEchoStage.defaultCapacity,
-                now: @escaping @Sendable () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }) {
+                now: (@Sendable () -> UInt64)? = nil) {
         entries = (0..<max(capacity, 1)).map { _ in Entry() }
         self.sink = sink
         self.gate = gate
         self.deadline = deadline
-        self.now = now
+        self.now = now ?? { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
     }
 
     /// Keys armed so far. The output lane reads it when a chunk arrives: keys armed later cannot be

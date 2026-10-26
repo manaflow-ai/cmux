@@ -7,6 +7,7 @@ so the installed trusted copy of the gate is what runs. Not on CI (Lawrence 2026
 gates/tests in CI, but you have to run them yourself"): run it yourself after every change to guardrails.py,
 prepush-gate.py's guardrails path or install-git-hooks.sh: python3 tests/test_cmux_next_guardrails.py
 """
+import collections
 import contextlib
 import dataclasses
 import fcntl
@@ -2163,6 +2164,284 @@ class SharedRuleTests(Fixture):
                 self.write(f"{KIT}/Added.swift", text)
                 self.commit("an unchecked box")
                 self.assertEqual("unchecked-sendable" in [rule for rule, _ in self.refused()], counted)
+
+
+INPUT = f"{PKG}/Sources/CmuxNextInput"
+WAKEUPS = f"{PKG}/Sources/CmuxNextWakeups"
+LOOP_SLEEP = ("func pump() async throws {\n    while running {\n        // wakeup-allow: the pump's reviewed cadence\n"
+              "        try await clock.sleep(for: .seconds(1))\n    }\n}\n")
+# rule id -> [(path, file text that adds it, the same with its escape or the right pattern)]
+MAIN_CLASS_CASES = {
+    "main-hop": [
+        (f"{KIT}/Added.swift", "func load() {\n    Task { await fetch() }\n}\n",
+         "func load() {\n    // main-hop-allow: AppKit's menu tracking needs the next turn\n    Task { await fetch() }\n}\n"),
+        (f"{KIT}/Added.swift", "nonisolated func load() {\n    Task { @MainActor in apply() }\n}\n",
+         "nonisolated func load() {\n    Task { await fetch() }\n}\n"),
+        (f"{KIT}/Added.swift", "func load() async {\n    await MainActor.run { apply() }\n}\n",
+         "func load() async {\n    apply()\n}\n"),
+        (f"{KIT}/Added.swift", "func load() {\n    CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { apply() }\n}\n",
+         "func load() {\n    mainWork.post(.visible, owner: \"Loader\") { apply() }\n}\n"),
+        (f"{KIT}/Added.swift", "func load() {\n    MainDelivery().run { apply() }\n}\n",
+         "func load() {\n    MainDelivery(\n        class: .visible,\n        owner: \"Loader\"\n    ).run { apply() }\n}\n"),
+        # A `class:` of a nested call is not the delivery's; its own may come after the fourth line.
+        (f"{KIT}/Added.swift", "func load() {\n    MainDelivery(owner: f(class: 1)).run { apply() }\n}\n",
+         "func load() {\n    MainDelivery(\n        owner: \"Loader\",\n        queue: mainWork,\n        label: \"load\",\n"
+         "        class: .visible\n    ).run { apply() }\n}\n"),
+        (f"{KIT}/Added.swift", "func load() {\n    Task(name: \"load\") { @MainActor in apply() }\n}\n",
+         "nonisolated func load() {\n    Task(name: \"load\") { await fetch() }\n}\n"),
+    ],
+    "view-observation": [
+        (f"{KIT}/Added.swift", "func watch() {\n    stream = ObservationStream { model.title }\n}\n",
+         "func watch() {\n    watch = VisibleObservation(node, owner: \"Title\", on: mainWork) { model.title } apply: { label.stringValue = $0 }\n}\n"),
+        (f"{KIT}/Added.swift", "func watch() {\n    withObservationTracking { _ = model.title } onChange: { dirty = true }\n}\n",
+         "func watch() {\n    // view-observation-allow: the one-shot read under test\n"
+         "    withObservationTracking { _ = model.title } onChange: { dirty = true }\n}\n"),
+    ],
+    "visibility-walk": [
+        (f"{KIT}/Added.swift", "func tick() {\n    guard !view.isHiddenOrHasHiddenAncestor else { return }\n}\n",
+         "func tick() {\n    guard node.isVisible else { return }\n}\n"),
+        (f"{KIT}/Added.swift", "final class Pane: NSView {\n    override func viewDidHide() {\n        super.viewDidHide()\n"
+         "        paused = true\n    }\n}\n",
+         "final class Pane: NSView {\n    override func viewDidHide() {\n        super.viewDidHide()\n"
+         "        node.set(.hidden)\n    }\n}\n"),
+        (f"{KIT}/Added.swift", "final class Pane: NSView {\n    override func viewDidUnhide() { super.viewDidUnhide(); reload() }\n}\n",
+         "final class Pane: NSView {\n    override func viewDidUnhide() { super.viewDidUnhide(); node.set(.visible) }\n}\n"),
+        # A hide that tells the node it is visible is the wrong direction, not a forward.
+        (f"{KIT}/Added.swift", "final class Pane: NSView {\n    override func viewDidHide() { super.viewDidHide(); node.set(.visible) }\n}\n",
+         "final class Pane: NSView {\n    override func viewDidHide() { super.viewDidHide(); node.set(.hidden) }\n}\n"),
+    ],
+    "timer-class": [
+        (f"{KIT}/Added.swift", "func arm() {\n    timer = DemandTimer(clock: clock) { fire() }\n}\n",
+         "nonisolated func arm() {\n    timer = DemandTimer(clock: clock) { fire() }\n}\n"),
+        (f"{KIT}/Added.swift", LOOP_SLEEP,
+         LOOP_SLEEP.replace("        // wakeup-allow", "        // timer-class-allow: a fixed test cadence\n        // wakeup-allow")),
+        (f"{KIT}/Added.swift", "func pump() async throws {\n    repeat {\n        if busy {\n"
+         "            try await Task.sleep(for: .seconds(1)) // wakeup-allow: reviewed\n        }\n    } while running\n}\n",
+         "func pump() async throws {\n    // wakeup-allow: one deadline, not a loop\n    try await Task.sleep(for: .seconds(1))\n}\n"),
+    ],
+    "raw-observer": [
+        (f"{KIT}/Added.swift", "func start() {\n    NotificationCenter.default.addObserver(self, selector: #selector(resized), "
+         "name: NSWindow.didResizeNotification, object: window)\n}\n",
+         "func start() {\n    resize = windowEvents.subscribe(.didResize, node: node) { [weak self] in self?.resized() }\n}\n"),
+        (f"{KIT}/Added.swift", "func start() {\n    observation = webView.observe(\\.title) { _, _ in update() }\n}\n",
+         "func start() {\n    // raw-observer-allow: WebKit's title has no notice; the tab node gates it\n"
+         "    observation = webView.observe(\\.title) { _, _ in update() }\n}\n"),
+    ],
+    "local-monitor": [
+        (f"{INPUT}/Extra.swift", "func start() {\n    token = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { $0 }\n}\n",
+         "func start() {\n    token = tap.subscribe(class: .input, phase: .observe, window: nil, while: { true }) { _ in }\n}\n"),
+    ],
+}
+
+
+class MainClassRuleTests(Fixture):
+    """p06-scheduler's rules (main-hop, view-observation, visibility-walk, timer-class, raw-observer, local-monitor):
+    each refuses what a push adds, never base lines, honors its escape and is listed."""
+
+    def refused_ids(self):
+        return [rule.id for rule, _ in self.check()[0]]
+
+    def test_each_rule_refuses_an_added_line_and_passes_its_escape_or_the_right_pattern(self):
+        for rule, cases in MAIN_CLASS_CASES.items():
+            for path, bad, good in cases:
+                with self.subTest(rule=rule, bad=bad):
+                    self.git("reset", "--quiet", "--hard", self.base)
+                    self.write(path, bad)
+                    self.commit(f"adds {rule}")
+                    refusals, _ = self.check()
+                    self.assertEqual([(r.id, len(hits)) for r, hits in refusals], [(rule, 1)])
+                    text, refused = guardrails.format_report(refusals, [])
+                    self.assertTrue(refused)
+                    self.assertIn(f"{rule}-allow:", text)
+
+                    self.git("reset", "--quiet", "--hard", self.base)
+                    self.write(path, good)
+                    self.commit(f"right pattern for {rule}")
+                    self.assertEqual(self.refused_ids(), [], f"{rule}: the right pattern was refused")
+
+    def test_base_lines_never_count(self):
+        start = self.base
+        for rule, cases in MAIN_CLASS_CASES.items():
+            for path, bad, _ in cases:
+                with self.subTest(rule=rule, bad=bad):
+                    self.git("reset", "--quiet", "--hard", start)
+                    self.rebase_on({path: bad}, "base debt")
+                    self.write(path, bad + "func unrelated() {}\n")
+                    self.commit("edits beside the base debt")
+                    self.assertEqual(self.refused_ids(), [])
+
+    def test_every_rule_is_listed(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(guardrails.main(["--list"]), 0)
+        for rule in MAIN_CLASS_CASES:
+            self.assertIn(f"\n{rule}: ", "\n" + out.getvalue())
+
+    def test_deleting_main_actor_in_inside_main_actor_code_keeps_the_hop(self):
+        # A naive `Task { @MainActor` match would let the stripped old Task pay for the new one.
+        self.rebase_on({f"{KIT}/Loader.swift": "@MainActor final class Loader {\n    func a() {\n"
+                                               "        Task { @MainActor in apply() }\n    }\n}\n"})
+        self.write(f"{KIT}/Loader.swift", "@MainActor final class Loader {\n    func a() {\n"
+                   "        Task { apply() }\n    }\n    func b() {\n        Task { @MainActor in apply() }\n    }\n}\n")
+        self.commit("strips one annotation and adds a hop")
+        refusals, _ = self.check()
+        self.assertEqual([(r.id, [h.text.strip() for h in hits]) for r, hits in refusals],
+                         [("main-hop", ["Task { apply() }"])])
+
+    def test_main_inherited_tasks_reads_annotations_ui_types_and_the_target_default(self):
+        scope = guardrails.main_actor_work
+        text = ("final class Plain {\n    func a() { Task { await x() } }\n}\n"
+                "final class Pane: NSView {\n    func b() { Task { await x() } }\n"
+                "    nonisolated func c() { Task { await x() } }\n}\n"
+                "struct Row: Equatable, View {\n    var body: some View { Text(\"\").task { Task { await x() } } }\n}\n"
+                "@MainActor final class Model {\n    func d() { Task(priority: .high) { await x() } }\n"
+                "    func g() { Task(name: \"load\") { await x() } }\n"
+                "    func h() { Task(priority: .low, name: \"load\") { await x() } }\n"
+                "    func i() { Task.init { await x() } }\n}\n"
+                "func e() { Task.detached { await x() } }\n"
+                "nonisolated func f() { Task { @MainActor in apply() } }\n"
+                "nonisolated func j() { Task(name: \"apply\") { @MainActor in apply() } }\n"
+                "extension NSView {\n    func k() { Task { await x() } }\n}\n"
+                "extension View {\n    func l() { Task { await x() } }\n}\n"
+                "extension Pane {\n    func m() { Task { await x() } }\n}\n"
+                "struct Box<T>: Equatable where T: View {\n    func n() { Task { await x() } }\n}\n"
+                "extension NSView.AutoresizingMask {\n    func o() { Task { await x() } }\n}\n")
+        lines = text.split("\n")
+        found = scope.main_inherited_tasks(lines, False)
+        self.assertEqual([lines[i].strip() for i, _ in found],
+                         ["func b() { Task { await x() } }",
+                          "var body: some View { Text(\"\").task { Task { await x() } } }",
+                          "func d() { Task(priority: .high) { await x() } }",
+                          "func g() { Task(name: \"load\") { await x() } }",
+                          "func h() { Task(priority: .low, name: \"load\") { await x() } }",
+                          "func i() { Task.init { await x() } }",
+                          "nonisolated func f() { Task { @MainActor in apply() } }",
+                          "nonisolated func j() { Task(name: \"apply\") { @MainActor in apply() } }",
+                          "func k() { Task { await x() } }",
+                          "func l() { Task { await x() } }",
+                          "func m() { Task { await x() } }"])
+        self.assertEqual([lines[source - 1].strip() for _, source in found],
+                         ["final class Pane: NSView {", "struct Row: Equatable, View {"]
+                         + ["@MainActor final class Model {"] * 4
+                         + ["nonisolated func f() { Task { @MainActor in apply() } }",
+                            "nonisolated func j() { Task(name: \"apply\") { @MainActor in apply() } }",
+                            "extension NSView {", "extension View {", "extension Pane {"])
+        # A first-party UI type declared in another file: the revision's index (GenericTypes.ui_type) names it.
+        other = "extension TerminalView {\n    func a() { Task { await x() } }\n}\n".split("\n")
+        self.assertEqual(scope.main_inherited_tasks(other, False), [])
+        self.assertEqual(scope.main_inherited_tasks(other, False, ui_type={"TerminalView"}.__contains__), [(1, 1)])
+        in_main_target = [lines[i].strip() for i, _ in scope.main_inherited_tasks(lines, True)]
+        self.assertIn("func a() { Task { await x() } }", in_main_target)
+        self.assertNotIn("nonisolated func c() { Task { await x() } }", in_main_target)
+        self.assertNotIn("func e() { Task.detached { await x() } }", in_main_target)
+        # main_actor_lines (check-concurrency.sh's and check-main-actor-work.py's reading) is unchanged by UI types.
+        self.assertFalse(scope.main_actor_lines(lines, False)[4])
+
+    def test_annotating_the_scope_makes_its_old_tasks_new_debt(self):
+        self.rebase_on({f"{PKG}/Package.swift": "// swift-tools-version: 6.2\nimport PackageDescription\n"
+                        "let package = Package(name: \"CmuxNext\", targets: [\n    .target(name: \"CmuxNextKit\"),\n])\n",
+                        f"{KIT}/Loader.swift": "final class Loader {\n    func a() {\n        Task { await apply() }\n    }\n}\n"})
+        self.write(f"{KIT}/Loader.swift", "@MainActor\nfinal class Loader {\n    func a() {\n        Task { await apply() }\n"
+                   "    }\n}\n")
+        self.commit("annotates the class")
+        self.assertEqual(self.refused(), [("main-hop", ["Loader.swift: Task { await apply() }"])])
+
+    def test_editing_a_hide_override_body_into_a_gate_is_new_debt(self):
+        forward = ("final class Pane: NSView {\n    override func viewDidHide() {\n        super.viewDidHide()\n"
+                   "        node.set(.hidden)\n    }\n}\n")
+        self.rebase_on({f"{KIT}/Pane.swift": forward})
+        self.write(f"{KIT}/Pane.swift", forward.replace("node.set(.hidden)", "paused = true"))
+        self.commit("gates on hide")
+        self.assertEqual(self.refused(), [("visibility-walk", ["Pane.swift: override func viewDidHide() {"])])
+
+    def test_removing_the_escape_comment_is_new_debt(self):
+        escaped = "func load() {\n    // main-hop-allow: AppKit's menu tracking needs the next turn\n    MainActor.run { }\n}\n"
+        self.rebase_on({f"{KIT}/Hop.swift": escaped})
+        self.write(f"{KIT}/Hop.swift", escaped.replace("    // main-hop-allow: AppKit's menu tracking needs the next turn\n", ""))
+        self.commit("drops the escape")
+        self.assertEqual(self.refused(), [("main-hop", ["Hop.swift: MainActor.run { }"])])
+
+    def test_owned_concerns_are_not_refused_twice(self):
+        # main-async owns `DispatchQueue.main.async`, check-concurrency.sh owns an unescaped sleep, input-monitor a
+        # monitor outside CmuxNextInput; the tap itself and the Wakeups primitives are not judged.
+        self.write(f"{KIT}/Added.swift", "func f() {\n    DispatchQueue.main.async { apply() }\n}\n"
+                   "func poll() async throws {\n    while busy {\n        try await Task.sleep(for: .seconds(1))\n    }\n}\n"
+                   "func g() {\n    token = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { $0 }\n}\n")
+        self.write(f"{INPUT}/InputEventTap.swift", "func install() {\n    token = NSEvent.addLocalMonitorForEvents(matching: .any) { $0 }\n}\n")
+        self.write(f"{WAKEUPS}/MainDeadline.swift", "func arm() {\n    timer = DemandTimer(clock: clock) { Task { @MainActor in fire() } }\n}\n"
+                   + LOOP_SLEEP + "func watch() {\n    withObservationTracking { _ = model.x } onChange: { }\n}\n")
+        self.commit("lines other checks own")
+        self.assertEqual(sorted(self.refused_ids()), ["input-monitor", "main-async"])
+
+    def test_an_extension_of_a_ui_subclass_in_another_file_is_main_actor(self):
+        # In a target that is not main actor by default, `extension TerminalView` takes TerminalView's NSView
+        # isolation from TerminalView.swift: stripping `@MainActor in` there keeps the hop, so it pays for no new one.
+        self.rebase_on({f"{PKG}/Package.swift": "// swift-tools-version: 6.2\nimport PackageDescription\n"
+                        "let package = Package(name: \"CmuxNext\", targets: [\n    .target(name: \"CmuxNextKit\"),\n])\n",
+                        f"{KIT}/TerminalView.swift": "final class TerminalView: NSView {\n}\n",
+                        f"{KIT}/TerminalView+Drag.swift": "extension TerminalView {\n    func a() {\n"
+                                                          "        Task { @MainActor in apply() }\n    }\n}\n"})
+        self.write(f"{KIT}/TerminalView+Drag.swift", "extension TerminalView {\n    func a() {\n        Task { apply() }\n"
+                   "    }\n    func b() {\n        Task { @MainActor in apply() }\n    }\n}\n")
+        self.write(f"{KIT}/TerminalView+Menu.swift", "extension TerminalView {\n    func c() {\n        Task { await x() }\n"
+                   "    }\n}\n")
+        self.commit("strips one annotation, adds a hop and a plain Task in a UI extension")
+        self.assertEqual(self.refused(), [("main-hop", ["TerminalView+Drag.swift: Task { apply() }",
+                                                        "TerminalView+Menu.swift: Task { await x() }"])])
+
+    def test_no_rule_prints_a_fix_another_rule_refuses(self):
+        # main-async once said "hop once with `Task { @MainActor in ... }`", the line main-hop refuses. Each code
+        # span of every rule's fix, written as off-main code (the fixes name main-actor code where they need it).
+        # A span its own rule refuses is a "not this" example. thread-doc adds a step, not opposite advice: a new
+        # thread or queue the fix makes is also listed in threading-model.md in the same push.
+        spans = [(rule.id, span) for rule in guardrails.RULES for span in re.findall(r"`([^`\n]+)`", rule.fix)
+                 if not span.lstrip().startswith("//")]
+        self.assertIn(("main-async", "mainWork.post(.visible, owner: ...)"), spans)
+        self.rebase_on({f"{PKG}/Package.swift": "// swift-tools-version: 6.2\nimport PackageDescription\n"
+                        "let package = Package(name: \"CmuxNext\", targets: [\n    .target(name: \"CmuxNextKit\"),\n])\n"})
+        self.write(f"{KIT}/Fixes.swift", "".join(f"func fix{i}() {{\n    {span}\n}}\n" for i, (_, span) in enumerate(spans)))
+        self.commit("every printed fix")
+        refused = collections.defaultdict(set)
+        for rule, hits in self.check()[0]:
+            for hit in hits:
+                refused[hit.text.strip()].add(rule.id)
+        self.assertEqual([(owner, span, sorted(refused[span] - {owner, "thread-doc"})) for owner, span in spans
+                          if refused[span] - {owner, "thread-doc"}], [])
+
+    def test_the_six_rules_judge_a_large_modified_push_in_under_a_second(self):
+        # 24 files of 25 functions (11k lines a side, 4800 hits) whose debt is unchanged base debt: the push edits
+        # each class line, every function body, hide override and sleep loop, so each unchanged hit is rejudged on
+        # both sides (rejudged, is_debt), and adds one hop per file. Timed through measure() with only the six rules.
+        # That is ~150x the hit density of the whole chrome-parity diff (573 Sources files, +85k lines, 30 hits), on
+        # which the six rules took 0.80-0.95 s before the cross-file UI index and 0.87-1.15 s after it, on a 360-core
+        # Linux VM at load 640-1100 (2026-10-26); this fixture took 0.5-0.7 s there.
+        files, functions = 24, 25
+
+        def text(n, edited):
+            mark = "        let edited = 1\n" if edited else ""
+            body = "".join(f"    func f{i}() async throws {{\n{mark}        Task {{ await load({i}) }}\n        MainActor.run {{ }}\n"
+                           f"        guard !isHiddenOrHasHiddenAncestor else {{ return }}\n"
+                           f"        timer = DemandTimer(clock: clock) {{ }}\n        stream = ObservationStream {{ x }}\n"
+                           f"        NotificationCenter.default.addObserver(self, selector: #selector(g), name: nil, object: nil)\n"
+                           f"        while running {{\n{mark}            // wakeup-allow: the test cadence\n"
+                           f"            try await Task.sleep(for: .seconds(1))\n        }}\n    }}\n"
+                           f"    override func viewDidHide() {{\n{mark.replace('let edited = 1', '// edited')}"
+                           f"        super.viewDidHide()\n        node.set(.hidden)\n    }}\n" for i in range(functions))
+            added = "    func fresh() {\n        Task { await fresh() }\n    }\n" if edited else ""
+            return f"final class Big{n}: NSView{', Sendable' if edited else ''} {{\n{body}{added}}}\n"
+        self.rebase_on({f"{KIT}/Big{n}.swift": text(n, False) for n in range(files)})
+        for n in range(files):
+            self.write(f"{KIT}/Big{n}.swift", text(n, True))
+        self.commit("edits every body")
+        rules = tuple(r for r in guardrails.RULES if r.id in MAIN_CLASS_CASES)
+        self.assertEqual(len(rules), 6)
+        with mock.patch.object(guardrails, "RULES", rules):
+            started = time.monotonic()
+            found, _ = self.check(guardrails.measure)
+            elapsed = time.monotonic() - started
+        self.assertEqual([(r.id, len(hits)) for r, hits in found], [("main-hop", files)])
+        lines = files * len(text(0, True).split("\n"))
+        self.assertLess(elapsed, 1.0, f"{lines} lines a side took {elapsed:.2f}s")
 
 
 class SleepRuleTests(unittest.TestCase):
