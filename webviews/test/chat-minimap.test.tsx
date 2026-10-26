@@ -460,4 +460,3 @@ test("with the setting off the minimap reads no row", async () => {
     setChatDisplay({});
   }
 });
-
