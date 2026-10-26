@@ -80,9 +80,8 @@ public final class ChromiumHostPageView: NSView {
 
     private var lastGeometry: ChromiumHostGeometry?
     /// What moves the page on screen without changing this view's frame: the
-    /// window's page update request
-    /// (``Foundation/Notification/Name/browserChildWindowPagesNeedUpdate``). The
-    /// window's layout owner (`WindowOverlayLayer`) posts it once per change
+    /// window's page update request (`NSWindow.updateBrowserPageGeometry`). The
+    /// window's layout owner (`WindowOverlayLayer`) sends it once per change
     /// after panes, dividers or the sidebar moved and after the window moved,
     /// resized or changed screen; the in-process `CEFHostView` re-places its
     /// page on the same request.
@@ -214,7 +213,7 @@ public final class ChromiumHostPageView: NSView {
             pageUpdates = nil
             return
         }
-        pageUpdates = MainActorObservation(Notification.Name.browserChildWindowPagesNeedUpdate, object: window) { [weak self] in
+        pageUpdates = ChildWindowPageFallback.observePageUpdates(of: window) { [weak self] _ in
             self?.presentedRectDidChange()
         }
     }

@@ -5,7 +5,7 @@ import Testing
 
 /// Lawrence (2026-10-23): "making splits in general has laggy animation, even more laggy if there
 /// are CEF chromium views involved". On every motion frame the window asks its Chromium pages to
-/// re-apply their geometry (`browserChildWindowPagesNeedUpdate`: the divider lines moved), and every
+/// re-apply their geometry (`NSWindow.updateBrowserPageGeometry`: the divider lines moved), and every
 /// page posted the fork's geometry notification, so the fork re-read clip and occlusion, rebuilt the
 /// mask and moved the page window of every page, the static ones too. A page posts only when what
 /// the fork reads (its screen rect, visible rect, clip inputs, occlusion holes) changed since the
@@ -49,8 +49,7 @@ import Testing
         }
 
         func requestPageUpdate() {
-            // global-notice-allow: CEFHostView observes its window's page update request on the default center (the production path)
-            NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
+            window.updateBrowserPageGeometry()
         }
     }
 

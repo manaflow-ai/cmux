@@ -120,8 +120,8 @@ import Testing
         let (window, stage, pane) = makeWindow(holding: page)
         defer { page.removeFromSuperview(); window.close() }
         func layoutOwnerPostsPageUpdate() {
-            // global-notice-allow: the window's layout owner (WindowOverlayLayer.requestPageUpdate) posts on the default center
-            NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
+            // The window's layout owner (WindowOverlayLayer.requestPageUpdate) asks its pages to update.
+            window.updateBrowserPageGeometry()
         }
         #expect(reports.count == 1)
         let first = try #require(reports.first)
@@ -172,12 +172,12 @@ import Testing
         defer { page.removeFromSuperview(); window.close() }
         var reports = 0
         pane.setFrameOrigin(NSPoint(x: 40, y: 30))
-        // global-notice-allow: the window's layout owner (WindowOverlayLayer.requestPageUpdate) posts on the default center
-        NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
+        // The window's layout owner (WindowOverlayLayer.requestPageUpdate) asks its pages to update.
+        window.updateBrowserPageGeometry()
         page.onGeometry = { _ in reports += 1 }
         #expect(reports == 0)
-        // global-notice-allow: the window's layout owner (WindowOverlayLayer.requestPageUpdate) posts on the default center
-        NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
+        // The window's layout owner (WindowOverlayLayer.requestPageUpdate) asks its pages to update.
+        window.updateBrowserPageGeometry()
         #expect(reports == 1)
     }
 

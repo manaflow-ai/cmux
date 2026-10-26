@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 
 /// The cards that float over the bottom of a browser page (the notice pill,
@@ -18,7 +19,8 @@ import CmuxNextDesign
 /// page is in a window and not hidden (a parked tab keeps its cards for when
 /// it shows again). The chrome syncs on layout and window, superview and
 /// hidden changes; a move of the window's pages without a resize (a pane
-/// swap) arrives as `browserChildWindowPagesNeedUpdate`.
+/// swap) arrives as the window's page update request
+/// (`ChildWindowPageFallback.observePageUpdates`).
 @MainActor
 final class PageFloatingOverlays {
     private struct Card {
@@ -31,7 +33,7 @@ final class PageFloatingOverlays {
 
     private var cards: [Card] = []
     private weak var page: NSView?
-    private var pagesObserver: (any NSObjectProtocol)?
+    private var pagesObserver: MainActorObservation?
 
     init(page: NSView) {
         self.page = page
@@ -41,7 +43,6 @@ final class PageFloatingOverlays {
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
-            if let pagesObserver { NotificationCenter.default.removeObserver(pagesObserver) }
             for card in cards { card.handle?.dismiss() }
         }
     }
@@ -70,10 +71,7 @@ final class PageFloatingOverlays {
     func remove(_ view: NSView) {
         guard let index = cards.firstIndex(where: { $0.view === view }) else { return }
         cards.remove(at: index).handle?.dismiss()
-        if cards.isEmpty, let pagesObserver {
-            NotificationCenter.default.removeObserver(pagesObserver)
-            self.pagesObserver = nil
-        }
+        if cards.isEmpty { pagesObserver = nil }
     }
 
     /// Places every card over the page when it shows in a window, else
@@ -135,15 +133,9 @@ final class PageFloatingOverlays {
     /// chrome (a pane swap of equal size): the cards follow.
     private func observePages() {
         guard pagesObserver == nil else { return }
-        pagesObserver = NotificationCenter.default.addObserver(
-            forName: Notification.Name.browserChildWindowPagesNeedUpdate, object: nil, queue: .main
-        ) { [weak self] note in
-            // Only the window's identity crosses into the main-actor closure.
-            let window = (note.object as AnyObject?).map(ObjectIdentifier.init)
-            MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                guard let self, let window, window == self.page?.window.map(ObjectIdentifier.init) else { return }
-                self.sync()
-            }
+        pagesObserver = ChildWindowPageFallback.observePageUpdates(of: nil) { [weak self] update in
+            guard let self, let window = update.window, window === self.page?.window else { return }
+            self.sync()
         }
     }
 

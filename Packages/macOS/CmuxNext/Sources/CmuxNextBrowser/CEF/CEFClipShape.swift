@@ -3,8 +3,8 @@ import CmuxNextDesign
 
 /// The shape a Chromium page is limited to. The page is a child window, so
 /// neither the pane's rounded clip nor the parent window's rounded corners
-/// reach it; the fork masks it to this path (`-cmuxClipPath`, fork commit
-/// "clip the embedded page to an embedder shape").
+/// reach it; the fork masks it to this path (fork commit "clip the embedded
+/// page to an embedder shape", read through `ChildWindowPageFallback`).
 nonisolated enum CEFClipShape {
     /// A rounded rect in the host view's coordinates.
     struct RoundedRect: Hashable, Sendable {

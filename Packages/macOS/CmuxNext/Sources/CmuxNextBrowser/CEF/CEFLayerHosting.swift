@@ -224,7 +224,7 @@ final class CEFLayerHosting {
         syncDeadline()
     }
 
-    /// The fork's tracker read the host view (`-cmuxClipPath`): it is attached
+    /// The fork's tracker read the host view's clip (`ChildWindowPageFallback`): it is attached
     /// to the page window now, so a refused request may succeed.
     func trackerDidRead() { // perf-hot: 1us cef-geometry (each tracker read)
         guard pending == .armed else { return }
