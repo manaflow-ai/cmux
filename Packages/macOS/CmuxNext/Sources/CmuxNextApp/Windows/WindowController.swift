@@ -103,6 +103,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             defer: false
         )
         window.keyRouter = services.keyRouter
+        // Before any view, overlay or panel of the window reads it; fixed for the process, as the backend is.
+        window.pageSurface = services.chromiumRuntime.source.backend.pageSurface
         window.turnMeter = services.mainWork.budget.turns
         window.title = Strings.appName
         window.titleVisibility = .hidden
@@ -417,7 +419,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// (`FocusResponderClassifier`), and keeps app overlays above Chromium page
 /// windows (`WindowOverlayLayer`).
 final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting,
-    CursorRectHoldHosting, TrafficLightsResting, ContentAreaMotionHosting, WindowZoomFinishing {
+    CursorRectHoldHosting, TrafficLightsResting, ContentAreaMotionHosting, WindowZoomFinishing, PageSurfaceHosting {
     /// The traffic lights' last windowed place: their left edge, their top's
     /// distance from the window's top, and their size (the window may come
     /// back from full screen at another height).
@@ -446,6 +448,9 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
 
     weak var keyRouter: KeyRouter?
     weak var focus: FocusCoordinator?
+    /// Where the window's Chromium pages draw (``PageSurfaceHosting``): set once by its controller at
+    /// creation from the process's browser backend (``BrowserBackend/pageSurface``).
+    var pageSurface: PageSurface = .childWindows
     /// The app's main run-loop turn meter: a layout depth counts only in the turn that began its pass.
     weak var turnMeter: MainTurnMeter?
     private(set) lazy var overlayLayer = WindowOverlayLayer(window: self) { [weak self] in self?.turnMeter?.turnNumber ?? 0 }
@@ -487,7 +492,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
         // Only the overlay host panel and page windows belong here (debug and test builds record the rest).
         ChildWindowPolicy.check(childWin, parent: self)
         super.addChildWindow(childWin, ordered: place)
-        if WindowOverlayLayer.isContent(childWin) { overlayLayer.evaluate() }
+        if WindowOverlayLayer.isContent(childWin, of: self) { overlayLayer.evaluate() }
         WindowOverlayHost.childWindowsDidChange(of: self)
     }
 

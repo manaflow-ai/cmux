@@ -171,6 +171,8 @@ enum DebugLayers {
             "divider_catcher_updates": .number(Double(layer.catchers?.panelUpdates ?? 0)),
             "page_windows_take_mouse": .bool(layer.pageWindowsTakeMouse),
             "reorders": .number(Double(layer.reorderCount)),
+            "order_checks": .number(Double(layer.orderCheckCount)),
+            "page_surface": .string(layer.pageSurface == .views ? "views" : "child_windows"),
             "child_window_violations": .array(ChildWindowPolicy.violations.map(JSONValue.string)),
             "pages_in_sync": .bool(pagesInSync),
             "rings_in_sync": .bool(ringsInSync),
@@ -290,7 +292,7 @@ enum DebugLayers {
 
     private static func role(of child: NSWindow, layer: WindowOverlayLayer) -> String {
         if child === layer.overlayPanel { return "overlay" }
-        if WindowOverlayLayer.isContent(child) { return "content" }
+        if WindowOverlayLayer.isContent(child, of: layer.window) { return "content" }
         return "panel"
     }
 

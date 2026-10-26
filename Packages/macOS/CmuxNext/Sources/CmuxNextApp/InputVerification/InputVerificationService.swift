@@ -76,7 +76,7 @@ final class InputVerificationService {
                         journal.appendWindowFrame(window: controller.state.id, (frame.minX, frame.minY, frame.width, frame.height))
                         monitor.noteChange()
                     } else if let parent = window.parent, controllers.contains(where: { $0.window === parent }),
-                              WindowOverlayLayer.isContent(window) {
+                              WindowOverlayLayer.isContent(window, of: parent) {
                         // A Chromium page window moved by itself (an AX client
                         // that got the page window): check G1 too.
                         monitor.noteChange()

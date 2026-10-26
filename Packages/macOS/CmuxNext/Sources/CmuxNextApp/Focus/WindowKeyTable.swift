@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBrowser
 import CmuxNextDesign
 
 /// What a user run of an action does while a window of a kind is key
@@ -106,6 +107,7 @@ extension AppServices {
     /// The key window's role (`KeyWindowRole.resolve`).
     var keyWindowRole: KeyWindowRole? {
         guard let key = keyWindowSource() else { return nil }
-        return KeyWindowRole.resolve(key, ownedByMain: windows.owner(of: key) != nil, isPalette: palettes.built?.owns(key) == true)
+        return KeyWindowRole.resolve(key, ownedByMain: windows.owner(of: key) != nil, isPalette: palettes.built?.owns(key) == true,
+                                     pageSurface: chromiumRuntime.source.backend.pageSurface)
     }
 }

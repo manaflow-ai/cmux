@@ -27,7 +27,7 @@ struct AppWindowImage {
     func capture(_ window: NSWindow, masked: Bool = false) async throws -> CGImage {
         // The masks are measured before the capture, which can yield to a layout pass.
         let masks = masked ? ScreenshotPrivacyMask.rects(in: window, services: services).map(WindowImageLayer.mask) : []
-        let base = try await window.screenshotImage(on: services.work, includeChild: WindowOverlayHost.isPageWindow)
+        let base = try await window.screenshotImage(on: services.work, includeChild: { window.isPageChild($0) })
         var layers: [WindowImageLayer] = []
         if masked {
             layers = masks
@@ -56,7 +56,7 @@ struct AppWindowImage {
             layers.append(.page(image, rect))
         }
         // The panel and floating-window captures run on the system lane too; main reads only their window numbers.
-        if let panels = await window.childWindowsImage(on: services.work, includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
+        if let panels = await window.childWindowsImage(on: services.work, includeChild: { !window.isPageChild($0) }) {
             layers.append(.window(panels))
         }
         if let floating = await window.floatingWindowsImage(on: services.work) { layers.append(.window(floating)) }

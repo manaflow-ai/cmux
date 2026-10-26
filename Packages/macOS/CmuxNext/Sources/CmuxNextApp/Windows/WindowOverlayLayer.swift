@@ -42,11 +42,20 @@ import CmuxNextWakeups
 /// child window is added, a page window appears, hides, moves or takes key,
 /// the window moves or shows again, and whenever the plane syncs; never per
 /// event cycle (Chrome: `remote_cocoa/app_shim/views_nswindow_delegate.mm`).
+///
+/// All of that is in-process machinery (``PageSurface/childWindows``). A window whose pages draw in
+/// its view tree (``PageSurface/views``, the Chromium Host's `ChromiumHostPageView`) has no page
+/// window: its overlays draw in the root view above the pages, as Chrome's do above
+/// `RenderWidgetHostViewCocoa` (content/app_shim_remote_cocoa/render_widget_host_view_cocoa.mm), no
+/// catcher panel is made, and no other window's notices are watched. Only a content panel (a remote
+/// page's popup) still moves the planes into the overlay panel, which stays above it.
 @MainActor
 final class WindowOverlayLayer {
     enum Placement: String { case inWindow, overlayWindow }
 
     unowned let window: NSWindow
+    /// Where the window's pages draw, fixed for its life (``PageSurface/of(_:)`` when the layer is made).
+    let pageSurface: PageSurface
     /// The window's overlay host: its panel holds the planes (below every
     /// presented overlay) and keeps the order above page windows.
     var host: WindowOverlayHost { WindowOverlayHost.host(for: window) }
@@ -111,6 +120,7 @@ final class WindowOverlayLayer {
         self.window = window
         self.signposter = signposter
         self.currentTurn = currentTurn
+        pageSurface = PageSurface.of(window)
         let events = WindowEvents.of(window, center: center)
         // An occluder (the sidebar) moved: pages re-read their occlusion rects.
         // The sidebar reports from WindowRootView.layout(): inside the
@@ -134,7 +144,9 @@ final class WindowOverlayLayer {
             })
         }
         // A page window appears (the fork shows it inactive and adds it as a
-        // child), hides, moves, or takes key: check the order at once.
+        // child), hides, moves, or takes key: check the order at once. Only
+        // in process: pages in the view tree have no window to watch.
+        guard pageSurface == .childWindows else { return }
         for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didMoveNotification,
                      NSWindow.didResizeNotification, NSWindow.didBecomeKeyNotification] {
             let moved = name == NSWindow.didMoveNotification || name == NSWindow.didResizeNotification
@@ -341,7 +353,8 @@ final class WindowOverlayLayer {
         let content = window.isVisible ? Self.contentChildWindows(of: window) : []
         shownPages = Set(content.map(ObjectIdentifier.init))
         let wanted: Placement = content.isEmpty ? .inWindow : .overlayWindow
-        let takeMouse = content.contains(where: Self.takesMouse)
+        // Pages in the view tree take the mouse in this window: never a catcher panel.
+        let takeMouse = pageSurface == .childWindows && content.contains(where: Self.takesMouse)
         // A popup that appears, moves or hides over a divider re-cuts the catchers.
         let holesChange = takeMouse && contentPanelRects(in: content) != catcherHoles
         let catchersChange = wanted != placement || takeMouse != pageWindowsTakeMouse || holesChange
@@ -412,7 +425,7 @@ final class WindowOverlayLayer {
     /// page must stay on its pane, so its host re-places it. A frame the
     /// fork set itself matches a host and changes nothing.
     private func pageWindowDidChangeFrame(_ child: NSWindow) {
-        guard Self.isContent(child), child.isVisible, let controller = window.windowController as? WindowController else { return }
+        guard Self.isContent(child, of: window), child.isVisible, let controller = window.windowController as? WindowController else { return }
         let hosts = ChildPageGeometry.sample(controller).hosts
         guard !hosts.contains(where: { ChildPageGeometry.distance($0.screenRect, child.frame) <= ChildPageGeometry.tolerance }) else { return }
         // The hosts did not move, so only a forced update re-places the page.
