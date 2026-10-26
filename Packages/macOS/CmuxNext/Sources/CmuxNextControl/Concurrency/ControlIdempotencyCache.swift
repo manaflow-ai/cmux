@@ -52,6 +52,8 @@ public final class ControlIdempotencyCache: Sendable {
         var fingerprint: Fingerprint
         var outcome: Outcome?
         var waiters: [CheckedContinuation<Outcome?, Never>] = []
+        /// The reply's estimated compact JSON bytes (``estimatedBytes(of:)``), counted once in ``finish(_:with:)``.
+        var bytes = 0
     }
 
     private struct State {
@@ -59,6 +61,8 @@ public final class ControlIdempotencyCache: Sendable {
         var order: [String] = []
         /// Entries kept at the coordinator's current limit: ``limit`` at 100 %.
         var kept: Int
+        /// The sum of the entries' ``Entry/bytes``, so the memory report reads a counter, not the replies.
+        var bytes = 0
     }
 
     /// Entries kept at the full memory limit.
@@ -100,15 +104,18 @@ public final class ControlIdempotencyCache: Sendable {
         while state.order.count > kept {
             guard let index = state.order.firstIndex(where: { state.entries[$0]?.outcome != nil }) else { break }
             let evicted = state.order.remove(at: index)
-            state.entries.removeValue(forKey: evicted)
+            state.bytes -= state.entries.removeValue(forKey: evicted)?.bytes ?? 0
         }
     }
 
     /// Stores the outcome of a run that started and wakes its joiners.
     func finish(_ key: String, with outcome: Outcome) {
+        let bytes = if case .success(let reply) = outcome { Self.estimatedBytes(of: reply) } else { 0 }
         let waiters = state.withLock { state -> [CheckedContinuation<Outcome?, Never>] in
             guard var entry = state.entries[key], entry.outcome == nil else { return [] }
             entry.outcome = outcome
+            entry.bytes = bytes
+            state.bytes += bytes
             let waiters = entry.waiters
             entry.waiters = []
             state.entries.updateValue(entry, forKey: key)
@@ -121,7 +128,9 @@ public final class ControlIdempotencyCache: Sendable {
     func forget(_ key: String) {
         let waiters = state.withLock { state -> [CheckedContinuation<Outcome?, Never>] in
             state.order.removeAll { $0 == key }
-            return state.entries.removeValue(forKey: key)?.waiters ?? []
+            guard let entry = state.entries.removeValue(forKey: key) else { return [] }
+            state.bytes -= entry.bytes
+            return entry.waiters
         }
         for waiter in waiters { waiter.resume(returning: nil) }
     }
@@ -165,13 +174,23 @@ extension ControlIdempotencyCache: AsyncMemoryConsumer {
         }
     }
 
-    /// The entries and their replies' compact JSON bytes: a walk, run only on the coordinator's
-    /// calls, off the main actor, once per pressure change.
+    /// The entries and their replies' bytes, from the counters the cache keeps: O(1) under the lock.
     private static func usage(of state: State) -> MemoryUsage {
-        var text = ""
-        for entry in state.entries.values {
-            if case .success(let reply)? = entry.outcome { reply.appendCompactText(to: &text) }
+        MemoryUsage(footprintBytes: state.bytes, entries: state.entries.count)
+    }
+
+    /// About how many bytes `value`'s compact JSON takes, without writing it: string and key bytes
+    /// (escapes not counted), 8 per number and the punctuation. Run once per finished reply, outside
+    /// the lock.
+    static func estimatedBytes(of value: JSONValue) -> Int {
+        switch value {
+        case .null: 4
+        case .bool(let flag): flag ? 4 : 5
+        case .number: 8
+        case .string(let text): text.utf8.count + 2
+        case .array(let items): items.reduce(1 + max(items.count, 1)) { $0 + estimatedBytes(of: $1) }
+        case .object(let members):
+            members.reduce(1 + max(members.count, 1)) { $0 + $1.key.utf8.count + 3 + estimatedBytes(of: $1.value) }
         }
-        return MemoryUsage(footprintBytes: text.utf8.count, entries: state.entries.count)
     }
 }

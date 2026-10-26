@@ -103,11 +103,14 @@ struct ControlIdempotencyMemoryTests {
         }
     }
 
-    @MainActor @Test func aServicePreparedWithARegistryRegistersItsCacheWhileItLives() throws {
+    @MainActor @Test func aServiceRegistersItsCacheWhileItLives() throws {
         let registry = FakeRegistry()
         var service: ControlService? = try ControlService.prepare(
             registry: ActionRegistry(catalog: []), settingsStore: nil,
-            configuration: .init(path: temporarySocketPath(), accessMode: .automation), identity: testIdentity(), memory: registry)
+            configuration: .init(path: temporarySocketPath(), accessMode: .automation), identity: testIdentity())
+        #expect(registry.entries.isEmpty)
+
+        service?.registerMemoryConsumer(with: registry, hop: AsyncMemoryConsumerHop { _ in })
 
         #expect(registry.entries.map(\.name) == ["control-idempotency"])
         #expect(registry.entries.first?.traits == ControlIdempotencyCache.memoryTraits)
@@ -116,6 +119,41 @@ struct ControlIdempotencyMemoryTests {
         service?.stop()
         service = nil
         #expect(registry.entries.first?.isLive == false, "a gone service leaves the coordinator")
+    }
+
+    /// The report reads a counter the cache keeps: each finished reply's size is counted once, and an
+    /// eviction, a release or a forgotten run takes its share back out.
+    @Test func theUsageIsTheRunningSumOfTheKeptReplies() async {
+        let cache = ControlIdempotencyCache(limit: 2 * Self.workingSet)
+        let keys = Self.keys(0..<(3 * Self.workingSet))
+        Self.finish(keys, in: cache)
+        let each = ControlIdempotencyCache.estimatedBytes(of: .string("k10"))
+        #expect(each == JSONValue.string("k10").compactText.utf8.count, "the estimate is exact for an escape-free reply")
+
+        let full = await cache.updateMemoryLimit(.default)
+        let kept = keys.suffix(2 * Self.workingSet)
+        #expect(full == MemoryUsage(footprintBytes: kept.reduce(0) { $0 + ControlIdempotencyCache.estimatedBytes(of: .string($1)) },
+                                    entries: kept.count), "an eviction left its reply's bytes in the count")
+
+        let released = await cache.releaseMemory(downTo: .criticalThreshold)
+        let working = keys.suffix(Self.workingSet)
+        #expect(released == MemoryUsage(footprintBytes: working.reduce(0) { $0 + ControlIdempotencyCache.estimatedBytes(of: .string($1)) },
+                                        entries: working.count))
+
+        guard case .run = cache.claim("live", fingerprint: Self.request("live")) else {
+            Issue.record("live did not run")
+            return
+        }
+        cache.forget("live")
+        #expect(await cache.updateMemoryLimit(.criticalThreshold) == released, "a forgotten run changed the count")
+    }
+
+    @Test func theEstimateCountsNestedRepliesWithoutWritingThem() {
+        let reply = JSONValue.object([
+            "ok": .bool(true), "items": .array([.string("a"), .null, .object([:]), .array([])]), "n": .number(12),
+        ])
+        // Exact but for the number, estimated at 8 bytes ("12" is 2).
+        #expect(ControlIdempotencyCache.estimatedBytes(of: reply) == reply.compactText.utf8.count + 6)
     }
 
     @Test func aCacheSmallerThanTheWorkingSetKeepsItsOwnBound() async {

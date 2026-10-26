@@ -207,13 +207,7 @@ actor AgentPaneProjectIcons {
     /// UTF-8 bytes of the kept data URLs.
     private(set) var bytes = 0
     /// The registration in the app's memory coordinator, kept on the main actor that makes it.
-    private nonisolated let memorySlot = MemorySlot()
-
-    /// Holds the main-actor registration of an actor that is not on the main actor.
-    @MainActor final class MemorySlot {
-        var registration: AsyncMemoryConsumerRegistration?
-        nonisolated init() {}
-    }
+    private nonisolated let memorySlot = AsyncMemoryConsumerSlot()
 
     init(reader: AgentPaneProjectIcon, repos: AgentPaneProjectRepoReader = .shared, avatars: AgentPaneOwnerAvatars = .shared) {
         self.reader = reader
@@ -299,9 +293,10 @@ extension AgentPaneProjectIcons: AsyncMemoryConsumer {
     /// Registers the icons with the app's memory coordinator (`agent-project-icons`); the icons keep
     /// the registration, so the coordinator calls them while they live.
     ///
-    /// - Parameter registry: The memory coordinator.
-    @MainActor func registerMemoryConsumer(with registry: any MemoryConsumerRegistry) {
-        memorySlot.registration = AsyncMemoryConsumerRegistration(
-            name: "agent-project-icons", traits: Self.memoryTraits, consumer: self, registry: registry)
+    /// - Parameters:
+    ///   - registry: The memory coordinator.
+    ///   - hop: How the coordinator's calls leave the main actor (tests pass their own).
+    @MainActor func registerMemoryConsumer(with registry: any MemoryConsumerRegistry, hop: AsyncMemoryConsumerHop = .task) {
+        memorySlot.register(name: "agent-project-icons", traits: Self.memoryTraits, consumer: self, registry: registry, hop: hop)
     }
 }

@@ -58,8 +58,7 @@ public final class ControlService {
 
     /// Resolves path and access mode and builds the router, which takes method registrations, but
     /// accepts no connection until ``serve(adopting:)`` (p08-startup-019): a request never reaches a
-    /// router whose methods are not all registered. Throws `disabled` when the mode is `off`. With
-    /// `memory`, the router's idempotency cache is one of its consumers while the service lives.
+    /// router whose methods are not all registered. Throws `disabled` when the mode is `off`.
     public static func prepare(
         registry: ActionRegistry,
         settings: SettingsController?,
@@ -69,8 +68,7 @@ public final class ControlService {
         accessMode explicitMode: ControlAccessMode? = nil,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
         watchdog: MainThreadWatchdog? = nil,
-        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
-        memory: (any MemoryConsumerRegistry)? = nil
+        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())
     ) throws -> ControlService {
         let configuredMode = settings?.snapshot.root.value(at: ["automation", "socketControlMode"])?.stringValue
         let mode = resolveAccessMode(explicit: explicitMode, environment: environment, configured: configuredMode)
@@ -95,8 +93,7 @@ public final class ControlService {
             identity: identity,
             frameSource: frameSource,
             watchdog: watchdog,
-            mainWork: mainWork,
-            memory: memory
+            mainWork: mainWork
         )
     }
 
@@ -118,7 +115,7 @@ public final class ControlService {
         return service
     }
 
-    /// ``prepare(registry:settings:launch:environment:bundle:accessMode:frameSource:watchdog:mainWork:memory:)`` with an
+    /// ``prepare(registry:settings:launch:environment:bundle:accessMode:frameSource:watchdog:mainWork:)`` with an
     /// explicit configuration (tests, demos).
     public static func prepare(
         registry: ActionRegistry,
@@ -128,8 +125,7 @@ public final class ControlService {
         identity: ControlIdentity,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
         watchdog: MainThreadWatchdog? = nil,
-        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
-        memory: (any MemoryConsumerRegistry)? = nil
+        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())
     ) throws -> ControlService {
         guard configuration.accessMode != .off else { throw ControlSocketServer.StartError.disabled }
         let bridge = RegistryControlBridge(registry: registry, work: mainWork)
@@ -138,12 +134,20 @@ public final class ControlService {
         router.attach(watchdog: watchdog)
         bridge.attach(to: router)
         let server = ControlSocketServer(configuration: configuration, router: router)
-        let service = ControlService(server: server, router: router, bridge: bridge)
-        service.memoryRegistration = memory.map {
-            AsyncMemoryConsumerRegistration(
-                name: "control-idempotency", traits: ControlIdempotencyCache.memoryTraits, consumer: router.idempotency, registry: $0)
-        }
-        return service
+        return ControlService(server: server, router: router, bridge: bridge)
+    }
+
+    /// Registers the router's idempotency cache with the app's memory coordinator
+    /// (`control-idempotency`); the service keeps the registration, so the coordinator calls the cache
+    /// while the service lives. A second call replaces the first.
+    ///
+    /// - Parameters:
+    ///   - registry: The memory coordinator (AppServices+Memory.swift).
+    ///   - hop: How the coordinator's calls leave the main actor (tests pass their own).
+    public func registerMemoryConsumer(with registry: any MemoryConsumerRegistry, hop: AsyncMemoryConsumerHop = .task) {
+        memoryRegistration = AsyncMemoryConsumerRegistration(
+            name: "control-idempotency", traits: ControlIdempotencyCache.memoryTraits, consumer: router.idempotency,
+            registry: registry, hop: hop)
     }
 
     /// Starts accepting, once every method group is registered: on `listener` when the app bound it

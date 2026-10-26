@@ -3,8 +3,8 @@ import CoreImage
 import CoreImage.CIFilterBuiltins
 import SwiftUI
 
-// memory: fixed the `kept` (4) most recent payloads, each at most 181 x 181 one-byte pixels
-// (version 40 with the quiet zone): under 132 KB in all.
+// memory: fixed the `kept` (4) most recent payloads, each at most 181 rows of 181 one-byte pixels
+// (version 40 with the default quiet zone) that CoreGraphics pads to 192 bytes: about 35 KB each.
 /// QR codes from CoreImage's `CIQRCodeGenerator`: one pixel per module,
 /// dark modules on white with a quiet zone, scaled up without smoothing.
 /// Always dark on white, whatever the theme, so every camera reads it.

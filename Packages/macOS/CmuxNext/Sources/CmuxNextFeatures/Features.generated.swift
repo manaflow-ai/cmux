@@ -195,12 +195,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// The agent pane's New Tab frames, chat tails and project icons and the control socket's recent run replies join the memory coordinator: they keep less as the limit falls and only their working set at critical pressure.
+    /// Agent pane caches (New Tab frames, chat tails, project icons), the control socket's run replies and the login environment join the memory coordinator. Agent pane caches shrink with the limit and keep nothing at critical pressure; the control socket keeps its 16 newest replies.
     public static let memoryAgentAndControlCaches = Feature(
         index: 11,
         name: "memoryAgentAndControlCaches",
         owner: "PL-memory",
-        description: "The agent pane's New Tab frames, chat tails and project icons and the control socket's recent run replies join the memory coordinator: they keep less as the limit falls and only their working set at critical pressure.",
+        description: "Agent pane caches (New Tab frames, chat tails, project icons), the control socket's run replies and the login environment join the memory coordinator. Agent pane caches shrink with the limit and keep nothing at critical pressure; the control socket keeps its 16 newest replies.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,

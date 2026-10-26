@@ -11,6 +11,8 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextControl
+import CmuxNextDaemon
 import CmuxNextFavicons
 import CmuxNextFeatures
 import CmuxNextHibernation
@@ -63,6 +65,8 @@ struct AppMemoryConsumers {
         registerAppCaches()  // CmuxNextAgentPane, CmuxNextApp (p07-memory-056)
         registerInternalPageDiscards()  // CmuxNextApp
         registerBrowserCaches()  // CmuxNextBrowser
+        // registerControlCaches(_:)  // CmuxNextControl: AppControl.start calls it when it makes the service
+        registerDaemonCaches()  // CmuxNextDaemon
         registerConversationDiscards()  // CmuxNextHibernation, CmuxNextHome
         registerPageLifecycle()  // CmuxNextPages
         // registerSidebarDoc(_:)  // CmuxNextSidebar: SidebarDocWiring.start calls it when it makes the store
@@ -71,16 +75,23 @@ struct AppMemoryConsumers {
 
     /// `memoryAgentAndControlCaches` (default off): the agent pane's New Tab frames, chat tails and
     /// project icons (p07-memory-060).
-    private func registerAgentPaneCaches() {
+    func registerAgentPaneCaches() {
         guard services.features.isEnabled(.memoryAgentAndControlCaches) else { return }
         AgentPaneMemoryConsumers(registry: services.memoryCoordinator).register()
     }
 
-    /// `memoryAgentAndControlCaches` (default off): where the control service registers its router's
-    /// idempotency cache (p07-memory-060). The service is made after ``registerMemoryConsumers()``,
-    /// so `AppControl.start` hands this to `ControlService.prepare`; nil registers nothing.
-    var controlCachesRegistry: (any MemoryConsumerRegistry)? {
-        services.features.isEnabled(.memoryAgentAndControlCaches) ? services.memoryCoordinator : nil
+    /// `memoryAgentAndControlCaches` (default off): the control service's idempotency cache
+    /// (p07-memory-060). The service is made after ``registerMemoryConsumers()``, so `AppControl.start`
+    /// calls this with it; the service keeps the registration.
+    func registerControlCaches(_ service: ControlService) {
+        guard services.features.isEnabled(.memoryAgentAndControlCaches) else { return }
+        service.registerMemoryConsumer(with: services.memoryCoordinator)
+    }
+
+    /// `memoryAgentAndControlCaches` (default off): the launch's login environment (p07-memory-060).
+    func registerDaemonCaches() {
+        guard services.features.isEnabled(.memoryAgentAndControlCaches) else { return }
+        DaemonLauncher.registerLoginEnvironmentMemoryConsumer(with: services.memoryCoordinator)
     }
 
     /// The sidebar document store's projection memo: one lossless entry, dropped at critical

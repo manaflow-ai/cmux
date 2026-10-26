@@ -12,7 +12,8 @@ import CmuxNextWakeups
 ///
 /// A memory consumer (`agent-new-tab-frames`): each frame is a whole pane's bitmap, so the
 /// coordinator's limit scales how many are kept (``sizes`` at 100 %) and a release drops the oldest.
-/// A dropped frame is taken again 400 ms after the next New Tab page paints.
+/// A dropped frame is taken again 400 ms after the next New Tab page paints; while the limit keeps
+/// none (critical pressure), no frame is taken at all.
 @MainActor
 public final class AgentPaneNewTabFrame {
     public static let shared = AgentPaneNewTabFrame()
@@ -52,6 +53,10 @@ public final class AgentPaneNewTabFrame {
     /// How many frames are held now.
     var frameCount: Int { frames.count }
 
+    /// Whether a frame taken now would be kept: false while the limit keeps none, so a capture takes
+    /// no snapshot that ``store(_:size:appearance:generation:)`` would drop at once.
+    var capturesFrames: Bool { keptFrames > 0 }
+
     /// The bitmap bytes of a page snapshot: its largest representation, 4 bytes a pixel.
     private static func bytes(of image: NSImage) -> Int {
         image.representations.map { $0.pixelsWide * $0.pixelsHigh * 4 }.max() ?? 0
@@ -82,10 +87,10 @@ public final class AgentPaneNewTabFrame {
     /// areas left clear: what the next New Tab page draws until it paints. Only when no frame with
     /// today's content, size and appearance is held, and the page draws today's content (it drew an
     /// answer one page frame before the capture, and none came meanwhile); one capture per page at a
-    /// time, never of a hidden page (perf-tabs I6).
+    /// time, never of a hidden page (perf-tabs I6), and none while the memory limit keeps no frame.
     public func capture(_ view: AgentPaneView, in host: NSView) {
         let redraw = view.redraw
-        guard !redraw.givesNewTabFrame else { return }
+        guard capturesFrames, !redraw.givesNewTabFrame else { return }
         redraw.givesNewTabFrame = true
         view.model.whenPainted { [weak self, weak view, weak host, weak redraw] in
             let settle = DemandTimer(owner: "newTab.frame.settle")
@@ -96,11 +101,11 @@ public final class AgentPaneNewTabFrame {
                       view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return }
                 let size = host.bounds.size, appearance = host.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
                 let takenAt = self.generation, before = self.shows(view.model)
-                guard size != .zero, before.0, self.image(size: size, appearance: appearance) == nil else { return }
+                guard self.capturesFrames, size != .zero, before.0, self.image(size: size, appearance: appearance) == nil else { return }
                 // One page frame first: an answer handed to the page before this is drawn by then.
                 await withCheckedContinuation { done in redraw.afterNextFrame { done.resume() } }
-                guard view.window != nil, !view.isHiddenOrHasHiddenAncestor, view.isDescendant(of: host), host.bounds.size == size,
-                      let snapshot = await view.pageSnapshot(), snapshot.size == size, view.snapshotKeepsClearAreas,
+                guard self.capturesFrames, view.window != nil, !view.isHiddenOrHasHiddenAncestor, view.isDescendant(of: host),
+                      host.bounds.size == size, let snapshot = await view.pageSnapshot(), snapshot.size == size, view.snapshotKeepsClearAreas,
                       takenAt == self.generation, self.shows(view.model) == before else { return }
                 self.store(snapshot, size: size, appearance: appearance, generation: takenAt)
             }

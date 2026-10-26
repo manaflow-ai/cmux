@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCompat
+import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -79,6 +80,38 @@ struct AgentPaneMemoryConsumerTests {
         #expect(frames.image(size: Self.size(20), appearance: nil) != nil)
     }
 
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
+    /// An agent page inside a pane's content host.
+    private static func page() throws -> (view: AgentPaneView, host: NSView) {
+        let file = try #require(AgentPageTestRoot.page)
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file),
+                                              webUI: .agentPaneTestHost(), gestures: .testing()))
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        host.addSubview(view)
+        return (view, host)
+    }
+
+    /// At the critical limit a capture takes no snapshot: it never arms, so no settle timer, no page
+    /// frame wait and no pane-sized bitmap that ``AgentPaneNewTabFrame/store(_:size:appearance:generation:)``
+    /// would drop at once. At the full limit the same capture arms.
+    @Test func aCaptureAtLimitZeroTakesNoSnapshot() throws {
+        let page = try Self.page()
+        let frames = AgentPaneNewTabFrame()
+
+        frames.updateMemoryLimit(.criticalThreshold)
+        #expect(!frames.capturesFrames)
+        frames.capture(page.view, in: page.host)
+        #expect(!page.view.redraw.givesNewTabFrame, "a capture armed although the limit keeps no frame")
+
+        frames.updateMemoryLimit(.default)
+        #expect(frames.capturesFrames)
+        frames.capture(page.view, in: page.host)
+        #expect(page.view.redraw.givesNewTabFrame, "the full limit takes frames again")
+    }
+
     @Test func newTabFramesStopWhenTheSliceExpires() {
         let frames = AgentPaneNewTabFrame()
         for side in [10, 20, 30] { frames.store(Self.frame(side), size: Self.size(side), appearance: nil, generation: 0) }
@@ -86,6 +119,40 @@ struct AgentPaneMemoryConsumerTests {
         let expired = MemoryReleaseSlice(limit: .criticalThreshold) { true }
         #expect(frames.releaseMemory(within: expired) == .more)
         #expect(frames.frameCount == 3)
+    }
+
+    // MARK: The package's registrations
+
+    /// The app's registration line registers the three caches under their names; the icons' entry
+    /// stays live and the coordinator's limit reaches the icons' actor through the hop.
+    @Test func thePackageRegistersItsThreeCachesAndTheLimitReachesTheIconsActor() async throws {
+        let home = try Self.home()
+        defer { try? FileManager.default.removeItem(atPath: (home as NSString).deletingLastPathComponent) }
+        let registry = FakeRegistry()
+        registry.limit = .criticalThreshold
+        let hops = HopRecorder()
+        let frames = AgentPaneNewTabFrame()
+        let icons = AgentPaneProjectIcons(reader: AgentPaneProjectIcon(home: home))
+        let tails = AgentPaneTailCache.shared
+        tails.clear()
+        defer {
+            tails.updateMemoryLimit(.default)
+            tails.clear()
+        }
+
+        AgentPaneMemoryConsumers(registry: registry, hop: hops.hop, frames: frames, tails: tails, icons: icons).register()
+
+        #expect(registry.entries.map(\.name) == ["agent-new-tab-frames", "agent-chat-tails", "agent-project-icons"])
+        #expect(registry.entries.allSatisfy { $0.isLive })
+        #expect(hops.pending == 1, "the icons' limit leaves the main actor through the injected hop")
+        #expect(await icons.icon(for: home + "/code/site") != nil)
+        #expect(await icons.count == 1, "the limit reached the icons before the hop ran")
+
+        await hops.runAll()
+        _ = await icons.releaseMemory(downTo: .criticalThreshold)
+        #expect(await icons.icon(for: home + "/code/site") != nil)
+        #expect(await icons.count == 0, "the critical limit never reached the icons' actor")
+        #expect(registry.entries.last?.isLive == true, "the icons' registration was not kept")
     }
 
     // MARK: Chat tails
@@ -168,5 +235,29 @@ struct AgentPaneMemoryConsumerTests {
         #expect(await icons.updateMemoryLimit(.default) == MemoryUsage.empty)
         #expect(await icons.icon(for: home + "/code/site") == expected)
         #expect(await icons.count == 1)
+    }
+}
+
+/// Holds the deliveries of an ``AsyncMemoryConsumerHop`` until the test runs them.
+nonisolated final class HopRecorder: Sendable {
+    private let deliveries = Mutex<[@Sendable () async -> Void]>([])
+
+    var hop: AsyncMemoryConsumerHop {
+        AsyncMemoryConsumerHop { delivery in self.deliveries.withLock { $0.append(delivery) } }
+    }
+
+    /// How many deliveries wait to run.
+    var pending: Int {
+        deliveries.withLock { $0.count }
+    }
+
+    /// Runs the waiting deliveries, in the order they were posted.
+    func runAll() async {
+        let waiting = deliveries.withLock { deliveries in
+            let waiting = deliveries
+            deliveries = []
+            return waiting
+        }
+        for delivery in waiting { await delivery() }
     }
 }
