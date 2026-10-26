@@ -9345,16 +9345,18 @@ session there is `conversation_tab.machine_mismatch`.
 `agent-session-presence-v1` (advertised with `agent-session-attach-v1`): who is
 in an attached chat (chat multiplayer, hq#4389). On an attached (or observed)
 tab, `{id, cmd:"agent-session-typing", surface, on}` tells acpmux the person
-starts or stops typing (`_acpmux/typing`, at most 2 a second per attachment,
-else acpmux's `typing.rate_limited`; an `on` expires after 8 s), and
+starts or stops typing (`_acpmux/typing`, at most 2 a second per attachment;
+past it acpmux's `typing.rate_limited` answers `agent_session.limit`; an `on`
+expires after 8 s), and
 `{id, cmd:"agent-session-view", surface, visible}` whether the person's window
 shows the chat (`_acpmux/view`; a new attachment counts as shown). Both answer
 `{}` and name no session: `on` and `visible` are booleans and any other param
 is `agent_session.bad_request`. An observation attachment may send
 `agent-session-view` but never `agent-session-typing` (`agent_session.read_only`).
 
-The attachment then gets `{event:"agent-session-presence", surface, presence}`
-on every change, where `presence` is acpmux's `_acpmux/presence`
+A connection that echoed `agent-session-presence-v1` in `set-client-info` then
+gets `{event:"agent-session-presence", surface, presence}` on every change (one
+that did not never gets it), where `presence` is acpmux's `_acpmux/presence`
 `{sessionId, participants}` of that session only. The attach page carries the
 set at attach in `presence`, as acpmux answers it.
 

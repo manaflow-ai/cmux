@@ -40,7 +40,8 @@ pub use agent_session_trust::AGENT_SESSION_TRUST_CAPABILITY;
 pub const AGENT_SESSION_ATTACH_CAPABILITY: &str = "agent-session-attach-v1";
 /// `agent-session-typing` and `agent-session-view`, and the `agent-session-presence` event: who
 /// is in the attached chat (chat multiplayer, hq#4389), through acpmux's `_acpmux/typing`,
-/// `_acpmux/view` and `_acpmux/presence`.
+/// `_acpmux/view` and `_acpmux/presence`. The event goes only to a connection that echoed the
+/// capability in `set-client-info`: an older app ends its attachment on an event it does not know.
 pub const AGENT_SESSION_PRESENCE_CAPABILITY: &str = "agent-session-presence-v1";
 
 pub(crate) const MAX_ATTACHMENTS_PER_CLIENT: usize = 8;
@@ -174,6 +175,13 @@ struct Attachment {
 }
 
 impl Attachment {
+    /// The connection echoed `agent-session-presence-v1` in `set-client-info`.
+    fn wants_presence(&self) -> bool {
+        self.mux.upgrade().is_some_and(|mux| {
+            mux.control_clients.supports_capability(self.client, AGENT_SESSION_PRESENCE_CAPABILITY)
+        })
+    }
+
     fn note_permission(&self, id: &str) {
         let mut permissions = self.permissions.lock().unwrap_or_else(|e| e.into_inner());
         if permissions.iter().any(|known| known == id) {
@@ -865,10 +873,20 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
         AgentSessionCommand::Children(_) => agent_session_children::list(attachment),
         AgentSessionCommand::Media(MediaParams { path, .. }) => media(attachment, path),
         // The session is the tab's own; acpmux bounds typing (2 a second, `typing.rate_limited`).
+        // acpmux's rate refusal is the attachment's bound (`agent_session.limit`): the pane says
+        // so again with its next keystroke.
         AgentSessionCommand::Typing(TypingParams { on, .. }) => attachment
             .link
             .call("_acpmux/typing", json!({"sessionId": session, "on": on}), CALL_TIMEOUT)
-            .map_err(Refusal::of),
+            .map_err(|error| match &error {
+                LinkError::Rpc(_, data)
+                    if data.get("reason").and_then(Value::as_str)
+                        == Some("typing.rate_limited") =>
+                {
+                    Refusal::Limit
+                }
+                _ => Refusal::of(error),
+            }),
         AgentSessionCommand::View(ViewParams { visible, .. }) => attachment
             .link
             .call("_acpmux/view", json!({"sessionId": session, "visible": visible}), CALL_TIMEOUT)

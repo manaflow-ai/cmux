@@ -205,8 +205,8 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
                 attachment.end(None);
             }
         }
-        // Who is in the chat: acpmux sends the whole set on every change.
-        "_acpmux/presence" if same_session => {
+        // Who is in the chat: acpmux sends the whole set on every change, to a client that asked.
+        "_acpmux/presence" if same_session && attachment.wants_presence() => {
             let event = json!({"event": "agent-session-presence", "surface": attachment.surface, "presence": params});
             if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {
                 attachment.end(None);

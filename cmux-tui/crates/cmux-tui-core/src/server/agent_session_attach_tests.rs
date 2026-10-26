@@ -114,6 +114,8 @@ impl Drop for FakeAcpmux {
 
 fn serve(stream: UnixStream, frames: Sender<Value>) {
     let mut writer = stream.try_clone().unwrap();
+    // acpmux takes 2 `_acpmux/typing` a second per connection: the fake refuses the third.
+    let mut typing_calls = 0;
     for line in BufReader::new(stream).lines() {
         let Ok(line) = line else { return };
         let frame: Value = serde_json::from_str(&line).unwrap();
@@ -140,7 +142,16 @@ fn serve(stream: UnixStream, frames: Sender<Value>) {
             // (agent_session_children_tests.rs).
             "_acpmux/sessions" => Some(machine_sessions()),
             "_acpmux/events" => Some(json!({"events": [], "hasMore": false, "lastSeq": 1})),
-            "_acpmux/permission_respond" | "_acpmux/typing" | "_acpmux/view" => Some(json!({})),
+            "_acpmux/typing" => {
+                typing_calls += 1;
+                Some(if typing_calls > 2 {
+                    json!({FAKE_ERROR: "typing too fast",
+                           FAKE_ERROR_DATA: {"reason": "typing.rate_limited"}})
+                } else {
+                    json!({})
+                })
+            }
+            "_acpmux/permission_respond" | "_acpmux/view" => Some(json!({})),
             // `acpmux.transfer.v1` with the guarded receive (agent_transfer_tests.rs).
             method if method.starts_with("_acpmux/transfer_") => transfer_reply(method, params),
             "session/prompt" => {
@@ -794,6 +805,9 @@ fn typing_and_view_go_to_the_pinned_session_and_presence_streams_back() {
     );
     let surface = agent_tab(&mux, Some(SESSION));
     let mut client = Client::connect(&mux, "presence");
+    let info = client.request(json!({"cmd":"set-client-info","name":"presence test",
+        "capabilities":[agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY]}));
+    assert_eq!(info["ok"], json!(true), "{info}");
     let attached = attach(&mut client, surface);
     let _ = fake.frame();
     let _ = client.event(WAIT).expect("the early record");
@@ -835,6 +849,29 @@ fn typing_and_view_go_to_the_pinned_session_and_presence_streams_back() {
     assert_eq!(event["surface"], json!(surface));
     assert_eq!(event["presence"], people);
     assert!(client.event(Duration::from_millis(200)).is_none(), "no other chat's presence");
+    // Past acpmux's rate (the fake took one typing call above): the attachment's bound.
+    let again = json!({"cmd":"agent-session-typing","surface":surface,"on":true});
+    assert_eq!(client.request(again.clone())["ok"], json!(true));
+    assert_eq!(fake.frame()["method"], json!("_acpmux/typing"));
+    assert_code(&client.request(again), "agent_session.limit");
+}
+
+/// An app from before `agent-session-presence-v1` ends its attachment on an `agent-session-*`
+/// event it does not know, so a connection that did not echo the capability never gets one.
+#[test]
+fn presence_reaches_only_a_connection_that_asked_for_it() {
+    let mut fake = FakeAcpmux::start("presence-legacy");
+    let mux = mux_with(&fake, "asa-presence-legacy");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "presence-legacy");
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    let _ = client.event(WAIT).expect("the early record");
+    fake.notify("_acpmux/presence", json!({"sessionId": SESSION, "participants": []}));
+    fake.notify("_acpmux/event", json!({"sessionId": SESSION, "seq": 3, "kind": "agent_message"}));
+    let next = client.event(WAIT).expect("the record after the presence");
+    assert_eq!(next["event"], json!("agent-session-record"), "no presence event: {next}");
+    assert!(client.event(Duration::from_millis(200)).is_none());
 }
 
 #[test]

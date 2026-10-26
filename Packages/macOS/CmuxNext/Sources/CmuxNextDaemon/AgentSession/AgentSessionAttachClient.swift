@@ -289,7 +289,10 @@ public actor AgentSessionAttachClient {
             servesChildren = identity.supports(DaemonCapability.agentSessionChildren.rawValue)
             servesPresence = identity.supports(DaemonCapability.agentSessionPresence.rawValue)
             _ = try await DaemonConnection.perform(
-                SetClientInfoRequest(name: mode.clientInfoName, kind: mode.clientInfoKind, capabilities: []),
+                // `agent-session-presence-v1` echoed: the daemon then streams presence (an app
+                // from before it would end its attachment on an event it does not know).
+                SetClientInfoRequest(name: mode.clientInfoName, kind: mode.clientInfoKind,
+                                     capabilities: servesPresence ? [DaemonCapability.agentSessionPresence.rawValue] : []),
                 on: transport, timeout: requestTimeout)
         } catch {
             transport.close()
