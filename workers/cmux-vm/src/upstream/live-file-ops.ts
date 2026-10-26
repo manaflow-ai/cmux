@@ -31,7 +31,7 @@ const UploadStatus = Schema.Struct({
 });
 const Exists = Schema.Struct({ exists: Schema.Boolean });
 
-const PUBLIC_UPLOAD_ID = /^upl_[A-Za-z0-9_-]{40,512}$/u;
+const PUBLIC_UPLOAD_ID = /^upl_[A-Za-z0-9_-]{38,512}$/u;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
