@@ -20,9 +20,9 @@ struct Options {
     args: Vec<String>,
 }
 
-fn fail(error: impl std::fmt::Display) -> ! {
+fn fail(error: impl std::fmt::Display, code: i32) -> ! {
     eprintln!("remote sandbox init: {error}");
-    std::process::exit(125) // crash-allow: pre-runtime sandbox init helper must exit, never return
+    std::process::exit(code) // crash-allow: pre-runtime sandbox init helper must exit, never return
 }
 
 /// The argument loop stops at --, exhausted input, or the first parse error.
@@ -197,13 +197,13 @@ fn set_proxy_environment(proxy: u16) {
 
 fn exec_program(program: String, args: Vec<String>) -> ! {
     if !Path::new(&program).is_absolute() {
-        fail("program path must be absolute");
+        fail("program path must be absolute", 125);
     }
-    let program = CString::new(program).unwrap_or_else(|_| fail("program contains NUL"));
+    let program = CString::new(program).unwrap_or_else(|_| fail("program contains NUL", 125));
     let mut argv = Vec::with_capacity(args.len() + 2);
     argv.push(program.clone());
     for arg in args {
-        argv.push(CString::new(arg).unwrap_or_else(|_| fail("argument contains NUL")));
+        argv.push(CString::new(arg).unwrap_or_else(|_| fail("argument contains NUL", 125)));
     }
     let mut pointers: Vec<*const libc::c_char> = argv.iter().map(|arg| arg.as_ptr()).collect();
     pointers.push(ptr::null());
@@ -212,13 +212,13 @@ fn exec_program(program: String, args: Vec<String>) -> ! {
     // SAFETY: this is the single-threaded helper; empty is initialized before use.
     unsafe {
         if libc::signal(libc::SIGPIPE, libc::SIG_DFL) == libc::SIG_ERR {
-            fail(format!("reset SIGPIPE: {}", io::Error::last_os_error()));
+            fail(format!("reset SIGPIPE: {}", io::Error::last_os_error()), 125);
         }
         let mut empty: libc::sigset_t = std::mem::zeroed();
         if libc::sigemptyset(&mut empty) != 0
             || libc::sigprocmask(libc::SIG_SETMASK, &empty, ptr::null_mut()) != 0
         {
-            fail(format!("clear signal mask: {}", io::Error::last_os_error()));
+            fail(format!("clear signal mask: {}", io::Error::last_os_error()), 125);
         }
     }
     // SAFETY: all CString buffers and the pointer array live until execv;
@@ -226,40 +226,39 @@ fn exec_program(program: String, args: Vec<String>) -> ! {
     unsafe {
         libc::execv(program.as_ptr(), pointers.as_ptr());
     }
-    eprintln!("remote sandbox init: execv: {}", io::Error::last_os_error());
-    std::process::exit(127) // crash-allow: pre-runtime sandbox init helper must exit, never return
+    fail(format!("execv: {}", io::Error::last_os_error()), 127);
 }
 
 pub(crate) fn main(args: Vec<OsString>) -> ! {
     let options = match parse(args) {
         Ok(options) => options,
-        Err(error) => fail(error),
+        Err(error) => fail(error, 125),
     };
     let proxy = match listener(options.proxy_port, "proxy") {
         Ok(listener) => listener,
-        Err(error) => fail(error),
+        Err(error) => fail(error, 125),
     };
     let api = match options.api_port.map(|port| listener(port, "api")).transpose() {
         Ok(api) => api,
-        Err(error) => fail(error),
+        Err(error) => fail(error, 125),
     };
     let proxy_port = match proxy.local_addr() {
         Ok(address) => address.port(),
-        Err(error) => fail(format!("proxy listener address: {error}")),
+        Err(error) => fail(format!("proxy listener address: {error}"), 125),
     };
     let api_port = match api.as_ref().map(TcpListener::local_addr).transpose() {
         Ok(address) => address.map(|address| address.port()),
-        Err(error) => fail(format!("api listener address: {error}")),
+        Err(error) => fail(format!("api listener address: {error}"), 125),
     };
     let mut fds = vec![proxy.as_raw_fd()];
     if let Some(listener) = &api {
         fds.push(listener.as_raw_fd());
     }
     if let Err(error) = send_handoff(options.handoff_fd, &fds, proxy_port, api_port) {
-        fail(format!("handoff send: {error}"));
+        fail(format!("handoff send: {error}"), 125);
     }
     if let Err(error) = wait_ack(options.handoff_fd) {
-        fail(error);
+        fail(error, 125);
     }
     drop(api);
     drop(proxy);
@@ -269,14 +268,14 @@ pub(crate) fn main(args: Vec<OsString>) -> ! {
     }
     set_proxy_environment(proxy_port);
     if let Err(error) = close_extra_fds() {
-        fail(format!("close leaked descriptors: {error}"));
+        fail(format!("close leaked descriptors: {error}"), 125);
     }
     let filter = match seccomp::deny_filter() {
         Ok(filter) => filter,
-        Err(error) => fail(error),
+        Err(error) => fail(error, 125),
     };
     if let Err(error) = seccomp::install(&filter) {
-        fail(format!("install seccomp: {error}"));
+        fail(format!("install seccomp: {error}"), 125);
     }
     exec_program(options.program, options.args)
 }
