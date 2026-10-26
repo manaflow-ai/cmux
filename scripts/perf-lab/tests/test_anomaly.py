@@ -334,6 +334,38 @@ class TargetMiss(unittest.TestCase):
         series = [(k, rng.gauss(7.0, 0.3)) for k in range(50)]
         self.assertIsNone(anomaly.target_miss(series, 8.3))
 
+    def test_plain_values_are_indexed(self):
+        series = _step_series(random.Random(6000), 20, 8, 0.15, base=7.5, noise=0.1)
+        self.assertEqual(anomaly.target_miss([y for _, y in series], 8.3).x_value, 20)
+
+
+class AlertsDetectorSeam(unittest.TestCase):
+    """alerts.CatapultDetector, the consumer of this module, driving the real anomaly.py."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.alerts = _load("perf_lab_alerts_for_anomaly", os.path.join(LAB, "alerts.py"))
+        cls.detector = cls.alerts.CatapultDetector()
+
+    def test_change_points_map_to_value_indexes(self):
+        values = [y for _, y in _step_series(random.Random(5100), 20, 8, 0.15)]
+        change, = self.detector.change_points(values, {"min_absolute_change": 0.0})
+        self.assertLessEqual(change.extended_start, 20)
+        self.assertGreaterEqual(change.extended_end, 20)
+        self.assertGreater(change.median_after, change.median_before)
+
+    def test_every_config_key_is_a_find_change_points_keyword(self):
+        config = {key: getattr(anomaly, key.upper()) for key in self.alerts.ANOMALY_CONFIG_KEYS}
+        values = [y for _, y in _step_series(random.Random(5100), 20, 8, 0.15)]
+        self.assertEqual(len(self.detector.change_points(values, config)), 1)
+
+    def test_target_miss_takes_plain_values_in_both_directions(self):
+        lower = [y for _, y in _step_series(random.Random(6000), 20, 8, 0.15, base=7.5, noise=0.1)]
+        self.assertTrue(self.detector.target_miss(lower, 8.3, "lower"))
+        higher = [y for _, y in _step_series(random.Random(6004), 20, 10, -0.15, base=125.0, noise=1.0)]
+        self.assertTrue(self.detector.target_miss(higher, 118.0, "higher"))
+        self.assertFalse(self.detector.target_miss(higher, 118.0, "lower"))
+
 
 if __name__ == "__main__":
     unittest.main()

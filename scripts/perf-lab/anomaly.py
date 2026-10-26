@@ -369,7 +369,8 @@ def target_miss(series, target, better="lower", rand=None):
     split that leaves at least MIN_SEGMENT_SIZE points on both sides of it.
 
     Args:
-      series: A list of (x, y) pairs, oldest first.
+      series: A list of (x, y) pairs, or of plain values (x is then the value's index; this is how
+        alerts.CatapultDetector calls it), oldest first.
       target: The fixed target value, in the series' unit.
       better: 'lower' (a miss is a median above the target) or 'higher' (below it).
       rand: As in find_change_points.
@@ -378,7 +379,7 @@ def target_miss(series, target, better="lower", rand=None):
       A TargetMiss, or None.
     """
     _check_better(better)
-    window = list(series)[-MAX_WINDOW_SIZE:]
+    window = _as_pairs(series)[-MAX_WINDOW_SIZE:]
     if len(window) < 2 * MIN_SEGMENT_SIZE:
         return None
     x_values, y_values = list(zip(*window))
@@ -403,6 +404,14 @@ def target_miss(series, target, better="lower", rand=None):
     if not crossed:
         return None
     return TargetMiss(x_values[newest_start], target, better, median_before, median_after)
+
+
+def _as_pairs(series):
+    """(x, y) pairs from a list of pairs or of plain numbers (enumerated)."""
+    series = list(series)
+    if series and isinstance(series[0], (int, float)):
+        return list(enumerate(series))
+    return series
 
 
 def _check_better(better):
