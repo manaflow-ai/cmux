@@ -899,6 +899,48 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Review 104 of #25676: a failed staged import whose store stays for recovery keeps no open
+    /// log writer, so after a recovery on this daemon removes that store, a retry's events land
+    /// in the new log on disk, not in the removed one.
+    #[tokio::test]
+    async fn a_retry_after_a_kept_failed_import_is_recovered_writes_its_log() {
+        let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
+        let hub = harness_hub(&dir);
+        let root = dir.join("sessions");
+        let id = uuid::Uuid::now_v7().to_string();
+        let meta: SessionMeta = serde_json::from_value(harness_meta(&id, "agent-0008")).unwrap();
+        let record = |seq: u64, kind: &str| -> EventRecord {
+            serde_json::from_value(
+                json!({"seq": seq, "at": 0, "dir": "mux", "kind": kind, "msg": {}}),
+            )
+            .unwrap()
+        };
+        // The failed import wrote its store and some of its events (`copy_bundle_events`).
+        hub.store.save(&meta).unwrap();
+        hub.store.append(&id, &record(1, "first-attempt")).unwrap();
+        let marker = root.join(".agent-0008.durable-transfer-state");
+        let staged = json!({
+            "agentId": "agent-0008", "outerId": id, "replaceDurable": false, "phase": "staged",
+            "transferId": "t-0008", "piFilename": "agent-0008.jsonl",
+            "journalDirWasPresent": false, "hadJournal": false, "hadPi": false,
+        });
+        std::fs::write(&marker, staged.to_string()).unwrap();
+        hub.drop_failed_import(&meta);
+        // Another import's failed finalize sweeps on this daemon (`import_into`).
+        hub.recover_staged_replacements();
+        assert!(!marker.exists(), "the sweep left the failed import's marker");
+        // The retry.
+        hub.store.save(&meta).unwrap();
+        hub.store.append(&id, &record(1, "retry")).unwrap();
+        let mut kinds = Vec::new();
+        let _ = hub.store.scan(&id, 0, &mut |e: EventRecord| {
+            kinds.push(e.kind);
+            true
+        });
+        assert_eq!(kinds, ["retry"], "the retry's event is not in its log on disk");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Review 102 of #25676: an import that failed once its durable state was staged is never
     /// loaded as a chat, even when its rollback cannot finish. Its marker and store wait for the
     /// next start, whose sweep rolls it back as far as it can and loads nothing of it.
