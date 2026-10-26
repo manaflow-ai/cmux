@@ -1,13 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample messages and replies), not shipped UI.
-// Another agent's message to this chat as one line at the left among the tool rows (the sender's
-// mark, its name as a chip) over a glass card with the message, cut to eight lines when longer (›
-// opens it whole), and a Claude Code task notification as one quiet line
-// (IncomingMessageCard.tsx, incomingMessage.ts). A message from a chat here also has Reply at the line's end, which
-// answers in place in the sender's chat and thread.
-// In cmux's Minimal Mode (`sidebar.minimal`) a closed message is one line (Leo 2026-10-24: "one line
-// is kind of enough sometimes for the ... preview of the message"): the minimal-* variants. A, the
-// chip, the first line and a chevron, ships; B (a fade and "+N lines") and C (the name inline, no
-// chip) are drawn here only, over the shipped line.
+// Received messages start as one compact line regardless of global Minimal Mode; opening a
+// line reveals the full selectable card. The 20-message fixtures compare density and disclosure.
 import { agentPaneEntry, type ChipHostFixture } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { SESSION_ID, assistant, chat, session, summary, user } from "../../../gallery/fixtures/acpmux";
@@ -142,6 +135,14 @@ const inlineName = alternate(
   },
 );
 
+const compactBurst = chat([
+  user("Collect the lane reports", 9),
+  ...Array.from({ length: 20 }, (_, index) => {
+    const text = `Lane ${index + 1}: **review passed**. The complete report keeps its links and code readable.\n\n- Tests passed.\n- Ready for the next task.`;
+    return user(text, 8 - index * 0.1, { incoming: message(`lane-${index + 1}`, text), untyped: true });
+  }),
+]);
+
 export default agentPaneEntry({
   id: "agent-pane.incoming-message",
   title: "Messages from other agents",
@@ -149,6 +150,24 @@ export default agentPaneEntry({
   height: 520,
   covers: ["agent-session/acpmux/conversation/IncomingMessageCard.tsx"],
   variants: {
+    "20-compact": {
+      note: "Twenty received reports default to single lines, with global Minimal Mode off.",
+      display: { "sidebar.minimal": false },
+      snapshot: compactBurst,
+    },
+    "20-expanded": {
+      note: "The same twenty reports; opening one line reveals its full selectable Markdown.",
+      snapshot: compactBurst,
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-received__toggle" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-received__body"));
+      },
+    },
+    "20-minimal": {
+      note: "Global Minimal Mode uses the same compact received rows.",
+      display: { "sidebar.minimal": true },
+      snapshot: compactBurst,
+    },
     messages: {
       note: "A chat here sends a message (its name links to that chat); a Claude Code session sends one from outside cmux (its name is plain). Each is a line over its message's card; › on the envelope's line opens Details.",
       snapshot: chat([

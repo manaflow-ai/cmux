@@ -55,47 +55,25 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
         visible: rects.some((r) => r.bottom <= edge),
       };
     });
-  test("received preview has intact lines at wide and narrow zoomed widths; Show more and chevron share disclosure", async () => {
+  test("received messages start compact; their whole row opens an intact selectable card", async () => {
     await open();
-    let previousWidth = Infinity;
+    const row = page.locator(".cv-received").first();
+    expect(await row.locator(".cv-received__body").count()).toBe(0);
     for (const width of [700, 360]) {
       await page.setViewportSize({ width, height: 1000 });
-      await page.evaluate(
-        (zoom) => {
-          document.documentElement.style.zoom = String(zoom);
-        },
-        width === 360 ? 1.25 : 1,
+      expect(await row.locator(".cv-received__preview").evaluate((box) => getComputedStyle(box).textOverflow)).toBe(
+        "ellipsis",
       );
-      const drawnWidth = await page
-        .locator(".cv-received__text")
-        .first()
-        .evaluate((box) => box.getBoundingClientRect().width);
-      expect(drawnWidth).toBeLessThan(previousWidth);
-      previousWidth = drawnWidth;
-      expect((await intact(".cv-received__text >> nth=0")).mask).toBe("none");
-      await page.locator(".cv-received__show").waitFor();
-      await page.waitForFunction(() => {
-        const box = document.querySelector<HTMLElement>(".cv-received__text");
-        return box?.style.maxHeight !== "";
-      });
-      expect(await intact(".cv-received__text >> nth=0")).toEqual({ mask: "none", split: 0, visible: true });
     }
     await page.setViewportSize({ width: 700, height: 1000 });
-    await page.evaluate(() => {
-      document.documentElement.style.zoom = "1";
-    });
-    expect(await page.locator(".cv-received").nth(1).locator(".cv-received__show").count()).toBe(0);
-    await page.locator(".cv-received__show").focus();
-    await page.keyboard.press("Enter");
-    expect(await page.locator(".cv-received__toggle").first().getAttribute("aria-expanded")).toBe("true");
-    expect(
-      await page
-        .locator(".cv-received__text")
-        .first()
-        .evaluate((box) => box.clientHeight >= box.scrollHeight),
-    ).toBe(true);
-    await page.locator(".cv-received__toggle").first().click();
-    await page.locator(".cv-received__show").waitFor();
+    await row.locator(".cv-received__icon").click();
+    await row.locator(".cv-received__body").waitFor();
+    expect(await intact(".cv-received__text >> nth=0")).toEqual({ mask: "none", split: 0, visible: true });
+    expect(await row.locator(".cv-received__text").evaluate((box) => box.clientHeight >= box.scrollHeight)).toBe(true);
+    await row.locator(".cv-received__icon").click();
+    await row.locator(".cv-received__body").waitFor({ state: "detached" });
+    await row.locator(".cv-received__toggle").press("Enter");
+    await row.locator(".cv-received__body").waitFor();
   });
   test("sent preview has no fade or partial chip and Show more reveals all of it", async () => {
     await open();
@@ -125,34 +103,39 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
     await page.locator(".cv-received__body").waitFor();
     expect(await intact(".cv-received__text")).toEqual({ mask: "none", split: 0, visible: true });
   });
-  for (const direction of ["received", "sent"] as const) {
-    test(`Tab reveals clipped ${direction} code controls before they can be used`, async () => {
-      await open("code-first");
-      const row = page.locator(direction === "received" ? ".cv-received" : ".cv-message");
-      const toggle = row.locator(direction === "received" ? ".cv-received__toggle" : ".cv-agentmsg__toggle");
-      const text = row.locator(direction === "received" ? ".cv-received__text" : ".cv-message__text");
-      if (direction === "sent") await toggle.click();
-      await row.locator(".cv-codeblock button").first().waitFor({ state: "attached" });
-      await page.waitForFunction(
-        (selector) => document.querySelector<HTMLElement>(selector)?.style.maxHeight === "0px",
-        direction === "received" ? ".cv-received__text" : ".cv-message__text",
-      );
-      await toggle.focus();
-      let reached = false;
-      for (let step = 0; step < 12; step++) {
-        await page.keyboard.press("Tab");
-        reached = await text.evaluate((box) => box.contains(document.activeElement));
-        if (reached) break;
-      }
-      expect(reached).toBe(true);
-      expect(
-        await text.evaluate((box) => {
-          const control = document.activeElement!.getBoundingClientRect();
-          const clip = box.getBoundingClientRect();
-          return control.top >= clip.top && control.bottom <= clip.bottom;
-        }),
-      ).toBe(true);
-      expect(await text.evaluate((box) => box.style.maxHeight)).toBe("");
-    });
-  }
+  test("Tab reveals clipped sent code controls before they can be used", async () => {
+    await open("code-first");
+    const row = page.locator(".cv-message");
+    const toggle = row.locator(".cv-agentmsg__toggle");
+    const text = row.locator(".cv-message__text");
+    await toggle.click();
+    await row.locator(".cv-codeblock button").first().waitFor({ state: "attached" });
+    await page.waitForFunction(
+      () => document.querySelector<HTMLElement>(".cv-message__text")?.style.maxHeight === "0px",
+    );
+    await toggle.focus();
+    let reached = false;
+    for (let step = 0; step < 12; step++) {
+      await page.keyboard.press("Tab");
+      reached = await text.evaluate((box) => box.contains(document.activeElement));
+      if (reached) break;
+    }
+    expect(reached).toBe(true);
+    expect(
+      await text.evaluate((box) => {
+        const control = document.activeElement!.getBoundingClientRect();
+        const clip = box.getBoundingClientRect();
+        return control.top >= clip.top && control.bottom <= clip.bottom;
+      }),
+    ).toBe(true);
+    expect(await text.evaluate((box) => box.style.maxHeight)).toBe("");
+  });
+  test("a closed received code message has no hidden controls to tab into", async () => {
+    await open("code-first");
+    const row = page.locator(".cv-received");
+    expect(await row.locator(".cv-codeblock").count()).toBe(0);
+    await row.locator(".cv-received__toggle").press("Enter");
+    await row.locator(".cv-codeblock button").first().waitFor();
+    expect(await row.locator(".cv-received__text").evaluate((box) => box.clientHeight >= box.scrollHeight)).toBe(true);
+  });
 });

@@ -18,7 +18,7 @@
 // ("[lane] …") is dropped, a pull request written twice in a row shows once (messageRefs.ts), a
 // commit SHA reads as quiet monospace, and a message from another machine names that machine's
 // files, which draw with its name and a lock (chips/messageScope.ts).
-// In cmux's Minimal Mode (chatDisplay.ts `minimal`; Leo 2026-10-24: "in minimal mode ... we could
+// Agent messages always use the compact disclosure (independently of global Minimal Mode; Leo 2026-10-24: "in minimal mode ... we could
 // just have the first line be the thing that's there, and then you can expand that") a closed
 // message is its line alone: the sender's chip, then the message's first line (messagePreview), cut
 // with an ellipsis, then the chevron. The line opens the card in place, the fold playing as a tool
@@ -47,7 +47,8 @@ import { AgentMark, agentBrand } from "../../shared/AgentMark";
 import { useSenderChat, useSenderPlace } from "../subagents/subsessions";
 import { MessageScopeContext, type MessageScope } from "../chips/messageScope";
 import { mentionedRepository } from "../../../githubReferences";
-import { useChatDisplay } from "../chatDisplay";
+import { toggleAgentMessageLine } from "./AgentMessageRow";
+import { MessageTime } from "./MessageActions";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import { wholeLineCut } from "./lineCut";
@@ -129,8 +130,8 @@ export function IncomingMessageLine({
   const host = message.remote ? (place?.host ?? "") : place?.host;
   const repository = githubRepository ?? mentionedRepository(text);
   const body = useMemo(() => dedupeReferences(text, repository), [text, repository]);
-  // cmux's Minimal Mode, which the chat follows (chatDisplay.ts).
-  const { minimal } = useChatDisplay();
+  // Agent messages are compact independently of sidebar.minimal (whose global default is false).
+  const minimal = true;
   const scope = useMemo<MessageScope>(() => (host === undefined ? {} : { host }), [host]);
   // Measure the eight-line limit and the safe cut above any crossing glyph, chip or code card.
   const textBox = useRef<HTMLDivElement>(null);
@@ -156,8 +157,7 @@ export function IncomingMessageLine({
     return () => observer.disconnect();
     // Minimal Mode draws the card in a box of its own: measured again in the new one.
   }, [body, minimal]);
-  // Minimal Mode: closed, the line alone with the first line of the text; open, today's card.
-  // Only Minimal Mode's card folds: the normal card is drawn whatever `open` is.
+  // Closed, the line alone previews the text; opened, the full card is selectable.
   // It opens with no fade-in, its height alone moving; closing fades out (fold.ts).
   const collapse = useAnchoredCollapse({ open, onOpenChange: show, animates: () => minimal, fadeIn: false });
   const { headerRef } = collapse;
@@ -272,7 +272,7 @@ export function IncomingMessageLine({
   );
   return (
     <div className="cv-received" data-open={open || undefined} data-minimal={minimal || undefined}>
-      <div className="cv-received__line">
+      <div className="cv-received__line" role="presentation" onClick={(event) => toggleAgentMessageLine(event, toggle)}>
         <span className="cv-received__icon">
           {agentBrand(sender.harness) ? <AgentMark agent={sender.harness} size={14} /> : <Bot size={16} />}
         </span>
@@ -287,7 +287,7 @@ export function IncomingMessageLine({
             {from}
           </button>
         ) : (
-          <span className="cv-received__name is-plain" aria-hidden onClick={toggle}>
+          <span className="cv-received__name is-plain" aria-hidden>
             {from}
           </span>
         )}
@@ -312,6 +312,7 @@ export function IncomingMessageLine({
             {t("message.reply")}
           </button>
         )}
+        {messageAt !== undefined && <MessageTime at={messageAt} className="cv-user__time" />}
         {actions}
       </div>
       {minimal ? collapse.present && <div {...collapse.bodyProps}>{card}</div> : card}
@@ -334,7 +335,7 @@ export function IncomingMessageLine({
           )}
         </div>
       )}
-      {replies && editing && (
+      {!folded && replies && editing && (
         <div className="cv-message__reply">
           <PromptEditor
             initial={replyDrafts.get(key) ?? ""}

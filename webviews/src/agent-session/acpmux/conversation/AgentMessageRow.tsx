@@ -6,7 +6,8 @@
 // caller adds under the card (a delivery line, Details, a reply editor). MessageCard.tsx draws an
 // outgoing message with it; IncomingMessageCard.tsx's line is the incoming one. The caller owns
 // whether it is open, so each direction keeps that across the virtualized transcript its own way.
-import { useId, type ReactNode } from "react";
+import { useId, type ReactNode, type Ref, type MouseEvent } from "react";
+import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { ChevronRight } from "./icons";
 import "./AgentMessageRow.css";
 
@@ -23,6 +24,12 @@ export function messagePreview(text: string): string {
     .slice(0, 240);
 }
 
+// Both directions keep nested actions independent of the row's pointer disclosure.
+export function toggleAgentMessageLine(event: MouseEvent<HTMLElement>, toggle: () => void): void {
+  if ((event.target as Element).closest("button, a, input, textarea, select, summary, [role=button]")) return;
+  toggle();
+}
+
 export function AgentMessageRow({
   direction,
   icon,
@@ -35,6 +42,7 @@ export function AgentMessageRow({
   label,
   open,
   onToggle,
+  toggleRef,
   meta,
   actions,
   failed = false,
@@ -64,6 +72,8 @@ export function AgentMessageRow({
   label: string;
   open: boolean;
   onToggle(): void;
+  /// Keeps focus on the disclosure after a nested action closes (received rows).
+  toggleRef?: Ref<HTMLButtonElement>;
   /// At the line's right edge (a finished send's check), as a tool row's meta.
   meta?: ReactNode;
   /// The line's end, after the meta and outside the toggle: Reply, the message's hover row.
@@ -79,6 +89,7 @@ export function AgentMessageRow({
   attributes?: Record<`data-${string}`, string | undefined>;
 }) {
   const bodyId = useId();
+  const collapse = useAnchoredCollapse({ open, onOpenChange: onToggle, fadeIn: false });
   const [before = "", after = ""] = sentence.split("\u0000");
   return (
     <div
@@ -87,19 +98,26 @@ export function AgentMessageRow({
       data-open={open || undefined}
       {...attributes}
     >
-      <div className={`cv-tool cv-agentmsg__line${live ? " is-live" : " is-strong"}`}>
-        <span className="cv-tool__icon cv-agentmsg__icon">{icon}</span>
+      {/* The disclosure button is the keyboard control; the wrapper extends its pointer hit area. */}
+      <div
+        role="presentation"
+        className={`cv-tool cv-agentmsg__line${direction === "received" ? " cv-received__line" : ""}${live ? " is-live" : " is-strong"}`}
+        onClick={(event) => toggleAgentMessageLine(event, collapse.toggle)}
+      >
+        <span className={`cv-tool__icon cv-agentmsg__icon${direction === "received" ? " cv-received__icon" : ""}`}>
+          {icon}
+        </span>
         {/* The words toggle too, for the pointer; the toggle button is the control, and its label
             reads the line. */}
         {before.trim() && (
-          <span className="cv-agentmsg__words" aria-hidden onClick={onToggle}>
+          <span className="cv-agentmsg__words" aria-hidden>
             {before.trim()}
           </span>
         )}
         {onOpenName ? (
           <button
             type="button"
-            className="cv-agentmsg__name"
+            className={`cv-agentmsg__name${direction === "received" ? " cv-received__name" : ""}`}
             aria-label={openNameLabel}
             title={nameTitle}
             onClick={onOpenName}
@@ -107,35 +125,53 @@ export function AgentMessageRow({
             {name}
           </button>
         ) : (
-          <span className="cv-agentmsg__name is-plain" aria-hidden title={nameTitle} onClick={onToggle}>
+          <span
+            className={`cv-agentmsg__name is-plain${direction === "received" ? " cv-received__name" : ""}`}
+            aria-hidden
+            title={nameTitle}
+          >
             {name}
           </span>
         )}
         {after.trim() && (
-          <span className="cv-agentmsg__words" aria-hidden onClick={onToggle}>
+          <span className="cv-agentmsg__words" aria-hidden>
             {after.trim()}
           </span>
         )}
         <button
+          ref={(node) => {
+            collapse.headerRef(node);
+            if (typeof toggleRef === "function") toggleRef(node);
+            else if (toggleRef) toggleRef.current = node;
+          }}
           type="button"
-          className="cv-agentmsg__toggle"
+          className={`cv-agentmsg__toggle${direction === "received" ? " cv-received__toggle" : ""}`}
           aria-expanded={open}
           aria-controls={open ? bodyId : undefined}
           aria-label={label}
-          onClick={onToggle}
+          onClick={(event) => {
+            event.stopPropagation();
+            collapse.toggle();
+          }}
         >
-          <span className="cv-agentmsg__preview">{open ? "" : preview}</span>
+          {!open && (
+            <span className={`cv-agentmsg__preview${direction === "received" ? " cv-received__preview" : ""}`}>
+              {preview}
+            </span>
+          )}
           <ChevronRight size={14} strokeWidth={1.2} className={`cv-tool__chevron cv-rotor${open ? " is-open" : ""}`} />
         </button>
         {meta}
         {actions}
       </div>
-      {open && (
-        <div id={bodyId} className="cv-agentmsg__card selectable">
-          {body}
+      {collapse.present && (
+        <div {...collapse.bodyProps}>
+          <div id={bodyId} className="cv-agentmsg__card selectable">
+            {body}
+          </div>
+          {under}
         </div>
       )}
-      {open && under}
     </div>
   );
 }

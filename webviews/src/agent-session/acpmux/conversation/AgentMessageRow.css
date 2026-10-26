@@ -123,3 +123,8 @@ button.cv-agentmsg__name:focus-visible {
 .cv-agentmsg__output.cv-tool-output {
   margin: 0 0 6px 22.5px;
 }
+
+/* The received line carries its timestamp; actions do not repeat it. */
+.cv-received-actions .cv-user__time {
+  display: none;
+}
