@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextPalette
+import CmuxNextTerminal
 import CoreFoundation
 import Foundation
 
@@ -36,6 +37,8 @@ enum LaunchWarmup {
         thread.name = "cmux-next launch warm-up"
         thread.qualityOfService = .userInitiated
         thread.start()
+        // The first terminal surface's Metal device and font registry.
+        TerminalLaunchPrefetch.startAtLaunch { DebugTimings.markLaunch($0) }
         // Its own thread: the connecting screen's strings can be read before the work above ends.
         Bundle.warmResourceBundlesInBackground()
     }

@@ -16,6 +16,9 @@ import CmuxNextCompat
 /// GhosttyKit bump touches one target (plans/cmux-next/shell.md 2.3).
 ///
 /// Created lazily; the first access to ``shared`` runs `ghostty_init`.
+/// `ghostty_app_new` picks the Metal device on this thread, and the first
+/// surface matches its fonts here: ``TerminalLaunchPrefetch`` pays both
+/// system first-use costs on a launch thread before either runs.
 public final class GhosttyRuntime {
     public static let shared = GhosttyRuntime()
 
@@ -149,7 +152,7 @@ public final class GhosttyRuntime {
     /// Test hook: when set, only this file (plus its `config-file` includes)
     /// is loaded instead of the user's default Ghostty config files, so
     /// visual checks can run a tagged build under another theme.
-    static let configOverrideKey = "CMUX_NEXT_GHOSTTY_CONFIG"
+    nonisolated static let configOverrideKey = "CMUX_NEXT_GHOSTTY_CONFIG"
 
     /// cmux's own theme (`appearance.theme` in cmux.json, a Ghostty theme
     /// name or `light:A,dark:B`), loaded after the Ghostty config files so

@@ -136,7 +136,8 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `debug.window_record`
 - Trace and hang watch (Rust thread names, p09-observability; the app adds no thread): `cmux-hang-watch`,
   `cmux-trace-open`
-- Launch and misc: `cmux-next resource bundle warm-up`, `cmux-next launch warm-up`, `cmux.updates.network`,
+- Launch and misc: `cmux-next resource bundle warm-up`, `cmux-next launch warm-up`, `cmux-next terminal prefetch`
+  (one-shot at launch, user-initiated; Metal device enumeration and CoreText font loads, no lock), `cmux.updates.network`,
   `cmux.home.fixture.video`
 - Unnamed today (base debt; name and list them when you touch them): the URLSession delegate
   `OperationQueue`s in AcpmuxPaneSocket.swift, AgentChatPullRequestReader.swift,

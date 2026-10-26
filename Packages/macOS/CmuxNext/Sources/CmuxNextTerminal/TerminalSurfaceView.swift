@@ -149,12 +149,14 @@ public final class TerminalSurfaceView: NSView {
     /// `GHOSTTY_SURFACE_IO_MANUAL` for a bare PTY.
     private func createSurface(mode: ghostty_surface_io_mode_e) {
         let started = ContinuousClock.now
+        var phases = SurfaceCreationPhases(start: started)
         let signpost = TerminalTimings.signposter.beginInterval("createSurface")
         defer {
             TerminalTimings.signposter.endInterval("createSurface", signpost)
-            TerminalTimings.surfaceCreated(started.duration(to: .now))
+            TerminalTimings.surfaceCreated(started.duration(to: .now), phases: phases)
         }
         guard let app = GhosttyRuntime.shared.app else { return }
+        phases.mark("runtime")
         let userdata = bridge.toOpaque()
         var config = ghostty_surface_config_new()
         config.platform_tag = GHOSTTY_PLATFORM_MACOS
@@ -165,10 +167,12 @@ public final class TerminalSurfaceView: NSView {
         config.io_mode = mode
         config.io_write_cb = ghosttyIOWrite
         config.io_write_userdata = userdata
+        phases.mark("config")
         guard let surface = ghostty_surface_new(app, &config) else {
             GhosttyRuntime.logger.error("ghostty_surface_new failed")
             return
         }
+        phases.mark("surface_new")
         self.surface = surface
         // The drawable follows the size this view sets (`setFrameSize`), not
         // its layer's bounds: one synchronous frame per size change at the
@@ -184,6 +188,7 @@ public final class TerminalSurfaceView: NSView {
         updateSurfaceSize(forceReport: true)
         updateOcclusion()
         updateFocus()
+        phases.mark("attach")
     }
 
     nonisolated public override var isFlipped: Bool { false }
