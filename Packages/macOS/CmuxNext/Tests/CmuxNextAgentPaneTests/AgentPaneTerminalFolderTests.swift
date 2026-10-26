@@ -93,5 +93,38 @@ struct AgentPaneTerminalFolderTests {
         #expect(chat.terminalFolder == nil)
     }
 
+    /// A later pick the pane may not use (its click already spent) drops the earlier project: the
+    /// terminal starts in the pane's own folder, not in a project the chip no longer shows.
+    @Test func aLaterPickThePaneMayNotUseDropsTheEarlierProject() async throws {
+        let opened = try Self.folder()
+        let first = try Self.folder()
+        let second = try Self.folder()
+        let chat = AgentPaneModel(host: NoHost())
+        chat.transport.homeFolder = "/nonexistent-home-\(UUID().uuidString)"
+        chat.startFolders.resolve = { proposed in AgentPaneStartFolder(kind: .seed, cwd: proposed, agentHome: nil) }
+        chat.handshakeCwd = opened
+        chat.transport.gestures.record(click: true)
+        _ = await chat.respond(to: .useFolder(first, confirm: false))
+        #expect(chat.terminalFolder.map(Self.canonical) == Self.canonical(first))
+
+        _ = await chat.respond(to: .useFolder(second, confirm: false)) // no click left to grant it
+        #expect(chat.terminalFolder == opened)
+    }
+
+    /// Two picks whose replies come back in the other order: the later pick stays the terminal's folder.
+    @Test func aPickThatFinishesAfterALaterPickChangesNothing() async throws {
+        let earlier = try Self.folder()
+        let later = try Self.folder()
+        let chat = AgentPaneModel(host: NoHost())
+        chat.transport.roots = { [earlier, later] }
+        let first = chat.beginPick()
+        let second = chat.beginPick()
+        _ = await chat.notePicked(second, Self.ok(later))
+        _ = await chat.notePicked(first, Self.ok(earlier))
+        #expect(chat.terminalFolder == later)
+    }
+
+    private static func ok(_ cwd: String) -> [String: Any] { AgentPaneReply.success(["status": "ok", "cwd": cwd]) }
+
     private static func canonical(_ path: String) -> String { AcpmuxPathPolicy.canonical(path) ?? path }
 }

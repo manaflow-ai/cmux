@@ -68,17 +68,27 @@ extension AgentPaneModel {
         return folderForOtherTabs(session ?? pickedFolder ?? chosenFolder ?? startFolders.current(of: self) ?? handshakeCwd)
     }
 
+    /// Starts a `workspace.useFolder` pick or a folder choice: picks still in flight no longer count.
+    func beginPick() -> Int {
+        pickSequence += 1
+        return pickSequence
+    }
+
     /// Keeps a `workspace.useFolder` pick as the terminal folder (Ctrl-` before the first send,
     /// #22225) when the chat may start there: an `ok` for a folder that is a root of this pane, or
-    /// one the person's click granted. A page script's pick of any other folder moves nothing.
-    func notePicked(_ reply: [String: Any]) async -> [String: Any] {
+    /// one the person's click granted. An `ok` for any other folder drops an earlier pick, so a
+    /// page script can only send the terminal back to the pane's own folder, never choose one.
+    /// A pick that finishes after a later pick or choice changes nothing.
+    func notePicked(_ pick: Int, _ reply: [String: Any]) async -> [String: Any] {
         guard let value = reply["value"] as? [String: Any], value["status"] as? String == "ok",
               let cwd = value["cwd"] as? String else { return reply }
         // The reply to the person's click waits for it.
         let canonical = await Task.detached(priority: .userInitiated) { AcpmuxPathPolicy.canonical(cwd) }.value
+        guard pick == pickSequence else { return reply }
         let allowed = transport.roots() + transport.addedRoots
         // An agent-home pick replaces an earlier project: it gives no terminal folder (``folderForOtherTabs(_:)``).
-        if isAgentHome(cwd) || allowed.contains(cwd) || canonical.map(allowed.contains) == true { pickedFolder = cwd }
+        let usable = isAgentHome(cwd) || allowed.contains(cwd) || canonical.map(allowed.contains) == true
+        pickedFolder = usable ? cwd : nil
         return reply
     }
 
@@ -91,6 +101,7 @@ extension AgentPaneModel {
         case .chosen(let folder):
             chosenFolder = folder
             pickedFolder = nil
+            _ = beginPick()
             return AgentPaneReply.success(["cwd": folder])
         case .cancelled:
             return AgentPaneReply.success()
@@ -113,7 +124,11 @@ extension AgentPaneModel {
         switch result {
         case .adopt(let adopt, let cwd):
             seed?.folderNeeded = nil
-            if let cwd { handshakeCwd = cwd }
+            if let cwd {
+                handshakeCwd = cwd
+                pickedFolder = nil
+                _ = beginPick()
+            }
             var value: [String: Any] = ["adopt": adopt.reply]
             if let cwd { value["cwd"] = cwd }
             return AgentPaneReply.success(value)
