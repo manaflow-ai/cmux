@@ -80,10 +80,30 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     /// flushes it before every discrete event; owners that post get it by injection.
     private(set) lazy var frameInput = FrameInputCoalescers()
 
+    /// The `key.frame` signposts of every key-down, ended by one main run-loop observer it installs once
+    /// (made at the first key-down).
+    private lazy var keyFrames = KeyFrameSignpost()
+
     @objc(setHandlingSendEvent:)
     func setHandlingSendEvent(_ value: Bool) { handlingSendEvent = value }
 
+    /// The main-thread budget's run-loop turn meter (``meterTurns(_:)``).
+    private var turnMeter: MainTurnMeter?
+
+    /// Times every main run-loop turn on `meter`, each `sendEvent` as its input-dispatch span. Called
+    /// once in `CmuxNextApp.main`, before `run()`.
+    func meterTurns(_ meter: MainTurnMeter) {
+        turnMeter = meter
+        meter.observe()
+    }
+
+    // perf-hot: 100ns main-turn (every event's dispatch: the turn meter's input span)
     override func sendEvent(_ event: NSEvent) {
+        guard let turnMeter else { return tapped(event) }
+        turnMeter.inputDispatch { tapped(event) }
+    }
+
+    private func tapped(_ event: NSEvent) {
         // One tap dispatch scope per event: a subscription made in one stage never hears this event.
         guard let inputTap else { return dispatchInput(event) }
         inputTap.dispatching { dispatchInput(event) }
@@ -97,7 +117,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     private func route(_ event: NSEvent) {
         if event.type == .keyDown {
             let terminal = (keyWindow ?? event.window)?.firstResponder is TerminalSurfaceView
-            KeyFrameSignpost().begin(target: terminal ? .terminal : .view, eventTimestamp: event.timestamp)
+            keyFrames.begin(target: terminal ? .terminal : .view, eventTimestamp: event.timestamp)
         }
         let probesKey = event.type == .keyDown && TypingLatencyProbe.isEnabled
         if probesKey { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
@@ -158,8 +178,11 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     /// written first; the next launch's notice and report then name it.
     ///
     /// With crashing on, the crash has begun here: the crash deadline then
-    /// ends the process even if a crash handler after this blocks.
+    /// ends the process even if a crash handler after this blocks. With it
+    /// off, AppKit's loop goes on at the top level, and the turn meter goes
+    /// back there too (the exception skipped its span ends and loop exits).
     override func reportException(_ exception: NSException) {
+        turnMeter?.unwindToTopLevel()
         CrashReporter.reportException(exception, crashes: UserDefaults.standard.bool(forKey: CrashOnExceptions.key),
                                       record: UncaughtExceptionRecorder.handle) { super.reportException(exception) }
     }

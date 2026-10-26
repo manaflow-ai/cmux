@@ -157,8 +157,7 @@ def bench(phase, window):
             if command != "new_workspace" and not ensure_terminal():
                 sys.exit("no focused terminal: " + json.dumps(panes())[:800])
             before = len(panes())
-            if opts.hang_stacks:
-                rpc("debug.hangs", {"clear": True})
+            rpc("debug.hangs", {"clear": True})
             result = rpc("debug.new_tab", {"action": "bench_create", "command": command}, timeout=20) or {}
             result.update({"phase": phase, "run": index})
             rows.append(result)
@@ -167,8 +166,10 @@ def bench(phase, window):
                   f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} marks={marks} "
                   f"err={result.get('error')}", flush=True)
             time.sleep(0.4)  # test harness: let the creation's shell start before closing it
+            hangs = rpc("debug.hangs", {"limit": 8 if opts.hang_stacks else 0}) or {}
+            result["count250"] = hangs.get("count250") if isinstance(hangs, dict) else None  # stalls >= 250 ms (perf-cron)
             if opts.hang_stacks:
-                result["hangs"] = longest_stall(rpc("debug.hangs", {"limit": 8}) or {})
+                result["hangs"] = longest_stall(hangs)
                 stall = result["hangs"].get("stack") or {}
                 print(f"  stalls={result['hangs'].get('count')} longest={stall.get('ms')} cpu={stall.get('cpu_ms')}", flush=True)
                 for frame in stall.get("frames") or []:

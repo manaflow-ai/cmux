@@ -13,6 +13,7 @@ import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextDaemon
+import CmuxNextFeatures
 import CmuxNextFeed
 import CmuxNextFavicons
 import CmuxNextHomeEngine
@@ -30,6 +31,7 @@ import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextSignposts
 import CmuxNextTerminal
+import CmuxNextTrace
 import CmuxNextUpdater
 import CmuxNextVSCodeServer
 import CmuxNextWakeups
@@ -113,6 +115,8 @@ final class AppServices {
     let registry: ActionRegistry
     /// The main-thread blocking detector's handle (threading-model.md): the Debug menu, `debug.blocking` (the Nightly sink to come).
     let blocking = BlockingDetector.forProcess()
+    /// The local daemon's wire counters (`debug.daemon.wire`); nil in a release build.
+    let wireStats: DaemonWireStats?
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater: UpdaterService
     /// The file picker made ahead of the click, the app's one: agent panes, page file inputs and Home's "+" take it.
@@ -235,6 +239,11 @@ final class AppServices {
                             live: simulatorKit)
     }()
     private(set) lazy var phoneFeedback = PhoneChiefFeedback(home: home)
+    /// Every declared feature's value (`schemas/features/features.d`, Chrome's `base::FeatureList`):
+    /// built once, on first read, from this build's channel and the launch environment
+    /// (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`). Tests set their own before the first read.
+    lazy var features = FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind),
+                                    overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment))
     /// The Task Manager page and Kill Process (`TaskManagerPageService`).
     private(set) lazy var taskManager = TaskManagerPageService(services: self)
     /// The Todo page: a workspace's checklist (`workspace-checklist-v1`).
@@ -440,19 +449,25 @@ final class AppServices {
     private(set) lazy var remoteTerminals: RemoteTerminalService = RemoteTerminalService(services: self)  // first read in init (no IUO)
     /// Cross-build session discovery and acknowledge-then-close handoff.
     private(set) lazy var sessionTransfer = SessionTransferService(services: self)
-    /// - Parameter launchReveal: The launch load-in the windows' sidebars
-    ///   hold for; the app-wide one by default.
-    /// - Parameter work: the app's one set of blocking-work lanes (task traits, PATTERNS P14); a default
-    ///   instance unless a test passes its own.
+    /// - Parameter launchReveal: The launch load-in the windows' sidebars and panes hold for
+    ///   (`AppDelegate` passes the one its startup phase reveals on); tests get one of their own.
+    /// - Parameter work: the app's one set of blocking-work lanes (task traits, PATTERNS P14); by default
+    ///   one watched by `hangWatch`, unless a test passes its own.
     /// - Parameter mainWork: The app's main-thread scheduler (`AppDelegate` passes the one its control
     ///   socket uses); tests get one of their own, with no pending-input check.
-    init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil,
-         work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
-         launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil)) {
+    /// - Parameter hangWatch: the hang watch of every watched lane (``work``'s lanes; through ``daemon``, its
+    ///   connection readers, terminal attachments and terminal output lanes): the process's
+    ///   (`TraceRuntime.shared`) by default, a test's fake, or nil to watch nothing.
+    init(environment: AppEnvironment, launchReveal: LaunchReveal = LaunchReveal(), agentPaneEnvironment: [String: String]? = nil,
+         work: BackgroundWork? = nil, mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
+         launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil),
+         wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch) {
+        let work = work ?? BackgroundWork(hangs: hangWatch)
         self.work = work
         // First: the black-box ring is attached to TraceRuntime.shared, so every trace point records from here
         // on; the ring file opens on `.files`, never on main.
         traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil
+        self.wireStats = wireStats
         (self.launchImages, self.relaunchWake) = (launchImages, relaunchWake)
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)
@@ -461,7 +476,8 @@ final class AppServices {
         self.mainWork = mainWork
         inputDispatch = InputDispatchContext(scrollFrames: ScrollFrameSignpost(),
                                              discreteInput: { [mainWork] in mainWork.noteDiscreteInput(expectsFrame: $0) })
-        daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
+        daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork, wireStats: wireStats,
+                               hangWatch: hangWatch)
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared

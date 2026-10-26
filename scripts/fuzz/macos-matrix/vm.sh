@@ -4,8 +4,8 @@
 # Agents start it on the fleet with os-matrix.sh (a cmux-ci step of class vm).
 #
 # Usage: vm.sh [--majors 14,15,26,27] [--suite smoke|fuzz|repro|exec|chaos] [--seed N] [--steps N] [--minutes N]
-#              [--repro NAME | --replay STEPS.jsonl | --probe NAME | --faults A,B] [--work DIR] [--results FILE]
-#              [--keep-vm] BUILD
+#              [--repro NAME | --replay STEPS.jsonl | --probe NAME | --faults A,B] [--diag NAME]
+#              [--work DIR] [--results FILE] [--keep-vm] BUILD
 #   BUILD      a cmux-next .app, a .zip with one, or a .dmg (a shipped nightly).
 #   --suite    smoke: smoke.py (launch, window, terminal echo, split, Chromium and WebKit tabs,
 #              Settings, quit; needs a DEV build). chaos: chaos.py (needs a DEV build), one fault
@@ -22,6 +22,12 @@
 #              (a probe must catch its errors and exit 1 for a FAIL: a trap is no verdict).
 #              The probe never runs on the host. It tests the OS, not the build (BUILD is still
 #              copied into the guest, so a probe may use it).
+#   --diag     fuzz and repro: run the app under a check (diag.py): gmalloc, scribble, probguard,
+#              mtc, coop-strict, or asan|tsan|ubsan (a sanitizer app: reload.sh --config asan|tsan|ubsan).
+#              The guest copy of the app is re-signed ad hoc; malloc and sanitizer checks run with
+#              Chromium off (that copy loses its CEF runtime and opens WebKit tabs). summary.json's
+#              "diag" has the launch environment, the Chromium state, the app's malloc zones (default zone first) and the check's reports; a
+#              Chromium-off run where PartitionAlloc owns a zone is invalid (no verdict). A report fails it.
 #   --minutes  fuzz: stop each major's walk after N minutes (the run's time bound). Without
 #              --steps the walk runs until then; with --steps, whichever ends first.
 #   --results  write the run (logs, screenshots, reports, matrix.json) to FILE as a .tgz and
@@ -43,7 +49,7 @@
 set -euo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 IMAGES="$HERE/images.json"
-MAJORS=14,15,26; SEED=1; STEPS=""; KEEP_VM=0; REPLAY=""; SUITE=fuzz; REPRO=""; RESULTS=""; MINUTES=0; PROBE=""; FAULTS=""
+MAJORS=14,15,26; SEED=1; STEPS=""; KEEP_VM=0; REPLAY=""; SUITE=fuzz; REPRO=""; RESULTS=""; MINUTES=0; PROBE=""; FAULTS=""; DIAG=""
 WORK=${FUZZ_WORK:-/Volumes/ephemeral0/cmux-agent-work/mfloor}
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -59,7 +65,8 @@ while [[ $# -gt 0 ]]; do
     --faults) FAULTS=$2; shift 2 ;;
     --results) RESULTS=$2; shift 2 ;;
     --keep-vm) KEEP_VM=1; shift ;;
-    -h|--help) sed -n '2,42p' "$0"; exit 0 ;;
+    --diag) DIAG=$2; shift 2 ;;
+    -h|--help) sed -n '2,48p' "$0"; exit 0 ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
     *) BUILD=$1; shift ;;
   esac
@@ -82,6 +89,19 @@ case "$SUITE" in
     REPLAY="$HERE/repros/$REPRO.jsonl" ;;
   *) echo "--suite must be smoke, fuzz, repro, exec or chaos" >&2; exit 2 ;;
 esac
+# A diag's guest work, from diag.py: a bundle id suffix, a host dylib, bundle paths to remove.
+DIAG_SUFFIX="" DIAG_HOST_DYLIB="" DIAG_REMOVE=()
+if [[ -n "$DIAG" ]]; then
+  [[ "$SUITE" == fuzz || "$SUITE" == repro ]] || { echo "--diag needs --suite fuzz or repro" >&2; exit 2; }
+  diag_info=$(python3 -I "$HERE/diag.py" info "$DIAG") || exit 2
+  while IFS='=' read -r k v; do
+    case "$k" in
+      bundle_suffix) DIAG_SUFFIX=$v ;;
+      host_dylib) DIAG_HOST_DYLIB=$v ;;
+      remove) DIAG_REMOVE+=("$v") ;;
+    esac
+  done <<<"$diag_info"
+fi
 # The results file is created new at the end (O_EXCL): refuse an existing one before the run.
 [[ -z "$RESULTS" || ! -e "$RESULTS" && ! -L "$RESULTS" ]] || { echo "--results $RESULTS exists" >&2; exit 2; }
 export TART_HOME=${TART_HOME:-$WORK/tart-home}
@@ -165,6 +185,11 @@ print(next((i.get("host_os_min", "") for i in json.load(open(sys.argv[1]))["imag
     return 0
   fi
   local rargs=(); if [[ -n "$REPLAY" ]]; then rargs=(--replay "$REPLAY"); fi
+  if [[ -n "$DIAG" ]]; then
+    diag_guest "$ip" "$app" "$out" || return 1
+    rargs+=(--diag "$DIAG" --zones-tool /Users/admin/malloc-zones)
+    [[ -z "$DIAG_HOST_DYLIB" ]] || rargs+=(--insert-dylib /Users/admin/fuzz-diag-host.dylib)
+  fi
   if [[ -n "${FUZZ_DYLIB:-}" ]]; then
     # Diagnostics only: a dylib loaded with DYLD_INSERT_LIBRARIES, which the hardened runtime
     # refuses, so the guest copy of the app is re-signed ad hoc without it.
@@ -238,6 +263,49 @@ if rc != 0:  # the step log keeps why, even when the results never upload
 PY
 }
 
+# --diag: malloc-zones (malloc-zones.c: the app's zones, read in the guest) and the check's host dylib, made once.
+ZONES_BIN="" DIAG_DYLIB=""
+prepare_diag() {  # prepare_diag OUTDIR: sets ZONES_BIN (and DIAG_DYLIB), or returns 1 with the reason on stderr
+  mkdir -p "$1"
+  local src; src=$(cd "$HERE" && pwd -P)/malloc-zones.c
+  if ! (cd "$1" && bounded 120 xcrun clang -O2 -Wall -target arm64-apple-macos14.0 -o "$1/malloc-zones" "$src" \
+          >"$1/malloc-zones-compile.log" 2>&1 &&
+        bounded 60 /usr/bin/codesign --force --sign - "$1/malloc-zones" >>"$1/malloc-zones-compile.log" 2>&1); then
+    echo "malloc-zones did not compile; the log's end:" >&2; tail -c 3000 "$1/malloc-zones-compile.log" >&2
+    return 1
+  fi
+  ZONES_BIN="$1/malloc-zones"
+  if [[ -n "$DIAG_HOST_DYLIB" ]]; then
+    DIAG_DYLIB="$(xcode-select -p 2>/dev/null)/usr/lib/$DIAG_HOST_DYLIB"
+    [[ -f "$DIAG_DYLIB" ]] || { echo "--diag $DIAG needs $DIAG_DYLIB (the host's Xcode)" >&2; return 1; }
+  fi
+}
+diag_guest() {  # diag_guest IP APP OUT: the guest copy of the app as the diag needs it
+  local ip=$1 app=$2 out=$3 qapp; qapp=$(printf %q "$app")
+  scp "${SSHB[@]}" -q "$ZONES_BIN" "admin@$ip:/Users/admin/malloc-zones" </dev/null || {
+    echo "malloc-zones copy failed" >"$out/failure"; return 1; }
+  if [[ -n "$DIAG_DYLIB" ]]; then
+    scp "${SSHB[@]}" -q "$DIAG_DYLIB" "admin@$ip:/Users/admin/fuzz-diag-host.dylib" </dev/null || {
+      echo "$DIAG_HOST_DYLIB copy failed" >"$out/failure"; return 1; }
+  fi
+  if [[ -n "$DIAG_SUFFIX" ]]; then
+    local id; id=$(ssh "${SSHB[@]}" "admin@$ip" "/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' $qapp/Contents/Info.plist" </dev/null || true)
+    [[ "$id" == *"$DIAG_SUFFIX" ]] || {
+      echo "--diag $DIAG needs a sanitizer app (bundle id ending $DIAG_SUFFIX: reload.sh --config $DIAG); this build is ${id:-unreadable}" >"$out/failure"
+      return 1; }
+  fi
+  # Chromium off: no CEF runtime in the bundle and no pin to download one (diag.py CHROMIUM_RUNTIME).
+  local p del=""
+  for p in ${DIAG_REMOVE[@]+"${DIAG_REMOVE[@]}"}; do del+=" $(printf %q "$app/$p")"; done
+  if [[ -n "$del" ]]; then
+    ssh "${SSHB[@]}" "admin@$ip" "rm -rf$del" </dev/null || { echo "Chromium runtime removal failed" >"$out/failure"; return 1; }
+  fi
+  # Ad hoc, without the hardened runtime: the bundle may have changed, dyld must accept inserted
+  # libraries, and malloc-zones needs the app's task port (task_for_pid), which the runtime refuses.
+  ssh "${SSHB[@]}" "admin@$ip" "codesign --force --deep --sign - $qapp >/dev/null 2>&1 && chmod 755 /Users/admin/malloc-zones" \
+    </dev/null || { echo "ad hoc re-sign failed" >"$out/failure"; return 1; }
+}
+
 # Virtualization.framework keeps a host key in the login keychain: Tart fails with "Failed to get
 # current host key" when the session has no keychain search list (Tailscale SSH) or the keychain is
 # locked (OpenSSH without a GUI login, as a fleet worker step). Unlock it for one VM, relock after.
@@ -272,9 +340,17 @@ if [[ "$SUITE" == exec ]] && ! compile_probe "$RUN/probe-bin"; then
   done
   majors=()
 fi
+if [[ -n "$DIAG" ]] && ! prepare_diag "$RUN/diag-bin" 2>"$RUN/diag-prepare.log"; then
+  # No malloc-zones, no proof of the allocator: every major records why (and boots no VM).
+  cat "$RUN/diag-prepare.log" >&2
+  for major in "${majors[@]}"; do
+    mkdir -p "$RUN/$major"; { echo "--diag $DIAG: host preparation failed:"; cat "$RUN/diag-prepare.log"; } >"$RUN/$major/failure"
+  done
+  majors=()
+fi
 for major in ${majors[@]+"${majors[@]}"}; do
   out="$RUN/$major"; mkdir -p "$out"
-  echo "== macOS $major (suite $SUITE${REPRO:+ $REPRO}, seed $SEED, steps ${STEPS:-auto}, minutes $MINUTES): waiting for the host lock" >&2
+  echo "== macOS $major (suite $SUITE${REPRO:+ $REPRO}${DIAG:+, diag $DIAG}, seed $SEED, steps ${STEPS:-auto}, minutes $MINUTES): waiting for the host lock" >&2
   if [[ "$LOCK" == none ]]; then cycle "$major" "$out" || true
   else
     # Hold the fleet lock only for clone..delete.
@@ -285,9 +361,11 @@ for major in ${majors[@]+"${majors[@]}"}; do
   fi
 done
 
-python3 -I - "$RUN" "$MAJORS" "$SUITE" "$RESULTS" <<'PY'
+python3 -I - "$RUN" "$MAJORS" "$SUITE" "$RESULTS" "$DIAG" "$HERE" <<'PY'
 import json, os, sys, tarfile
-run, majors, suite, results = sys.argv[1], sys.argv[2].split(","), sys.argv[3], sys.argv[4]
+run, majors, suite, results, diag = sys.argv[1], sys.argv[2].split(","), sys.argv[3], sys.argv[4], sys.argv[5]
+sys.path.insert(0, sys.argv[6])
+from diag import fuzz_verdict  # the fuzz and repro verdict (test_diag.py tests it)
 # Each major's verdict: PASS, FAIL, or NO-VERDICT when the run gave none (no result: a VM, keychain or
 # image failure; or an exec probe that could not run: a crash, a timeout, exit 2, no compile).
 rows, verdicts = {}, []
@@ -320,12 +398,11 @@ for m in majors:
             line += "\n       %-18s %-4s expected: %s" % (f.get("fault"), f.get("outcome"), f.get("expected", ""))
     else:
         s = load("summary.json")
-        bad = fail or s.get("crashes", 0) or s.get("hangs", 0) or s.get("relaunches", 0) or s.get("guest_lost_at") is not None
-        verdict = "NO-VERDICT" if not s else ("FAIL" if bad else "PASS")
-        line = "%-4s %-8s %-5s %-10s steps=%-5s crashes=%-3s hangs=%-3s dead=%-3s faults=%-4s %s" % (
+        verdict, extra = fuzz_verdict(s, fail, diag)
+        line = "%-4s %-8s %-5s %-10s steps=%-5s crashes=%-3s hangs=%-3s dead=%-3s faults=%-4s%s %s" % (
             m, s.get("os", "?"), suite, verdict, s.get("steps", 0), s.get("crashes", 0),
-            s.get("hangs", 0), s.get("relaunches", 0), s.get("faults", 0), fail)
-    rows[m] = {**s, "suite": suite, "verdict": verdict, "failure": fail}
+            s.get("hangs", 0), s.get("relaunches", 0), s.get("faults", 0), extra, fail)
+    rows[m] = {**s, "suite": suite, "diag_name": diag or None, "verdict": verdict, "failure": fail}
     verdicts.append(verdict)
     print(line)
 overall = "FAIL" if "FAIL" in verdicts else ("NO-VERDICT" if "NO-VERDICT" in verdicts else "PASS")

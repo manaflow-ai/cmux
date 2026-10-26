@@ -1,11 +1,14 @@
 import CmuxNextCompat
+import CmuxNextTrace
 import Dispatch
 
 /// The queue of one ``BlockingLane``: which item runs next, on which slot, at which QoS.
 ///
 /// A slot is a serial `DispatchQueue` that runs one item at a time at the item's QoS (`.enforceQoS`);
-/// GCD makes a thread only while a slot has work. Each item runs with its thread marked
-/// ``CmuxNextCompat/BlockingContext/lane``, so the blocking detector allows its seams. A `perPriority` lane (files) has one slot per
+/// GCD makes a thread only while a slot has work. Each item of a lane that may block (files, system) runs with
+/// its thread marked ``CmuxNextCompat/BlockingContext/lane``, so the blocking detector allows its seams; an item of
+/// the cpu lane runs marked ``CmuxNextCompat/BlockingContext/cpuLane``, where a seam records a
+/// ``CmuxNextCompat/BlockingKind/wrongLane`` site (Debug and bench-checks builds). A `perPriority` lane (files) has one slot per
 /// ``WorkPriority``, so each priority is serial and a best-effort write never sits in front of a
 /// user-blocking read. A `shared` lane (system, cpu) has `width` slots for every priority and starts the
 /// highest-priority pending item first.
@@ -13,6 +16,9 @@ import Dispatch
 /// While a best-effort fence is up (``fence()``), a posted ``WorkPriority/idle`` or
 /// ``WorkPriority/bestEffort`` item stays queued in post order; an item someone awaits still runs at its
 /// own QoS. Chrome's `CanRunPolicy::kForegroundOnly` (base/task/thread_pool/thread_pool_impl.cc).
+///
+/// With a hang-watched lane, each item's run on its slot is one hang scope (Chrome's `WatchHangsInScope`
+/// in `TaskTracker::RunTask`, base/task/thread_pool/task_tracker.cc); the wait for a slot is not.
 final class LaneScheduler: Sendable {
     enum Policy: Sendable {
         case perPriority
@@ -57,12 +63,18 @@ final class LaneScheduler: Sendable {
     }
 
     let policy: Policy
+    /// Whether the lane's items may block (Chrome's `MayBlock()` trait): files and system may, cpu may not.
+    private let mayBlock: Bool
+    /// The lane's hang-watch slot; each item runs in one scope of it. nil watches nothing.
+    private let hangWatched: HangWatchedLane?
     private let slots: [DispatchQueue]
     // concurrency-allow: a short non-blocking critical section over the pending lists, taken from lane threads, cancel handlers and submitters that must not await (lock carve-out).
     private let state: Mutex<State>
 
-    init(label: String, policy: Policy) {
+    init(label: String, policy: Policy, mayBlock: Bool, hangWatched: HangWatchedLane? = nil) {
         self.policy = policy
+        self.mayBlock = mayBlock
+        self.hangWatched = hangWatched
         let names: [String] = switch policy {
         case .perPriority: WorkPriority.allCases.map { "\(label).\($0)" }
         case .shared(let width): (0..<max(1, width)).map { "\(label).\($0)" }
@@ -70,6 +82,10 @@ final class LaneScheduler: Sendable {
         // The item's QoS (`.enforceQoS`) sets the thread's QoS; the queue itself has none.
         slots = names.map { DispatchQueue(label: $0, qos: .unspecified, autoreleaseFrequency: .workItem) }
         state = Mutex(State(busy: Array(repeating: false, count: names.count)))
+    }
+
+    deinit {
+        hangWatched?.unregister()
     }
 
     /// What ``submit(_:at:unless:)`` did with an item.
@@ -174,11 +190,22 @@ final class LaneScheduler: Sendable {
     private func launch(_ starts: [Start]) {
         for start in starts {
             slots[start.slot].async(qos: start.priority.qos, flags: .enforceQoS) { [self] in
-                // The slot is a MayBlock() thread (Chrome's task_tracker.cc): seams in the item are allowed.
-                BlockingContext.runAsLane { start.job.execute() }
+                // Chrome's task_tracker.cc runs a MayBlock() task with blocking allowed and any other task
+                // under ScopedDisallowBlocking: a files or system item may block, a cpu item may not.
+                if mayBlock {
+                    BlockingContext.runAsLane { run(start.job) }
+                } else {
+                    BlockingContext.runAsCPULane { run(start.job) }
+                }
                 finish(start.job.id, slot: start.slot)
             }
         }
+    }
+
+    /// Runs `job` on this slot's thread, inside the lane's hang scope when it has one.
+    private func run(_ job: LaneJob) {
+        guard let hangWatched else { return job.execute() }
+        hangWatched.run { job.execute() }
     }
 
     private func finish(_ id: UInt64, slot: Int) {

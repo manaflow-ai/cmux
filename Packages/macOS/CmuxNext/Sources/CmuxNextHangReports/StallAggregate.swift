@@ -1,6 +1,7 @@
-/// The watchdog's findings since the last report: a histogram of finished stalls and the stacks
-/// of the longest ones (already reduced to ``HangReportFrame``s, so the aggregate can be saved and sent
-/// after a relaunch).
+/// The collector's findings since the last report: the watchdog's histogram of finished stalls and
+/// the stacks of the longest ones (already reduced to ``HangReportFrame``s, so the aggregate can be
+/// saved and sent after a relaunch), and the launches (``LaunchAggregate``), which ride the same
+/// pending file, drain and merge.
 public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
     /// Histogram edges in milliseconds: buckets are `[50, 100)`, `[100, 250)`, ...,
     /// `[10000, one day)`.
@@ -18,12 +19,35 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
     public private(set) var stalls: [HangSample] = []
     /// The longest hangs, longest first.
     public private(set) var hangs: [HangSample] = []
+    /// The launches that reached `startup_complete`.
+    public private(set) var launches = LaunchAggregate()
+
+    private enum CodingKeys: String, CodingKey {
+        case counts, stalls, hangs, launches
+    }
 
     /// Makes the value from its parts.
     public init() {}
 
+    /// Decodes a saved aggregate; one saved by a build without launch histograms has no `launches`.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        counts = try container.decode([Int].self, forKey: .counts)
+        stalls = try container.decode([HangSample].self, forKey: .stalls)
+        hangs = try container.decode([HangSample].self, forKey: .hangs)
+        launches = try container.decodeIfPresent(LaunchAggregate.self, forKey: .launches) ?? LaunchAggregate()
+    }
+
     /// Whether nothing was recorded.
-    public var isEmpty: Bool { counts.allSatisfy { $0 == 0 } && stalls.isEmpty && hangs.isEmpty }
+    public var isEmpty: Bool { isEmptyWithoutLaunches && launches.isEmpty }
+
+    /// Whether no stall or hang was recorded (launches aside: a schema-2 report does not carry them).
+    public var isEmptyWithoutLaunches: Bool { counts.allSatisfy { $0 == 0 } && stalls.isEmpty && hangs.isEmpty }
+
+    /// Counts one launch at its `startup_complete`.
+    public mutating func record(launch: LaunchAggregate.Record) {
+        launches.record(launch)
+    }
 
     /// Counts a finished stall of `durationMs`.
     public mutating func count(durationMs: Int) {
@@ -51,6 +75,7 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
         for (index, count) in other.counts.enumerated() where index < counts.count { counts[index] += count }
         other.stalls.forEach { Self.insert($0, into: &stalls) }
         other.hangs.forEach { Self.insert($0, into: &hangs) }
+        launches.merge(other.launches)
     }
 
     /// The histogram as report buckets (nonzero only).

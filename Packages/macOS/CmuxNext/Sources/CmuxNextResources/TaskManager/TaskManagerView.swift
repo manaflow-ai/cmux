@@ -1,8 +1,11 @@
+import CmuxNextDesign
 public import SwiftUI
 
 /// The Task Manager page: one row per cmux process with CPU and memory,
 /// sortable by any column, and Kill Process on the selected row (the button
-/// and the row menu).
+/// and the row menu). With `taskManagerMemorySaved`, the items Memory Saver
+/// discarded follow the table, each with the memory it saved, and the footer
+/// says what Memory Saver freed.
 public struct TaskManagerView: View {
     @Bindable var model: TaskManagerModel
     @State private var order: [KeyPathComparator<TaskManagerRow>] = []
@@ -42,11 +45,21 @@ public struct TaskManagerView: View {
             .overlay {
                 if model.snapshot.rows.isEmpty { Text(TaskManagerStrings.empty).foregroundStyle(.secondary) }
             }
+            if !model.snapshot.discarded.isEmpty {
+                Divider()
+                TaskManagerDiscardedList(items: model.snapshot.discarded)
+            }
             Divider()
             HStack {
                 Text(TaskManagerStrings.total(ResourceFormat.line(model.snapshot.total)))
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
+                if model.snapshot.freedBytes > 0 {
+                    Text(TaskManagerStrings.memorySaverFreed(ResourceFormat.memory(model.snapshot.freedBytes)))
+                        .font(Font(Typography.body))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
                 Spacer()
                 Button(TaskManagerStrings.killButton) {
                     if let row = model.selectedRow { model.kill(row.id) }
@@ -55,5 +68,39 @@ public struct TaskManagerView: View {
             }
             .padding(8)
         }
+    }
+}
+
+/// The items Memory Saver discarded: each one's title and "Discarded, saved about N MB". They have
+/// no process, so they are not rows of the process table and Kill Process does not apply to them.
+/// The list grows with its items up to `maxHeight`, then scrolls.
+private struct TaskManagerDiscardedList: View {
+    let items: [TaskManagerDiscardedItem]
+    private static let maxHeight: CGFloat = 140
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(TaskManagerStrings.discardedHeader)
+                .font(Font(Typography.bodyEmphasized))
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    ForEach(items) { item in
+                        HStack(spacing: 12) {
+                            Text(verbatim: item.title)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            Spacer(minLength: 0)
+                            Text(TaskManagerStrings.discarded(saved: item.savedBytes.map { ResourceFormat.memory($0) }))
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                        .font(Font(Typography.body))
+                    }
+                }
+            }
+            .frame(maxHeight: Self.maxHeight)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(8)
     }
 }
