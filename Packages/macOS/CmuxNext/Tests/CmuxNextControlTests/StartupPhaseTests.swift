@@ -3,8 +3,9 @@ import CmuxNextWakeupsTestSupport
 import Testing
 
 /// The startup phases (StartupPhase.swift; p06-scheduler.md section A): launching holds background
-/// and idle work, the reveal comes at the first frame, at once for a hidden launch, or at the
-/// 1.5 s deadline, and the settle waits for every reference or the 10 s failsafe.
+/// work, the reveal comes at the first frame, at once for a hidden or windowless launch, or at the
+/// 1.5 s deadline when a window's first frame never comes, and the settle waits for every
+/// reference or the 10 s failsafe.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct StartupPhaseTests {
     @Test func heldBodiesRunInPostOrderAtTheirPhaseChange() {
         let startup = StartupPhase(clock: ManualClock(), ledger: WakeupLedger())
@@ -40,7 +41,6 @@ import Testing
             #expect(ran, "\(workClass) is not held")
         }
         #expect(!startup.admits(.background))
-        #expect(!startup.admitsIdle)
     }
 
     /// A launch whose window never draws (no window shows, or its first frame never comes) is
@@ -56,8 +56,34 @@ import Testing
         await reached(.revealed, startup)
         #expect(startup.revealCause == .deadline)
         #expect(startup.admits(.background))
-        #expect(!startup.admitsIdle, "the deadline is not a frame: the settle still waits")
+        #expect(startup.phase == .revealed, "the deadline is not a frame: the settle still waits")
         #expect(startup.pendingReferences.contains(.firstFrame))
+    }
+
+    /// The reveal deadline fires (its timer claimed the fire) while main is busy, and the first
+    /// frame reveals before the deadline's main hop runs: the stale deadline must not settle.
+    @Test func aRevealDeadlineClaimedBeforeTheFirstFrameDoesNotSettle() async throws {
+        let clock = ManualClock()
+        // The ledger records the fire right after the timer claims it: that is the claim signal.
+        let (claims, claimed) = AsyncStream.makeStream(of: Void.self)
+        let startup = StartupPhase(clock: clock, ledger: WakeupLedger(uptime: { claimed.yield(); return 0 }))
+        var settledAt: Duration?
+        startup.whenReached(.settled) { settledAt = clock.now.offset }
+        startup.noteLaunch(.window)
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(1_500))
+        _ = await claims.first { _ in true }
+        // Main resumes here before the claimed deadline's hop: the frame comes first.
+        startup.noteFirstFrame()
+        #expect(startup.revealCause == .firstFrame)
+        // The failsafe sleeps; by then the stale deadline action has had its turn on main.
+        try await clock.waitForSleeper()
+        #expect(startup.phase == .revealed, "a stale reveal deadline settled startup")
+        #expect(startup.pendingReferences == [.firstSnapshot, .restoreDone, .visiblePageIdle])
+        clock.advance(by: .milliseconds(8_500))
+        await reached(.settled, startup)
+        #expect(settledAt == .seconds(10), "settled at the failsafe, not at the stale deadline")
+        #expect(startup.settleCause == .failsafe)
     }
 
     @Test func aHiddenLaunchIsRevealedAtOnce() {
@@ -141,21 +167,19 @@ import Testing
         #expect(reports.isEmpty, "visible and automation awaits are fine while launching")
 
         startup.checkAwait(.background, owner: "favicons")
-        startup.checkIdleAwait(owner: "spell")
-        #expect(reports.map(\.work) == ["background", "idle"])
-        #expect(reports.map(\.owner) == ["favicons", "spell"])
+        #expect(reports.map(\.work) == [.background])
+        #expect(reports.map(\.owner) == ["favicons"])
         #expect(reports.allSatisfy { $0.phase == .launching && $0.file.hasSuffix("StartupPhaseTests.swift") })
 
         startup.noteFirstFrame()
         startup.checkAwait(.background, owner: "favicons")
-        #expect(reports.count == 2, "background is open once revealed")
+        #expect(reports.count == 1, "background is open once revealed")
     }
 
     @Test func aSettledPhaseHoldsNothing() {
         let startup = StartupPhase.settled()
         #expect(startup.phase == .settled)
         #expect(startup.admits(.background))
-        #expect(startup.admitsIdle)
         var ran = false
         startup.whenReached(.settled) { ran = true }
         #expect(ran)
@@ -166,9 +190,8 @@ import Testing
         #expect(work.startup.phase == .settled)
     }
 
-    /// A launching scheduler holds background posts out of its queue (visible and automation run),
-    /// queues them in post order at the reveal without running any inside the phase change, and
-    /// runs them on the next frame.
+    /// A launching scheduler holds background posts in their queue (visible and automation run),
+    /// and runs them in post order from the frame after the reveal, never inside the phase change.
     @Test func theSchedulerHoldsBackgroundPostsUntilTheReveal() {
         let uptime = StartupUptime()
         let startup = StartupPhase(clock: ManualClock(), ledger: WakeupLedger())
@@ -179,12 +202,12 @@ import Testing
         work.post(.visible, owner: "sidebar.rows") { ran.append("visible") }
         work.post(.automation, owner: "cli.request") { ran.append("automation") }
         work.post(.background, owner: "favicons") { ran.append("background 2") }
-        #expect(work.postedCount(.background) == 0, "a held post is not in its class queue")
+        #expect(work.postedCount(.background) == 2, "held posts wait, counted, in their class queue")
         work.frameDidFire(timestamp: 1, refreshInterval: 1.0 / 60)
         #expect(ran == ["visible", "automation"], "visible and automation run while launching")
 
         startup.noteFirstFrame()
-        #expect(ran == ["visible", "automation"], "the reveal queues held posts; it never runs them inline")
+        #expect(ran == ["visible", "automation"], "the reveal enables the class; it never runs held work inline")
         #expect(work.postedCount(.background) == 2)
         work.post(.background, owner: "favicons") { ran.append("background 3") }
         uptime.advance(ms: 17)
@@ -197,37 +220,67 @@ import Testing
     /// await still finishes once the reveal opens background.
     @Test func awaitingABackgroundApplyWhileLaunchingIsReported() async {
         let uptime = StartupUptime()
-        var reports: [StartupPhase.HeldAwait] = []
-        let startup = StartupPhase(clock: ManualClock(), ledger: WakeupLedger()) { reports.append($0) }
+        let (reports, report) = AsyncStream.makeStream(of: StartupPhase.HeldAwait.self)
+        var count = 0
+        let startup = StartupPhase(clock: ManualClock(), ledger: WakeupLedger()) { count += 1; report.yield($0) }
         let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: uptime.read), startup: startup) { _ in StartupFakeLink() }
         let keeper = StartupLinkKeeper(on: work)
         let value = Task { @MainActor in await work.apply(.background, owner: "favicons.load") { 42 } }
-        while reports.isEmpty { await Task.yield() }
-        #expect(reports.map(\.work) == ["background"])
-        #expect(reports.first?.owner == "favicons.load")
-        #expect(reports.first?.phase == .launching)
+        // Event-driven: the report itself resumes the test.
+        let first = await reports.first { _ in true }
+        #expect(first?.work == .background)
+        #expect(first?.owner == "favicons.load")
+        #expect(first?.phase == .launching)
         startup.noteFirstFrame()
         uptime.advance(ms: 17)
         work.frameDidFire(timestamp: 1, refreshInterval: 1.0 / 60)
         #expect(await value.value == 42)
-        #expect(reports.count == 1)
+        #expect(count == 1)
         keeper.stop()
     }
 
-    @Test func theSchedulerHoldsIdleEnqueuesUntilTheSettle() {
+    /// A budgeted background queue on the scheduler (the FrameBatcher path, not a post) is held
+    /// too: its client stays off the frame scheduler until the reveal.
+    @Test func aBackgroundBatchQueueWaitsForTheReveal() {
+        let uptime = StartupUptime()
+        let startup = StartupPhase(clock: ManualClock(), ledger: WakeupLedger())
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: uptime.read), startup: startup) { _ in StartupFakeLink() }
+        let keeper = StartupLinkKeeper(on: work)
+        let background = FrameBatchQueue(owner: "test.background", budgeted: .background, on: work)
+        let automation = FrameBatchQueue(owner: "test.automation", budgeted: .automation, on: work)
+        var ran: [String] = []
+        background.enqueue { ran.append("background 1") }
+        automation.enqueue { ran.append("automation") }
+        background.enqueue { ran.append("background 2") }
+        work.frameDidFire(timestamp: 1, refreshInterval: 1.0 / 60)
+        uptime.advance(ms: 17)
+        work.frameDidFire(timestamp: 2, refreshInterval: 1.0 / 60)
+        #expect(ran == ["automation"], "background batches wait while launching")
+        #expect(background.count == 2)
+
+        startup.noteFirstFrame()
+        #expect(ran == ["automation"], "the reveal never runs a batch inline")
+        uptime.advance(ms: 17)
+        work.frameDidFire(timestamp: 3, refreshInterval: 1.0 / 60)
+        #expect(ran == ["automation", "background 1", "background 2"])
+        keeper.stop()
+    }
+
+    /// A background client deactivated while held is not attached by the reveal, and a held
+    /// client makes no display link.
+    @Test func aClientDeactivatedWhileHeldStaysIdleAtTheReveal() {
         let startup = StartupPhase(clock: ManualClock(), ledger: WakeupLedger())
         let work = MainWorkScheduler.testing(startup: startup) { _ in StartupFakeLink() }
-        var ran: [String] = []
-        work.whenStartupAdmitsIdle { ran.append("idle 1") }
-        work.whenStartupAdmitsIdle { ran.append("idle 2") }
+        var ticks = 0
+        let client = FrameClient(owner: "test.background", budgeted: .background, on: work) { _, _ in ticks += 1; return false }
+        client.activate()
+        #expect(client.isActive)
+        #expect(!work.frames.hasLink, "a held client makes no display link")
+        client.deactivate()
         startup.noteLaunch(.hidden)
-        #expect(ran.isEmpty, "idle waits for the settle, not the reveal")
-        startup.markDone(.firstSnapshot)
-        startup.markDone(.restoreDone)
-        startup.markDone(.visiblePageIdle)
-        #expect(ran == ["idle 1", "idle 2"])
-        work.whenStartupAdmitsIdle { ran.append("idle 3") }
-        #expect(ran.last == "idle 3", "an idle enqueue after the settle runs at once")
+        #expect(!work.frames.hasLink)
+        work.frameDidFire(timestamp: 1, refreshInterval: 1.0 / 60)
+        #expect(ticks == 0)
     }
 
     /// A held background body that finishes the last reference does not run idle work before the

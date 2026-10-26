@@ -1,14 +1,14 @@
 /// The app's startup phases (plans/cmux-next/chrome-parity/p06-scheduler.md, section A,
 /// "Startup phases"): what may run on the main thread while the first window is still coming.
 ///
-/// - ``Phase/launching``: input, frame, user-blocking, visible and automation work run;
-///   background and idle work are held.
+/// - ``Phase/launching``: input, frame, visible and automation work run; background work is
+///   held.
 /// - ``Phase/revealed``: at the first frame (``noteFirstFrame()``), at once for a hidden or
-///   windowless launch (``noteLaunch(_:)``), or at the reveal deadline (1.5 s) when no frame
-///   comes. Background work opens.
+///   windowless launch (``noteLaunch(_:)``), or at the reveal deadline (1.5 s) when a window's
+///   first frame never comes. Background work opens.
 /// - ``Phase/settled``: when every ``Reference`` is done (first frame, first daemon snapshot,
-///   session restore, the visible page load-idle), or at the failsafe (10 s after launch). Idle
-///   work opens.
+///   session restore, the visible page load-idle), or at the failsafe (10 s after launch). Work
+///   held for the settle (``whenReached(_:_:)``; the idle class, task 005) opens.
 ///
 /// Chrome's model: `chrome/browser/after_startup_task_utils.cc` queues after-startup tasks and
 /// posts them in order when its `StartupObserver` sees first paint and the visible page load
@@ -16,23 +16,27 @@
 /// (`BeginBestEffortFence`/`EndBestEffortFence`) holds best-effort tasks until then. cmux's
 /// failsafe is 10 s: no network-bound restore is on its critical path.
 ///
-/// Held work is not run by this type: a poster asks ``whenReached(_:_:)`` to run its enqueue at
-/// the phase that opens its class (``MainWorkClass/startupOpening``, ``Phase/settled`` for idle),
-/// so held bodies reach their class queues in post order at the phase change.
+/// Held work is not run by this type. Like Chrome's `QueueEnabledVoter`
+/// (`content/browser/scheduler/browser_task_queues.cc`, `EnableAllExceptBestEffortQueues`), it
+/// disables a class, not a post: a budgeted ``FrameClient`` of a class the phase does not admit
+/// (``MainWorkClass/startupOpening``) stays off its frame scheduler, so its queued work (posts,
+/// ``FrameBatchQueue`` and `FrameBatcher` batches) stays in its queue, in order, until the phase
+/// change attaches the client and the next frame drains it.
 ///
 /// ```swift
 /// // The composition root (one per app, passed by init; no shared instance):
 /// let startup = StartupPhase()
+/// let mainWork = MainWorkScheduler(budget: budget, startup: startup)
 /// startup.noteLaunch(NSApp.isHidden ? .hidden : .window)
-/// // A background post:
-/// startup.whenReached(MainWorkClass.background.startupOpening) { queue.enqueue(body) }
 /// // LaunchReveal's first frame, the daemon's first snapshot:
 /// startup.noteFirstFrame()
 /// startup.markDone(.firstSnapshot)
 /// ```
 ///
 /// Its one timer is an unposted ``DemandTimer`` (the reveal deadline, then the settle failsafe):
-/// it never waits behind the classes it opens, and a settled phase has no timer.
+/// it never waits behind the classes it opens, and a settled phase has no timer. Each arm acts
+/// only in the phase it was armed for: a reveal deadline whose fire was claimed just before a
+/// first frame revealed the app does nothing.
 @MainActor
 public final class StartupPhase {
     /// One startup phase, in launch order.
@@ -54,7 +58,8 @@ public final class StartupPhase {
 
     /// How the app launched, known when it finished launching.
     public enum Presentation: Sendable {
-        /// A window is coming: reveal at its first frame or at the deadline.
+        /// A window is coming: reveal at its first frame, or at the deadline when that frame never
+        /// comes (the window never shows or never draws).
         case window
         /// Launched hidden (`open -g`, a login item): nobody waits for a frame, reveal at once.
         case hidden
@@ -113,8 +118,8 @@ public final class StartupPhase {
     /// Work that was awaited before the phase that opens its class: the awaiting caller would
     /// wait for the reveal or the settle, not for its work.
     public struct HeldAwait: Sendable, CustomStringConvertible {
-        /// The held class (`background` or `idle`).
-        public let work: String
+        /// The held class.
+        public let work: MainWorkClass
         public let owner: String
         public let phase: Phase
         public let file: String
@@ -159,7 +164,7 @@ public final class StartupPhase {
         timer = DemandTimer(owner: "StartupPhase", clock: clock, ledger: ledger)
         phase = .launching
         pendingReferences = Set(Reference.allCases)
-        timer.schedule(after: timing.revealDeadline) { @MainActor [weak self] in self?.deadlinePassed() }
+        timer.schedule(after: timing.revealDeadline) { @MainActor [weak self] in self?.revealDeadlinePassed() }
     }
 
     private init(settledWith ledger: WakeupLedger) {
@@ -180,9 +185,6 @@ public final class StartupPhase {
     /// Whether `workClass` may run now. Only background waits for the reveal; input, frame,
     /// visible and automation work are never held.
     public func admits(_ workClass: MainWorkClass) -> Bool { phase >= workClass.startupOpening }
-
-    /// Whether idle work may run now (only once settled).
-    public var admitsIdle: Bool { phase == .settled }
 
     /// Runs `action` now when the phase is `target` or later; else holds it and runs it at the
     /// change to `target`, after the actions held before it.
@@ -221,14 +223,7 @@ public final class StartupPhase {
     /// by default): `await mainWork.apply(.background, ...)` in launching waits for the reveal.
     public func checkAwait(_ workClass: MainWorkClass, owner: String, file: StaticString = #fileID, line: UInt = #line) {
         guard !admits(workClass) else { return }
-        onHeldAwait(HeldAwait(work: workClass.description, owner: owner, phase: phase, file: "\(file)", line: line))
-    }
-
-    /// Reports a caller that awaits idle work before startup settled (a Debug assertion by
-    /// default).
-    public func checkIdleAwait(owner: String, file: StaticString = #fileID, line: UInt = #line) {
-        guard !admitsIdle else { return }
-        onHeldAwait(HeldAwait(work: "idle", owner: owner, phase: phase, file: "\(file)", line: line))
+        onHeldAwait(HeldAwait(work: workClass, owner: owner, phase: phase, file: "\(file)", line: line))
     }
 
     /// The default held-await report: an assertion in Debug builds, nothing in Release.
@@ -236,12 +231,16 @@ public final class StartupPhase {
         assertionFailure("startup: \(wait)")
     }
 
-    private func deadlinePassed() {
-        switch phase {
-        case .launching: reveal(.deadline)
-        case .revealed: settle(.failsafe)
-        case .settled: return
-        }
+    /// The reveal deadline's arm: reveals only a launch still launching.
+    private func revealDeadlinePassed() {
+        guard phase == .launching else { return }
+        reveal(.deadline)
+    }
+
+    /// The failsafe's arm: settles only a revealed launch.
+    private func failsafePassed() {
+        guard phase == .revealed else { return }
+        settle(.failsafe)
     }
 
     private func reveal(_ cause: RevealCause) {
@@ -260,7 +259,7 @@ public final class StartupPhase {
         if pendingReferences.isEmpty || left <= .zero {
             settle(pendingReferences.isEmpty ? .references : .failsafe)
         } else {
-            timer.schedule(after: left) { @MainActor [weak self] in self?.deadlinePassed() }
+            timer.schedule(after: left) { @MainActor [weak self] in self?.failsafePassed() }
         }
     }
 
@@ -283,7 +282,12 @@ public final class StartupPhase {
 
 extension MainWorkClass {
     /// The startup phase that opens this class: input, frame, visible and automation work run
-    /// while launching, and background waits for the reveal. Idle work (not a class) waits for
-    /// the settle.
-    public var startupOpening: StartupPhase.Phase { self == .background ? .revealed : .launching }
+    /// while launching, and background waits for the reveal. Exhaustive on purpose: a new class
+    /// (idle opens at ``StartupPhase/Phase/settled``) does not compile until it is mapped here.
+    public var startupOpening: StartupPhase.Phase {
+        switch self {
+        case .input, .frame, .visible, .automation: .launching
+        case .background: .revealed
+        }
+    }
 }

@@ -18,9 +18,9 @@ public import QuartzCore
 /// comes back): each class has one FIFO queue here, and the board names the posting site of the
 /// task it runs.
 ///
-/// It owns the app's ``StartupPhase``: while launching, background and idle posts wait for the
-/// phase that opens them (``StartupPhase/whenReached(_:_:)``); input, frame, visible and
-/// automation work never wait.
+/// It owns the app's ``StartupPhase``: while launching, background work (posts and budgeted
+/// batches) waits in its queue for the reveal; input, frame, visible and automation work never
+/// wait.
 ///
 /// ```swift
 /// // The composition root:
@@ -92,12 +92,6 @@ public final class MainWorkScheduler {
         MainWorkScheduler(budget: budget, frames: FrameScheduler(name: "budgeted test", host: .screen, clock: clock, ledger: ledger,
                                                                  makeLink: makeLink, budget: budget),
                           startup: startup, renderPasses: nil)
-    }
-
-    /// Runs `enqueue` now when startup has settled, else at the settle, after the enqueues held
-    /// before it: the hold idle posts take (``post(_:owner:file:line:_:)`` holds background itself).
-    public func whenStartupAdmitsIdle(_ enqueue: @escaping @MainActor () -> Void) {
-        startup.whenReached(.settled, enqueue)
     }
 
     /// One display frame (the link's tick; tests call it directly).

@@ -122,7 +122,7 @@ extension MainWorkScheduler {
         return try result.get()
     }
 
-    /// Posted work of `workClass` not run yet (`debug.main_budget`, tests).
+    /// Posted work of `workClass` not run yet, held by the launch or not (`debug.main_budget`, tests).
     public func postedCount(_ workClass: BudgetedWorkClass) -> Int {
         posting.queues.first { $0.workClass == workClass.workClass }?.count ?? 0
     }
@@ -138,7 +138,6 @@ extension MainWorkScheduler {
     }
 
     func post(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, site: MainPostSite, _ body: @escaping @MainActor () -> Void) {
-        guard startup.admits(workClass.workClass) else { return holdForStartup(workClass, owner: owner, site: site, body) }
         let queue = classQueue(workClass)
         queue.append(owner: owner, site: site, body)
         if posting.turnQueued { return }
@@ -158,7 +157,6 @@ extension MainWorkScheduler {
     /// A task posted off main reached the main thread: this turn is the next turn, so on an idle
     /// scheduler it runs now (in class order with anything else posted), not one more turn later.
     private func arrive(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, site: MainPostSite, _ body: @escaping @MainActor () -> Void) {
-        guard startup.admits(workClass.workClass) else { return holdForStartup(workClass, owner: owner, site: site, body) }
         let queue = classQueue(workClass)
         queue.append(owner: owner, site: site, body)
         if posting.turnQueued { return }
@@ -169,22 +167,14 @@ extension MainWorkScheduler {
         runPostedTurn()
     }
 
-    /// Holds a post of a class the launch has not opened yet: at the phase change it is posted, in
-    /// post order with the other held posts, and runs on a later turn, never inside the phase change.
-    private func holdForStartup(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, site: MainPostSite,
-                                _ body: @escaping @MainActor () -> Void) {
-        startup.whenReached(workClass.workClass.startupOpening) { [weak self] in
-            self?.post(workClass, owner: owner, site: site, body)
-        }
-    }
-
     /// The turn after the first post on an idle scheduler: each class's queued work, in class
     /// order, while its class may run; the rest ticks on the next frames. A queue already ticking
-    /// waits for its frame, so a task never runs twice and never passes work queued before it.
+    /// waits for its frame, so a task never runs twice and never passes work queued before it. A
+    /// class the launch holds runs nothing here: its queue's client waits for the phase change.
     private func runPostedTurn() {
         posting.turnQueued = false
         for queue in posting.queues where queue.count > 0 && !queue.isActive {
-            if budget.mayRun(queue.workClass) { _ = queue.drainNow(limit: queue.count) }
+            if startup.admits(queue.workClass), budget.mayRun(queue.workClass) { _ = queue.drainNow(limit: queue.count) }
             queue.activate()
         }
     }
