@@ -107,6 +107,7 @@ extension TabContentCache {
         defer { evictsAtOnce = false }
         warmBudget = budget
         apply(ledger.setCapacity(budget.terminalCapacity))
+        lastFrames.setCapacity(budget.terminalCapacity)
     }
 
     func apply(_ effects: SurfaceLedger<String, ObjectIdentifier>.Effects) {
@@ -128,7 +129,7 @@ extension TabContentCache {
 
     /// A hidden terminal leaves the warm set: its last frame stays (no copy), then it closes.
     private func evict(_ entry: TerminalEntry, key: String) {
-        lastFrames.evict(entry.session, key: key, capacity: warmBudget.terminalCapacity, atOnce: evictsAtOnce)
+        lastFrames.evict(entry.session, key: key, atOnce: evictsAtOnce)
         entry.session.view.removeFromSuperview()
         entry.close()
     }
