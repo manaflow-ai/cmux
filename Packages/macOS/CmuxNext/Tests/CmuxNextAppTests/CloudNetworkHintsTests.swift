@@ -32,7 +32,7 @@ struct CloudNetworkHintsTests {
         }
     }
 
-    @Test func theRefusalComesFromTheIDArgument() {
+    @Test func theRefusalComesFromTheIDArgument() throws {
         #expect(throws: ActionFailure(message: CloudStrings.ruleIDRequired)) {
             try CloudHandlers.idArgument(ActionInvocation(arguments: ["path": .string("  ")]), CloudStrings.ruleIDRequired)
         }
