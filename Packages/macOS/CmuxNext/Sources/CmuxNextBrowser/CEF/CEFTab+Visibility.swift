@@ -1,6 +1,13 @@
 public import AppKit
+public import CmuxNextWakeups
 
-extension CEFTab: BrowserContentVisibilityReporting {
+// Chromium follows the tab's visibility tree node through `nodeVisibility` (``CEFTabNodeVisibility``).
+extension CEFTab: BrowserContentVisibilityReporting, BrowserVisibilityFollowing {
+    @discardableResult
+    public func followVisibility(of node: VisibilityNode, capture: @escaping @MainActor (VisibilityNode) -> BrowserPageCapture) -> Bool {
+        nodeVisibility.follow(node, capture: capture, of: self)
+    }
+
     /// Whether this tab's page draws over its content view. Host mode: what the pane's page view
     /// shows (``ChromiumHostPageView/contentVisibility``, task p01-process-220), since the host's
     /// page windows are never in cmux. In process: the fork's page window over the view.
@@ -57,5 +64,21 @@ extension CEFTab: BrowserContentVisibilityReporting {
     nonisolated static func frame(_ frame: CGRect, isPlacedAt rect: CGRect) -> Bool {
         abs(frame.minX - rect.minX) <= 2 && abs(frame.minY - rect.minY) <= 2
             && abs(frame.width - rect.width) <= 2 && abs(frame.height - rect.height) <= 2
+    }
+
+    // MARK: Content view
+
+    func contentDidAppear(in view: CEFTabContentView) {
+        guard !isClosed else { return }
+        host.present(self, in: view)
+        view.layoutContent()
+        if reloadWhenShown {
+            reloadWhenShown = false
+            if state.processExit != nil { reload() }
+        }
+    }
+
+    func contentDidDisappear() {
+        host.conceal(self)
     }
 }

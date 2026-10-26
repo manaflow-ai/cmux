@@ -79,6 +79,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// Fork API 31: `cmux_shim_browser_set_page_visibility` (a ``ChromiumHostPageVisibility``), what cmux shows
     /// of a detached page's window; host mode only (task p01-process-220).
     let browserSetPageVisibility: @convention(c) (Int32, Int32) -> Int32
+    /// Fork API 37: `cmux_shim_tab_set_visibility(browser, visibility, capture)` (a `cmux_shim_tab_visibility_t`
+    /// and a `cmux_shim_tab_capture_t`): the tab's visibility tree node caps its WebContents' visibility
+    /// (``CEFTab/followVisibility(of:capture:)``). A post in host mode, so no caller reads its answer. Nil on a
+    /// shim without the export (task p06-scheduler-212).
+    let tabSetVisibility: (@convention(c) (Int32, Int32, Int32) -> Int32)?
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
