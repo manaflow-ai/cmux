@@ -46,4 +46,17 @@ struct HangReportsUnsafeSitesTests {
         // FNV-1a 64 over "file-io", 0, "main", then per frame its 16 UUID bytes and 8 little-endian offset bytes.
         #expect(BlockingReportBudget.site(of: violation) == "b2060c4f36c9f201")
     }
+
+    /// sysctlbyname reads `hw.machine`: every supported Mac is arm64 or x86_64, so `other` means the read failed.
+    @Test func theHardwareClassReadsTheArchitectureBySysctl() {
+        #expect(["arm64", "x86_64"].contains(HardwareClass.current().arch))
+    }
+
+    /// gethostname always names the host, so the terms hold at least one host label after the user's names.
+    @Test func thePersonalTermsHoldTheHostNameLabels() {
+        let full = NSFullUserName().split { !$0.isLetter && !$0.isNumber }
+        let terms = ImageClassifier.personalTerms()
+        #expect(terms.count > 2 + full.count)
+        #expect(terms.dropFirst(2 + full.count).allSatisfy { !$0.isEmpty && !$0.contains(".") && $0 != "local" })
+    }
 }

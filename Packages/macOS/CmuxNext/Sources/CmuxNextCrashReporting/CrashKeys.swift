@@ -168,8 +168,8 @@ extension CrashReporter {
     /// allocator's old bytes.
     static func prepare() {
         guard current == nil else { return }
-        let words = UnsafeMutablePointer<UInt64>.allocate(capacity: wordCount)
-        // SAFETY: zeroes exactly the wordCount words just allocated; the block is never freed.
+        // SAFETY: allocates the wordCount words of the block, then zeroes exactly those words; the block is never freed.
+        let words = unsafe UnsafeMutablePointer<UInt64>.allocate(capacity: wordCount)
         unsafe words.initialize(repeating: 0, count: wordCount)
         atomicFence(ordering: .releasing)
         // SAFETY: publishes the address only, once, on the main thread at launch; readers rebuild the pointer from it

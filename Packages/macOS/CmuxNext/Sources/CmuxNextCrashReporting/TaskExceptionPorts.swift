@@ -41,10 +41,12 @@ enum TaskExceptionPorts {
         // SAFETY: savedExceptionPorts is published once, on this (main) thread; see its declaration.
         guard unsafe savedExceptionPorts == nil else { return nil }
         let capacity = Int(EXC_TYPES_COUNT)
-        let masks = UnsafeMutablePointer<exception_mask_t>.allocate(capacity: capacity)
-        let ports = UnsafeMutablePointer<mach_port_t>.allocate(capacity: capacity)
-        let behaviors = UnsafeMutablePointer<exception_behavior_t>.allocate(capacity: capacity)
-        let flavors = UnsafeMutablePointer<thread_state_flavor_t>.allocate(capacity: capacity)
+        // SAFETY: four uninitialized arrays of EXC_TYPES_COUNT elements; `saved` below takes ownership of them and
+        // frees them (deallocate) on failure or when it is not published; task_get_exception_ports fills them.
+        let masks = unsafe UnsafeMutablePointer<exception_mask_t>.allocate(capacity: capacity)
+        let ports = unsafe UnsafeMutablePointer<mach_port_t>.allocate(capacity: capacity)
+        let behaviors = unsafe UnsafeMutablePointer<exception_behavior_t>.allocate(capacity: capacity)
+        let flavors = unsafe UnsafeMutablePointer<thread_state_flavor_t>.allocate(capacity: capacity)
         var count = mach_msg_type_number_t(capacity)
         // SAFETY: the four arrays were just allocated with EXC_TYPES_COUNT elements each; `saved` owns them.
         let saved = unsafe SavedExceptionPorts(count: 0, masks: masks, ports: ports, behaviors: behaviors, flavors: flavors,
@@ -181,8 +183,8 @@ enum TaskExceptionPorts {
     /// Copies `saved` into a block kept for the process's life and publishes
     /// its address after a releasing fence (main thread, once, at launch).
     static func publish(_ saved: SavedExceptionPorts) {
-        let block = UnsafeMutablePointer<SavedExceptionPorts>.allocate(capacity: 1)
-        // SAFETY: initializes the one element just allocated; the block is never freed once published.
+        // SAFETY: allocates one element and initializes it at once; the block is never freed once published.
+        let block = unsafe UnsafeMutablePointer<SavedExceptionPorts>.allocate(capacity: 1)
         unsafe block.initialize(to: saved)
         atomicFence(ordering: .releasing)
         // SAFETY: published once, on the main thread at launch; see the declaration.
