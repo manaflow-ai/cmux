@@ -1314,6 +1314,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_feat_publish_order.py
 
+      - name: Validate cmux-tui publication retries a rate-limited attestation and a slow fetch
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_publish_retries.py
+
       - name: Validate nightly API tag finalization
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: |
