@@ -282,7 +282,7 @@ fn with_stderr(error: VncError, stderr: &str) -> VncError {
 /// and returns the local address it answers.
 fn forward_machine_port(id: &str, port: u16) -> Result<Endpoint, VncError> {
     let exe = std::env::current_exe()?;
-    let output = std::process::Command::new(exe)
+    let output = cmux_process::Command::new(exe)
         .args([
             "--json",
             "cloud",
@@ -292,8 +292,7 @@ fn forward_machine_port(id: &str, port: u16) -> Result<Endpoint, VncError> {
             "--port",
             &port.to_string(),
         ])
-        .stdin(std::process::Stdio::null())
-        .output()?;
+        .output()?; // stdin null, stdout and stderr captured
     let stdout = String::from_utf8_lossy(&output.stdout);
     let failure = || {
         let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
