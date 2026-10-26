@@ -239,6 +239,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// export and in host mode, whose return means only "sent" (the answer is a later REPLY).
     let tabDiscard: (@convention(c) (Int32) -> Int32)?
     let widgets: CEFShimWidgetOps
+    /// `cmux_shim_browser_attach_view(browser, parent_view)` (fork API 33, p03-rendering-044, Track B): moves the
+    /// browser's `WebContentsViewCocoa` into `parent_view` (an NSView*), below its other subviews; 1 attached, 0
+    /// refused (an unknown browser, no page window yet, a fork below API 33). Nil without the export and in host
+    /// mode, where no view pointer crosses the process.
+    let browserAttachView: (@convention(c) (Int32, UnsafeMutableRawPointer?) -> Int32)?
 
     /// Every renderer-path export is there (`CEFForkFeatures`).
     var hasRendererPaths: Bool {
@@ -440,6 +445,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         tabDiscard = r.hostExports == nil ? r.optional("cmux_shim_tab_discard") : nil
         widgets = CEFShimWidgetOps(setGeometry: r.optional("cmux_shim_widget_set_geometry"), dismiss: r.optional("cmux_shim_widget_dismiss"),
                                    sendInput: r.optional("cmux_shim_widget_send_input"))
+        browserAttachView = r.hostExports == nil ? r.optional("cmux_shim_browser_attach_view") : nil
         setContextProxy = try r("cmux_shim_set_context_proxy")
         contextProxyState = try r("cmux_shim_context_proxy_state")
         setContextProxyServer = try r("cmux_shim_set_context_proxy_server")

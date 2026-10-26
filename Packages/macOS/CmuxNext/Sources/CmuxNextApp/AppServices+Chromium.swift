@@ -77,7 +77,7 @@ extension AppServices {
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source,
                                   make: { [signInCallbacks, contextMenus, inputTap, crashKeys, launchStartup, pointerFrames = dragFrameInput,
                                            chromiumFeatures = features.enabledChromiumFeatures, layerHosting = features.isEnabled(.cefLayerHosting),
-                                           memoryCoordinator] stores, deadlines, source in
+                                           attachedPages = features.isEnabled(.cefAttachedPages), memoryCoordinator] stores, deadlines, source in
                                       // Chromium's start as launch marks (p08-startup-044); its first page paint counts until startup_complete.
                                       let launchMarks = CEFLaunchMarkHooks(receive: { DebugTimings.markLaunch($0) },
                                                                            isStarting: { launchStartup.map { $0.completion == nil } ?? false })
@@ -85,7 +85,8 @@ extension AppServices {
                                                        contextMenus: contextMenus, waitDeadlines: deadlines, input: inputTap, crashKeys: crashKeys,
                                                        launchMarks: launchMarks, pumpInput: pumpInput, pointerFrames: pointerFrames,
                                                        chromiumFeatures: chromiumFeatures, prefetchWork: prefetchWork)
-                                          .usingLayerHostingByDefault(layerHosting).votingMemoryPressure(of: memoryCoordinator)
+                                          .usingLayerHostingByDefault(layerHosting).usingAttachedPages(attachedPages)
+                                          .votingMemoryPressure(of: memoryCoordinator)
                                   },
                                   engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: crashReporting.reporter,
                                                                                   routes: { [weak self] in self?.routeChromiumRequests($0) }),
