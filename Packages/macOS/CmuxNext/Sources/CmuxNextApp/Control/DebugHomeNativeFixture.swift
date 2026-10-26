@@ -57,7 +57,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     /// `debug.home.drive` {action: focus | type | send | tapback | video | scroll
-    /// | menu | geometry | link | texts | typing | rows | resize | nudge | list, text, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
+    /// | menu | geometry | link | texts | typing | rows | resize | nudge | list | presence | faces, text, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
     /// field's text system, Return's send, the tapback picker's react, the
     /// scroll view) for screenshots and recordings on a window that is
     /// never key. `tab` (a key from `debug.home` page.tabs) drives that Home tab.
@@ -168,6 +168,18 @@ final class DebugHomeNativeFixture: InternalPageProvider {
                 return .object(["error": .string("stream needs the Home fixture (debug.home_native_fixture.open)")])
             }
             ok = fixture.debugStream(params["text"]?.stringValue ?? "", done: params["done"]?.boolValue ?? false)
+        case "presence":
+            // Who else has the fixture's conversation open (`people`: mock participant ids, default
+            // three of the mock's people; `typing`: one of them types), as the owner's presence.
+            guard let fixture = (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.fixture(showing: view) else {
+                return .object(["error": .string("presence needs the native Home fixture (debug.home_native_fixture.open)")])
+            }
+            let people = params["people"]?.arrayValue?.compactMap(\.stringValue) ?? HomeNativeFixture.presencePeople
+            ok = fixture.debugPresence(people, typing: params["typing"]?.stringValue)
+        case "faces":
+            // The header's faces as drawn: each initial, and whether they show.
+            let drawn = view.debugHeaderFaces
+            return .object(["ok": .bool(true), "initials": .array(drawn.initials.map { .string($0) }), "shown": .bool(drawn.shown)])
         case "focus": ok = view.window?.makeFirstResponder(view.primaryInput) ?? false
         case "type":
             guard let field = view.primaryInput as? NSTextView else { return .object(["error": .string("no field")]) }

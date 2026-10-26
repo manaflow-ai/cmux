@@ -83,6 +83,23 @@ public final class HomeNativeFixture {
         return true
     }
 
+    /// The mock's people `debug.home.drive` `presence` shows by default (made-up fixture people).
+    public static let presencePeople = ["user_austin", "user_aziz", "user_leo"]
+
+    /// Shows `people` (participant ids) as having the conversation open, as the owner's presence
+    /// frame, and `typing` (one of them) typing; an empty list is nobody. False before the
+    /// conversation shows.
+    public func debugPresence(_ people: [String], typing: String?) -> Bool {
+        guard let shown else { return false }
+        let source = self.source
+        // task-owner: one owner event each, ends when the mock source has published them
+        Task {
+            await source.showPresence(Set(people.map(ParticipantID.init)), in: shown.conversation)
+            if let typing { await source.showTyping(ParticipantID(typing), in: shown.conversation, on: true) }
+        }
+        return true
+    }
+
     private func addAttachments(in id: ConversationID) async {
         guard let files = try? await HomeFixtureMedia.make(), !Task.isCancelled else { return }
         for file in files {

@@ -793,6 +793,17 @@ public actor MockHomeSource: HomeSource {
         publish(.typing(conversation, who, on: on))
     }
 
+    /// Who has `conversation` open, the whole set, as an owner's presence frame (fixtures and
+    /// captures: `debug.home.drive` `presence`); an empty set is nobody.
+    public func showPresence(_ viewing: Set<ParticipantID>, in conversation: ConversationID) {
+        publish(.presence(conversation, viewing: viewing))
+    }
+
+    /// `who` starts or stops typing in `conversation`, as an owner's typing frame (fixtures).
+    public func showTyping(_ who: ParticipantID, in conversation: ConversationID, on: Bool) {
+        typing(who, in: conversation, on: on)
+    }
+
     private func reply(as responder: Participant, in conversation: ConversationID) {
         publish(.typing(conversation, responder.id, on: false))
         let count = stored[conversation]?.count ?? 0

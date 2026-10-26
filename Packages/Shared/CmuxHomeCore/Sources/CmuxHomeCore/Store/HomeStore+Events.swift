@@ -107,6 +107,8 @@ extension HomeStore {
                 // connected never comes, so nothing kept from before stays on screen as dots under a
                 // finished reply. Dots come back with the owner's next typing frame or a live run.
                 typing.removeAll()
+                // Presence is the owner's too: it comes again with the owner's next presence frame.
+                viewing.removeAll()
                 log.markDisconnected()
                 pendingResends.removeAll()
                 cancelBackoffs()
@@ -142,6 +144,8 @@ extension HomeStore {
             typing[id] = set.isEmpty ? nil : set
             if !on, draftBook.typingOff(id, who) { publishLive(id) }
             rebuildRows()
+        case .presence(let id, let people):
+            if viewing[id] != (people.isEmpty ? nil : people) { viewing[id] = people.isEmpty ? nil : people }
         case .draft(let update):
             if draftBook.apply(update) { publishLive(update.conversation) }
         case .live(let event):

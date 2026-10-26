@@ -173,5 +173,9 @@ enum HomeStrings {
         case .working: String(localized: "home.firstRun.agent.working", defaultValue: "Working", bundle: .module)
         }
     }
+    /// VoiceOver's words for the header's faces: who else has the conversation open.
+    static func alsoHere(_ names: String) -> String {
+        String(format: String(localized: "home.header.alsoHere", defaultValue: "Also here: %@", bundle: .module), names)
+    }
     static var conversations: String { String(localized: "home.list.title", defaultValue: "Conversations", bundle: .module) }
 }
