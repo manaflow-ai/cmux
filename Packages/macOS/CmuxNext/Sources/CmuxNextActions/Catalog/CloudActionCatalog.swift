@@ -245,7 +245,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 id: "cloudEnrollMachine",
                 title: String(localized: "action.cloudEnrollMachine", defaultValue: "Enroll Machine as Agent Host", bundle: .module),
                 keywords: ["vm", "cloud", "ssh", "acpmux", "agent", "host", "peer", "lane", "enroll"], category: .cloud,
-                symbol: "server.rack", surfaces: [.palette], requires: [.cloudWorkspace],
+                symbol: "key.horizontal", surfaces: [.palette, .contextMenu], requires: [.cloudWorkspace],
                 arguments: [CatalogArgument.nameString.optional, CatalogArgument.sshKeyString], targets: [.machine],
                 cliName: "cloud enroll-machine"
             ),
