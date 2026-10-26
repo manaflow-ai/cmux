@@ -117,6 +117,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// ``PageCrashReloads`` allows: the page is not reloaded, and the host shows its notice (with a
     /// button that calls ``reloadAfterCrashes()``).
     public var onCrash: ((PageWebView, _ reloading: Bool) -> Void)?
+    /// A main-frame document finished loading, in either engine (WebKit's `didFinish`, Chromium's
+    /// load end): after the page's scripts ran, and again after each reload.
+    public var onLoaded: (() -> Void)?
     /// The surface whose web theme the page gets (`--cmux-*`; nil: the scope's own), for a page that
     /// shows a surface with its own overrides (the agent pane: new tab page, then agent chat).
     /// `data-*` attributes of `<html>` the host keeps current (`setDocumentAttribute`): set again
@@ -264,7 +267,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
          surface: SurfaceKind?, dynamicResources: (any PageDynamicResourceSource)?, pooled: Bool, load: Bool,
          openRequested: TimeInterval? = nil, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
          openPanel: MadeAheadOpenPanel? = PageWebView.openPanel, registry: PageRegistry = .processWide,
-         trace: any PageTraceSink = TraceRuntime.shared) {
+         processGroups: WebProcessGroups? = nil, trace: any PageTraceSink = TraceRuntime.shared) {
         let constructionStart = openRequested ?? ProcessInfo.processInfo.systemUptime
         self.trace = trace
         self.descriptor = descriptor
@@ -276,7 +279,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         router = PageRouter(descriptor: descriptor, routes: routes)
         self.inputReadiness = inputReadiness
         // webview-allow: the page host's WebKit engine; PageEnginePolicy picks it
-        webView = PageWKWebView(frame: .zero, configuration: configuration)
+        let make: (WKWebViewConfiguration) -> PageWKWebView = { PageWKWebView(frame: .zero, configuration: $0) }
+        // A page that shares a process joins its group (WebProcessGroups); configuration has the group's store.
+        webView = processGroups.map { $0.webView(for: configuration, make: make) } ?? make(configuration)
         inputReadiness.attach(webView)
         let webKitBridge = WebKitPageHostBridge(webView: webView)
         bridge = webKitBridge

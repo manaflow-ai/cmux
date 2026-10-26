@@ -50,7 +50,7 @@ final class AgentPaneDictation {
     private let microphone: DictationMicrophone
     private let makeSession: () -> DictationSession
     private var session: DictationSession?
-    /// Delivers an update to the page (a script on the old host, an event on the page host).
+    /// Delivers an update to the page (an event on the page host).
     private let send: (DictationUpdate) -> Void
     /// The chat's harness takes voice input (``AgentPaneDictationCommand/recordAudio(_:)``), so
     /// every start, from the mic, its shortcut, the palette or the CLI, keeps the session's audio.
@@ -81,17 +81,6 @@ final class AgentPaneDictation {
         self.send = send
         self.microphone = microphone
         self.makeSession = makeSession
-    }
-
-    /// The old host: each update is a script the page runs.
-    convenience init(
-        evaluate: @escaping (String) -> Void,
-        microphone: DictationMicrophone = .shared,
-        makeSession: @escaping () -> DictationSession = { AgentPaneDictation.defaultSession() }
-    ) {
-        self.init(send: { update in
-            if let script = Self.script(update) { evaluate(script) }
-        }, microphone: microphone, makeSession: makeSession)
     }
 
     var phase: DictationPhase { session?.phase ?? .idle }
@@ -270,12 +259,6 @@ final class AgentPaneDictation {
         case .failed: "failed"
         case .denied: "denied"
         }
-    }
-
-    static func script(_ update: DictationUpdate) -> String? {
-        guard let data = try? JSONSerialization.data(withJSONObject: payload(update), options: [.sortedKeys]),
-              let json = String(data: data, encoding: .utf8) else { return nil }
-        return "window.cmuxAcpmuxBridge?.dictation?.(\(json));"
     }
 
     /// The Privacy & Security pane for `permission`.
