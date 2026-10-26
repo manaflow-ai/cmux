@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 import Darwin
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// Downloads, verifies and installs the Chromium runtime pack an app build is
 /// pinned to (plans/cmux-next/bundle-size-DESIGN.md section 6.3).
