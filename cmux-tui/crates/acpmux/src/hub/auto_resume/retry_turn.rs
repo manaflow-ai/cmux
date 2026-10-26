@@ -13,6 +13,8 @@
 //!   not kept). One id runs once (`Hub::prompt_with`), so a double click sends one prompt.
 //! - Refused with `retry.busy` while a turn runs, a prompt waits to run or a continuation is
 //!   about to start, and with `retry.nothing_failed` when the last turn did not fail.
+//! - A retry that names a subagent (`subagentId`) asks for that subagent, never the chat's own
+//!   turn: refused with `retry.subagent_unsupported` until subagents retry (`Hub::retry`).
 //! - It runs under the caller's rules (`control`, the trust gate), checked again as any
 //!   prompt's are. Its `user_message` carries `_meta.provenance = {kind: "auto_resume",
 //!   promptId, attempt, turnId, manual: true}`, and once its turn completes the prompts the
@@ -40,6 +42,13 @@ fn refused(reason: &str, why: &str) -> RpcError {
 
 fn busy() -> RpcError {
     refused("retry.busy", "a turn runs or is about to start in this chat; retry once it ends")
+}
+
+fn subagent_unsupported() -> RpcError {
+    refused(
+        "retry.subagent_unsupported",
+        "this daemon does not retry a subagent yet; retry the chat's turn without subagentId",
+    )
 }
 
 fn nothing_failed() -> RpcError {
@@ -88,8 +97,23 @@ fn prompt_blocks(msg: &Value, image: impl Fn(&str) -> Option<Value>) -> Option<V
 }
 
 impl Hub {
-    /// `_acpmux/retry`: fires the chat's waiting retry now, or sends its failed last turn again
-    /// (the module doc). Answers once the prompt is accepted: `{promptId, turnId?, kind}`.
+    /// `_acpmux/retry` and `retry_session`: the subagent `subagent` names, or else the chat's
+    /// failed turn ([`Hub::retry_turn`]). A subagent is refused for now: retrying the chat's
+    /// turn instead would not do what was asked.
+    pub async fn retry(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        subagent: Option<&str>,
+        by: RetryBy,
+    ) -> Result<Value, RpcError> {
+        if subagent.is_some() {
+            return Err(subagent_unsupported());
+        }
+        self.retry_turn(session, by).await
+    }
+
+    /// Fires the chat's waiting retry now, or sends its failed last turn again (the module
+    /// doc). Answers once the prompt is accepted: `{promptId, turnId?, kind}`.
     pub async fn retry_turn(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -167,11 +191,12 @@ impl Hub {
         self: &Arc<Self>,
         caller: &Session,
         target: &Arc<Session>,
+        subagent: Option<&str>,
     ) -> Result<Value, RpcError> {
         let web = Self::web_turn(caller) || Self::web_turn(target);
         let control = if web { Control::Web } else { Control::Local };
-        self.retry_turn(target, RetryBy { control, trust_gate: false, full_access_device: None })
-            .await
+        let by = RetryBy { control, trust_gate: false, full_access_device: None };
+        self.retry(target, subagent, by).await
     }
 
     /// The chat's waiting retry, fired now: its answer, None when none waits. `retry.busy`

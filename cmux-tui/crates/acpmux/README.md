@@ -206,7 +206,8 @@ prompts the cut turn held (`hub/auto_resume.rs`). While it waits the session row
 `acpmux retry NAME` (`_acpmux/retry {sessionId}`, the Retry button; the sub-session tool
 `retry_session`) retries a failed last turn now: a waiting retry fires at once, else the failed
 prompt goes again as its next `~resume-<n>` (a continuation when the turn had output), once
-however often it is asked; `retry.busy` while a turn runs, `retry.nothing_failed` otherwise. A
+however often it is asked; `retry.busy` while a turn runs, `retry.nothing_failed` otherwise,
+and `retry.subagent_unsupported` for a `subagentId` (never the chat's own turn instead). A
 `notifyCommand` in the config runs on a permission request and on a turn that ends
 unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 `agentStartTimeoutMs` (default 90000) bounds a cold agent start (spawn, `initialize`,

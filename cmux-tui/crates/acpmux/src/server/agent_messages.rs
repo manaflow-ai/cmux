@@ -52,7 +52,7 @@ pub(super) async fn handle(
 }
 
 /// `_acpmux/retry`: under the caller's rules, as a prompt it sent (its control, the trust gate
-/// and a paired machine's Full access). `subagentId` is accepted and not acted on yet.
+/// and a paired machine's Full access). With `subagentId`, refused until subagents retry.
 async fn retry(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value, RpcError> {
     let s = hub.resolve(session_key(params)?)?;
     // A retry reads the failed turn's log, and its held prompts come back with the logs.
@@ -62,7 +62,7 @@ async fn retry(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value
         trust_gate: super::trust_gate::gated(conn.origin, params),
         full_access_device: super::remote_guard::full_access_device(hub, conn, params),
     };
-    hub.retry_turn(&s, by).await
+    hub.retry(&s, str_param(params, "subagentId"), by).await
 }
 
 /// Before the person's own `session/prompt` into `s` (no provenance: not an agent's message, from

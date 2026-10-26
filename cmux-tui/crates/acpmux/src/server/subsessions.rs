@@ -206,7 +206,7 @@ async fn handle(
             let key = str_param(params, "sessionId")
                 .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
             let target = hub.subsession_write_target(&caller, key, false)?;
-            hub.subsession_retry(&caller, &target).await
+            hub.subsession_retry(&caller, &target, str_param(params, "subagentId")).await
         }
         other => Err(RpcError::method_not_found(other)),
     }

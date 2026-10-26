@@ -134,7 +134,7 @@ fn tools() -> Value {
                 "type": "object",
                 "properties": {
                     "session": {"type": "string", "description": "The sub-session's sessionId."},
-                    "subagent": {"type": "string", "description": "One of its failed subagents, by agent id. Accepted; not acted on yet."}
+                    "subagent": {"type": "string", "description": "One of its failed subagents, by agent id. Not supported yet: refused with retry.subagent_unsupported."}
                 },
                 "required": ["session"]
             }
