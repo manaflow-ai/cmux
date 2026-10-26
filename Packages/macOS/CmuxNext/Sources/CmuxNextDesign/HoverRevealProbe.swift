@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextInput
+import CmuxNextWakeups
 
 /// An invisible full-size subview of the region: it owns the tracking area
 /// and follows the region's window (focus changes, close). It takes no

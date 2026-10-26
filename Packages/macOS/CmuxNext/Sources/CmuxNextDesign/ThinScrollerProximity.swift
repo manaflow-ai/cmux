@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextInput
+import CmuxNextWakeups
 
 /// Tells a ``ThinScroller`` where the pointer is over its scroll view, so the knob shows and widens
 /// as the pointer nears the trailing edge, and when the user scrolls the view (AppKit's live scroll
