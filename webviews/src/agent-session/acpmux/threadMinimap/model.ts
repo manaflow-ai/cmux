@@ -293,14 +293,10 @@ export function minimapTurns(
       kept.reply = reply;
       tail.push(kept.turn);
     } else {
-      // A failed row the echo of a timed-out send left beside it shares the echo's promptId: the
-      // second of two neighbours with one key keys on its row id, so every tick's key is its own.
-      const key = turnKey(sessionId, user);
-      const before = tail.at(-1) ?? (keep > 0 ? reuse!.turns[keep - 1] : undefined);
       const turn: MinimapTurn = {
         index: userIndex,
         id: user.id,
-        key: before && before.key === key ? `${key}#${user.id}` : key,
+        key: turnKey(sessionId, user),
         prompt: (user.text ?? "").replace(/\s+/g, " ").trim(),
         reply: reply?.text ? replyPreview(reply.text) : [],
       };
@@ -361,8 +357,12 @@ export function minimapTurns(
 /// row can show differently once more is known (a sender's address line, incomingMessage.ts): the
 /// tick stays one element and a jump or step that looks a turn up by key still finds it (Leo
 /// 2026-10-25: "my latest prompt that I sent in ... should be able to go in at the bottom as well").
+///
+/// A send that failed keys on its row: acpmux may still have taken it (a send that timed out), and
+/// the failed row stays beside acpmux's echo of it, anywhere in the list once the log is read again,
+/// so only the echo holds the promptId and every tick's key is its own.
 export function turnKey(sessionId: string, user: AcpmuxRow): string {
-  const promptId = user.promptId ?? user.delivery?.promptId;
+  const promptId = user.promptId ?? (user.delivery?.state === "failed" ? undefined : user.delivery?.promptId);
   return `${sessionId}#${promptId ? `prompt-${promptId}` : user.id}`;
 }
 

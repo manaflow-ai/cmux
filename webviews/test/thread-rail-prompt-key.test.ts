@@ -85,7 +85,13 @@ test("a failed send beside its echo, one promptId: two ticks, each with its own 
   const { ticks } = minimapTurns(rows, CHAT);
   expect(ticks).toHaveLength(3);
   expect(new Set(ticks.map((tick) => tick.key)).size).toBe(3);
-  // The first keeps the prompt's key; the echo beside it keys on its row.
-  expect(ticks[1]!.key).toBe(turnKey(CHAT, rows[2]!));
-  expect(ticks[2]!.key).toBe(`${turnKey(CHAT, rows[3]!)}#user-2`);
+  // The failed send keys on its row; acpmux's echo holds the prompt's key.
+  expect(ticks[1]!.key).toBe(`${CHAT}#local-p-7`);
+  expect(ticks[2]!.key).toBe(`${CHAT}#prompt-p-7`);
+  // A resync can put the failed row after later prompts (direct.ts keeps it past replayed events):
+  // echo, the next prompt, then the failed send. Still one key per tick.
+  const resynced = [rows[0]!, rows[1]!, rows[3]!, rows[4]!, user("user-3", "Later", { promptId: "p-8" }), rows[2]!];
+  const after = minimapTurns(resynced, CHAT).ticks;
+  expect(after).toHaveLength(4);
+  expect(new Set(after.map((tick) => tick.key)).size).toBe(4);
 });
