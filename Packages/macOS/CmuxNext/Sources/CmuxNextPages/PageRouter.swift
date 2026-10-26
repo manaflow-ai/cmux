@@ -48,6 +48,9 @@ public final class PageRouter {
     public internal(set) var debugPageHidden = false
     /// Events delivered while ``debugPageHidden``: one integer add per delivery (`debug.webui`).
     public internal(set) var debugDeliveriesWhileHidden = 0
+    /// The page's oracle reading may have changed (``oracleStateChangedOp``, p15-oracle-215): the page
+    /// host's feed (``WebUIHost/oracleChanges``) wakes `debug.oracle.wait_for` on the `webviews` facet.
+    public var oracleStateChanged: (@MainActor () -> Void)?
     #endif
 
     public init(descriptor: PageDescriptor, routes: [PageRoute]) {
@@ -139,6 +142,13 @@ public final class PageRouter {
     public var contextMenu: (@MainActor ([String: Any]) async -> JSONValue)?
 
     private func call(_ op: String, params: JSONValue, opid: String?) async throws -> JSONValue {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if op == Self.oracleStateChangedOp {
+            guard !closed else { throw PageError.closed }
+            oracleStateChanged?()
+            return .object([:])
+        }
+        #endif
         if op == PageNativeOp.titleBarDoubleClick {
             guard !closed else { throw PageError.closed }
             titleBarDoubleClick?()
@@ -305,15 +315,32 @@ public final class PageRouter {
     /// Calls an op the page serves (`cmux.page.command`) and waits for its reply. The call goes
     /// past the hold, after a thaw, so a frozen page answers it.
     public func callPage(_ op: String, params: JSONValue) async throws -> JSONValue {
+        try await callPage(op, params: params) { _ in }
+    }
+
+    /// ``callPage(_:params:)`` that tells `started` the call's id once it is pending, so a caller
+    /// whose deadline passed can ``abandonCall(_:)`` it.
+    func callPage(_ op: String, params: JSONValue, started: (UInt64) -> Void) async throws -> JSONValue {
         guard !closed, let send else { throw PageError.closed }
         let id = nextCall
         nextCall += 1
         lifecycle?.thawForDelivery()
         return try await withCheckedThrowingContinuation { continuation in
             pendingCalls[id] = continuation
+            started(id)
             send(["t": "call", "id": .number(Double(id)), "op": .string(op), "params": params])
         }
     }
+
+    /// Fails pending host call `id` with `CancellationError` and forgets it: its caller gave up (a
+    /// deadline passed), so a page that never replies keeps no continuation here and a late reply
+    /// resolves nothing. A finished or unknown id is a no-op.
+    func abandonCall(_ id: UInt64) {
+        pendingCalls.removeValue(forKey: id)?.resume(throwing: CancellationError())
+    }
+
+    /// Host calls still waiting for the page's reply.
+    var pendingHostCalls: Int { pendingCalls.count }
 
     private func resolve(id: UInt64, _ message: JSONValue) {
         guard let continuation = pendingCalls.removeValue(forKey: id) else { return }
