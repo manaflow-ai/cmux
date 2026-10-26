@@ -1,6 +1,7 @@
 # Terminal host model: one holder for every PTY, one parser in the daemon
 
-Status: decided 2026-10-23 (PL-daemon, perf lead batch 1); slices in section 6. Ask (Lawrence):
+Status: decided 2026-10-23 (PL-daemon, perf lead batch 1); slices in section 6; process-model
+phases A and B for the Chrome-parity program in section 8 (2026-10-26). Ask (Lawrence):
 "one process per terminal ... the original rationale was to make it more resilient in case a
 terminal process crashed, but maybe there's another way we can handle it safely?" Related:
 [pty-holder.md](pty-holder.md) (frozen tiny holder, D1-D6), [holder-protocol-v1.md](holder-protocol-v1.md)
@@ -56,7 +57,9 @@ processes and ~2,000 threads fewer.
 - E's isolation buys little: the app parses the same bytes with the same Ghostty, so an output
   that crashes the parser also crashes the app's surface; and E adds a hop to every screen read
   agents make. If telemetry ever shows daemon VT crashes, the daemon's parse can move into a
-  worker later without touching the holder (the holder wire is the same).
+  worker later without touching the holder (the holder wire is the same). Revisited in
+  section 8: D stays the default (phase A); E comes back behind a flag (phase B) because the
+  Chrome-parity program removes the app's parse (task 241), which removes the reason above.
 - Poison pill: a daemon that crashed while parsing would replay the same bytes on restart and
   crash again. No per-chunk disk write guards it; the holder counts, per terminal, daemon links
   that ended without DETACH while it streamed that terminal. A terminal whose stream ended that
@@ -216,3 +219,100 @@ waited for it (same fleet mini, new browser tab 4.2 ms p50 without, 22-25 ms wit
 about 11 ms with F_BARRIERFSYNC). Before: each commit F_FULLFSYNCed inside the registry lock (about
 4.5 ms on a fleet M4 Pro, 20 ms on a busy Apple SSD), 1-3 per create or close reply, and every
 request that needed the lock waited behind it.
+
+## 8. Process model phases for the Chrome-parity program (2026-10-26)
+
+Spec: [chrome-parity/p01-process.md](chrome-parity/p01-process.md) sections 3.5 and 7
+(tasks 120-142, 207-211, 241). This section records what that program decided about the VT
+parse, and why. Section 3 still holds: the holder parses nothing and keeps only raw output
+(pty-holder.md D2, Lawrence 2026-10-23: "the daemon parses; the holder keeps only raw output").
+
+### 8.1 Phase A: decision D is the default
+
+- The daemon parses every holder terminal on a small pool of threads (`vt_pool`, task 120), not
+  on one `surface-{id}-reader` thread per terminal. Two groups: visible terminals at
+  USER_INITIATED, hidden ones at UTILITY (task 139). A parse task takes at most 64 KiB or 1 ms,
+  then goes back to the end of its queue, so a hidden flood delays a visible chunk by at most
+  one slice. This is Chrome's priority rule (what the person sees first, background throttled)
+  applied to output.
+- Exits come from holder EXIT frames after the parse reaches the exit's end offset (task 121);
+  one `child-exit` watcher serves every other daemon child (task 207).
+- The holder link thread pushes DATA into per-shard bounded queues; credit is today's ACK of
+  the confirmed parsed offset (section 5), so the replay race stays closed.
+- Phase A is the default because it is decision D with fewer threads: 2 holders of every master
+  (holder and daemon), 1 parser outside the app, no extra hop on a screen read.
+
+### 8.2 Phase B: option E behind `CMUX_TUI_VT_WORKERS=process`
+
+- Sandboxed `cmux-vt-worker` processes parse shards of terminals (task 133). The daemon brokers
+  them (task 134): spawn, shard, relay ring advances, restart, reseed from the holder prologue
+  and ring tail, and the poison-pill strike rule of section 3 per shard.
+- Screens and terminal modes go to seqlock pages the daemon maps read-only (tasks 135, 209), so
+  a screen read, a snapshot and key encoding never wait for a worker hop. This answers the
+  "worker hop on every screen read" cost that section 3 held against E.
+- Worker output is untrusted (task 141): every event and page field is bounds-checked; one bad
+  frame ends the worker with reason `bad_message` and reseeds it, as Chrome's
+  `bad_message::ReceivedBadMessage` ends a renderer
+  (`content/browser/bad_message.cc`).
+- Shards are by trust class (task 142): local, SSH/remote/cloud, agent-fetched. A worker
+  never holds terminals of two classes, so hostile output from a remote host cannot reach a
+  local terminal's state.
+- Off by default; on in DEV only when its done checks pass (task 137; p01 done checks 13, 15,
+  16, 17). If the classification of daemon VT readers (task 208) finds more than 20 `async`
+  rows on request paths, phase B stays off and only phase A ships.
+
+### 8.3 Why phase B exists: Chrome's Rule of 2
+
+Chromium `docs/security/rule-of-2.md`: code may have at most 2 of untrustworthy input, an
+unsafe language, and high privilege. Terminal output is untrusted (any program, any remote
+host, any file `cat` prints). Ghostty's VT parser and the Kitty graphics decoder are unsafe
+code (Zig and C libraries, with no memory-safety guarantee). The daemon has high privilege: every session,
+every PTY master, the journal, agent credentials. In phase A the daemon has all 3. In phase B
+the worker has 2 (untrusted input, unsafe code) and loses the third: its Seatbelt profile
+(macOS) or seccomp + landlock (Linux, task 211) denies file opens, fork, exec, network and
+Mach lookups after setup. This is what Chrome does with its Data Decoder Service: parsers of
+untrusted input run in a sandboxed utility process and return a well-formed IPC reply
+(`services/data_decoder/`).
+
+Section 3 rejected E because the app parsed the same bytes with the same Ghostty, so the
+isolation bought nothing. That reason holds only while the app parses bytes; see 8.4.
+
+### 8.4 The app-side gap until task 241
+
+- Today the app's Ghostty surface parses every output byte again
+  (`GHOSTTY_SURFACE_IO_MANUAL_MIRROR`, `CmuxNextTerminal/TerminalSession.swift`). The app has
+  every TCC grant and the keychain: it is the highest-privilege process cmux has. So the app
+  breaks the Rule of 2 whatever phase the daemon runs, and a VT or Kitty bug that a hostile
+  output reaches can end cmux (p01 risk 9).
+- Phase B does not close this gap and nothing in this program claims it does. It removes the
+  daemon's exposure only.
+- Task 241 is the end state: the app draws from the workers' published screen pages and damage
+  lists (cells, styles, cursor, images by reference) and parses no terminal bytes. Then VT
+  parses per byte drop to 1 and a crash corpus ends one shard while the app runs. 241 starts as
+  a spike; if it cannot be built inside the 72 h, its measured gap and plan go here.
+
+### 8.5 Why the holder-to-app ring was dropped
+
+Old tasks 130 and 132 mapped the holder's ring (section 4) into the app so output could skip
+the daemon. They are dropped (p01 section 9):
+
+- They conflict with D3's daemon output ring and its offsets (task 126): the app would read two
+  rings with two offset spaces for one terminal.
+- They need holder wire v5 changes and CUT/CAN correction frames to the app. The holder outlives
+  app and daemon updates, so every holder wire change is a compatibility cost for years;
+  this program adds no holder wire change, so `cmux-holder-v3` adoption is unchanged.
+- The app would still parse raw bytes, which is the gap 8.4 exists to close. Task 241 (the app
+  draws screens, not bytes) is the better end state.
+- The app reads D3's daemon ring instead, copy then validate (task 131: one memcpy, re-read the
+  oldest offset, snapshot request on a lap).
+
+Reopen 130/132 only if `trace.py` shows the daemon hop costs more than 1 ms p99 on echo after
+D3 lands.
+
+### 8.6 Status and numbers
+
+Numbers for these phases go to [perf-lead.md](perf-lead.md) section 6 (one row per p01 done
+check). On perf/chrome-parity at 8d533d02c1a none of the phase A or B code has landed:
+`vt_pool.rs`, `cmux-vt-worker` and the D3 ring are absent; the holder is still off by default
+(`CMUX_TUI_TERMINAL_HOST_MODEL=holder`, `holder_runtime.rs`). Tasks 100, 137 and 241, which
+this record depends on, are not on the branch yet.
