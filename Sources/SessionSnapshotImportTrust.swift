@@ -128,6 +128,11 @@ enum SessionSnapshotImportTrust {
         var bounded = snapshot
         var remainingPanelBudget = SessionPersistencePolicy.maxPanelsPerSnapshot
         var remainingLayoutNodes = SessionPersistencePolicy.maxLayoutNodes
+        func reserveFallbackPanel() -> Bool {
+            guard remainingPanelBudget > 0 else { return false }
+            remainingPanelBudget -= 1
+            return true
+        }
         let keptWindowCount = min(bounded.windows.count, SessionPersistencePolicy.maxWindowsPerSnapshot)
         report.droppedWindowCount += bounded.windows.count - keptWindowCount
         bounded.windows = Array(bounded.windows.prefix(keptWindowCount))
@@ -152,6 +157,9 @@ enum SessionSnapshotImportTrust {
                     remainingNodes: &remainingLayoutNodes,
                     report: &report
                 )
+                let needsWorkspaceFallback = workspace.panels.isEmpty &&
+                    workspace.dock?.panels.isEmpty == false
+                let hasWorkspaceFallbackBudget = !needsWorkspaceFallback || reserveFallbackPanel()
                 if var dock = workspace.dock {
                     dock.panels = boundedPanels(
                         dock.panels,
@@ -166,9 +174,13 @@ enum SessionSnapshotImportTrust {
                     )
                     workspace.dock = dock.panels.isEmpty ? nil : dock
                 }
+                if !hasWorkspaceFallbackBudget {
+                    workspace.dock = nil
+                }
                 window.tabManager.workspaces[workspaceIndex] = workspace
             }
             let selectedWorkspaceIndex = window.tabManager.selectedWorkspaceIndex
+            let originalWorkspaces = window.tabManager.workspaces
             var keptWorkspaces: [SessionWorkspaceSnapshot] = []
             keptWorkspaces.reserveCapacity(window.tabManager.workspaces.count)
             var remappedSelectedWorkspaceIndex: Int?
@@ -187,8 +199,37 @@ enum SessionSnapshotImportTrust {
                !keptWorkspaces.isEmpty {
                 remappedSelectedWorkspaceIndex = min(selectedWorkspaceIndex, keptWorkspaces.count - 1)
             }
+            if let groups = window.tabManager.workspaceGroups {
+                let originalMembersByGroup = Dictionary(grouping: originalWorkspaces, by: \.groupId)
+                let keptMembersByGroup = Dictionary(grouping: keptWorkspaces, by: \.groupId)
+                let keptGroups = groups.compactMap { group -> SessionWorkspaceGroupSnapshot? in
+                    let originalMembers = originalMembersByGroup[Optional(group.id)] ?? []
+                    let keptMembers = keptMembersByGroup[Optional(group.id)] ?? []
+                    let keepsEmptyPinnedGroup = group.isPinned == true && group.anchorIsEmpty == true
+                    guard !keptMembers.isEmpty || keepsEmptyPinnedGroup else { return nil }
+                    guard !keptMembers.isEmpty else { return group }
+                    var copy = group
+                    let originalAnchorID = group.anchorWorkspaceId ?? group.anchorMemberIndex.flatMap {
+                        originalMembers.indices.contains($0) ? originalMembers[$0].workspaceId : nil
+                    }
+                    let newAnchorIndex = originalAnchorID.flatMap { anchorID in
+                        keptMembers.firstIndex { $0.workspaceId == anchorID }
+                    } ?? 0
+                    copy.anchorMemberIndex = newAnchorIndex
+                    copy.anchorWorkspaceId = keptMembers[newAnchorIndex].workspaceId
+                    copy.anchorIsEmpty = nil
+                    return copy
+                }
+                window.tabManager.workspaceGroups = keptGroups.isEmpty ? nil : keptGroups
+            }
             window.tabManager.workspaces = keptWorkspaces
             window.tabManager.selectedWorkspaceIndex = remappedSelectedWorkspaceIndex
+            let hasEmptyPinnedGroup = window.tabManager.workspaceGroups?.contains {
+                $0.isPinned == true && $0.anchorIsEmpty == true
+            } == true
+            let needsWindowFallback = window.tabManager.workspaces.isEmpty &&
+                (window.dock?.panels.isEmpty == false || hasEmptyPinnedGroup)
+            let hasWindowFallbackBudget = !needsWindowFallback || reserveFallbackPanel()
             if var dock = window.dock {
                 dock.panels = boundedPanels(
                     dock.panels,
@@ -203,7 +244,11 @@ enum SessionSnapshotImportTrust {
                 )
                 window.dock = dock.panels.isEmpty ? nil : dock
             }
-            guard !window.tabManager.workspaces.isEmpty || window.dock != nil else {
+            if !hasWindowFallbackBudget {
+                window.dock = nil
+            }
+            guard !window.tabManager.workspaces.isEmpty || window.dock != nil || hasEmptyPinnedGroup,
+                  hasWindowFallbackBudget else {
                 report.droppedWindowCount += 1
                 continue
             }

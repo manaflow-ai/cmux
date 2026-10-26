@@ -421,9 +421,14 @@ struct SessionSnapshotRepositoryTests {
         let repository = makeRepository(appSupport: dir)
         let fileURL = dir.appendingPathComponent("utf16.json")
         let utf8 = snapshotData(structuralTokens: 1_000_001)
-        let text = try #require(String(data: utf8, encoding: .utf8))
-        let encoded = try #require(text.data(using: .utf16LittleEndian))
-        try (Data([0xFF, 0xFE]) + encoded).write(to: fileURL)
+        let baseText = try #require(String(data: utf8, encoding: .utf8))
+        let text = baseText.replacingOccurrences(of: "\"w\"", with: "\"Ģ\"")
+        var encoded = Data()
+        for scalar in text.utf16 {
+            encoded.append(UInt8(scalar & 0x00FF))
+            encoded.append(UInt8(scalar >> 8))
+        }
+        try encoded.write(to: fileURL)
 
         guard case .failure(.resourceLimitExceeded) = repository.importableSnapshot(fileURL: fileURL) else {
             Issue.record("expected UTF-16 imports to be rejected before lexical scanning")

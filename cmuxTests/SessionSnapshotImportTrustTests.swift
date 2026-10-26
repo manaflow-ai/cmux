@@ -474,7 +474,7 @@ struct SessionSnapshotImportTrustTests {
     @Test("workspaces emptied by the global panel budget are dropped")
     func globalPanelBudgetDropsEmptyWorkspaces() throws {
         let panel = Self.panel(terminal: SessionTerminalPanelSnapshot())
-        let workspace = Self.workspace(
+        var workspace = Self.workspace(
             panels: Array(repeating: panel, count: SessionPersistencePolicy.maxPanelsPerWorkspace),
             layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panel.id], selectedPanelId: panel.id))
         )
@@ -494,6 +494,87 @@ struct SessionSnapshotImportTrustTests {
             / SessionPersistencePolicy.maxPanelsPerWorkspace)
         #expect(report.droppedWorkspaceCount ==
             SessionPersistencePolicy.maxWorkspacesPerWindow - workspaces.count)
+    }
+
+    @Test("trusted restore preserves a window containing only an empty pinned group")
+    func emptyPinnedGroupWindowSurvivesBounding() throws {
+        let group = SessionWorkspaceGroupSnapshot(
+            id: UUID(), name: "Pinned", isCollapsed: false,
+            anchorIsEmpty: true, isPinned: true
+        )
+        let window = SessionWindowSnapshot(
+            frame: nil,
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(
+                selectedWorkspaceIndex: nil,
+                workspaces: [],
+                workspaceGroups: [group]
+            ),
+            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 240)
+        )
+        let original = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 0,
+            windows: [window]
+        )
+
+        let (restored, _) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: .channelImport
+        )
+
+        #expect(restored.windows.count == 1)
+        #expect(restored.windows.first?.tabManager.workspaceGroups == [group])
+    }
+
+    @Test("workspace group anchors are remapped after an interior workspace is dropped")
+    func workspaceGroupAnchorRemapsAfterPruning() throws {
+        let groupID = UUID()
+        let anchorID = UUID()
+        var empty = Self.workspace(panels: [], layout: .pane(
+            SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)
+        ))
+        empty.workspaceId = UUID()
+        empty.groupId = groupID
+        var anchor = Self.workspace(
+            panels: [Self.panel(terminal: SessionTerminalPanelSnapshot())],
+            layout: nil
+        )
+        anchor.workspaceId = anchorID
+        anchor.groupId = groupID
+        var trailing = Self.workspace(
+            panels: [Self.panel(terminal: SessionTerminalPanelSnapshot())],
+            layout: nil
+        )
+        trailing.workspaceId = UUID()
+        trailing.groupId = groupID
+        let group = SessionWorkspaceGroupSnapshot(
+            id: groupID, name: "Group", isCollapsed: false,
+            anchorWorkspaceId: anchorID, anchorMemberIndex: 1, isPinned: true
+        )
+        let window = SessionWindowSnapshot(
+            frame: nil,
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(
+                selectedWorkspaceIndex: 1,
+                workspaces: [empty, anchor, trailing],
+                workspaceGroups: [group]
+            ),
+            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 240)
+        )
+        let original = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 0,
+            windows: [window]
+        )
+
+        let (restored, _) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: .channelImport
+        )
+        let restoredGroup = try #require(restored.windows.first?.tabManager.workspaceGroups?.first)
+        #expect(restoredGroup.anchorMemberIndex == 0)
+        #expect(restoredGroup.anchorWorkspaceId == anchorID)
     }
 
     @Test("crash and phantom windows are pruned before the window cap is spent")
