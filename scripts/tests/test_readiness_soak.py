@@ -254,7 +254,7 @@ class WebKitMatcherTests(unittest.TestCase):
         ]
         responsible = {app_pid: app_pid, 90938: app_pid, 90940: app_pid, 7530: 2239, 1390: 1154}
         soak = soak_module.Soak.__new__(soak_module.Soak)
-        soak.setup = {"identity": {"pid": app_pid}}
+        soak.setup, soak.app_exit = {"identity": {"pid": app_pid}}, None
         soak.app = "/private/var/folders/x/cmux-soak-1/cmux NEXT DEV.app"
         soak.work = "/private/var/folders/x/cmux-soak-1"
         soak.tag = "next-soak1"
@@ -487,14 +487,17 @@ TOTAL                                         80.0M      52.1M      52.1M       
         return soak
 
     def test_config_turns_chromium_off_only_with_app_config(self):
+        # The bench defaults (bench_env: the updater off) under the soak's own keys, as BenchApp writes them.
+        bench_defaults = {"updates": {"checkAutomatically": False}}
         soak = self.wiring_soak("asan")
         soak.write_config("keep")
         with open(soak.config) as handle:
-            self.assertEqual(json.load(handle), {"app": {"quitBehavior": "keep"}, "browser": {"defaultEngine": "webkit"}})
+            self.assertEqual(json.load(handle), {"app": {"quitBehavior": "keep"}, "browser": {"defaultEngine": "webkit"},
+                                                 **bench_defaults})
         soak = self.wiring_soak(None)
         soak.write_config("end-everything")
         with open(soak.config) as handle:
-            self.assertEqual(json.load(handle), {"app": {"quitBehavior": "end-everything"}})
+            self.assertEqual(json.load(handle), {"app": {"quitBehavior": "end-everything"}, **bench_defaults})
 
     def test_browser_tabs_are_webkit_only_with_app_config(self):
         class Control:
