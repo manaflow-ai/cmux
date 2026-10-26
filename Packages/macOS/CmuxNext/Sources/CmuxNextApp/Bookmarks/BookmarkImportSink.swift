@@ -38,7 +38,7 @@ extension BookmarkService {
     func migrateLegacyImports() async {
         guard let store = importStore, let directory else { return }
         let marker = directory.appending(path: "bookmarks-imports-migrated")
-        guard !FileManager.default.fileExists(atPath: marker.path) else { return }
+        guard await !Self.exists(marker) else { return }
         for record in await store.sources() {
             for batch in await store.batches(profile: record.targetProfileID) where batch.source.sourceKey == record.sourceKey {
                 guard batch.kinds.contains(.bookmarks), !batch.bookmarks.isEmpty else { continue }
@@ -52,6 +52,16 @@ extension BookmarkService {
                 }
             }
         }
+        await Self.mark(marker, in: directory)
+    }
+
+    /// Whether the migration marker is there, off the main actor.
+    @concurrent nonisolated private static func exists(_ marker: URL) async -> Bool {
+        FileManager.default.fileExists(atPath: marker.path)
+    }
+
+    /// Writes the migration marker, off the main actor.
+    @concurrent nonisolated private static func mark(_ marker: URL, in directory: URL) async {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         FileManager.default.createFile(atPath: marker.path, contents: Data())
     }

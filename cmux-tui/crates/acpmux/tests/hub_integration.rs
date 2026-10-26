@@ -49,6 +49,8 @@ mod purged_stays_purged;
 mod questions;
 #[path = "hub_integration/restart.rs"]
 mod restart;
+#[path = "hub_integration/run_parent.rs"]
+mod run_parent;
 #[path = "hub_integration/secrets.rs"]
 mod secrets;
 #[path = "hub_integration/seen.rs"]
@@ -57,6 +59,8 @@ mod seen;
 mod session_offers;
 #[path = "hub_integration/silent_turn.rs"]
 mod silent_turn;
+#[path = "hub_integration/stalled_turn.rs"]
+mod stalled_turn;
 #[path = "hub_integration/status_indicator.rs"]
 mod status_indicator;
 #[path = "hub_integration/steer_now.rs"]
@@ -69,6 +73,8 @@ mod stop;
 mod surfaces;
 #[path = "hub_integration/tags_rules.rs"]
 mod tags_rules;
+#[path = "hub_integration/tasks.rs"]
+mod tasks;
 #[path = "hub_integration/xai_requests.rs"]
 mod xai_requests;
 
@@ -1432,6 +1438,8 @@ async fn watchers_get_permission_pending_and_auto_approvals() {
     assert!(c.response(rid).await.0.is_ok());
 }
 
+#[path = "hub_integration/event_log_fds.rs"]
+mod event_log_fds;
 #[path = "hub_integration/handoff.rs"]
 mod handoff;
 #[path = "hub_integration/transcript_events.rs"]

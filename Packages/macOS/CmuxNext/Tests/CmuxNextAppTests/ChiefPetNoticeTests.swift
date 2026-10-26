@@ -6,6 +6,7 @@ import CmuxNextBridge
 import CmuxNextSettings
 import Foundation
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// The Chief pet hears the notification service: what would alert on this Mac reaches its bubble,
 /// a click on the bubble opens that tab, a read tab's notice leaves, and a finished turn leaves on its own.

@@ -1,0 +1,33 @@
+/* Gallery-only choices; the app uses the minimal shared renderer. */
+.inline-chip-preview {
+  padding: 16px;
+  color: var(--cv-text);
+  font-size: var(--text-body);
+  line-height: 1.4;
+}
+.inline-chip-preview.is-accent .cv-chip.is-path {
+  color: var(--agent-link);
+}
+.inline-chip-preview.is-hairline .cv-chip:is(.is-path, .is-ref) {
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 18%, transparent);
+}
+/* Historical padding/weight/fill for comparison, using the real renderer and the same data. */
+.inline-chip-preview.is-before .cv-chip:is(.is-path, .is-ref) {
+  /* Historical snapshot values, kept as tokens only for the comparison arm. */
+  --previous-chip-inset: 1px 6px 1px 5px;
+  padding: var(--previous-chip-inset);
+  border-radius: 6px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+.inline-chip-preview.is-before .cv-chip__label {
+  font-weight: 500;
+  text-decoration: none;
+}
+.inline-chip-preview.is-before .cv-chip__icon {
+  --previous-chip-icon: 15px;
+  width: var(--previous-chip-icon);
+  height: var(--previous-chip-icon);
+  vertical-align: -3px;
+  color: var(--cv-link);
+}
