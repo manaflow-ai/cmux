@@ -8,8 +8,9 @@ public import Foundation
 /// It answers only when every rule holds, else it answers nothing:
 /// - The person's own click or permission shortcut is fresh in this pane
 ///   (``AgentPaneUserGestures/hasFreshAnswerGesture``), and the answer spends that click
-///   (``AgentPaneUserGestures/consumeAnswerClick()``): one click answers one ask, typing after it
-///   does not renew it, a refusal does not spend it, and a script's post answers none.
+///   (``AgentPaneUserGestures/consumeAnswerClick()``) right before the answer is sent: one click
+///   answers one ask, typing after it does not renew it, a refusal before the send does not spend
+///   it, and a script's post answers none.
 /// - The chat is another chat on this pane's own acpmux on this Mac (``AgentPaneModel/pendingAsksSocket``,
 ///   a bare or `local/` id, ``AgentPanePendingAsks/localSession(_:)``), never the pane's own chat
 ///   (its card answers it) and never a chat another computer's daemon holds: both the read and the
@@ -62,8 +63,11 @@ public nonisolated struct AgentPaneAskAnswer: Sendable, Equatable {
         }
         let allow = option == pending.allowOnce
         guard allow || option == pending.denyOnce else { return Self.refused("not a one-click option") }
-        guard gestures.consumeAnswerClick() else { return Self.refused("no fresh gesture") }
-        guard await answerer.answerOnce(pending.approval, allow: allow) else { return Self.refused("not answered") }
+        // The answerer spends the click right before it sends, after its re-read: a refusal
+        // before the send leaves the click; one after it (a lost reply) does not.
+        guard await answerer.answerOnce(pending.approval, allow: allow, spend: { gestures.consumeAnswerClick() }) else {
+            return Self.refused("not answered")
+        }
         return AgentPaneReply.success()
     }
 
@@ -91,6 +95,7 @@ public nonisolated struct AgentPendingAsk: Sendable, Equatable {
     /// no acpmux to ask).
     func pendingAsk(session: String, permission: String) async -> AgentPendingAsk?
     /// Answers `approval` with its allow once or reject once while it is still pending unchanged
-    /// in a chat the daemon holds itself; false when nothing was answered.
-    func answerOnce(_ approval: AgentApproval, allow: Bool) async -> Bool
+    /// in a chat the daemon holds itself; false when nothing was answered. `spend` is called once,
+    /// after the re-read and right before the answer is sent; false from it sends nothing.
+    func answerOnce(_ approval: AgentApproval, allow: Bool, spend: @MainActor () -> Bool) async -> Bool
 }

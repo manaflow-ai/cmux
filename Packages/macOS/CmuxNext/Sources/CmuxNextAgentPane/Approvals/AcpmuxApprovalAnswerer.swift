@@ -44,17 +44,17 @@ public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering, AgentAskAnswe
     }
 
     public func answer(_ approval: AgentApproval, allow: Bool) async -> Bool {
-        await answer(approval, allow: allow, once: false)
+        await answer(approval, allow: allow, once: false) { true }
     }
 
     /// The inbox's answer: as ``answer(_:allow:)``, but only a chat this daemon holds itself, and
     /// only the prompt's allow once or reject once (never `reject_always` in place of a missing
     /// reject once).
-    public func answerOnce(_ approval: AgentApproval, allow: Bool) async -> Bool {
-        await answer(approval, allow: allow, once: true)
+    public func answerOnce(_ approval: AgentApproval, allow: Bool, spend: @MainActor () -> Bool) async -> Bool {
+        await answer(approval, allow: allow, once: true, spend: spend)
     }
 
-    private func answer(_ approval: AgentApproval, allow: Bool, once: Bool) async -> Bool {
+    private func answer(_ approval: AgentApproval, allow: Bool, once: Bool, spend: @MainActor () -> Bool) async -> Bool {
         guard let line = await AcpmuxPersonLine.open(environment) else { return false }
         defer { line.close() }
         // acpmux refuses an allow from a connection that is not the person.
@@ -72,6 +72,7 @@ public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering, AgentAskAnswe
             logger.info("approval banner: the prompt ended or changed since its banner posted; nothing answered")
             return false
         }
+        guard spend() else { return false }
         let params: [String: Any] = ["sessionId": approval.session, "permissionId": approval.permission, "optionId": option]
         return await line.call("_acpmux/permission_respond", params) != nil
     }

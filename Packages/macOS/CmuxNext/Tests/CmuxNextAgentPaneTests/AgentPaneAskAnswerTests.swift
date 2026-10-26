@@ -36,8 +36,14 @@ struct AgentPaneAskAnswerTests {
             return pending["\(session) \(permission)"]
         }
 
-        func answerOnce(_ approval: AgentApproval, allow: Bool) async -> Bool {
-            guard pending.removeValue(forKey: "\(approval.session) \(approval.permission)") != nil else { return false }
+        /// The ask leaves between the read and the answer (answered elsewhere, withdrawn).
+        var goneBeforeAnswer = false
+
+        func answerOnce(_ approval: AgentApproval, allow: Bool, spend: @MainActor () -> Bool) async -> Bool {
+            let key = "\(approval.session) \(approval.permission)"
+            if goneBeforeAnswer { pending[key] = nil }
+            guard pending[key] != nil, spend() else { return false }
+            pending[key] = nil
             answers.append((approval.session, approval.permission, allow))
             return true
         }
@@ -130,6 +136,22 @@ struct AgentPaneAskAnswerTests {
         #expect(Self.code(await Self.send(Self.ask(option: "allow_always"), model, answerer)) == "refused")
         #expect(Self.code(await Self.send(Self.ask(option: "reject_once"), model, answerer)) == nil)
         #expect(answerer.answers.map { "\($0.permission) \($0.allow)" } == ["p1 false"])
+    }
+
+    /// An ask that leaves between the read and the answer is refused, and the click stays for the
+    /// next answer.
+    @Test func anAskGoneBeforeTheAnswerLeavesTheClick() async {
+        let (model, answerer, _) = Self.home()
+        model.transport.gestures.record(click: true)
+        answerer.goneBeforeAnswer = true
+        #expect(Self.code(await Self.send(Self.ask(option: "allow_once"), model, answerer)) == "refused")
+        #expect(model.transport.gestures.hasFreshAnswerGesture)
+        answerer.goneBeforeAnswer = false
+        answerer.pending["local/tests p2"] = AgentPendingAsk(
+            approval: AgentApproval(session: "local/tests", permission: "p2", digest: "d2", summary: "Delete the cache"),
+            allowOnce: "allow_once", denyOnce: "reject_once")
+        #expect(Self.code(await Self.send(Self.ask("tests", "p2", option: "allow_once"), model, answerer)) == nil)
+        #expect(answerer.answers.map(\.permission) == ["p2"])
     }
 
     /// A deny is the ask's reject once only: an ask that offers only Always deny has no deny
