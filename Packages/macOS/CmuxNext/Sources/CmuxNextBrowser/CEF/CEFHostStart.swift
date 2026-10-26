@@ -91,7 +91,7 @@ final class CEFHostStart {
             let shim = try CEFShimLibrary.resolving(remote.symbol, hostExports: hostExports)
             let locale = CEFLocale.resolve(preferredLanguages: Locale.preferredLanguages,
                                            available: CEFLocale.available(lprojNames: attachment.frameworkLocales))
-            return .success(CEFAttachedHost(shim: shim, remote: remote, replies: replies, shimABI: CEFShimABI.bundledIdentity() ?? "",
+            return .success(CEFAttachedHost(shim: shim, remote: remote, shimABI: CEFShimABI.bundledIdentity() ?? "",
                                             locale: locale, loadDuration: elapsed.now - started,
                                             mapsClientIDs: hostExports.contains(CEFAttachedHost.clientIDsHelloName)))
         } catch {
@@ -107,9 +107,6 @@ nonisolated struct CEFAttachedHost: Sendable {
     var shim: CEFShimLibrary
     /// Holds the host's wire: the runtime detaches it when Chromium does not start on it.
     var remote: CEFRemoteShim
-    /// The table the remote shim's REPLY frames resolve (``CEFHostStart/replies``): the runtime's
-    /// ``CEFHostReplyRoute`` answers its callers from it.
-    var replies: CEFHostReplies
     var shimABI: String
     /// UI locale and Accept-Language from the macOS preferred languages and the host's framework locales.
     var locale: CEFLocale

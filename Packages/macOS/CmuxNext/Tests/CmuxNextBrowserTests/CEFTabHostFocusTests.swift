@@ -115,7 +115,6 @@ import Testing
             let hostStart = CEFHostStart(supervisor: FocusNoHost(), clock: ContinuousClock())
             hostStart.mapsClientIDs = true
             runtime.hostStart = hostStart
-            runtime.hostReplies = try CEFHostReplyRoute(symbol: FocusSpy.symbol, replies: hostStart.replies)
         }
         _ = Unmanaged.passRetained(runtime)
         return runtime
@@ -144,6 +143,8 @@ import Testing
     func attachment() async throws(ChromiumHostAttachError) -> ChromiumHostAttachment {
         throw .cannotStart("not started in this test")
     }
+
+    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {}
 }
 
 /// Stand-in shim functions: `set_focus` and `browser_set_embedder_active` record their calls,
@@ -158,7 +159,7 @@ private nonisolated enum FocusSpy {
     }
 
     static func symbol(_ name: String) -> UnsafeMutableRawPointer? {
-        let lastReplyToken: CEFHostReplyRoute.LastReplyTokenFn = { 0 }
+        let lastReplyToken: CEFRemoteShim.LastReplyTokenFn = { 0 }
         let setFocus: @convention(c) (Int32, Int32) -> Void = { browser, focus in
             FocusSpy.setFocus.append((browser, focus))
         }

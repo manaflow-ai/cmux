@@ -79,7 +79,9 @@ extension CEFRuntime {
     }
 
     /// Host mode: takes both REPLYs (registered in this turn, as they must be) and keeps the verdict.
-    /// A refusal drops the check, so the next page of the profile asks again, as in process.
+    /// A refusal, a failure or no answer within the reply deadline drops the check and refuses its
+    /// waiting pages, so the next page of the profile asks again, as in process. ``hostGone()`` drops
+    /// an open verdict too: it was the exited host's.
     private func checkProfileProxy(_ profile: BrowserProfileID, stored: CEFShimAnswer<Int32>, state: CEFShimAnswer<Int32>?,
                                    changed: Bool) -> CEFProfileProxyGate {
         let check = CEFProfileProxyCheck()

@@ -73,7 +73,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         didSet {
             let phaseChanged = machine.state.phase != oldValue.state.phase
             if phaseChanged { pageWaiters.notePhase(machine.state.phase) }
-            if phaseChanged || machine.state.processExit != oldValue.state.processExit, runtime.hostReplies == nil { onRenderersMayChange?() }
+            if phaseChanged || machine.state.processExit != oldValue.state.processExit, runtime.hostStart == nil { onRenderersMayChange?() }
         }
     }
     /// Runs when the renderers that serve this page may have changed: its load phase changed (a navigation
