@@ -874,6 +874,7 @@ The simplest peer is an SSH host, and `host setup` does the whole install from t
 acpmux host setup HOST                 # scp the binary, write config + launchd plist, start it, add the peer
 acpmux host ls                         # connected/offline, remote build, and "outdated" when it lags yours
 acpmux host status [HOST]              # each host asked live: reachable, round trip, disk, load, live sessions, build
+acpmux host vm-host [HOST] [on|off]    # a dedicated agent VM (no sandbox; on by default on a VM cmux created)
 acpmux host update --all               # push the current binary to every ssh peer and restart it
 acpmux host update HOST --if-idle --binary-dir DIR  # push DIR/acpmux-<target>, unless a session there is mid-turn (not counting the one running this)
 acpmux host update HOST --keep-newer --binary-dir DIR  # never a move back: a later day's build or one with local changes stays (current)

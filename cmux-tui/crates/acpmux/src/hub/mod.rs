@@ -134,6 +134,7 @@ pub(crate) mod questions;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
 pub use remote_sandbox::vm_host_peer_approves;
+pub mod vm_host;
 mod start_gate;
 pub(crate) use start_gate::host_label;
 mod subsession_answer;
@@ -437,6 +438,8 @@ pub struct Hub {
     pub(super) trust_gate: StdMutex<Option<crate::trust::Paths>>,
     /// The `sandbox-exec` remote chains run Claude Code under (`remote_sandbox.rs`).
     pub(super) remote_sandbox_exec: StdMutex<PathBuf>,
+    /// Where `vm_host.rs` reads the creation marker (`/`; a folder in tests).
+    pub(super) vm_marker_root: StdMutex<PathBuf>,
     /// The device-wide chat index, once started (`chats/`).
     pub(crate) chats: std::sync::OnceLock<Arc<crate::chats::ChatService>>,
     /// Work that waits for the chat index to start (`Hub::when_chats_ready`).
@@ -576,6 +579,7 @@ impl Hub {
             web_modes: StdMutex::new(Default::default()),
             trust_gate: StdMutex::new(None),
             remote_sandbox_exec: StdMutex::new(PathBuf::from(remote_sandbox::SANDBOX_EXEC)),
+            vm_marker_root: StdMutex::new(PathBuf::from("/")),
             chats: std::sync::OnceLock::new(),
             chats_waiters: StdMutex::new(Vec::new()),
             start_mode_state,

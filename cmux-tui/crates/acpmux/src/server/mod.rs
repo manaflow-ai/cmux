@@ -1497,6 +1497,7 @@ mod stream;
 mod subsessions;
 pub(crate) mod trust_gate;
 mod view;
+mod vm_host;
 pub(crate) mod wait;
 #[cfg(windows)]
 mod windows_socket;

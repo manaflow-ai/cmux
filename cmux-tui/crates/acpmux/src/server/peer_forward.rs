@@ -54,6 +54,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_HANDOFF_DISCARD,
     "_acpmux/peers",
     "_acpmux/peer_status",
+    // Names a peer machine, never a session (`vm_host.rs`).
+    "_acpmux/vm_host",
     "_acpmux/host_health",
     "_acpmux/place",
     "_acpmux/models",
