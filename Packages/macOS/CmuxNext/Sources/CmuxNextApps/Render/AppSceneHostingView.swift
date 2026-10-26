@@ -9,9 +9,11 @@ public final class AppSceneHostingView: NSHostingView<AnyView> {
     /// Measures heights for a width without laying out this view.
     private let measurer: NSHostingController<AnyView>
 
-    public init(model: AppSceneModel, bundleDirectory: URL?) {
+    public init(model: AppSceneModel, bundleDirectory: URL?, bundleImages: AppBundleImageCache) {
         self.model = model
-        let root = AnyView(AppSceneThemedRoot(appearance: sceneAppearance) { AppSceneView(model: model, bundleDirectory: bundleDirectory) })
+        let root = AnyView(AppSceneThemedRoot(appearance: sceneAppearance) {
+            AppSceneView(model: model, bundleDirectory: bundleDirectory, bundleImages: bundleImages)
+        })
         measurer = NSHostingController(rootView: root)
         super.init(rootView: root)
         sizingOptions = [.intrinsicContentSize]
