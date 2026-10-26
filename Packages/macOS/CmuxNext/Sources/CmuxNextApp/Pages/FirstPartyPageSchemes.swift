@@ -73,6 +73,14 @@ enum FirstPartyPageSchemes {
         CEFPageSchemes.firstParty = entries(roots: bundledRoots(), bundleResources: resources)
     }
 
+    /// The page host's scripts for every renderer (fork API 29), on Chromium's page host channel:
+    /// the composition root hands them to its `CEFEngine`.
+    @MainActor static var hostScripts: [CEFPageSchemes.HostScript] {
+        ChromiumPageHostBridge.rendererScripts(handlers: PageWebView.chromiumFireAndForget,
+                                               world: CEFPageSchemes.hostWorld, channel: CEFPageSchemes.hostChannel)
+            .map { CEFPageSchemes.HostScript(world: $0.world, source: $0.source, allFrames: $0.allFrames) }
+    }
+
     /// Real paths, compared component by component (`Resources2` is not inside `Resources`).
     static func isStrictlyInside(_ url: URL, _ folder: URL) -> Bool {
         let inner = url.standardizedFileURL.resolvingSymlinksInPath().pathComponents

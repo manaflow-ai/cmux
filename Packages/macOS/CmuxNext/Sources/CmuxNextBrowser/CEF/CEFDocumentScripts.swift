@@ -45,8 +45,16 @@ nonisolated struct CEFDocumentScripts: Equatable, Sendable {
     /// The first contentful paint report (its own world, main frame); the page-channel path only:
     /// the DevTools path reads Page.lifecycleEvent instead (`CEFFirstPaintBridge`).
     var firstPaint: [Script]
+    /// The cmux page host (the App's ``CEFPageSchemes/HostScript``s); the page-channel path only: before it,
+    /// each page installs its host over its own DevTools session. Each script returns outside a
+    /// `cmux-page:` main frame.
+    var pageHost: [Script]
 
-    init(post: Post) {
+    /// - Parameters:
+    ///   - post: How the scripts report.
+    ///   - pageHost: The cmux page host's scripts, installed on the page-channel path only.
+    init(post: Post, pageHost: [Script] = []) {
+        self.pageHost = post == .pageChannel ? pageHost : []
         let mediaChannel = BrowserMediaState.channel
         let protectedChannel = BrowserProtectedMedia.channel
         media = [
@@ -75,7 +83,7 @@ nonisolated struct CEFDocumentScripts: Equatable, Sendable {
     }
 
     /// Every script, in install order.
-    var all: [Script] { media + verification + firstPaint }
+    var all: [Script] { media + verification + firstPaint + pageHost }
 
     /// Installs every script and channel for every browser (fork API 29). Returns the names the
     /// shim refused (empty when all went in).

@@ -19,7 +19,7 @@ public protocol PageChromiumHosting: AnyObject {
     func serves(_ page: PageDescriptor) -> Bool
     /// Makes an empty Chromium page for `page` and returns once its browser exists, before any
     /// document loads, so the host can set the page up
-    /// (``ChromiumPageHostBridge/setupCalls(handlers:documentScripts:)``) and then call
+    /// (``ChromiumPageHostBridge/setUp(documentScripts:)``) and then call
     /// ``PageChromiumPage/load(_:)``. Async because Chromium starts on its first page.
     ///
     /// - Parameter page: The page's descriptor (its origin and policy).
@@ -28,15 +28,24 @@ public protocol PageChromiumHosting: AnyObject {
     func makePage(_ page: PageDescriptor) async throws -> any PageChromiumPage
 }
 
-/// One Chromium page the page host shows. The page host drives it only through this protocol
-/// and the DevTools protocol (``devTools(_:params:)``), so a CEF tab or a fake in tests both fit.
+/// One Chromium page the page host shows. The page host drives it only through this protocol,
+/// so a CEF tab or a fake in tests both fit: through the fork's renderer paths
+/// (``usesRendererPaths``, no DevTools session) or, on an older fork, the DevTools protocol
+/// (``devTools(_:params:)``).
 @MainActor
 public protocol PageChromiumPage: AnyObject {
     /// The view to place where the page shows (Chromium's view tracks it).
     var contentView: NSView { get }
-    /// Receives the page's raw DevTools protocol events and its load and crash events. Set it
-    /// before the first ``devTools(_:params:)`` call.
+    /// Receives the page's events: its load and crash events, its posts to the page host
+    /// (``PageChromiumEvent/hostMessage(_:_:)``) on renderer paths, and its raw DevTools protocol
+    /// events before them. Set it before the first ``devTools(_:params:)`` call.
     var onEvent: ((PageChromiumEvent) -> Void)? { get set }
+    /// The page runs on the fork's renderer paths (fork API 29): its renderer already has the page
+    /// host script in every `cmux-page:` document, its posts come as
+    /// ``PageChromiumEvent/hostMessage(_:_:)``, its document events come from the browser, and
+    /// ``evaluate(_:)`` runs scripts. The page host then never calls ``devTools(_:params:)``: a
+    /// DevTools agent keeps Chromium from sharing the page's renderer. False on an older fork.
+    var usesRendererPaths: Bool { get }
     /// Answers the page's requests for its dynamic paths (``PageDescriptor/dynamicPrefixes``):
     /// Chromium asks it for every request under one, and a nil answerer is a 404. The host sets it
     /// before the first ``load(_:)``.
@@ -54,6 +63,14 @@ public protocol PageChromiumPage: AnyObject {
     /// - Returns: The method's JSON result.
     /// - Throws: When the page is gone or the method fails.
     func devTools(_ method: String, params: [String: any Sendable]) async throws -> String
+    /// Runs `script` in the page's main frame, in the page's own world, without a user gesture,
+    /// and returns its completion value as JSON (`null` for none). On renderer paths no DevTools
+    /// session opens for it.
+    ///
+    /// - Parameter script: The script.
+    /// - Returns: Its value as JSON.
+    /// - Throws: When the page is gone or the script throws.
+    func evaluate(_ script: String) async throws -> String
     /// Loads `url` in the page.
     func load(_ url: URL)
     /// Reloads the document.
@@ -95,4 +112,7 @@ public nonisolated enum PageChromiumEvent: Sendable, Equatable {
     case userInput(TimeInterval)
     /// The person right-clicked in the page: the host shows its own menu (``PageChromiumContextMenu``).
     case contextMenu(PageChromiumContextMenu)
+    /// The page host script posted `payload` on the page channel (renderer paths). `sender` is the
+    /// frame that delivered it, as the browser process knows it; the payload is untrusted data.
+    case hostMessage(PageChromiumSender, String)
 }

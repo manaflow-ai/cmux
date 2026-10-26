@@ -120,12 +120,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Answers the page's requests for its dynamic paths (a cmux page whose scheme entry has
     /// ``CEFPageSchemes/Entry/dynamicPrefixes``); nil answers every one with a 404.
     @ObservationIgnored public var pageResources: (@MainActor (URL) async -> CEFPageResponse)?
-    /// A drag of these files from outside the app entered the page (a cmux page hands such a drop
-    /// to its host); nil ignores it.
-    @ObservationIgnored public var pageFilesDragged: (@MainActor ([URL]) -> Void)?
-    /// A real mouse down or key down reached the page, at this `systemUptime` (a cmux page backs its
-    /// calls with it as the person's gesture); nil ignores it.
-    @ObservationIgnored public var pageUserInput: (@MainActor (TimeInterval) -> Void)?
+    /// What a cmux page tab tells its page host (``CEFPageTabEvents``); nil for any other tab.
+    @ObservationIgnored public var pageEvents: CEFPageTabEvents?
 
     /// The file URLs of a PAGE_DRAG_ENTER event's JSON array of absolute paths.
     nonisolated static func dragPaths(_ json: String) -> [URL] {

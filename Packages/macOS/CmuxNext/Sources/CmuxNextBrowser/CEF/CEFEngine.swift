@@ -27,6 +27,8 @@ public final class CEFEngine: BrowserEngine {
     public let signInCallbacks: CEFSignInCallbacks
     let lifecycleTrace: BrowserLifecycleTrace
     let contextMenus: BrowserContextMenuBuilder
+    /// The App's cmux page host scripts for every renderer (fork API 29, ``CEFPageSchemes/HostScript``).
+    let pageHostScripts: [CEFPageSchemes.HostScript]
 
     /// The runtime to start, nil while none is available.
     var layout: CEFRuntimeLayout? { runtimeSource.layout }
@@ -55,15 +57,18 @@ public final class CEFEngine: BrowserEngine {
     ///   - signInCallbacks: The App's sign-in tabs; the runtime sends the shim's callbacks there.
     ///   - lifecycleTrace: Receives content lifecycle events; disabled by default.
     ///   - contextMenus: Presents menus when no tab delegate handles the request.
+    ///   - pageHostScripts: The cmux page host's scripts, installed in every renderer on fork API 29.
     public init(source: CEFRuntimeSource,
                 stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                 lifecycleTrace: BrowserLifecycleTrace = .shared,
-                contextMenus: BrowserContextMenuBuilder = .shared) {
+                contextMenus: BrowserContextMenuBuilder = .shared,
+                pageHostScripts: [CEFPageSchemes.HostScript] = []) {
         runtimeSource = source
         self.stores = stores
         self.signInCallbacks = signInCallbacks
         self.lifecycleTrace = lifecycleTrace
         self.contextMenus = contextMenus
+        self.pageHostScripts = pageHostScripts
     }
 
     public var availability: BrowserEngineAvailability {
@@ -351,15 +356,19 @@ public final class CEFEngine: BrowserEngine {
         return makeReadyTab(configuration)
     }
 
-    /// Hands the stores and sign-in tabs to the process's runtime before it starts or makes a tab
-    /// (not in `init`: the runtime is built on Chromium's first use, not at launch).
+    /// Hands the stores, sign-in tabs and page host scripts to the process's runtime before it
+    /// starts or makes a tab (not in `init`: the runtime is built on Chromium's first use, not at launch).
     private func adoptStores() {
-        CEFRuntime.shared.adopt(stores: stores, signInCallbacks: signInCallbacks)
+        CEFRuntime.shared.adopt(stores: stores, signInCallbacks: signInCallbacks, pageHostScripts: rendererPageHost)
+    }
+
+    private var rendererPageHost: [CEFDocumentScripts.Script] {
+        pageHostScripts.map { CEFDocumentScripts.Script(world: $0.world, source: $0.source, allFrames: $0.allFrames) }
     }
 
     private func makeReadyTab(_ configuration: BrowserTabConfiguration) -> CEFTab {
         let runtime = CEFRuntime.shared
-        runtime.adopt(stores: stores, signInCallbacks: signInCallbacks)
+        runtime.adopt(stores: stores, signInCallbacks: signInCallbacks, pageHostScripts: rendererPageHost)
         let pane = configuration.pane ?? BrowserPaneID(rawValue: "tab-" + configuration.id.rawValue)
         let key = CEFPaneKey(pane: pane, profile: configuration.profile, machineKey: configuration.machineStore?.machineKey,
                              offTheRecord: stores.offTheRecord.isOffTheRecord(configuration.profile))

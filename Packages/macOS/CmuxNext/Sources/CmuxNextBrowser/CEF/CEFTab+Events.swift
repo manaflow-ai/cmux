@@ -54,6 +54,7 @@ extension CEFTab {
             // nothing on an ordinary navigation: the memo already matches.
             reapplyColorScheme()
             if PageBackground.isRealPage(URL(string: url)) { reachedFirstRealPage() }
+            pageEvents?.committed?(URL(string: url))
         case .loadEnd:
             if let navigation { machine.apply(.finished(navigation)) }
             documentDidSettle()
@@ -64,6 +65,7 @@ extension CEFTab {
             // Extensions finish loading after the first window exists and
             // badges are per page; refresh cheaply on each document load.
             refreshExtensionActions()
+            pageEvents?.finished?()
         case .loadError(_, let code, let text, let url, let chromiumInterstitial):
             clearTitleBeforeCommit()
             guard let navigation else { return }

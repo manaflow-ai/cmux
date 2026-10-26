@@ -47,9 +47,41 @@ public final class FakeChromiumPage: PageChromiumPage {
     public var answer: ((_ method: String, _ params: [String: any Sendable]) -> String?)?
     /// Runs when the host closes the page.
     public var onClose: (() -> Void)?
+    /// Whether the page is on the fork's renderer paths (no DevTools session).
+    public var usesRendererPaths: Bool
+    /// The page's Chromium browser id: the sender of its posts (``post(_:isMainFrame:)``).
+    public var browserID: Int
+    /// Every script ``evaluate(_:)`` ran, in order.
+    public private(set) var evaluations: [String] = []
+    /// Runs after each evaluation (tests wait on it).
+    public var onEvaluate: (() -> Void)?
 
     /// Makes a page with no calls yet.
-    public init() {}
+    ///
+    /// - Parameters:
+    ///   - usesRendererPaths: The page is on the fork's renderer paths.
+    ///   - browserID: Its Chromium browser id.
+    public init(usesRendererPaths: Bool = false, browserID: Int = 1) {
+        self.usesRendererPaths = usesRendererPaths
+        self.browserID = browserID
+    }
+
+    /// Records `script` in ``evaluations`` and answers `null`.
+    public func evaluate(_ script: String) async throws -> String {
+        evaluations.append(script)
+        onEvaluate?()
+        return "null"
+    }
+
+    /// Posts `payload` on the page channel as this page's frame (renderer paths): the sender is
+    /// what the browser knows of the frame, ``browserID`` and ``senderURL``, whatever the payload says.
+    ///
+    /// - Parameters:
+    ///   - payload: The post.
+    ///   - isMainFrame: Whether the main frame posts it.
+    public func post(_ payload: String, isMainFrame: Bool = true) {
+        onEvent?(.hostMessage(PageChromiumSender(browserID: browserID, isMainFrame: isMainFrame, url: URL(string: senderURL)), payload))
+    }
 
     /// Records the call and answers it: ``answer`` first, then the sender check, then an empty result.
     public func devTools(_ method: String, params: [String: any Sendable]) async throws -> String {

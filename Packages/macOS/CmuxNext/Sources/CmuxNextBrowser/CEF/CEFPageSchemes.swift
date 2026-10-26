@@ -31,4 +31,28 @@ public struct CEFPageSchemes {
 
     /// Page id (`cmux.agent`) to its entry.
     public static var firstParty: [String: Entry] = [:]
+
+    /// One document-start script of the page host (fork API 29), from CmuxNextPages
+    /// `ChromiumPageHostBridge.rendererScripts`: the App hands them to its ``CEFEngine``, and
+    /// `CEFRuntime` installs them once for every browser with every tab's document scripts
+    /// (`CEFDocumentScripts`). They post on ``hostChannel`` in ``hostWorld``.
+    public struct HostScript: Equatable, Sendable {
+        /// The isolated world it runs in; "" for the page's own world.
+        public var world: String
+        public var source: String
+        /// Every frame; false for the main frame only.
+        public var allFrames: Bool
+        public init(world: String, source: String, allFrames: Bool) {
+            self.world = world
+            self.source = source
+            self.allFrames = allFrames
+        }
+    }
+
+    /// The page channel a cmux page's host script posts its calls on (renderer paths).
+    nonisolated public static let hostChannel = "cmuxPageHost"
+    /// The isolated world ``hostChannel`` lives in.
+    nonisolated public static let hostWorld = "cmuxPageHost"
+    /// The largest page host call accepted (CmuxNextPages `ChromiumPageHostBridge.maximumPayloadBytes`).
+    nonisolated public static let hostMaxPayloadBytes = 4 << 20
 }

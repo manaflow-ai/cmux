@@ -5,10 +5,12 @@ import CmuxNextPages
 import Foundation
 import os
 
-/// One cmux page in a CEF tab (``PageChromiumPage``). The page host drives it through the DevTools
-/// protocol: the tab's raw relay (`CEFAgentRelay`) carries the protocol events (the bridge's
-/// binding calls, `Page.frameNavigated`, `Page.loadEventFired`); a page tab is never an agent's tab,
-/// so nothing else listens on its relay. The tab's own state reports a crash.
+/// One cmux page in a CEF tab (``PageChromiumPage``). On the fork's renderer paths (API 29) the page
+/// opens no DevTools session: the tab's page events (`CEFPageTabEvents`) carry its page host posts,
+/// each with the frame that delivered it, and its document events, and scripts run through
+/// `tabEvaluate`. Before them the tab's raw relay (`CEFAgentRelay`) carries the DevTools events (the
+/// bridge's binding calls, `Page.frameNavigated`, `Page.loadEventFired`); a page tab is never an
+/// agent's tab, so nothing else listens on its relay. The tab's own state reports a crash.
 @MainActor
 final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     /// The CEF tab the page shows in; the focus applier gives it the keyboard like a browser tab.
@@ -48,19 +50,31 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         }
     }
 
+    var usesRendererPaths: Bool { tab.agentRelay.usesRendererPaths }
+
     private func listen() {
         guard onEvent != nil, !closed else {
-            tab.pageFilesDragged = nil
-            tab.pageUserInput = nil
+            tab.pageEvents = nil
             tab.agentRelay.set(onMessage: nil, onEnd: nil)
             crashWatch?.cancel()
             crashWatch = nil
             return
         }
-        tab.agentRelay.set(onMessage: { [weak self] json in self?.onEvent?(.devTools(json)) },
-                           onEnd: { [weak self] in self?.renderEnded() })
-        tab.pageFilesDragged = { [weak self] urls in self?.onEvent?(.filesDragged(urls)) }
-        tab.pageUserInput = { [weak self] uptime in self?.onEvent?(.userInput(uptime)) }
+        var events = CEFPageTabEvents(filesDragged: { [weak self] urls in self?.onEvent?(.filesDragged(urls)) },
+                                      userInput: { [weak self] uptime in self?.onEvent?(.userInput(uptime)) })
+        if usesRendererPaths {
+            tab.agentRelay.set(onEnd: { [weak self] in self?.renderEnded() })
+            events.posted = { [weak self] post in
+                let sender = PageChromiumSender(browserID: Int(post.browserID), isMainFrame: true, url: post.committedURL)
+                self?.onEvent?(.hostMessage(sender, post.payload))
+            }
+            events.committed = { [weak self] url in self?.onEvent?(.committed(url)) }
+            events.finished = { [weak self] in self?.onEvent?(.finished) }
+        } else {
+            tab.agentRelay.set(onMessage: { [weak self] json in self?.onEvent?(.devTools(json)) },
+                               onEnd: { [weak self] in self?.renderEnded() })
+        }
+        tab.pageEvents = events
         guard crashWatch == nil else { return }
         let tab = tab
         crashWatch = Task { [weak self] in
@@ -77,6 +91,13 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 
     func devTools(_ method: String, params: [String: any Sendable]) async throws -> String {
         try await tab.devTools(method: method, params: params)
+    }
+
+    /// Through `tabEvaluate` on renderer paths (`CEFTab.evaluate`), as cmux's own script.
+    func evaluate(_ script: String) async throws -> String {
+        let value = try await tab.evaluate(script, world: .page, gesture: .cmux)
+        let data = try JSONSerialization.data(withJSONObject: value.foundationValue, options: [.fragmentsAllowed])
+        return String(decoding: data, as: UTF8.self)
     }
 
     func load(_ url: URL) { tab.load(url) }
@@ -98,8 +119,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         crashWatch = nil
         tab.agentRelay.set(onMessage: nil, onEnd: nil)
         tab.pageResources = nil
-        tab.pageFilesDragged = nil
-        tab.pageUserInput = nil
+        tab.pageEvents = nil
         tab.delegate = nil
         tab.close()
     }

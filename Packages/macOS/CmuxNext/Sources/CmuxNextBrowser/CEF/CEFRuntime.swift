@@ -145,15 +145,16 @@ final class CEFRuntime {
     /// The App's browser stores, handed over by the engine before it starts or makes a tab
     /// (`adopt`); in memory until then (a spy runtime in tests).
     private(set) var stores = BrowserSharedStores.inMemory()
-    /// The App's sign-in tabs (`adopt`): the shim's AUTH_CALLBACK events go here.
+    /// The App's sign-in tabs, which get the shim's AUTH_CALLBACK events, and its page host scripts (`adopt`).
     private(set) var signInCallbacks = CEFSignInCallbacks()
+    private(set) var pageHostScripts: [CEFDocumentScripts.Script] = []
 
     private init() {}
 
-    /// Takes the engine's stores and sign-in tabs (the process has one Chromium, so the App's one
-    /// engine hands them over before its first start or tab). Idempotent for the same stores.
-    func adopt(stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks) {
-        self.signInCallbacks = signInCallbacks
+    /// Takes the engine's stores, sign-in tabs and page host scripts (the process has one Chromium, so
+    /// the App's one engine hands them over before its first start or tab). Idempotent for the same stores.
+    func adopt(stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks, pageHostScripts: [CEFDocumentScripts.Script] = []) {
+        (self.signInCallbacks, self.pageHostScripts) = (signInCallbacks, pageHostScripts)
         guard stores !== self.stores else { return }
         self.stores = stores
         // An incognito session ended: drop its in-memory contexts, so
@@ -437,10 +438,9 @@ final class CEFRuntime {
                                                       entry.entry)
             if added != 1 { logger.error("cmux-page \(id, privacy: .public) refused by the shim") }
         }
-        // Every document's start scripts and report channels, once for every browser, in the
-        // renderer (fork API 29): no tab opens a DevTools session for them (`CEFDocumentScripts`).
+        // Document scripts, channels and the page host, once for every browser (fork API 29, `CEFDocumentScripts`).
         if CEFForkFeatures(shim).rendererPaths {
-            let refused = CEFDocumentScripts(post: .pageChannel).installInRenderer(shim)
+            let refused = CEFDocumentScripts(post: .pageChannel, pageHost: pageHostScripts).installInRenderer(shim)
             if !refused.isEmpty { logger.error("document scripts refused by the shim: \(refused.joined(separator: ", "), privacy: .public)") }
         }
         // Google Chrome's native messaging hosts after cmux's own.

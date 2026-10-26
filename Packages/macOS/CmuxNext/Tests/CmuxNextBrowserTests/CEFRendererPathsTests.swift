@@ -103,6 +103,31 @@ import Testing
         #expect(!tab.sendClick(x: 1, y: 1))
     }
 
+    /// A cmux page's post to its host reaches its own tab with the sender the browser knows: the
+    /// tab's browser and its main frame's last committed URL, whatever the payload names. A child
+    /// frame's post is dropped; a page host script goes in only on the page-channel path.
+    @Test func aPageHostPostCarriesTheDeliveringFramesCommittedURL() throws {
+        let rig = try Rig(forkAPI: 29)
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        var posts: [CEFPageHostPost] = []
+        var committed: [URL?] = []
+        tab.pageEvents = CEFPageTabEvents(posted: { posts.append($0) }, committed: { committed.append($0) }, finished: nil)
+        rig.runtime.handle(.loadStart(browser: 7, url: "cmux-page://test.a/", fromPost: false))
+        let payload = #"{"name":"cmuxPage","seq":1,"body":{},"browserID":8,"frameURL":"cmux-page://test.b/"}"#
+        rig.runtime.handle(.pageMessage(browser: 7, mainFrame: true, channel: CEFPageSchemes.hostChannel, payload: payload))
+        rig.runtime.handle(.pageMessage(browser: 7, mainFrame: false, channel: CEFPageSchemes.hostChannel, payload: payload))
+        rig.runtime.handle(.pageMessage(browser: 8, mainFrame: true, channel: CEFPageSchemes.hostChannel, payload: payload))
+        #expect(committed == [URL(string: "cmux-page://test.a/")])
+        #expect(posts == [CEFPageHostPost(browserID: 7, committedURL: URL(string: "cmux-page://test.a/"), payload: payload)])
+
+        let host = CEFDocumentScripts.Script(world: CEFPageSchemes.hostWorld, source: "host()", allFrames: false)
+        #expect(CEFDocumentScripts(post: .pageChannel, pageHost: [host]).all.contains(host))
+        #expect(!CEFDocumentScripts(post: .binding, pageHost: [host]).all.contains(host))
+        let large = String(repeating: "x", count: CEFPageMessage.maxPayloadBytes * 2)
+        #expect(CEFPageMessage(channel: CEFPageSchemes.hostChannel, payload: large, mainFrame: true)?.channel == .pageHost)
+    }
+
     @Test func aRendererInstallsEveryDocumentScriptOnceForEveryBrowser() throws {
         Spy.reset(forkAPI: 29)
         let refused = CEFDocumentScripts(post: .pageChannel).installInRenderer(try Spy.library())
