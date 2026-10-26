@@ -83,6 +83,61 @@ public struct LaunchServicePosts {
         ])
     }
 
+    /// The platform services (p08-startup-029, plans/cmux-next/startup-DESIGN.md section 3): nothing on the
+    /// first frame reads them. The system-wide hot keys and the window style follows are afterFirstFrame, so a
+    /// hot key works within a second of launch; the rest is afterStartup. The Apple-event URL handler and
+    /// the sign-in handler stay inline (critical): a launch by a URL or a sign-in delivers its event right
+    /// after `applicationDidFinishLaunching`.
+    ///
+    /// - Parameters:
+    ///   - globalHotKeys: Registers the system-wide hot keys; nil for an agent- or bench-launched build,
+    ///     which never takes them from the person's app (no post).
+    ///   - borders: Follows the window border style.
+    ///   - glass: Follows the glass mode.
+    ///   - keepAwake: Starts the keep-awake power assertion follow.
+    ///   - mobile: Follows phone access (its listener).
+    ///   - notifications: Follows the notification settings.
+    ///   - macScreenSettings: Follows the Share This Mac settings.
+    ///   - deviceHub: Starts the device hub.
+    ///   - updaterSettings: Follows the updater settings (before the updater's own start post).
+    ///   - computerUseHelper: Follows the Computer Use helper process setting.
+    ///   - hibernation: Starts tab hibernation and the memory-budgeted warm sets.
+    ///   - apps: Starts the app catalog (an App Store request before it waits).
+    ///   - macScreen: Resumes Share This Mac (permissions, shortcut tap, saved device names).
+    ///   - updateFeed: Follows the update feed posts.
+    /// - Returns: The posts, the hot keys, borders and glass at afterFirstFrame and the rest at afterStartup.
+    public static func platform(globalHotKeys: (@MainActor @Sendable () -> Void)?,
+                                borders: @escaping @MainActor @Sendable () -> Void,
+                                glass: @escaping @MainActor @Sendable () -> Void,
+                                keepAwake: @escaping @MainActor @Sendable () -> Void,
+                                mobile: @escaping @MainActor @Sendable () -> Void,
+                                notifications: @escaping @MainActor @Sendable () -> Void,
+                                macScreenSettings: @escaping @MainActor @Sendable () -> Void,
+                                deviceHub: @escaping @MainActor @Sendable () -> Void,
+                                updaterSettings: @escaping @MainActor @Sendable () -> Void,
+                                computerUseHelper: @escaping @MainActor @Sendable () -> Void,
+                                hibernation: @escaping @MainActor @Sendable () -> Void,
+                                apps: @escaping @MainActor @Sendable () -> Void,
+                                macScreen: @escaping @MainActor @Sendable () -> Void,
+                                updateFeed: @escaping @MainActor @Sendable () -> Void) -> LaunchServicePosts {
+        let hotKeys = globalHotKeys.map { [Post(priority: .afterFirstFrame, name: "GlobalHotKeys.start", work: $0)] } ?? []
+        return LaunchServicePosts(posts: hotKeys + [
+            Post(priority: .afterFirstFrame, name: "Borders.observe", work: borders),
+            Post(priority: .afterFirstFrame, name: "Glass.observe", work: glass),
+            Post(priority: .afterStartup, name: "KeepAwake.start", work: keepAwake),
+            Post(priority: .afterStartup, name: "Mobile.follow", work: mobile),
+            Post(priority: .afterStartup, name: "Notifications.follow", work: notifications),
+            Post(priority: .afterStartup, name: "MacScreen.followSettings", work: macScreenSettings),
+            Post(priority: .afterStartup, name: "DeviceHub.start", work: deviceHub),
+            Post(priority: .afterStartup, name: "Updater.follow", work: updaterSettings),
+            Post(priority: .afterStartup, name: "ComputerUseHelper.follow", work: computerUseHelper),
+            Post(priority: .afterStartup, name: "Hibernation.start", work: hibernation),
+            Post(priority: .afterStartup, name: "Apps.start", work: apps),
+            Post(priority: .afterStartup, name: "MacScreen.activate", work: macScreen),
+            Post(priority: .afterStartup, name: "UpdateFeedPosting.follow", work: updateFeed),
+        ])
+    }
+
     /// Posts each start on its own, in order, to the main thread.
     ///
     /// - Parameter startup: The launch's scheduler.

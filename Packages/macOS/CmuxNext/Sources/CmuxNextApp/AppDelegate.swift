@@ -9,7 +9,6 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextInput
-import CmuxNextKeepAwake
 import CmuxNextLaunch
 import CmuxNextPages
 import CmuxNextWebUpdates
@@ -264,9 +263,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.windows")
         // After two quick unexpected ends in a row, Chromium starts only
         // when the user reloads a browser tab.
-        services.observeBorders()
-        services.observeGlass()
-        services.updateFeedObservation = UpdateFeedPosting.follow(services)
         // The runtime pack check wires the engine reason at once; its download waits until asked.
         services.startChromiumRuntime()
         services.postLaterTabWarmups(on: order.startup)
@@ -336,9 +332,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings.
         let acpmux = QuitAgents.environment(services)
         ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath)
-        KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
+        // The platform services: hot keys, borders and glass after the first frame, the rest after startup (p08-startup-029).
+        // The notification preferences now (muted workspaces, attention colors), their follow later.
+        services.notifications.preferences = settings.snapshot.notifications
+        services.postPlatformServices(on: order.startup, hotKeys: !environment.isolatedLaunch)
         services.followEnergySaver(settings)
-        services.mobile.follow(settings, launch: services.environment.launch)
         services.chatsFeed?.keepCurrent()
         services.projectsImport.start(feed: services.chatsFeed)
         if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
@@ -357,25 +355,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         services.configActions.start(settings: settings)
-        // Agent- and bench-launched builds never take system-wide keys from the person's app.
-        if !environment.isolatedLaunch { services.globalHotKeys.start() }
         services.cache.browserTabs.preference.follow(settings)
         BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, chromium: services.cache.chromium)
         WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
         BrowserOmnibarPreference.follow(settings, cache: services.cache)
-        services.notifications.follow(settings)
-        services.followMacScreenSettings(settings)
-        services.startDeviceHub(settings)
-        services.updater.follow(settings)
-        ComputerUseHelperDaemon.shared.follow(settings, disabledByPolicy: { [weak services] in
-            services?.registry.disabledFeatures.contains(.computerUse) ?? true
-        })
-        services.startHibernation(settings: settings)
         services.terminalTheme.follow(settings)
         services.themes.start()
         services.themes.followChromeTheme(settings)
         services.bookmarks.follow(settings)
-        services.apps.start()
         // controlSocketEarlyBind: the control posts, after the first frame (p08-startup-019).
         control.postLaunch(socket: controlSocket, order: order, services: services, settings: settings, launch: environment.launch, logger: logger)
         Task {
