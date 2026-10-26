@@ -2,10 +2,13 @@ import CmuxNextMetrics
 import Darwin
 
 /// Records abnormal Chromium helper exits into the `cef.helper_exit` field histogram (``HistogramID/cefHelperExit``):
-/// one enumeration sample per exit, its value the process type times 16 plus the reason (``sample(_:_:)``). Chrome
-/// counts child process crashes and kills by process type the same way
+/// one enumeration sample per process that ended, its value the process type times 16 plus the reason
+/// (``sample(_:_:)``). Chrome counts child process crashes and kills by process type the same way
 /// (components/metrics/stability_metrics_helper.cc, `BrowserChildProcessCrashed` and `LogRendererCrash`).
 /// The codes are part of the histogram and never change once shipped; a new type or reason takes a new code.
+///
+/// Page renderers count from Chromium's termination status in both roles, once per process (``CEFRendererEnd``),
+/// as Chrome's `RenderProcessExited` does; the child monitor counts the other helpers, which no tab hears about.
 ///
 /// ```swift
 /// CEFHelperExitMetric(metrics: Metrics(runtime: runtime)).record(.gpu, .crashed) // sample 49
@@ -63,6 +66,18 @@ nonisolated struct CEFHelperExitMetric: Sendable {
         case .abnormal: 6
         }
     }
+}
+
+/// Which browser reports a renderer process's end: RENDER_TERMINATED's `request` (the shim's renderer_end.h).
+/// Same-site tabs can share one renderer, and Chromium tells each browser it hosted in one task
+/// (RenderProcessHostImpl::ProcessDied); the first counts the end, the others share it.
+nonisolated enum CEFRendererEnd: Int32, Sendable {
+    /// The shim could not name the process (no main frame): the end counts for this browser.
+    case unknown = 0
+    /// The first browser of this process's end.
+    case first = 1
+    /// Another browser of an end already reported.
+    case shared = 2
 }
 
 extension CEFChildProcessMonitor.Exit {

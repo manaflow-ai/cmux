@@ -6,10 +6,11 @@ import Testing
 
 /// The field histograms of p09-observability task 060: `cef.pump`, one sample per pass in us into the metrics of the
 /// runtime the pump traces into (whatever the trace categories), and `cef.helper_exit`, one enumeration sample per
-/// abnormal helper exit, the process type times 16 plus the reason. Each test records into its own store.
+/// helper process that ended abnormally, the process type times 16 plus the reason (where each comes from:
+/// CEFPumpTests+HelperExitRouting.swift). Each test records into its own store.
 extension CEFPumpTests {
     /// A store of the two cef histograms, attached to `runtime`.
-    private static func store(on runtime: TraceRuntime) -> MetricsStore {
+    static func store(on runtime: TraceRuntime) -> MetricsStore {
         let profile = MetricsProfile(appVersion: "1.0", buildNumber: "1", channel: "test", osVersion: "26.0", hardwareClass: "Mac16,10",
                                      bootSessionUUID: Array(0 ..< 16), buildUUID: Array(16 ..< 32),
                                      buildDay: MetricsProfile.Day(year: 2026, month: 10, day: 26))
@@ -18,7 +19,7 @@ extension CEFPumpTests {
         return store
     }
 
-    private static func histogram(_ id: HistogramID, in store: MetricsStore) -> MetricsDelta.Histogram? {
+    static func histogram(_ id: HistogramID, in store: MetricsStore) -> MetricsDelta.Histogram? {
         store.delta().histograms.first { $0.name == id.name }
     }
 

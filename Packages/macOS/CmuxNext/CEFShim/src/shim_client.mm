@@ -9,6 +9,7 @@
 #include "include/cef_jsdialog_handler.h"
 #include "include/cef_parser.h"
 #include "include/cef_resource_request_handler.h"
+#include "include/cef_task.h"
 #include "command_line_switches.h"
 #include "cursor_event.h"
 #include "external_url.h"
@@ -16,6 +17,7 @@
 #include "local_file_handoff.h"
 #include "local_file_scope.h"
 #include "page_scheme_registration.h"
+#include "renderer_end.h"
 #include "shim_internal.h"
 
 // Every cmux_shim_event_kind_t value is distinct and every enumerator is
@@ -229,6 +231,33 @@ void EmitCursor(int browser_id, cef_cursor_type_t type, const CefCursorInfo& cus
   Emit(CMUX_SHIM_CURSOR, browser_id, fields.scale_milli, kCursorCustom, fields.hotspot, png);
 }
 
+// The renderer ends of the UI task under way (renderer_end.h). UI thread.
+RendererEnds& renderer_ends() {
+  static RendererEnds ends;
+  return ends;
+}
+
+class ForgetRendererEnd : public CefTask {
+ public:
+  explicit ForgetRendererEnd(int client) : client_(client) {}
+  void Execute() override { renderer_ends().Forget(client_); }
+
+ private:
+  int client_;
+  IMPLEMENT_REFCOUNTING(ForgetRendererEnd);
+};
+
+// RENDER_TERMINATED's request for `browser`: whether it is the first browser of its main frame
+// renderer's end (renderer_end.h). CEF keeps the current main frame, and its identifier, after the
+// renderer ends; the task after Chromium's fan-out forgets the end.
+int ReportRendererEnd(CefRefPtr<CefBrowser> browser) {
+  CefRefPtr<CefFrame> main = browser->GetMainFrame();
+  const int client = main ? RendererClientIdOf(main->GetIdentifier().ToString()) : 0;
+  const int report = renderer_ends().Report(client);
+  if (report == kRendererEndFirst) CefPostTask(TID_UI, new ForgetRendererEnd(client));
+  return report;
+}
+
 class Client : public CefClient,
                public CefDisplayHandler,
                public CefLoadHandler,
@@ -427,7 +456,7 @@ class Client : public CefClient,
     // A crash cancels dialogs without OnResetDialogState: the question goes too.
     if (DropBeforeUnload(id)) Emit(CMUX_SHIM_BEFORE_UNLOAD_DISMISSED, id);
     CancelFileDialogs(id);
-    Emit(CMUX_SHIM_RENDER_TERMINATED, id, 0, status, error_code, error_string.ToString());
+    Emit(CMUX_SHIM_RENDER_TERMINATED, id, ReportRendererEnd(browser), status, error_code, error_string.ToString());
   }
 
   // Returning true keeps Chromium's hung-page dialog away: the host shows

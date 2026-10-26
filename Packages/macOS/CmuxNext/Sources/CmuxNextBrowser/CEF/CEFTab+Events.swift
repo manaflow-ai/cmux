@@ -119,7 +119,7 @@ extension CEFTab {
             }
         case .takeFocus(_, let forward):
             emit(.takeFocus(forward: forward))
-        case .renderTerminated(_, let status, let code, _):
+        case .renderTerminated(_, let status, let code, _, _):
             rendererTerminated(.cef(status: status, code: code))
         case .renderUnresponsive: machine.apply(.unresponsiveChanged(true))
         case .renderResponsive: machine.apply(.unresponsiveChanged(false))
