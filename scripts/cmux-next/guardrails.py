@@ -63,7 +63,7 @@ one move pool per push with the new-file rule (move_pools).
   scripts/cmux-next/guardrails.py                    # what HEAD adds over origin/feat-cmux-next
   scripts/cmux-next/guardrails.py --base A --head B   # exactly what B adds over A
   scripts/cmux-next/guardrails.py --list
-  scripts/cmux-next/guardrails.py --self-test        # the input-monitor rule's refuse and escape cases
+  scripts/cmux-next/guardrails.py --self-test        # the input-monitor and target-settings refuse and escape cases
 """
 from __future__ import annotations
 
@@ -588,9 +588,10 @@ def lex_cache_dir(repo: Path) -> Path | None:
 
 
 def in_diff_scope(path: str) -> bool:
-    """PATH is one of check()'s diff pathspecs (SWIFT_SOURCES, SWIFT_TESTS, SHIPPED_BUILD_SPECS, WAKEUP_EXT_SPECS), so
-    its blobs are read while the content diff runs. A path this misses is read after the diff (check()'s late read)."""
-    return in_swift_scope(path) or in_wakeup_ext_specs(path)
+    """PATH is one of check()'s diff pathspecs (SWIFT_SOURCES, SWIFT_TESTS, SHIPPED_BUILD_SPECS, WAKEUP_EXT_SPECS,
+    PACKAGE_MANIFEST_SPEC), so its blobs are read while the content diff runs. A path this misses is read after the
+    diff (check()'s late read)."""
+    return in_swift_scope(path) or in_wakeup_ext_specs(path) or is_package_manifest(path)
 
 
 def in_swift_scope(path: str) -> bool:
@@ -2012,6 +2013,229 @@ INPUT_RULES = (
 )
 RULES += INPUT_RULES
 # ---------------------------------------------------------------- end of input-monitor (p04-input, PL-typing)
+
+
+# ---------------------------------------------------------------- target-settings (p10-stability-037)
+# Every Swift target of the app's package closure carries the shared compile-time safety settings
+# (plans/cmux-next/chrome-parity/p10-stability.md): `stabilitySwiftSettings`, directly or through a top-level
+# settings constant that appends it (CmuxNext's uiSwiftSettings and daemonSwiftSettings). Chromium gets this from
+# build/config/BUILDCONFIG.gn: every target starts from default_compiler_configs, and one that drops
+# `//build/config/compiler:chromium_code` says so in its BUILD.gn. A new Swift target, or one that loses the
+# settings, in a closure manifest (CmuxNext's Package.swift and every Packages/ manifest it reaches through
+# `.package(path:)`) is refused. Judged per target name: a name the push's base already had without the settings, in
+# any changed closure manifest (a move), is base debt. Local only (prepush-gate runs the guardrails never under
+# --commits or GitHub Actions; Lawrence 2026-10-23: no new CI gates).
+# The block owns its lines from here to `RULES += TARGET_SETTINGS_RULES`.
+STABILITY_SETTINGS = "stabilitySwiftSettings"
+PACKAGE_MANIFEST_SPEC = ":(glob)Packages/**/Package.swift"
+SWIFT_TARGET_CALL = re.compile(r"\.(?:target|executableTarget|testTarget|macro)\s*\(")
+TARGET_LITERAL_NAME = re.compile(r'^\s*name\s*:\s*"(_+)"\s*$')  # the first argument, string contents masked
+DEPENDENCY_TYPE = re.compile(r"\bDependency\b")  # Target.Dependency, written in a declared type or as a prefix
+ARGUMENT_LABEL = re.compile(r"^\s*(\w+)\s*:")
+TOP_LEVEL_CONSTANT = re.compile(r"^(?:let|var)\s+(\w+)\b[^=]*=")
+EXPRESSION_GOES_ON = frozenset("])}+.")  # a column-0 line starting with one of these continues the expression
+IDENTIFIER = re.compile(r"\b[A-Za-z_]\w*\b")
+SETTINGS_ALLOW = re.compile(r"//\s*settings-allow:\s*\S")
+
+
+def is_package_manifest(path: str) -> bool:
+    """PATH is in PACKAGE_MANIFEST_SPEC."""
+    return path.startswith("Packages/") and path.endswith("/Package.swift")
+
+
+@dataclass
+class SwiftTarget:
+    """One Swift target call of a manifest: its literal name, its first 0-based line, and whether it carries the
+    shared settings or a `// settings-allow:` reason."""
+    name: str
+    first: int
+    ok: bool
+
+
+def balanced_end(codes: list[str], line: int, column: int) -> tuple[int, int] | None:
+    """The (line, column) of the bracket closing the one at CODES[LINE][COLUMN], or None when the text ends first."""
+    depth = 0
+    for index in range(line, len(codes)):
+        for position in range(column if index == line else 0, len(codes[index])):
+            char = codes[index][position]
+            if char in "([{":
+                depth += 1
+            elif char in ")]}":
+                depth -= 1
+                if depth == 0:
+                    return index, position
+    return None
+
+
+def top_level_split(text: str) -> list[str]:
+    """TEXT split at its commas outside any bracket."""
+    parts, depth, start = [], 0, 0
+    for position, char in enumerate(text):
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        elif char == "," and depth == 0:
+            parts.append(text[start:position])
+            start = position + 1
+    parts.append(text[start:])
+    return parts
+
+
+def settings_carriers(codes: list[str]) -> set[str]:
+    """STABILITY_SETTINGS and the top-level constants whose expression names it, directly or through another one."""
+    expressions: dict[str, str] = {}
+    for index, code in enumerate(codes):
+        declared = TOP_LEVEL_CONSTANT.match(code)
+        if not declared:
+            continue
+        body = [code[declared.end():]]
+        for following in codes[index + 1:]:
+            if following.strip() and not following[0].isspace() and following[0] not in EXPRESSION_GOES_ON:
+                break
+            body.append(following)
+        expressions[declared.group(1)] = " ".join(body)
+    carriers = {STABILITY_SETTINGS}
+    grew = True
+    while grew:
+        grew = False
+        for name, expression in expressions.items():
+            if name not in carriers and carriers & set(IDENTIFIER.findall(expression)):
+                carriers.add(name)
+                grew = True
+    return carriers
+
+
+def masked_code(line: str) -> str:
+    """LINE without a trailing `//` comment, its string contents replaced by `_` of the same length: a column of the
+    result is the same column of LINE."""
+    if COMMENT_LINE.match(line):
+        return ""
+    out, in_string, i = [], False, 0
+    while i < len(line):
+        c = line[i]
+        if in_string:
+            step = 2 if c == "\\" else 1
+            if c == '"':
+                in_string = False
+                out.append(c)
+            else:
+                out.append("_" * len(line[i:i + step]))
+            i += step
+            continue
+        if c == '"':
+            in_string = True
+        elif line.startswith("//", i):
+            break
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def declares_dependencies(codes: list[str], index: int) -> bool:
+    """The top-level statement holding line INDEX declares Target.Dependency values (`let deps: [Target.Dependency]
+    = ...`, `func deps() -> [Target.Dependency] {`): its text before the first `=` or `{` names the type."""
+    start = index
+    while start > 0 and not (codes[start].strip() and not codes[start][0].isspace()
+                             and codes[start][0] not in EXPRESSION_GOES_ON and codes[start][0] != "#"):
+        start -= 1
+    header = re.split(r"[={]", "\n".join(codes[start:index + 1]), maxsplit=1)[0]
+    return bool(DEPENDENCY_TYPE.search(header))
+
+
+def swift_targets(text: str) -> list[SwiftTarget]:
+    """The Swift target calls of manifest TEXT whose first argument is a literal `name:`, outermost only (a
+    `.target(name:)` dependency inside another target is not one). A Target.Dependency is not a target either: a
+    call with a `condition:` argument (a target takes none), one written `Target.Dependency.target(`, and one in a
+    top-level statement declared as Target.Dependency values."""
+    lines = text.split("\n")
+    codes = [masked_code(line) for line in lines]
+    raw = [line[:len(code)] for line, code in zip(lines, codes)]  # the same columns as CODES, strings kept
+    carriers = settings_carriers(codes)
+    targets: list[SwiftTarget] = []
+    after = (-1, -1)
+    for index, code in enumerate(codes):
+        for call in SWIFT_TARGET_CALL.finditer(code):
+            opener = call.end() - 1
+            if (index, opener) <= after:
+                continue
+            end = balanced_end(codes, index, opener)
+            if end is None:
+                return targets
+            after = end
+            last, close = end
+            code_text = "\n".join(codes[index:last + 1])
+            arguments_end = len(code_text) - len(codes[last]) + close
+            parts = top_level_split(code_text[opener + 1:arguments_end])
+            labelled = {m.group(1): part[m.end():] for part in parts if (m := ARGUMENT_LABEL.match(part))}
+            named = TARGET_LITERAL_NAME.match(parts[0])
+            if (not named or "condition" in labelled or code[:call.start()].rstrip().endswith("Dependency")
+                    or declares_dependencies(codes, index)):
+                continue
+            name_start = opener + 1 + named.start(1)
+            name = "\n".join(raw[index:last + 1])[name_start:name_start + len(named.group(1))]
+            shared = bool(carriers & set(IDENTIFIER.findall(labelled.get("swiftSettings", ""))))
+            allowed = any(SETTINGS_ALLOW.search(lines[j])
+                          for j in set(escape_window(lines, index)) | set(range(index, last + 1)))
+            targets.append(SwiftTarget(name, index, shared or allowed))
+    return targets
+
+
+def closure_manifests(context: "WakeupContext") -> set[str]:
+    """CmuxNext's Package.swift and every Packages/ manifest it reaches through `.package(path:)` at the head."""
+    found = {MANIFEST}
+    texts = {MANIFEST: context.manifests[context.head]}
+    frontier = [MANIFEST]
+    while frontier:
+        links = []
+        for manifest in frontier:
+            folder = posixpath.dirname(manifest)
+            for link in PACKAGE_PATH.finditer(texts.get(manifest, "")):
+                linked = posixpath.join(posixpath.normpath(posixpath.join(folder, link.group(1))), "Package.swift")
+                if is_package_manifest(linked) and linked not in found:
+                    found.add(linked)
+                    links.append(linked)
+        read = blobs(context.repo, [(context.head, path) for path in links])
+        texts.update({path: text for (_, path), text in read.items()})
+        frontier = links
+    return found
+
+
+def target_settings(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    manifests = [c for c in changes if is_package_manifest(c.path)]
+    if not manifests:
+        return []
+    only_app = all(c.path == MANIFEST for c in manifests)
+    closure = {MANIFEST} if only_app else closure_manifests(manifests[0].memo["wakeup"])
+    judged = [c for c in manifests if c.path in closure]
+    base_ok: dict[str, bool] = {}
+    for change in judged:
+        for target in swift_targets("\n".join(change.base_lines)):
+            base_ok[target.name] = base_ok.get(target.name, False) or target.ok
+    hits = []
+    for change in judged:
+        for target in swift_targets("\n".join(change.head_lines)):
+            if not target.ok and base_ok.get(target.name, True):
+                hits.append(Added(change.path, target.first + 1, change.head_lines[target.first]))
+    return hits
+
+
+TARGET_SETTINGS_RULES = (
+    Rule("target-settings", "A new Swift target, or one that loses the settings, in a Package.swift of the app's "
+         f"package closure without `{STABILITY_SETTINGS}`",
+         "the compile-time safety flips (strict memory safety, then its group as an error; p10-stability-079/211) land "
+         f"once in `{STABILITY_SETTINGS}` and reach a target only through it: a target without it builds unchecked "
+         "and the closure's count never reaches 0 (Chromium: every target starts from BUILDCONFIG.gn's "
+         "default_compiler_configs)",
+         f"pass `swiftSettings: uiSwiftSettings` or `daemonSwiftSettings` (both append `{STABILITY_SETTINGS}`), or "
+         f"`... + {STABILITY_SETTINGS}`; a Shared or iOS manifest declares `let {STABILITY_SETTINGS}: [SwiftSetting] "
+         "= []` once (the settings lander, scripts/cmux-next/stability-settings.json, fills it) and appends it",
+         "// settings-allow: <why this target cannot take the settings (no Swift sources, generated code)>",
+         target_settings,
+         scope=("/Package.swift",)),
+)
+RULES += TARGET_SETTINGS_RULES
+# ---------------------------------------------------------------- end of target-settings (p10-stability-037)
 
 
 # ---------------------------------------------------------------- main-thread classes (p06-scheduler)
@@ -4043,7 +4267,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     """([(rule, every hit, measurements and warning hits included)], warnings) for what HEAD adds over BASE."""
     # Fixed prefixes: a user's diff.noprefix / diff.srcPrefix would otherwise drop every file from the parse. No
     # inter-hunk context: a user's diff.interHunkContext would join nearby hunks with unchanged lines between them.
-    specs = ["--", SWIFT_SOURCES, SWIFT_TESTS, *SHIPPED_BUILD_SPECS, *WAKEUP_EXT_SPECS]
+    specs = ["--", SWIFT_SOURCES, SWIFT_TESTS, *SHIPPED_BUILD_SPECS, *WAKEUP_EXT_SPECS, PACKAGE_MANIFEST_SPEC]
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
     # The content diff and the blob read each decompress the same objects: on the slowest real pushes (242 files,
     # load 37) each took 0.7-1 s one after the other. The changed paths come first from a cheap name-only diff, so
@@ -4463,52 +4687,160 @@ SELF_TEST_CASES = (
                      "    var modalKey: ((NSEvent) -> Bool)?\n}\n"), False),
 )
 
+# target-settings: the app manifest links Packages/Shared/Linked, not Packages/Shared/Unlinked.
+SELF_TEST_SHARED = "Packages/Shared/Linked/Package.swift"
+SELF_TEST_UNLINKED = "Packages/Shared/Unlinked/Package.swift"
+SELF_TEST_TARGETS_END = "        .target(name: \"Kit\", swiftSettings: uiSwiftSettings),\n    ]\n)\n"
+SELF_TEST_ESCAPED_C = "        // settings-allow: C target, no Swift sources\n        .target(name: \"EscapedC\"),\n"
+SELF_TEST_MANIFEST_BASE = {
+    MANIFEST: "// swift-tools-version: 6.2\nimport PackageDescription\n\n"
+              "let stabilitySwiftSettings: [SwiftSetting] = []\n\n"
+              "let uiSwiftSettings: [SwiftSetting] = [\n    .swiftLanguageMode(.v6),\n] + stabilitySwiftSettings\n\n"
+              "let daemonSwiftSettings: [SwiftSetting] = [\n    .swiftLanguageMode(.v6),\n]\n"
+              "    + stabilitySwiftSettings\n\n"
+              "let package = Package(\n    name: \"CmuxNext\",\n    dependencies: [\n"
+              "        .package(path: \"../../Shared/Linked\"),\n    ],\n    targets: [\n"
+              "        .target(name: \"OldC\"),\n" + SELF_TEST_ESCAPED_C + SELF_TEST_TARGETS_END,
+    SELF_TEST_SHARED: "// swift-tools-version: 6.2\nimport PackageDescription\n\n"
+                      "let stabilitySwiftSettings: [SwiftSetting] = []\n\n"
+                      "let package = Package(\n    name: \"Linked\",\n    targets: [\n"
+                      "        .target(name: \"Linked\", swiftSettings: stabilitySwiftSettings),\n    ]\n)\n",
+    SELF_TEST_UNLINKED: "// swift-tools-version: 6.0\nimport PackageDescription\n\n"
+                        "let package = Package(\n    name: \"Unlinked\",\n    targets: [\n"
+                        "        .target(name: \"Unlinked\"),\n    ]\n)\n",
+}
+
+
+def _manifest_edit(path: str, old: str, new: str) -> dict[str, str]:
+    text = SELF_TEST_MANIFEST_BASE[path]
+    if old not in text:
+        raise ValueError(f"self-test fixture: {old!r} is not in {path}")
+    return {path: text.replace(old, new, 1)}
+
+
+def _new_target(declaration: str, constant: str = "") -> dict[str, str]:
+    """The app manifest with DECLARATION as its last target and CONSTANT declared above `let package`."""
+    edit = _manifest_edit(MANIFEST, SELF_TEST_TARGETS_END,
+                          SELF_TEST_TARGETS_END.replace("    ]\n", declaration + "    ]\n"))
+    return {MANIFEST: edit[MANIFEST].replace("let package", constant + "let package", 1)}
+
+
+TARGET_SETTINGS_CASES = (
+    ("a new target with uiSwiftSettings",
+     _new_target("        .target(name: \"New\", swiftSettings: uiSwiftSettings),\n"), False),
+    ("a new test target with daemonSwiftSettings, written over lines",
+     _new_target("        .testTarget(\n            name: \"NewTests\",\n            dependencies: [\"Kit\"],\n"
+                 "            swiftSettings: daemonSwiftSettings\n        ),\n"), False),
+    ("a new target with no swiftSettings",
+     _new_target("        .target(name: \"New\", dependencies: [\"Kit\"]),\n"), True),
+    ("a new executable target with its own settings list",
+     _new_target("        .executableTarget(name: \"Tool\", swiftSettings: [.swiftLanguageMode(.v6)]),\n"), True),
+    ("a new target with uiSwiftSettings plus a define",
+     _new_target("        .target(name: \"New\", swiftSettings: uiSwiftSettings + [.define(\"X\")]),\n"), False),
+    ("a new target through a new constant that appends the shared settings",
+     _new_target("        .testTarget(name: \"NewTests\", swiftSettings: testSettings),\n",
+                 "let testSettings = daemonSwiftSettings + [.define(\"TESTING\")]\n\n"), False),
+    ("a new target through a constant that does not append the shared settings",
+     _new_target("        .target(name: \"New\", swiftSettings: plainSettings),\n",
+                 "let plainSettings: [SwiftSetting] = [\n    .swiftLanguageMode(.v6),\n]\n\n"), True),
+    ("a new escaped C target", _new_target("        // settings-allow: C target, no Swift sources\n"
+                                           "        .target(name: \"NewC\", path: \"Sources/NewC\"),\n"), False),
+    ("a new target that names a target dependency with a condition",
+     _new_target("        .target(\n            name: \"New\",\n            dependencies: [.target(name: \"OldC\", "
+                 "condition: .when(platforms: [.macOS]))],\n"
+                 "            swiftSettings: uiSwiftSettings\n        ),\n"), False),
+    ("a new target over a new top-level dependency constant that names an old target",
+     _new_target("        .target(name: \"New\", dependencies: kitDeps, swiftSettings: uiSwiftSettings),\n",
+                 "let kitDeps: [Target.Dependency] = [\n    .target(name: \"Kit\"),\n]\n\n"), False),
+    ("a new top-level Target.Dependency constant that names an old target",
+     _new_target("", "let kitDep = Target.Dependency.target(name: \"Kit\")\n\n"), False),
+    ("a new target without the settings in a top-level [Target] constant",
+     _new_target("", "let extraTargets: [Target] = [\n    .target(name: \"Extra\"),\n]\n\n"), True),
+    ("a new target with a non-literal name and a product dependency",
+     _new_target("        .target(name: newName, dependencies: [.product(name: \"Kit\", package: \"x\")]),\n",
+                 "let newName = \"New\"\n\n"), False),
+    ("an edit of an old target without the settings (base debt)",
+     _manifest_edit(MANIFEST, ".target(name: \"OldC\"),", ".target(name: \"OldC\", path: \"Sources/OldC\"),"), False),
+    ("an old target that loses the shared settings",
+     _manifest_edit(MANIFEST, ".target(name: \"Kit\", swiftSettings: uiSwiftSettings)",
+                    ".target(name: \"Kit\")"), True),
+    ("deleting the escape of an old target", _manifest_edit(MANIFEST, SELF_TEST_ESCAPED_C,
+                                                            "        .target(name: \"EscapedC\"),\n"), True),
+    ("a target named only in a comment", _new_target("        // .target(name: \"Gone\"),\n"), False),
+    ("a new target without settings in a linked Shared manifest",
+     _manifest_edit(SELF_TEST_SHARED, "    ]\n)", "        .testTarget(name: \"LinkedTests\"),\n    ]\n)"), True),
+    ("a new target with the shared settings in a linked Shared manifest",
+     _manifest_edit(SELF_TEST_SHARED, "    ]\n)", "        .testTarget(name: \"LinkedTests\", swiftSettings: "
+                    "stabilitySwiftSettings),\n    ]\n)"), False),
+    ("a new target without settings in a package the app does not link",
+     _manifest_edit(SELF_TEST_UNLINKED, "    ]\n)", "        .testTarget(name: \"UnlinkedTests\"),\n    ]\n)"), False),
+    ("linking a package whose targets lack the settings",
+     _manifest_edit(MANIFEST, "    ],\n    targets", "        .package(path: \"../../Shared/Unlinked\"),\n    ],\n"
+                    "    targets"), False),
+    ("a target moved from the app manifest into a linked one, without the settings it never had",
+     {**_manifest_edit(MANIFEST, "        .target(name: \"OldC\"),\n", ""),
+      **_manifest_edit(SELF_TEST_SHARED, "    ]\n)", "        .target(name: \"OldC\"),\n    ]\n)")}, False),
+)
+
+# (rule, base files, cases): each case is one commit over its suite's base.
+SELF_TEST_SUITES = (
+    ("input-monitor", SELF_TEST_BASE, SELF_TEST_CASES),
+    ("target-settings", SELF_TEST_MANIFEST_BASE, TARGET_SETTINGS_CASES),
+)
+
 
 def self_test() -> int:
-    """The input-monitor rule on SELF_TEST_CASES: each case is one commit over SELF_TEST_BASE in a scratch
+    """The rules of SELF_TEST_SUITES on their cases: each case is one commit over its suite's base in a scratch
     repository, judged by check() as the hook judges a push (git only: no network, no build). Exit 1 on a wrong
     answer."""
     import tempfile
+    failures, total = [], 0
     with tempfile.TemporaryDirectory(prefix="cmux-guardrails-self-test-") as temporary:
         root = Path(temporary)
-        repo = root / "repository"
-        repo.mkdir()
         (root / "gitconfig").write_text("[user]\n\tname = guardrails\n\temail = guardrails@example.com\n")
         env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
         env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(root / "gitconfig"), HOME=str(root))
-
-        def run(*args: str) -> str:
-            return subprocess.run(["git", "-C", str(repo), *args], env=env, text=True, capture_output=True,
-                                  check=True).stdout.strip()
-
-        def commit(files: dict[str, str], message: str) -> str:
-            for relative, text in files.items():
-                path = repo / relative
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(text)
-            run("add", "-A")
-            run("commit", "--quiet", "--no-verify", "-m", message)
-            return run("rev-parse", "HEAD")
-
-        run("init", "--quiet", "--initial-branch=self-test")
-        base = commit(SELF_TEST_BASE, "base")
         saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
-        failures = []
         try:
-            for name, files, refused in SELF_TEST_CASES:
-                run("checkout", "--quiet", "--detach", base)
-                head = commit(files, name)
-                refusals, _ = check(repo, base, head)
-                hits = [h for rule, found in refusals if rule.id == "input-monitor" for h in found]
-                ok = bool(hits) == refused
-                print(f"  {'ok  ' if ok else 'FAIL'} {name}: {'refused' if hits else 'passes'}"
-                      + "".join(f"\n         {h.path}:{h.number}: {h.text.strip()}" for h in hits))
-                if not ok:
-                    failures.append(name)
+            for rule_id, base_files, cases in SELF_TEST_SUITES:
+                repo = root / rule_id
+                repo.mkdir()
+
+                def run(*args: str) -> str:
+                    return subprocess.run(["git", "-C", str(repo), *args], env=env, text=True, capture_output=True,
+                                          check=True).stdout.strip()
+
+                def commit(files: dict[str, str], message: str) -> str:
+                    for relative, text in files.items():
+                        path = repo / relative
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_text(text)
+                    run("add", "-A")
+                    run("commit", "--quiet", "--no-verify", "--allow-empty", "-m", message)
+                    return run("rev-parse", "HEAD")
+
+                run("init", "--quiet", "--initial-branch=self-test")
+                base = commit(base_files, "base")
+                print(f"{rule_id}:")
+                for name, files, refused in cases:
+                    total += 1
+                    run("checkout", "--quiet", "--detach", base)
+                    head = commit(files, name)
+                    refusals, warnings = check(repo, base, head)
+                    hits = [h for rule, found in refusals if rule.id == rule_id for h in found]
+                    # A rule that raised is skipped (fail open) and would pass every case that expects no refusal.
+                    raised = [text for kind, text in warnings if kind == "guardrails" and f"rule {rule_id} " in text]
+                    ok = bool(hits) == refused and not raised
+                    print(f"  {'ok  ' if ok else 'FAIL'} {name}: {'refused' if hits else 'passes'}"
+                          + "".join(f"\n         {h.path}:{h.number}: {h.text.strip()}" for h in hits)
+                          + "".join(f"\n         {text}" for text in raised))
+                    if not ok:
+                        failures.append(f"{rule_id}: {name}")
         finally:
             os.environ.update(saved)
-    print(f"guardrails self-test: {'FAILED: ' + ', '.join(failures) if failures else 'ok'} "
-          f"({len(SELF_TEST_CASES) - len(failures)}/{len(SELF_TEST_CASES)} input-monitor cases)")
+    rules = ", ".join(rule_id for rule_id, _, _ in SELF_TEST_SUITES)
+    print(f"guardrails self-test: {'FAILED: ' + '; '.join(failures) if failures else 'ok'} "
+          f"({total - len(failures)}/{total} cases of {rules})")
     return 1 if failures else 0
 
 
@@ -4519,7 +4851,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--list", action="store_true", help="print the rules")
     parser.add_argument("--self-test", action="store_true",
-                        help="judge the input-monitor rule's refuse and escape cases in a scratch repository")
+                        help="judge the input-monitor and target-settings rules' refuse and escape cases in a "
+                             "scratch repository")
     args = parser.parse_args(argv)
     if args.self_test:
         return self_test()
