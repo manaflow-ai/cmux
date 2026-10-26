@@ -29,8 +29,8 @@ struct SlicedReleaseTests {
 
         #expect(rig.warm.closes == 30)
         #expect(rig.parked.discardedCount == 150)
-        #expect(frames.allSatisfy { $0.closes <= 1 }, "a slice closed \(frames.map(\.closes).max() ?? 0) surfaces")
-        #expect(frames.allSatisfy { $0.teardowns <= 1 }, "a slice tore down \(frames.map(\.teardowns).max() ?? 0) workspaces")
+        #expect(frames.allSatisfy { $0.closes <= 1 }, "a slice closed \(frames.map { $0.closes }.max() ?? 0) surfaces")
+        #expect(frames.allSatisfy { $0.teardowns <= 1 }, "a slice tore down \(frames.map { $0.teardowns }.max() ?? 0) workspaces")
         // The two release side by side: one slice per workspace, plus one that finds the release done.
         #expect(frames.count <= 150 + 1, "the release took \(frames.count) slices")
         #expect(rig.cache.ledger.capacity == 0)
