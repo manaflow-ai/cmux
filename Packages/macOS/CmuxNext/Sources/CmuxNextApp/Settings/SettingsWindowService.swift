@@ -9,6 +9,7 @@ import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextSettingsWindow
 import CmuxNextTerminal
+import CmuxNextWakeups
 import Foundation
 
 /// Owns Settings (Settings…, Cmd-, the app menu, the palette, `settings.open`). R82: Settings is
@@ -25,6 +26,10 @@ final class SettingsWindowService: InternalPageProvider {
     init(services: AppServices) {
         self.services = services
     }
+
+    /// The applied Ghostty config's diagnostics the Settings page lists (R92), made at the first page read and
+    /// kept current from then on.
+    private(set) lazy var ghosttyDiagnostics = GhosttyDiagnosticsModel(mainWork: services.mainWork, work: services.work)
 
     /// The window whose tab shows Settings, if any.
     var window: NSWindow? {
@@ -55,8 +60,8 @@ final class SettingsWindowService: InternalPageProvider {
     /// Agents' Add panel), with no section or setting.
     func show(section: SettingsSection?, setting: String? = nil, focus: Bool = true, route pageRoute: String? = nil) throws {
         guard services.settings != nil else { throw ActionFailure(message: RefusalStrings.settingsNotLoaded) }
-        // task-owner: one read of the device list per opening (Settings > Devices)
-        Task { [devices = services.devices] in await devices.refresh() }
+        // task-owner: one read of the device list per opening (Settings > Devices); the directory's runs go off main.
+        services.work.task(.userVisible) { [devices = services.devices] in await devices.refresh() }
         var anchor: SettingsAnchor?
         if let setting {
             guard let found = SettingsAnchor(key: setting) else {

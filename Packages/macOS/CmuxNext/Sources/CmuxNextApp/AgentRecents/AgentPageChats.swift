@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextSidebar
+import CmuxNextWakeups
 
 /// The New Tab page's chats. The cards read the app's one Chats feed (acpmux's device chat index,
 /// newest few). The All chats list (cx-n0i9; the sidebar has no All chats since 2026-10-10) pages
@@ -13,6 +14,8 @@ final class AgentPageChats {
     private(set) var chats: [AgentPaneDeviceChat] = []
     /// The Recently Closed section's newest items (NewTabClosed).
     var closed: AgentPaneClosedList = .empty
+    /// Follows History's closed items into ``closed`` and every page (``NewTabClosed/wire(_:services:)``).
+    var closedFeed: ServiceObservation<[AgentPaneClosedItem]>?
     private(set) var open: (@MainActor (String) -> Void)?
     private(set) var openInTerminal: (@MainActor (String) -> Void)?
     /// View Only from a row's right-click menu (``ChatsOpenCoordinator/open(_:inTerminal:watch:replacing:)``).
