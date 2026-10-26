@@ -80,5 +80,27 @@ import Testing
         #expect(checkpoints.first?["kind"] == "turn")
         #expect(checkpoints.first?["origin"] == "cli")
     }
+
+    /// p15-oracle-040: the app list's intents facet reads the app's daemon store and counts a refused turn of the
+    /// app's registry, by the action's id.
+    @Test func theIntentsFacetCountsARefusedTurnOfTheAppRegistry() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let facets = services.makeOracleFacets()
+        #expect(facets.provided.contains(.intents))
+        let before = try #require(try facets.beginCapture([.intents]).completed?["intents"])
+        services.registry.register(Action(id: "test.oracle.refused", title: "Refused", isEnabled: { false }) {})
+        #expect(!services.registry.perform("test.oracle.refused", invocation: ActionInvocation(origin: .cli)))
+        let after = try #require(try facets.beginCapture([.intents]).completed?["intents"])
+        guard case .number(let refusedBefore)? = before["totals"]?["refused"],
+              case .number(let refusedAfter)? = after["totals"]?["refused"] else {
+            Issue.record("the intents facet has no refused total")
+            return
+        }
+        #expect(refusedAfter - refusedBefore == 1)
+        #expect(after["lastRefusal"]?["action"] == "test.oracle.refused")
+        #expect(services.daemon.store.pendingIntents.isEmpty)
+        #expect(after["pending"] == .array([]))
+    }
 }
 #endif

@@ -71,8 +71,8 @@ extension DaemonStore {
         withOverlayLifted(writer: "intent rejection") { settleIntent(transaction, .rejected) }
     }
 
-    /// The pending intents in order.
-    public var pendingIntents: [Intent] { intentLog.entries.map(\.kind) }
+    /// The pending intents in order, each with the transaction its command carries.
+    public var pendingIntents: [(transaction: ClientTransactionID, intent: Intent)] { intentLog.entries.map { ($0.transaction, $0.kind) } }
 
     /// The daemon echoed `transaction`. An echo carried by an event the
     /// store could not apply exactly (it resyncs) settles only once the
@@ -100,7 +100,7 @@ extension DaemonStore {
     /// Reported after the overlay is back (`withOverlayLifted`).
     private func settleIntent(_ transaction: ClientTransactionID, _ settlement: IntentSettlement) {
         guard let removed = intentLog.remove(transaction) else { return }
-        intentSettlements.append((transaction, settlement))
+        intentSettlements.append((settlement, removed.kind))
         // A refused create held a guessed tab that was another create's: guess it again.
         if settlement == .rejected, !removed.createdConfirmed, let surface = removed.createdSurface {
             ProvisionalTab.reguess(surface, in: self)
@@ -117,7 +117,7 @@ extension DaemonStore {
         liftOverlay()
         let result = body()
         for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: { ProvisionalSplit.awaitsRecords($0, in: self) }) {
-            intentSettlements.append((intent.transaction, .applied))
+            intentSettlements.append((.applied, intent.kind))
         }
         releaseSettledProvisionalPanes()
         releaseSettledProvisionalWorkspaces()
@@ -132,7 +132,7 @@ extension DaemonStore {
         // Observers see the visible state with the other intents on it.
         let settled = intentSettlements
         intentSettlements.removeAll()
-        for (transaction, settlement) in settled { onIntentSettled?(transaction, settlement) }
+        if !settled.isEmpty { intentTotals = intentTotals.adding(settled) }
         CancelledCreation.requestCloses(in: self)
         resumeIdleWaits()
         return result

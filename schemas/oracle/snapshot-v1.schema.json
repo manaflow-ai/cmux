@@ -2671,20 +2671,20 @@
           ]
         },
         "intents": {
-          "description": "Pending intents and monotonic outcome totals.",
+          "description": "Pending intents, monotonic outcome totals and the last refusal.",
           "x-oracle-source": {
             "method": "debug.oracle.snapshot",
             "path": "/intents",
             "v0": null,
             "provider": "OracleIntentsFacet",
             "task": "p15-oracle-040",
-            "from": "store intents sent through daemon.intentEffect"
+            "from": "the daemon store's intent log and IntentTotals (store intents sent through daemon.intentEffect) and the refused perform turns OracleActionTurns counts"
           },
           "oneOf": [
             {
               "type": "object",
               "additionalProperties": false,
-              "required": ["pending", "totals"],
+              "required": ["pending", "totals", "lastRefusal"],
               "properties": {
                 "pending": {
                   "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/intents/pending"},
@@ -2707,17 +2707,7 @@
                       "target": {
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/intents/pending/*/target"},
                         "type": ["string", "null"],
-                        "description": "the intent's target id; normalize takes the kind whose x-oracle-id-patterns entry matches",
-                        "x-oracle-id-kind": [
-                          "window",
-                          "workspace",
-                          "workspaceGroup",
-                          "screen",
-                          "pane",
-                          "tab",
-                          "terminal",
-                          "browser"
-                        ]
+                        "description": "the public id of the one object the intent changes (ws_, screen_, pane_, tab_, grp_, tgrp_), relabeled by the x-oracle-id-patterns kind it matches; null when it changes no one public object (a column's rows, a close of several tabs) or the object has no public id yet"
                       }
                     }
                   }
@@ -2730,22 +2720,45 @@
                   "required": ["applied", "rolledBack", "refused"],
                   "properties": {
                     "applied": {
+                      "description": "intents that left the log on their echo or settle sequence",
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/intents/totals/applied"},
                       "type": "integer",
                       "minimum": 0,
                       "x-oracle-counter": "monotonic"
                     },
                     "rolledBack": {
+                      "description": "intents whose command failed: the store took their change back",
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/intents/totals/rolledBack"},
                       "type": "integer",
                       "minimum": 0,
                       "x-oracle-counter": "monotonic"
                     },
                     "refused": {
+                      "description": "perform turns whose action did not run or whose handler refused",
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/intents/totals/refused"},
                       "type": "integer",
                       "minimum": 0,
                       "x-oracle-counter": "monotonic"
+                    }
+                  }
+                },
+                "lastRefusal": {
+                  "description": "what was refused last in this app process; I3 reads it from the raw checkpoint with a refused or rolledBack delta",
+                  "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/intents/lastRefusal"},
+                  "x-oracle-volatile": {"reason": "process-wide: it names the last refusal of whatever ran before in this app process, so it depends on the cases the session ran first; only the totals' deltas are per case", "task": "p15-oracle-040"},
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["action", "intent"],
+                  "properties": {
+                    "action": {
+                      "description": "the canonical action id of the last refused perform turn, never the localized reason",
+                      "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/intents/lastRefusal/action"},
+                      "type": ["string", "null"]
+                    },
+                    "intent": {
+                      "description": "the case name of the last intent rolled back (renamePane), never its payload",
+                      "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/intents/lastRefusal/intent"},
+                      "type": ["string", "null"]
                     }
                   }
                 }

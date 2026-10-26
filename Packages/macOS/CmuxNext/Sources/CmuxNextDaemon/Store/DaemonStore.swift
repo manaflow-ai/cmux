@@ -146,10 +146,10 @@ public final class DaemonStore: StateResourceQueries {
     /// The overlay moved a workspace or changed its group since the last
     /// sidebar flattening.
     @ObservationIgnored var sidebarNeedsRecompute = false
-    /// Called once per intent when it leaves the log (main actor), after the visible state is complete again.
-    @ObservationIgnored public var onIntentSettled: ((ClientTransactionID, IntentSettlement) -> Void)?
-    /// Settlements of the current lift, reported when it ends.
-    @ObservationIgnored var intentSettlements: [(ClientTransactionID, IntentSettlement)] = []
+    /// How the intents left the log since this store was made (``IntentTotals``), counted once the visible state is complete again; observed.
+    public internal(set) var intentTotals = IntentTotals()
+    /// Settlements of the current lift with their intents, counted in `intentTotals` when it ends.
+    @ObservationIgnored var intentSettlements: [(IntentSettlement, Intent)] = []
     /// Mirror single-writer violations found by the debug-build check (DaemonStore+MirrorCheck.swift), newest last (bounded).
     @ObservationIgnored public internal(set) var mirrorViolations: [String] = []
     /// Called on the main actor for each new mirror violation.
